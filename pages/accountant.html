@@ -1,0 +1,258 @@
+<!-- ═══════════════════════════════════════
+     pages/accountant.html — Accountant portal
+     Add/remove nav items and pages here.
+     Navigation logic lives in js/accountant.js
+     ═══════════════════════════════════════ -->
+<div class="screen" id="s-accountant">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <div class="bi">B</div>
+      <div class="bt">
+        <div class="bn">BNCS Payroll</div>
+        <div class="bs">Accountant</div>
+      </div>
+    </div>
+
+    <div class="sb-sec">Payroll</div>
+    <div class="ni active" onclick="acctNav('ac-process',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Process Payroll
+    </div>
+    <div class="ni" onclick="acctNav('ac-records',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M4 4h8M4 8h6M4 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+      Payroll Records
+    </div>
+    <div class="ni" onclick="acctNav('ac-payslips',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Payslips
+    </div>
+
+    <div class="sb-sec">Reference</div>
+    <div class="ni" onclick="acctNav('ac-attendance',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      View Attendance
+    </div>
+
+    <div class="sb-sec">Status</div>
+    <div class="ni" onclick="acctNav('ac-pending',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Pending Submissions
+      <span class="nib">1</span>
+    </div>
+
+    <div class="sb-foot">
+      <div class="uc">
+        <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">AC</div>
+        <div><div class="un">Accountant</div><div class="ur">Payroll Staff</div></div>
+        <button class="xb" onclick="logout()">Exit</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <div class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div>
+        <div class="tb-title" id="ac-tb-title">Process Payroll</div>
+        <div class="tb-sub">Accountant portal — March 2026</div>
+      </div>
+      <div class="tb-sp"></div>
+      <span class="role-tag rt-acct">Accountant</span>
+      <div class="tb-search">
+        <span class="search-ic">⌕</span>
+        <input type="text" placeholder="Search employees…">
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
+      <div class="nb">🔔<div class="nd"></div></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Process Payroll
+    ────────────────────────────── -->
+    <div class="page active" id="ac-process">
+      <div class="ph"><h2>Process Payroll</h2><p>Compute salary and submit for Administrator approval. You cannot apply changes directly.</p></div>
+      <div id="ac-pending-banner" class="pending-banner" style="display:none;"></div>
+
+      <div class="sg2">
+        <!-- FORM -->
+        <div class="card">
+          <div class="stitle" style="margin-bottom:18px;">Payroll Entry Form</div>
+          <div class="form-grid">
+            <div class="fg" style="grid-column:1/-1;">
+              <label>Select Employee</label>
+              <select class="fc" id="pc-employee">
+                <option>Maria Reyes — BNCS-001 (Teaching)</option>
+                <option>Ana Santos — BNCS-003 (Teaching)</option>
+                <option>Rosa Cruz — BNCS-005 (Teaching)</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label>Pay Period</label>
+              <select class="fc" id="pc-period"><option>March 2026</option><option>February 2026</option></select>
+            </div>
+            <div class="fg">
+              <label>Basic Salary (₱)</label>
+              <input class="fc" type="number" id="pc-basic" value="18500">
+            </div>
+            <hr class="fd">
+            <div class="fgl">Allowances</div>
+            <div class="fg"><label>Transportation (₱)</label><input class="fc" type="number" id="pc-transport" value="2000"></div>
+            <div class="fg"><label>Rice Allowance (₱)</label><input class="fc" type="number" id="pc-rice" value="1500"></div>
+            <div class="fg"><label>Overtime Pay (₱)</label><input class="fc" type="number" id="pc-overtime" value="0"></div>
+            <div class="fg"><label>Bonus (₱)</label><input class="fc" type="number" id="pc-bonus" value="0"></div>
+            <hr class="fd">
+            <div class="fgl">Deductions</div>
+            <div class="fg"><label>SSS (₱)</label><input class="fc" type="number" id="pc-sss" value="800"></div>
+            <div class="fg"><label>PhilHealth (₱)</label><input class="fc" type="number" id="pc-philhealth" value="450"></div>
+            <div class="fg"><label>Pag-IBIG (₱)</label><input class="fc" type="number" id="pc-pagibig" value="200"></div>
+            <div class="fg"><label>Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="320"></div>
+            <div class="fg"><label>Absences (days)</label><input class="fc" type="number" id="pc-absences" value="0"></div>
+            <div class="fg"><label>Cash Advance (₱)</label><input class="fc" type="number" id="pc-cashadvance" value="0"></div>
+          </div>
+        </div>
+
+        <!-- SUMMARY + SUBMIT -->
+        <div>
+          <div class="card" style="margin-bottom:14px;">
+            <div class="stitle" style="margin-bottom:14px;">Computation Summary</div>
+            <div class="sum-box">
+              <div class="sr"><span>Basic Salary</span><span style="font-family:var(--mono);" id="sum-basic">₱ 18,500.00</span></div>
+              <div class="sr"><span>Transportation</span><span style="font-family:var(--mono);" id="sum-transport">₱ 2,000.00</span></div>
+              <div class="sr"><span>Rice Allowance</span><span style="font-family:var(--mono);" id="sum-rice">₱ 1,500.00</span></div>
+              <div class="sr" style="color:var(--t3);"><span>Overtime</span><span style="font-family:var(--mono);" id="sum-overtime">₱ 0.00</span></div>
+              <div class="sr" style="color:var(--t3);"><span>Bonus</span><span style="font-family:var(--mono);" id="sum-bonus">₱ 0.00</span></div>
+              <div class="sr" style="font-weight:700;color:var(--t1);border-top:1px solid var(--border);margin-top:6px;padding-top:10px;"><span>Gross Pay</span><span style="font-family:var(--mono);color:var(--teal);" id="sum-gross">₱ 22,000.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>SSS</span><span style="font-family:var(--mono);" id="sum-sss">- ₱ 800.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>PhilHealth</span><span style="font-family:var(--mono);" id="sum-philhealth">- ₱ 450.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Pag-IBIG</span><span style="font-family:var(--mono);" id="sum-pagibig">- ₱ 200.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Withholding Tax</span><span style="font-family:var(--mono);" id="sum-tax">- ₱ 320.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Absences</span><span style="font-family:var(--mono);" id="sum-absences">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Cash Advance</span><span style="font-family:var(--mono);" id="sum-cashadvance">- ₱ 0.00</span></div>
+              <div class="sr tot"><span>Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 20,230.00</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="submit-note">
+              <strong>Approval required.</strong> This draft will be locked and sent to the Administrator. Salary changes cannot be applied to the database without admin approval.
+            </div>
+            <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="submitForApproval()">Submit for Admin Approval →</button>
+            <button class="btn btn-outline" style="width:100%;padding:10px;font-size:13px;margin-top:8px;">Save as Draft</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Payroll Records
+    ────────────────────────────── -->
+    <div class="page" id="ac-records">
+      <div class="ph"><h2>Payroll Records</h2><p>All processed payroll entries for reference</p></div>
+      <div class="sg3">
+        <div class="card"><div class="ct">Total Gross Pay</div><div class="cv t">₱ 924,000</div><div class="cch">March 2026</div></div>
+        <div class="card"><div class="ct">Total Deductions</div><div class="cv r">₱ 87,400</div></div>
+        <div class="card"><div class="ct">Total Net Pay</div><div class="cv a">₱ 836,600</div></div>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>Period</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="nm">Maria Reyes</td><td>Mar 2026</td><td class="mn">₱ 22,000</td><td class="mn">₱ 1,770</td><td class="mn">₱ 20,230</td><td><span class="badge bg">Paid</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="acctNav('ac-payslips',null)">Payslip</button></td></tr>
+          <tr><td class="nm">Juan Dela Cruz</td><td>Mar 2026</td><td class="mn">₱ 17,700</td><td class="mn">₱ 1,540</td><td class="mn">₱ 16,160</td><td><span class="badge ba">Pending Approval</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
+          <tr><td class="nm">Ana Santos</td><td>Mar 2026</td><td class="mn">₱ 23,300</td><td class="mn">₱ 1,900</td><td class="mn">₱ 21,400</td><td><span class="badge bg">Paid</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
+          <tr><td class="nm">Ben Lim</td><td>Mar 2026</td><td class="mn">₱ 14,100</td><td class="mn">₱ 1,320</td><td class="mn">₱ 12,780</td><td><span class="badge br">On hold</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
+          <tr><td class="nm">Rosa Cruz</td><td>Mar 2026</td><td class="mn">₱ 24,000</td><td class="mn">₱ 2,050</td><td class="mn">₱ 21,950</td><td><span class="badge bg">Paid</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Payslips
+    ────────────────────────────── -->
+    <div class="page" id="ac-payslips">
+      <div class="ph"><h2>Payslips</h2><p>Generate and print payslips for employees</p></div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;">
+        <select class="fc" style="max-width:270px;"><option>Maria Reyes — March 2026</option><option>Ana Santos — March 2026</option></select>
+        <button class="btn btn-primary">Generate</button>
+        <button class="btn btn-outline">🖨 Print</button>
+      </div>
+      <div class="card" style="border-color:var(--amber);">
+        <div class="pf-head">
+          <div><div class="pf-school">Bagong Nayon II Christian School</div><div class="pf-school-s">Purok Imelda, Barangay Dela Paz, Antipolo City</div></div>
+          <div class="pf-period">Pay Period<br><strong>March 2026</strong><br><span style="font-size:11px;color:var(--t3);">Issued: March 31, 2026</span></div>
+        </div>
+        <div class="pf-emp">
+          <div class="pf-f"><label>Employee Name</label><p>Maria R. Reyes</p></div>
+          <div class="pf-f"><label>ID</label><p style="font-family:var(--mono);">BNCS-001</p></div>
+          <div class="pf-f"><label>Position</label><p>Grade III Adviser</p></div>
+          <div class="pf-f"><label>Type</label><p>Teaching Staff</p></div>
+        </div>
+        <div class="pf-breakdown">
+          <div>
+            <div class="pf-stitle">Earnings</div>
+            <div class="pf-row"><span>Basic Salary</span><span class="mn">₱ 18,500.00</span></div>
+            <div class="pf-row"><span>Transportation</span><span class="mn">₱ 2,000.00</span></div>
+            <div class="pf-row"><span>Rice Allowance</span><span class="mn">₱ 1,500.00</span></div>
+            <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">₱ 22,000.00</span></div>
+          </div>
+          <div>
+            <div class="pf-stitle">Deductions</div>
+            <div class="pf-row"><span>SSS</span><span class="mn">₱ 800.00</span></div>
+            <div class="pf-row"><span>PhilHealth</span><span class="mn">₱ 450.00</span></div>
+            <div class="pf-row"><span>Pag-IBIG</span><span class="mn">₱ 200.00</span></div>
+            <div class="pf-row"><span>Withholding Tax</span><span class="mn">₱ 320.00</span></div>
+            <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);">₱ 1,770.00</span></div>
+          </div>
+        </div>
+        <div class="pf-net"><div class="pf-net-l">Net Pay</div><div class="pf-net-a">₱ 20,230.00</div></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: View Attendance (read-only)
+    ────────────────────────────── -->
+    <div class="page" id="ac-attendance">
+      <div class="ph"><h2>Attendance Records</h2><p>View-only — for payroll deduction reference</p></div>
+      <div class="view-only-notice banner banner-blue">ℹ You can view attendance to assist with payroll. You cannot modify attendance records.</div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>Mar Present</th><th>Mar Late</th><th>Mar Absent</th><th>Deduction Days</th></tr></thead>
+        <tbody>
+          <tr><td class="nm">Maria Reyes</td><td class="mn">18</td><td class="mn">1</td><td class="mn">0</td><td class="mn">0</td></tr>
+          <tr><td class="nm">Juan Dela Cruz</td><td class="mn">16</td><td class="mn">3</td><td class="mn">1</td><td class="mn">1</td></tr>
+          <tr><td class="nm">Ana Santos</td><td class="mn">19</td><td class="mn">0</td><td class="mn">0</td><td class="mn">0</td></tr>
+          <tr><td class="nm">Ben Lim</td><td class="mn">14</td><td class="mn">2</td><td class="mn">3</td><td class="mn">3</td></tr>
+          <tr><td class="nm">Rosa Cruz</td><td class="mn">19</td><td class="mn">1</td><td class="mn">0</td><td class="mn">0</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Pending Submissions
+    ────────────────────────────── -->
+    <div class="page" id="ac-pending">
+      <div class="ph"><h2>Pending Submissions</h2><p>Salary drafts you have submitted — awaiting Administrator decision</p></div>
+      <div class="card">
+        <div class="pending-item">
+          <div class="pending-icon">⏳</div>
+          <div class="pending-info">
+            <div class="pi-name">Juan Dela Cruz</div>
+            <div class="pi-meta">Submitted March 24, 2026 · Awaiting admin action</div>
+            <div class="pi-change">
+              <span style="font-family:var(--mono);font-size:13px;color:var(--t2);">₱ 14,200</span>
+              <span style="color:var(--t3);">→</span>
+              <span class="approval-change">₱ 15,000</span>
+              <span class="badge ba" style="margin-left:4px;">Pending Approval</span>
+            </div>
+          </div>
+          <button class="btn btn-red" style="font-size:11px;padding:7px 14px;">Withdraw</button>
+        </div>
+        <div class="pending-locked">
+          Changes are locked until Administrator approves or rejects. You will be notified of the decision.
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end .main -->
+</div><!-- end #s-accountant -->

@@ -1,0 +1,71 @@
+/* ═══════════════════════════════════════
+   theme.css — CSS variables for dark/light
+   Edit this file to change the color palette
+   ═══════════════════════════════════════ */
+
+/* ── DARK MODE (default) ── */
+:root,
+[data-theme="dark"] {
+  --bg:       #0D1B2A;
+  --bg2:      #122436;
+  --bg3:      #1A3249;
+  --bg4:      #1E3D59;
+  --border:   #2A4A66;
+  --border2:  #1E3D59;
+
+  --amber:    #F5A623;
+  --amber2:   #E8920F;
+  --amber-s:  rgba(245, 166, 35, 0.13);
+
+  --teal:     #1DB8A0;
+  --teal-s:   rgba(29, 184, 160, 0.12);
+
+  --red:      #E85555;
+  --red-s:    rgba(232, 85, 85, 0.12);
+
+  --green:    #3EC97A;
+  --green-s:  rgba(62, 201, 122, 0.12);
+
+  --blue:     #4A9EF5;
+  --blue-s:   rgba(74, 158, 245, 0.12);
+
+  --t1:       #F0F4F8;
+  --t2:       #8BA5BE;
+  --t3:       #4D7899;
+
+  --shadow:   0 4px 24px rgba(0, 0, 0, 0.35);
+  --shadow-sm:0 2px 8px  rgba(0, 0, 0, 0.25);
+}
+
+/* ── LIGHT MODE ── */
+[data-theme="light"] {
+  --bg:       #F4F6F9;
+  --bg2:      #FFFFFF;
+  --bg3:      #EEF1F5;
+  --bg4:      #E2E8F0;
+  --border:   #CBD5E1;
+  --border2:  #E2E8F0;
+
+  --amber:    #D97706;
+  --amber2:   #B45309;
+  --amber-s:  rgba(217, 119, 6, 0.10);
+
+  --teal:     #0F766E;
+  --teal-s:   rgba(15, 118, 110, 0.10);
+
+  --red:      #DC2626;
+  --red-s:    rgba(220, 38, 38, 0.10);
+
+  --green:    #16A34A;
+  --green-s:  rgba(22, 163, 74, 0.10);
+
+  --blue:     #2563EB;
+  --blue-s:   rgba(37, 99, 235, 0.10);
+
+  --t1:       #0F172A;
+  --t2:       #475569;
+  --t3:       #94A3B8;
+
+  --shadow:   0 4px 24px rgba(0, 0, 0, 0.08);
+  --shadow-sm:0 2px 8px  rgba(0, 0, 0, 0.06);
+}

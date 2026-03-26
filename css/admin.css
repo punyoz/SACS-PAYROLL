@@ -1,0 +1,95 @@
+/* ═══════════════════════════════════════
+   admin.css — styles specific to the
+   Administrator role views only
+   ═══════════════════════════════════════ */
+
+/* ── SIDEBAR BRAND COLOR ── */
+#s-admin .bi {
+  background: var(--amber);
+  color: #0D1B2A;
+}
+[data-theme="light"] #s-admin .bi { color: #fff; }
+
+/* ── SALARY COMPARISON BOXES ── */
+.salary-compare {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.sc-box {
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 10px 16px;
+  text-align: center;
+}
+.sc-box.proposed {
+  background: var(--amber-s);
+  border: 1px solid var(--amber);
+}
+.sc-box.diff {
+  background: var(--green-s);
+}
+.sc-box label {
+  display: block;
+  font-size: 10px;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.sc-box.proposed label { color: var(--amber); }
+.sc-box.diff     label { color: var(--green); }
+.sc-box .sc-val {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--t1);
+  margin-top: 3px;
+}
+.sc-box.proposed .sc-val { color: var(--amber); }
+.sc-box.diff     .sc-val { color: var(--green); }
+.sc-arrow { font-size: 18px; color: var(--t3); }
+
+/* ── APPROVAL REASON BOX ── */
+.approval-reason {
+  margin-top: 12px;
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+}
+.approval-reason strong { color: var(--t1); }
+
+/* ── APPROVAL CARD (full detail) ── */
+.approval-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.approval-card:last-child { border-bottom: none; padding-bottom: 0; }
+.approval-card-icon {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: var(--amber-s);
+  border: 1.5px solid var(--amber);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; flex-shrink: 0;
+}
+.approval-card-body { flex: 1; }
+.approval-card-name { font-size: 15px; font-weight: 700; color: var(--t1); }
+.approval-card-meta { font-size: 12px; color: var(--t3); margin-top: 2px; }
+.approval-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.approval-card-actions .btn {
+  padding: 10px 20px;
+  min-width: 100px;
+}

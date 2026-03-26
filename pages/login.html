@@ -1,0 +1,55 @@
+<!-- ═══════════════════════════════════════
+     pages/login.html — Login screen
+     Edit role buttons, branding, input fields
+     ═══════════════════════════════════════ -->
+<div class="screen active" id="s-login">
+  <div class="lc">
+
+    <!-- BRAND -->
+    <div class="l-brand">
+      <div class="l-icon">B</div>
+      <div class="l-name">
+        <span class="school">Bagong Nayon II Christian School</span>
+        <span class="sys">Payroll Management System</span>
+      </div>
+    </div>
+
+    <div class="l-title">Sign in</div>
+    <div class="l-sub">Choose your role and enter your credentials</div>
+
+    <!-- ROLE SELECTOR -->
+    <div style="margin-bottom:22px;">
+      <div class="l-field-label">I am a</div>
+      <div class="role-grid">
+        <button class="rb sel" onclick="selRole(this,'admin')">
+          <span class="rb-icon">🏫</span>Administrator
+        </button>
+        <button class="rb" onclick="selRole(this,'accountant')">
+          <span class="rb-icon">🧾</span>Accountant
+        </button>
+        <button class="rb" onclick="selRole(this,'employee')">
+          <span class="rb-icon">👤</span>Employee
+        </button>
+      </div>
+    </div>
+
+    <!-- CREDENTIALS -->
+    <div class="fl">
+      <label>Employee ID</label>
+      <input class="fi" type="text" placeholder="e.g. BNCS-2024-001" autocomplete="username">
+    </div>
+    <div class="fl">
+      <label>Password</label>
+      <input class="fi" type="password" placeholder="Enter your password" autocomplete="current-password">
+    </div>
+
+    <!-- THEME TOGGLE on login -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+      <span style="font-size:12px;color:var(--t3);">Appearance</span>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
+    </div>
+
+    <button class="lb" onclick="login()">Sign In</button>
+    <div class="lf">School Year 2025–2026 &nbsp;·&nbsp; BNCS Payroll v1.0</div>
+  </div>
+</div>

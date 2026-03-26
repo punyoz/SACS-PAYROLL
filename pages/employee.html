@@ -1,0 +1,138 @@
+<!-- ═══════════════════════════════════════
+     pages/employee.html — Employee portal
+     No sidebar — centered card layout.
+     Logic lives in js/employee.js
+     ═══════════════════════════════════════ -->
+<div class="screen" id="s-emp">
+
+  <!-- SLIM TOPBAR -->
+  <div class="emp-topbar">
+    <div class="et-logo">B</div>
+    <div class="et-brand">BNCS Payroll</div>
+    <div class="et-name">Welcome, Maria Reyes</div>
+    <span class="role-tag rt-emp">Employee</span>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" style="margin-left:8px;">☀️</button>
+    <button class="xb" onclick="logout()" style="margin-left:4px;">Sign out</button>
+  </div>
+
+  <!-- SCROLLABLE BODY -->
+  <div class="emp-body">
+
+    <!-- HERO -->
+    <div class="emp-hero">
+      <div class="emp-avatar">MR</div>
+      <div class="emp-hello">
+        <h2>Good morning, Maria 👋</h2>
+        <p>Grade III Adviser · Teaching Staff · BNCS-001</p>
+      </div>
+      <div class="emp-stat-row">
+        <div class="emp-stat">
+          <div class="es-v" style="color:var(--green);">19</div>
+          <div class="es-l">Present</div>
+        </div>
+        <div class="emp-stat">
+          <div class="es-v" style="color:var(--amber);">1</div>
+          <div class="es-l">Late</div>
+        </div>
+        <div class="emp-stat">
+          <div class="es-v" style="color:var(--red);">0</div>
+          <div class="es-l">Absent</div>
+        </div>
+        <div class="emp-stat">
+          <div class="es-v" style="color:var(--amber);font-size:14px;">₱ 20,230</div>
+          <div class="es-l">Last Net Pay</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TWO COLUMNS -->
+    <div class="emp-cols">
+
+      <!-- ATTENDANCE CALENDAR -->
+      <div class="card">
+        <div class="stitle" style="margin-bottom:3px;">My Attendance — March 2026</div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Read-only · Updated via RFID tap</div>
+        <div class="att-grid">
+          <div class="adh">Su</div><div class="adh">Mo</div><div class="adh">Tu</div>
+          <div class="adh">We</div><div class="adh">Th</div><div class="adh">Fr</div><div class="adh">Sa</div>
+          <div class="ad em"></div><div class="ad em"></div><div class="ad em"></div>
+          <div class="ad em"></div><div class="ad em"></div><div class="ad em"></div><div class="ad em">1</div>
+          <div class="ad em">2</div><div class="ad pr">3</div><div class="ad pr">4</div>
+          <div class="ad pr">5</div><div class="ad pr">6</div><div class="ad pr">7</div><div class="ad em">8</div>
+          <div class="ad em">9</div><div class="ad pr">10</div><div class="ad lt">11</div>
+          <div class="ad pr">12</div><div class="ad pr">13</div><div class="ad pr">14</div><div class="ad em">15</div>
+          <div class="ad em">16</div><div class="ad pr">17</div><div class="ad pr">18</div>
+          <div class="ad pr">19</div><div class="ad pr">20</div><div class="ad pr">21</div><div class="ad em">22</div>
+          <div class="ad em">23</div><div class="ad td pr">24</div><div class="ad em">25</div>
+          <div class="ad em">26</div><div class="ad em">27</div><div class="ad em">28</div><div class="ad em">29</div>
+          <div class="ad em">30</div><div class="ad em">31</div>
+        </div>
+        <div class="att-legend">
+          <div class="al"><span class="alb" style="background:var(--green-s);border:1px solid var(--green);"></span>Present</div>
+          <div class="al"><span class="alb" style="background:var(--amber-s);border:1px solid var(--amber);"></span>Late</div>
+          <div class="al"><span class="alb" style="background:var(--red-s);border:1px solid var(--red);"></span>Absent</div>
+          <div class="al"><span class="alb" style="outline:2px solid var(--teal);"></span>Today</div>
+        </div>
+
+        <!-- Today's log -->
+        <div class="today-log">
+          <div class="today-log-title">Today's log</div>
+          <div class="today-log-row">
+            <div class="tlc">
+              <label>Time In</label>
+              <div class="tl-val" style="color:var(--green);">07:28 AM</div>
+            </div>
+            <div class="tlc tlc-divider">
+              <label>Time Out</label>
+              <div class="tl-val" style="color:var(--t3);">— : —</div>
+            </div>
+            <div class="tlc tlc-divider">
+              <label>Status</label>
+              <div style="margin-top:5px;"><span class="badge bg"><span class="bd"></span>Present</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PAYSLIP + HISTORY -->
+      <div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;">My Latest Payslip</div>
+
+        <div class="ps-card">
+          <div class="ps-head">
+            <h3>Bagong Nayon II Christian School</h3>
+            <p id="ps-period-label">March 2026 · Issued March 31, 2026</p>
+          </div>
+          <div class="ps-row"><span>Basic Salary</span><span class="mn">₱ 18,500.00</span></div>
+          <div class="ps-row"><span>Transportation</span><span class="mn">₱ 2,000.00</span></div>
+          <div class="ps-row"><span>Rice Allowance</span><span class="mn">₱ 1,500.00</span></div>
+          <div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">₱ 22,000.00</span></div>
+          <div class="ps-row" style="color:var(--red);"><span>SSS</span><span class="mn">- ₱ 800.00</span></div>
+          <div class="ps-row" style="color:var(--red);"><span>PhilHealth</span><span class="mn">- ₱ 450.00</span></div>
+          <div class="ps-row" style="color:var(--red);"><span>Pag-IBIG</span><span class="mn">- ₱ 200.00</span></div>
+          <div class="ps-row" style="color:var(--red);"><span>Withholding Tax</span><span class="mn">- ₱ 320.00</span></div>
+          <div class="ps-net">
+            <div class="ps-net-lbl">Net Pay — March 2026</div>
+            <div class="ps-net-amt" id="ps-net-amount">₱ 20,230.00</div>
+          </div>
+        </div>
+
+        <button class="btn btn-outline" style="width:100%;margin-top:10px;padding:10px;" onclick="printPayslip()">🖨 Print Payslip</button>
+
+        <!-- Past payslips -->
+        <div style="margin-top:18px;">
+          <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:10px;">Previous Payslips</div>
+          <div class="past-ps-item">
+            <div><div class="ppi-name">February 2026</div><div class="ppi-date">Issued Feb 28, 2026</div></div>
+            <div class="ppi-right"><span class="ppi-amt">₱ 19,870</span><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="viewPastPayslip('Feb 2026')">View</button></div>
+          </div>
+          <div class="past-ps-item">
+            <div><div class="ppi-name">January 2026</div><div class="ppi-date">Issued Jan 31, 2026</div></div>
+            <div class="ppi-right"><span class="ppi-amt">₱ 20,230</span><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="viewPastPayslip('Jan 2026')">View</button></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end emp-cols -->
+  </div><!-- end emp-body -->
+</div><!-- end #s-emp -->

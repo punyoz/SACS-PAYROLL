@@ -1,0 +1,78 @@
+/* ═══════════════════════════════════════
+   accountant.css — styles specific to the
+   Accountant role views only
+   ═══════════════════════════════════════ */
+
+/* ── SIDEBAR BRAND COLOR ── */
+#s-accountant .bi {
+  background: var(--teal);
+  color: #fff;
+}
+
+/* ── PENDING SUBMISSION BANNER ── */
+.pending-banner {
+  background: var(--amber-s);
+  border: 1px solid var(--amber);
+  border-radius: var(--r);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--amber);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+/* ── PAYROLL FORM SUBMIT AREA ── */
+.submit-note {
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.7;
+  margin-bottom: 14px;
+}
+.submit-note strong { color: var(--amber); }
+
+/* ── PENDING SUBMISSION ITEM ── */
+.pending-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pending-item:last-child { border-bottom: none; padding-bottom: 0; }
+.pending-icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: var(--amber-s);
+  border: 1.5px solid var(--amber);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; flex-shrink: 0;
+}
+.pending-info { flex: 1; }
+.pending-info .pi-name { font-size: 14px; font-weight: 600; color: var(--t1); }
+.pending-info .pi-meta { font-size: 12px; color: var(--t3); margin-top: 2px; }
+.pending-info .pi-change {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+}
+.pending-locked {
+  margin-top: 10px;
+  padding-top: 14px;
+  font-size: 12px;
+  color: var(--t3);
+  text-align: center;
+}
+
+/* ── ATTENDANCE VIEW-ONLY NOTICE ── */
+#ac-attendance .view-only-notice {
+  background: var(--blue-s);
+  border: 1px solid var(--blue);
+  border-radius: var(--r);
+  padding: 11px 16px;
+  font-size: 12px;
+  color: var(--blue);
+  margin-bottom: 18px;
+  display: flex;
+  gap: 8px;
+}
