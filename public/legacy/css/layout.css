@@ -8,6 +8,7 @@
 #s-accountant {
   flex-direction: row;
   height: 100%;
+  min-height: 100vh;
 }
 
 /* ── SIDEBAR ── */
@@ -19,6 +20,7 @@
   flex-direction: column;
   flex-shrink: 0;
   height: 100%;
+  min-height: 100vh;
   transition: background 0.25s, border-color 0.25s;
 }
 
@@ -93,6 +95,7 @@
   margin-top: auto;
   padding: 12px;
   border-top: 1px solid var(--border);
+  background: var(--bg2);
 }
 .uc {
   display: flex; align-items: center; gap: 9px;

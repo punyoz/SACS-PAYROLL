@@ -93,3 +93,100 @@
   padding: 10px 20px;
   min-width: 100px;
 }
+
+.adm-employee-controls {
+  margin-bottom: 12px;
+}
+
+.adm-employee-controls .fc {
+  max-width: 420px;
+}
+
+/* ── ADD EMPLOYEE MODAL ── */
+.adm-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg1) 45%, #000 55%);
+  padding: 20px;
+}
+
+.adm-modal-card {
+  width: min(760px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg2);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  padding: 18px;
+}
+
+.adm-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.adm-modal-head h3 {
+  margin: 0;
+  color: var(--t1);
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.adm-modal-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.adm-modal-form .fg {
+  margin: 0;
+}
+
+.adm-modal-form .fc,
+.adm-modal-form select.fc {
+  width: 100%;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg3);
+  color: var(--t1);
+  padding: 0 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.adm-modal-form .fc:focus,
+.adm-modal-form select.fc:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 35%, transparent);
+}
+
+.adm-feedback {
+  margin: 2px 0 0;
+  font-size: 12px;
+  grid-column: 1 / -1;
+  min-height: 16px;
+}
+
+.adm-feedback.ok { color: #3EC97A; }
+.adm-feedback.err { color: #E85555; }
+
+.adm-modal-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 760px) {
+  .adm-modal-form {
+    grid-template-columns: 1fr;
+  }
+}

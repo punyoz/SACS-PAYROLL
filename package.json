@@ -1,0 +1,32 @@
+{
+  "name": "bncs-payroll",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BNCS Payroll migrated to Next.js with Supabase",
+  "scripts": {
+    "dev": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next dev --webpack",
+    "dev:turbo": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "supabase:check": "node scripts/check-supabase-connection.mjs",
+    "supabase:seed-users": "node scripts/seed-auth-users.mjs"
+  },
+  "keywords": [
+    "nextjs",
+    "supabase",
+    "payroll"
+  ],
+  "dependencies": {
+    "@supabase/ssr": "^0.10.0",
+    "@supabase/supabase-js": "^2.102.0",
+    "dotenv": "^17.4.1",
+    "next": "^16.2.2",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.2"
+  }
+}

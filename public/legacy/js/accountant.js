@@ -93,7 +93,7 @@ function submitForApproval() {
 }
 
 /* ── INIT ── */
-document.addEventListener('DOMContentLoaded', () => {
+function initAccountant() {
   // Set up live recalc on all payroll input fields
   const inputIds = [
     'pc-basic','pc-transport','pc-rice','pc-overtime','pc-bonus',
@@ -103,4 +103,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
   });
-});
+  recalc();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAccountant);
+} else {
+  initAccountant();
+}

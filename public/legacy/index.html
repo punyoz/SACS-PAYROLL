@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BNCS Payroll Management System</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/admin.css">
+  <link rel="stylesheet" href="css/accountant.css">
+  <link rel="stylesheet" href="css/employee.css">
+</head>
+<body>
+  <main id="app-root" aria-live="polite"></main>
+
+  <script>
+    async function loadFragment(path) {
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error('Failed to load ' + path + ' (' + response.status + ')');
+      }
+      return response.text();
+    }
+
+    function loadScript(path) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = path;
+        script.defer = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error('Failed to load script: ' + path));
+        document.body.appendChild(script);
+      });
+    }
+
+    async function bootstrapApp() {
+      const appRoot = document.getElementById('app-root');
+      const pageFiles = [
+        'pages/login.html',
+        'pages/admin.html',
+        'pages/accountant.html',
+        'pages/employee.html'
+      ];
+
+      try {
+        const htmlChunks = await Promise.all(pageFiles.map(loadFragment));
+        appRoot.innerHTML = htmlChunks.join('\n');
+
+        await loadScript('js/app.js');
+        await loadScript('js/admin.js');
+        await loadScript('js/accountant.js');
+        await loadScript('js/employee.js');
+      } catch (error) {
+        appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';
+      }
+    }
+
+    bootstrapApp();
+  </script>
+</body>
+</html>
