@@ -16,6 +16,7 @@ const roleAccounts = [
   {
     role: "admin",
     email: process.env.SEED_ADMIN_EMAIL || "bncs.admin@gmail.com",
+    username: process.env.SEED_ADMIN_USERNAME || "bncsadmin",
     password: process.env.SEED_ADMIN_PASSWORD || "Admin@12345",
     full_name: "System Admin",
     employee_id: "",
@@ -59,17 +60,39 @@ if (!adminClient && !anonClient) {
   process.exit(1);
 }
 
-function buildProfile(account, userId) {
-  return {
+function buildProfile(account, userId, includeEmployeeId = false) {
+  const profile = {
     id: userId,
     email: account.email,
     role: account.role,
     full_name: account.full_name,
   };
+
+  if (includeEmployeeId) {
+    profile.employee_id = account.employee_id;
+  }
+
+  return profile;
+}
+
+async function profilesSupportsEmployeeId(supabase) {
+  const probe = await supabase.from("profiles").select("employee_id").limit(1);
+
+  if (!probe.error) {
+    return true;
+  }
+
+  const message = String(probe.error.message || "").toLowerCase();
+  if (message.includes("employee_id")) {
+    return false;
+  }
+
+  throw new Error(`Failed to inspect profiles schema: ${probe.error.message}`);
 }
 
 async function runAdminSeed() {
   const supabase = adminClient;
+  const includeEmployeeId = await profilesSupportsEmployeeId(supabase);
 
   async function ensureUser(account) {
     const list = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
@@ -117,7 +140,7 @@ async function runAdminSeed() {
 
   for (const account of roleAccounts) {
     const { id, action } = await ensureUser(account);
-    const { error } = await supabase.from("profiles").upsert(buildProfile(account, id), {
+    const { error } = await supabase.from("profiles").upsert(buildProfile(account, id, includeEmployeeId), {
       onConflict: "id",
     });
 
@@ -125,12 +148,14 @@ async function runAdminSeed() {
       throw new Error(`Failed to upsert profile for ${account.email}: ${error.message}`);
     }
 
-    console.log(`${action.toUpperCase()}: ${account.role} -> ${account.email}`);
+    const loginHint = account.role === "admin" ? ` (username: ${account.username})` : "";
+    console.log(`${action.toUpperCase()}: ${account.role} -> ${account.email}${loginHint}`);
   }
 }
 
 async function runAnonSeed() {
   const supabase = anonClient;
+  const includeEmployeeId = await profilesSupportsEmployeeId(supabase);
 
   for (const account of roleAccounts) {
     const signUp = await supabase.auth.signUp({
@@ -165,7 +190,7 @@ async function runAnonSeed() {
     }
 
     const userId = signIn.data.user.id;
-    const { error } = await supabase.from("profiles").upsert(buildProfile(account, userId), {
+    const { error } = await supabase.from("profiles").upsert(buildProfile(account, userId, includeEmployeeId), {
       onConflict: "id",
     });
 
@@ -175,7 +200,8 @@ async function runAnonSeed() {
 
     await supabase.auth.signOut();
     const label = isExistingUser || isRateLimited ? "VERIFIED" : "CREATED";
-    console.log(`${label}: ${account.role} -> ${account.email}`);
+    const loginHint = account.role === "admin" ? ` (username: ${account.username})` : "";
+    console.log(`${label}: ${account.role} -> ${account.email}${loginHint}`);
   }
 }
 

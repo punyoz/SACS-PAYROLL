@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 
 const roleRoutes = {
   admin: "/admin",
@@ -7,27 +8,31 @@ const roleRoutes = {
   employee: "/employee",
 };
 
-const ADMIN_USERNAME = "bncsadmin";
-const ADMIN_PASSWORD = "admin@0123";
+const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "bncsadmin").toLowerCase();
+const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "bncs.admin@gmail.com");
 
-function normalizeText(value) {
-  return String(value || "").trim();
-}
+function resolveLoginEmail(roleInput, identityInput) {
+  const role = normalizeRole(roleInput);
+  const identity = normalizeText(identityInput);
 
-function normalizeBncsEmail(emailInput) {
-  const email = normalizeText(emailInput).toLowerCase();
-  const atIndex = email.indexOf("@");
-  if (atIndex <= 0 || atIndex === email.length - 1) {
+  if (!identity) {
     return "";
   }
 
-  const localPart = email.slice(0, atIndex);
-  const domainPart = email.slice(atIndex + 1);
-  const normalizedLocalPart = localPart.startsWith("bncs.")
-    ? localPart
-    : `bncs.${localPart}`;
+  if (role === "admin") {
+    const lowered = identity.toLowerCase();
+    if (lowered.includes("@")) {
+      return normalizeRoleEmail(identity, role);
+    }
 
-  return `${normalizedLocalPart}@${domainPart}`;
+    if (lowered === ADMIN_USERNAME) {
+      return normalizeRoleEmail(ADMIN_EMAIL, role);
+    }
+
+    return "";
+  }
+
+  return normalizeRoleEmail(identity, role);
 }
 
 export async function POST(request) {
@@ -47,23 +52,13 @@ export async function POST(request) {
     return NextResponse.json({ error: "Invalid role." }, { status: 400 });
   }
 
-  // Admin login is intentionally fixed and does not resolve through Supabase.
-  if (selectedRole === "admin") {
-    const username = normalizeText(identityInput).toLowerCase();
-    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
-      return NextResponse.json({ error: "Invalid login credentials." }, { status: 401 });
-    }
-
-    return NextResponse.json({ redirectTo: roleRoutes.admin });
-  }
-
   if (!identityInput || !password) {
-    return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
+    return NextResponse.json({ error: "Login identity and password are required." }, { status: 400 });
   }
 
-  const resolvedEmail = normalizeBncsEmail(identityInput);
+  const resolvedEmail = resolveLoginEmail(selectedRole, identityInput);
   if (!resolvedEmail) {
-    return NextResponse.json({ error: "Use a valid email address to sign in." }, { status: 400 });
+    return NextResponse.json({ error: "Use a valid username or email to sign in." }, { status: 400 });
   }
 
   const supabase = createClient(url, anonKey, {
@@ -81,7 +76,7 @@ export async function POST(request) {
 
   const actualRole = data.user.user_metadata?.role;
 
-  if (!actualRole || actualRole !== selectedRole) {
+  if (!actualRole || normalizeRole(actualRole) !== normalizeRole(selectedRole)) {
     await supabase.auth.signOut();
     return NextResponse.json(
       {

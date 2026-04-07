@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "eslint .",
     "supabase:check": "node scripts/check-supabase-connection.mjs",
-    "supabase:seed-users": "node scripts/seed-auth-users.mjs"
+    "supabase:seed-users": "node scripts/seed-auth-users.mjs",
+    "supabase:purge-archived": "node scripts/purge-archived-employees.mjs"
   },
   "keywords": [
     "nextjs",

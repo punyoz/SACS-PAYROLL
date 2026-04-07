@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -15,39 +16,6 @@ function getAdminClient() {
       autoRefreshToken: false,
     },
   });
-}
-
-function normalizeText(value, fallback = "") {
-  const text = String(value || "").trim();
-  return text || fallback;
-}
-
-function normalizeRole(value) {
-  const role = normalizeText(value).toLowerCase();
-  if (role === "accountant") return "accountant";
-  return "employee";
-}
-
-function normalizeRoleEmail(emailInput, roleInput) {
-  const role = normalizeRole(roleInput);
-  const email = normalizeText(emailInput).toLowerCase();
-  if (!email) return "";
-
-  const atIndex = email.indexOf("@");
-  if (atIndex <= 0 || atIndex === email.length - 1) {
-    return email;
-  }
-
-  if (role === "employee" || role === "accountant") {
-    const localPart = email.slice(0, atIndex);
-    const domainPart = email.slice(atIndex + 1);
-    const normalizedLocalPart = localPart.startsWith("bncs.")
-      ? localPart
-      : `bncs.${localPart}`;
-    return `${normalizedLocalPart}@${domainPart}`;
-  }
-
-  return email;
 }
 
 function buildEmployeeId(currentCount = 0) {
@@ -323,6 +291,32 @@ export async function PATCH(request) {
     }, 0);
 
     return NextResponse.json({ employee });
+  } catch (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const id = normalizeText(body.id);
+
+    if (!id) {
+      return NextResponse.json({ error: "Employee id is required." }, { status: 400 });
+    }
+
+    const supabase = getAdminClient();
+    const deleteProfile = await supabase.from("profiles").delete().eq("id", id);
+    if (deleteProfile.error) {
+      return NextResponse.json({ error: deleteProfile.error.message }, { status: 400 });
+    }
+
+    const deleteUser = await supabase.auth.admin.deleteUser(id);
+    if (deleteUser.error) {
+      return NextResponse.json({ error: deleteUser.error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
