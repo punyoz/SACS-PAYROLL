@@ -109,6 +109,7 @@ h3 { font-size: 15px; font-weight: 600; }
 .btn-green { background: var(--green-s); border: 1px solid var(--green); color: var(--green); }
 .btn-green:hover { background: var(--green); color: #fff; }
 
+/* ── FLOATING SCROLL CONTROLS ── */
 /* ── TABLE ── */
 .tw {
   background: var(--bg2);
@@ -594,5 +595,222 @@ select.fc { cursor: pointer; }
   .lf {
     font-size: 14px;
     margin-top: 14px;
+  }
+}
+
+/* ── RESPONSIVE FOUNDATION (mobile-first) ── */
+:root {
+  --content-pad: 14px;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  min-width: 320px;
+}
+
+.card {
+  padding: 14px;
+  border-radius: 12px;
+}
+
+.ph {
+  margin-bottom: 16px;
+}
+
+.ph h2 {
+  font-size: 1.125rem;
+}
+
+.ph p {
+  font-size: 0.75rem;
+}
+
+.sg,
+.sg2,
+.sg3,
+.form-grid,
+.pf-breakdown {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.sh {
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tw {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tw table {
+  min-width: 640px;
+}
+
+.btn {
+  font-size: 11px;
+  padding: 8px 12px;
+}
+
+.pf-head {
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pf-period {
+  text-align: left;
+}
+
+.pf-emp {
+  gap: 14px;
+  padding: 12px;
+}
+
+.pf-net {
+  gap: 8px;
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.pf-net-a {
+  font-size: 1.125rem;
+}
+
+.role-grid {
+  grid-template-columns: 1fr;
+}
+
+.l-name .sys {
+  font-size: 1.3rem;
+}
+
+.l-title {
+  font-size: 1.8rem;
+}
+
+.l-sub {
+  font-size: 0.95rem;
+}
+
+.fi,
+.lb {
+  font-size: 1rem;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --content-pad: 20px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+
+  .sg,
+  .sg3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .sg2,
+  .form-grid,
+  .pf-breakdown {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .tw table {
+    min-width: 760px;
+  }
+
+  .btn {
+    font-size: 12px;
+  }
+
+  .pf-head {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+
+  .pf-period {
+    text-align: right;
+  }
+
+  .pf-net {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .role-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .l-name .sys {
+    font-size: 1.85rem;
+  }
+
+  .l-title {
+    font-size: 2.15rem;
+  }
+
+  .l-sub {
+    font-size: 1.05rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --content-pad: 24px;
+  }
+
+  .card {
+    padding: 20px 22px;
+  }
+
+  .sg {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .sg3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tw table {
+    min-width: 980px;
+  }
+
+  .l-name .sys {
+    font-size: 2.25rem;
+  }
+
+  .l-title {
+    font-size: 2.5rem;
+  }
+
+  .l-sub {
+    font-size: 1.2rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --content-pad: 28px;
+  }
+
+  .card {
+    padding: 22px 24px;
+  }
+
+  .tw table {
+    min-width: 1080px;
+  }
+
+  .pf-net-a {
+    font-size: 1.35rem;
   }
 }

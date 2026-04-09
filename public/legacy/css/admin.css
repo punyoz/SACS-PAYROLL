@@ -190,3 +190,50 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── RESPONSIVE (mobile-first) ── */
+.salary-compare {
+  gap: 8px;
+}
+
+.approval-card {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.approval-card-actions {
+  width: 100%;
+  flex-direction: row;
+}
+
+.approval-card-actions .btn {
+  flex: 1;
+  min-width: 0;
+}
+
+.adm-modal-backdrop {
+  align-items: flex-end;
+  padding: 10px;
+}
+
+.adm-modal-card {
+  border-radius: 14px 14px 0 0;
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+  .approval-card-actions {
+    width: auto;
+    flex-direction: column;
+  }
+
+  .adm-modal-backdrop {
+    align-items: center;
+    padding: 20px;
+  }
+
+  .adm-modal-card {
+    border-radius: 14px;
+  }
+}

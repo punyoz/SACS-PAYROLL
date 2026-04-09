@@ -43,6 +43,12 @@
       Summary Reports
     </div>
 
+    <div class="sb-sec">Logs</div>
+    <div class="ni" onclick="adminNav('adm-audit-logs',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 6h6M5 8.5h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Audit Logs
+    </div>
+
     <div class="sb-foot">
       <div class="uc">
         <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--amber);">AD</div>
@@ -78,10 +84,10 @@
       <div class="ph"><h2>Dashboard</h2><p>School-wide payroll and attendance overview</p></div>
 
       <div class="sg">
-        <div class="card"><div class="ct">Total Employees</div><div class="cv">42</div><div class="cch"><span class="up">↑ 2</span> this month</div></div>
-        <div class="card"><div class="ct">March Payroll</div><div class="cv a">₱ 382,400</div><div class="cch"><span class="up">↑ 3.2%</span> vs Feb</div></div>
-        <div class="card"><div class="ct">Pending Approvals</div><div class="cv r">2</div><div class="cch">Salary edits awaiting you</div></div>
-        <div class="card"><div class="ct">Absent Today</div><div class="cv">3</div><div class="cch"><span class="dn">↓ 1</span> vs yesterday</div></div>
+        <div class="card"><div class="ct">Total Employees</div><div class="cv" id="adm-panel-total-employees">0</div><div class="cch">Registered active staff</div></div>
+        <div class="card"><div class="ct">Total Payroll (Month)</div><div class="cv a" id="adm-panel-total-payroll">₱ 0</div><div class="cch">Current month estimate</div></div>
+        <div class="card"><div class="ct">Pending Approvals</div><div class="cv r" id="adm-panel-pending-approvals">0</div><div class="cch">Salary updates awaiting you</div></div>
+        <div class="card"><div class="ct">Absent Today</div><div class="cv" id="adm-panel-absent-today">0</div><div class="cch">Based on employee status</div></div>
       </div>
 
       <div class="sg2">
@@ -92,36 +98,9 @@
             <span class="sp"></span>
             <button class="btn btn-outline" onclick="adminNav('adm-approvals', document.querySelectorAll('#s-admin .ni')[3])">View all</button>
           </div>
-          <div class="approval-item">
-            <div class="approval-icon">📝</div>
-            <div class="approval-info">
-              <div class="ai-name">Juan Dela Cruz</div>
-              <div class="ai-sub">Submitted by Accountant · Mar 24, 2026</div>
-              <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;color:var(--t3);">₱ 14,200</span>
-                <span style="color:var(--t3);">→</span>
-                <span class="approval-change">₱ 15,000</span>
-              </div>
-            </div>
-            <div class="acts">
-              <button class="btn btn-green" style="font-size:11px;padding:6px 12px;">Approve</button>
-              <button class="btn btn-red"   style="font-size:11px;padding:6px 12px;">Reject</button>
-            </div>
-          </div>
-          <div class="approval-item">
-            <div class="approval-icon">📝</div>
-            <div class="approval-info">
-              <div class="ai-name">Ben Lim</div>
-              <div class="ai-sub">Submitted by Accountant · Mar 23, 2026</div>
-              <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;color:var(--t3);">₱ 12,600</span>
-                <span style="color:var(--t3);">→</span>
-                <span class="approval-change">₱ 13,200</span>
-              </div>
-            </div>
-            <div class="acts">
-              <button class="btn btn-green" style="font-size:11px;padding:6px 12px;">Approve</button>
-              <button class="btn btn-red"   style="font-size:11px;padding:6px 12px;">Reject</button>
+          <div id="adm-dashboard-pending-list">
+            <div class="approval-item">
+              <div class="approval-info" style="color:var(--t3);">Loading pending salary approvals...</div>
             </div>
           </div>
         </div>
@@ -130,17 +109,12 @@
         <div class="card">
           <div class="stitle" style="margin-bottom:4px;">Monthly Payroll</div>
           <div style="font-size:11px;color:var(--t3);">Last 6 months · total disbursed</div>
-          <div class="bar-chart">
-            <div class="bc"><div class="bar" style="height:50px;"></div><div class="bl">Oct</div></div>
-            <div class="bc"><div class="bar" style="height:58px;"></div><div class="bl">Nov</div></div>
-            <div class="bc"><div class="bar" style="height:45px;"></div><div class="bl">Dec</div></div>
-            <div class="bc"><div class="bar" style="height:68px;"></div><div class="bl">Jan</div></div>
-            <div class="bc"><div class="bar" style="height:62px;"></div><div class="bl">Feb</div></div>
-            <div class="bc"><div class="bar active" style="height:78px;"></div><div class="bl">Mar</div></div>
+          <div class="bar-chart" id="adm-monthly-payroll-chart">
+            <div class="bc"><div class="bar active" style="height:42px;"></div><div class="bl">Loading</div></div>
           </div>
           <div style="display:flex;gap:20px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-            <div><div style="font-size:10px;color:var(--t3);">Avg Monthly</div><div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--t1);margin-top:2px;">₱ 368,200</div></div>
-            <div><div style="font-size:10px;color:var(--t3);">YTD Total</div><div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--amber);margin-top:2px;">₱ 2,209,200</div></div>
+            <div><div style="font-size:10px;color:var(--t3);">Avg Monthly</div><div id="adm-monthly-avg" style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--t1);margin-top:2px;">₱ 0</div></div>
+            <div><div style="font-size:10px;color:var(--t3);">YTD Total</div><div id="adm-ytd-total" style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--amber);margin-top:2px;">₱ 0</div></div>
           </div>
         </div>
       </div>
@@ -148,11 +122,8 @@
       <!-- Recent activity -->
       <div class="card">
         <div class="sh"><span class="stitle">Recent Payroll Activity</span></div>
-        <div class="ai-list">
-          <div class="ai-item"><div class="av" style="width:32px;height:32px;font-size:11px;background:#3EC97A;">MR</div><div class="ai2"><div class="n">Maria Reyes — Teaching</div><div class="s">March 2026</div></div><div class="air"><div class="amt">₱ 20,230</div><div class="st"><span class="badge bg"><span class="bd"></span>Paid</span></div></div></div>
-          <div class="ai-item"><div class="av" style="width:32px;height:32px;font-size:11px;background:#F5A623;">JD</div><div class="ai2"><div class="n">Juan Dela Cruz — Non-Teaching</div><div class="s">March 2026 · Approval pending</div></div><div class="air"><div class="amt">₱ 16,160</div><div class="st"><span class="badge ba"><span class="bd"></span>Pending</span></div></div></div>
-          <div class="ai-item"><div class="av" style="width:32px;height:32px;font-size:11px;background:#1DB8A0;">AS</div><div class="ai2"><div class="n">Ana Santos — Teaching</div><div class="s">March 2026</div></div><div class="air"><div class="amt">₱ 21,400</div><div class="st"><span class="badge bg"><span class="bd"></span>Paid</span></div></div></div>
-          <div class="ai-item"><div class="av" style="width:32px;height:32px;font-size:11px;background:#E85555;">BL</div><div class="ai2"><div class="n">Ben Lim — Non-Teaching</div><div class="s">March 2026 · Approval pending</div></div><div class="air"><div class="amt">₱ 12,780</div><div class="st"><span class="badge br"><span class="bd"></span>On hold</span></div></div></div>
+        <div class="ai-list" id="adm-recent-activity-list">
+          <div class="ai-item"><div class="ai2"><div class="s">Loading recent payroll activity...</div></div></div>
         </div>
       </div>
     </div>
@@ -223,6 +194,13 @@
               <label>Position</label>
               <input class="fc" name="position" placeholder="e.g. Grade II Adviser" />
             </div>
+            <div class="fg">
+              <label>Status</label>
+              <select class="fc" name="employee_status">
+                <option value="Active">Active</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
             <div class="fg" style="grid-column:1/-1;">
               <label>Basic Salary (PHP)</label>
               <input class="fc" name="basic_salary" type="number" min="0" step="0.01" placeholder="e.g. 18500" />
@@ -280,6 +258,13 @@
               <input class="fc" name="position" />
             </div>
             <div class="fg">
+              <label>Status</label>
+              <select class="fc" name="employee_status">
+                <option value="Active">Active</option>
+                <option value="Pending">Pending</option>
+              </select>
+            </div>
+            <div class="fg">
               <label>Basic Salary (PHP)</label>
               <input class="fc" name="basic_salary" type="number" min="0" step="0.01" />
             </div>
@@ -305,19 +290,28 @@
     <div class="page" id="adm-attendance">
       <div class="ph"><h2>Attendance Monitoring</h2><p>School-wide RFID attendance — read and export</p></div>
       <div class="sg3">
-        <div class="card"><div class="ct">Present Today</div><div class="cv g">36</div></div>
-        <div class="card"><div class="ct">Late Today</div><div class="cv a">3</div></div>
-        <div class="card"><div class="ct">Absent Today</div><div class="cv r">3</div></div>
+        <div class="card"><div class="ct">Present Today</div><div class="cv g" id="adm-att-present">0</div></div>
+        <div class="card"><div class="ct">Late Today</div><div class="cv a" id="adm-att-late">0</div></div>
+        <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="adm-att-absent">0</div></div>
       </div>
-      <div class="sh"><span class="stitle">Attendance Log — March 24, 2026</span><span class="sp"></span><button class="btn btn-outline">Export CSV</button></div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="sh" style="margin-bottom:10px;"><span class="stitle">RFID Scan Input</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="fg" style="margin:0;min-width:260px;flex:1;">
+            <label>RFID / Employee ID</label>
+            <input id="adm-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" />
+          </div>
+          <button class="btn btn-primary" onclick="submitRfidAttendanceScan()">Record Scan</button>
+        </div>
+        <p id="adm-rfid-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+      </div>
+
+      <div class="sh"><span class="stitle" id="adm-attendance-title">Attendance Log — Today</span><span class="sp"></span><button class="btn btn-outline" onclick="exportAttendanceCsv()">Export CSV</button></div>
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Type</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
-        <tbody>
-          <tr><td class="nm">Maria Reyes</td><td><span class="badge bt2">Teaching</span></td><td class="mn">07:28 AM</td><td class="mn">04:35 PM</td><td class="mn">9h 07m</td><td><span class="badge bg"><span class="bd"></span>Present</span></td></tr>
-          <tr><td class="nm">Juan Dela Cruz</td><td><span class="badge ba">Non-Teaching</span></td><td class="mn">08:14 AM</td><td class="mn">05:00 PM</td><td class="mn">8h 46m</td><td><span class="badge ba"><span class="bd"></span>Late</span></td></tr>
-          <tr><td class="nm">Ana Santos</td><td><span class="badge bt2">Teaching</span></td><td class="mn">07:45 AM</td><td class="mn">—</td><td class="mn">—</td><td><span class="badge bg"><span class="bd"></span>Present</span></td></tr>
-          <tr><td class="nm">Ben Lim</td><td><span class="badge ba">Non-Teaching</span></td><td class="mn">—</td><td class="mn">—</td><td class="mn">—</td><td><span class="badge br"><span class="bd"></span>Absent</span></td></tr>
-          <tr><td class="nm">Rosa Cruz</td><td><span class="badge bt2">Teaching</span></td><td class="mn">07:31 AM</td><td class="mn">04:45 PM</td><td class="mn">9h 14m</td><td><span class="badge bg"><span class="bd"></span>Present</span></td></tr>
+        <tbody id="adm-attendance-table-body">
+          <tr><td colspan="6" style="color:var(--t3);">Loading attendance records...</td></tr>
         </tbody>
       </table></div>
     </div>
@@ -330,46 +324,23 @@
       <div class="banner banner-amber">⚠ Only you can approve salary changes. No change reaches the database without your decision.</div>
 
       <div class="card" style="margin-bottom:16px;">
-        <div class="approval-card">
-          <div class="approval-card-icon">📝</div>
-          <div class="approval-card-body">
-            <div class="approval-card-name">Juan Dela Cruz</div>
-            <div class="approval-card-meta">BNCS-002 · Non-Teaching · Utility Staff</div>
-            <div class="approval-card-meta">Submitted by: Accountant · March 24, 2026  09:41 AM</div>
-            <div class="salary-compare">
-              <div class="sc-box"><label>Current Salary</label><div class="sc-val">₱ 14,200</div></div>
-              <span class="sc-arrow">→</span>
-              <div class="sc-box proposed"><label>Proposed</label><div class="sc-val">₱ 15,000</div></div>
-              <div class="sc-box diff"><label>Difference</label><div class="sc-val">+ ₱ 800</div></div>
+        <div id="adm-approvals-list">
+          <div class="approval-card">
+            <div class="approval-card-body">
+              <div class="approval-card-meta">Loading salary approval requests...</div>
             </div>
-            <div class="approval-reason"><strong>Reason:</strong> Annual merit increase per performance review Q1 2026.</div>
-          </div>
-          <div class="approval-card-actions">
-            <button class="btn btn-green">✓ Approve</button>
-            <button class="btn btn-red">✕ Reject</button>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="approval-card">
-          <div class="approval-card-icon">📝</div>
-          <div class="approval-card-body">
-            <div class="approval-card-name">Ben Lim</div>
-            <div class="approval-card-meta">BNCS-004 · Non-Teaching · Security Guard</div>
-            <div class="approval-card-meta">Submitted by: Accountant · March 23, 2026  02:15 PM</div>
-            <div class="salary-compare">
-              <div class="sc-box"><label>Current Salary</label><div class="sc-val">₱ 12,600</div></div>
-              <span class="sc-arrow">→</span>
-              <div class="sc-box proposed"><label>Proposed</label><div class="sc-val">₱ 13,200</div></div>
-              <div class="sc-box diff"><label>Difference</label><div class="sc-val">+ ₱ 600</div></div>
-            </div>
-          </div>
-          <div class="approval-card-actions">
-            <button class="btn btn-green">✓ Approve</button>
-            <button class="btn btn-red">✕ Reject</button>
-          </div>
-        </div>
+        <div class="sh"><span class="stitle">Approval History</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Type</th><th>Salary Change</th><th>Decision</th><th>Submitted</th><th>Decided</th></tr></thead>
+          <tbody id="adm-approval-history-body">
+            <tr><td colspan="6" style="color:var(--t3);">Loading approval history...</td></tr>
+          </tbody>
+        </table></div>
       </div>
     </div>
 
@@ -379,20 +350,70 @@
     <div class="page" id="adm-reports">
       <div class="ph"><h2>Summary Reports</h2><p>Payroll analytics and export</p></div>
       <div class="sg">
-        <div class="card"><div class="ct">Total Records</div><div class="cv">126</div><div class="cch">Q1 2026</div></div>
-        <div class="card"><div class="ct">Total Gross</div><div class="cv a">₱ 2.76M</div><div class="cch">Jan – Mar 2026</div></div>
-        <div class="card"><div class="ct">Total Deductions</div><div class="cv r">₱ 262,200</div><div class="cch">Jan – Mar 2026</div></div>
-        <div class="card"><div class="ct">Total Net Pay</div><div class="cv t">₱ 2.50M</div><div class="cch">Disbursed Q1</div></div>
+        <div class="card"><div class="ct">Total Records</div><div class="cv" id="adm-reports-total-records">0</div><div class="cch" id="adm-reports-period-note">Current period</div></div>
+        <div class="card"><div class="ct">Total Gross</div><div class="cv a" id="adm-reports-total-gross">₱ 0</div><div class="cch">Gross salary processed</div></div>
+        <div class="card"><div class="ct">Total Deductions</div><div class="cv r" id="adm-reports-total-deductions">₱ 0</div><div class="cch">Payroll deductions total</div></div>
+        <div class="card"><div class="ct">Total Net Pay</div><div class="cv t" id="adm-reports-total-net-pay">₱ 0</div><div class="cch">Net pay released</div></div>
       </div>
-      <div class="sh"><span class="stitle">Payroll by Employee — March 2026</span><span class="sp"></span><button class="btn btn-outline">Export CSV</button></div>
+      <div class="sh"><span class="stitle" id="adm-reports-table-title">Payroll by Employee — Current Period</span><span class="sp"></span><button class="btn btn-outline" onclick="exportSummaryReportsCsv()">Export CSV</button></div>
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Type</th><th>Records</th><th>Total Gross</th><th>Total Deductions</th><th>Total Net Pay</th></tr></thead>
-        <tbody>
-          <tr><td class="nm">Maria Reyes</td><td><span class="badge bt2">Teaching</span></td><td class="mn">3</td><td class="mn">₱ 66,000</td><td class="mn">₱ 5,310</td><td class="mn">₱ 60,690</td></tr>
-          <tr><td class="nm">Juan Dela Cruz</td><td><span class="badge ba">Non-Teaching</span></td><td class="mn">3</td><td class="mn">₱ 53,100</td><td class="mn">₱ 4,620</td><td class="mn">₱ 48,480</td></tr>
-          <tr><td class="nm">Ana Santos</td><td><span class="badge bt2">Teaching</span></td><td class="mn">3</td><td class="mn">₱ 69,900</td><td class="mn">₱ 5,700</td><td class="mn">₱ 64,200</td></tr>
-          <tr><td class="nm">Rosa Cruz</td><td><span class="badge bt2">Teaching</span></td><td class="mn">3</td><td class="mn">₱ 72,000</td><td class="mn">₱ 6,150</td><td class="mn">₱ 65,850</td></tr>
-          <tr><td class="nm">Ben Lim</td><td><span class="badge ba">Non-Teaching</span></td><td class="mn">3</td><td class="mn">₱ 42,300</td><td class="mn">₱ 3,960</td><td class="mn">₱ 38,340</td></tr>
+        <tbody id="adm-reports-table-body">
+          <tr><td colspan="6" style="color:var(--t3);">Loading payroll summary...</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Audit Logs
+    ────────────────────────────── -->
+    <div class="page" id="adm-audit-logs">
+      <div class="ph"><h2>Audit Logs</h2><p>Track admin and system movements across payroll operations</p></div>
+
+      <div class="sg3">
+        <div class="card"><div class="ct">Total Logs</div><div class="cv" id="adm-audit-total">0</div></div>
+        <div class="card"><div class="ct">Successful</div><div class="cv g" id="adm-audit-success">0</div></div>
+        <div class="card"><div class="ct">Failed</div><div class="cv r" id="adm-audit-failed">0</div></div>
+      </div>
+
+      <div class="adm-employee-controls" style="display:grid;grid-template-columns:1.4fr .9fr .9fr auto;gap:10px;align-items:end;margin-top:10px;">
+        <div class="fg" style="margin:0;">
+          <label>Search Logs</label>
+          <input id="adm-audit-search" class="fc" type="text" placeholder="Search module, action, description, entity" oninput="setAuditSearch(this.value)" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Module</label>
+          <select id="adm-audit-module" class="fc" onchange="setAuditModuleFilter(this.value)">
+            <option value="all">All Modules</option>
+            <option value="ui">UI</option>
+            <option value="employees">Employees</option>
+            <option value="attendance">Attendance</option>
+            <option value="salary_approvals">Salary Approvals</option>
+            <option value="reports">Reports</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Action</label>
+          <select id="adm-audit-action" class="fc" onchange="setAuditActionFilter(this.value)">
+            <option value="all">All Actions</option>
+            <option value="event">Event</option>
+            <option value="create">Create</option>
+            <option value="update">Update</option>
+            <option value="archive">Archive</option>
+            <option value="restore">Restore</option>
+            <option value="delete">Delete</option>
+            <option value="approve">Approve</option>
+            <option value="reject">Reject</option>
+            <option value="view">View</option>
+          </select>
+        </div>
+        <button class="btn btn-outline" onclick="exportAuditLogsCsv()">Export CSV</button>
+      </div>
+
+      <div class="tw" style="margin-top:10px;"><table>
+        <thead><tr><th>Timestamp</th><th>Module</th><th>Action</th><th>Entity</th><th>Description</th><th>Status</th><th>Source</th></tr></thead>
+        <tbody id="adm-audit-table-body">
+          <tr><td colspan="7" style="color:var(--t3);">Loading audit logs...</td></tr>
         </tbody>
       </table></div>
     </div>

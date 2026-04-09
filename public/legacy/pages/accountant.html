@@ -39,7 +39,7 @@
     <div class="ni" onclick="acctNav('ac-pending',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       Pending Submissions
-      <span class="nib">1</span>
+      <span class="nib" id="ac-pending-count">0</span>
     </div>
 
     <div class="sb-foot">
@@ -85,14 +85,12 @@
             <div class="fg" style="grid-column:1/-1;">
               <label>Select Employee</label>
               <select class="fc" id="pc-employee">
-                <option>Maria Reyes — BNCS-001 (Teaching)</option>
-                <option>Ana Santos — BNCS-003 (Teaching)</option>
-                <option>Rosa Cruz — BNCS-005 (Teaching)</option>
+                <option value="">Loading employees...</option>
               </select>
             </div>
             <div class="fg">
               <label>Pay Period</label>
-              <select class="fc" id="pc-period"><option>March 2026</option><option>February 2026</option></select>
+              <select class="fc" id="pc-period"><option>Loading periods...</option></select>
             </div>
             <div class="fg">
               <label>Basic Salary (₱)</label>
@@ -139,8 +137,9 @@
             <div class="submit-note">
               <strong>Approval required.</strong> This draft will be locked and sent to the Administrator. Salary changes cannot be applied to the database without admin approval.
             </div>
-            <button class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="submitForApproval()">Submit for Admin Approval →</button>
-            <button class="btn btn-outline" style="width:100%;padding:10px;font-size:13px;margin-top:8px;">Save as Draft</button>
+            <button id="ac-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="submitForApproval()">Submit for Admin Approval →</button>
+            <button id="ac-save-draft-btn" class="btn btn-outline" style="width:100%;padding:10px;font-size:13px;margin-top:8px;" onclick="savePayrollDraft()">Save as Draft</button>
+            <p id="ac-process-feedback" class="adm-feedback" style="margin-top:10px;"></p>
           </div>
         </div>
       </div>
@@ -152,18 +151,14 @@
     <div class="page" id="ac-records">
       <div class="ph"><h2>Payroll Records</h2><p>All processed payroll entries for reference</p></div>
       <div class="sg3">
-        <div class="card"><div class="ct">Total Gross Pay</div><div class="cv t">₱ 924,000</div><div class="cch">March 2026</div></div>
-        <div class="card"><div class="ct">Total Deductions</div><div class="cv r">₱ 87,400</div></div>
-        <div class="card"><div class="ct">Total Net Pay</div><div class="cv a">₱ 836,600</div></div>
+        <div class="card"><div class="ct">Total Gross Pay</div><div class="cv t" id="ac-total-gross">₱ 0</div><div class="cch" id="ac-record-period">Current period</div></div>
+        <div class="card"><div class="ct">Total Deductions</div><div class="cv r" id="ac-total-deductions">₱ 0</div></div>
+        <div class="card"><div class="ct">Total Net Pay</div><div class="cv a" id="ac-total-net">₱ 0</div></div>
       </div>
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Period</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Status</th><th></th></tr></thead>
-        <tbody>
-          <tr><td class="nm">Maria Reyes</td><td>Mar 2026</td><td class="mn">₱ 22,000</td><td class="mn">₱ 1,770</td><td class="mn">₱ 20,230</td><td><span class="badge bg">Paid</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="acctNav('ac-payslips',null)">Payslip</button></td></tr>
-          <tr><td class="nm">Juan Dela Cruz</td><td>Mar 2026</td><td class="mn">₱ 17,700</td><td class="mn">₱ 1,540</td><td class="mn">₱ 16,160</td><td><span class="badge ba">Pending Approval</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
-          <tr><td class="nm">Ana Santos</td><td>Mar 2026</td><td class="mn">₱ 23,300</td><td class="mn">₱ 1,900</td><td class="mn">₱ 21,400</td><td><span class="badge bg">Paid</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
-          <tr><td class="nm">Ben Lim</td><td>Mar 2026</td><td class="mn">₱ 14,100</td><td class="mn">₱ 1,320</td><td class="mn">₱ 12,780</td><td><span class="badge br">On hold</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
-          <tr><td class="nm">Rosa Cruz</td><td>Mar 2026</td><td class="mn">₱ 24,000</td><td class="mn">₱ 2,050</td><td class="mn">₱ 21,950</td><td><span class="badge bg">Paid</span></td><td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;">Payslip</button></td></tr>
+        <tbody id="ac-records-body">
+          <tr><td colspan="7" style="color:var(--t3);">Loading payroll records...</td></tr>
         </tbody>
       </table></div>
     </div>
@@ -174,39 +169,43 @@
     <div class="page" id="ac-payslips">
       <div class="ph"><h2>Payslips</h2><p>Generate and print payslips for employees</p></div>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;">
-        <select class="fc" style="max-width:270px;"><option>Maria Reyes — March 2026</option><option>Ana Santos — March 2026</option></select>
-        <button class="btn btn-primary">Generate</button>
-        <button class="btn btn-outline">🖨 Print</button>
+        <select class="fc" style="max-width:270px;" id="ac-payslip-select"><option value="">No payslips available</option></select>
+        <button class="btn btn-primary" id="ac-generate-payslip-btn" onclick="generatePayslip()">Generate</button>
+        <button class="btn btn-outline" id="ac-print-payslip-btn" onclick="printPayslip()">🖨 Print</button>
       </div>
       <div class="card" style="border-color:var(--amber);">
         <div class="pf-head">
           <div><div class="pf-school">Bagong Nayon II Christian School</div><div class="pf-school-s">Purok Imelda, Barangay Dela Paz, Antipolo City</div></div>
-          <div class="pf-period">Pay Period<br><strong>March 2026</strong><br><span style="font-size:11px;color:var(--t3);">Issued: March 31, 2026</span></div>
+          <div class="pf-period">Pay Period<br><strong id="ac-pf-period">N/A</strong><br><span style="font-size:11px;color:var(--t3);" id="ac-pf-issued">Issued: N/A</span></div>
         </div>
         <div class="pf-emp">
-          <div class="pf-f"><label>Employee Name</label><p>Maria R. Reyes</p></div>
-          <div class="pf-f"><label>ID</label><p style="font-family:var(--mono);">BNCS-001</p></div>
-          <div class="pf-f"><label>Position</label><p>Grade III Adviser</p></div>
-          <div class="pf-f"><label>Type</label><p>Teaching Staff</p></div>
+          <div class="pf-f"><label>Employee Name</label><p id="ac-pf-name">N/A</p></div>
+          <div class="pf-f"><label>ID</label><p style="font-family:var(--mono);" id="ac-pf-id">N/A</p></div>
+          <div class="pf-f"><label>Position</label><p id="ac-pf-position">N/A</p></div>
+          <div class="pf-f"><label>Type</label><p id="ac-pf-type">N/A</p></div>
         </div>
         <div class="pf-breakdown">
           <div>
             <div class="pf-stitle">Earnings</div>
-            <div class="pf-row"><span>Basic Salary</span><span class="mn">₱ 18,500.00</span></div>
-            <div class="pf-row"><span>Transportation</span><span class="mn">₱ 2,000.00</span></div>
-            <div class="pf-row"><span>Rice Allowance</span><span class="mn">₱ 1,500.00</span></div>
-            <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">₱ 22,000.00</span></div>
+            <div class="pf-row"><span>Basic Salary</span><span class="mn" id="ac-pf-basic">₱ 0.00</span></div>
+            <div class="pf-row"><span>Transportation</span><span class="mn" id="ac-pf-transport">₱ 0.00</span></div>
+            <div class="pf-row"><span>Rice Allowance</span><span class="mn" id="ac-pf-rice">₱ 0.00</span></div>
+            <div class="pf-row"><span>Overtime</span><span class="mn" id="ac-pf-overtime">₱ 0.00</span></div>
+            <div class="pf-row"><span>Bonus</span><span class="mn" id="ac-pf-bonus">₱ 0.00</span></div>
+            <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Gross Pay</span><span class="mn" style="color:var(--teal);" id="ac-pf-gross">₱ 0.00</span></div>
           </div>
           <div>
             <div class="pf-stitle">Deductions</div>
-            <div class="pf-row"><span>SSS</span><span class="mn">₱ 800.00</span></div>
-            <div class="pf-row"><span>PhilHealth</span><span class="mn">₱ 450.00</span></div>
-            <div class="pf-row"><span>Pag-IBIG</span><span class="mn">₱ 200.00</span></div>
-            <div class="pf-row"><span>Withholding Tax</span><span class="mn">₱ 320.00</span></div>
-            <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);">₱ 1,770.00</span></div>
+            <div class="pf-row"><span>SSS</span><span class="mn" id="ac-pf-sss">₱ 0.00</span></div>
+            <div class="pf-row"><span>PhilHealth</span><span class="mn" id="ac-pf-philhealth">₱ 0.00</span></div>
+            <div class="pf-row"><span>Pag-IBIG</span><span class="mn" id="ac-pf-pagibig">₱ 0.00</span></div>
+            <div class="pf-row"><span>Withholding Tax</span><span class="mn" id="ac-pf-tax">₱ 0.00</span></div>
+            <div class="pf-row"><span>Absence Deduction</span><span class="mn" id="ac-pf-absence">₱ 0.00</span></div>
+            <div class="pf-row"><span>Cash Advance</span><span class="mn" id="ac-pf-cashadvance">₱ 0.00</span></div>
+            <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);" id="ac-pf-total-deductions">₱ 0.00</span></div>
           </div>
         </div>
-        <div class="pf-net"><div class="pf-net-l">Net Pay</div><div class="pf-net-a">₱ 20,230.00</div></div>
+        <div class="pf-net"><div class="pf-net-l">Net Pay</div><div class="pf-net-a" id="ac-pf-net">₱ 0.00</div></div>
       </div>
     </div>
 
@@ -218,12 +217,8 @@
       <div class="view-only-notice banner banner-blue">ℹ You can view attendance to assist with payroll. You cannot modify attendance records.</div>
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Mar Present</th><th>Mar Late</th><th>Mar Absent</th><th>Deduction Days</th></tr></thead>
-        <tbody>
-          <tr><td class="nm">Maria Reyes</td><td class="mn">18</td><td class="mn">1</td><td class="mn">0</td><td class="mn">0</td></tr>
-          <tr><td class="nm">Juan Dela Cruz</td><td class="mn">16</td><td class="mn">3</td><td class="mn">1</td><td class="mn">1</td></tr>
-          <tr><td class="nm">Ana Santos</td><td class="mn">19</td><td class="mn">0</td><td class="mn">0</td><td class="mn">0</td></tr>
-          <tr><td class="nm">Ben Lim</td><td class="mn">14</td><td class="mn">2</td><td class="mn">3</td><td class="mn">3</td></tr>
-          <tr><td class="nm">Rosa Cruz</td><td class="mn">19</td><td class="mn">1</td><td class="mn">0</td><td class="mn">0</td></tr>
+        <tbody id="ac-attendance-body">
+          <tr><td colspan="5" style="color:var(--t3);">Loading attendance records...</td></tr>
         </tbody>
       </table></div>
     </div>
@@ -234,21 +229,15 @@
     <div class="page" id="ac-pending">
       <div class="ph"><h2>Pending Submissions</h2><p>Salary drafts you have submitted — awaiting Administrator decision</p></div>
       <div class="card">
-        <div class="pending-item">
-          <div class="pending-icon">⏳</div>
-          <div class="pending-info">
-            <div class="pi-name">Juan Dela Cruz</div>
-            <div class="pi-meta">Submitted March 24, 2026 · Awaiting admin action</div>
-            <div class="pi-change">
-              <span style="font-family:var(--mono);font-size:13px;color:var(--t2);">₱ 14,200</span>
-              <span style="color:var(--t3);">→</span>
-              <span class="approval-change">₱ 15,000</span>
-              <span class="badge ba" style="margin-left:4px;">Pending Approval</span>
+        <div id="ac-pending-list">
+          <div class="pending-item">
+            <div class="pending-icon">⏳</div>
+            <div class="pending-info">
+              <div class="pi-meta">Loading pending submissions...</div>
             </div>
           </div>
-          <button class="btn btn-red" style="font-size:11px;padding:7px 14px;">Withdraw</button>
         </div>
-        <div class="pending-locked">
+        <div class="pending-locked" id="ac-pending-locked">
           Changes are locked until Administrator approves or rejects. You will be notified of the decision.
         </div>
       </div>

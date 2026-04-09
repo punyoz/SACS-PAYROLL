@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
+import { appendAuditLog } from "@/lib/audit/store";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -59,6 +60,10 @@ function shapeEmployee(user, profile, index) {
   const metadata = user.user_metadata || {};
   const fullName = normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email));
   const role = normalizeRole(metadata.role);
+  const employeeStatus = normalizeText(
+    metadata.employee_status,
+    normalizeText(metadata.rfid_status, "Active"),
+  );
 
   return {
     id: user.id,
@@ -70,6 +75,7 @@ function shapeEmployee(user, profile, index) {
     position: normalizeText(metadata.position, "Staff"),
     basic_salary: Number(metadata.basic_salary || 0),
     rfid_status: normalizeText(metadata.rfid_status, "Active"),
+    employee_status: employeeStatus,
     employment_status: normalizeText(metadata.employment_status, "Regular"),
     archived: Boolean(metadata.archived),
   };
@@ -145,7 +151,8 @@ export async function POST(request) {
       employee_type: normalizeText(body.employee_type, "Teaching"),
       position: normalizeText(body.position, "Staff"),
       basic_salary: Number(body.basic_salary || 0),
-      rfid_status: "Active",
+      rfid_status: normalizeText(body.employee_status, "Active"),
+      employee_status: normalizeText(body.employee_status, "Active"),
       employment_status: "Regular",
       archived: false,
     };
@@ -184,6 +191,21 @@ export async function POST(request) {
       full_name: fullName,
       role,
     }, employeesBefore.length);
+
+    await appendAuditLog({
+      module: "employees",
+      action: "create",
+      entity_type: "employee",
+      entity_id: employee.employee_id,
+      description: `Employee ${employee.full_name} was created by admin.`,
+      status: "success",
+      source: "api",
+      metadata: {
+        user_id: employee.id,
+        role: employee.role,
+        employee_type: employee.employee_type,
+      },
+    });
 
     return NextResponse.json({ employee }, { status: 201 });
   } catch (error) {
@@ -238,6 +260,11 @@ export async function PATCH(request) {
       nextMetadata.employee_type = normalizeText(body.employee_type, normalizeText(currentMetadata.employee_type, "Teaching"));
       nextMetadata.position = normalizeText(body.position, normalizeText(currentMetadata.position, "Staff"));
       nextMetadata.basic_salary = Number(body.basic_salary ?? currentMetadata.basic_salary ?? 0);
+      nextMetadata.employee_status = normalizeText(
+        body.employee_status,
+        normalizeText(currentMetadata.employee_status, normalizeText(currentMetadata.rfid_status, "Active")),
+      );
+      nextMetadata.rfid_status = nextMetadata.employee_status;
       if (typeof currentMetadata.archived !== "boolean") {
         nextMetadata.archived = false;
       }
@@ -290,6 +317,28 @@ export async function PATCH(request) {
       full_name: nextMetadata.full_name || existingUser.user_metadata?.full_name || existingUser.email,
     }, 0);
 
+    const actionLabel = action === "archive"
+      ? "archive"
+      : action === "restore"
+        ? "restore"
+        : "update";
+
+    await appendAuditLog({
+      module: "employees",
+      action: actionLabel,
+      entity_type: "employee",
+      entity_id: employee.employee_id,
+      description: `Employee ${employee.full_name} was ${actionLabel}d by admin.`,
+      status: "success",
+      source: "api",
+      metadata: {
+        user_id: employee.id,
+        role: employee.role,
+        employee_type: employee.employee_type,
+        archived: employee.archived,
+      },
+    });
+
     return NextResponse.json({ employee });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -315,6 +364,19 @@ export async function DELETE(request) {
     if (deleteUser.error) {
       return NextResponse.json({ error: deleteUser.error.message }, { status: 400 });
     }
+
+    await appendAuditLog({
+      module: "employees",
+      action: "delete",
+      entity_type: "employee",
+      entity_id: id,
+      description: "Employee account was deleted by admin.",
+      status: "success",
+      source: "api",
+      metadata: {
+        user_id: id,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
