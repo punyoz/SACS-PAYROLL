@@ -27,6 +27,79 @@ function toggleTheme() {
 /* ── ROLE SELECTION (login) ── */
 let currentRole = 'admin';
 
+/* ── GLOBAL SCROLL HELPERS ── */
+let observedScrollTarget = null;
+
+function isScrollableElement(element) {
+  if (!element) return false;
+  const styles = window.getComputedStyle(element);
+  const allowsScroll = styles.overflowY === 'auto' || styles.overflowY === 'scroll';
+  return allowsScroll && element.scrollHeight > element.clientHeight;
+}
+
+function getActiveScrollContainer() {
+  const activeScreen = document.querySelector('.screen.active');
+  if (!activeScreen) {
+    return document.scrollingElement || document.documentElement;
+  }
+
+  const activePage = activeScreen.querySelector('.page.active');
+  if (activePage) return activePage;
+
+  const employeeBody = activeScreen.querySelector('.emp-body');
+  if (employeeBody) return employeeBody;
+
+  const mainArea = activeScreen.querySelector('.main');
+  if (mainArea) return mainArea;
+
+  if (isScrollableElement(activeScreen)) return activeScreen;
+
+  if (activePage) return activePage;
+
+  return document.scrollingElement || document.documentElement;
+}
+
+function scrollWebsite(direction = 'down', amount = 320) {
+  const target = getActiveScrollContainer();
+  const delta = direction === 'up' ? -Math.abs(amount) : Math.abs(amount);
+
+  target.scrollBy({
+    top: delta,
+    behavior: 'smooth',
+  });
+}
+
+function scrollWebsiteTo(position = 'top') {
+  const target = getActiveScrollContainer();
+  const top = position === 'bottom' ? target.scrollHeight : 0;
+
+  target.scrollTo({
+    top,
+    behavior: 'smooth',
+  });
+}
+
+function attachScrollListeners() {
+  const target = getActiveScrollContainer();
+  if (!target) return;
+
+  if (observedScrollTarget && observedScrollTarget !== target) {
+    observedScrollTarget.removeEventListener('scroll', handleActiveScreenWheelRelay);
+  }
+
+  observedScrollTarget = target;
+  target.addEventListener('scroll', handleActiveScreenWheelRelay, { passive: true });
+}
+
+function handleActiveScreenWheelRelay() {
+  // Scroll handler placeholder to keep a stable listener reference.
+}
+
+function handleGlobalMouseWheel(event) {
+  // Keep the handler for compatibility, but rely on native browser scrolling.
+  if (event.ctrlKey) return;
+}
+
 function updateLoginIdentityField() {
   const label = document.getElementById('login-identity-label');
   const input = document.getElementById('login-identity-input');
@@ -100,20 +173,18 @@ function showRoleScreen(role) {
 
   if (role === 'admin') {
     document.getElementById('s-admin')?.classList.add('active');
-    return;
-  }
-
-  if (role === 'accountant') {
+  } else if (role === 'accountant') {
     document.getElementById('s-accountant')?.classList.add('active');
-    return;
-  }
-
-  if (role === 'employee') {
+  } else if (role === 'employee') {
     document.getElementById('s-emp')?.classList.add('active');
-    return;
+  } else {
+    document.getElementById('s-login')?.classList.add('active');
   }
 
-  document.getElementById('s-login')?.classList.add('active');
+  // Wait for active screen transition then sync scroll controls.
+  setTimeout(() => {
+    attachScrollListeners();
+  }, 0);
 }
 
 /* ── INIT ── */
@@ -125,10 +196,42 @@ function initApp() {
   const role = new URLSearchParams(window.location.search).get('role');
   if (role) {
     showRoleScreen(role);
-    return;
+  } else {
+    updateLoginIdentityField();
   }
 
-  updateLoginIdentityField();
+  // Rebind listeners whenever role/page classes change.
+  const appRoot = document.getElementById('app-root');
+  if (appRoot) {
+    const observer = new MutationObserver(() => {
+      attachScrollListeners();
+    });
+
+    observer.observe(appRoot, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'PageDown') {
+      event.preventDefault();
+      scrollWebsite('down');
+    }
+
+    if (event.key === 'PageUp') {
+      event.preventDefault();
+      scrollWebsite('up');
+    }
+  });
+
+  // Native mouse-wheel scrolling is more reliable across browsers and devices.
+  // Do not intercept wheel events globally.
+
+  // Expose helpers for manual usage when needed.
+  window.scrollWebsite = scrollWebsite;
+  window.scrollWebsiteTo = scrollWebsiteTo;
 }
 
 if (document.readyState === 'loading') {

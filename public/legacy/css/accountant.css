@@ -76,3 +76,33 @@
   display: flex;
   gap: 8px;
 }
+
+/* ── RESPONSIVE (mobile-first) ── */
+.pending-item {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.pending-item .btn {
+  width: 100%;
+}
+
+#ac-payslips > div[style*="display:flex"] {
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+#ac-payslips > div[style*="display:flex"] .fc {
+  max-width: 100% !important;
+}
+
+@media (min-width: 768px) {
+  .pending-item {
+    align-items: center;
+    flex-wrap: nowrap;
+  }
+
+  .pending-item .btn {
+    width: auto;
+  }
+}

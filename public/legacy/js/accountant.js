@@ -16,6 +16,98 @@ const ACCT_PAGES = {
   'ac-pending':    'Pending Submissions',
 };
 
+const acctState = {
+  loading: false,
+  employees: [],
+  records: [],
+  draftEntries: [],
+  pendingSubmissions: [],
+  attendanceRows: [],
+  payslipOptions: [],
+  payslip: null,
+  periodOptions: [],
+  currentEntryId: '',
+};
+
+function toAmount(value) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount)) return 0;
+  return Math.round(amount * 100) / 100;
+}
+
+function formatMoney(value) {
+  return `₱ ${toAmount(value).toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+function formatMoneyCompact(value) {
+  return `₱ ${toAmount(value).toLocaleString('en-PH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function statusMeta(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'paid' || normalized === 'approved') {
+    return { label: 'Paid', badgeClass: 'bg' };
+  }
+
+  if (normalized === 'pending' || normalized === 'pending_approval') {
+    return { label: 'Pending Approval', badgeClass: 'ba' };
+  }
+
+  if (normalized === 'on_hold' || normalized === 'rejected') {
+    return { label: 'On hold', badgeClass: 'br' };
+  }
+
+  if (normalized === 'draft') {
+    return { label: 'Draft', badgeClass: 'bt2' };
+  }
+
+  return { label: 'Pending Approval', badgeClass: 'ba' };
+}
+
+function showProcessFeedback(message, isError = false) {
+  const feedback = document.getElementById('ac-process-feedback');
+  if (!feedback) return;
+
+  feedback.textContent = message;
+  feedback.classList.toggle('err', isError);
+  feedback.classList.toggle('ok', !isError && Boolean(message));
+}
+
+function setActionButtonsDisabled(disabled) {
+  const saveButton = document.getElementById('ac-save-draft-btn');
+  const submitButton = document.getElementById('ac-submit-btn');
+
+  if (saveButton) saveButton.disabled = disabled;
+  if (submitButton) submitButton.disabled = disabled;
+}
+
 /* ── NAVIGATE ── */
 function acctNav(pageId, navEl) {
   Object.keys(ACCT_PAGES).forEach(id => {
@@ -32,45 +124,39 @@ function acctNav(pageId, navEl) {
 
 /* ── PAYROLL COMPUTATION ── */
 function recalc() {
-  // Read form values
-  const get = id => parseFloat(document.getElementById(id)?.value || 0);
+  const values = getPayrollFormValues();
+  const basic = values.basic_salary;
+  const transport = values.allowances.transportation;
+  const rice = values.allowances.rice;
+  const overtime = values.allowances.overtime;
+  const bonus = values.allowances.bonus;
+  const sss = values.deductions.sss;
+  const philhealth = values.deductions.philhealth;
+  const pagibig = values.deductions.pagibig;
+  const tax = values.deductions.withholding_tax;
+  const absenceDays = values.deductions.absences_days;
+  const cashAdv = values.deductions.cash_advance;
 
-  const basic       = get('pc-basic');
-  const transport   = get('pc-transport');
-  const rice        = get('pc-rice');
-  const overtime    = get('pc-overtime');
-  const bonus       = get('pc-bonus');
-  const sss         = get('pc-sss');
-  const philhealth  = get('pc-philhealth');
-  const pagibig     = get('pc-pagibig');
-  const tax         = get('pc-tax');
-  const absenceDays = get('pc-absences');
-  const cashAdv     = get('pc-cashadvance');
-
-  // Compute absence deduction (daily rate = basic / 22 working days)
-  const dailyRate      = basic / 22;
-  const absenceDeduct  = dailyRate * absenceDays;
-  const grossPay       = basic + transport + rice + overtime + bonus;
-  const totalDeductions = sss + philhealth + pagibig + tax + absenceDeduct + cashAdv;
-  const netPay         = grossPay - totalDeductions;
-
-  // Update summary display
-  const fmt = n => '₱ ' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const dailyRate = basic / 22;
+  const absenceDeduct = toAmount(dailyRate * absenceDays);
+  const grossPay = toAmount(basic + transport + rice + overtime + bonus);
+  const totalDeductions = toAmount(sss + philhealth + pagibig + tax + absenceDeduct + cashAdv);
+  const netPay = toAmount(grossPay - totalDeductions);
 
   const updates = {
-    'sum-basic':       fmt(basic),
-    'sum-transport':   fmt(transport),
-    'sum-rice':        fmt(rice),
-    'sum-overtime':    fmt(overtime),
-    'sum-bonus':       fmt(bonus),
-    'sum-gross':       fmt(grossPay),
-    'sum-sss':         '- ' + fmt(sss),
-    'sum-philhealth':  '- ' + fmt(philhealth),
-    'sum-pagibig':     '- ' + fmt(pagibig),
-    'sum-tax':         '- ' + fmt(tax),
-    'sum-absences':    '- ' + fmt(absenceDeduct),
-    'sum-cashadvance': '- ' + fmt(cashAdv),
-    'sum-net':         fmt(netPay),
+    'sum-basic': formatMoney(basic),
+    'sum-transport': formatMoney(transport),
+    'sum-rice': formatMoney(rice),
+    'sum-overtime': formatMoney(overtime),
+    'sum-bonus': formatMoney(bonus),
+    'sum-gross': formatMoney(grossPay),
+    'sum-sss': `- ${formatMoney(sss)}`,
+    'sum-philhealth': `- ${formatMoney(philhealth)}`,
+    'sum-pagibig': `- ${formatMoney(pagibig)}`,
+    'sum-tax': `- ${formatMoney(tax)}`,
+    'sum-absences': `- ${formatMoney(absenceDeduct)}`,
+    'sum-cashadvance': `- ${formatMoney(cashAdv)}`,
+    'sum-net': formatMoney(netPay),
   };
 
   Object.entries(updates).forEach(([id, value]) => {
@@ -79,22 +165,488 @@ function recalc() {
   });
 }
 
-/* ── SUBMIT FOR APPROVAL ── */
-function submitForApproval() {
-  // In production: POST draft to /api/payroll/submit
-  // For now: show pending banner and navigate to pending page
-  const banner = document.getElementById('ac-pending-banner');
-  if (banner) {
-    banner.style.display = 'flex';
-    banner.innerHTML = '⏳ Your submission for <strong id="pending-name">the selected employee</strong> is pending admin approval.';
+function getPayrollFormValues() {
+  const get = (id) => toAmount(document.getElementById(id)?.value);
+
+  return {
+    basic_salary: get('pc-basic'),
+    allowances: {
+      transportation: get('pc-transport'),
+      rice: get('pc-rice'),
+      overtime: get('pc-overtime'),
+      bonus: get('pc-bonus'),
+    },
+    deductions: {
+      sss: get('pc-sss'),
+      philhealth: get('pc-philhealth'),
+      pagibig: get('pc-pagibig'),
+      withholding_tax: get('pc-tax'),
+      absences_days: get('pc-absences'),
+      cash_advance: get('pc-cashadvance'),
+    },
+  };
+}
+
+function getSelectedEmployee() {
+  const employeeSelect = document.getElementById('pc-employee');
+  const selectedId = String(employeeSelect?.value || '');
+  return acctState.employees.find((employee) => employee.id === selectedId) || null;
+}
+
+function buildSubmissionPayload(action) {
+  const employee = getSelectedEmployee();
+  if (!employee) {
+    throw new Error('Select an employee first.');
   }
-  const pendingNavEl = document.querySelector('#s-accountant .ni:last-of-type');
-  acctNav('ac-pending', pendingNavEl);
+
+  const payPeriod = String(document.getElementById('pc-period')?.value || '').trim();
+  if (!payPeriod) {
+    throw new Error('Select a pay period first.');
+  }
+
+  const formValues = getPayrollFormValues();
+
+  return {
+    action,
+    entry_id: acctState.currentEntryId || undefined,
+    employee_id: employee.id,
+    pay_period: payPeriod,
+    basic_salary: formValues.basic_salary,
+    allowances: formValues.allowances,
+    deductions: formValues.deductions,
+    reason: 'Payroll processed by accountant and submitted for admin approval.',
+  };
+}
+
+async function upsertPayrollEntry(action) {
+  const payload = buildSubmissionPayload(action);
+
+  const response = await fetch('/api/accountant/payroll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error || 'Failed to save payroll entry.');
+  }
+
+  acctState.currentEntryId = String(result.entry?.id || acctState.currentEntryId || '');
+
+  await loadAccountantData();
+  return result;
+}
+
+/* ── SUBMIT FOR APPROVAL ── */
+async function submitForApproval() {
+  try {
+    setActionButtonsDisabled(true);
+    showProcessFeedback('Submitting payroll for admin approval...', false);
+
+    await upsertPayrollEntry('submit');
+    showProcessFeedback('Payroll submitted and locked for admin approval.', false);
+
+    const banner = document.getElementById('ac-pending-banner');
+    if (banner) {
+      banner.style.display = 'flex';
+      banner.innerHTML = '⏳ Payroll submission sent successfully. Changes are locked until admin approval.';
+    }
+
+    const pendingNavEl = document.querySelector('#s-accountant .ni:last-of-type');
+    acctNav('ac-pending', pendingNavEl);
+  } catch (error) {
+    showProcessFeedback(error.message, true);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+async function savePayrollDraft() {
+  try {
+    setActionButtonsDisabled(true);
+    showProcessFeedback('Saving payroll draft...', false);
+    await upsertPayrollEntry('save_draft');
+    showProcessFeedback('Payroll draft saved.', false);
+  } catch (error) {
+    showProcessFeedback(error.message, true);
+  } finally {
+    setActionButtonsDisabled(false);
+  }
+}
+
+function renderEmployeeDropdown() {
+  const select = document.getElementById('pc-employee');
+  if (!select) return;
+
+  if (!acctState.employees.length) {
+    select.innerHTML = '<option value="">No employees found</option>';
+    return;
+  }
+
+  select.innerHTML = acctState.employees.map((employee) => {
+    const label = `${employee.full_name} — ${employee.employee_id} (${employee.employee_type})`;
+    return `<option value="${escapeHtml(employee.id)}">${escapeHtml(label)}</option>`;
+  }).join('');
+
+  if (!select.value) {
+    select.value = acctState.employees[0].id;
+  }
+}
+
+function renderPeriodDropdown() {
+  const select = document.getElementById('pc-period');
+  if (!select) return;
+
+  if (!acctState.periodOptions.length) {
+    select.innerHTML = '<option>Current period</option>';
+    return;
+  }
+
+  const previousValue = select.value;
+  select.innerHTML = acctState.periodOptions.map((period) => `<option value="${escapeHtml(period)}">${escapeHtml(period)}</option>`).join('');
+
+  if (previousValue && acctState.periodOptions.includes(previousValue)) {
+    select.value = previousValue;
+  }
+}
+
+function syncFormForEmployee() {
+  const employee = getSelectedEmployee();
+  if (!employee) return;
+
+  const basicInput = document.getElementById('pc-basic');
+  if (!basicInput) return;
+
+  if (!acctState.currentEntryId) {
+    basicInput.value = Number(employee.basic_salary || 0);
+  }
+
+  recalc();
+}
+
+function renderRecordsPanels(panels = {}) {
+  const grossEl = document.getElementById('ac-total-gross');
+  const deductionsEl = document.getElementById('ac-total-deductions');
+  const netEl = document.getElementById('ac-total-net');
+  const periodEl = document.getElementById('ac-record-period');
+
+  if (grossEl) grossEl.textContent = formatMoneyCompact(panels.total_gross || 0);
+  if (deductionsEl) deductionsEl.textContent = formatMoneyCompact(panels.total_deductions || 0);
+  if (netEl) netEl.textContent = formatMoneyCompact(panels.total_net || 0);
+
+  const periodSelect = document.getElementById('pc-period');
+  if (periodEl) {
+    periodEl.textContent = periodSelect?.value || 'Current period';
+  }
+}
+
+function renderPayrollRecordsTable() {
+  const tbody = document.getElementById('ac-records-body');
+  if (!tbody) return;
+
+  if (!acctState.records.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No payroll records available yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = acctState.records.map((record) => {
+    const status = statusMeta(record.status);
+    const payslipDisabled = String(record.status || '').toLowerCase() === 'draft' ? 'disabled' : '';
+
+    return `
+      <tr>
+        <td class="nm">${escapeHtml(record.employee_name)}</td>
+        <td>${escapeHtml(record.pay_period)}</td>
+        <td class="mn">${formatMoneyCompact(record.gross_pay)}</td>
+        <td class="mn">${formatMoneyCompact(record.total_deductions)}</td>
+        <td class="mn">${formatMoneyCompact(record.net_pay)}</td>
+        <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
+        <td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openPayslipFromRecord('${escapeHtml(record.id)}')" ${payslipDisabled}>Payslip</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderAttendanceTable() {
+  const tbody = document.getElementById('ac-attendance-body');
+  if (!tbody) return;
+
+  if (!acctState.attendanceRows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No attendance rows available.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = acctState.attendanceRows.map((row) => `
+    <tr>
+      <td class="nm">${escapeHtml(row.employee_name)}</td>
+      <td class="mn">${Number(row.present_days || 0)}</td>
+      <td class="mn">${Number(row.late_days || 0)}</td>
+      <td class="mn">${Number(row.absent_days || 0)}</td>
+      <td class="mn">${Number(row.deduction_days || 0)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderPendingBadge(count) {
+  const badge = document.getElementById('ac-pending-count');
+  if (!badge) return;
+
+  badge.textContent = String(count);
+  badge.style.display = count > 0 ? '' : 'none';
+}
+
+function renderPendingSubmissions() {
+  const container = document.getElementById('ac-pending-list');
+  const lockNote = document.getElementById('ac-pending-locked');
+  if (!container) return;
+
+  if (!acctState.pendingSubmissions.length) {
+    container.innerHTML = `
+      <div class="pending-item">
+        <div class="pending-icon">✓</div>
+        <div class="pending-info">
+          <div class="pi-meta">No pending submissions at the moment.</div>
+        </div>
+      </div>
+    `;
+
+    if (lockNote) {
+      lockNote.textContent = 'You can submit payroll drafts once ready for administrator review.';
+    }
+    renderPendingBadge(0);
+    return;
+  }
+
+  container.innerHTML = acctState.pendingSubmissions.map((entry) => {
+    const employee = acctState.employees.find((row) => row.id === entry.employee_id);
+    const currentSalary = Number(employee?.basic_salary || 0);
+    const proposedSalary = Number(entry.payroll?.basic_salary || 0);
+    return `
+      <div class="pending-item">
+        <div class="pending-icon">⏳</div>
+        <div class="pending-info">
+          <div class="pi-name">${escapeHtml(entry.employee_name)}</div>
+          <div class="pi-meta">Submitted ${escapeHtml(formatDateTime(entry.submitted_at))} · Awaiting admin action</div>
+          <div class="pi-change">
+            <span style="font-family:var(--mono);font-size:13px;color:var(--t2);">${formatMoneyCompact(currentSalary)}</span>
+            <span style="color:var(--t3);">→</span>
+            <span class="approval-change">${formatMoneyCompact(proposedSalary)}</span>
+            <span class="badge ba" style="margin-left:4px;">Pending Approval</span>
+          </div>
+        </div>
+        <button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="withdrawSubmission('${escapeHtml(entry.id)}')">Withdraw</button>
+      </div>
+    `;
+  }).join('');
+
+  if (lockNote) {
+    lockNote.textContent = 'Changes are locked until Administrator approves or rejects. You will be notified of the decision.';
+  }
+  renderPendingBadge(acctState.pendingSubmissions.length);
+}
+
+function renderPayslipOptions() {
+  const select = document.getElementById('ac-payslip-select');
+  if (!select) return;
+
+  if (!acctState.payslipOptions.length) {
+    select.innerHTML = '<option value="">No payslips available</option>';
+    return;
+  }
+
+  const previousValue = select.value;
+  select.innerHTML = acctState.payslipOptions.map((option) => (
+    `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`
+  )).join('');
+
+  if (previousValue && acctState.payslipOptions.some((option) => option.id === previousValue)) {
+    select.value = previousValue;
+  }
+}
+
+function renderPayslipDetails() {
+  const payslip = acctState.payslip;
+  if (!payslip) return;
+
+  const assign = (id, text) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = text;
+  };
+
+  assign('ac-pf-period', payslip.pay_period || 'N/A');
+  assign('ac-pf-issued', `Issued: ${formatDateTime(payslip.issued_at)}`);
+  assign('ac-pf-name', payslip.employee?.name || 'N/A');
+  assign('ac-pf-id', payslip.employee?.id || 'N/A');
+  assign('ac-pf-position', payslip.employee?.position || 'N/A');
+  assign('ac-pf-type', payslip.employee?.type || 'N/A');
+
+  assign('ac-pf-basic', formatMoney(payslip.earnings?.basic_salary || 0));
+  assign('ac-pf-transport', formatMoney(payslip.earnings?.transportation || 0));
+  assign('ac-pf-rice', formatMoney(payslip.earnings?.rice || 0));
+  assign('ac-pf-overtime', formatMoney(payslip.earnings?.overtime || 0));
+  assign('ac-pf-bonus', formatMoney(payslip.earnings?.bonus || 0));
+  assign('ac-pf-gross', formatMoney(payslip.earnings?.gross_pay || 0));
+
+  assign('ac-pf-sss', formatMoney(payslip.deductions?.sss || 0));
+  assign('ac-pf-philhealth', formatMoney(payslip.deductions?.philhealth || 0));
+  assign('ac-pf-pagibig', formatMoney(payslip.deductions?.pagibig || 0));
+  assign('ac-pf-tax', formatMoney(payslip.deductions?.withholding_tax || 0));
+  assign('ac-pf-absence', formatMoney(payslip.deductions?.absence_deduction || 0));
+  assign('ac-pf-cashadvance', formatMoney(payslip.deductions?.cash_advance || 0));
+  assign('ac-pf-total-deductions', formatMoney(payslip.deductions?.total_deductions || 0));
+  assign('ac-pf-net', formatMoney(payslip.net_pay || 0));
+}
+
+function populateFormFromDraft() {
+  const employeeSelect = document.getElementById('pc-employee');
+  const periodSelect = document.getElementById('pc-period');
+  if (!employeeSelect || !periodSelect) return;
+
+  const draft = acctState.records.find((row) => String(row.id) === String(acctState.currentEntryId))
+    || acctState.pendingSubmissions.find((row) => String(row.id) === String(acctState.currentEntryId))
+    || acctState.draftEntries.find((row) => String(row.id) === String(acctState.currentEntryId));
+
+  if (!draft) {
+    syncFormForEmployee();
+    return;
+  }
+
+  employeeSelect.value = draft.employee_id;
+  periodSelect.value = draft.pay_period;
+
+  const payroll = draft.payroll || {};
+  const allowances = payroll.allowances || {};
+  const deductions = payroll.deductions || {};
+
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.value = Number(value || 0);
+  };
+
+  setValue('pc-basic', payroll.basic_salary);
+  setValue('pc-transport', allowances.transportation);
+  setValue('pc-rice', allowances.rice);
+  setValue('pc-overtime', allowances.overtime);
+  setValue('pc-bonus', allowances.bonus);
+  setValue('pc-sss', deductions.sss);
+  setValue('pc-philhealth', deductions.philhealth);
+  setValue('pc-pagibig', deductions.pagibig);
+  setValue('pc-tax', deductions.withholding_tax);
+  setValue('pc-absences', deductions.absences_days);
+  setValue('pc-cashadvance', deductions.cash_advance);
+
+  recalc();
+}
+
+async function loadAccountantData(options = {}) {
+  if (acctState.loading) return;
+  acctState.loading = true;
+
+  try {
+    const params = new URLSearchParams();
+    const selectedPeriod = options.period || document.getElementById('pc-period')?.value;
+
+    if (options.period && selectedPeriod) {
+      params.set('period', selectedPeriod);
+    } else if (!options.period && selectedPeriod && acctState.periodOptions.includes(selectedPeriod)) {
+      params.set('period', selectedPeriod);
+    }
+
+    if (options.entryId) {
+      params.set('entry_id', options.entryId);
+    }
+
+    const query = params.toString();
+    const response = await fetch(`/api/accountant/payroll${query ? `?${query}` : ''}`, { method: 'GET' });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Failed to load accountant data.');
+    }
+
+    acctState.employees = payload.employees || [];
+    acctState.records = payload.records || [];
+    acctState.draftEntries = payload.draft_entries || [];
+    acctState.pendingSubmissions = payload.pending_submissions || [];
+    acctState.attendanceRows = payload.attendance_rows || [];
+    acctState.payslipOptions = payload.payslip_options || [];
+    acctState.payslip = payload.payslip || null;
+    acctState.periodOptions = payload.period_options || [];
+
+    renderEmployeeDropdown();
+    renderPeriodDropdown();
+    renderRecordsPanels(payload.panels || {});
+    renderPayrollRecordsTable();
+    renderAttendanceTable();
+    renderPendingSubmissions();
+    renderPayslipOptions();
+    renderPayslipDetails();
+
+    if (!acctState.currentEntryId && payload.draft_entries?.length) {
+      acctState.currentEntryId = String(payload.draft_entries[0].id || '');
+    }
+
+    populateFormFromDraft();
+    showProcessFeedback('', false);
+  } catch (error) {
+    showProcessFeedback(error.message, true);
+  } finally {
+    acctState.loading = false;
+  }
+}
+
+async function generatePayslip() {
+  const select = document.getElementById('ac-payslip-select');
+  const entryId = String(select?.value || '').trim();
+  if (!entryId) return;
+
+  await loadAccountantData({ entryId });
+}
+
+function printPayslip() {
+  window.print();
+}
+
+function openPayslipFromRecord(entryId) {
+  const select = document.getElementById('ac-payslip-select');
+  if (select) {
+    select.value = String(entryId || '');
+  }
+
+  generatePayslip();
+
+  const navItems = Array.from(document.querySelectorAll('#s-accountant .ni'));
+  const payslipNav = navItems.find((item) => item.textContent.includes('Payslips'));
+  acctNav('ac-payslips', payslipNav || null);
+}
+
+async function withdrawSubmission(entryId) {
+  const normalized = String(entryId || '').trim();
+  if (!normalized) return;
+
+  try {
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'withdraw', entry_id: normalized }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || 'Unable to withdraw pending submission.');
+    }
+
+    acctState.currentEntryId = normalized;
+    await loadAccountantData();
+    showProcessFeedback('Pending submission withdrawn and moved back to draft.', false);
+  } catch (error) {
+    showProcessFeedback(error.message, true);
+  }
 }
 
 /* ── INIT ── */
 function initAccountant() {
-  // Set up live recalc on all payroll input fields
   const inputIds = [
     'pc-basic','pc-transport','pc-rice','pc-overtime','pc-bonus',
     'pc-sss','pc-philhealth','pc-pagibig','pc-tax','pc-absences','pc-cashadvance'
@@ -103,8 +655,39 @@ function initAccountant() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
   });
+
+  const employeeSelect = document.getElementById('pc-employee');
+  const periodSelect = document.getElementById('pc-period');
+  const payslipSelect = document.getElementById('ac-payslip-select');
+
+  if (employeeSelect) {
+    employeeSelect.addEventListener('change', () => {
+      acctState.currentEntryId = '';
+      syncFormForEmployee();
+    });
+  }
+
+  if (periodSelect) {
+    periodSelect.addEventListener('change', () => {
+      loadAccountantData({ period: periodSelect.value });
+    });
+  }
+
+  if (payslipSelect) {
+    payslipSelect.addEventListener('change', generatePayslip);
+  }
+
   recalc();
+  loadAccountantData();
 }
+
+window.acctNav = acctNav;
+window.submitForApproval = submitForApproval;
+window.savePayrollDraft = savePayrollDraft;
+window.generatePayslip = generatePayslip;
+window.printPayslip = printPayslip;
+window.openPayslipFromRecord = openPayslipFromRecord;
+window.withdrawSubmission = withdrawSubmission;
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initAccountant);

@@ -125,7 +125,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ── TOPBAR ── */
@@ -196,7 +196,153 @@
 .page {
   display: none;
   flex: 1;
-  overflow-y: auto;
+  overflow-y: visible;
   padding: 26px;
 }
 .page.active { display: block; }
+
+/* ── RESPONSIVE SHELL (mobile-first) ── */
+#s-admin,
+#s-accountant {
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.sidebar {
+  width: 100%;
+  min-height: auto;
+  height: auto;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sb-brand {
+  padding: 14px;
+}
+
+.sidebar .ni,
+.sidebar .sb-sec,
+.sidebar .sb-foot {
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+.sidebar .ni {
+  padding: 10px 12px;
+}
+
+.sb-foot {
+  margin-top: 10px;
+  border-top: 0;
+  padding: 0 0 12px;
+}
+
+.main {
+  min-height: 0;
+}
+
+.topbar {
+  min-height: var(--topbar);
+  height: auto;
+  padding: 10px 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.tb-sp {
+  display: none;
+}
+
+.tb-search {
+  width: 100%;
+  order: 3;
+}
+
+.role-tag {
+  font-size: 9px;
+}
+
+.page {
+  padding: var(--content-pad, 14px);
+}
+
+@media (min-width: 768px) {
+  .topbar {
+    padding: 10px 18px;
+  }
+
+  .tb-sp {
+    display: block;
+  }
+
+  .tb-search {
+    width: min(280px, 42vw);
+    order: initial;
+  }
+
+  .sidebar .ni,
+  .sidebar .sb-sec,
+  .sidebar .sb-foot {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+}
+
+@media (min-width: 1024px) {
+  #s-admin,
+  #s-accountant {
+    flex-direction: row;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    width: var(--sidebar);
+    border-right: 1px solid var(--border);
+    border-bottom: 0;
+    min-height: 100vh;
+  }
+
+  .sidebar .ni,
+  .sidebar .sb-sec,
+  .sidebar .sb-foot {
+    margin-left: 6px;
+    margin-right: 6px;
+  }
+
+  .sb-foot {
+    margin-top: auto;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .topbar {
+    padding: 0 22px;
+    height: var(--topbar);
+    min-height: var(--topbar);
+    flex-wrap: nowrap;
+  }
+
+  .tb-search {
+    width: 220px;
+  }
+
+  .page {
+    padding: var(--content-pad, 24px);
+  }
+}
+
+@media (min-width: 1440px) {
+  .topbar {
+    padding: 0 26px;
+    gap: 12px;
+  }
+
+  .tb-search {
+    width: 260px;
+  }
+
+  .page {
+    padding: var(--content-pad, 28px);
+  }
+}

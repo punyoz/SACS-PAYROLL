@@ -34,3 +34,23 @@ This project has been migrated to Next.js and prepared for Supabase integration.
 
 - The old static implementation is preserved in `public/legacy` and rendered through `src/app/_components/LegacyRoleFrame.js`.
 - You can migrate each legacy role screen into React route pages incrementally.
+
+## Supabase Migration
+
+To support the accountant-to-admin payroll flow, apply the SQL migration below in your Supabase project:
+
+- `supabase/migrations/20260408_accountant_admin_flow.sql`
+- `supabase/migrations/20260408_single_clean_install.sql` (recommended one-shot compatibility install)
+
+This migration creates/updates the tables used by the APIs:
+
+- `salary_approvals`
+- `payroll_records`
+- `attendance_logs`
+- `audit_logs`
+
+Quick apply steps:
+
+1. Open Supabase Dashboard -> SQL Editor.
+2. Paste and run the SQL from `supabase/migrations/20260408_single_clean_install.sql`.
+3. Restart `npm run dev` after successful execution.
