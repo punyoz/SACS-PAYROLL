@@ -28,12 +28,13 @@ html, body {
   font-family: var(--sans);
   background: var(--bg);
   color: var(--t1);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   transition: background 0.25s, color 0.25s;
 }
 
 /* ── SCREENS ── */
-.screen { display: none; width: 100%; height: 100%; }
+.screen { display: none; width: 100%; min-height: 100%; }
 .screen.active { display: flex; }
 
 /* ── TYPOGRAPHY ── */

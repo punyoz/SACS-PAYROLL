@@ -7,7 +7,7 @@
 #s-emp {
   background: var(--bg);
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ── SLIM TOP BAR ── */

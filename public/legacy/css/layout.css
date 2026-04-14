@@ -125,7 +125,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* ── TOPBAR ── */
@@ -196,7 +196,7 @@
 .page {
   display: none;
   flex: 1;
-  overflow-y: auto;
+  overflow-y: visible;
   padding: 26px;
 }
 .page.active { display: block; }

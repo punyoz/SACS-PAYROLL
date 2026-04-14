@@ -96,19 +96,8 @@ function handleActiveScreenWheelRelay() {
 }
 
 function handleGlobalMouseWheel(event) {
+  // Keep the handler for compatibility, but rely on native browser scrolling.
   if (event.ctrlKey) return;
-
-  const target = getActiveScrollContainer();
-  if (!target) return;
-
-  const maxScroll = Math.max(0, target.scrollHeight - target.clientHeight);
-  const current = target.scrollTop || 0;
-  const next = Math.min(maxScroll, Math.max(0, current + event.deltaY));
-
-  if (next !== current) {
-    target.scrollTop = next;
-    event.preventDefault();
-  }
 }
 
 function updateLoginIdentityField() {
@@ -237,7 +226,8 @@ function initApp() {
     }
   });
 
-  window.addEventListener('wheel', handleGlobalMouseWheel, { passive: false, capture: true });
+  // Native mouse-wheel scrolling is more reliable across browsers and devices.
+  // Do not intercept wheel events globally.
 
   // Expose helpers for manual usage when needed.
   window.scrollWebsite = scrollWebsite;
