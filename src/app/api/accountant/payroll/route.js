@@ -11,6 +11,7 @@ const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const payrollStorePath = path.join(process.cwd(), ".runtime", "accountant-payroll-entries.json");
 const fallbackApprovalsPath = path.join(process.cwd(), ".runtime", "salary-approvals.json");
+const DUPLICATE_SUBMISSION_MESSAGE = "It has been submitted and cannot be duplicated.";
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
@@ -46,16 +47,43 @@ function toAmount(value) {
   return Math.round(amount * 100) / 100;
 }
 
+function normalizePositionForRole(positionInput, roleInput) {
+  const role = String(roleInput || "").trim().toLowerCase();
+  const position = normalizeText(positionInput).toLowerCase();
+
+  if (role === "accountant" || position === "accountant" || position.includes("account")) {
+    return "Accountant";
+  }
+
+  return "Employee";
+}
+
+function isDuplicateKeyError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  return code === "23505" || message.includes("duplicate key");
+}
+
+function isInternalDbSchemaError(errorMessage) {
+  const message = String(errorMessage || "").toLowerCase();
+  return message.includes("has no field \"updated_at\"")
+    || message.includes("relation")
+    || message.includes("constraint")
+    || message.includes("column");
+}
+
 function shapeEmployee(user, profile, index) {
   const metadata = user.user_metadata || {};
+  const role = String(metadata.role || "employee").toLowerCase();
 
   return {
     id: user.id,
+    role,
     full_name: normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email)),
     email: normalizeText(profile?.email, user.email),
     employee_id: normalizeText(metadata.employee_id, `BNCS-${String(index + 1).padStart(3, "0")}`),
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
-    position: normalizeText(metadata.position, "Staff"),
+    position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),
     archived: Boolean(metadata.archived),
   };
@@ -122,7 +150,7 @@ function normalizePayrollEntry(row) {
     employee_name: normalizeText(row.employee_name, "Unknown Employee"),
     employee_code: normalizeText(row.employee_code),
     employee_type: normalizeText(row.employee_type, "Teaching"),
-    position: normalizeText(row.position, "Staff"),
+    position: normalizePositionForRole(row.position, row.role),
     pay_period: normalizeText(row.pay_period, formatPeriodLabel(new Date())),
     status: normalizeText(row.status, "draft").toLowerCase(),
     approval_id: normalizeText(row.approval_id),
@@ -226,7 +254,7 @@ function normalizeApprovalRow(row) {
     employee_name: normalizeText(row.employee_name, "Unknown Employee"),
     employee_code: normalizeText(row.employee_code),
     employee_type: normalizeText(row.employee_type, "Teaching"),
-    position: normalizeText(row.position, "Staff"),
+    position: normalizePositionForRole(row.position, row.role),
     current_salary: Number(row.current_salary || 0),
     proposed_salary: Number(row.proposed_salary || 0),
     reason: normalizeText(row.reason, "No reason provided."),
@@ -289,7 +317,7 @@ async function createSalaryApprovalRequest(supabase, payload) {
     employee_name: payload.employee_name,
     employee_code: payload.employee_code,
     employee_type: payload.employee_type,
-    position: payload.position,
+    position: normalizePositionForRole(payload.position, payload.role),
     current_salary: toAmount(payload.current_salary),
     proposed_salary: toAmount(payload.proposed_salary),
     reason: normalizeText(payload.reason, "Submitted for payroll approval."),
@@ -309,7 +337,41 @@ async function createSalaryApprovalRequest(supabase, payload) {
     const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
 
     if (!isMissingTable) {
-      throw new Error(insertResult.error.message);
+      if (!isDuplicateKeyError(insertResult.error)) {
+        throw new Error(insertResult.error.message);
+      }
+
+      const existingPending = await supabase
+        .from("salary_approvals")
+        .select("id")
+        .eq("employee_id", payload.employee_id)
+        .eq("status", "pending")
+        .order("submitted_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingPending.error || !existingPending.data?.id) {
+        throw new Error(insertResult.error.message);
+      }
+
+      const updateResult = await supabase
+        .from("salary_approvals")
+        .update({
+          ...insertPayload,
+          status: "pending",
+        })
+        .eq("id", existingPending.data.id)
+        .select("id")
+        .maybeSingle();
+
+      if (updateResult.error || !updateResult.data?.id) {
+        throw new Error(updateResult.error?.message || "Failed to update existing pending approval.");
+      }
+
+      return {
+        id: updateResult.data.id,
+        persisted: true,
+      };
     }
 
     const fallback = await readFallbackApprovalStore();
@@ -713,6 +775,20 @@ export async function POST(request) {
       ? entries.findIndex((entry) => entry.id === existingId)
       : -1;
 
+    if (action === "submit") {
+      const hasPendingDuplicate = entries.some((entry) => {
+        if (entry.employee_id !== employee.id) return false;
+        if (entry.pay_period !== payPeriod) return false;
+        if (entry.status !== "pending") return false;
+        if (existingId && entry.id === existingId) return true;
+        return true;
+      });
+
+      if (hasPendingDuplicate) {
+        return NextResponse.json({ error: DUPLICATE_SUBMISSION_MESSAGE }, { status: 409 });
+      }
+    }
+
     const baseEntry = {
       id: existingIndex >= 0 ? entries[existingIndex].id : crypto.randomUUID(),
       employee_id: employee.id,
@@ -745,6 +821,7 @@ export async function POST(request) {
         employee_code: employee.employee_id,
         employee_type: employee.employee_type,
         position: employee.position,
+        role: employee.role,
         current_salary: Number(employee.basic_salary || 0),
         proposed_salary: Number(baseEntry.payroll.basic_salary || 0),
         reason: normalizeText(body.reason, "Submitted via Process Payroll page."),
@@ -790,7 +867,11 @@ export async function POST(request) {
       approval_persisted: approvalPersisted,
     });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (isDuplicateKeyError(error) || isInternalDbSchemaError(error?.message)) {
+      return NextResponse.json({ error: DUPLICATE_SUBMISSION_MESSAGE }, { status: 409 });
+    }
+
+    return NextResponse.json({ error: "Unable to submit payroll right now. Please try again." }, { status: 500 });
   }
 }
 

@@ -56,6 +56,72 @@ function generateUniqueEmployeeId(existingEmployees = []) {
   return candidate;
 }
 
+function normalizePositionForRole(positionInput, roleInput) {
+  const role = normalizeRole(roleInput);
+  const position = normalizeText(positionInput).toLowerCase();
+
+  if (role === "accountant" || position === "accountant" || position.includes("account")) {
+    return "Accountant";
+  }
+
+  return "Employee";
+}
+
+function toTitleCaseWords(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) return "";
+
+  return normalized
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function normalizeSuffix(value) {
+  const suffix = normalizeText(value);
+  const allowed = new Set(["", "Jr.", "Sr.", "II", "III", "IV", "V"]);
+  return allowed.has(suffix) ? suffix : "";
+}
+
+function buildFullNameFromParts(body) {
+  const first = toTitleCaseWords(body?.first_name);
+  const second = toTitleCaseWords(body?.second_name);
+  const middle = normalizeText(body?.middle_initial).slice(0, 1).toUpperCase();
+  const last = toTitleCaseWords(body?.last_name);
+  const suffix = normalizeSuffix(body?.suffix);
+
+  if (first && second && middle && last) {
+    return [first, second, middle, last, suffix].filter(Boolean).join(" ");
+  }
+
+  return toTitleCaseWords(body?.full_name);
+}
+
+function isValidEmployeeName(nameInput) {
+  const normalized = normalizeText(nameInput);
+  if (!normalized) return false;
+
+  return /^[A-Za-z]+(?:\s+[A-Za-z]+)*\s+[A-Za-z]\.?\s+[A-Za-z]+(?:\s+[A-Za-z]+)*(?:\s+(?:Jr\.|Sr\.|II|III|IV|V))?$/.test(normalized);
+}
+
+function formatDateOfBirthForPassword(dateInput) {
+  const raw = normalizeText(dateInput);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return "";
+
+  const [, year, month, day] = match;
+  return `${month}${day}${year}`;
+}
+
+function buildDefaultPassword(lastNameInput, dateOfBirthInput) {
+  const lastName = normalizeText(lastNameInput).replace(/\s+/g, "");
+  const dobDigits = formatDateOfBirthForPassword(dateOfBirthInput);
+  if (!lastName || !dobDigits) return "";
+
+  return `${lastName}${dobDigits}`;
+}
+
 function shapeEmployee(user, profile, index) {
   const metadata = user.user_metadata || {};
   const fullName = normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email));
@@ -72,7 +138,7 @@ function shapeEmployee(user, profile, index) {
     full_name: fullName,
     employee_id: normalizeText(metadata.employee_id, buildEmployeeId(index)),
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
-    position: normalizeText(metadata.position, "Staff"),
+    position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),
     rfid_status: normalizeText(metadata.rfid_status, "Active"),
     employee_status: employeeStatus,
@@ -130,12 +196,28 @@ export async function POST(request) {
     const body = await request.json();
     const role = normalizeRole(body.role);
     const email = normalizeRoleEmail(body.email, role);
-    const password = normalizeText(body.password);
-    const fullName = normalizeText(body.full_name);
+    const defaultPassword = buildDefaultPassword(body.last_name, body.date_of_birth);
+    const password = normalizeText(body.password, defaultPassword);
+    const fullName = buildFullNameFromParts(body);
+    const dateOfBirth = normalizeText(body.date_of_birth);
 
-    if (!email || !password || !fullName) {
+    if (!email || !password || !fullName || !dateOfBirth) {
       return NextResponse.json(
-        { error: "full_name, email, and password are required." },
+        { error: "full_name, email, and date_of_birth are required." },
+        { status: 400 },
+      );
+    }
+
+    if (!defaultPassword) {
+      return NextResponse.json(
+        { error: "Default password could not be generated. Check last name and date of birth." },
+        { status: 400 },
+      );
+    }
+
+    if (!isValidEmployeeName(fullName)) {
+      return NextResponse.json(
+        { error: "Full name must contain letters and spaces only." },
         { status: 400 },
       );
     }
@@ -149,8 +231,9 @@ export async function POST(request) {
       full_name: fullName,
       employee_id: autoEmployeeId,
       employee_type: normalizeText(body.employee_type, "Teaching"),
-      position: normalizeText(body.position, "Staff"),
+      position: normalizePositionForRole(body.position, role),
       basic_salary: Number(body.basic_salary || 0),
+      date_of_birth: dateOfBirth,
       rfid_status: normalizeText(body.employee_status, "Active"),
       employee_status: normalizeText(body.employee_status, "Active"),
       employment_status: "Regular",
@@ -256,9 +339,17 @@ export async function PATCH(request) {
       }
 
       nextMetadata.full_name = normalizeText(body.full_name, normalizeText(currentMetadata.full_name, existingUser.email));
+
+      if (!isValidEmployeeName(nextMetadata.full_name)) {
+        return NextResponse.json(
+          { error: "Full name must contain letters and spaces only." },
+          { status: 400 },
+        );
+      }
+
       nextMetadata.employee_id = currentEmployeeId;
       nextMetadata.employee_type = normalizeText(body.employee_type, normalizeText(currentMetadata.employee_type, "Teaching"));
-      nextMetadata.position = normalizeText(body.position, normalizeText(currentMetadata.position, "Staff"));
+      nextMetadata.position = normalizePositionForRole(body.position, nextRole);
       nextMetadata.basic_salary = Number(body.basic_salary ?? currentMetadata.basic_salary ?? 0);
       nextMetadata.employee_status = normalizeText(
         body.employee_status,

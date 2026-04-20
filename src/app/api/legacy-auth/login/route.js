@@ -11,6 +11,17 @@ const roleRoutes = {
 const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "bncsadmin").toLowerCase();
 const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "bncs.admin@gmail.com");
 
+function normalizePositionForRole(positionInput, roleInput) {
+  const role = normalizeRole(roleInput);
+  const position = normalizeText(positionInput).toLowerCase();
+
+  if (role === "accountant" || position === "accountant" || position.includes("account")) {
+    return "Accountant";
+  }
+
+  return "Employee";
+}
+
 function resolveLoginEmail(roleInput, identityInput) {
   const role = normalizeRole(roleInput);
   const identity = normalizeText(identityInput);
@@ -88,5 +99,16 @@ export async function POST(request) {
 
   await supabase.auth.signOut();
 
-  return NextResponse.json({ redirectTo: roleRoutes[selectedRole] });
+  const metadata = data.user.user_metadata || {};
+
+  return NextResponse.json({
+    redirectTo: roleRoutes[selectedRole],
+    profile: {
+      role: normalizeRole(metadata.role || selectedRole),
+      full_name: normalizeText(metadata.full_name),
+      email: normalizeText(data.user.email),
+      employee_id: normalizeText(metadata.employee_id),
+      position: normalizePositionForRole(metadata.position, metadata.role || selectedRole),
+    },
+  });
 }

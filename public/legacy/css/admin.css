@@ -177,7 +177,7 @@
 }
 
 .adm-feedback.ok { color: #3EC97A; }
-.adm-feedback.err { color: #E85555; }
+.adm-feedback.err { color: #E85555; font-weight: 700; }
 
 .adm-modal-actions {
   grid-column: 1 / -1;

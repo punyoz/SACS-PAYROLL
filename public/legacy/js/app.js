@@ -26,6 +26,433 @@ function toggleTheme() {
 
 /* ── ROLE SELECTION (login) ── */
 let currentRole = 'admin';
+const AUTH_CONTEXT_KEY = 'bncs-auth-context';
+const ROLE_PAGE_STATE_PREFIX = 'bncs-active-page-';
+
+function toTitleCase(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+
+  return text
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+function inferNameFromIdentity(identity) {
+  const raw = String(identity || '').trim();
+  if (!raw) return '';
+
+  const fromEmail = raw.includes('@') ? raw.split('@')[0] : raw;
+  return toTitleCase(fromEmail.replace(/[._-]+/g, ' '));
+}
+
+function saveAuthContext(result, role, identityInput) {
+  const profile = result?.profile || {};
+  const resolvedRole = String(profile.role || role || 'employee').toLowerCase();
+  const fullName = String(profile.full_name || '').trim() || inferNameFromIdentity(profile.email || identityInput);
+
+  const context = {
+    role: resolvedRole,
+    full_name: fullName,
+    email: String(profile.email || '').trim(),
+    employee_id: String(profile.employee_id || '').trim(),
+    position: String(profile.position || '').trim(),
+  };
+
+  localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(context));
+}
+
+function getAuthContext() {
+  try {
+    const raw = localStorage.getItem(AUTH_CONTEXT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function getRolePageStateKey(role) {
+  return `${ROLE_PAGE_STATE_PREFIX}${String(role || '').trim().toLowerCase()}`;
+}
+
+function persistRolePageState(role, pageId) {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  const normalizedPage = String(pageId || '').trim();
+  if (!normalizedRole || !normalizedPage) return;
+
+  localStorage.setItem(getRolePageStateKey(normalizedRole), normalizedPage);
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('role') === normalizedRole) {
+    params.set('page', normalizedPage);
+    const next = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, '', next);
+  }
+}
+
+function getPersistedRolePageState(role) {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  if (!normalizedRole) return '';
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('role') === normalizedRole) {
+    const fromUrl = String(params.get('page') || '').trim();
+    if (fromUrl) return fromUrl;
+  }
+
+  return String(localStorage.getItem(getRolePageStateKey(normalizedRole)) || '').trim();
+}
+
+function clearPersistedRolePageStates() {
+  ['admin', 'accountant', 'employee'].forEach((role) => {
+    localStorage.removeItem(getRolePageStateKey(role));
+  });
+}
+
+function ensureConfirmDialog() {
+  let backdrop = document.getElementById('legacy-confirm-backdrop');
+  if (backdrop) return backdrop;
+
+  backdrop = document.createElement('div');
+  backdrop.id = 'legacy-confirm-backdrop';
+  backdrop.className = 'confirm-backdrop';
+  backdrop.setAttribute('aria-hidden', 'true');
+  backdrop.innerHTML = `
+    <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-title" id="confirm-title">Warning</div>
+      <div class="confirm-body" id="confirm-body"></div>
+      <div class="confirm-actions">
+        <button type="button" class="btn btn-outline" id="confirm-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirm-ok-btn">Continue</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(backdrop);
+  return backdrop;
+}
+
+async function confirmDestructiveAction(actionLabel, detailText) {
+  const action = String(actionLabel || 'this action').trim();
+  const detail = String(detailText || '').trim();
+  const backdrop = ensureConfirmDialog();
+  const body = backdrop.querySelector('#confirm-body');
+  const okButton = backdrop.querySelector('#confirm-ok-btn');
+  const cancelButton = backdrop.querySelector('#confirm-cancel-btn');
+
+  if (!body || !okButton || !cancelButton) {
+    return window.confirm(`WARNING: You are about to ${action}. Continue?`);
+  }
+
+  body.innerHTML = `
+    <p><strong>WARNING:</strong> You are about to ${action}.</p>
+    ${detail ? `<p>${detail}</p>` : ''}
+    <p><strong>This action cannot be undone easily.</strong></p>
+  `;
+
+  backdrop.classList.add('active');
+  backdrop.setAttribute('aria-hidden', 'false');
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      backdrop.classList.remove('active');
+      backdrop.setAttribute('aria-hidden', 'true');
+
+      okButton.removeEventListener('click', onOk);
+      cancelButton.removeEventListener('click', onCancel);
+      backdrop.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onEsc);
+
+      resolve(result);
+    };
+
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onBackdrop = (event) => {
+      if (event.target === backdrop) cleanup(false);
+    };
+    const onEsc = (event) => {
+      if (event.key === 'Escape') cleanup(false);
+    };
+
+    okButton.addEventListener('click', onOk, { once: true });
+    cancelButton.addEventListener('click', onCancel, { once: true });
+    backdrop.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onEsc);
+  });
+}
+
+/* ── GLOBAL SEARCH + NOTIFICATIONS ── */
+let searchDebounceTimer = null;
+
+function getActiveScreen() {
+  return document.querySelector('.screen.active') || null;
+}
+
+function getRoleNameFromScreen(screen) {
+  const id = screen?.id;
+  if (id === 's-admin') return 'Administrator';
+  if (id === 's-accountant') return 'Accountant';
+  if (id === 's-emp') return 'Employee';
+  return 'Portal';
+}
+
+function syncSearchInputs(value, sourceInput) {
+  document.querySelectorAll('.global-search-input').forEach((input) => {
+    if (sourceInput && input === sourceInput) return;
+    input.value = value;
+  });
+}
+
+function updateSearchContainerState(input, state, term = '') {
+  const container = input?.closest('.tb-search');
+  if (!container) return;
+
+  container.classList.remove('search-hit', 'search-miss');
+
+  if (!term) {
+    input.title = '';
+    return;
+  }
+
+  if (state === 'hit') {
+    container.classList.add('search-hit');
+    input.title = `Search hit for "${term}"`;
+    return;
+  }
+
+  container.classList.add('search-miss');
+  input.title = `No match for "${term}"`;
+}
+
+function performGlobalSearch(term, forward = true) {
+  const query = String(term || '').trim();
+  if (!query) return true;
+
+  if (typeof window.find !== 'function') {
+    return false;
+  }
+
+  return Boolean(window.find(query, false, !forward, true, false, false, false));
+}
+
+function runSearchFromInput(input, forward = true) {
+  const term = String(input?.value || '').trim();
+  if (!term) {
+    updateSearchContainerState(input, '', '');
+    return;
+  }
+
+  const found = performGlobalSearch(term, forward);
+  updateSearchContainerState(input, found ? 'hit' : 'miss', term);
+
+  document.querySelectorAll('.global-search-input').forEach((otherInput) => {
+    if (otherInput === input) return;
+    updateSearchContainerState(otherInput, found ? 'hit' : 'miss', term);
+  });
+}
+
+function attachGlobalSearchHandlers() {
+  document.querySelectorAll('.global-search-input').forEach((input) => {
+    if (input.dataset.searchBound === 'true') return;
+    input.dataset.searchBound = 'true';
+
+    input.addEventListener('input', () => {
+      const term = String(input.value || '');
+      syncSearchInputs(term, input);
+
+      if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+      }
+
+      searchDebounceTimer = setTimeout(() => {
+        runSearchFromInput(input, true);
+      }, 120);
+    });
+
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        runSearchFromInput(input, !event.shiftKey);
+      }
+
+      if (event.key === 'Escape') {
+        input.value = '';
+        syncSearchInputs('', input);
+        runSearchFromInput(input, true);
+      }
+    });
+  });
+
+  document.querySelectorAll('.tb-search').forEach((container) => {
+    if (container.dataset.searchContainerBound === 'true') return;
+    container.dataset.searchContainerBound = 'true';
+
+    const icon = container.querySelector('.search-ic');
+    const input = container.querySelector('.global-search-input');
+    if (!icon || !input) return;
+
+    icon.style.cursor = 'pointer';
+    icon.addEventListener('click', () => {
+      runSearchFromInput(input, true);
+      input.focus();
+    });
+  });
+}
+
+function getRoleNotifications() {
+  const screenId = getActiveScreen()?.id;
+
+  if (screenId === 's-admin') {
+    const pending = Number(document.getElementById('adm-panel-pending-approvals')?.textContent || 0);
+    const totalEmployees = Number(document.getElementById('adm-panel-total-employees')?.textContent || 0);
+
+    return [
+      {
+        title: pending > 0 ? `${pending} salary approvals are waiting` : 'No pending salary approvals',
+        desc: pending > 0
+          ? 'Open Salary Approvals to review pending salary changes.'
+          : 'All submitted salary changes have been processed.',
+      },
+      {
+        title: `${totalEmployees || 0} active employees loaded`,
+        desc: 'Manage Employees has the current staff list and status.',
+      },
+    ];
+  }
+
+  if (screenId === 's-accountant') {
+    const pending = Number(document.getElementById('ac-pending-count')?.textContent || 0);
+    const period = String(document.getElementById('pc-period')?.value || 'Current period');
+
+    return [
+      {
+        title: pending > 0 ? `${pending} payroll submissions are pending` : 'No pending payroll submissions',
+        desc: pending > 0
+          ? 'Submitted payroll is locked while waiting for admin approval.'
+          : 'You can prepare and send payroll drafts for approval.',
+      },
+      {
+        title: `Current pay period: ${period}`,
+        desc: 'Use Process Payroll to compute and submit payroll entries.',
+      },
+    ];
+  }
+
+  if (screenId === 's-emp') {
+    const netPay = String(document.getElementById('ps-net-amount')?.textContent || '').trim() || 'N/A';
+    const periodLabel = String(document.getElementById('ps-period-label')?.textContent || '').trim() || 'Current Period';
+
+    return [
+      {
+        title: 'Latest payslip is available',
+        desc: `${periodLabel} · Net pay ${netPay}`,
+      },
+      {
+        title: 'Attendance summary is view-only',
+        desc: 'Use this page to review attendance and payroll records.',
+      },
+    ];
+  }
+
+  return [
+    {
+      title: 'No notifications right now',
+      desc: 'Switch to a role page to view current updates.',
+    },
+  ];
+}
+
+function ensureNotificationPanel() {
+  let panel = document.getElementById('global-notification-panel');
+  if (panel) return panel;
+
+  panel = document.createElement('div');
+  panel.id = 'global-notification-panel';
+  panel.className = 'notif-panel';
+  panel.innerHTML = `
+    <div class="notif-head">
+      <div class="notif-title">Notifications</div>
+      <div class="notif-sub" id="global-notif-sub">Portal</div>
+    </div>
+    <div class="notif-list" id="global-notif-list"></div>
+  `;
+
+  document.body.appendChild(panel);
+  return panel;
+}
+
+function renderNotificationPanel() {
+  const panel = ensureNotificationPanel();
+  const list = panel.querySelector('#global-notif-list');
+  const sub = panel.querySelector('#global-notif-sub');
+  if (!list || !sub) return;
+
+  sub.textContent = getRoleNameFromScreen(getActiveScreen());
+
+  const items = getRoleNotifications();
+  list.innerHTML = items.map((item) => `
+    <div class="notif-item">
+      <div class="notif-item-title">${item.title}</div>
+      <div class="notif-item-desc">${item.desc}</div>
+    </div>
+  `).join('');
+}
+
+function closeNotificationPanel() {
+  const panel = document.getElementById('global-notification-panel');
+  if (!panel) return;
+  panel.classList.remove('active');
+}
+
+function refreshCurrentPortal() {
+  window.location.reload();
+}
+
+function toggleNotificationPanel(trigger) {
+  const panel = ensureNotificationPanel();
+  renderNotificationPanel();
+
+  const isOpen = panel.classList.contains('active');
+  if (isOpen) {
+    closeNotificationPanel();
+    return;
+  }
+
+  const rect = trigger.getBoundingClientRect();
+  panel.style.top = `${Math.max(12, Math.round(rect.bottom + 8))}px`;
+  panel.style.right = `${Math.max(12, Math.round(window.innerWidth - rect.right))}px`;
+  panel.classList.add('active');
+
+  const dot = trigger.querySelector('.nd');
+  if (dot) dot.style.display = 'none';
+}
+
+function attachNotificationHandlers() {
+  document.querySelectorAll('.global-notification-trigger').forEach((button) => {
+    if (button.dataset.notifBound === 'true') return;
+    button.dataset.notifBound = 'true';
+
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleNotificationPanel(button);
+    });
+  });
+
+  if (document.body.dataset.notifGlobalBound === 'true') return;
+  document.body.dataset.notifGlobalBound = 'true';
+
+  document.addEventListener('click', (event) => {
+    const panel = document.getElementById('global-notification-panel');
+    if (!panel || !panel.classList.contains('active')) return;
+
+    if (panel.contains(event.target)) return;
+    if (event.target.closest('.global-notification-trigger')) return;
+    closeNotificationPanel();
+  });
+}
 
 /* ── GLOBAL SCROLL HELPERS ── */
 let observedScrollTarget = null;
@@ -150,11 +577,16 @@ async function login() {
     return;
   }
 
+  saveAuthContext(result, currentRole, usernameInput);
+
   window.top.location.href = result.redirectTo;
 }
 
 /* ── LOGOUT ── */
 function logout() {
+  localStorage.removeItem(AUTH_CONTEXT_KEY);
+  clearPersistedRolePageStates();
+
   const forcedRole = new URLSearchParams(window.location.search).get('role');
   if (forcedRole) {
     window.top.location.href = '/login';
@@ -232,6 +664,14 @@ function initApp() {
   // Expose helpers for manual usage when needed.
   window.scrollWebsite = scrollWebsite;
   window.scrollWebsiteTo = scrollWebsiteTo;
+  window.getLegacyAuthContext = getAuthContext;
+  window.confirmDestructiveAction = confirmDestructiveAction;
+  window.persistRolePageState = persistRolePageState;
+  window.getPersistedRolePageState = getPersistedRolePageState;
+  window.refreshCurrentPortal = refreshCurrentPortal;
+
+  attachGlobalSearchHandlers();
+  attachNotificationHandlers();
 }
 
 if (document.readyState === 'loading') {
