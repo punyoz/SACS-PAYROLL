@@ -35,6 +35,17 @@ function buildEmployeeId(currentCount = 0) {
   return `BNCS-${String(next).padStart(3, "0")}`;
 }
 
+function normalizePositionForRole(positionInput, roleInput) {
+  const role = String(roleInput || "").toLowerCase();
+  const position = normalizeText(positionInput).toLowerCase();
+
+  if (role === "accountant" || position === "accountant" || position.includes("account")) {
+    return "Accountant";
+  }
+
+  return "Employee";
+}
+
 function shapeEmployee(user, profile, index) {
   const metadata = user.user_metadata || {};
 
@@ -44,7 +55,7 @@ function shapeEmployee(user, profile, index) {
     full_name: normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email)),
     employee_id: normalizeText(metadata.employee_id, buildEmployeeId(index)),
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
-    position: normalizeText(metadata.position, "Staff"),
+    position: normalizePositionForRole(metadata.position, metadata.role),
     basic_salary: Number(metadata.basic_salary || 0),
     archived: Boolean(metadata.archived),
   };
@@ -126,7 +137,7 @@ function normalizeApprovalRow(row) {
     employee_name: normalizeText(row.employee_name, "Unknown Employee"),
     employee_code: normalizeText(row.employee_code),
     employee_type: normalizeText(row.employee_type, "Teaching"),
-    position: normalizeText(row.position, "Staff"),
+    position: normalizePositionForRole(row.position, row.role),
     current_salary: Number(row.current_salary || 0),
     proposed_salary: Number(row.proposed_salary || 0),
     reason: normalizeText(row.reason, "No reason provided."),

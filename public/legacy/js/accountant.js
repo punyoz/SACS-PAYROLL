@@ -70,6 +70,47 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function normalizePortalPosition(positionValue, roleValue) {
+  const role = String(roleValue || '').trim().toLowerCase();
+  const position = String(positionValue || '').trim().toLowerCase();
+
+  if (!role && !position) {
+    return 'N/A';
+  }
+
+  if (role === 'accountant' || position === 'accountant' || position.includes('account')) {
+    return 'Accountant';
+  }
+
+  return 'Employee';
+}
+
+function getInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'AC';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function applyAccountantIdentity() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  if (!context) return;
+
+  const fullName = String(context.full_name || '').trim();
+  const position = normalizePortalPosition(context.position, context.role);
+  const displayName = fullName || position;
+  const subtitle = position === 'Accountant' ? 'Accountant Account' : 'Employee Account';
+
+  const nameEl = document.getElementById('ac-user-name');
+  if (nameEl) nameEl.textContent = displayName;
+
+  const roleEl = document.getElementById('ac-user-role');
+  if (roleEl) roleEl.textContent = subtitle;
+
+  const avatarEl = document.querySelector('#s-accountant .sb-foot .av');
+  if (avatarEl) avatarEl.textContent = getInitials(displayName);
+}
+
 function statusMeta(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'paid' || normalized === 'approved') {
@@ -120,6 +161,15 @@ function acctNav(pageId, navEl) {
 
   const titleEl = document.getElementById('ac-tb-title');
   if (titleEl) titleEl.textContent = ACCT_PAGES[pageId] || '';
+
+  if (window.persistRolePageState) {
+    window.persistRolePageState('accountant', pageId);
+  }
+}
+
+function getAccountantNavByPageId(pageId) {
+  const navItems = Array.from(document.querySelectorAll('#s-accountant .ni'));
+  return navItems.find((item) => String(item.getAttribute('onclick') || '').includes(`'${pageId}'`)) || null;
 }
 
 /* ── PAYROLL COMPUTATION ── */
@@ -242,15 +292,15 @@ async function upsertPayrollEntry(action) {
 async function submitForApproval() {
   try {
     setActionButtonsDisabled(true);
-    showProcessFeedback('Submitting payroll for admin approval...', false);
+    showProcessFeedback('Sending payroll for admin approval...', false);
 
     await upsertPayrollEntry('submit');
-    showProcessFeedback('Payroll submitted and locked for admin approval.', false);
+    showProcessFeedback('Approval has been sent and is now under admin review.', false);
 
     const banner = document.getElementById('ac-pending-banner');
     if (banner) {
       banner.style.display = 'flex';
-      banner.innerHTML = '⏳ Payroll submission sent successfully. Changes are locked until admin approval.';
+      banner.innerHTML = '<strong>Approval sent:</strong> Payroll is now in the admin approval process. Changes stay locked until a decision is made.';
     }
 
     const pendingNavEl = document.querySelector('#s-accountant .ni:last-of-type');
@@ -478,7 +528,7 @@ function renderPayslipDetails() {
   assign('ac-pf-issued', `Issued: ${formatDateTime(payslip.issued_at)}`);
   assign('ac-pf-name', payslip.employee?.name || 'N/A');
   assign('ac-pf-id', payslip.employee?.id || 'N/A');
-  assign('ac-pf-position', payslip.employee?.position || 'N/A');
+  assign('ac-pf-position', normalizePortalPosition(payslip.employee?.position, payslip.employee?.role));
   assign('ac-pf-type', payslip.employee?.type || 'N/A');
 
   assign('ac-pf-basic', formatMoney(payslip.earnings?.basic_salary || 0));
@@ -625,6 +675,13 @@ async function withdrawSubmission(entryId) {
   const normalized = String(entryId || '').trim();
   if (!normalized) return;
 
+  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(
+    'withdraw this pending payroll submission',
+    'This removes the current approval request and returns the payroll entry to draft mode.',
+  ))) {
+    return;
+  }
+
   try {
     const response = await fetch('/api/accountant/payroll', {
       method: 'PATCH',
@@ -647,6 +704,15 @@ async function withdrawSubmission(entryId) {
 
 /* ── INIT ── */
 function initAccountant() {
+  applyAccountantIdentity();
+
+  const savedPage = window.getPersistedRolePageState
+    ? window.getPersistedRolePageState('accountant')
+    : '';
+  const initialPage = ACCT_PAGES[savedPage] ? savedPage : 'ac-process';
+  const initialNav = getAccountantNavByPageId(initialPage);
+  acctNav(initialPage, initialNav);
+
   const inputIds = [
     'pc-basic','pc-transport','pc-rice','pc-overtime','pc-bonus',
     'pc-sss','pc-philhealth','pc-pagibig','pc-tax','pc-absences','pc-cashadvance'

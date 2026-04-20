@@ -31,6 +31,19 @@
   align-items: center;
   gap: 10px;
 }
+
+.sb-refresh-btn {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sb-refresh-btn:hover {
+  background: var(--bg3);
+}
 .bi {
   width: 32px; height: 32px;
   border-radius: 7px;
@@ -153,6 +166,8 @@
   width: 200px;
   transition: background 0.25s, border-color 0.25s;
 }
+.tb-search.search-hit { border-color: var(--green); }
+.tb-search.search-miss { border-color: var(--red); }
 .tb-search input {
   background: none; border: none; outline: none;
   font-family: var(--sans); font-size: 12px;
@@ -177,6 +192,74 @@
   border-radius: 50%;
   background: var(--amber);
   border: 1.5px solid var(--bg);
+}
+
+.notif-panel {
+  position: fixed;
+  top: 70px;
+  right: 22px;
+  width: min(360px, calc(100vw - 24px));
+  max-height: 70dvh;
+  overflow-y: auto;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  box-shadow: 0 20px 38px color-mix(in srgb, #000 24%, transparent);
+  z-index: 900;
+  display: none;
+}
+
+.notif-panel.active {
+  display: block;
+}
+
+.notif-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.notif-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--t1);
+}
+
+.notif-sub {
+  font-size: 11px;
+  color: var(--t3);
+}
+
+.notif-list {
+  padding: 10px 0;
+}
+
+.notif-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-item:last-child {
+  border-bottom: none;
+}
+
+.notif-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t1);
+}
+
+.notif-item-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.4;
+}
+
+.emp-top-search {
+  width: 220px;
 }
 
 /* ── ROLE TAG ── */

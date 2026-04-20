@@ -12,6 +12,7 @@ const ADMIN_PAGES = {
   'adm-employees':  'Manage Employees',
   'adm-attendance': 'Attendance',
   'adm-approvals':  'Salary Approvals',
+  'adm-leave-approvals': 'Leave Approvals',
   'adm-reports':    'Summary Reports',
   'adm-audit-logs': 'Audit Logs',
 };
@@ -25,6 +26,8 @@ let dashboardData = null;
 let salaryApprovalsData = [];
 let salaryApprovalHistoryData = [];
 let salaryApprovalsCanPersist = true;
+let leaveApprovalsData = [];
+let leaveApprovalHistoryData = [];
 let summaryReportsData = null;
 let attendanceData = null;
 let auditLogsData = [];
@@ -51,6 +54,10 @@ function adminNav(pageId, navEl) {
   const titleEl = document.getElementById('adm-tb-title');
   if (titleEl) titleEl.textContent = ADMIN_PAGES[pageId] || '';
 
+  if (window.persistRolePageState) {
+    window.persistRolePageState('admin', pageId);
+  }
+
   if (pageId === 'adm-employees') {
     loadEmployees();
   }
@@ -61,6 +68,10 @@ function adminNav(pageId, navEl) {
 
   if (pageId === 'adm-approvals') {
     loadSalaryApprovals();
+  }
+
+  if (pageId === 'adm-leave-approvals') {
+    loadLeaveApprovals();
   }
 
   if (pageId === 'adm-reports') {
@@ -86,6 +97,11 @@ function adminNav(pageId, navEl) {
   });
 }
 
+function getAdminNavByPageId(pageId) {
+  const navItems = Array.from(document.querySelectorAll('#s-admin .ni'));
+  return navItems.find((item) => String(item.getAttribute('onclick') || '').includes(`'${pageId}'`)) || null;
+}
+
 /* ── APPROVAL ACTIONS ── */
 async function approveChange(approvalId) {
   await updateApprovalStatus(approvalId, 'approve');
@@ -95,13 +111,41 @@ async function rejectChange(approvalId) {
   await updateApprovalStatus(approvalId, 'reject');
 }
 
-function updateApprovalBadge(pendingCount) {
+function updateSalaryApprovalBadge(pendingCount) {
   const count = Number(pendingCount || 0);
-  const badges = document.querySelectorAll('#s-admin .nib');
-  badges.forEach(b => {
-    b.textContent = String(count);
-    b.style.display = count > 0 ? '' : 'none';
-  });
+  const badge = document.getElementById('adm-salary-badge');
+  if (badge) {
+    badge.textContent = String(count);
+    badge.style.display = count > 0 ? '' : 'none';
+  }
+
+  refreshAdminNotificationBadges();
+}
+
+function updateLeaveApprovalBadge(pendingCount) {
+  const count = Number(pendingCount || 0);
+  const badge = document.getElementById('adm-leave-badge');
+  if (badge) {
+    badge.textContent = String(count);
+    badge.style.display = count > 0 ? '' : 'none';
+  }
+
+  refreshAdminNotificationBadges();
+}
+
+function refreshAdminNotificationBadges() {
+  const dashboardBadge = document.getElementById('adm-dashboard-badge');
+  const salaryBadge = document.getElementById('adm-salary-badge');
+  const leaveBadge = document.getElementById('adm-leave-badge');
+
+  const salaryCount = Number(salaryBadge?.textContent || 0);
+  const leaveCount = Number(leaveBadge?.textContent || 0);
+  const totalCount = salaryCount + leaveCount;
+
+  if (dashboardBadge) {
+    dashboardBadge.textContent = String(totalCount);
+    dashboardBadge.style.display = totalCount > 0 ? '' : 'none';
+  }
 }
 
 function getInitials(name) {
@@ -138,6 +182,131 @@ function escapeHtml(value) {
 
 function escapeJsString(value) {
   return String(value || '').replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+}
+
+function normalizePortalPosition(positionValue, roleValue) {
+  const role = String(roleValue || '').trim().toLowerCase();
+  const position = String(positionValue || '').trim().toLowerCase();
+
+  if (role === 'accountant' || position === 'accountant' || position.includes('account')) {
+    return 'Accountant';
+  }
+
+  return 'Employee';
+}
+
+const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
+
+function isValidNamePart(nameValue) {
+  const normalized = String(nameValue || '').trim();
+  if (!normalized) return false;
+
+  return /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/.test(normalized);
+}
+
+function normalizeSuffix(value) {
+  const suffix = String(value || '').trim();
+  return ALLOWED_SUFFIXES.includes(suffix) ? suffix : '';
+}
+
+function toTitleCaseWords(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return '';
+
+  return normalized
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatDateOfBirthForPassword(dateValue) {
+  const raw = String(dateValue || '').trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return '';
+
+  const [, year, month, day] = match;
+  return `${month}${day}${year}`;
+}
+
+function buildDefaultPassword(lastName, dateOfBirth) {
+  const sanitizedLastName = String(lastName || '').replaceAll(/\s+/g, '');
+  const dobDigits = formatDateOfBirthForPassword(dateOfBirth);
+  if (!sanitizedLastName || !dobDigits) return '';
+  return `${sanitizedLastName}${dobDigits}`;
+}
+
+function composeFullName({ first_name = '', second_name = '', middle_initial = '', last_name = '', suffix = '' }) {
+  const first = toTitleCaseWords(first_name);
+  const second = toTitleCaseWords(second_name);
+  const middle = String(middle_initial || '').trim().toUpperCase();
+  const last = toTitleCaseWords(last_name);
+  const resolvedSuffix = normalizeSuffix(suffix);
+
+  const parts = [first, second, middle, last].filter(Boolean);
+  return [parts.join(' '), resolvedSuffix].filter(Boolean).join(' ');
+}
+
+function splitFullName(fullName) {
+  const raw = String(fullName || '').trim();
+  if (!raw) {
+    return {
+      first_name: '',
+      second_name: '',
+      middle_initial: '',
+      last_name: '',
+      suffix: '',
+    };
+  }
+
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const result = {
+    first_name: '',
+    second_name: '',
+    middle_initial: '',
+    last_name: '',
+    suffix: '',
+  };
+
+  if (tokens.length === 1) {
+    result.first_name = tokens[0];
+    return result;
+  }
+
+  let nameTokens = [...tokens];
+  const maybeSuffix = nameTokens[nameTokens.length - 1];
+  if (ALLOWED_SUFFIXES.includes(maybeSuffix)) {
+    result.suffix = maybeSuffix;
+    nameTokens.pop();
+  }
+
+  if (!nameTokens.length) return result;
+
+  const maybeMiddle = nameTokens[nameTokens.length - 2] || '';
+  if (/^[A-Za-z]\.?$/.test(maybeMiddle)) {
+    result.middle_initial = maybeMiddle[0].toUpperCase();
+    nameTokens.splice(nameTokens.length - 2, 1);
+  }
+
+  result.first_name = nameTokens[0] || '';
+  result.last_name = nameTokens[nameTokens.length - 1] || '';
+  result.second_name = nameTokens.slice(1, -1).join(' ');
+
+  if (!result.second_name) {
+    result.second_name = result.last_name;
+  }
+
+  return result;
+}
+
+function syncPositionFieldWithRole(form) {
+  if (!form?.elements) return;
+
+  const role = String(form.elements.role?.value || 'employee').toLowerCase();
+  const positionInput = form.elements.position;
+  if (!positionInput) return;
+
+  positionInput.value = normalizePortalPosition(positionInput.value, role);
 }
 
 function formatDateTime(value) {
@@ -186,7 +355,7 @@ function renderDashboardPanels(panels = {}) {
   if (pendingApprovalsEl) pendingApprovalsEl.textContent = String(panels.pending_approvals || 0);
   if (absentTodayEl) absentTodayEl.textContent = String(panels.absent_today || 0);
 
-  updateApprovalBadge(panels.pending_approvals || 0);
+  updateSalaryApprovalBadge(panels.pending_approvals || 0);
 }
 
 function renderPendingSalaryApprovals(approvals = []) {
@@ -866,7 +1035,7 @@ async function loadSalaryApprovals() {
     salaryApprovalsData = payload.pending_requests || payload.requests || [];
     salaryApprovalHistoryData = payload.history_requests || [];
     salaryApprovalsCanPersist = Boolean(payload.can_persist);
-    updateApprovalBadge(salaryApprovalsData.length);
+    updateSalaryApprovalBadge(salaryApprovalsData.length);
     renderSalaryApprovalCards(salaryApprovalsData, salaryApprovalsCanPersist);
     renderSalaryApprovalHistory(salaryApprovalHistoryData);
   } catch (error) {
@@ -876,6 +1045,132 @@ async function loadSalaryApprovals() {
       historyBody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
     }
   }
+}
+
+function renderLeaveApprovalCards(requests = []) {
+  const container = document.getElementById('adm-leave-approvals-list');
+  if (!container) return;
+
+  if (!requests.length) {
+    container.innerHTML = '<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta">No pending leave requests.</div></div></div>';
+    return;
+  }
+
+  container.innerHTML = requests.map((request) => {
+    const requestId = escapeJsString(request.id);
+    const employeeName = escapeHtml(request.employee_name || 'Unknown Employee');
+    const employeeCode = escapeHtml(request.employee_id || 'N/A');
+    const leaveType = escapeHtml(request.leave_type || 'Leave');
+    const duration = `${escapeHtml(request.start_date || 'N/A')} to ${escapeHtml(request.end_date || 'N/A')}`;
+    const reason = escapeHtml(request.reason || 'No reason provided.');
+    const submittedAt = escapeHtml(formatDateTime(request.submitted_at));
+
+    return `
+      <div class="approval-card" style="margin-bottom:14px;">
+        <div class="approval-card-icon">🗓</div>
+        <div class="approval-card-body">
+          <div class="approval-card-name">${employeeName}</div>
+          <div class="approval-card-meta">${employeeCode} · ${leaveType}</div>
+          <div class="approval-card-meta">Requested: ${duration}</div>
+          <div class="approval-card-meta">Submitted: ${submittedAt}</div>
+          <div class="approval-reason"><strong>Reason:</strong> ${reason}</div>
+        </div>
+        <div class="approval-card-actions">
+          <button class="btn btn-green" onclick="approveLeaveRequest('${requestId}')">✓ Approve</button>
+          <button class="btn btn-red" onclick="rejectLeaveRequest('${requestId}')">✕ Reject</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderLeaveApprovalHistory(history = []) {
+  const tbody = document.getElementById('adm-leave-history-body');
+  if (!tbody) return;
+
+  if (!history.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No leave approval history yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = history.map((entry) => {
+    const status = String(entry.status || 'pending').toLowerCase();
+    const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
+    const decidedAt = entry.decided_at || entry.updated_at || entry.submitted_at;
+
+    return `
+      <tr>
+        <td class="nm">${escapeHtml(entry.employee_name || 'Unknown Employee')}</td>
+        <td>${escapeHtml(entry.leave_type || 'Leave')}</td>
+        <td class="mn">${escapeHtml(entry.start_date || 'N/A')} → ${escapeHtml(entry.end_date || 'N/A')}</td>
+        <td>${escapeHtml(entry.reason || 'No reason provided.')}</td>
+        <td><span class="badge ${badgeClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
+        <td class="mn">${escapeHtml(formatDateTime(entry.submitted_at))}</td>
+        <td class="mn">${escapeHtml(formatDateTime(decidedAt))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadLeaveApprovals() {
+  const list = document.getElementById('adm-leave-approvals-list');
+  const historyBody = document.getElementById('adm-leave-history-body');
+
+  if (historyBody) {
+    historyBody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading leave history...</td></tr>';
+  }
+
+  try {
+    const response = await fetch('/api/admin/leave-requests?status=all', { method: 'GET' });
+    const payload = await response.json();
+
+    if (!response.ok) {
+      throw new Error(payload.error || 'Failed to load leave requests');
+    }
+
+    leaveApprovalsData = payload.pending_requests || [];
+    leaveApprovalHistoryData = payload.history_requests || [];
+    updateLeaveApprovalBadge(leaveApprovalsData.length);
+    renderLeaveApprovalCards(leaveApprovalsData);
+    renderLeaveApprovalHistory(leaveApprovalHistoryData);
+  } catch (error) {
+    if (list) {
+      list.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:#E85555;">${escapeHtml(error.message)}</div></div></div>`;
+    }
+    if (historyBody) {
+      historyBody.innerHTML = `<tr><td colspan="7" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+    }
+  }
+}
+
+async function updateLeaveRequestStatus(requestId, action) {
+  const id = String(requestId || '').trim();
+  if (!id) return;
+
+  try {
+    const response = await fetch('/api/admin/leave-requests', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Failed to update leave request status');
+    }
+
+    await Promise.all([loadLeaveApprovals(), loadAuditLogs()]);
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
+async function approveLeaveRequest(requestId) {
+  await updateLeaveRequestStatus(requestId, 'approve');
+}
+
+async function rejectLeaveRequest(requestId) {
+  await updateLeaveRequestStatus(requestId, 'reject');
 }
 
 async function updateApprovalStatus(approvalId, action) {
@@ -957,7 +1252,7 @@ function renderEmployees(employees) {
     const safeName = escapeHtml(employee.full_name);
     const safeId = escapeHtml(employee.employee_id);
     const safeType = escapeHtml(employee.employee_type);
-    const safePosition = escapeHtml(employee.position);
+    const safePosition = escapeHtml(normalizePortalPosition(employee.position, employee.role));
     const safeEmployeeId = escapeHtml(employee.id);
 
     return `
@@ -1035,6 +1330,8 @@ function openAddEmployeeModal() {
   if (!modal || !form) return;
 
   form.reset();
+  if (form.elements.suffix) form.elements.suffix.value = '';
+  syncPositionFieldWithRole(form);
   showEmployeeFeedback('');
   modal.style.display = 'flex';
 }
@@ -1066,12 +1363,17 @@ function openEditEmployeeModal(employeeId) {
   }
 
   form.elements.id.value = currentEditingEmployee.id;
-  form.elements.full_name.value = currentEditingEmployee.full_name || '';
+  const nameParts = splitFullName(currentEditingEmployee.full_name || '');
+  form.elements.first_name.value = nameParts.first_name || '';
+  form.elements.second_name.value = nameParts.second_name || '';
+  form.elements.middle_initial.value = nameParts.middle_initial || '';
+  form.elements.last_name.value = nameParts.last_name || '';
+  form.elements.suffix.value = normalizeSuffix(nameParts.suffix);
   form.elements.role.value = currentEditingEmployee.role || 'employee';
   form.elements.email.value = currentEditingEmployee.email || '';
   form.elements.employee_id.value = currentEditingEmployee.employee_id || '';
   form.elements.employee_type.value = currentEditingEmployee.employee_type || 'Teaching';
-  form.elements.position.value = currentEditingEmployee.position || '';
+  form.elements.position.value = normalizePortalPosition(currentEditingEmployee.position, currentEditingEmployee.role);
   form.elements.employee_status.value = currentEditingEmployee.employee_status || currentEditingEmployee.rfid_status || 'Active';
   form.elements.basic_salary.value = Number(currentEditingEmployee.basic_salary || 0);
   form.elements.password.value = '';
@@ -1095,6 +1397,16 @@ async function toggleArchiveCurrentEmployee() {
   if (!archiveButton) return;
 
   const action = currentEditingEmployee.archived ? 'restore' : 'archive';
+  const actionPrompt = action === 'archive'
+    ? 'archive this employee record'
+    : 'restore this employee record';
+  const detailPrompt = action === 'archive'
+    ? 'Archived records are hidden from active lists and related payroll processing views.'
+    : 'This employee will return to active lists and payroll processing views.';
+
+  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(actionPrompt, detailPrompt))) {
+    return;
+  }
 
   try {
     archiveButton.disabled = true;
@@ -1129,18 +1441,40 @@ async function submitAddEmployee(event) {
   const submitButton = form.querySelector('button[type="submit"]');
   const formData = new FormData(form);
   const payload = {
-    full_name: String(formData.get('full_name') || '').trim(),
+    first_name: String(formData.get('first_name') || '').trim(),
+    second_name: String(formData.get('second_name') || '').trim(),
+    middle_initial: String(formData.get('middle_initial') || '').trim(),
+    last_name: String(formData.get('last_name') || '').trim(),
+    suffix: normalizeSuffix(formData.get('suffix')),
     role: String(formData.get('role') || 'employee').trim().toLowerCase(),
     email: String(formData.get('email') || '').trim(),
-    password: String(formData.get('password') || '').trim(),
+    date_of_birth: String(formData.get('date_of_birth') || '').trim(),
     employee_type: String(formData.get('employee_type') || 'Teaching').trim(),
-    position: String(formData.get('position') || '').trim(),
+    position: normalizePortalPosition(String(formData.get('position') || '').trim(), String(formData.get('role') || 'employee').trim()),
     employee_status: String(formData.get('employee_status') || 'Active').trim(),
     basic_salary: Number(formData.get('basic_salary') || 0),
   };
 
-  if (!payload.full_name || !payload.email || !payload.password) {
-    showEmployeeFeedback('Full name, email, and password are required.', true);
+  payload.full_name = composeFullName(payload);
+  payload.password = buildDefaultPassword(payload.last_name, payload.date_of_birth);
+
+  if (!payload.first_name || !payload.second_name || !payload.middle_initial || !payload.last_name || !payload.email || !payload.date_of_birth) {
+    showEmployeeFeedback('First name, second name, middle initial, last name, email, and date of birth are required.', true);
+    return;
+  }
+
+  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.second_name) || !isValidNamePart(payload.last_name)) {
+    showEmployeeFeedback('Name fields must contain letters and spaces only.', true);
+    return;
+  }
+
+  if (!/^[A-Za-z]$/.test(payload.middle_initial)) {
+    showEmployeeFeedback('Middle initial must contain one letter only.', true);
+    return;
+  }
+
+  if (!payload.password) {
+    showEmployeeFeedback('Date of birth is invalid. Use a valid date.', true);
     return;
   }
 
@@ -1184,19 +1518,35 @@ async function submitEditEmployee(event) {
   const payload = {
     id: String(formData.get('id') || '').trim(),
     action: 'update',
-    full_name: String(formData.get('full_name') || '').trim(),
+    first_name: String(formData.get('first_name') || '').trim(),
+    second_name: String(formData.get('second_name') || '').trim(),
+    middle_initial: String(formData.get('middle_initial') || '').trim(),
+    last_name: String(formData.get('last_name') || '').trim(),
+    suffix: normalizeSuffix(formData.get('suffix')),
     role: String(formData.get('role') || 'employee').trim().toLowerCase(),
     email: String(formData.get('email') || '').trim(),
     employee_id: String(formData.get('employee_id') || '').trim(),
     employee_type: String(formData.get('employee_type') || 'Teaching').trim(),
-    position: String(formData.get('position') || '').trim(),
+    position: normalizePortalPosition(String(formData.get('position') || '').trim(), String(formData.get('role') || 'employee').trim()),
     employee_status: String(formData.get('employee_status') || 'Active').trim(),
     basic_salary: Number(formData.get('basic_salary') || 0),
     password: String(formData.get('password') || '').trim(),
   };
 
-  if (!payload.id || !payload.full_name || !payload.email || !payload.employee_id) {
-    showEditFeedback('ID, full name, email, and employee ID are required.', true);
+  payload.full_name = composeFullName(payload);
+
+  if (!payload.id || !payload.first_name || !payload.second_name || !payload.middle_initial || !payload.last_name || !payload.email || !payload.employee_id) {
+    showEditFeedback('ID, first name, second name, middle initial, last name, email, and employee ID are required.', true);
+    return;
+  }
+
+  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.second_name) || !isValidNamePart(payload.last_name)) {
+    showEditFeedback('Name fields must contain letters and spaces only.', true);
+    return;
+  }
+
+  if (!/^[A-Za-z]$/.test(payload.middle_initial)) {
+    showEditFeedback('Middle initial must contain one letter only.', true);
     return;
   }
 
@@ -1241,6 +1591,8 @@ window.setEmployeeTypeFilter = setEmployeeTypeFilter;
 window.setEmployeeSearch = setEmployeeSearch;
 window.approveChange = approveChange;
 window.rejectChange = rejectChange;
+window.approveLeaveRequest = approveLeaveRequest;
+window.rejectLeaveRequest = rejectLeaveRequest;
 window.exportSummaryReportsCsv = exportSummaryReportsCsv;
 window.submitRfidAttendanceScan = submitRfidAttendanceScan;
 window.exportAttendanceCsv = exportAttendanceCsv;
@@ -1251,12 +1603,24 @@ window.exportAuditLogsCsv = exportAuditLogsCsv;
 
 /* ── INIT ── */
 document.addEventListener('DOMContentLoaded', () => {
-  // Start on dashboard when admin logs in
-  // Called from app.js login() via adminNav
-  loadDashboard();
-  loadAttendanceData();
+  const addForm = document.getElementById('add-employee-form');
+  const editForm = document.getElementById('edit-employee-form');
+
+  if (addForm?.elements?.role) {
+    addForm.elements.role.addEventListener('change', () => syncPositionFieldWithRole(addForm));
+  }
+
+  if (editForm?.elements?.role) {
+    editForm.elements.role.addEventListener('change', () => syncPositionFieldWithRole(editForm));
+  }
+
+  const savedPage = window.getPersistedRolePageState
+    ? window.getPersistedRolePageState('admin')
+    : '';
+  const initialPage = ADMIN_PAGES[savedPage] ? savedPage : 'adm-dashboard';
+  const initialNav = getAdminNavByPageId(initialPage);
+
+  adminNav(initialPage, initialNav);
   loadSalaryApprovals();
-  loadSummaryReports();
-  loadAuditLogs();
-  loadEmployees();
+  loadLeaveApprovals();
 });

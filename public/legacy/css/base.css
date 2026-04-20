@@ -110,6 +110,55 @@ h3 { font-size: 15px; font-weight: 600; }
 .btn-green { background: var(--green-s); border: 1px solid var(--green); color: var(--green); }
 .btn-green:hover { background: var(--green); color: #fff; }
 
+/* ── CONFIRM DIALOG ── */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 14px;
+}
+
+.confirm-backdrop.active {
+  display: flex;
+}
+
+.confirm-card {
+  width: min(560px, 100%);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  padding: 18px 20px;
+  box-shadow: 0 20px 40px color-mix(in srgb, #000 28%, transparent);
+}
+
+.confirm-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--amber);
+  margin-bottom: 8px;
+}
+
+.confirm-body {
+  color: var(--t1);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.confirm-body p + p {
+  margin-top: 7px;
+}
+
+.confirm-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 /* ── FLOATING SCROLL CONTROLS ── */
 /* ── TABLE ── */
 .tw {
@@ -260,6 +309,7 @@ select.fc { cursor: pointer; }
   border-radius: var(--r);
   padding: 11px 16px;
   font-size: 12px;
+  font-weight: 600;
   display: flex;
   gap: 8px;
   align-items: flex-start;

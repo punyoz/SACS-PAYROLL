@@ -19,6 +19,7 @@
   align-items: center;
   gap: 10px;
   font-size: 12px;
+  font-weight: 700;
   color: var(--amber);
   margin-bottom: 16px;
   line-height: 1.5;
@@ -32,6 +33,28 @@
   margin-bottom: 14px;
 }
 .submit-note strong { color: var(--amber); }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  #s-accountant.active #ac-payslips .card,
+  #s-accountant.active #ac-payslips .card * {
+    visibility: visible !important;
+  }
+
+  #s-accountant.active #ac-payslips .card {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    border-width: 0;
+    border-radius: 0;
+    margin: 0;
+    padding: 24px;
+    background: #ffffff;
+  }
+}
 
 /* ── PENDING SUBMISSION ITEM ── */
 .pending-item {

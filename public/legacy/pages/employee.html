@@ -9,8 +9,13 @@
   <div class="emp-topbar">
     <div class="et-logo">B</div>
     <div class="et-brand">BNCS Payroll</div>
-    <div class="et-name">Welcome, Maria Reyes</div>
+    <div class="et-name" id="emp-top-name">Welcome, Employee</div>
+    <div class="tb-search emp-top-search">
+      <span class="search-ic">⌕</span>
+      <input class="global-search-input" type="text" placeholder="Search...">
+    </div>
     <span class="role-tag rt-emp">Employee</span>
+    <button class="nb global-notification-trigger" title="Notifications" type="button">🔔<div class="nd"></div></button>
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme" style="margin-left:8px;">☀️</button>
     <button class="xb" onclick="logout()" style="margin-left:4px;">Sign out</button>
   </div>
@@ -20,10 +25,10 @@
 
     <!-- HERO -->
     <div class="emp-hero">
-      <div class="emp-avatar">MR</div>
+      <div class="emp-avatar" id="emp-avatar">EM</div>
       <div class="emp-hello">
-        <h2>Good morning, Maria 👋</h2>
-        <p>Grade III Adviser · Teaching Staff · BNCS-001</p>
+        <h2 id="emp-hello-title">Good morning, Employee 👋</h2>
+        <p id="emp-hello-meta">Employee · Teaching Staff · N/A</p>
       </div>
       <div class="emp-stat-row">
         <div class="emp-stat">
@@ -117,7 +122,43 @@
           </div>
         </div>
 
-        <button class="btn btn-outline" style="width:100%;margin-top:10px;padding:10px;" onclick="printPayslip()">🖨 Print Payslip</button>
+        <div class="card" style="margin-top:10px;padding:14px 14px 12px;">
+          <div class="stitle" style="margin-bottom:10px;">Leave Request</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div class="fg" style="margin:0;">
+              <label>Leave Type</label>
+              <select id="emp-leave-type" class="fc">
+                <option value="">Select leave type</option>
+                <option value="Sick Leave">Sick Leave</option>
+                <option value="Vacation Leave">Vacation Leave</option>
+                <option value="Emergency Leave">Emergency Leave</option>
+                <option value="Maternity Leave">Maternity Leave</option>
+                <option value="Paternity Leave">Paternity Leave</option>
+              </select>
+            </div>
+            <div class="fg" style="margin:0;">
+              <label>Start Date</label>
+              <input id="emp-leave-start" class="fc" type="date">
+            </div>
+            <div class="fg" style="margin:0;">
+              <label>End Date</label>
+              <input id="emp-leave-end" class="fc" type="date">
+            </div>
+            <div class="fg" style="margin:0;grid-column:1/-1;">
+              <label>Reason</label>
+              <textarea id="emp-leave-reason" class="fc" rows="3" placeholder="State the reason for your leave request"></textarea>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;" onclick="submitLeaveRequest()">Submit Leave Request</button>
+          <p id="emp-leave-feedback" class="adm-feedback" style="margin-top:8px;"></p>
+        </div>
+
+        <div class="card" style="margin-top:10px;padding:14px;">
+          <div class="sh" style="margin-bottom:8px;"><span class="stitle">My Leave Requests</span></div>
+          <div id="emp-leave-list" style="display:grid;gap:8px;">
+            <div style="font-size:12px;color:var(--t3);">No leave requests submitted yet.</div>
+          </div>
+        </div>
 
         <!-- Past payslips -->
         <div style="margin-top:18px;">

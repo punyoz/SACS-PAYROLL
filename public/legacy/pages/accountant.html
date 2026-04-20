@@ -7,13 +7,13 @@
 
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
-    <div class="sb-brand">
+    <button class="sb-brand sb-refresh-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
       <div class="bi">B</div>
       <div class="bt">
         <div class="bn">BNCS Payroll</div>
         <div class="bs">Accountant</div>
       </div>
-    </div>
+    </button>
 
     <div class="sb-sec">Payroll</div>
     <div class="ni active" onclick="acctNav('ac-process',this)">
@@ -45,7 +45,7 @@
     <div class="sb-foot">
       <div class="uc">
         <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">AC</div>
-        <div><div class="un">Accountant</div><div class="ur">Payroll Staff</div></div>
+        <div><div class="un" id="ac-user-name">Accountant</div><div class="ur" id="ac-user-role">Payroll Staff</div></div>
         <button class="xb" onclick="logout()">Exit</button>
       </div>
     </div>
@@ -64,10 +64,10 @@
       <span class="role-tag rt-acct">Accountant</span>
       <div class="tb-search">
         <span class="search-ic">⌕</span>
-        <input type="text" placeholder="Search employees…">
+        <input class="global-search-input" type="text" placeholder="Search employees…">
       </div>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
-      <div class="nb">🔔<div class="nd"></div></div>
+      <button class="nb global-notification-trigger" title="Notifications" type="button">🔔<div class="nd"></div></button>
     </div>
 
     <!-- ──────────────────────────────
@@ -135,9 +135,9 @@
           </div>
           <div class="card">
             <div class="submit-note">
-              <strong>Approval required.</strong> This draft will be locked and sent to the Administrator. Salary changes cannot be applied to the database without admin approval.
+              <strong>Approval required.</strong> This draft will be sent to the Administrator and placed in the admin approval process. Salary changes cannot be applied to the database without admin approval.
             </div>
-            <button id="ac-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="submitForApproval()">Submit for Admin Approval →</button>
+            <button id="ac-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="submitForApproval()">Send for Admin Approval →</button>
             <button id="ac-save-draft-btn" class="btn btn-outline" style="width:100%;padding:10px;font-size:13px;margin-top:8px;" onclick="savePayrollDraft()">Save as Draft</button>
             <p id="ac-process-feedback" class="adm-feedback" style="margin-top:10px;"></p>
           </div>
@@ -167,7 +167,7 @@
          PAGE: Payslips
     ────────────────────────────── -->
     <div class="page" id="ac-payslips">
-      <div class="ph"><h2>Payslips</h2><p>Generate and print payslips for employees</p></div>
+      <div class="ph"><h2>Pay Record</h2><p>Generate and print pay records for employees</p></div>
       <div style="display:flex;gap:10px;align-items:center;margin-bottom:20px;">
         <select class="fc" style="max-width:270px;" id="ac-payslip-select"><option value="">No payslips available</option></select>
         <button class="btn btn-primary" id="ac-generate-payslip-btn" onclick="generatePayslip()">Generate</button>
