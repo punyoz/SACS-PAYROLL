@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "id": "a36f8e2a-cc98-43bc-abe9-4ae674299910",
+      "employee_id": "BNCS-001",
+      "employee_name": "Ehd Lemuel A Refuerzo",
+      "position": "Employee",
+      "leave_type": "Sick Leave",
+      "start_date": "2026-04-27",
+      "end_date": "2026-04-28",
+      "reason": "May sakit",
+      "status": "pending",
+      "submitted_at": "2026-04-22T03:16:57.290Z",
+      "decided_at": null,
+      "updated_at": "2026-04-22T03:16:57.290Z"
+    }
+  ]
+}
