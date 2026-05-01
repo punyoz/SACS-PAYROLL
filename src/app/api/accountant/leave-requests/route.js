@@ -17,7 +17,7 @@ function normalizeLeaveRequest(row) {
     end_date: normalizeText(row.end_date),
     reason: normalizeText(row.reason, "No reason provided."),
     proof_url: normalizeText(row.proof_url, ""),
-    status: normalizeText(row.status, "pending_admin").toLowerCase(),
+    status: normalizeText(row.status, "pending_accountant").toLowerCase(),
     submitted_at: row.submitted_at || new Date().toISOString(),
     decided_at: row.decided_at || null,
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
@@ -54,11 +54,11 @@ async function writeLeaveRequests(requests) {
 export async function GET(request) {
   try {
     const url = new URL(request.url);
-    const status = normalizeText(url.searchParams.get("status"), "pending_admin").toLowerCase();
+    const status = normalizeText(url.searchParams.get("status"), "pending_accountant").toLowerCase();
 
     const allRequests = await readLeaveRequests();
-    const pendingRequests = allRequests.filter((row) => row.status === "pending_admin");
-    const historyRequests = allRequests.filter((row) => row.status !== "pending_admin" && row.status !== "pending_accountant");
+    const pendingRequests = allRequests.filter((row) => row.status === "pending_accountant");
+    const historyRequests = allRequests.filter((row) => row.status !== "pending_accountant");
 
     let requests;
     if (status === "all") {
@@ -101,7 +101,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     }
 
-    if (requests[index].status !== "pending_admin") {
+    if (requests[index].status !== "pending_accountant") {
       return NextResponse.json(
         { error: `Cannot ${action} a leave request that is ${requests[index].status}.` },
         { status: 400 }
@@ -109,7 +109,7 @@ export async function PATCH(request) {
     }
 
     const nowIso = new Date().toISOString();
-    const nextStatus = action === "approve" ? "approved" : "rejected";
+    const nextStatus = action === "approve" ? "pending_admin" : "rejected";
 
     requests[index] = normalizeLeaveRequest({
       ...requests[index],

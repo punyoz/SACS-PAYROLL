@@ -2,7 +2,7 @@
      pages/login.html — Login screen
      Edit role buttons, branding, input fields
      ═══════════════════════════════════════ -->
-<div class="screen active" id="s-login">
+<div class="screen" id="s-login">
   <div class="lc">
 
     <!-- BRAND -->
@@ -15,28 +15,12 @@
     </div>
 
     <div class="l-title">Sign in</div>
-    <div class="l-sub">Choose your role and enter your credentials</div>
-
-    <!-- ROLE SELECTOR -->
-    <div style="margin-bottom:22px;">
-      <div class="l-field-label">I am a</div>
-      <div class="role-grid">
-        <button class="rb sel" onclick="selRole(this,'admin')">
-          <span class="rb-icon">🏫</span>Administrator
-        </button>
-        <button class="rb" onclick="selRole(this,'accountant')">
-          <span class="rb-icon">🧾</span>Accountant
-        </button>
-        <button class="rb" onclick="selRole(this,'employee')">
-          <span class="rb-icon">👤</span>Employee
-        </button>
-      </div>
-    </div>
+    <div class="l-sub">Enter your credentials</div>
 
     <!-- CREDENTIALS -->
     <div class="fl">
-      <label id="login-identity-label">Username</label>
-      <input id="login-identity-input" class="fi" type="text" placeholder="Enter admin username" autocomplete="username">
+      <label id="login-identity-label">Username or Email</label>
+      <input id="login-identity-input" class="fi" type="text" placeholder="Enter your username or email" autocomplete="username">
     </div>
     <div class="fl">
       <label>Password</label>

@@ -22,28 +22,24 @@ function normalizePositionForRole(positionInput, roleInput) {
   return "Employee";
 }
 
-function resolveLoginEmail(roleInput, identityInput) {
-  const role = normalizeRole(roleInput);
+function resolveLoginEmail(identityInput) {
   const identity = normalizeText(identityInput);
 
   if (!identity) {
     return "";
   }
 
-  if (role === "admin") {
-    const lowered = identity.toLowerCase();
-    if (lowered.includes("@")) {
-      return normalizeRoleEmail(identity, role);
-    }
-
-    if (lowered === ADMIN_USERNAME) {
-      return normalizeRoleEmail(ADMIN_EMAIL, role);
-    }
-
-    return "";
+  const lowered = identity.toLowerCase();
+  
+  if (lowered === ADMIN_USERNAME) {
+    return normalizeRoleEmail(ADMIN_EMAIL, "admin");
   }
 
-  return normalizeRoleEmail(identity, role);
+  if (lowered.includes("@")) {
+    return normalizeRoleEmail(identity, "employee");
+  }
+
+  return "";
 }
 
 export async function POST(request) {
@@ -55,19 +51,14 @@ export async function POST(request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const selectedRole = body?.role;
-  const identityInput = body?.employeeId;
+  const identityInput = body?.employeeId || body?.username;
   const password = body?.password;
-
-  if (!selectedRole || !roleRoutes[selectedRole]) {
-    return NextResponse.json({ error: "Invalid role." }, { status: 400 });
-  }
 
   if (!identityInput || !password) {
     return NextResponse.json({ error: "Login identity and password are required." }, { status: 400 });
   }
 
-  const resolvedEmail = resolveLoginEmail(selectedRole, identityInput);
+  const resolvedEmail = resolveLoginEmail(identityInput);
   if (!resolvedEmail) {
     return NextResponse.json({ error: "Use a valid username or email to sign in." }, { status: 400 });
   }
@@ -87,11 +78,11 @@ export async function POST(request) {
 
   const actualRole = data.user.user_metadata?.role;
 
-  if (!actualRole || normalizeRole(actualRole) !== normalizeRole(selectedRole)) {
+  if (!actualRole || !roleRoutes[normalizeRole(actualRole)]) {
     await supabase.auth.signOut();
     return NextResponse.json(
       {
-        error: `Role mismatch. Account role is '${actualRole || "unknown"}', selected '${selectedRole}'.`,
+        error: `Could not determine valid role for account. Role is '${actualRole || "unknown"}'.`,
       },
       { status: 403 },
     );
@@ -102,13 +93,14 @@ export async function POST(request) {
   const metadata = data.user.user_metadata || {};
 
   return NextResponse.json({
-    redirectTo: roleRoutes[selectedRole],
+    redirectTo: roleRoutes[normalizeRole(actualRole)],
+    role: normalizeRole(actualRole),
     profile: {
-      role: normalizeRole(metadata.role || selectedRole),
+      role: normalizeRole(actualRole),
       full_name: normalizeText(metadata.full_name),
       email: normalizeText(data.user.email),
       employee_id: normalizeText(metadata.employee_id),
-      position: normalizePositionForRole(metadata.position, metadata.role || selectedRole),
+      position: normalizePositionForRole(metadata.position, actualRole),
     },
   });
 }

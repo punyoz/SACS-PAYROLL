@@ -30,7 +30,12 @@ html, body {
   color: var(--t1);
   overflow-x: hidden;
   overflow-y: auto;
-  transition: background 0.25s, color 0.25s;
+}
+
+body.theme-transitioning,
+body.theme-transitioning .card,
+body.theme-transitioning .screen {
+  transition: background 0.25s, color 0.25s, border-color 0.25s;
 }
 
 /* ── SCREENS ── */
@@ -53,7 +58,6 @@ h3 { font-size: 15px; font-weight: 600; }
   border: 1px solid var(--border);
   border-radius: var(--rl);
   padding: 20px 22px;
-  transition: background 0.25s, border-color 0.25s;
 }
 
 /* ── STAT GRIDS ── */
@@ -85,7 +89,7 @@ h3 { font-size: 15px; font-weight: 600; }
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s;
+  
   border: none;
   white-space: nowrap;
 }
@@ -127,36 +131,65 @@ h3 { font-size: 15px; font-weight: 600; }
 }
 
 .confirm-card {
-  width: min(560px, 100%);
+  width: min(460px, 95%);
+  padding: 24px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: var(--rl);
-  padding: 18px 20px;
-  box-shadow: 0 20px 40px color-mix(in srgb, #000 28%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, #000 20%, transparent);
+  animation: modal-enter 0.2s ease-out;
+}
+
+@keyframes modal-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.confirm-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--red-s);
+  color: var(--red);
+  flex-shrink: 0;
 }
 
 .confirm-title {
-  font-size: 16px;
+  font-size: 1.1rem;
   font-weight: 700;
-  color: var(--amber);
-  margin-bottom: 8px;
+  color: var(--t1);
+  margin: 0;
+  line-height: 1.2;
 }
 
 .confirm-body {
-  color: var(--t1);
+  color: var(--t2);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.confirm-body p {
+  margin: 0;
 }
 
 .confirm-body p + p {
-  margin-top: 7px;
+  margin-top: 10px;
 }
 
 .confirm-actions {
-  margin-top: 14px;
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
 }
 
 /* ── FLOATING SCROLL CONTROLS ── */
@@ -167,7 +200,7 @@ h3 { font-size: 15px; font-weight: 600; }
   border-radius: var(--rl);
   overflow: hidden;
   margin-bottom: 22px;
-  transition: background 0.25s, border-color 0.25s;
+  
 }
 table  { width: 100%; border-collapse: collapse; }
 thead  { background: var(--bg3); }
@@ -185,7 +218,7 @@ td {
   font-size: 13px;
   color: var(--t2);
   border-top: 1px solid var(--border);
-  transition: background 0.15s;
+  
 }
 tr:hover td { background: var(--bg3); color: var(--t1); }
 td.nm { font-weight: 500; color: var(--t1); }
@@ -220,7 +253,7 @@ td.mn { font-family: var(--mono); color: var(--t1); }
   font-weight: 500;
   color: var(--t2);
   cursor: pointer;
-  transition: all 0.15s;
+  
 }
 .chip.active { background: var(--amber-s); border-color: var(--amber); color: var(--amber); }
 .chip:hover:not(.active) { color: var(--t1); border-color: var(--t3); }
@@ -398,7 +431,7 @@ select.fc { cursor: pointer; }
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   font-size: 16px;
-  transition: all 0.15s;
+  
   flex-shrink: 0;
 }
 .theme-toggle:hover { border-color: var(--amber); color: var(--amber); }
@@ -556,7 +589,7 @@ select.fc { cursor: pointer; }
   font-size: 18px;
   padding: 14px 16px;
   outline: none;
-  transition: border-color .2s, box-shadow .2s;
+  
 }
 
 .fi:focus {

@@ -21,11 +21,12 @@ function applyTheme(theme) {
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  document.body.classList.add('theme-transitioning');
   applyTheme(current === 'dark' ? 'light' : 'dark');
+  setTimeout(() => document.body.classList.remove('theme-transitioning'), 300);
 }
 
-/* ── ROLE SELECTION (login) ── */
-let currentRole = 'admin';
+/* ── AUTH CONSTANTS ── */
 const AUTH_CONTEXT_KEY = 'bncs-auth-context';
 const ROLE_PAGE_STATE_PREFIX = 'bncs-active-page-';
 
@@ -120,12 +121,21 @@ function ensureConfirmDialog() {
   backdrop.className = 'confirm-backdrop';
   backdrop.setAttribute('aria-hidden', 'true');
   backdrop.innerHTML = `
-    <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-      <div class="confirm-title" id="confirm-title">Warning</div>
+    <div class="confirm-card card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="confirm-header">
+        <div class="confirm-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+        </div>
+        <div class="confirm-title" id="confirm-title">Warning</div>
+      </div>
       <div class="confirm-body" id="confirm-body"></div>
       <div class="confirm-actions">
         <button type="button" class="btn btn-outline" id="confirm-cancel-btn">Cancel</button>
-        <button type="button" class="btn btn-primary" id="confirm-ok-btn">Continue</button>
+        <button type="button" class="btn btn-primary btn-red" id="confirm-ok-btn">Continue</button>
       </div>
     </div>
   `;
@@ -147,9 +157,8 @@ async function confirmDestructiveAction(actionLabel, detailText) {
   }
 
   body.innerHTML = `
-    <p><strong>WARNING:</strong> You are about to ${action}.</p>
+    <p>You are about to <strong style="color:var(--t1);">${action}</strong>.</p>
     ${detail ? `<p>${detail}</p>` : ''}
-    <p><strong>This action cannot be undone easily.</strong></p>
   `;
 
   backdrop.classList.add('active');
@@ -408,6 +417,31 @@ function closeNotificationPanel() {
 }
 
 function refreshCurrentPortal() {
+  if (typeof window.getPersistedRolePageState === 'function') {
+    const currentRole = new URLSearchParams(window.location.search).get('role');
+    if (currentRole) {
+      const pageId = window.getPersistedRolePageState(currentRole);
+      
+      if (currentRole === 'admin' && typeof adminNav === 'function' && pageId) {
+        const navEl = document.querySelector(`#s-admin .ni[onclick*="${pageId}"]`);
+        adminNav(pageId, navEl);
+        return;
+      }
+      if (currentRole === 'accountant' && typeof acctNav === 'function' && pageId) {
+        const navEl = document.querySelector(`#s-accountant .ni[onclick*="${pageId}"]`);
+        acctNav(pageId, navEl);
+        return;
+      }
+      if (currentRole === 'employee') {
+        if (typeof applyEmployeeIdentity === 'function') applyEmployeeIdentity();
+        if (typeof renderPayslipOptions === 'function') renderPayslipOptions();
+        if (typeof loadMyLeaveRequests === 'function') loadMyLeaveRequests();
+        return;
+      }
+    }
+  }
+
+  // Fallback
   window.location.reload();
 }
 
@@ -527,31 +561,6 @@ function handleGlobalMouseWheel(event) {
   if (event.ctrlKey) return;
 }
 
-function updateLoginIdentityField() {
-  const label = document.getElementById('login-identity-label');
-  const input = document.getElementById('login-identity-input');
-  const hint = document.getElementById('login-identity-hint');
-  if (!label || !input) return;
-
-  if (currentRole === 'admin') {
-    label.textContent = 'Username';
-    input.placeholder = 'Enter admin username';
-    if (hint) hint.textContent = '';
-    return;
-  }
-
-  label.textContent = 'Email';
-  input.placeholder = 'e.g. accountant@gmail.com';
-  if (hint) hint.textContent = '';
-}
-
-function selRole(btn, role) {
-  document.querySelectorAll('.rb').forEach(b => b.classList.remove('sel'));
-  btn.classList.add('sel');
-  currentRole = role;
-  updateLoginIdentityField();
-}
-
 /* ── LOGIN ── */
 async function login() {
   const fields = document.querySelectorAll('#s-login .fi');
@@ -559,15 +568,14 @@ async function login() {
   const password = fields[1]?.value?.trim();
 
   if (!usernameInput || !password) {
-    const identityName = currentRole === 'admin' ? 'username' : 'email';
-    window.alert(`Enter your ${identityName} and password to sign in.`);
+    window.alert(`Enter your username or email and password to sign in.`);
     return;
   }
 
   const response = await fetch('/api/legacy-auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: currentRole, employeeId: usernameInput, password }),
+    body: JSON.stringify({ employeeId: usernameInput, password }),
   });
 
   const result = await response.json().catch(() => ({}));
@@ -577,7 +585,8 @@ async function login() {
     return;
   }
 
-  saveAuthContext(result, currentRole, usernameInput);
+  // result.role is sent from our updated API
+  saveAuthContext(result, result.role || 'employee', usernameInput);
 
   window.top.location.href = result.redirectTo;
 }
@@ -629,7 +638,7 @@ function initApp() {
   if (role) {
     showRoleScreen(role);
   } else {
-    updateLoginIdentityField();
+    showRoleScreen(''); // Show login screen
   }
 
   // Rebind listeners whenever role/page classes change.

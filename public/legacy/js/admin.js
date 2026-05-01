@@ -108,6 +108,9 @@ async function approveChange(approvalId) {
 }
 
 async function rejectChange(approvalId) {
+  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction('Reject Salary Change', 'Are you sure you want to reject this salary update?'))) {
+    return;
+  }
   await updateApprovalStatus(approvalId, 'reject');
 }
 
@@ -1170,6 +1173,9 @@ async function approveLeaveRequest(requestId) {
 }
 
 async function rejectLeaveRequest(requestId) {
+  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction('Reject Leave Request', 'Are you sure you want to reject this leave request?'))) {
+    return;
+  }
   await updateLeaveRequestStatus(requestId, 'reject');
 }
 

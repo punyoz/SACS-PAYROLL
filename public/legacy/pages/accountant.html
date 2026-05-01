@@ -28,6 +28,12 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       Payslips
     </div>
+    
+    <div class="sb-sec">Approvals</div>
+    <div class="ni" onclick="acctNav('ac-leaves',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M1 8h14M8 1v14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/></svg>
+      Leave Approvals
+    </div>
 
     <div class="sb-sec">Reference</div>
     <div class="ni" onclick="acctNav('ac-attendance',this)">
@@ -240,6 +246,64 @@
         <div class="pending-locked" id="ac-pending-locked">
           Changes are locked until Administrator approves or rejects. You will be notified of the decision.
         </div>
+      </div>
+    </div>
+
+    <!-- ── LEAVES PAGE ── -->
+    <div id="ac-leaves" class="page">
+      <div class="h">
+        <h1>Leave Approvals</h1>
+        <p>Review leave requests submitted by employees before sending them to the administrator. Warning: Rejecting a leave cannot be undone.</p>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+          <h2 style="font-size:15px;margin:0;font-weight:600;">Pending Requests</h2>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="loadAccountantLeaveRequests()">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Employee / Role</th>
+                <th>Type</th>
+                <th>Date Range</th>
+                <th>Reason</th>
+                <th>Proof</th>
+                <th style="text-align:right;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="al-pending-tbody">
+              <!-- JS loads pending_accountant leaves here -->
+            </tbody>
+          </table>
+        </div>
+        <p id="al-pending-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:30px 0;display:none;">No pending leave requests.</p>
+        <p id="al-pending-error" class="adm-error"></p>
+      </div>
+      
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+          <h2 style="font-size:15px;margin:0;font-weight:600;">Accountant Approval History</h2>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="loadAccountantLeaveHistory()">Load History</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>Date Range</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="al-history-tbody">
+              <!-- JS loads non-pending leaves here -->
+            </tbody>
+          </table>
+        </div>
+        <p id="al-history-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:30px 0;display:none;">No history available.</p>
+        <p id="al-history-error" class="adm-error"></p>
       </div>
     </div>
 

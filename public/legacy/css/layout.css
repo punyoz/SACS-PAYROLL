@@ -21,7 +21,7 @@
   flex-shrink: 0;
   height: 100%;
   min-height: 100vh;
-  transition: background 0.25s, border-color 0.25s;
+  
 }
 
 .sb-brand {
@@ -76,7 +76,7 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--t2);
-  transition: all 0.15s;
+  
   position: relative;
   user-select: none;
 }
@@ -115,7 +115,7 @@
   padding: 8px;
   border-radius: 8px;
   cursor: pointer;
-  transition: background 0.15s;
+  
 }
 .uc:hover { background: var(--bg3); }
 .un { font-size: 12px; font-weight: 600; color: var(--t1); }
@@ -129,7 +129,7 @@
   padding: 4px 8px;
   border-radius: 6px;
   font-family: var(--sans);
-  transition: all 0.15s;
+  
 }
 .xb:hover { color: var(--red); background: var(--red-s); }
 
@@ -151,7 +151,7 @@
   gap: 12px;
   flex-shrink: 0;
   background: var(--bg);
-  transition: background 0.25s, border-color 0.25s;
+  
 }
 .tb-title { font-size: 15px; font-weight: 600; color: var(--t1); }
 .tb-sub   { font-size: 11px; color: var(--t3); margin-top: 1px; }
@@ -164,7 +164,7 @@
   border-radius: 8px;
   padding: 7px 12px;
   width: 200px;
-  transition: background 0.25s, border-color 0.25s;
+  
 }
 .tb-search.search-hit { border-color: var(--green); }
 .tb-search.search-miss { border-color: var(--red); }

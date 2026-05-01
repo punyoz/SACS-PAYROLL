@@ -16,7 +16,8 @@ function normalizeLeaveRequest(row) {
     start_date: normalizeText(row.start_date),
     end_date: normalizeText(row.end_date),
     reason: normalizeText(row.reason, "No reason provided."),
-    status: normalizeText(row.status, "pending").toLowerCase(),
+    proof_url: normalizeText(row.proof_url, ""),
+    status: normalizeText(row.status, "pending_accountant").toLowerCase(),
     submitted_at: row.submitted_at || new Date().toISOString(),
     decided_at: row.decided_at || null,
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
@@ -84,6 +85,7 @@ export async function POST(request) {
     const startDate = normalizeText(body.start_date);
     const endDate = normalizeText(body.end_date);
     const reason = normalizeText(body.reason);
+    const proofUrl = body.proof_url || "";
 
     if (!employeeName || !leaveType || !startDate || !endDate || !reason) {
       return NextResponse.json(
@@ -103,8 +105,10 @@ export async function POST(request) {
         : row.employee_name.toLowerCase() === employeeName.toLowerCase();
 
       if (!isSameEmployee) return false;
-      if (row.status !== "pending") return false;
-      return row.leave_type === leaveType && row.start_date === startDate && row.end_date === endDate;
+      if (row.status === "pending_accountant" || row.status === "pending_admin") {
+        return row.leave_type === leaveType && row.start_date === startDate && row.end_date === endDate;
+      }
+      return false;
     });
 
     if (hasDuplicatePending) {
@@ -124,7 +128,8 @@ export async function POST(request) {
       start_date: startDate,
       end_date: endDate,
       reason,
-      status: "pending",
+      proof_url: proofUrl,
+      status: "pending_accountant",
       submitted_at: nowIso,
       decided_at: null,
       updated_at: nowIso,

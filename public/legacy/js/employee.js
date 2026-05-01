@@ -147,6 +147,7 @@ async function submitLeaveRequest() {
   const startDate = String(document.getElementById('emp-leave-start')?.value || '').trim();
   const endDate = String(document.getElementById('emp-leave-end')?.value || '').trim();
   const reason = String(document.getElementById('emp-leave-reason')?.value || '').trim();
+  const proofFile = document.getElementById('emp-leave-proof')?.files?.[0];
 
   if (!leaveType || !startDate || !endDate || !reason) {
     showLeaveFeedback('Leave type, date range, and reason are required.', true);
@@ -166,6 +167,17 @@ async function submitLeaveRequest() {
   try {
     showLeaveFeedback('Submitting leave request...', false);
 
+    let proofUrl = '';
+    if (proofFile) {
+      if (proofFile.size > 2 * 1024 * 1024) throw new Error('Proof file must be less than 2MB.');
+      proofUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('Failed to read file.'));
+        reader.readAsDataURL(proofFile);
+      });
+    }
+
     const response = await fetch('/api/employee/leave-requests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -177,6 +189,7 @@ async function submitLeaveRequest() {
         start_date: startDate,
         end_date: endDate,
         reason,
+        proof_url: proofUrl,
       }),
     });
 
@@ -189,6 +202,9 @@ async function submitLeaveRequest() {
     document.getElementById('emp-leave-start').value = '';
     document.getElementById('emp-leave-end').value = '';
     document.getElementById('emp-leave-reason').value = '';
+    if (document.getElementById('emp-leave-proof')) {
+      document.getElementById('emp-leave-proof').value = '';
+    }
 
     showLeaveFeedback('Leave request submitted for admin approval.', false);
     await loadMyLeaveRequests();

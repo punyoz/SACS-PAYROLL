@@ -7,8 +7,10 @@
 
   <!-- SLIM TOPBAR -->
   <div class="emp-topbar">
-    <div class="et-logo">B</div>
-    <div class="et-brand">BNCS Payroll</div>
+    <div style="display:flex;align-items:center;cursor:pointer;background:none;border:none;padding:0;" onclick="refreshCurrentPortal()" title="Refresh page">
+      <div class="et-logo">B</div>
+      <div class="et-brand">BNCS Payroll</div>
+    </div>
     <div class="et-name" id="emp-top-name">Welcome, Employee</div>
     <div class="tb-search emp-top-search">
       <span class="search-ic">⌕</span>
@@ -147,6 +149,10 @@
             <div class="fg" style="margin:0;grid-column:1/-1;">
               <label>Reason</label>
               <textarea id="emp-leave-reason" class="fc" rows="3" placeholder="State the reason for your leave request"></textarea>
+            </div>
+            <div class="fg" style="margin:0;grid-column:1/-1;">
+              <label>Proof Document (Optional)</label>
+              <input id="emp-leave-proof" class="fc" type="file" accept=".pdf,.png,.jpg,.jpeg">
             </div>
           </div>
           <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;" onclick="submitLeaveRequest()">Submit Leave Request</button>

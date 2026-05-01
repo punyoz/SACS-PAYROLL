@@ -14,6 +14,7 @@ const ACCT_PAGES = {
   'ac-payslips':   'Payslips',
   'ac-attendance': 'View Attendance',
   'ac-pending':    'Pending Submissions',
+  'ac-leaves':     'Leave Approvals',
 };
 
 const acctState = {
@@ -164,6 +165,12 @@ function acctNav(pageId, navEl) {
 
   if (window.persistRolePageState) {
     window.persistRolePageState('accountant', pageId);
+  }
+
+  // Auto-loaders per page
+  if (pageId === 'ac-leaves') {
+    loadAccountantLeaveRequests();
+    loadAccountantLeaveHistory();
   }
 }
 
@@ -702,6 +709,182 @@ async function withdrawSubmission(entryId) {
   }
 }
 
+/* ── LEAVE APPROVALS ── */
+async function loadAccountantLeaveRequests() {
+  const tbody = document.getElementById('al-pending-tbody');
+  const emptyMsg = document.getElementById('al-pending-empty');
+  const errorMsg = document.getElementById('al-pending-error');
+  if (!tbody || !emptyMsg || !errorMsg) return;
+
+  try {
+    errorMsg.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--t3);font-size:13px;">Loading pending requests...</td></tr>';
+    
+    const res = await fetch('/api/accountant/leave-requests?status=pending_accountant');
+    const data = await res.json();
+    
+    if (!res.ok) throw new Error(data.error || 'Failed to load leave requests');
+    
+    const requests = data.requests || [];
+    
+    if (requests.length === 0) {
+      tbody.innerHTML = '';
+      emptyMsg.style.display = 'block';
+    } else {
+      emptyMsg.style.display = 'none';
+    const tdStr = requests.map(req => `
+        <tr>
+          <td>
+            <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
+            <div style="font-size:12px;color:var(--t3);">${escapeHtml(req.position)}</div>
+          </td>
+          <td><span class="badge bt2">${escapeHtml(req.leave_type)}</span></td>
+          <td style="font-size:13px;">
+            <div>${formatDateOnly(req.start_date)}</div>
+            <div style="color:var(--t3);">to ${formatDateOnly(req.end_date)}</div>
+          </td>
+          <td style="font-size:13px;max-width:200px;" class="truncate" title="${escapeHtml(req.reason)}">
+            ${escapeHtml(req.reason)}
+          </td>
+          <td>
+            ${req.proof_url ? 
+              `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="window.open('${escapeHtml(req.proof_url)}', '_blank')">View Proof</button>` : 
+              `<span style="color:var(--t3);font-size:12px;">No proof</span>`
+            }
+          </td>
+          <td style="text-align:right;">
+            <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${req.id}', 'approve')">Approve</button>
+            <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${req.id}', 'reject')">Reject</button>
+          </td>
+        </tr>
+      `).join('');
+      tbody.innerHTML = tdStr;
+    }
+  } catch (err) {
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'none';
+    errorMsg.textContent = err.message;
+  }
+}
+
+async function loadAccountantLeaveHistory() {
+  const tbody = document.getElementById('al-history-tbody');
+  const emptyMsg = document.getElementById('al-history-empty');
+  const errorMsg = document.getElementById('al-history-error');
+  if (!tbody || !emptyMsg || !errorMsg) return;
+
+  try {
+    errorMsg.textContent = '';
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--t3);font-size:13px;">Loading history...</td></tr>';
+    
+    const res = await fetch('/api/accountant/leave-requests?status=history');
+    const data = await res.json();
+    
+    if (!res.ok) throw new Error(data.error || 'Failed to load history');
+    
+    const requests = Array.isArray(data.requests) ? data.requests : (data.history_requests || []);
+    
+    // Sort so most recently decided are first
+    requests.sort((a,b) => new Date(b.decided_at || b.updated_at) - new Date(a.decided_at || a.updated_at));
+    
+    if (requests.length === 0) {
+      tbody.innerHTML = '';
+      emptyMsg.style.display = 'block';
+    } else {
+      emptyMsg.style.display = 'none';
+      tbody.innerHTML = requests.map(req => {
+        let badge = '<span class="badge ba">Pending Admin</span>';
+        if (req.status === 'approved') badge = '<span class="badge bg">Approved</span>';
+        if (req.status === 'rejected') badge = '<span class="badge br">Rejected</span>';
+        
+        return `
+        <tr>
+          <td>
+            <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
+            <div style="font-size:12px;color:var(--t3);">${escapeHtml(req.position)}</div>
+          </td>
+          <td><span class="badge bt2">${escapeHtml(req.leave_type)}</span></td>
+          <td style="font-size:13px;">
+            ${formatDateOnly(req.start_date)} - ${formatDateOnly(req.end_date)}
+          </td>
+          <td>${badge}</td>
+        </tr>
+        `;
+      }).join('');
+    }
+  } catch (err) {
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'none';
+    errorMsg.textContent = err.message;
+  }
+}
+
+function formatDateOnly(isoString) {
+  if (!isoString) return 'N/A';
+  const d = new Date(isoString);
+  if (isNaN(d)) return isoString;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+window.processAccountantLeave = async function(id, action) {
+  if (action === 'reject') {
+    if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(
+      'reject this leave request', 
+      'This will permanently decline the leave request and notify the employee.'
+    ))) {
+      return;
+    }
+  } else if (action === 'approve') {
+    if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(
+      'forward this leave request to the admin for final approval', 
+      'The administrator will be notified to review this request.'
+    ))) {
+      return;
+    }
+  }
+
+  try {
+    const errorMsg = document.getElementById('al-pending-error');
+    if (errorMsg) {
+      errorMsg.textContent = '';
+      errorMsg.style.color = '';
+    }
+
+    const res = await fetch('/api/accountant/leave-requests', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action })
+    });
+    
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to process request');
+    
+    // Refresh both tables
+    loadAccountantLeaveRequests();
+    loadAccountantLeaveHistory();
+    
+    // Attempt to show a temporary success message
+    if (errorMsg) {
+      errorMsg.textContent = `Leave request successfully ${action === 'approve' ? 'forwarded' : 'rejected'}.`;
+      errorMsg.style.color = "var(--teal)";
+      setTimeout(() => { 
+        if (errorMsg.textContent.includes('successfully')) {
+          errorMsg.textContent = ''; 
+          errorMsg.style.color = ""; 
+        }
+      }, 3000);
+    }
+  } catch (err) {
+    const errorMsg = document.getElementById('al-pending-error');
+    if (errorMsg) {
+      errorMsg.textContent = err.message;
+      errorMsg.style.color = "var(--red)";
+    } else {
+      alert('Error: ' + err.message);
+    }
+  }
+};
+
 /* ── INIT ── */
 function initAccountant() {
   applyAccountantIdentity();
@@ -754,6 +937,8 @@ window.generatePayslip = generatePayslip;
 window.printPayslip = printPayslip;
 window.openPayslipFromRecord = openPayslipFromRecord;
 window.withdrawSubmission = withdrawSubmission;
+window.loadAccountantLeaveRequests = loadAccountantLeaveRequests;
+window.loadAccountantLeaveHistory = loadAccountantLeaveHistory;
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initAccountant);
