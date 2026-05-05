@@ -499,6 +499,86 @@ function attachNotificationHandlers() {
   });
 }
 
+function openProofDocument(proofUrl) {
+  const url = String(proofUrl || '').trim();
+  if (!url) {
+    window.alert('No proof document attached.');
+    return;
+  }
+
+  const newWindow = window.open('', '_blank', 'noopener,noreferrer');
+  if (!newWindow) {
+    window.alert('Unable to open proof document. Please allow pop-ups and try again.');
+    return;
+  }
+
+  newWindow.document.open();
+  newWindow.document.write(`<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Proof Document</title>
+        <style>
+          html, body { height: 100%; margin: 0; }
+          body { background: #0b0f14; color: #e6eef8; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+          .wrap { height: 100%; display: flex; flex-direction: column; }
+          .bar { padding: 10px 12px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content: space-between; gap: 10px; }
+          .bar a { color: inherit; text-decoration: underline; }
+          .viewer { flex: 1; display:flex; align-items:center; justify-content:center; }
+          .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+          .viewer iframe { border: 0; width: 100%; height: 100%; }
+        </style>
+      </head>
+      <body>
+        <div class="wrap">
+          <div class="bar">
+            <div>Proof Document</div>
+            <a id="downloadLink" href="#" download>Download</a>
+          </div>
+          <div class="viewer" id="viewer"></div>
+        </div>
+      </body>
+    </html>`);
+  newWindow.document.close();
+
+  const viewer = newWindow.document.getElementById('viewer');
+  const link = newWindow.document.getElementById('downloadLink');
+  if (link) {
+    link.href = url;
+  }
+
+  const isDataUrl = url.startsWith('data:');
+  const mime = isDataUrl
+    ? url.slice(5, url.indexOf(';') > 0 ? url.indexOf(';') : url.indexOf(','))
+    : '';
+  const isImage = isDataUrl && mime.startsWith('image/');
+  const isPdf = (isDataUrl && mime === 'application/pdf') || url.toLowerCase().endsWith('.pdf');
+
+  if (!viewer) {
+    newWindow.location.href = url;
+    return;
+  }
+
+  if (isImage) {
+    const img = newWindow.document.createElement('img');
+    img.alt = 'Proof Document';
+    img.src = url;
+    viewer.appendChild(img);
+    return;
+  }
+
+  if (isPdf || isDataUrl) {
+    const frame = newWindow.document.createElement('iframe');
+    frame.src = url;
+    frame.title = 'Proof Document';
+    viewer.appendChild(frame);
+    return;
+  }
+
+  newWindow.location.href = url;
+}
+
 /* ── GLOBAL SCROLL HELPERS ── */
 let observedScrollTarget = null;
 
@@ -690,6 +770,7 @@ function initApp() {
   window.persistRolePageState = persistRolePageState;
   window.getPersistedRolePageState = getPersistedRolePageState;
   window.refreshCurrentPortal = refreshCurrentPortal;
+  window.openProofDocument = openProofDocument;
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {

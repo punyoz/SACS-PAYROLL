@@ -751,7 +751,7 @@ async function loadAccountantLeaveRequests() {
           </td>
           <td>
             ${req.proof_url ? 
-              `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="window.open('${escapeHtml(req.proof_url)}', '_blank')">View Proof</button>` : 
+              `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument('${escapeHtml(req.proof_url)}')">View Proof</button>` : 
               `<span style="color:var(--t3);font-size:12px;">No proof</span>`
             }
           </td>

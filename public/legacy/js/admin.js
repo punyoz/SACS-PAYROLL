@@ -1086,6 +1086,10 @@ function renderLeaveApprovalCards(requests = []) {
     const duration = `${escapeHtml(request.start_date || 'N/A')} to ${escapeHtml(request.end_date || 'N/A')}`;
     const reason = escapeHtml(request.reason || 'No reason provided.');
     const submittedAt = escapeHtml(formatDateTime(request.submitted_at));
+    const proofUrl = String(request.proof_url || '').trim();
+    const proofButton = proofUrl
+      ? `<button class="btn btn-outline" style="margin-top:10px;" onclick="openProofDocument('${escapeJsString(proofUrl)}')">View Proof</button>`
+      : `<div class="approval-card-meta" style="margin-top:10px;color:var(--t3);">No proof attached.</div>`;
 
     return `
       <div class="approval-card" style="margin-bottom:14px;">
@@ -1096,6 +1100,7 @@ function renderLeaveApprovalCards(requests = []) {
           <div class="approval-card-meta">Requested: ${duration}</div>
           <div class="approval-card-meta">Submitted: ${submittedAt}</div>
           <div class="approval-reason"><strong>Reason:</strong> ${reason}</div>
+          ${proofButton}
         </div>
         <div class="approval-card-actions">
           <button class="btn btn-green" onclick="approveLeaveRequest('${requestId}')">✓ Approve</button>
