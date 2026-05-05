@@ -38,12 +38,15 @@ function getInitials(name) {
 
 function applyEmployeeIdentity() {
   const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
-  if (!context) return;
 
-  const fullName = String(context.full_name || '').trim();
-  const rolePosition = normalizePortalPosition(context.position, context.role);
-  const employeeId = String(context.employee_id || '').trim();
-  const displayName = fullName || rolePosition;
+  const fullName = String(context?.full_name || '').trim();
+  const rolePosition = context ? normalizePortalPosition(context.position, context.role) : 'Employee';
+  const employeeType = String(context?.employee_type || '').trim();
+  const positionLabel = String(context?.position || '').trim();
+  const employeeId = String(context?.employee_id || '').trim();
+  const displayName = fullName || rolePosition || 'Employee';
+
+  const staffLabel = employeeType ? `${employeeType} Staff` : positionLabel;
 
   const topName = document.getElementById('emp-top-name');
   if (topName) topName.textContent = `Welcome, ${displayName}`;
@@ -56,10 +59,16 @@ function applyEmployeeIdentity() {
 
   const helloMeta = document.getElementById('emp-hello-meta');
   if (helloMeta) {
-    const pieces = [rolePosition, 'Payroll Account'];
-    if (employeeId) pieces.push(employeeId);
+    const pieces = [rolePosition];
+    if (staffLabel) pieces.push(staffLabel);
+    pieces.push(employeeId || 'N/A');
     helloMeta.textContent = pieces.join(' · ');
   }
+}
+
+function handleLegacyAuthContextChange() {
+  applyEmployeeIdentity();
+  loadMyLeaveRequests();
 }
 
 function calcNet(data) {
@@ -235,12 +244,25 @@ function viewPastPayslip(period) {
 }
 
 /* ── INIT ── */
-document.addEventListener('DOMContentLoaded', () => {
+function initEmployeePortal() {
+  const currentRole = new URLSearchParams(window.location.search).get('role');
+  if (String(currentRole || '').toLowerCase() !== 'employee') {
+    return;
+  }
+
   applyEmployeeIdentity();
   loadMyLeaveRequests();
 
   // Nothing needed on load for employee portal
   // Data is static; replace with fetch() calls in production
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initEmployeePortal);
+} else {
+  initEmployeePortal();
+}
+
+window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);
 
 window.submitLeaveRequest = submitLeaveRequest;

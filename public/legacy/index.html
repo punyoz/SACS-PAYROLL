@@ -42,6 +42,70 @@
       });
     }
 
+    function safeParseJson(raw) {
+      try {
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function inferInitials(name) {
+      var text = String(name || '').trim();
+      if (!text) return '';
+      var parts = text.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+
+    function applyBootIdentityFromStorage() {
+      var raw = localStorage.getItem('bncs-auth-context');
+      var ctx = safeParseJson(raw) || {};
+
+      var fullName = String(ctx.full_name || '').trim();
+      var role = String(ctx.role || '').trim().toLowerCase();
+      var employeeType = String(ctx.employee_type || '').trim();
+      var employeeId = String(ctx.employee_id || '').trim();
+      var position = String(ctx.position || '').trim();
+
+      if (!fullName) return;
+
+      // Employee portal placeholders
+      var topName = document.getElementById('emp-top-name');
+      if (topName) topName.textContent = 'Welcome, ' + fullName;
+
+      var avatar = document.getElementById('emp-avatar');
+      if (avatar) avatar.textContent = inferInitials(fullName) || avatar.textContent;
+
+      var helloTitle = document.getElementById('emp-hello-title');
+      if (helloTitle) helloTitle.textContent = 'Good morning, ' + fullName + ' 👋';
+
+      var helloMeta = document.getElementById('emp-hello-meta');
+      if (helloMeta) {
+        var pieces = ['Employee'];
+        if (employeeType) pieces.push(employeeType + ' Staff');
+        else if (position) pieces.push(position);
+        pieces.push(employeeId || 'N/A');
+        helloMeta.textContent = pieces.join(' · ');
+      }
+
+      // Accountant portal placeholders
+      var acName = document.getElementById('ac-user-name');
+      if (acName && (role === 'accountant' || position.toLowerCase().indexOf('account') >= 0)) {
+        acName.textContent = fullName;
+      }
+      var acAvatar = document.querySelector('#s-accountant .sb-foot .av');
+      if (acAvatar && (role === 'accountant' || position.toLowerCase().indexOf('account') >= 0)) {
+        acAvatar.textContent = inferInitials(fullName) || acAvatar.textContent;
+      }
+
+      // Admin portal placeholders
+      var admName = document.getElementById('adm-user-name');
+      if (admName && role === 'admin') {
+        admName.textContent = fullName;
+      }
+    }
+
     async function bootstrapApp() {
       const appRoot = document.getElementById('app-root');
       const pageFiles = [
@@ -54,6 +118,9 @@
       try {
         const htmlChunks = await Promise.all(pageFiles.map(loadFragment));
         appRoot.innerHTML = htmlChunks.join('\n');
+
+        // Apply identity immediately so the UI doesn't flash placeholders.
+        applyBootIdentityFromStorage();
 
         await loadScript('js/app.js');
         await loadScript('js/admin.js');

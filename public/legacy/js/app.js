@@ -28,7 +28,16 @@ function toggleTheme() {
 
 /* ── AUTH CONSTANTS ── */
 const AUTH_CONTEXT_KEY = 'bncs-auth-context';
+const AUTH_CONTEXT_EVENT = 'bncs-auth-context-changed';
 const ROLE_PAGE_STATE_PREFIX = 'bncs-active-page-';
+
+function dispatchAuthContextChanged(context) {
+  try {
+    window.dispatchEvent(new CustomEvent(AUTH_CONTEXT_EVENT, { detail: context || null }));
+  } catch {
+    // CustomEvent may fail in very old browsers; ignore.
+  }
+}
 
 function toTitleCase(value) {
   const text = String(value || '').trim();
@@ -58,10 +67,12 @@ function saveAuthContext(result, role, identityInput) {
     full_name: fullName,
     email: String(profile.email || '').trim(),
     employee_id: String(profile.employee_id || '').trim(),
+    employee_type: String(profile.employee_type || '').trim(),
     position: String(profile.position || '').trim(),
   };
 
   localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(context));
+  dispatchAuthContextChanged(context);
 }
 
 function getAuthContext() {
@@ -595,6 +606,7 @@ async function login() {
 function logout() {
   localStorage.removeItem(AUTH_CONTEXT_KEY);
   clearPersistedRolePageStates();
+  dispatchAuthContextChanged(null);
 
   const forcedRole = new URLSearchParams(window.location.search).get('role');
   if (forcedRole) {
@@ -678,6 +690,13 @@ function initApp() {
   window.persistRolePageState = persistRolePageState;
   window.getPersistedRolePageState = getPersistedRolePageState;
   window.refreshCurrentPortal = refreshCurrentPortal;
+
+  // Sync auth context across tabs/windows without requiring refresh.
+  window.addEventListener('storage', (event) => {
+    if (event && event.key === AUTH_CONTEXT_KEY) {
+      dispatchAuthContextChanged(getAuthContext());
+    }
+  });
 
   attachGlobalSearchHandlers();
   attachNotificationHandlers();

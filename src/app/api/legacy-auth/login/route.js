@@ -11,6 +11,28 @@ const roleRoutes = {
 const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "bncsadmin").toLowerCase();
 const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "bncs.admin@gmail.com");
 
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+function toTitleCaseWords(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) return "";
+
+  return normalized
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function inferNameFromEmail(email) {
+  const raw = normalizeText(email);
+  const localPart = raw.includes("@") ? raw.split("@")[0] : raw;
+  if (!localPart) return "";
+
+  const cleaned = localPart.replace(/^bncs\./i, "").replace(/[._-]+/g, " ");
+  return toTitleCaseWords(cleaned);
+}
+
 function normalizePositionForRole(positionInput, roleInput) {
   const role = normalizeRole(roleInput);
   const position = normalizeText(positionInput).toLowerCase();
@@ -92,15 +114,49 @@ export async function POST(request) {
 
   const metadata = data.user.user_metadata || {};
 
+  let profileRow = null;
+  if (SERVICE_ROLE_KEY) {
+    const adminClient = createClient(url, SERVICE_ROLE_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    const profileResult = await adminClient
+      .from("profiles")
+      .select("id,email,full_name,role,employee_id,employee_type,position")
+      .eq("id", data.user.id)
+      .maybeSingle();
+
+    if (!profileResult.error) {
+      profileRow = profileResult.data || null;
+    }
+  }
+
+  const resolvedEmailOutput = normalizeText(profileRow?.email, normalizeText(data.user.email));
+  const resolvedFullName = normalizeText(
+    profileRow?.full_name,
+    normalizeText(metadata.full_name, inferNameFromEmail(resolvedEmailOutput)),
+  );
+  const resolvedRole = normalizeRole(profileRow?.role || actualRole);
+  const resolvedEmployeeId = normalizeText(profileRow?.employee_id, normalizeText(metadata.employee_id));
+  const resolvedEmployeeType = normalizeText(profileRow?.employee_type, normalizeText(metadata.employee_type));
+  const resolvedPosition = normalizeText(
+    profileRow?.position,
+    normalizeText(metadata.position, normalizePositionForRole(metadata.position, resolvedRole)),
+  );
+
   return NextResponse.json({
-    redirectTo: roleRoutes[normalizeRole(actualRole)],
-    role: normalizeRole(actualRole),
+    redirectTo: roleRoutes[resolvedRole],
+    role: resolvedRole,
     profile: {
-      role: normalizeRole(actualRole),
-      full_name: normalizeText(metadata.full_name),
-      email: normalizeText(data.user.email),
-      employee_id: normalizeText(metadata.employee_id),
-      position: normalizePositionForRole(metadata.position, actualRole),
+      role: resolvedRole,
+      full_name: resolvedFullName,
+      email: resolvedEmailOutput,
+      employee_id: resolvedEmployeeId,
+      employee_type: resolvedEmployeeType,
+      position: resolvedPosition,
     },
   });
 }

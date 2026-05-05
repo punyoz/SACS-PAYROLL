@@ -95,11 +95,10 @@ function getInitials(name) {
 
 function applyAccountantIdentity() {
   const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
-  if (!context) return;
 
-  const fullName = String(context.full_name || '').trim();
-  const position = normalizePortalPosition(context.position, context.role);
-  const displayName = fullName || position;
+  const fullName = String(context?.full_name || '').trim();
+  const position = context ? normalizePortalPosition(context.position, context.role) : 'Accountant';
+  const displayName = fullName || position || 'Accountant';
   const subtitle = position === 'Accountant' ? 'Accountant Account' : 'Employee Account';
 
   const nameEl = document.getElementById('ac-user-name');
@@ -110,6 +109,10 @@ function applyAccountantIdentity() {
 
   const avatarEl = document.querySelector('#s-accountant .sb-foot .av');
   if (avatarEl) avatarEl.textContent = getInitials(displayName);
+}
+
+function handleLegacyAuthContextChange() {
+  applyAccountantIdentity();
 }
 
 function statusMeta(status) {
@@ -940,8 +943,18 @@ window.withdrawSubmission = withdrawSubmission;
 window.loadAccountantLeaveRequests = loadAccountantLeaveRequests;
 window.loadAccountantLeaveHistory = loadAccountantLeaveHistory;
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initAccountant);
-} else {
+function maybeInitAccountant() {
+  const currentRole = new URLSearchParams(window.location.search).get('role');
+  if (String(currentRole || '').toLowerCase() !== 'accountant') {
+    return;
+  }
   initAccountant();
 }
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', maybeInitAccountant);
+} else {
+  maybeInitAccountant();
+}
+
+window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);

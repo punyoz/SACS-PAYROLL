@@ -158,6 +158,25 @@ function getInitials(name) {
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
+function applyAdminIdentity() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const fullName = String(context?.full_name || '').trim();
+  const displayName = fullName || 'Admin User';
+
+  const avatarEl = document.querySelector('#s-admin .sb-foot .av');
+  if (avatarEl) avatarEl.textContent = getInitials(displayName);
+
+  const nameEl = document.querySelector('#s-admin .sb-foot .un');
+  if (nameEl) nameEl.textContent = displayName;
+
+  const roleEl = document.querySelector('#s-admin .sb-foot .ur');
+  if (roleEl) roleEl.textContent = 'Administrator';
+}
+
+function handleLegacyAuthContextChange() {
+  applyAdminIdentity();
+}
+
 function getAvatarColor(seed) {
   let hash = 0;
   const text = String(seed || 'employee');
@@ -1608,7 +1627,14 @@ window.setAuditActionFilter = setAuditActionFilter;
 window.exportAuditLogsCsv = exportAuditLogsCsv;
 
 /* ── INIT ── */
-document.addEventListener('DOMContentLoaded', () => {
+function initAdminPortal() {
+  const currentRole = new URLSearchParams(window.location.search).get('role');
+  if (String(currentRole || '').toLowerCase() !== 'admin') {
+    return;
+  }
+
+  applyAdminIdentity();
+
   const addForm = document.getElementById('add-employee-form');
   const editForm = document.getElementById('edit-employee-form');
 
@@ -1629,4 +1655,12 @@ document.addEventListener('DOMContentLoaded', () => {
   adminNav(initialPage, initialNav);
   loadSalaryApprovals();
   loadLeaveApprovals();
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAdminPortal);
+} else {
+  initAdminPortal();
+}
+
+window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);
