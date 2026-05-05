@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -8,8 +9,9 @@ import { appendAuditLog } from "@/lib/audit/store";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const payrollStorePath = path.join(process.cwd(), ".runtime", "accountant-payroll-entries.json");
-const fallbackApprovalsPath = path.join(process.cwd(), ".runtime", "salary-approvals.json");
+const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
+const payrollStorePath = path.join(runtimeDir, "accountant-payroll-entries.json");
+const fallbackApprovalsPath = path.join(runtimeDir, "salary-approvals.json");
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {

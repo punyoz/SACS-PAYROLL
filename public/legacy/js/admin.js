@@ -422,6 +422,43 @@ function renderPendingSalaryApprovals(approvals = []) {
   }).join('');
 }
 
+function renderPendingLeaveApprovalsDashboard(requests = []) {
+  const container = document.getElementById('adm-dashboard-leave-list');
+  if (!container) return;
+
+  if (!requests.length) {
+    container.innerHTML = `
+      <div class="approval-item">
+        <div class="approval-info" style="color:var(--t3);">No pending leave approvals.</div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = requests.slice(0, 3).map((request) => {
+    const requestId = escapeJsString(request.id);
+    const employeeName = escapeHtml(request.employee_name || 'Unknown Employee');
+    const leaveType = escapeHtml(request.leave_type || 'Leave');
+    const submittedAt = escapeHtml(formatDateTime(request.submitted_at));
+    const duration = `${escapeHtml(request.start_date || 'N/A')} → ${escapeHtml(request.end_date || 'N/A')}`;
+
+    return `
+      <div class="approval-item">
+        <div class="approval-icon">🗓</div>
+        <div class="approval-info">
+          <div class="ai-name">${employeeName}</div>
+          <div class="ai-sub">${leaveType} · ${duration}</div>
+          <div class="ai-sub">Submitted ${submittedAt}</div>
+        </div>
+        <div class="acts">
+          <button class="btn btn-green" style="font-size:11px;padding:6px 12px;" onclick="approveLeaveRequest('${requestId}')">Approve</button>
+          <button class="btn btn-red" style="font-size:11px;padding:6px 12px;" onclick="rejectLeaveRequest('${requestId}')">Reject</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderMonthlyPayrollChart(monthlyPayroll = []) {
   const chartContainer = document.getElementById('adm-monthly-payroll-chart');
   const avgEl = document.getElementById('adm-monthly-avg');
@@ -1016,7 +1053,7 @@ function renderDashboard(data) {
 
   renderDashboardPanels(panels);
   renderPendingSalaryApprovals(approvals);
-  renderMonthlyPayrollChart(data?.monthly_payroll || []);
+  // Leave approvals widget uses /api/admin/leave-requests.
   renderRecentPayrollActivity(data?.recent_activity || []);
 }
 
@@ -1030,10 +1067,23 @@ async function loadDashboard() {
     }
 
     renderDashboard(payload);
+
+    const leaveRes = await fetch('/api/admin/leave-requests?status=pending_admin', { method: 'GET' });
+    const leavePayload = await leaveRes.json().catch(() => ({}));
+    if (leaveRes.ok) {
+      renderPendingLeaveApprovalsDashboard(leavePayload.pending_requests || leavePayload.requests || []);
+    } else {
+      throw new Error(leavePayload.error || 'Failed to load leave approvals');
+    }
   } catch (error) {
     const pendingContainer = document.getElementById('adm-dashboard-pending-list');
     if (pendingContainer) {
       pendingContainer.innerHTML = `<div class="approval-item"><div class="approval-info" style="color:#E85555;">${escapeHtml(error.message)}</div></div>`;
+    }
+
+    const leaveContainer = document.getElementById('adm-dashboard-leave-list');
+    if (leaveContainer) {
+      leaveContainer.innerHTML = `<div class="approval-item"><div class="approval-info" style="color:#E85555;">${escapeHtml(error.message)}</div></div>`;
     }
   }
 }

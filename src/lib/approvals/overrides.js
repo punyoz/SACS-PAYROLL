@@ -1,7 +1,9 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-const overridesPath = path.join(process.cwd(), ".runtime", "approval-overrides.json");
+const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
+const overridesPath = path.join(runtimeDir, "approval-overrides.json");
 
 function normalizeStatus(status) {
   const value = String(status || "").toLowerCase();
