@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 
-const leaveRequestsStorePath = path.join(process.cwd(), ".runtime", "leave-requests.json");
+const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
+const leaveRequestsStorePath = path.join(runtimeDir, "leave-requests.json");
 
 function normalizeLeaveRequest(row) {
   return {
