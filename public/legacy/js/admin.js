@@ -1123,22 +1123,29 @@ function renderLeaveApprovalCards(requests = []) {
   const container = document.getElementById('adm-leave-approvals-list');
   if (!container) return;
 
+  // Store proof URLs by request ID so large base64 strings are never
+  // embedded inside HTML onclick attributes.
+  if (!window._adminProofUrls) window._adminProofUrls = {};
+  requests.forEach((req) => {
+    window._adminProofUrls[req.id] = req.proof_url || '';
+  });
+
   if (!requests.length) {
     container.innerHTML = '<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta">No pending leave requests.</div></div></div>';
     return;
   }
 
   container.innerHTML = requests.map((request) => {
-    const requestId = escapeJsString(request.id);
+    const safeId = escapeJsString(request.id);
     const employeeName = escapeHtml(request.employee_name || 'Unknown Employee');
     const employeeCode = escapeHtml(request.employee_id || 'N/A');
     const leaveType = escapeHtml(request.leave_type || 'Leave');
     const duration = `${escapeHtml(request.start_date || 'N/A')} to ${escapeHtml(request.end_date || 'N/A')}`;
     const reason = escapeHtml(request.reason || 'No reason provided.');
     const submittedAt = escapeHtml(formatDateTime(request.submitted_at));
-    const proofUrl = String(request.proof_url || '').trim();
-    const proofButton = proofUrl
-      ? `<button class="btn btn-outline" style="margin-top:10px;" onclick="openProofDocument('${escapeJsString(proofUrl)}')">View Proof</button>`
+    const hasProof = Boolean(String(request.proof_url || '').trim());
+    const proofButton = hasProof
+      ? `<button class="btn btn-outline" style="margin-top:10px;" onclick="openProofDocument(window._adminProofUrls['${safeId}'])">View Proof</button>`
       : `<div class="approval-card-meta" style="margin-top:10px;color:var(--t3);">No proof attached.</div>`;
 
     return `
@@ -1153,8 +1160,8 @@ function renderLeaveApprovalCards(requests = []) {
           ${proofButton}
         </div>
         <div class="approval-card-actions">
-          <button class="btn btn-green" onclick="approveLeaveRequest('${requestId}')">✓ Approve</button>
-          <button class="btn btn-red" onclick="rejectLeaveRequest('${requestId}')">✕ Reject</button>
+          <button class="btn btn-green" onclick="approveLeaveRequest('${safeId}')">✓ Approve</button>
+          <button class="btn btn-red" onclick="rejectLeaveRequest('${safeId}')">✕ Reject</button>
         </div>
       </div>
     `;
@@ -1165,8 +1172,14 @@ function renderLeaveApprovalHistory(history = []) {
   const tbody = document.getElementById('adm-leave-history-body');
   if (!tbody) return;
 
+  // Store proof URLs for history rows
+  if (!window._adminProofUrls) window._adminProofUrls = {};
+  history.forEach((entry) => {
+    window._adminProofUrls[entry.id] = entry.proof_url || '';
+  });
+
   if (!history.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No leave approval history yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">No leave approval history yet.</td></tr>';
     return;
   }
 
@@ -1174,6 +1187,11 @@ function renderLeaveApprovalHistory(history = []) {
     const status = String(entry.status || 'pending').toLowerCase();
     const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
     const decidedAt = entry.decided_at || entry.updated_at || entry.submitted_at;
+    const safeId = escapeJsString(entry.id);
+    const hasProof = Boolean(String(entry.proof_url || '').trim());
+    const proofCell = hasProof
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument(window._adminProofUrls['${safeId}'])">View</button>`
+      : `<span style="color:var(--t3);font-size:11px;">—</span>`;
 
     return `
       <tr>
@@ -1181,6 +1199,7 @@ function renderLeaveApprovalHistory(history = []) {
         <td>${escapeHtml(entry.leave_type || 'Leave')}</td>
         <td class="mn">${escapeHtml(entry.start_date || 'N/A')} → ${escapeHtml(entry.end_date || 'N/A')}</td>
         <td>${escapeHtml(entry.reason || 'No reason provided.')}</td>
+        <td>${proofCell}</td>
         <td><span class="badge ${badgeClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
         <td class="mn">${escapeHtml(formatDateTime(entry.submitted_at))}</td>
         <td class="mn">${escapeHtml(formatDateTime(decidedAt))}</td>

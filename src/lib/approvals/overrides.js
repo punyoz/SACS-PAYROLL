@@ -1,9 +1,10 @@
+import { storageReadJson, storageWriteJson } from "@/lib/storage/supabase-store";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
-const overridesPath = path.join(runtimeDir, "approval-overrides.json");
+const STORAGE_FILE = "approval-overrides.json";
+const tmpPath = path.join(os.tmpdir(), "bncs-payroll-runtime", "approval-overrides.json");
 
 function normalizeStatus(status) {
   const value = String(status || "").toLowerCase();
@@ -13,28 +14,40 @@ function normalizeStatus(status) {
   return "pending";
 }
 
-export async function readApprovalOverrides() {
-  try {
-    const raw = await fs.readFile(overridesPath, "utf8");
-    const parsed = JSON.parse(raw);
-    const rows = Array.isArray(parsed.overrides) ? parsed.overrides : [];
-
-    return new Map(
-      rows
-        .filter((row) => row && row.id)
-        .map((row) => [String(row.id), {
+function rowsToMap(rows) {
+  return new Map(
+    (Array.isArray(rows) ? rows : [])
+      .filter((row) => row && row.id)
+      .map((row) => [
+        String(row.id),
+        {
           status: normalizeStatus(row.status),
           decided_at: row.decided_at || null,
           updated_at: row.updated_at || new Date().toISOString(),
-        }]),
-    );
+        },
+      ]),
+  );
+}
+
+export async function readApprovalOverrides() {
+  // Primary: Supabase Storage (persists across serverless instances)
+  try {
+    const parsed = await storageReadJson(STORAGE_FILE, { overrides: [] });
+    return rowsToMap(parsed.overrides);
+  } catch {
+    // Fall through to /tmp (development fallback)
+  }
+
+  try {
+    const raw = await fs.readFile(tmpPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return rowsToMap(parsed.overrides);
   } catch {
     return new Map();
   }
 }
 
-async function writeApprovalOverridesMap(map) {
-  await fs.mkdir(path.dirname(overridesPath), { recursive: true });
+async function writeOverridesMap(map) {
   const overrides = Array.from(map.entries()).map(([id, value]) => ({
     id,
     status: normalizeStatus(value.status),
@@ -42,7 +55,17 @@ async function writeApprovalOverridesMap(map) {
     updated_at: value.updated_at || new Date().toISOString(),
   }));
 
-  await fs.writeFile(overridesPath, JSON.stringify({ overrides }, null, 2), "utf8");
+  // Primary: Supabase Storage
+  try {
+    await storageWriteJson(STORAGE_FILE, { overrides });
+    return;
+  } catch {
+    // Fall through to /tmp
+  }
+
+  // /tmp fallback (development only — not reliable on Vercel)
+  await fs.mkdir(path.dirname(tmpPath), { recursive: true });
+  await fs.writeFile(tmpPath, JSON.stringify({ overrides }, null, 2), "utf8");
 }
 
 export async function setApprovalOverride(id, status, decidedAt = new Date().toISOString()) {
@@ -56,7 +79,7 @@ export async function setApprovalOverride(id, status, decidedAt = new Date().toI
     updated_at: new Date().toISOString(),
   });
 
-  await writeApprovalOverridesMap(map);
+  await writeOverridesMap(map);
 }
 
 export function applyApprovalOverrides(rows, overridesMap) {

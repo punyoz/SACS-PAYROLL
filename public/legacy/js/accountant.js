@@ -722,20 +722,32 @@ async function loadAccountantLeaveRequests() {
   try {
     errorMsg.textContent = '';
     tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--t3);font-size:13px;">Loading pending requests...</td></tr>';
-    
+
     const res = await fetch('/api/accountant/leave-requests?status=pending_accountant');
     const data = await res.json();
-    
+
     if (!res.ok) throw new Error(data.error || 'Failed to load leave requests');
-    
+
     const requests = data.requests || [];
-    
+
+    // Store proof URLs by request ID — never embed large base64 strings in onclick.
+    if (!window._acctProofUrls) window._acctProofUrls = {};
+    requests.forEach((req) => {
+      window._acctProofUrls[req.id] = req.proof_url || '';
+    });
+
     if (requests.length === 0) {
       tbody.innerHTML = '';
       emptyMsg.style.display = 'block';
     } else {
       emptyMsg.style.display = 'none';
-    const tdStr = requests.map(req => `
+      const tdStr = requests.map(req => {
+        const safeId = escapeHtml(req.id);
+        const proofCell = req.proof_url
+          ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument(window._acctProofUrls['${safeId}'])">View Proof</button>`
+          : `<span style="color:var(--t3);font-size:12px;">No proof</span>`;
+
+        return `
         <tr>
           <td>
             <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
@@ -749,18 +761,14 @@ async function loadAccountantLeaveRequests() {
           <td style="font-size:13px;max-width:200px;" class="truncate" title="${escapeHtml(req.reason)}">
             ${escapeHtml(req.reason)}
           </td>
-          <td>
-            ${req.proof_url ? 
-              `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument('${escapeHtml(req.proof_url)}')">View Proof</button>` : 
-              `<span style="color:var(--t3);font-size:12px;">No proof</span>`
-            }
-          </td>
+          <td>${proofCell}</td>
           <td style="text-align:right;">
-            <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${req.id}', 'approve')">Approve</button>
-            <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${req.id}', 'reject')">Reject</button>
+            <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'approve')">Approve</button>
+            <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'reject')">Reject</button>
           </td>
         </tr>
-      `).join('');
+        `;
+      }).join('');
       tbody.innerHTML = tdStr;
     }
   } catch (err) {
