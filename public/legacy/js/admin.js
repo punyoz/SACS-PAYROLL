@@ -1272,9 +1272,35 @@ async function rejectLeaveRequest(requestId) {
   await updateLeaveRequestStatus(requestId, 'reject');
 }
 
+function showSalaryApprovalFeedback(message, isError = false) {
+  const container = document.getElementById('adm-approvals-list');
+  if (container) {
+    const existing = container.querySelector('.salary-action-feedback');
+    if (existing) existing.remove();
+
+    if (message) {
+      const banner = document.createElement('div');
+      banner.className = 'salary-action-feedback';
+      banner.style.cssText = isError
+        ? 'background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#dc2626;font-size:13px;'
+        : 'background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#15803d;font-size:13px;';
+      banner.textContent = message;
+      container.insertAdjacentElement('afterbegin', banner);
+    }
+  }
+
+  if (isError) {
+    try { window.alert(message); } catch {}
+  }
+}
+
 async function updateApprovalStatus(approvalId, action) {
   const id = String(approvalId || '').trim();
   if (!id) return;
+
+  const allActionButtons = document.querySelectorAll('.approval-card-actions .btn, .acts .btn[onclick*="approveChange"], .acts .btn[onclick*="rejectChange"]');
+  allActionButtons.forEach((btn) => { btn.disabled = true; });
+  showSalaryApprovalFeedback('');
 
   try {
     const response = await fetch('/api/admin/salary-approvals', {
@@ -1290,7 +1316,8 @@ async function updateApprovalStatus(approvalId, action) {
 
     await Promise.all([loadDashboard(), loadSalaryApprovals(), loadAuditLogs()]);
   } catch (error) {
-    window.alert(error.message);
+    showSalaryApprovalFeedback(error.message, true);
+    allActionButtons.forEach((btn) => { btn.disabled = false; });
   }
 }
 

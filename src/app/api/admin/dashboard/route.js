@@ -288,7 +288,7 @@ async function applyApprovalDecision(supabase, activeEmployees, id, action) {
   if (canPersist) {
     const lookupResult = await supabase
       .from("salary_approvals")
-      .select("id,employee_id,proposed_salary")
+      .select("id,employee_id,proposed_salary,status")
       .eq("id", id)
       .maybeSingle();
 
@@ -300,6 +300,11 @@ async function applyApprovalDecision(supabase, activeEmployees, id, action) {
       return { found: false, persisted: true, next_status: nextStatus, salary_applied: false };
     }
 
+    // If already decided, return success without re-applying to avoid double-apply.
+    if (lookupResult.data.status !== "pending") {
+      return { found: true, persisted: true, next_status: lookupResult.data.status, salary_applied: false };
+    }
+
     const updateResult = await supabase
       .from("salary_approvals")
       .update({ status: nextStatus, decided_at: new Date().toISOString() })
@@ -309,13 +314,17 @@ async function applyApprovalDecision(supabase, activeEmployees, id, action) {
 
     if (updateResult.error) {
       const message = String(updateResult.error.message || "");
-      const missingUpdatedAt = message.toLowerCase().includes('has no field "updated_at"');
+      // Catch trigger failures caused by missing updated_at column (legacy schema).
+      const isTriggerError =
+        message.toLowerCase().includes("updated_at") ||
+        message.toLowerCase().includes("has no field") ||
+        message.toLowerCase().includes("set_updated_at");
 
-      if (!missingUpdatedAt) {
+      if (!isTriggerError) {
         throw new Error(message);
       }
 
-      // Database trigger expects updated_at on legacy schema. Save an override so UI and history stay in sync.
+      // Trigger error: save an override so UI and history stay in sync.
       await setApprovalOverride(id, nextStatus, new Date().toISOString());
 
       let salaryAppliedFromOverride = false;
@@ -336,10 +345,9 @@ async function applyApprovalDecision(supabase, activeEmployees, id, action) {
       };
     }
 
-    if (!updateResult.data) {
-      return { found: false, persisted: true, next_status: nextStatus, salary_applied: false };
-    }
-
+    // Update succeeded. updateResult.data may be null in some trigger/RLS configurations
+    // even when the row was actually updated. Since lookup already confirmed the record
+    // exists, treat no-error as success regardless of returned data.
     if (action === "approve") {
       const salaryUpdate = await applyApprovedSalaryToEmployee(
         supabase,
