@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { applyApprovalOverrides, readApprovalOverrides, setApprovalOverride } from "@/lib/approvals/overrides";
+import { readAllSalaryApprovals, updateSalaryApprovalStatus } from "@/lib/salary-approvals/store";
 import { getAttendancePanels } from "@/app/api/admin/attendance/route";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
-const fallbackStorePath = path.join(runtimeDir, "salary-approvals.json");
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
@@ -132,118 +127,11 @@ function buildMonthlyPayroll(totalPayrollMonth) {
   return months;
 }
 
-function normalizeApprovalRow(row) {
-  return {
-    id: String(row.id || ""),
-    employee_id: normalizeText(row.employee_id),
-    employee_name: normalizeText(row.employee_name, "Unknown Employee"),
-    employee_code: normalizeText(row.employee_code),
-    employee_type: normalizeText(row.employee_type, "Teaching"),
-    position: normalizePositionForRole(row.position, row.role),
-    current_salary: Number(row.current_salary || 0),
-    proposed_salary: Number(row.proposed_salary || 0),
-    reason: normalizeText(row.reason, "No reason provided."),
-    submitted_by: normalizeText(row.submitted_by, "Accountant"),
-    submitted_at: row.submitted_at || new Date().toISOString(),
-    status: normalizeText(row.status, "pending").toLowerCase(),
-    decided_at: row.decided_at || null,
-  };
-}
-
-function buildSeedFallbackPending(activeEmployees) {
-  const now = Date.now();
-
-  return activeEmployees.slice(0, 2).map((employee, index) => {
-    const baseSalary = Number(employee.basic_salary || 0);
-    const increase = index === 0 ? 800 : 600;
-
-    return {
-      id: `fallback-${employee.id}`,
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      employee_code: employee.employee_id,
-      employee_type: employee.employee_type,
-      position: employee.position,
-      current_salary: baseSalary,
-      proposed_salary: baseSalary + increase,
-      reason: "Submitted for monthly salary adjustment review.",
-      submitted_by: "Accountant",
-      submitted_at: new Date(now - index * 86400000).toISOString(),
-      status: "pending",
-      decided_at: null,
-    };
-  });
-}
-
-async function readFallbackApprovalStore(activeEmployees) {
-  const directory = path.dirname(fallbackStorePath);
-  await fs.mkdir(directory, { recursive: true });
-
-  let parsed = { pending: [], history: [] };
-
-  try {
-    const raw = await fs.readFile(fallbackStorePath, "utf8");
-    const data = JSON.parse(raw);
-    parsed = {
-      pending: Array.isArray(data.pending) ? data.pending.map(normalizeApprovalRow) : [],
-      history: Array.isArray(data.history) ? data.history.map(normalizeApprovalRow) : [],
-    };
-  } catch {
-    parsed = { pending: [], history: [] };
-  }
-
-  if (!parsed.pending.length && !parsed.history.length) {
-    parsed.pending = buildSeedFallbackPending(activeEmployees);
-    await fs.writeFile(fallbackStorePath, JSON.stringify(parsed, null, 2), "utf8");
-  }
-
-  return parsed;
-}
-
-async function writeFallbackApprovalStore(store) {
-  const directory = path.dirname(fallbackStorePath);
-  await fs.mkdir(directory, { recursive: true });
-  await fs.writeFile(fallbackStorePath, JSON.stringify(store, null, 2), "utf8");
-}
-
-async function fetchApprovalData(supabase, activeEmployees) {
-  const overrides = await readApprovalOverrides();
-  const result = await supabase
-    .from("salary_approvals")
-    .select("id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at")
-    .order("submitted_at", { ascending: false })
-    .limit(1000);
-
-  if (result.error) {
-    const message = String(result.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (!isMissingTable) {
-      throw new Error(`Failed to fetch salary approvals: ${result.error.message}`);
-    }
-
-    const fallback = await readFallbackApprovalStore(activeEmployees);
-    const pending = fallback.pending.filter((row) => row.status === "pending");
-    const history = fallback.history.filter((row) => row.status !== "pending");
-
-    return {
-      can_persist: false,
-      pending,
-      history,
-      all: [...pending, ...history],
-    };
-  }
-
-  const allRows = applyApprovalOverrides((result.data || []).map(normalizeApprovalRow), overrides);
+async function fetchApprovalData() {
+  const allRows = await readAllSalaryApprovals();
   const pending = allRows.filter((row) => row.status === "pending");
   const history = allRows.filter((row) => row.status !== "pending");
-
-  return {
-    can_persist: true,
-    pending,
-    history,
-    all: allRows,
-  };
+  return { can_persist: true, pending, history, all: allRows };
 }
 
 async function applyApprovedSalaryToEmployee(supabase, employeeId, proposedSalary) {
@@ -279,148 +167,6 @@ async function applyApprovedSalaryToEmployee(supabase, employeeId, proposedSalar
   return { updated: true };
 }
 
-async function applyApprovalDecision(supabase, activeEmployees, id, action) {
-  const nextStatus = action === "approve" ? "approved" : "rejected";
-  const decidedAt = new Date().toISOString();
-
-  const probe = await supabase.from("salary_approvals").select("id").limit(1);
-  const canPersist = !probe.error;
-
-  if (canPersist) {
-    const lookupResult = await supabase
-      .from("salary_approvals")
-      .select("id,employee_id,proposed_salary,status")
-      .eq("id", id)
-      .maybeSingle();
-
-    if (lookupResult.error) {
-      throw new Error(lookupResult.error.message);
-    }
-
-    if (!lookupResult.data) {
-      return { found: false, persisted: true, next_status: nextStatus, salary_applied: false };
-    }
-
-    // If already decided, return success without re-applying to avoid double-apply.
-    if (lookupResult.data.status !== "pending") {
-      return { found: true, persisted: true, next_status: lookupResult.data.status, salary_applied: false };
-    }
-
-    // Try full update with decided_at. If the decided_at column doesn't exist in this
-    // schema, Supabase returns a column error — retry with just status so the DB record
-    // is still updated correctly.
-    let updateResult = await supabase
-      .from("salary_approvals")
-      .update({ status: nextStatus, decided_at: decidedAt })
-      .eq("id", id)
-      .select("id")
-      .maybeSingle();
-
-    let decidedAtMissing = false;
-    if (updateResult.error) {
-      const errMsg = String(updateResult.error.message || "").toLowerCase();
-      if (errMsg.includes("decided_at")) {
-        decidedAtMissing = true;
-        updateResult = await supabase
-          .from("salary_approvals")
-          .update({ status: nextStatus })
-          .eq("id", id)
-          .select("id")
-          .maybeSingle();
-      }
-    }
-
-    if (updateResult.error) {
-      const message = String(updateResult.error.message || "");
-      // Catch trigger failures caused by missing updated_at column (legacy schema).
-      const isTriggerOrSchemaError =
-        message.toLowerCase().includes("updated_at") ||
-        message.toLowerCase().includes("has no field") ||
-        message.toLowerCase().includes("set_updated_at") ||
-        message.toLowerCase().includes("permission denied");
-
-      if (!isTriggerOrSchemaError) {
-        throw new Error(message);
-      }
-
-      // Schema/trigger error: save an override so UI and history stay in sync.
-      await setApprovalOverride(id, nextStatus, decidedAt);
-
-      let salaryAppliedFromOverride = false;
-      if (action === "approve") {
-        const salaryUpdate = await applyApprovedSalaryToEmployee(
-          supabase,
-          lookupResult.data.employee_id,
-          lookupResult.data.proposed_salary,
-        );
-        salaryAppliedFromOverride = salaryUpdate.updated;
-      }
-
-      return {
-        found: true,
-        persisted: false,
-        next_status: nextStatus,
-        salary_applied: salaryAppliedFromOverride,
-      };
-    }
-
-    // Update succeeded. Save an override to carry the decided_at timestamp into the
-    // read path (important when the decided_at column was missing in the DB schema).
-    if (decidedAtMissing) {
-      await setApprovalOverride(id, nextStatus, decidedAt).catch(() => {});
-    }
-
-    // updateResult.data may be null in some trigger/RLS configurations even when the
-    // row was updated. Since lookup already confirmed the record exists, treat no-error
-    // as success regardless of returned data.
-    if (action === "approve") {
-      const salaryUpdate = await applyApprovedSalaryToEmployee(
-        supabase,
-        lookupResult.data.employee_id,
-        lookupResult.data.proposed_salary,
-      );
-
-      return {
-        found: true,
-        persisted: true,
-        next_status: nextStatus,
-        salary_applied: salaryUpdate.updated,
-      };
-    }
-
-    return { found: true, persisted: true, next_status: nextStatus, salary_applied: false };
-  }
-
-  const fallback = await readFallbackApprovalStore(activeEmployees);
-  const pendingIndex = fallback.pending.findIndex((row) => String(row.id) === id);
-
-  if (pendingIndex < 0) {
-    return { found: false, persisted: false, next_status: nextStatus };
-  }
-
-  const selected = fallback.pending[pendingIndex];
-  const moved = {
-    ...selected,
-    status: nextStatus,
-    decided_at: new Date().toISOString(),
-  };
-
-  fallback.pending.splice(pendingIndex, 1);
-  fallback.history.unshift(moved);
-  await writeFallbackApprovalStore(fallback);
-
-  let salaryApplied = false;
-  if (action === "approve") {
-    const salaryUpdate = await applyApprovedSalaryToEmployee(
-      supabase,
-      selected.employee_id,
-      selected.proposed_salary,
-    );
-    salaryApplied = salaryUpdate.updated;
-  }
-
-  return { found: true, persisted: false, next_status: nextStatus, salary_applied: salaryApplied };
-}
 
 function buildRecentActivity(activeEmployees, pendingApprovals) {
   const pendingEmployeeIds = new Set(
@@ -477,7 +223,7 @@ export async function GET() {
     const employees = await fetchEmployees(supabase);
     const activeEmployees = employees.filter((employee) => !employee.archived);
 
-    const approvalData = await fetchApprovalData(supabase, activeEmployees);
+    const approvalData = await fetchApprovalData();
     const attendancePanels = await getAttendancePanels(supabase, activeEmployees);
     const payload = buildDashboardPayload(activeEmployees, approvalData, attendancePanels);
 
@@ -501,14 +247,44 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Action must be approve or reject." }, { status: 400 });
     }
 
-    const supabase = getAdminClient();
-    const employees = await fetchEmployees(supabase);
-    const activeEmployees = employees.filter((employee) => !employee.archived);
+    const nextStatus = action === "approve" ? "approved" : "rejected";
 
-    const decision = await applyApprovalDecision(supabase, activeEmployees, id, action);
+    // Verify the record is still pending before acting.
+    const allApprovals = await readAllSalaryApprovals();
+    const current = allApprovals.find((row) => row.id === id);
 
-    if (!decision.found) {
+    if (!current) {
       return NextResponse.json({ error: "Approval request not found." }, { status: 404 });
+    }
+
+    if (current.status !== "pending") {
+      return NextResponse.json(
+        { error: `Cannot ${action} a request with status: ${current.status}.` },
+        { status: 400 },
+      );
+    }
+
+    // Persist the status change (DB → Storage → /tmp, same as leave approvals).
+    const result = await updateSalaryApprovalStatus(id, nextStatus);
+
+    if (!result.found) {
+      return NextResponse.json({ error: "Approval request not found." }, { status: 404 });
+    }
+
+    // If approved, apply the new salary to the employee's metadata.
+    let salaryApplied = false;
+    if (action === "approve") {
+      try {
+        const supabase = getAdminClient();
+        const salaryUpdate = await applyApprovedSalaryToEmployee(
+          supabase,
+          current.employee_id,
+          current.proposed_salary,
+        );
+        salaryApplied = salaryUpdate.updated;
+      } catch {
+        // Salary update is best-effort; approval itself is already saved.
+      }
     }
 
     await appendAuditLog({
@@ -516,22 +292,13 @@ export async function PATCH(request) {
       action,
       entity_type: "salary_request",
       entity_id: id,
-      description: `Salary approval request ${id} was ${decision.next_status} by admin.`,
+      description: `Salary approval request ${id} was ${nextStatus} by admin.`,
       status: "success",
       source: "api",
-      metadata: {
-        request_id: id,
-        persisted: decision.persisted,
-        salary_applied: decision.salary_applied,
-      },
+      metadata: { request_id: id, salary_applied: salaryApplied },
     });
 
-    return NextResponse.json({
-      success: true,
-      status: decision.next_status,
-      persisted: decision.persisted,
-      salary_applied: decision.salary_applied,
-    });
+    return NextResponse.json({ success: true, status: nextStatus, salary_applied: salaryApplied });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
