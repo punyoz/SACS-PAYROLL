@@ -502,81 +502,109 @@ function attachNotificationHandlers() {
 function openProofDocument(proofUrl) {
   const url = String(proofUrl || '').trim();
   if (!url) {
-    window.alert('No proof document attached.');
+    showProofError('No proof document attached to this request.');
     return;
   }
 
-  const newWindow = window.open('', '_blank', 'noopener,noreferrer');
-  if (!newWindow) {
-    window.alert('Unable to open proof document. Please allow pop-ups and try again.');
-    return;
-  }
-
-  newWindow.document.open();
-  newWindow.document.write(`<!doctype html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>Proof Document</title>
-        <style>
-          html, body { height: 100%; margin: 0; }
-          body { background: #0b0f14; color: #e6eef8; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-          .wrap { height: 100%; display: flex; flex-direction: column; }
-          .bar { padding: 10px 12px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content: space-between; gap: 10px; }
-          .bar a { color: inherit; text-decoration: underline; }
-          .viewer { flex: 1; display:flex; align-items:center; justify-content:center; }
-          .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
-          .viewer iframe { border: 0; width: 100%; height: 100%; }
-        </style>
-      </head>
-      <body>
-        <div class="wrap">
-          <div class="bar">
-            <div>Proof Document</div>
-            <a id="downloadLink" href="#" download>Download</a>
-          </div>
-          <div class="viewer" id="viewer"></div>
-        </div>
-      </body>
-    </html>`);
-  newWindow.document.close();
-
-  const viewer = newWindow.document.getElementById('viewer');
-  const link = newWindow.document.getElementById('downloadLink');
-  if (link) {
-    link.href = url;
-  }
+  // Remove any existing viewer
+  const existing = document.getElementById('proof-viewer-overlay');
+  if (existing) existing.remove();
 
   const isDataUrl = url.startsWith('data:');
-  const mime = isDataUrl
-    ? url.slice(5, url.indexOf(';') > 0 ? url.indexOf(';') : url.indexOf(','))
-    : '';
-  const isImage = isDataUrl && mime.startsWith('image/');
-  const isPdf = (isDataUrl && mime === 'application/pdf') || url.toLowerCase().endsWith('.pdf');
+  const mime = isDataUrl ? url.slice(5, Math.max(url.indexOf(';'), url.indexOf(','))).replace(/[;,].*/, '') : '';
+  const isImage = isDataUrl ? mime.startsWith('image/') : /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url);
+  const isPdf   = (isDataUrl && mime === 'application/pdf') || /\.pdf$/i.test(url);
 
-  if (!viewer) {
-    newWindow.location.href = url;
-    return;
+  const overlay = document.createElement('div');
+  overlay.id = 'proof-viewer-overlay';
+  overlay.style.cssText = [
+    'position:fixed;inset:0;z-index:99999;',
+    'background:rgba(11,15,20,.93);',
+    'display:flex;flex-direction:column;',
+    'animation:proofFadeIn .15s ease;',
+  ].join('');
+
+  // Inject keyframe once
+  if (!document.getElementById('proof-viewer-style')) {
+    const s = document.createElement('style');
+    s.id = 'proof-viewer-style';
+    s.textContent = '@keyframes proofFadeIn{from{opacity:0}to{opacity:1}}';
+    document.head.appendChild(s);
   }
+
+  // Data URLs only contain base64-safe chars; plain URLs don't need HTML-escaping here.
+  const safeUrl = url;
+
+  overlay.innerHTML = `
+    <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;
+                border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0;gap:12px;">
+      <span style="color:#e6eef8;font-size:13px;font-weight:600;">Proof Document</span>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <a id="proof-dl-link" href="${safeUrl}" download="proof-document"
+           style="color:#60a5fa;font-size:12px;text-decoration:underline;cursor:pointer;">
+          ⬇ Download
+        </a>
+        <button id="proof-close-btn"
+          style="background:#ef4444;border:none;color:#fff;padding:5px 14px;
+                 border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">
+          ✕ Close
+        </button>
+      </div>
+    </div>
+    <div id="proof-viewer-body"
+         style="flex:1;display:flex;align-items:center;justify-content:center;
+                overflow:auto;padding:${(isPdf || (!isImage && isDataUrl)) ? '0' : '20px'};"></div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const body = document.getElementById('proof-viewer-body');
 
   if (isImage) {
-    const img = newWindow.document.createElement('img');
-    img.alt = 'Proof Document';
+    const img = document.createElement('img');
     img.src = url;
-    viewer.appendChild(img);
-    return;
-  }
-
-  if (isPdf || isDataUrl) {
-    const frame = newWindow.document.createElement('iframe');
+    img.alt = 'Proof Document';
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+    body.appendChild(img);
+  } else if (isPdf || isDataUrl) {
+    const frame = document.createElement('iframe');
     frame.src = url;
     frame.title = 'Proof Document';
-    viewer.appendChild(frame);
-    return;
+    frame.style.cssText = 'width:100%;height:100%;border:none;';
+    body.appendChild(frame);
+  } else {
+    body.innerHTML = `
+      <div style="color:#e6eef8;text-align:center;font-family:system-ui,sans-serif;padding:32px;">
+        <div style="font-size:48px;margin-bottom:16px;">📎</div>
+        <div style="margin-bottom:12px;">This file type cannot be previewed inline.</div>
+        <a href="${safeUrl}" download
+           style="color:#60a5fa;text-decoration:underline;font-size:14px;">Download the file</a>
+      </div>`;
   }
 
-  newWindow.location.href = url;
+  function closeViewer() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+
+  function onKey(e) { if (e.key === 'Escape') closeViewer(); }
+
+  document.getElementById('proof-close-btn').addEventListener('click', closeViewer);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeViewer(); });
+  document.addEventListener('keydown', onKey);
+}
+
+function showProofError(message) {
+  const banner = document.createElement('div');
+  banner.style.cssText = [
+    'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);',
+    'background:#1e293b;border:1px solid #475569;border-radius:8px;',
+    'color:#e6eef8;padding:12px 20px;font-size:13px;z-index:99999;',
+    'box-shadow:0 4px 16px rgba(0,0,0,.4);',
+  ].join('');
+  banner.textContent = message;
+  document.body.appendChild(banner);
+  setTimeout(() => banner.remove(), 4000);
 }
 
 /* ── GLOBAL SCROLL HELPERS ── */
