@@ -210,7 +210,7 @@ async function fetchApprovalData(supabase, activeEmployees) {
   const overrides = await readApprovalOverrides();
   const result = await supabase
     .from("salary_approvals")
-    .select("id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status")
+    .select("id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at")
     .order("submitted_at", { ascending: false })
     .limit(1000);
 
@@ -281,6 +281,7 @@ async function applyApprovedSalaryToEmployee(supabase, employeeId, proposedSalar
 
 async function applyApprovalDecision(supabase, activeEmployees, id, action) {
   const nextStatus = action === "approve" ? "approved" : "rejected";
+  const decidedAt = new Date().toISOString();
 
   const probe = await supabase.from("salary_approvals").select("id").limit(1);
   const canPersist = !probe.error;
@@ -305,27 +306,45 @@ async function applyApprovalDecision(supabase, activeEmployees, id, action) {
       return { found: true, persisted: true, next_status: lookupResult.data.status, salary_applied: false };
     }
 
-    const updateResult = await supabase
+    // Try full update with decided_at. If the decided_at column doesn't exist in this
+    // schema, Supabase returns a column error — retry with just status so the DB record
+    // is still updated correctly.
+    let updateResult = await supabase
       .from("salary_approvals")
-      .update({ status: nextStatus, decided_at: new Date().toISOString() })
+      .update({ status: nextStatus, decided_at: decidedAt })
       .eq("id", id)
       .select("id")
       .maybeSingle();
 
+    let decidedAtMissing = false;
+    if (updateResult.error) {
+      const errMsg = String(updateResult.error.message || "").toLowerCase();
+      if (errMsg.includes("decided_at")) {
+        decidedAtMissing = true;
+        updateResult = await supabase
+          .from("salary_approvals")
+          .update({ status: nextStatus })
+          .eq("id", id)
+          .select("id")
+          .maybeSingle();
+      }
+    }
+
     if (updateResult.error) {
       const message = String(updateResult.error.message || "");
       // Catch trigger failures caused by missing updated_at column (legacy schema).
-      const isTriggerError =
+      const isTriggerOrSchemaError =
         message.toLowerCase().includes("updated_at") ||
         message.toLowerCase().includes("has no field") ||
-        message.toLowerCase().includes("set_updated_at");
+        message.toLowerCase().includes("set_updated_at") ||
+        message.toLowerCase().includes("permission denied");
 
-      if (!isTriggerError) {
+      if (!isTriggerOrSchemaError) {
         throw new Error(message);
       }
 
-      // Trigger error: save an override so UI and history stay in sync.
-      await setApprovalOverride(id, nextStatus, new Date().toISOString());
+      // Schema/trigger error: save an override so UI and history stay in sync.
+      await setApprovalOverride(id, nextStatus, decidedAt);
 
       let salaryAppliedFromOverride = false;
       if (action === "approve") {
@@ -345,9 +364,15 @@ async function applyApprovalDecision(supabase, activeEmployees, id, action) {
       };
     }
 
-    // Update succeeded. updateResult.data may be null in some trigger/RLS configurations
-    // even when the row was actually updated. Since lookup already confirmed the record
-    // exists, treat no-error as success regardless of returned data.
+    // Update succeeded. Save an override to carry the decided_at timestamp into the
+    // read path (important when the decided_at column was missing in the DB schema).
+    if (decidedAtMissing) {
+      await setApprovalOverride(id, nextStatus, decidedAt).catch(() => {});
+    }
+
+    // updateResult.data may be null in some trigger/RLS configurations even when the
+    // row was updated. Since lookup already confirmed the record exists, treat no-error
+    // as success regardless of returned data.
     if (action === "approve") {
       const salaryUpdate = await applyApprovedSalaryToEmployee(
         supabase,

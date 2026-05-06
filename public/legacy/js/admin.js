@@ -1239,9 +1239,32 @@ async function loadLeaveApprovals() {
   }
 }
 
+function showLeaveApprovalFeedback(message, isError = false) {
+  const container = document.getElementById('adm-leave-approvals-list');
+  if (container) {
+    const existing = container.querySelector('.leave-action-feedback');
+    if (existing) existing.remove();
+
+    if (message) {
+      const banner = document.createElement('div');
+      banner.className = 'leave-action-feedback';
+      banner.style.cssText = isError
+        ? 'background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#dc2626;font-size:13px;'
+        : 'background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#15803d;font-size:13px;';
+      banner.textContent = message;
+      container.insertAdjacentElement('afterbegin', banner);
+    }
+  }
+  if (isError) { try { window.alert(message); } catch {} }
+}
+
 async function updateLeaveRequestStatus(requestId, action) {
   const id = String(requestId || '').trim();
   if (!id) return;
+
+  const allLeaveButtons = document.querySelectorAll('#adm-leave-approvals-list .approval-card-actions .btn');
+  allLeaveButtons.forEach((btn) => { btn.disabled = true; btn.style.opacity = '0.6'; });
+  showLeaveApprovalFeedback('Processing...', false);
 
   try {
     const response = await fetch('/api/admin/leave-requests', {
@@ -1255,9 +1278,12 @@ async function updateLeaveRequestStatus(requestId, action) {
       throw new Error(payload.error || 'Failed to update leave request status');
     }
 
+    const label = action === 'approve' ? 'approved' : 'rejected';
+    showLeaveApprovalFeedback(`Leave request ${label}. Refreshing...`, false);
     await Promise.all([loadLeaveApprovals(), loadAuditLogs()]);
   } catch (error) {
-    window.alert(error.message);
+    showLeaveApprovalFeedback(`Error: ${error.message}`, true);
+    allLeaveButtons.forEach((btn) => { btn.disabled = false; btn.style.opacity = ''; });
   }
 }
 
@@ -1299,8 +1325,8 @@ async function updateApprovalStatus(approvalId, action) {
   if (!id) return;
 
   const allActionButtons = document.querySelectorAll('.approval-card-actions .btn, .acts .btn[onclick*="approveChange"], .acts .btn[onclick*="rejectChange"]');
-  allActionButtons.forEach((btn) => { btn.disabled = true; });
-  showSalaryApprovalFeedback('');
+  allActionButtons.forEach((btn) => { btn.disabled = true; btn.style.opacity = '0.6'; });
+  showSalaryApprovalFeedback('Processing...', false);
 
   try {
     const response = await fetch('/api/admin/salary-approvals', {
@@ -1314,10 +1340,13 @@ async function updateApprovalStatus(approvalId, action) {
       throw new Error(payload.error || 'Failed to update approval status');
     }
 
+    const label = action === 'approve' ? 'approved' : 'rejected';
+    showSalaryApprovalFeedback(`Salary change successfully ${label}. Refreshing...`, false);
+
     await Promise.all([loadDashboard(), loadSalaryApprovals(), loadAuditLogs()]);
   } catch (error) {
-    showSalaryApprovalFeedback(error.message, true);
-    allActionButtons.forEach((btn) => { btn.disabled = false; });
+    showSalaryApprovalFeedback(`Error: ${error.message}`, true);
+    allActionButtons.forEach((btn) => { btn.disabled = false; btn.style.opacity = ''; });
   }
 }
 

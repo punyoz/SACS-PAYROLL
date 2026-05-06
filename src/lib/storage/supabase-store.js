@@ -12,14 +12,13 @@ function getClient() {
 }
 
 async function ensureBucket(supabase) {
-  try {
-    await supabase.storage.createBucket(BUCKET, {
-      public: false,
-      fileSizeLimit: 104857600, // 100MB
-    });
-  } catch {
-    // Bucket already exists — that is fine
-  }
+  const { data: existing } = await supabase.storage.getBucket(BUCKET);
+  if (existing) return;
+  await supabase.storage.createBucket(BUCKET, {
+    public: false,
+    fileSizeLimit: 104857600,
+  });
+  // Ignore error — bucket may have been created by a concurrent request or migration.
 }
 
 export async function storageReadJson(filename, defaultValue = {}) {
