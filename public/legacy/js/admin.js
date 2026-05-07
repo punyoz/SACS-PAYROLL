@@ -722,7 +722,7 @@ function showRfidFeedback(message, isError = false) {
 async function loadAttendanceData() {
   const tbody = document.getElementById('adm-attendance-table-body');
   if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">Loading attendance records...</td></tr>';
+    tbody.innerHTML = skeletonRows(6);
   }
 
   try {
@@ -914,7 +914,7 @@ function setAuditActionFilter(value) {
 async function loadAuditLogs() {
   const tbody = document.getElementById('adm-audit-table-body');
   if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading audit logs...</td></tr>';
+    tbody.innerHTML = skeletonRows(7);
   }
 
   try {
@@ -1040,7 +1040,7 @@ function exportSummaryReportsCsv() {
 async function loadSummaryReports() {
   const tbody = document.getElementById('adm-reports-table-body');
   if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">Loading payroll summary...</td></tr>';
+    tbody.innerHTML = skeletonRows(6);
   }
 
   try {
@@ -1112,7 +1112,7 @@ async function loadSalaryApprovals() {
   const historyBody = document.getElementById('adm-approval-history-body');
 
   if (historyBody) {
-    historyBody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">Loading approval history...</td></tr>';
+    historyBody.innerHTML = skeletonRows(6);
   }
 
   try {
@@ -1236,7 +1236,7 @@ async function loadLeaveApprovals() {
   const historyBody = document.getElementById('adm-leave-history-body');
 
   if (historyBody) {
-    historyBody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading leave history...</td></tr>';
+    historyBody.innerHTML = skeletonRows(8);
   }
 
   try {
@@ -1485,7 +1485,7 @@ async function loadEmployees() {
   const tbody = document.getElementById('adm-employee-table-body');
   if (!tbody) return;
 
-  tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">Loading employees...</td></tr>';
+  tbody.innerHTML = skeletonRows(8);
 
   try {
     const response = await fetch('/api/admin/employees', { method: 'GET' });
@@ -1797,6 +1797,8 @@ function initAdminPortal() {
   }
 
   applyAdminIdentity();
+
+  attachSidebarSpotlight(document.querySelector('#s-admin .sidebar'));
 
   empPaginator = window.createPaginator({ id: 'adm-emp', pageSize: 15, renderFn: renderEmployees });
   attPaginator = window.createPaginator({ id: 'adm-att', pageSize: 15, renderFn: renderAttendanceTable });

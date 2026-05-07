@@ -21,8 +21,24 @@
   flex-shrink: 0;
   height: 100%;
   min-height: 100vh;
-  
+  position: relative;
+  overflow: hidden;
 }
+
+/* Cursor spotlight that tracks mouse position */
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    300px circle at var(--mx, -999px) var(--my, -999px),
+    rgba(245, 166, 35, 0.08) 0%,
+    transparent 70%
+  );
+}
+.sidebar > * { position: relative; z-index: 1; }
 
 .sb-brand {
   padding: 18px 16px 14px;
@@ -80,7 +96,9 @@
   position: relative;
   user-select: none;
 }
+.ni { transition: background .15s, color .15s, transform .15s ease; }
 .ni:hover { background: var(--bg3); color: var(--t1); }
+.ni:not(.active):hover { transform: translateX(3px); }
 .ni.active { background: var(--amber-s); color: var(--amber); }
 .ni.active::before {
   content: '';
@@ -276,13 +294,20 @@
 .rt-emp   { background: var(--green-s); color: var(--green); border: 1px solid var(--green); }
 
 /* ── PAGE CONTAINER ── */
+@keyframes pg-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
 .page {
   display: none;
   flex: 1;
   overflow-y: visible;
   padding: 26px;
 }
-.page.active { display: block; }
+.page.active {
+  display: block;
+  animation: pg-in 0.22s ease both;
+}
 
 /* ── RESPONSIVE SHELL (mobile-first) ── */
 #s-admin,

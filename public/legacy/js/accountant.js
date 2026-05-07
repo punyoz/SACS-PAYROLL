@@ -613,6 +613,11 @@ async function loadAccountantData(options = {}) {
   if (acctState.loading) return;
   acctState.loading = true;
 
+  const recTbody = document.getElementById('ac-records-body');
+  if (recTbody) recTbody.innerHTML = skeletonRows(7);
+  const attTbody = document.getElementById('ac-attendance-body');
+  if (attTbody) attTbody.innerHTML = skeletonRows(5);
+
   try {
     const params = new URLSearchParams();
     const selectedPeriod = options.period || document.getElementById('pc-period')?.value;
@@ -814,7 +819,7 @@ async function loadAccountantLeaveRequests() {
 
   try {
     errorMsg.textContent = '';
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--t3);font-size:13px;">Loading pending requests...</td></tr>';
+    tbody.innerHTML = skeletonRows(6);
 
     const res = await fetch('/api/accountant/leave-requests?status=pending_accountant');
     const data = await res.json();
@@ -849,7 +854,7 @@ async function loadAccountantLeaveHistory() {
 
   try {
     errorMsg.textContent = '';
-    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--t3);font-size:13px;">Loading history...</td></tr>';
+    tbody.innerHTML = skeletonRows(4);
 
     const res = await fetch('/api/accountant/leave-requests?status=history');
     const data = await res.json();
@@ -940,6 +945,8 @@ window.processAccountantLeave = async function(id, action) {
 /* ── INIT ── */
 function initAccountant() {
   applyAccountantIdentity();
+
+  attachSidebarSpotlight(document.querySelector('#s-accountant .sidebar'));
 
   acRecordsPaginator = window.createPaginator({ id: 'ac-rec', pageSize: 15, renderFn: renderPayrollRecordsTable });
   acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });

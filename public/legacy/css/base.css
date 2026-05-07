@@ -899,6 +899,23 @@ body {
   }
 }
 
+/* ── SKELETON LOADING ── */
+@keyframes sk-shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+.sk-bar {
+  height: 11px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg3) 0%, var(--bg4) 50%, var(--bg3) 100%);
+  background-size: 600px 100%;
+  animation: sk-shimmer 1.5s linear infinite;
+}
+.sk-row td {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
 /* ── PAGINATION ── */
 .pg-bar {
   display: flex;

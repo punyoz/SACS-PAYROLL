@@ -815,6 +815,28 @@ function showRoleScreen(role) {
   }, 0);
 }
 
+/* ── SKELETON LOADING ── */
+function skeletonRows(cols, count = 5) {
+  const widths = [55, 80, 70, 90, 65, 75];
+  const tds = Array.from({ length: cols }, (_, i) =>
+    `<td><div class="sk-bar" style="width:${widths[i % widths.length]}%"></div></td>`
+  ).join('');
+  return Array.from({ length: count }, () => `<tr class="sk-row">${tds}</tr>`).join('');
+}
+
+function attachSidebarSpotlight(sidebar) {
+  if (!sidebar) return;
+  sidebar.addEventListener('mousemove', (e) => {
+    const rect = sidebar.getBoundingClientRect();
+    sidebar.style.setProperty('--mx', `${e.clientX - rect.left}px`);
+    sidebar.style.setProperty('--my', `${e.clientY - rect.top}px`);
+  });
+  sidebar.addEventListener('mouseleave', () => {
+    sidebar.style.removeProperty('--mx');
+    sidebar.style.removeProperty('--my');
+  });
+}
+
 /* ── PAGINATION ── */
 const _pgRegistry = {};
 
