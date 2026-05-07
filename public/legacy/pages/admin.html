@@ -163,21 +163,24 @@
         <div class="adm-modal-card">
           <div class="adm-modal-head">
             <h3>Add Employee</h3>
-            <button class="btn btn-outline" type="button" onclick="closeAddEmployeeModal()">Close</button>
+            <button class="btn btn-close-x" type="button" onclick="closeAddEmployeeModal()" title="Close">&#x2715;</button>
           </div>
 
           <form id="add-employee-form" class="adm-modal-form" onsubmit="submitAddEmployee(event)">
             <div class="fg">
               <label>First Name</label>
-              <input class="fc" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+              <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+              <span class="field-error" aria-live="polite"></span>
             </div>
             <div class="fg">
               <label>Middle Name</label>
-              <input class="fc" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+              <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+              <span class="field-error" aria-live="polite"></span>
             </div>
             <div class="fg">
               <label>Last Name</label>
-              <input class="fc" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+              <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+              <span class="field-error" aria-live="polite"></span>
             </div>
             <div class="fg">
               <label>Suffix</label>
@@ -247,7 +250,7 @@
         <div class="adm-modal-card">
           <div class="adm-modal-head">
             <h3>Edit Employee</h3>
-            <button class="btn btn-outline" type="button" onclick="closeEditEmployeeModal()">Close</button>
+            <button class="btn btn-close-x" type="button" onclick="closeEditEmployeeModal()" title="Close">&#x2715;</button>
           </div>
 
           <form id="edit-employee-form" class="adm-modal-form" onsubmit="submitEditEmployee(event)">
@@ -255,15 +258,18 @@
 
             <div class="fg">
               <label>First Name</label>
-              <input class="fc" name="first_name" required maxlength="16" />
+              <input class="fc name-input" name="first_name" required maxlength="16" />
+              <span class="field-error" aria-live="polite"></span>
             </div>
             <div class="fg">
               <label>Middle Name</label>
-              <input class="fc" name="middle_initial" maxlength="16" />
+              <input class="fc name-input" name="middle_initial" maxlength="16" />
+              <span class="field-error" aria-live="polite"></span>
             </div>
             <div class="fg">
               <label>Last Name</label>
-              <input class="fc" name="last_name" required maxlength="16" />
+              <input class="fc name-input" name="last_name" required maxlength="16" />
+              <span class="field-error" aria-live="polite"></span>
             </div>
             <div class="fg">
               <label>Suffix</label>

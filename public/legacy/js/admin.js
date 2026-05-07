@@ -227,7 +227,30 @@ function normalizePortalPosition(positionValue, roleValue) {
 const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
 function isValidNamePart(nameValue) {
-  return String(nameValue || '').trim().length > 0;
+  const normalized = String(nameValue || '').trim();
+  return normalized.length > 0 && /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/.test(normalized);
+}
+
+function setupNameFieldValidation() {
+  const INVALID_CHARS = /[^A-Za-z\s]/g;
+
+  document.querySelectorAll('.name-input').forEach((input) => {
+    const errorSpan = input.nextElementSibling;
+
+    input.addEventListener('input', () => {
+      const original = input.value;
+      const cleaned = original.replace(INVALID_CHARS, '');
+
+      if (cleaned !== original) {
+        const pos = input.selectionStart - (original.length - cleaned.length);
+        input.value = cleaned;
+        input.setSelectionRange(pos, pos);
+        if (errorSpan) errorSpan.textContent = 'Only letters and spaces are allowed.';
+      } else {
+        if (errorSpan) errorSpan.textContent = '';
+      }
+    });
+  });
 }
 
 function normalizeSuffix(value) {
@@ -1515,6 +1538,7 @@ function openAddEmployeeModal() {
   if (form.elements.suffix) form.elements.suffix.value = '';
   syncPositionFieldWithRole(form);
   showEmployeeFeedback('');
+  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
   modal.style.display = 'flex';
 }
 
@@ -1564,6 +1588,7 @@ function openEditEmployeeModal(employeeId) {
   archiveButton.textContent = currentEditingEmployee.archived ? 'Restore Employee' : 'Archive Employee';
 
   showEditFeedback('');
+  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
   modal.style.display = 'flex';
 }
 
@@ -1644,6 +1669,16 @@ async function submitAddEmployee(event) {
     return;
   }
 
+  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.last_name)) {
+    showEmployeeFeedback('Name fields must contain letters only — no numbers or special characters.', true);
+    return;
+  }
+
+  if (payload.middle_initial && !/^[A-Za-z\s]+$/.test(payload.middle_initial)) {
+    showEmployeeFeedback('Middle name must contain letters only — no numbers or special characters.', true);
+    return;
+  }
+
   if (!payload.password) {
     showEmployeeFeedback('Date of birth is invalid. Use a valid date.', true);
     return;
@@ -1708,6 +1743,16 @@ async function submitEditEmployee(event) {
 
   if (!payload.id || !payload.first_name || !payload.last_name || !payload.email || !payload.employee_id) {
     showEditFeedback('ID, first name, last name, email, and employee ID are required.', true);
+    return;
+  }
+
+  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.last_name)) {
+    showEditFeedback('Name fields must contain letters only — no numbers or special characters.', true);
+    return;
+  }
+
+  if (payload.middle_initial && !/^[A-Za-z\s]+$/.test(payload.middle_initial)) {
+    showEditFeedback('Middle name must contain letters only — no numbers or special characters.', true);
     return;
   }
 
@@ -1790,6 +1835,8 @@ function initAdminPortal() {
   if (editForm?.elements?.role) {
     editForm.elements.role.addEventListener('change', () => syncPositionFieldWithRole(editForm));
   }
+
+  setupNameFieldValidation();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('admin')
