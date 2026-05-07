@@ -169,19 +169,15 @@
           <form id="add-employee-form" class="adm-modal-form" onsubmit="submitAddEmployee(event)">
             <div class="fg">
               <label>First Name</label>
-              <input class="fc" name="first_name" required pattern="[A-Za-z]+(\s+[A-Za-z]+)*" title="Use letters and spaces only." placeholder="e.g. Juan" />
+              <input class="fc" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
             </div>
             <div class="fg">
-              <label>Second Name</label>
-              <input class="fc" name="second_name" required pattern="[A-Za-z]+(\s+[A-Za-z]+)*" title="Use letters and spaces only." placeholder="e.g. Miguel" />
-            </div>
-            <div class="fg">
-              <label>Middle Initial</label>
-              <input class="fc" name="middle_initial" required maxlength="1" pattern="[A-Za-z]" title="Use one letter only." placeholder="e.g. A" />
+              <label>Middle Name</label>
+              <input class="fc" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
             </div>
             <div class="fg">
               <label>Last Name</label>
-              <input class="fc" name="last_name" required pattern="[A-Za-z]+(\s+[A-Za-z]+)*" title="Use letters and spaces only." placeholder="e.g. Dela Cruz" />
+              <input class="fc" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
             </div>
             <div class="fg">
               <label>Suffix</label>
@@ -259,19 +255,15 @@
 
             <div class="fg">
               <label>First Name</label>
-              <input class="fc" name="first_name" required pattern="[A-Za-z]+(\s+[A-Za-z]+)*" title="Use letters and spaces only." />
+              <input class="fc" name="first_name" required maxlength="16" />
             </div>
             <div class="fg">
-              <label>Second Name</label>
-              <input class="fc" name="second_name" required pattern="[A-Za-z]+(\s+[A-Za-z]+)*" title="Use letters and spaces only." />
-            </div>
-            <div class="fg">
-              <label>Middle Initial</label>
-              <input class="fc" name="middle_initial" required maxlength="1" pattern="[A-Za-z]" title="Use one letter only." />
+              <label>Middle Name</label>
+              <input class="fc" name="middle_initial" maxlength="16" />
             </div>
             <div class="fg">
               <label>Last Name</label>
-              <input class="fc" name="last_name" required pattern="[A-Za-z]+(\s+[A-Za-z]+)*" title="Use letters and spaces only." />
+              <input class="fc" name="last_name" required maxlength="16" />
             </div>
             <div class="fg">
               <label>Suffix</label>

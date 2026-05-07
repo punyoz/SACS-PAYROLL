@@ -227,10 +227,7 @@ function normalizePortalPosition(positionValue, roleValue) {
 const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
 function isValidNamePart(nameValue) {
-  const normalized = String(nameValue || '').trim();
-  if (!normalized) return false;
-
-  return /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/.test(normalized);
+  return String(nameValue || '').trim().length > 0;
 }
 
 function normalizeSuffix(value) {
@@ -265,14 +262,13 @@ function buildDefaultPassword(lastName, dateOfBirth) {
   return `${sanitizedLastName}${dobDigits}`;
 }
 
-function composeFullName({ first_name = '', second_name = '', middle_initial = '', last_name = '', suffix = '' }) {
+function composeFullName({ first_name = '', middle_initial = '', last_name = '', suffix = '' }) {
   const first = toTitleCaseWords(first_name);
-  const second = toTitleCaseWords(second_name);
-  const middle = String(middle_initial || '').trim().toUpperCase();
+  const middle = String(middle_initial || '').trim();
   const last = toTitleCaseWords(last_name);
   const resolvedSuffix = normalizeSuffix(suffix);
 
-  const parts = [first, second, middle, last].filter(Boolean);
+  const parts = [first, middle, last].filter(Boolean);
   return [parts.join(' '), resolvedSuffix].filter(Boolean).join(' ');
 }
 
@@ -1551,7 +1547,6 @@ function openEditEmployeeModal(employeeId) {
   form.elements.id.value = currentEditingEmployee.id;
   const nameParts = splitFullName(currentEditingEmployee.full_name || '');
   form.elements.first_name.value = nameParts.first_name || '';
-  form.elements.second_name.value = nameParts.second_name || '';
   form.elements.middle_initial.value = nameParts.middle_initial || '';
   form.elements.last_name.value = nameParts.last_name || '';
   form.elements.suffix.value = normalizeSuffix(nameParts.suffix);
@@ -1629,7 +1624,6 @@ async function submitAddEmployee(event) {
   const formData = new FormData(form);
   const payload = {
     first_name: String(formData.get('first_name') || '').trim(),
-    second_name: String(formData.get('second_name') || '').trim(),
     middle_initial: String(formData.get('middle_initial') || '').trim(),
     last_name: String(formData.get('last_name') || '').trim(),
     suffix: normalizeSuffix(formData.get('suffix')),
@@ -1645,18 +1639,8 @@ async function submitAddEmployee(event) {
   payload.full_name = composeFullName(payload);
   payload.password = buildDefaultPassword(payload.last_name, payload.date_of_birth);
 
-  if (!payload.first_name || !payload.second_name || !payload.middle_initial || !payload.last_name || !payload.email || !payload.date_of_birth) {
-    showEmployeeFeedback('First name, second name, middle initial, last name, email, and date of birth are required.', true);
-    return;
-  }
-
-  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.second_name) || !isValidNamePart(payload.last_name)) {
-    showEmployeeFeedback('Name fields must contain letters and spaces only.', true);
-    return;
-  }
-
-  if (!/^[A-Za-z]$/.test(payload.middle_initial)) {
-    showEmployeeFeedback('Middle initial must contain one letter only.', true);
+  if (!payload.first_name || !payload.last_name || !payload.email || !payload.date_of_birth) {
+    showEmployeeFeedback('First name, last name, email, and date of birth are required.', true);
     return;
   }
 
@@ -1706,7 +1690,6 @@ async function submitEditEmployee(event) {
     id: String(formData.get('id') || '').trim(),
     action: 'update',
     first_name: String(formData.get('first_name') || '').trim(),
-    second_name: String(formData.get('second_name') || '').trim(),
     middle_initial: String(formData.get('middle_initial') || '').trim(),
     last_name: String(formData.get('last_name') || '').trim(),
     suffix: normalizeSuffix(formData.get('suffix')),
@@ -1723,18 +1706,8 @@ async function submitEditEmployee(event) {
 
   payload.full_name = composeFullName(payload);
 
-  if (!payload.id || !payload.first_name || !payload.second_name || !payload.middle_initial || !payload.last_name || !payload.email || !payload.employee_id) {
-    showEditFeedback('ID, first name, second name, middle initial, last name, email, and employee ID are required.', true);
-    return;
-  }
-
-  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.second_name) || !isValidNamePart(payload.last_name)) {
-    showEditFeedback('Name fields must contain letters and spaces only.', true);
-    return;
-  }
-
-  if (!/^[A-Za-z]$/.test(payload.middle_initial)) {
-    showEditFeedback('Middle initial must contain one letter only.', true);
+  if (!payload.id || !payload.first_name || !payload.last_name || !payload.email || !payload.employee_id) {
+    showEditFeedback('ID, first name, last name, email, and employee ID are required.', true);
     return;
   }
 

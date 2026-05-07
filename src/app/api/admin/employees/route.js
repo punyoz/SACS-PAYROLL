@@ -86,23 +86,19 @@ function normalizeSuffix(value) {
 
 function buildFullNameFromParts(body) {
   const first = toTitleCaseWords(body?.first_name);
-  const second = toTitleCaseWords(body?.second_name);
-  const middle = normalizeText(body?.middle_initial).slice(0, 1).toUpperCase();
+  const middle = normalizeText(body?.middle_initial);
   const last = toTitleCaseWords(body?.last_name);
   const suffix = normalizeSuffix(body?.suffix);
 
-  if (first && second && middle && last) {
-    return [first, second, middle, last, suffix].filter(Boolean).join(" ");
+  if (first && last) {
+    return [first, middle, last, suffix].filter(Boolean).join(" ");
   }
 
-  return toTitleCaseWords(body?.full_name);
+  return normalizeText(body?.full_name);
 }
 
 function isValidEmployeeName(nameInput) {
-  const normalized = normalizeText(nameInput);
-  if (!normalized) return false;
-
-  return /^[A-Za-z]+(?:\s+[A-Za-z]+)*\s+[A-Za-z]\.?\s+[A-Za-z]+(?:\s+[A-Za-z]+)*(?:\s+(?:Jr\.|Sr\.|II|III|IV|V))?$/.test(normalized);
+  return normalizeText(nameInput).length > 0;
 }
 
 function formatDateOfBirthForPassword(dateInput) {
