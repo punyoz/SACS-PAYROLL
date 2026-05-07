@@ -680,6 +680,73 @@ function handleGlobalMouseWheel(event) {
   if (event.ctrlKey) return;
 }
 
+/* ── RESET PASSWORD (LOGIN PAGE) ── */
+function openResetPasswordModal() {
+  const modal = document.getElementById('reset-password-modal');
+  const input = document.getElementById('reset-identity-input');
+  const feedback = document.getElementById('reset-password-feedback');
+  const btn = document.getElementById('reset-submit-btn');
+
+  if (!modal) return;
+
+  if (input) input.value = '';
+  if (feedback) { feedback.textContent = ''; feedback.style.color = ''; }
+  if (btn) { btn.textContent = 'Send Reset Link'; btn.disabled = false; }
+
+  modal.style.display = 'flex';
+}
+
+function closeResetPasswordModal() {
+  const modal = document.getElementById('reset-password-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitResetPassword() {
+  const input = document.getElementById('reset-identity-input');
+  const feedback = document.getElementById('reset-password-feedback');
+  const btn = document.getElementById('reset-submit-btn');
+
+  const identity = String(input?.value || '').trim();
+
+  if (!identity) {
+    if (feedback) {
+      feedback.textContent = 'Enter your Employee ID or email address.';
+      feedback.style.color = '#E85555';
+    }
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  if (feedback) { feedback.textContent = ''; feedback.style.color = ''; }
+
+  try {
+    const response = await fetch('/api/legacy-auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to send reset link.');
+    }
+
+    if (feedback) {
+      feedback.textContent = result.message || 'Reset link sent. Check your registered email address.';
+      feedback.style.color = '#3EC97A';
+    }
+    if (btn) { btn.textContent = 'Sent'; }
+    if (input) input.value = '';
+  } catch (error) {
+    if (feedback) {
+      feedback.textContent = error.message;
+      feedback.style.color = '#E85555';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Link'; }
+  }
+}
+
 /* ── LOGIN ── */
 async function login() {
   const fields = document.querySelectorAll('#s-login .fi');
@@ -799,6 +866,9 @@ function initApp() {
   window.getPersistedRolePageState = getPersistedRolePageState;
   window.refreshCurrentPortal = refreshCurrentPortal;
   window.openProofDocument = openProofDocument;
+  window.openResetPasswordModal = openResetPasswordModal;
+  window.closeResetPasswordModal = closeResetPasswordModal;
+  window.submitResetPassword = submitResetPassword;
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {

@@ -48,6 +48,12 @@
       <span class="nib" id="ac-pending-count">0</span>
     </div>
 
+    <div class="sb-sec">Account</div>
+    <div class="ni" onclick="acctNav('ac-change-password',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Change Password
+    </div>
+
     <div class="sb-foot">
       <div class="uc">
         <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">AC</div>
@@ -300,6 +306,34 @@
         </div>
         <p id="al-history-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:30px 0;display:none;">No history available.</p>
         <p id="al-history-error" class="adm-error"></p>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Change Password
+    ────────────────────────────── -->
+    <div class="page" id="ac-change-password">
+      <div class="ph"><h2>Change Password</h2><p>Update your account password</p></div>
+      <div class="card" style="max-width:480px;">
+        <p style="font-size:13px;color:var(--t2);margin-bottom:18px;line-height:1.6;">
+          Enter your current password to verify your identity, then set a new password. New password must be at least 8 characters.
+        </p>
+        <div style="display:grid;gap:12px;">
+          <div class="fg" style="margin:0;">
+            <label>Current Password</label>
+            <input id="ac-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>New Password</label>
+            <input id="ac-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>Confirm New Password</label>
+            <input id="ac-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:12px;" onclick="submitAccountantChangePassword()">Update Password</button>
+        <p id="ac-change-password-feedback" class="adm-feedback" style="margin-top:10px;"></p>
       </div>
     </div>
 

@@ -1531,6 +1531,7 @@ function openEditEmployeeModal(employeeId) {
   form.elements.position.value = normalizePortalPosition(currentEditingEmployee.position, currentEditingEmployee.role);
   form.elements.employee_status.value = currentEditingEmployee.employee_status || currentEditingEmployee.rfid_status || 'Active';
   form.elements.basic_salary.value = Number(currentEditingEmployee.basic_salary || 0);
+  form.elements.date_of_birth.value = currentEditingEmployee.date_of_birth || '';
   form.elements.password.value = '';
 
   archiveButton.className = currentEditingEmployee.archived ? 'btn btn-green' : 'btn btn-red';
@@ -1685,6 +1686,7 @@ async function submitEditEmployee(event) {
     position: normalizePortalPosition(String(formData.get('position') || '').trim(), String(formData.get('role') || 'employee').trim()),
     employee_status: String(formData.get('employee_status') || 'Active').trim(),
     basic_salary: Number(formData.get('basic_salary') || 0),
+    date_of_birth: String(formData.get('date_of_birth') || '').trim(),
     password: String(formData.get('password') || '').trim(),
   };
 

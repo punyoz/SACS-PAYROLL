@@ -222,6 +222,67 @@ async function submitLeaveRequest() {
   }
 }
 
+/* ── CHANGE PASSWORD ── */
+function showChangePasswordFeedback(message, isError = false) {
+  const el = document.getElementById('emp-change-password-feedback');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle('err', isError);
+  el.classList.toggle('ok', !isError && Boolean(message));
+}
+
+async function submitChangePassword() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+
+  const currentPassword = String(document.getElementById('emp-cur-password')?.value || '').trim();
+  const newPassword = String(document.getElementById('emp-new-password')?.value || '').trim();
+  const confirmPassword = String(document.getElementById('emp-confirm-password')?.value || '').trim();
+
+  if (!email) {
+    showChangePasswordFeedback('Unable to identify account. Please sign in again.', true);
+    return;
+  }
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    showChangePasswordFeedback('All password fields are required.', true);
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    showChangePasswordFeedback('New passwords do not match.', true);
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    showChangePasswordFeedback('New password must be at least 8 characters.', true);
+    return;
+  }
+
+  try {
+    showChangePasswordFeedback('Updating password...', false);
+
+    const response = await fetch('/api/legacy-auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, current_password: currentPassword, new_password: newPassword }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to update password.');
+    }
+
+    document.getElementById('emp-cur-password').value = '';
+    document.getElementById('emp-new-password').value = '';
+    document.getElementById('emp-confirm-password').value = '';
+
+    showChangePasswordFeedback('Password updated successfully.', false);
+  } catch (error) {
+    showChangePasswordFeedback(error.message, true);
+  }
+}
+
 /* ── PAYSLIP PRINT ── */
 function printPayslip() {
   window.print();
@@ -266,3 +327,4 @@ if (document.readyState === 'loading') {
 window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);
 
 window.submitLeaveRequest = submitLeaveRequest;
+window.submitChangePassword = submitChangePassword;

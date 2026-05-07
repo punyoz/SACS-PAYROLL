@@ -34,6 +34,35 @@
     </div>
 
     <button class="lb" onclick="login()">Sign In</button>
+
+    <div style="text-align:center;margin-top:10px;margin-bottom:4px;">
+      <button type="button" onclick="openResetPasswordModal()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;">Forgot Password?</button>
+    </div>
+
     <div class="lf">School Year 2025–2026 &nbsp;·&nbsp; BNCS Payroll v1.0</div>
+  </div>
+
+  <!-- RESET PASSWORD MODAL -->
+  <div id="reset-password-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="max-width:440px;">
+      <div class="adm-modal-head">
+        <h3>Reset Password</h3>
+        <button class="btn btn-outline" type="button" onclick="closeResetPasswordModal()">Close</button>
+      </div>
+      <div style="padding:0 0 4px;">
+        <p style="font-size:13px;color:var(--t2);margin-bottom:14px;line-height:1.6;">
+          Enter your Employee ID (e.g. <strong>BNCS-001</strong>) or your registered email address. A password reset link will be sent to your email.
+        </p>
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:16px;font-size:12px;color:var(--t3);line-height:1.5;">
+          Only <strong style="color:var(--t2);">Employee</strong> and <strong style="color:var(--t2);">Accountant</strong> accounts can reset their password here. Contact the administrator for other issues.
+        </div>
+        <div class="fl">
+          <label style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">Employee ID or Email</label>
+          <input id="reset-identity-input" class="fi" type="text" placeholder="e.g. BNCS-001 or your@email.com" autocomplete="off" />
+        </div>
+        <div id="reset-password-feedback" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
+        <button class="lb" id="reset-submit-btn" onclick="submitResetPassword()" style="margin-top:12px;">Send Reset Link</button>
+      </div>
+    </div>
   </div>
 </div>

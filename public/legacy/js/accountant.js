@@ -9,12 +9,13 @@
 
 /* ── PAGE MAP ── */
 const ACCT_PAGES = {
-  'ac-process':    'Process Payroll',
-  'ac-records':    'Payroll Records',
-  'ac-payslips':   'Payslips',
-  'ac-attendance': 'View Attendance',
-  'ac-pending':    'Pending Submissions',
-  'ac-leaves':     'Leave Approvals',
+  'ac-process':          'Process Payroll',
+  'ac-records':          'Payroll Records',
+  'ac-payslips':         'Payslips',
+  'ac-attendance':       'View Attendance',
+  'ac-pending':          'Pending Submissions',
+  'ac-leaves':           'Leave Approvals',
+  'ac-change-password':  'Change Password',
 };
 
 const acctState = {
@@ -941,6 +942,67 @@ function initAccountant() {
   loadAccountantData();
 }
 
+/* ── CHANGE PASSWORD ── */
+function showAcctChangePasswordFeedback(message, isError = false) {
+  const el = document.getElementById('ac-change-password-feedback');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle('err', isError);
+  el.classList.toggle('ok', !isError && Boolean(message));
+}
+
+async function submitAccountantChangePassword() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+
+  const currentPassword = String(document.getElementById('ac-cur-password')?.value || '').trim();
+  const newPassword = String(document.getElementById('ac-new-password')?.value || '').trim();
+  const confirmPassword = String(document.getElementById('ac-confirm-password')?.value || '').trim();
+
+  if (!email) {
+    showAcctChangePasswordFeedback('Unable to identify account. Please sign in again.', true);
+    return;
+  }
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    showAcctChangePasswordFeedback('All password fields are required.', true);
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    showAcctChangePasswordFeedback('New passwords do not match.', true);
+    return;
+  }
+
+  if (newPassword.length < 8) {
+    showAcctChangePasswordFeedback('New password must be at least 8 characters.', true);
+    return;
+  }
+
+  try {
+    showAcctChangePasswordFeedback('Updating password...', false);
+
+    const response = await fetch('/api/legacy-auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, current_password: currentPassword, new_password: newPassword }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to update password.');
+    }
+
+    document.getElementById('ac-cur-password').value = '';
+    document.getElementById('ac-new-password').value = '';
+    document.getElementById('ac-confirm-password').value = '';
+
+    showAcctChangePasswordFeedback('Password updated successfully.', false);
+  } catch (error) {
+    showAcctChangePasswordFeedback(error.message, true);
+  }
+}
+
 window.acctNav = acctNav;
 window.submitForApproval = submitForApproval;
 window.savePayrollDraft = savePayrollDraft;
@@ -950,6 +1012,7 @@ window.openPayslipFromRecord = openPayslipFromRecord;
 window.withdrawSubmission = withdrawSubmission;
 window.loadAccountantLeaveRequests = loadAccountantLeaveRequests;
 window.loadAccountantLeaveHistory = loadAccountantLeaveHistory;
+window.submitAccountantChangePassword = submitAccountantChangePassword;
 
 function maybeInitAccountant() {
   const currentRole = new URLSearchParams(window.location.search).get('role');

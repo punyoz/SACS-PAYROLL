@@ -144,6 +144,7 @@ function shapeEmployee(user, profile, index) {
     employee_status: employeeStatus,
     employment_status: normalizeText(metadata.employment_status, "Regular"),
     archived: Boolean(metadata.archived),
+    date_of_birth: normalizeText(metadata.date_of_birth, ""),
   };
 }
 
@@ -356,6 +357,9 @@ export async function PATCH(request) {
         normalizeText(currentMetadata.employee_status, normalizeText(currentMetadata.rfid_status, "Active")),
       );
       nextMetadata.rfid_status = nextMetadata.employee_status;
+      if (body.date_of_birth !== undefined) {
+        nextMetadata.date_of_birth = normalizeText(body.date_of_birth, normalizeText(currentMetadata.date_of_birth, ""));
+      }
       if (typeof currentMetadata.archived !== "boolean") {
         nextMetadata.archived = false;
       }
