@@ -815,6 +815,59 @@ function showRoleScreen(role) {
   }, 0);
 }
 
+/* ── PAGINATION ── */
+const _pgRegistry = {};
+
+function createPaginator({ id, pageSize = 15, renderFn }) {
+  const state = { data: [], currentPage: 1, pageSize };
+  _pgRegistry[id] = state;
+
+  function renderBar() {
+    const bar = document.getElementById(`${id}-pg`);
+    if (!bar) return;
+    const total = state.data.length;
+    const pages = Math.max(1, Math.ceil(total / state.pageSize));
+
+    if (pages <= 1) {
+      bar.innerHTML = '';
+      return;
+    }
+
+    const cur = state.currentPage;
+    let html = `<span class="pg-info">${total} records · page ${cur} of ${pages}</span>`;
+    html += `<button ${cur === 1 ? 'disabled' : ''} onclick="paginatorGoTo('${id}',${cur - 1})">&#8249;</button>`;
+    for (let p = 1; p <= pages; p++) {
+      if (pages > 9 && p !== 1 && p !== pages && Math.abs(p - cur) > 2) {
+        if (p === 2 || p === pages - 1) html += `<span class="pg-info">…</span>`;
+        continue;
+      }
+      html += `<button class="${p === cur ? 'pg-active' : ''}" onclick="paginatorGoTo('${id}',${p})">${p}</button>`;
+    }
+    html += `<button ${cur === pages ? 'disabled' : ''} onclick="paginatorGoTo('${id}',${cur + 1})">&#8250;</button>`;
+    bar.innerHTML = html;
+  }
+
+  function goToPage(page) {
+    const pages = Math.max(1, Math.ceil(state.data.length / state.pageSize));
+    state.currentPage = Math.min(Math.max(1, Number(page)), pages);
+    const start = (state.currentPage - 1) * state.pageSize;
+    renderFn(state.data.slice(start, start + state.pageSize));
+    renderBar();
+  }
+
+  state._goToPage = goToPage;
+  return {
+    setData(data) {
+      state.data = Array.isArray(data) ? data : [];
+      goToPage(1);
+    },
+  };
+}
+
+function paginatorGoTo(id, page) {
+  _pgRegistry[id]?._goToPage(Number(page));
+}
+
 /* ── INIT ── */
 function initApp() {
   // Restore saved theme or default to dark
@@ -869,6 +922,8 @@ function initApp() {
   window.openResetPasswordModal = openResetPasswordModal;
   window.closeResetPasswordModal = closeResetPasswordModal;
   window.submitResetPassword = submitResetPassword;
+  window.createPaginator = createPaginator;
+  window.paginatorGoTo = paginatorGoTo;
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {

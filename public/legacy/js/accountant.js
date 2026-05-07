@@ -31,6 +31,11 @@ const acctState = {
   currentEntryId: '',
 };
 
+let acRecordsPaginator = null;
+let acAttPaginator = null;
+let acPendingLeavesPaginator = null;
+let acLeaveHistPaginator = null;
+
 function toAmount(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return 0;
@@ -402,16 +407,18 @@ function renderRecordsPanels(panels = {}) {
   }
 }
 
-function renderPayrollRecordsTable() {
+function renderPayrollRecordsTable(rows) {
   const tbody = document.getElementById('ac-records-body');
   if (!tbody) return;
 
-  if (!acctState.records.length) {
+  const data = Array.isArray(rows) ? rows : acctState.records;
+
+  if (!data.length) {
     tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No payroll records available yet.</td></tr>';
     return;
   }
 
-  tbody.innerHTML = acctState.records.map((record) => {
+  tbody.innerHTML = data.map((record) => {
     const status = statusMeta(record.status);
     const payslipDisabled = String(record.status || '').toLowerCase() === 'draft' ? 'disabled' : '';
 
@@ -429,16 +436,18 @@ function renderPayrollRecordsTable() {
   }).join('');
 }
 
-function renderAttendanceTable() {
+function renderAttendanceTable(rows) {
   const tbody = document.getElementById('ac-attendance-body');
   if (!tbody) return;
 
-  if (!acctState.attendanceRows.length) {
+  const data = Array.isArray(rows) ? rows : acctState.attendanceRows;
+
+  if (!data.length) {
     tbody.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No attendance rows available.</td></tr>';
     return;
   }
 
-  tbody.innerHTML = acctState.attendanceRows.map((row) => `
+  tbody.innerHTML = data.map((row) => `
     <tr>
       <td class="nm">${escapeHtml(row.employee_name)}</td>
       <td class="mn">${Number(row.present_days || 0)}</td>
@@ -638,8 +647,16 @@ async function loadAccountantData(options = {}) {
     renderEmployeeDropdown();
     renderPeriodDropdown();
     renderRecordsPanels(payload.panels || {});
-    renderPayrollRecordsTable();
-    renderAttendanceTable();
+    if (acRecordsPaginator) {
+      acRecordsPaginator.setData(acctState.records);
+    } else {
+      renderPayrollRecordsTable();
+    }
+    if (acAttPaginator) {
+      acAttPaginator.setData(acctState.attendanceRows);
+    } else {
+      renderAttendanceTable();
+    }
     renderPendingSubmissions();
     renderPayslipOptions();
     renderPayslipDetails();
@@ -714,6 +731,81 @@ async function withdrawSubmission(entryId) {
 }
 
 /* ── LEAVE APPROVALS ── */
+function renderAccountantPendingLeaves(requests) {
+  const tbody = document.getElementById('al-pending-tbody');
+  const emptyMsg = document.getElementById('al-pending-empty');
+  if (!tbody || !emptyMsg) return;
+
+  if (!requests.length) {
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+
+  emptyMsg.style.display = 'none';
+  tbody.innerHTML = requests.map(req => {
+    const safeId = escapeHtml(req.id);
+    const proofCell = req.proof_url
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument(window._acctProofUrls['${safeId}'])">View Proof</button>`
+      : `<span style="color:var(--t3);font-size:12px;">No proof</span>`;
+
+    return `
+    <tr>
+      <td>
+        <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
+        <div style="font-size:12px;color:var(--t3);">${escapeHtml(req.position)}</div>
+      </td>
+      <td><span class="badge bt2">${escapeHtml(req.leave_type)}</span></td>
+      <td style="font-size:13px;">
+        <div>${formatDateOnly(req.start_date)}</div>
+        <div style="color:var(--t3);">to ${formatDateOnly(req.end_date)}</div>
+      </td>
+      <td style="font-size:13px;max-width:200px;" class="truncate" title="${escapeHtml(req.reason)}">
+        ${escapeHtml(req.reason)}
+      </td>
+      <td>${proofCell}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'approve')">Approve</button>
+        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'reject')">Reject</button>
+      </td>
+    </tr>
+    `;
+  }).join('');
+}
+
+function renderAccountantLeaveHistory(requests) {
+  const tbody = document.getElementById('al-history-tbody');
+  const emptyMsg = document.getElementById('al-history-empty');
+  if (!tbody || !emptyMsg) return;
+
+  if (!requests.length) {
+    tbody.innerHTML = '';
+    emptyMsg.style.display = 'block';
+    return;
+  }
+
+  emptyMsg.style.display = 'none';
+  tbody.innerHTML = requests.map(req => {
+    let badge = '<span class="badge ba">Pending Admin</span>';
+    if (req.status === 'approved') badge = '<span class="badge bg">Approved</span>';
+    if (req.status === 'rejected') badge = '<span class="badge br">Rejected</span>';
+
+    return `
+    <tr>
+      <td>
+        <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
+        <div style="font-size:12px;color:var(--t3);">${escapeHtml(req.position)}</div>
+      </td>
+      <td><span class="badge bt2">${escapeHtml(req.leave_type)}</span></td>
+      <td style="font-size:13px;">
+        ${formatDateOnly(req.start_date)} - ${formatDateOnly(req.end_date)}
+      </td>
+      <td>${badge}</td>
+    </tr>
+    `;
+  }).join('');
+}
+
 async function loadAccountantLeaveRequests() {
   const tbody = document.getElementById('al-pending-tbody');
   const emptyMsg = document.getElementById('al-pending-empty');
@@ -731,46 +823,16 @@ async function loadAccountantLeaveRequests() {
 
     const requests = data.requests || [];
 
-    // Store proof URLs by request ID — never embed large base64 strings in onclick.
+    // Store ALL proof URLs before paginating so page navigation can still reference them.
     if (!window._acctProofUrls) window._acctProofUrls = {};
     requests.forEach((req) => {
       window._acctProofUrls[req.id] = req.proof_url || '';
     });
 
-    if (requests.length === 0) {
-      tbody.innerHTML = '';
-      emptyMsg.style.display = 'block';
+    if (acPendingLeavesPaginator) {
+      acPendingLeavesPaginator.setData(requests);
     } else {
-      emptyMsg.style.display = 'none';
-      const tdStr = requests.map(req => {
-        const safeId = escapeHtml(req.id);
-        const proofCell = req.proof_url
-          ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument(window._acctProofUrls['${safeId}'])">View Proof</button>`
-          : `<span style="color:var(--t3);font-size:12px;">No proof</span>`;
-
-        return `
-        <tr>
-          <td>
-            <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
-            <div style="font-size:12px;color:var(--t3);">${escapeHtml(req.position)}</div>
-          </td>
-          <td><span class="badge bt2">${escapeHtml(req.leave_type)}</span></td>
-          <td style="font-size:13px;">
-            <div>${formatDateOnly(req.start_date)}</div>
-            <div style="color:var(--t3);">to ${formatDateOnly(req.end_date)}</div>
-          </td>
-          <td style="font-size:13px;max-width:200px;" class="truncate" title="${escapeHtml(req.reason)}">
-            ${escapeHtml(req.reason)}
-          </td>
-          <td>${proofCell}</td>
-          <td style="text-align:right;">
-            <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'approve')">Approve</button>
-            <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'reject')">Reject</button>
-          </td>
-        </tr>
-        `;
-      }).join('');
-      tbody.innerHTML = tdStr;
+      renderAccountantPendingLeaves(requests);
     }
   } catch (err) {
     tbody.innerHTML = '';
@@ -788,41 +850,19 @@ async function loadAccountantLeaveHistory() {
   try {
     errorMsg.textContent = '';
     tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--t3);font-size:13px;">Loading history...</td></tr>';
-    
+
     const res = await fetch('/api/accountant/leave-requests?status=history');
     const data = await res.json();
-    
+
     if (!res.ok) throw new Error(data.error || 'Failed to load history');
-    
+
     const requests = Array.isArray(data.requests) ? data.requests : (data.history_requests || []);
-    
-    // Sort so most recently decided are first
-    requests.sort((a,b) => new Date(b.decided_at || b.updated_at) - new Date(a.decided_at || a.updated_at));
-    
-    if (requests.length === 0) {
-      tbody.innerHTML = '';
-      emptyMsg.style.display = 'block';
+    requests.sort((a, b) => new Date(b.decided_at || b.updated_at) - new Date(a.decided_at || a.updated_at));
+
+    if (acLeaveHistPaginator) {
+      acLeaveHistPaginator.setData(requests);
     } else {
-      emptyMsg.style.display = 'none';
-      tbody.innerHTML = requests.map(req => {
-        let badge = '<span class="badge ba">Pending Admin</span>';
-        if (req.status === 'approved') badge = '<span class="badge bg">Approved</span>';
-        if (req.status === 'rejected') badge = '<span class="badge br">Rejected</span>';
-        
-        return `
-        <tr>
-          <td>
-            <div style="font-weight:500;">${escapeHtml(req.employee_name)}</div>
-            <div style="font-size:12px;color:var(--t3);">${escapeHtml(req.position)}</div>
-          </td>
-          <td><span class="badge bt2">${escapeHtml(req.leave_type)}</span></td>
-          <td style="font-size:13px;">
-            ${formatDateOnly(req.start_date)} - ${formatDateOnly(req.end_date)}
-          </td>
-          <td>${badge}</td>
-        </tr>
-        `;
-      }).join('');
+      renderAccountantLeaveHistory(requests);
     }
   } catch (err) {
     tbody.innerHTML = '';
@@ -900,6 +940,11 @@ window.processAccountantLeave = async function(id, action) {
 /* ── INIT ── */
 function initAccountant() {
   applyAccountantIdentity();
+
+  acRecordsPaginator = window.createPaginator({ id: 'ac-rec', pageSize: 15, renderFn: renderPayrollRecordsTable });
+  acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });
+  acPendingLeavesPaginator = window.createPaginator({ id: 'ac-leave-pend', pageSize: 15, renderFn: renderAccountantPendingLeaves });
+  acLeaveHistPaginator = window.createPaginator({ id: 'ac-leave-hist', pageSize: 15, renderFn: renderAccountantLeaveHistory });
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('accountant')

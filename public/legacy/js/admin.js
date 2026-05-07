@@ -36,6 +36,13 @@ let auditSearch = '';
 let auditModuleFilter = 'all';
 let auditActionFilter = 'all';
 
+let empPaginator = null;
+let attPaginator = null;
+let salHistPaginator = null;
+let leaveHistPaginator = null;
+let repPaginator = null;
+let auditPaginator = null;
+
 /* ── NAVIGATE ── */
 function adminNav(pageId, navEl) {
   // hide all admin pages
@@ -728,7 +735,11 @@ async function loadAttendanceData() {
 
     attendanceData = payload;
     renderAttendancePanels(payload);
-    renderAttendanceTable(payload.attendance_logs || []);
+    if (attPaginator) {
+      attPaginator.setData(payload.attendance_logs || []);
+    } else {
+      renderAttendanceTable(payload.attendance_logs || []);
+    }
   } catch (error) {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
@@ -924,7 +935,11 @@ async function loadAuditLogs() {
     auditLogsData = payload.logs || [];
     auditSummary = payload.summary || { total: 0, success: 0, failed: 0 };
     renderAuditSummary(auditSummary);
-    renderAuditTable(auditLogsData);
+    if (auditPaginator) {
+      auditPaginator.setData(auditLogsData);
+    } else {
+      renderAuditTable(auditLogsData);
+    }
   } catch (error) {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="7" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
@@ -1038,7 +1053,11 @@ async function loadSummaryReports() {
 
     summaryReportsData = payload;
     renderSummaryPanels(payload);
-    renderSummaryTable(payload.payroll_by_employee || []);
+    if (repPaginator) {
+      repPaginator.setData(payload.payroll_by_employee || []);
+    } else {
+      renderSummaryTable(payload.payroll_by_employee || []);
+    }
   } catch (error) {
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
@@ -1109,7 +1128,11 @@ async function loadSalaryApprovals() {
     salaryApprovalsCanPersist = Boolean(payload.can_persist);
     updateSalaryApprovalBadge(salaryApprovalsData.length);
     renderSalaryApprovalCards(salaryApprovalsData, salaryApprovalsCanPersist);
-    renderSalaryApprovalHistory(salaryApprovalHistoryData);
+    if (salHistPaginator) {
+      salHistPaginator.setData(salaryApprovalHistoryData);
+    } else {
+      renderSalaryApprovalHistory(salaryApprovalHistoryData);
+    }
   } catch (error) {
     if (!approvalsContainer) return;
     approvalsContainer.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:#E85555;">${escapeHtml(error.message)}</div></div></div>`;
@@ -1228,7 +1251,11 @@ async function loadLeaveApprovals() {
     leaveApprovalHistoryData = payload.history_requests || [];
     updateLeaveApprovalBadge(leaveApprovalsData.length);
     renderLeaveApprovalCards(leaveApprovalsData);
-    renderLeaveApprovalHistory(leaveApprovalHistoryData);
+    if (leaveHistPaginator) {
+      leaveHistPaginator.setData(leaveApprovalHistoryData);
+    } else {
+      renderLeaveApprovalHistory(leaveApprovalHistoryData);
+    }
   } catch (error) {
     if (list) {
       list.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:#E85555;">${escapeHtml(error.message)}</div></div></div>`;
@@ -1434,7 +1461,11 @@ function renderEmployees(employees) {
 
 function renderFilteredEmployees() {
   updateFilterChipCounts();
-  renderEmployees(getFilteredEmployees());
+  if (empPaginator) {
+    empPaginator.setData(getFilteredEmployees());
+  } else {
+    renderEmployees(getFilteredEmployees());
+  }
 }
 
 function setEmployeeTypeFilter(filter) {
@@ -1766,6 +1797,13 @@ function initAdminPortal() {
   }
 
   applyAdminIdentity();
+
+  empPaginator = window.createPaginator({ id: 'adm-emp', pageSize: 15, renderFn: renderEmployees });
+  attPaginator = window.createPaginator({ id: 'adm-att', pageSize: 15, renderFn: renderAttendanceTable });
+  salHistPaginator = window.createPaginator({ id: 'adm-sal-hist', pageSize: 15, renderFn: renderSalaryApprovalHistory });
+  leaveHistPaginator = window.createPaginator({ id: 'adm-leave-hist', pageSize: 15, renderFn: renderLeaveApprovalHistory });
+  repPaginator = window.createPaginator({ id: 'adm-rep', pageSize: 15, renderFn: renderSummaryTable });
+  auditPaginator = window.createPaginator({ id: 'adm-audit', pageSize: 20, renderFn: renderAuditTable });
 
   const addForm = document.getElementById('add-employee-form');
   const editForm = document.getElementById('edit-employee-form');

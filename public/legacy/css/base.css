@@ -898,3 +898,44 @@ body {
     font-size: 1.35rem;
   }
 }
+
+/* ── PAGINATION ── */
+.pg-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 4px 2px;
+  flex-wrap: wrap;
+}
+.pg-bar button {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--t2);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background .15s, color .15s;
+}
+.pg-bar button:hover:not(:disabled) {
+  background: var(--bg3);
+  color: var(--t1);
+}
+.pg-bar button.pg-active {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+  font-weight: 600;
+}
+.pg-bar button:disabled {
+  opacity: .4;
+  cursor: default;
+}
+.pg-info {
+  font-size: 11px;
+  color: var(--t3);
+  padding: 0 4px;
+}
