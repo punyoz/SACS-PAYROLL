@@ -177,6 +177,7 @@
 }
 
 .adm-feedback.ok { color: #3EC97A; }
+.adm-feedback.loading { color: var(--t2); }
 .adm-feedback.err { color: #E85555; font-weight: 700; }
 
 .field-error {

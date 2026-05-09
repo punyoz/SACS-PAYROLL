@@ -142,13 +142,15 @@ function statusMeta(status) {
   return { label: 'Pending Approval', badgeClass: 'ba' };
 }
 
-function showProcessFeedback(message, isError = false) {
+function showProcessFeedback(message, isError = false, isSuccess = null) {
   const feedback = document.getElementById('ac-process-feedback');
   if (!feedback) return;
 
+  const success = isSuccess !== null ? isSuccess : (!isError && Boolean(message));
   feedback.textContent = message;
   feedback.classList.toggle('err', isError);
-  feedback.classList.toggle('ok', !isError && Boolean(message));
+  feedback.classList.toggle('ok', !isError && success);
+  feedback.classList.toggle('loading', !isError && !success && Boolean(message));
 }
 
 function setActionButtonsDisabled(disabled) {
@@ -308,10 +310,11 @@ async function upsertPayrollEntry(action) {
 async function submitForApproval() {
   try {
     setActionButtonsDisabled(true);
-    showProcessFeedback('Sending payroll for admin approval...', false);
+    showProcessFeedback('Sending payroll for admin approval...', false, false);
 
     await upsertPayrollEntry('submit');
-    showProcessFeedback('Approval has been sent and is now under admin review.', false);
+    showProcessFeedback('Approval has been sent and is now under admin review.', false, true);
+    window.pushNotification?.('Payroll Submitted', 'Payroll has been sent to the admin for review and approval.', 'success');
 
     const banner = document.getElementById('ac-pending-banner');
     if (banner) {
@@ -331,9 +334,10 @@ async function submitForApproval() {
 async function savePayrollDraft() {
   try {
     setActionButtonsDisabled(true);
-    showProcessFeedback('Saving payroll draft...', false);
+    showProcessFeedback('Saving payroll draft...', false, false);
     await upsertPayrollEntry('save_draft');
-    showProcessFeedback('Payroll draft saved.', false);
+    showProcessFeedback('Payroll draft saved.', false, true);
+    window.pushNotification?.('Draft Saved', 'Payroll draft has been saved and can be edited before submission.', 'info');
   } catch (error) {
     showProcessFeedback(error.message, true);
   } finally {
@@ -730,6 +734,7 @@ async function withdrawSubmission(entryId) {
     acctState.currentEntryId = normalized;
     await loadAccountantData();
     showProcessFeedback('Pending submission withdrawn and moved back to draft.', false);
+    window.pushNotification?.('Submission Withdrawn', 'Payroll has been pulled back and returned to draft mode.', 'info');
   } catch (error) {
     showProcessFeedback(error.message, true);
   }
@@ -892,8 +897,8 @@ window.processAccountantLeave = async function(id, action) {
       return;
     }
   } else if (action === 'approve') {
-    if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(
-      'forward this leave request to the admin for final approval', 
+    if (window.confirmApproveAction && !(await window.confirmApproveAction(
+      'forward this leave request to the admin for final approval',
       'The administrator will be notified to review this request.'
     ))) {
       return;
@@ -919,7 +924,13 @@ window.processAccountantLeave = async function(id, action) {
     // Refresh both tables
     loadAccountantLeaveRequests();
     loadAccountantLeaveHistory();
-    
+
+    window.pushNotification?.(
+      action === 'approve' ? 'Leave Forwarded to Admin' : 'Leave Request Rejected',
+      action === 'approve' ? 'The leave request has been forwarded to the admin for final approval.' : 'The leave request has been declined.',
+      action === 'approve' ? 'success' : 'info'
+    );
+
     // Attempt to show a temporary success message
     if (errorMsg) {
       errorMsg.textContent = `Leave request successfully ${action === 'approve' ? 'forwarded' : 'rejected'}.`;

@@ -204,6 +204,85 @@ async function confirmDestructiveAction(actionLabel, detailText) {
   });
 }
 
+function ensureApproveDialog() {
+  let backdrop = document.getElementById('legacy-approve-backdrop');
+  if (backdrop) return backdrop;
+
+  backdrop = document.createElement('div');
+  backdrop.id = 'legacy-approve-backdrop';
+  backdrop.className = 'confirm-backdrop';
+  backdrop.setAttribute('aria-hidden', 'true');
+  backdrop.innerHTML = `
+    <div class="confirm-card card" role="dialog" aria-modal="true" aria-labelledby="approve-title">
+      <div class="confirm-header">
+        <div class="confirm-icon confirm-icon-approve">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </div>
+        <div class="confirm-title" id="approve-title">Confirm Approval</div>
+      </div>
+      <div class="confirm-body" id="approve-body"></div>
+      <div class="confirm-actions">
+        <button type="button" class="btn btn-outline" id="approve-cancel-btn">Cancel</button>
+        <button type="button" class="btn btn-green" id="approve-ok-btn">Approve</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(backdrop);
+  return backdrop;
+}
+
+async function confirmApproveAction(actionLabel, detailText) {
+  const action = String(actionLabel || 'this action').trim();
+  const detail = String(detailText || '').trim();
+  const backdrop = ensureApproveDialog();
+  const body = backdrop.querySelector('#approve-body');
+  const okButton = backdrop.querySelector('#approve-ok-btn');
+  const cancelButton = backdrop.querySelector('#approve-cancel-btn');
+
+  if (!body || !okButton || !cancelButton) {
+    return window.confirm(`Confirm: You are about to ${action}. Continue?`);
+  }
+
+  body.innerHTML = `
+    <p>You are about to <strong style="color:var(--t1);">${action}</strong>.</p>
+    ${detail ? `<p>${detail}</p>` : ''}
+  `;
+
+  backdrop.classList.add('active');
+  backdrop.setAttribute('aria-hidden', 'false');
+
+  return new Promise((resolve) => {
+    const cleanup = (result) => {
+      backdrop.classList.remove('active');
+      backdrop.setAttribute('aria-hidden', 'true');
+
+      okButton.removeEventListener('click', onOk);
+      cancelButton.removeEventListener('click', onCancel);
+      backdrop.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onEsc);
+
+      resolve(result);
+    };
+
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onBackdrop = (event) => {
+      if (event.target === backdrop) cleanup(false);
+    };
+    const onEsc = (event) => {
+      if (event.key === 'Escape') cleanup(false);
+    };
+
+    okButton.addEventListener('click', onOk, { once: true });
+    cancelButton.addEventListener('click', onCancel, { once: true });
+    backdrop.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onEsc);
+  });
+}
+
 /* ── GLOBAL SEARCH + NOTIFICATIONS ── */
 let searchDebounceTimer = null;
 
@@ -322,6 +401,85 @@ function attachGlobalSearchHandlers() {
   });
 }
 
+/* ── TOAST + NOTIFICATION HISTORY ── */
+const notificationHistory = [];
+let unreadNotificationCount = 0;
+
+function notifEscape(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatNotifTime(date) {
+  const now = new Date();
+  const diff = Math.floor((now - date) / 1000);
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+}
+
+function showToast(title, desc, type) {
+  let stack = document.getElementById('toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'toast-stack';
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+
+  const iconMap = {
+    success: `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    info:    `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+    error:   `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`,
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type || 'success'}`;
+  toast.innerHTML = `
+    <div class="toast-icon">${iconMap[type] || iconMap.success}</div>
+    <div class="toast-text">
+      <div class="toast-title"></div>
+      ${desc ? '<div class="toast-desc"></div>' : ''}
+    </div>
+    <button class="toast-close" aria-label="Dismiss">×</button>
+  `;
+  toast.querySelector('.toast-title').textContent = title;
+  if (desc) toast.querySelector('.toast-desc').textContent = desc;
+
+  toast.querySelector('.toast-close').addEventListener('click', () => dismissToast(toast));
+  stack.appendChild(toast);
+
+  const timer = setTimeout(() => dismissToast(toast), 4500);
+  toast._dismissTimer = timer;
+}
+
+function dismissToast(toast) {
+  if (toast._dismissed) return;
+  toast._dismissed = true;
+  clearTimeout(toast._dismissTimer);
+  toast.classList.add('toast-out');
+  setTimeout(() => toast.remove(), 350);
+}
+
+function updateNotificationDot() {
+  document.querySelectorAll('.global-notification-trigger .nd').forEach((dot) => {
+    dot.style.display = unreadNotificationCount > 0 ? '' : 'none';
+  });
+}
+
+function pushNotification(title, desc, type) {
+  const safeType = type || 'success';
+  notificationHistory.unshift({ title: String(title || ''), desc: String(desc || ''), type: safeType, time: new Date(), unread: true });
+  if (notificationHistory.length > 30) notificationHistory.length = 30;
+
+  unreadNotificationCount++;
+  updateNotificationDot();
+  showToast(title, desc, safeType);
+
+  const panel = document.getElementById('global-notification-panel');
+  if (panel?.classList.contains('active')) renderNotificationPanel();
+}
+
 function getRoleNotifications() {
   const screenId = getActiveScreen()?.id;
 
@@ -412,13 +570,32 @@ function renderNotificationPanel() {
 
   sub.textContent = getRoleNameFromScreen(getActiveScreen());
 
-  const items = getRoleNotifications();
-  list.innerHTML = items.map((item) => `
+  let html = '';
+
+  if (notificationHistory.length > 0) {
+    html += '<div class="notif-section-label">Recent Activity</div>';
+    html += notificationHistory.map((item) => `
+      <div class="notif-item${item.unread ? ' notif-unread' : ''}">
+        <div class="notif-item-row">
+          <div class="notif-item-dot notif-dot-${notifEscape(item.type)}"></div>
+          <div class="notif-item-title">${notifEscape(item.title)}</div>
+          <div class="notif-item-time">${formatNotifTime(item.time)}</div>
+        </div>
+        ${item.desc ? `<div class="notif-item-desc">${notifEscape(item.desc)}</div>` : ''}
+      </div>
+    `).join('');
+    html += '<div class="notif-section-label">Status</div>';
+  }
+
+  const roleItems = getRoleNotifications();
+  html += roleItems.map((item) => `
     <div class="notif-item">
       <div class="notif-item-title">${item.title}</div>
       <div class="notif-item-desc">${item.desc}</div>
     </div>
   `).join('');
+
+  list.innerHTML = html;
 }
 
 function closeNotificationPanel() {
@@ -471,8 +648,9 @@ function toggleNotificationPanel(trigger) {
   panel.style.right = `${Math.max(12, Math.round(window.innerWidth - rect.right))}px`;
   panel.classList.add('active');
 
-  const dot = trigger.querySelector('.nd');
-  if (dot) dot.style.display = 'none';
+  notificationHistory.forEach((item) => { item.unread = false; });
+  unreadNotificationCount = 0;
+  updateNotificationDot();
 }
 
 function attachNotificationHandlers() {
@@ -937,6 +1115,8 @@ function initApp() {
   window.scrollWebsiteTo = scrollWebsiteTo;
   window.getLegacyAuthContext = getAuthContext;
   window.confirmDestructiveAction = confirmDestructiveAction;
+  window.confirmApproveAction = confirmApproveAction;
+  window.pushNotification = pushNotification;
   window.persistRolePageState = persistRolePageState;
   window.getPersistedRolePageState = getPersistedRolePageState;
   window.refreshCurrentPortal = refreshCurrentPortal;

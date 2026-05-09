@@ -163,6 +163,11 @@ h3 { font-size: 15px; font-weight: 600; }
   flex-shrink: 0;
 }
 
+.confirm-icon-approve {
+  background: var(--green-s);
+  color: var(--green);
+}
+
 .confirm-title {
   font-size: 1.1rem;
   font-weight: 700;

@@ -440,6 +440,113 @@
   }
 }
 
+/* ── TOAST NOTIFICATIONS ── */
+.toast-stack {
+  position: fixed;
+  bottom: 20px;
+  right: 16px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(320px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  padding: 11px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  pointer-events: all;
+  box-shadow: 0 8px 28px color-mix(in srgb, #000 22%, transparent);
+  animation: toast-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  border-left: 3px solid var(--green);
+}
+.toast.toast-info  { border-left-color: var(--amber); }
+.toast.toast-error { border-left-color: var(--red); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(28px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+.toast-out {
+  opacity: 0 !important;
+  transform: translateX(28px) scale(0.97) !important;
+  transition: opacity 0.32s ease, transform 0.32s ease !important;
+}
+
+.toast-icon {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  background: var(--green-s);
+  color: var(--green);
+}
+.toast-info  .toast-icon { background: var(--amber-s); color: var(--amber); }
+.toast-error .toast-icon { background: var(--red-s);   color: var(--red); }
+
+.toast-text { flex: 1; min-width: 0; }
+.toast-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t1);
+  line-height: 1.3;
+}
+.toast-desc {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toast-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--t3); font-size: 16px; line-height: 1;
+  padding: 0 0 0 4px; flex-shrink: 0; margin-top: -1px;
+  transition: color 0.15s;
+}
+.toast-close:hover { color: var(--t1); }
+
+/* ── NOTIFICATION PANEL HISTORY ── */
+.notif-section-label {
+  padding: 6px 14px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--t3);
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+}
+.notif-unread { background: color-mix(in srgb, var(--amber) 5%, transparent); }
+.notif-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.notif-item-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--green);
+}
+.notif-dot-info  { background: var(--amber); }
+.notif-dot-error { background: var(--red); }
+.notif-item-time {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--t3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 @media (min-width: 1440px) {
   .topbar {
     padding: 0 26px;

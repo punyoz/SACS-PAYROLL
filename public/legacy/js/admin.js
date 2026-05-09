@@ -111,6 +111,9 @@ function getAdminNavByPageId(pageId) {
 
 /* ── APPROVAL ACTIONS ── */
 async function approveChange(approvalId) {
+  if (window.confirmApproveAction && !(await window.confirmApproveAction('approve this salary change', 'The salary update will be applied and the accountant will be notified.'))) {
+    return;
+  }
   await updateApprovalStatus(approvalId, 'approve');
 }
 
@@ -529,9 +532,11 @@ function renderRecentPayrollActivity(activity = []) {
     const name = escapeHtml(item.name);
     const type = escapeHtml(item.employee_type);
     const subText = escapeHtml(item.sub_text || item.period || '');
-    const status = String(item.status || 'Paid').toLowerCase();
-    const statusClass = status === 'pending' ? 'ba' : 'bg';
-    const statusText = status === 'pending' ? 'Pending' : 'Paid';
+    const status = String(item.status || '').toLowerCase();
+    const isPaid = status === 'paid' || status === 'approved';
+    const isRejected = status === 'on_hold' || status === 'rejected';
+    const statusClass = isPaid ? 'bg' : isRejected ? 'br' : 'ba';
+    const statusText = isPaid ? 'Paid' : isRejected ? 'On Hold' : 'Pending';
 
     return `
       <div class="ai-item">
@@ -617,8 +622,8 @@ function renderSalaryApprovalHistory(history = []) {
     const proposedSalary = Number(item.proposed_salary || 0);
     const diff = proposedSalary - currentSalary;
     const diffPrefix = diff >= 0 ? '+' : '-';
-    const status = String(item.status || 'approved').toLowerCase();
-    const statusClass = status === 'rejected' ? 'br' : 'bg';
+    const status = String(item.status || '').toLowerCase();
+    const statusClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
     const decidedAt = item.decided_at || item.updated_at || item.submitted_at;
 
     return `
@@ -897,8 +902,8 @@ function renderAuditTable(logs = []) {
     const action = escapeHtml(String(log.action || '').replaceAll('_', ' '));
     const entity = `${escapeHtml(log.entity_type || '')}${log.entity_id ? ` · ${escapeHtml(log.entity_id)}` : ''}`;
     const description = escapeHtml(log.description || 'No description provided.');
-    const status = String(log.status || 'success').toLowerCase();
-    const statusClass = status === 'failed' ? 'br' : 'bg';
+    const status = String(log.status || '').toLowerCase();
+    const statusClass = status === 'success' ? 'bg' : status === 'failed' ? 'br' : 'ba';
     const source = escapeHtml(log.source || 'api');
 
     return `
@@ -1326,6 +1331,11 @@ async function updateLeaveRequestStatus(requestId, action) {
 
     const label = action === 'approve' ? 'approved' : 'rejected';
     showLeaveApprovalFeedback(`Leave request ${label}. Refreshing...`, false);
+    window.pushNotification?.(
+      action === 'approve' ? 'Leave Request Approved' : 'Leave Request Rejected',
+      action === 'approve' ? 'The leave request has been approved and the employee notified.' : 'The leave request has been declined.',
+      action === 'approve' ? 'success' : 'info'
+    );
     await Promise.all([loadLeaveApprovals(), loadAuditLogs()]);
   } catch (error) {
     showLeaveApprovalFeedback(`Error: ${error.message}`, true);
@@ -1334,6 +1344,9 @@ async function updateLeaveRequestStatus(requestId, action) {
 }
 
 async function approveLeaveRequest(requestId) {
+  if (window.confirmApproveAction && !(await window.confirmApproveAction('approve this leave request', 'The leave request will be approved and the employee will be notified.'))) {
+    return;
+  }
   await updateLeaveRequestStatus(requestId, 'approve');
 }
 
@@ -1388,6 +1401,11 @@ async function updateApprovalStatus(approvalId, action) {
 
     const label = action === 'approve' ? 'approved' : 'rejected';
     showSalaryApprovalFeedback(`Salary change successfully ${label}. Refreshing...`, false);
+    window.pushNotification?.(
+      action === 'approve' ? 'Salary Change Approved' : 'Salary Change Rejected',
+      action === 'approve' ? 'The salary update has been approved and applied.' : 'The salary change request has been rejected.',
+      action === 'approve' ? 'success' : 'info'
+    );
 
     await Promise.all([loadDashboard(), loadSalaryApprovals(), loadAuditLogs()]);
   } catch (error) {
@@ -1631,6 +1649,11 @@ async function toggleArchiveCurrentEmployee() {
     }
 
     showEditFeedback(action === 'archive' ? 'Employee archived from active list.' : 'Employee restored to active list.', false);
+    window.pushNotification?.(
+      action === 'archive' ? 'Employee Archived' : 'Employee Restored',
+      action === 'archive' ? 'The employee record has been moved to the archive.' : 'The employee record has been restored to the active list.',
+      'info'
+    );
     await Promise.all([loadEmployees(), loadDashboard(), loadSummaryReports(), loadAttendanceData(), loadAuditLogs()]);
     closeEditEmployeeModal();
   } catch (error) {
@@ -1701,6 +1724,7 @@ async function submitAddEmployee(event) {
 
     const createdId = result.employee?.employee_id || '';
     showEmployeeFeedback(`Employee created with ID ${createdId}.`, false);
+    window.pushNotification?.('Employee Added', `New employee created with ID ${createdId}.`, 'success');
     await Promise.all([loadEmployees(), loadDashboard(), loadSummaryReports(), loadAttendanceData(), loadAuditLogs()]);
 
     setTimeout(() => {
@@ -1776,6 +1800,7 @@ async function submitEditEmployee(event) {
     }
 
     showEditFeedback('Employee details updated.', false);
+    window.pushNotification?.('Employee Updated', 'Employee details have been saved successfully.', 'success');
     await Promise.all([loadEmployees(), loadDashboard(), loadSummaryReports(), loadAttendanceData(), loadAuditLogs()]);
     closeEditEmployeeModal();
   } catch (error) {

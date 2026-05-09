@@ -216,6 +216,7 @@ async function submitLeaveRequest() {
     }
 
     showLeaveFeedback('Leave request submitted for admin approval.', false);
+    window.pushNotification?.('Leave Request Submitted', 'Your leave request has been submitted and is awaiting admin approval.', 'success');
     await loadMyLeaveRequests();
   } catch (error) {
     showLeaveFeedback(error.message, true);
@@ -278,6 +279,7 @@ async function submitChangePassword() {
     document.getElementById('emp-confirm-password').value = '';
 
     showChangePasswordFeedback('Password updated successfully.', false);
+    window.pushNotification?.('Password Changed', 'Your account password has been updated successfully.', 'success');
   } catch (error) {
     showChangePasswordFeedback(error.message, true);
   }
