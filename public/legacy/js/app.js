@@ -1030,6 +1030,20 @@ function skeletonRows(cols, count = 5) {
   return Array.from({ length: count }, () => `<tr class="sk-row">${tds}</tr>`).join('');
 }
 
+function skeletonCards(count = 3) {
+  return Array.from({ length: count }, () => `
+    <div class="sk-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;">
+        <div class="sk-bar" style="width:40%;height:13px;border-radius:5px;"></div>
+        <div class="sk-bar" style="width:18%;height:13px;border-radius:10px;"></div>
+      </div>
+      <div class="sk-bar" style="width:60%;height:10px;margin-bottom:6px;"></div>
+      <div class="sk-bar" style="width:85%;height:10px;margin-bottom:6px;"></div>
+      <div class="sk-bar" style="width:35%;height:9px;"></div>
+    </div>
+  `).join('');
+}
+
 function attachSidebarSpotlight(sidebar) {
   if (!sidebar) return;
   sidebar.addEventListener('mousemove', (e) => {
@@ -1163,6 +1177,7 @@ function initApp() {
   window.submitResetPassword = submitResetPassword;
   window.createPaginator = createPaginator;
   window.paginatorGoTo = paginatorGoTo;
+  window.skeletonCards = skeletonCards;
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {

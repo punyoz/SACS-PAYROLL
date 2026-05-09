@@ -1064,8 +1064,8 @@ function renderApprovalStatus(salaryApprovals, leaveForwards) {
 async function loadApprovalStatus() {
   const salaryBody = document.getElementById('ac-salary-status-tbody');
   const leaveBody = document.getElementById('ac-leave-status-tbody');
-  if (salaryBody) salaryBody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">Loading...</td></tr>';
-  if (leaveBody) leaveBody.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr>';
+  if (salaryBody) salaryBody.innerHTML = skeletonRows(6);
+  if (leaveBody) leaveBody.innerHTML = skeletonRows(5);
 
   try {
     const res = await fetch('/api/accountant/approval-status');

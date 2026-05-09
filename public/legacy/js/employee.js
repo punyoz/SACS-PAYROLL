@@ -127,6 +127,9 @@ async function loadMyLeaveRequests() {
     return;
   }
 
+  const container = document.getElementById('emp-leave-list');
+  if (container && window.skeletonCards) container.innerHTML = window.skeletonCards(3);
+
   try {
     const params = new URLSearchParams();
     if (employeeId) params.set('employee_id', employeeId);

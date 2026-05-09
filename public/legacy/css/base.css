@@ -920,6 +920,12 @@ body {
   padding-top: 11px;
   padding-bottom: 11px;
 }
+.sk-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 11px;
+  background: var(--bg3);
+}
 
 /* ── PAGINATION ── */
 .pg-bar {
