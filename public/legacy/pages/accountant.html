@@ -47,6 +47,11 @@
       Pending Submissions
       <span class="nib" id="ac-pending-count">0</span>
     </div>
+    <div class="ni" onclick="acctNav('ac-approval-status',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1.5A6.5 6.5 0 1 1 1.5 8 6.5 6.5 0 0 1 8 1.5z" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 8l1.5 1.5L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Approval Status
+      <span class="nib" id="ac-approval-pending-badge" style="display:none;">0</span>
+    </div>
 
     <div class="sb-foot">
       <div class="uc">
@@ -181,7 +186,14 @@
       </div>
       <div class="card" style="border-color:var(--amber);">
         <div class="pf-head">
-          <div><div class="pf-school">Bagong Nayon II Christian School</div><div class="pf-school-s">Purok Imelda, Barangay Dela Paz, Antipolo City</div></div>
+          <div>
+            <div class="pf-school">Bagong Nayon II Christian School</div>
+            <div class="pf-school-s">Purok Imelda, Barangay Dela Paz, Antipolo City</div>
+            <div style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;background:var(--amber-s);border:1px solid var(--amber);border-radius:6px;padding:3px 9px;">
+              <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--amber);">Payslip No.</span>
+              <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--t1);" id="ac-pf-slip-no">—</span>
+            </div>
+          </div>
           <div class="pf-period">Pay Period<br><strong id="ac-pf-period">N/A</strong><br><span style="font-size:11px;color:var(--t3);" id="ac-pf-issued">Issued: N/A</span></div>
         </div>
         <div class="pf-emp">
@@ -307,6 +319,69 @@
         <div class="pg-bar" id="ac-leave-hist-pg"></div>
         <p id="al-history-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:30px 0;display:none;">No history available.</p>
         <p id="al-history-error" class="adm-error"></p>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Approval Status
+    ────────────────────────────── -->
+    <div class="page" id="ac-approval-status">
+      <div class="ph"><h2>Approval Status</h2><p>Track the status of salary change requests and leave forwards you submitted to the Administrator</p></div>
+
+      <!-- Salary Change Approvals -->
+      <div class="card" style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--t1);">Salary Change Requests</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px;">Salary adjustments you submitted for admin approval</div>
+          </div>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="loadApprovalStatus()">Refresh</button>
+        </div>
+        <div class="tw">
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Current Salary</th>
+                <th>Proposed</th>
+                <th>Submitted</th>
+                <th>Status</th>
+                <th>Decided</th>
+              </tr>
+            </thead>
+            <tbody id="ac-salary-status-tbody">
+              <tr><td colspan="6" style="color:var(--t3);">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p id="ac-salary-status-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:24px 0;display:none;">No salary change requests found.</p>
+      </div>
+
+      <!-- Leave Request Admin Status -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--t1);">Leave Requests — Admin Status</div>
+            <div style="font-size:11px;color:var(--t3);margin-top:2px;">Leave requests you forwarded to the Administrator</div>
+          </div>
+        </div>
+        <div class="tw">
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>Date Range</th>
+                <th>Forwarded</th>
+                <th>Admin Status</th>
+              </tr>
+            </thead>
+            <tbody id="ac-leave-status-tbody">
+              <tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p id="ac-leave-status-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:24px 0;display:none;">No forwarded leave requests found.</p>
       </div>
     </div>
 

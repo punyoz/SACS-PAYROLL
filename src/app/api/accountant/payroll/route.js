@@ -432,7 +432,36 @@ async function withdrawSalaryApprovalRequest(supabase, approvalId) {
   return { found: true, persisted: false };
 }
 
+async function generatePayslipNo(supabase, processedAt) {
+  const date = processedAt ? new Date(processedAt) : new Date();
+  const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const prefix = `PS-${ym}-`;
+
+  try {
+    const { data } = await supabase
+      .from("payroll_records")
+      .select("payslip_no")
+      .like("payslip_no", `${prefix}%`)
+      .order("payslip_no", { ascending: false })
+      .limit(1);
+
+    let seq = 1;
+    if (data?.length && data[0].payslip_no) {
+      const last = data[0].payslip_no.split("-").pop();
+      seq = (Number(last) || 0) + 1;
+    }
+
+    return `${prefix}${String(seq).padStart(4, "0")}`;
+  } catch {
+    // Fallback: timestamp-based unique ID
+    return `${prefix}${Date.now().toString().slice(-4)}`;
+  }
+}
+
 async function appendPayrollRecord(supabase, entry) {
+  const processedAt = entry.submitted_at || new Date().toISOString();
+  const payslipNo = await generatePayslipNo(supabase, processedAt);
+
   const insertPayload = {
     employee_id: entry.employee_id,
     employee_name: entry.employee_name,
@@ -441,13 +470,14 @@ async function appendPayrollRecord(supabase, entry) {
     total_deductions: toAmount(entry.payroll.totals.total_deductions),
     net_pay: toAmount(entry.payroll.totals.net_pay),
     period_label: entry.pay_period,
-    processed_at: entry.submitted_at || new Date().toISOString(),
+    processed_at: processedAt,
+    payslip_no: payslipNo,
   };
 
   const result = await supabase
     .from("payroll_records")
     .insert(insertPayload)
-    .select("id")
+    .select("id, payslip_no")
     .maybeSingle();
 
   if (result.error) {
@@ -461,7 +491,7 @@ async function appendPayrollRecord(supabase, entry) {
     return { persisted: false };
   }
 
-  return { persisted: true, id: result.data?.id };
+  return { persisted: true, id: result.data?.id, payslip_no: result.data?.payslip_no };
 }
 
 function resolveEntryStatus(entry, approvalMap) {
@@ -625,6 +655,7 @@ function buildPayslipDetails(entry) {
 
   return {
     entry_id: entry.id,
+    payslip_no: entry.payslip_no || null,
     pay_period: entry.pay_period,
     issued_at: entry.submitted_at || entry.updated_at || entry.created_at,
     employee: {
@@ -835,7 +866,10 @@ export async function POST(request) {
       baseEntry.submitted_at = nowIso;
       approvalPersisted = approvalResult.persisted;
 
-      await appendPayrollRecord(supabase, baseEntry);
+      const recordResult = await appendPayrollRecord(supabase, baseEntry);
+      if (recordResult.payslip_no) {
+        baseEntry.payslip_no = recordResult.payslip_no;
+      }
     }
 
     if (existingIndex >= 0) {

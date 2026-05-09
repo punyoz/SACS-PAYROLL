@@ -15,6 +15,7 @@ const ACCT_PAGES = {
   'ac-attendance':       'View Attendance',
   'ac-pending':          'Pending Submissions',
   'ac-leaves':           'Leave Approvals',
+  'ac-approval-status':  'Approval Status',
 };
 
 const acctState = {
@@ -181,6 +182,9 @@ function acctNav(pageId, navEl) {
   if (pageId === 'ac-leaves') {
     loadAccountantLeaveRequests();
     loadAccountantLeaveHistory();
+  }
+  if (pageId === 'ac-approval-status') {
+    loadApprovalStatus();
   }
 }
 
@@ -547,6 +551,7 @@ function renderPayslipDetails() {
     if (element) element.textContent = text;
   };
 
+  assign('ac-pf-slip-no', payslip.payslip_no || '—');
   assign('ac-pf-period', payslip.pay_period || 'N/A');
   assign('ac-pf-issued', `Issued: ${formatDateTime(payslip.issued_at)}`);
   assign('ac-pf-name', payslip.employee?.name || 'N/A');
@@ -952,6 +957,94 @@ window.processAccountantLeave = async function(id, action) {
   }
 };
 
+/* ── APPROVAL STATUS ── */
+function renderApprovalStatus(salaryApprovals, leaveForwards) {
+  const salaryBody = document.getElementById('ac-salary-status-tbody');
+  const salaryEmpty = document.getElementById('ac-salary-status-empty');
+  const leaveBody = document.getElementById('ac-leave-status-tbody');
+  const leaveEmpty = document.getElementById('ac-leave-status-empty');
+
+  // Salary approvals
+  if (salaryBody) {
+    if (!salaryApprovals.length) {
+      salaryBody.innerHTML = '';
+      if (salaryEmpty) salaryEmpty.style.display = '';
+    } else {
+      if (salaryEmpty) salaryEmpty.style.display = 'none';
+      salaryBody.innerHTML = salaryApprovals.map((row) => {
+        const status = String(row.status || 'pending').toLowerCase();
+        const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
+        const badgeLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
+        const decidedAt = row.decided_at ? formatDateTime(row.decided_at) : '—';
+        return `
+          <tr>
+            <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
+            <td class="mn">${formatMoney(Number(row.current_salary || 0))}</td>
+            <td class="mn">${formatMoney(Number(row.proposed_salary || 0))}</td>
+            <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
+            <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
+            <td class="mn">${escapeHtml(decidedAt)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // Leave forwards
+  if (leaveBody) {
+    if (!leaveForwards.length) {
+      leaveBody.innerHTML = '';
+      if (leaveEmpty) leaveEmpty.style.display = '';
+    } else {
+      if (leaveEmpty) leaveEmpty.style.display = 'none';
+      leaveBody.innerHTML = leaveForwards.map((row) => {
+        const status = String(row.status || '').toLowerCase();
+        let badgeClass = 'ba';
+        let badgeLabel = 'Pending Admin';
+        if (status === 'approved') { badgeClass = 'bg'; badgeLabel = 'Approved'; }
+        else if (status === 'rejected') { badgeClass = 'br'; badgeLabel = 'Rejected'; }
+        else if (status === 'pending_admin') { badgeClass = 'ba'; badgeLabel = 'Pending Admin'; }
+        const dateRange = `${escapeHtml(row.start_date || '?')} → ${escapeHtml(row.end_date || '?')}`;
+        return `
+          <tr>
+            <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
+            <td>${escapeHtml(row.leave_type || '—')}</td>
+            <td class="mn">${dateRange}</td>
+            <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
+            <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // Update sidebar badge — count items still pending
+  const pendingCount = salaryApprovals.filter((r) => r.status === 'pending').length
+    + leaveForwards.filter((r) => r.status === 'pending_admin').length;
+  const badge = document.getElementById('ac-approval-pending-badge');
+  if (badge) {
+    badge.textContent = String(pendingCount);
+    badge.style.display = pendingCount > 0 ? '' : 'none';
+  }
+}
+
+async function loadApprovalStatus() {
+  const salaryBody = document.getElementById('ac-salary-status-tbody');
+  const leaveBody = document.getElementById('ac-leave-status-tbody');
+  if (salaryBody) salaryBody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">Loading...</td></tr>';
+  if (leaveBody) leaveBody.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr>';
+
+  try {
+    const res = await fetch('/api/accountant/approval-status');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load approval status.');
+    renderApprovalStatus(data.salary_approvals || [], data.leave_forwards || []);
+  } catch (err) {
+    if (salaryBody) salaryBody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+    if (leaveBody) leaveBody.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
 /* ── INIT ── */
 function initAccountant() {
   applyAccountantIdentity();
@@ -962,6 +1055,9 @@ function initAccountant() {
   acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });
   acPendingLeavesPaginator = window.createPaginator({ id: 'ac-leave-pend', pageSize: 15, renderFn: renderAccountantPendingLeaves });
   acLeaveHistPaginator = window.createPaginator({ id: 'ac-leave-hist', pageSize: 15, renderFn: renderAccountantLeaveHistory });
+
+  // Load approval status badge silently on init
+  loadApprovalStatus();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('accountant')
