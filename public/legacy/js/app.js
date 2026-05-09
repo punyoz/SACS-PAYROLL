@@ -1133,6 +1133,13 @@ function initApp() {
       event.preventDefault();
       scrollWebsite('up');
     }
+
+    if (event.key === 'Enter') {
+      const loginScreen = document.getElementById('s-login');
+      if (loginScreen && loginScreen.classList.contains('active')) {
+        login();
+      }
+    }
   });
 
   // Native mouse-wheel scrolling is more reliable across browsers and devices.
