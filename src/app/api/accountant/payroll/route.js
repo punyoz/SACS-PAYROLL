@@ -13,7 +13,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
 const payrollStorePath = path.join(runtimeDir, "accountant-payroll-entries.json");
 const fallbackApprovalsPath = path.join(runtimeDir, "salary-approvals.json");
-const DUPLICATE_SUBMISSION_MESSAGE = "It has been submitted and cannot be duplicated.";
+const DUPLICATE_SUBMISSION_MESSAGE = "This payroll entry has already been submitted and is awaiting admin approval.";
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {

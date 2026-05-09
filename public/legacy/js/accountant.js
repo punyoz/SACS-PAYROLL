@@ -300,7 +300,9 @@ async function upsertPayrollEntry(action) {
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.error || 'Failed to save payroll entry.');
+    const err = new Error(result.error || 'Failed to save payroll entry.');
+    err.status = response.status;
+    throw err;
   }
 
   acctState.currentEntryId = String(result.entry?.id || acctState.currentEntryId || '');
@@ -328,7 +330,12 @@ async function submitForApproval() {
     const pendingNavEl = document.querySelector('#s-accountant .ni:last-of-type');
     acctNav('ac-pending', pendingNavEl);
   } catch (error) {
-    showProcessFeedback(error.message, true);
+    if (error.status === 409) {
+      showProcessFeedback('', false);
+      window.pushNotification?.('Already Submitted', 'This payroll entry has already been submitted and is awaiting admin approval.', 'info');
+    } else {
+      showProcessFeedback(error.message, true);
+    }
   } finally {
     setActionButtonsDisabled(false);
   }
