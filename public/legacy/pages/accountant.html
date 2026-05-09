@@ -330,12 +330,18 @@
 
       <!-- Salary Change Approvals -->
       <div class="card" style="margin-bottom:20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <div>
             <div style="font-size:14px;font-weight:700;color:var(--t1);">Salary Change Requests</div>
             <div style="font-size:11px;color:var(--t3);margin-top:2px;">Salary adjustments you submitted for admin approval</div>
           </div>
           <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="loadApprovalStatus()">Refresh</button>
+        </div>
+        <div class="status-tabs" id="ac-salary-tabs">
+          <button class="st-tab st-active" onclick="acSalaryFilter('all',this)">All</button>
+          <button class="st-tab" onclick="acSalaryFilter('pending',this)">Pending</button>
+          <button class="st-tab" onclick="acSalaryFilter('approved',this)">Approved</button>
+          <button class="st-tab" onclick="acSalaryFilter('rejected',this)">Rejected</button>
         </div>
         <div class="tw">
           <table>
@@ -355,15 +361,22 @@
           </table>
         </div>
         <p id="ac-salary-status-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:24px 0;display:none;">No salary change requests found.</p>
+        <div class="pg-bar" id="ac-salary-status-pg"></div>
       </div>
 
       <!-- Leave Request Admin Status -->
       <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <div>
             <div style="font-size:14px;font-weight:700;color:var(--t1);">Leave Requests — Admin Status</div>
             <div style="font-size:11px;color:var(--t3);margin-top:2px;">Leave requests you forwarded to the Administrator</div>
           </div>
+        </div>
+        <div class="status-tabs" id="ac-leave-tabs">
+          <button class="st-tab st-active" onclick="acLeaveFilter('all',this)">All</button>
+          <button class="st-tab" onclick="acLeaveFilter('pending',this)">Pending</button>
+          <button class="st-tab" onclick="acLeaveFilter('approved',this)">Approved</button>
+          <button class="st-tab" onclick="acLeaveFilter('rejected',this)">Rejected</button>
         </div>
         <div class="tw">
           <table>
@@ -382,6 +395,7 @@
           </table>
         </div>
         <p id="ac-leave-status-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:24px 0;display:none;">No forwarded leave requests found.</p>
+        <div class="pg-bar" id="ac-leave-status-pg"></div>
       </div>
     </div>
 

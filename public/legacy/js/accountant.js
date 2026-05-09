@@ -35,6 +35,10 @@ let acRecordsPaginator = null;
 let acAttPaginator = null;
 let acPendingLeavesPaginator = null;
 let acLeaveHistPaginator = null;
+let acSalaryStatusPaginator = null;
+let acLeaveStatusPaginator = null;
+let _salaryApprovalsAll = [];
+let _leaveForwardsAll = [];
 
 function toAmount(value) {
   const amount = Number(value || 0);
@@ -965,65 +969,87 @@ window.processAccountantLeave = async function(id, action) {
 };
 
 /* ── APPROVAL STATUS ── */
+function renderSalaryStatusTable(rows) {
+  const tbody = document.getElementById('ac-salary-status-tbody');
+  const empty = document.getElementById('ac-salary-status-empty');
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  tbody.innerHTML = rows.map((row) => {
+    const status = String(row.status || 'pending').toLowerCase();
+    const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
+    const badgeLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
+    const decidedAt = row.decided_at ? formatDateTime(row.decided_at) : '—';
+    return `<tr>
+      <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
+      <td class="mn">${formatMoney(Number(row.current_salary || 0))}</td>
+      <td class="mn">${formatMoney(Number(row.proposed_salary || 0))}</td>
+      <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
+      <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
+      <td class="mn">${escapeHtml(decidedAt)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderLeaveStatusTable(rows) {
+  const tbody = document.getElementById('ac-leave-status-tbody');
+  const empty = document.getElementById('ac-leave-status-empty');
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  tbody.innerHTML = rows.map((row) => {
+    const status = String(row.status || '').toLowerCase();
+    let badgeClass = 'ba', badgeLabel = 'Pending Admin';
+    if (status === 'approved') { badgeClass = 'bg'; badgeLabel = 'Approved'; }
+    else if (status === 'rejected') { badgeClass = 'br'; badgeLabel = 'Rejected'; }
+    const dateRange = `${escapeHtml(row.start_date || '?')} → ${escapeHtml(row.end_date || '?')}`;
+    return `<tr>
+      <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
+      <td>${escapeHtml(row.leave_type || '—')}</td>
+      <td class="mn">${dateRange}</td>
+      <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
+      <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function acSalaryFilter(filter, btn) {
+  document.querySelectorAll('#ac-salary-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
+  if (btn) btn.classList.add('st-active');
+  const filtered = filter === 'all'
+    ? _salaryApprovalsAll
+    : _salaryApprovalsAll.filter((r) => r.status === filter);
+  acSalaryStatusPaginator?.setData(filtered);
+}
+
+function acLeaveFilter(filter, btn) {
+  document.querySelectorAll('#ac-leave-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
+  if (btn) btn.classList.add('st-active');
+  const dbStatus = filter === 'pending' ? 'pending_admin' : filter;
+  const filtered = filter === 'all'
+    ? _leaveForwardsAll
+    : _leaveForwardsAll.filter((r) => r.status === dbStatus);
+  acLeaveStatusPaginator?.setData(filtered);
+}
+
 function renderApprovalStatus(salaryApprovals, leaveForwards) {
-  const salaryBody = document.getElementById('ac-salary-status-tbody');
-  const salaryEmpty = document.getElementById('ac-salary-status-empty');
-  const leaveBody = document.getElementById('ac-leave-status-tbody');
-  const leaveEmpty = document.getElementById('ac-leave-status-empty');
+  _salaryApprovalsAll = salaryApprovals;
+  _leaveForwardsAll = leaveForwards;
 
-  // Salary approvals
-  if (salaryBody) {
-    if (!salaryApprovals.length) {
-      salaryBody.innerHTML = '';
-      if (salaryEmpty) salaryEmpty.style.display = '';
-    } else {
-      if (salaryEmpty) salaryEmpty.style.display = 'none';
-      salaryBody.innerHTML = salaryApprovals.map((row) => {
-        const status = String(row.status || 'pending').toLowerCase();
-        const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
-        const badgeLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
-        const decidedAt = row.decided_at ? formatDateTime(row.decided_at) : '—';
-        return `
-          <tr>
-            <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
-            <td class="mn">${formatMoney(Number(row.current_salary || 0))}</td>
-            <td class="mn">${formatMoney(Number(row.proposed_salary || 0))}</td>
-            <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
-            <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
-            <td class="mn">${escapeHtml(decidedAt)}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-  }
+  // Reset tabs to "All" on fresh load
+  document.querySelectorAll('#ac-salary-tabs .st-tab').forEach((b, i) => b.classList.toggle('st-active', i === 0));
+  document.querySelectorAll('#ac-leave-tabs .st-tab').forEach((b, i) => b.classList.toggle('st-active', i === 0));
 
-  // Leave forwards
-  if (leaveBody) {
-    if (!leaveForwards.length) {
-      leaveBody.innerHTML = '';
-      if (leaveEmpty) leaveEmpty.style.display = '';
-    } else {
-      if (leaveEmpty) leaveEmpty.style.display = 'none';
-      leaveBody.innerHTML = leaveForwards.map((row) => {
-        const status = String(row.status || '').toLowerCase();
-        let badgeClass = 'ba';
-        let badgeLabel = 'Pending Admin';
-        if (status === 'approved') { badgeClass = 'bg'; badgeLabel = 'Approved'; }
-        else if (status === 'rejected') { badgeClass = 'br'; badgeLabel = 'Rejected'; }
-        else if (status === 'pending_admin') { badgeClass = 'ba'; badgeLabel = 'Pending Admin'; }
-        const dateRange = `${escapeHtml(row.start_date || '?')} → ${escapeHtml(row.end_date || '?')}`;
-        return `
-          <tr>
-            <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
-            <td>${escapeHtml(row.leave_type || '—')}</td>
-            <td class="mn">${dateRange}</td>
-            <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
-            <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
-          </tr>
-        `;
-      }).join('');
-    }
-  }
+  acSalaryStatusPaginator?.setData(salaryApprovals);
+  acLeaveStatusPaginator?.setData(leaveForwards);
 
   // Update sidebar badge — count items still pending
   const pendingCount = salaryApprovals.filter((r) => r.status === 'pending').length
@@ -1062,6 +1088,11 @@ function initAccountant() {
   acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });
   acPendingLeavesPaginator = window.createPaginator({ id: 'ac-leave-pend', pageSize: 15, renderFn: renderAccountantPendingLeaves });
   acLeaveHistPaginator = window.createPaginator({ id: 'ac-leave-hist', pageSize: 15, renderFn: renderAccountantLeaveHistory });
+  acSalaryStatusPaginator = window.createPaginator({ id: 'ac-salary-status', pageSize: 15, renderFn: renderSalaryStatusTable });
+  acLeaveStatusPaginator = window.createPaginator({ id: 'ac-leave-status', pageSize: 15, renderFn: renderLeaveStatusTable });
+
+  window.acSalaryFilter = acSalaryFilter;
+  window.acLeaveFilter = acLeaveFilter;
 
   // Load approval status badge silently on init
   loadApprovalStatus();

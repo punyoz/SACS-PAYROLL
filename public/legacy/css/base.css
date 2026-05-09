@@ -961,3 +961,30 @@ body {
   color: var(--t3);
   padding: 0 4px;
 }
+
+/* ── STATUS FILTER TABS ── */
+.status-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.st-tab {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--t2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--sans);
+  transition: background .15s, color .15s, border-color .15s;
+}
+.st-tab:hover { background: var(--bg3); color: var(--t1); }
+.st-tab.st-active {
+  background: var(--teal);
+  color: #fff;
+  border-color: var(--teal);
+  font-weight: 600;
+}
