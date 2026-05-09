@@ -15,7 +15,6 @@ const ACCT_PAGES = {
   'ac-attendance':       'View Attendance',
   'ac-pending':          'Pending Submissions',
   'ac-leaves':           'Leave Approvals',
-  'ac-change-password':  'Change Password',
 };
 
 const acctState = {
@@ -1061,6 +1060,8 @@ async function submitAccountantChangePassword() {
     document.getElementById('ac-confirm-password').value = '';
 
     showAcctChangePasswordFeedback('Password updated successfully.', false);
+    window.pushNotification?.('Password Changed', 'Your account password has been updated successfully.', 'success');
+    setTimeout(() => window.closeSettingsModal?.('ac'), 1200);
   } catch (error) {
     showAcctChangePasswordFeedback(error.message, true);
   }

@@ -204,6 +204,34 @@ async function confirmDestructiveAction(actionLabel, detailText) {
   });
 }
 
+/* ── SETTINGS MODAL ── */
+function openSettingsModal(prefix) {
+  const modal = document.getElementById(`${prefix}-settings-modal`);
+  if (!modal) return;
+  modal.classList.add('active');
+  modal.setAttribute('aria-hidden', 'false');
+
+  if (!modal._escBound) {
+    modal._escBound = true;
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('active')) closeSettingsModal(prefix);
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeSettingsModal(prefix);
+    });
+  }
+}
+
+function closeSettingsModal(prefix) {
+  const modal = document.getElementById(`${prefix}-settings-modal`);
+  if (!modal) return;
+  modal.classList.remove('active');
+  modal.setAttribute('aria-hidden', 'true');
+
+  const feedback = document.getElementById(`${prefix}-change-password-feedback`);
+  if (feedback) { feedback.textContent = ''; feedback.className = 'adm-feedback'; }
+}
+
 function ensureApproveDialog() {
   let backdrop = document.getElementById('legacy-approve-backdrop');
   if (backdrop) return backdrop;
@@ -1117,6 +1145,8 @@ function initApp() {
   window.confirmDestructiveAction = confirmDestructiveAction;
   window.confirmApproveAction = confirmApproveAction;
   window.pushNotification = pushNotification;
+  window.openSettingsModal = openSettingsModal;
+  window.closeSettingsModal = closeSettingsModal;
   window.persistRolePageState = persistRolePageState;
   window.getPersistedRolePageState = getPersistedRolePageState;
   window.refreshCurrentPortal = refreshCurrentPortal;

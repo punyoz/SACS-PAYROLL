@@ -440,6 +440,85 @@
   }
 }
 
+/* ── SETTINGS MODAL ── */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 65%, transparent);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 950;
+  padding: 16px;
+  backdrop-filter: blur(2px);
+}
+.settings-backdrop.active {
+  display: flex;
+}
+.settings-card {
+  width: min(440px, 100%);
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 48px color-mix(in srgb, #000 26%, transparent);
+  border-radius: var(--rl);
+  animation: modal-enter 0.22s ease-out;
+  overflow: hidden;
+}
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+}
+.settings-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings-icon {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  background: var(--teal-s);
+  color: var(--teal);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.settings-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t1);
+}
+.settings-sub {
+  font-size: 11px;
+  color: var(--t3);
+  margin-top: 1px;
+}
+.settings-close {
+  width: 28px; height: 28px;
+  border-radius: 7px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  color: var(--t2);
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.settings-close:hover { background: var(--bg); color: var(--t1); }
+.settings-body {
+  padding: 20px 18px 22px;
+}
+.settings-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-bottom: 10px;
+}
+
 /* ── TOAST NOTIFICATIONS ── */
 .toast-stack {
   position: fixed;

@@ -48,12 +48,6 @@
       <span class="nib" id="ac-pending-count">0</span>
     </div>
 
-    <div class="sb-sec">Account</div>
-    <div class="ni" onclick="acctNav('ac-change-password',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-      Change Password
-    </div>
-
     <div class="sb-foot">
       <div class="uc">
         <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">AC</div>
@@ -75,6 +69,9 @@
       <div class="tb-sp"></div>
       <span class="role-tag rt-acct">Accountant</span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
+      <button class="nb" onclick="openSettingsModal('ac')" title="Account Settings" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
       <button class="nb global-notification-trigger" title="Notifications" type="button">🔔<div class="nd"></div></button>
     </div>
 
@@ -313,15 +310,28 @@
       </div>
     </div>
 
-    <!-- ──────────────────────────────
-         PAGE: Change Password
-    ────────────────────────────── -->
-    <div class="page" id="ac-change-password">
-      <div class="ph"><h2>Change Password</h2><p>Update your account password</p></div>
-      <div class="card" style="max-width:480px;">
-        <p style="font-size:13px;color:var(--t2);margin-bottom:18px;line-height:1.6;">
-          Enter your current password to verify your identity, then set a new password. New password must be at least 8 characters.
-        </p>
+  </div><!-- end .main -->
+
+  <!-- SETTINGS MODAL -->
+  <div class="settings-backdrop" id="ac-settings-modal" aria-hidden="true">
+    <div class="settings-card card" role="dialog" aria-modal="true" aria-labelledby="ac-settings-title">
+      <div class="settings-header">
+        <div class="settings-header-left">
+          <div class="settings-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <div>
+            <div class="settings-title" id="ac-settings-title">Account Settings</div>
+            <div class="settings-sub">Accountant</div>
+          </div>
+        </div>
+        <button class="settings-close" onclick="closeSettingsModal('ac')" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section-label">Change Password</div>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Enter your current password to verify your identity, then set a new password. Must be at least 8 characters.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
             <label>Current Password</label>
@@ -336,10 +346,9 @@
             <input id="ac-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
           </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:12px;" onclick="submitAccountantChangePassword()">Update Password</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:11px;" onclick="submitAccountantChangePassword()">Update Password</button>
         <p id="ac-change-password-feedback" class="adm-feedback" style="margin-top:10px;"></p>
       </div>
     </div>
-
-  </div><!-- end .main -->
+  </div>
 </div><!-- end #s-accountant -->

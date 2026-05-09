@@ -280,6 +280,7 @@ async function submitChangePassword() {
 
     showChangePasswordFeedback('Password updated successfully.', false);
     window.pushNotification?.('Password Changed', 'Your account password has been updated successfully.', 'success');
+    setTimeout(() => window.closeSettingsModal?.('emp'), 1200);
   } catch (error) {
     showChangePasswordFeedback(error.message, true);
   }
