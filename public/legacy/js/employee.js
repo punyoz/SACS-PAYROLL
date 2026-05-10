@@ -51,6 +51,9 @@ function applyEmployeeIdentity() {
   const topName = document.getElementById('emp-top-name');
   if (topName) topName.textContent = `Welcome, ${displayName}`;
 
+  const topRole = document.getElementById('emp-top-role');
+  if (topRole) topRole.textContent = rolePosition || 'Employee';
+
   const avatar = document.getElementById('emp-avatar');
   if (avatar) avatar.textContent = getInitials(displayName);
 

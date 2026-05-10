@@ -7,10 +7,13 @@
 
   <!-- SLIM TOPBAR -->
   <div class="emp-topbar">
-    <div style="display:flex;align-items:center;cursor:pointer;background:none;border:none;padding:0;" onclick="refreshCurrentPortal()" title="Refresh page">
-      <div class="et-logo">B</div>
-      <div class="et-brand">BNCS Payroll</div>
-    </div>
+    <button class="sb-refresh-btn emp-brand-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
+      <div class="bi" style="background:var(--amber);color:#0D1B2A;">B</div>
+      <div class="bt">
+        <div class="bn">BNCS Payroll</div>
+        <div class="bs" id="emp-top-role">Employee</div>
+      </div>
+    </button>
     <div class="et-name" id="emp-top-name">Welcome, Employee</div>
     <span class="role-tag rt-emp">Employee</span>
     <button class="nb global-notification-trigger" title="Notifications" type="button">🔔<div class="nd"></div></button>
