@@ -15,7 +15,8 @@ if (!projectUrl) {
 const roleAccounts = [
   {
     role: "admin",
-    email: process.env.SEED_ADMIN_EMAIL || "bncs.admin@gmail.com",
+    email: process.env.SEED_ADMIN_EMAIL || "admin@example.com",
+    legacyEmail: "bncs.admin@gmail.com",
     username: process.env.SEED_ADMIN_USERNAME || "bncsadmin",
     password: process.env.SEED_ADMIN_PASSWORD || "Admin@12345",
     full_name: "System Admin",
@@ -23,14 +24,16 @@ const roleAccounts = [
   },
   {
     role: "accountant",
-    email: process.env.SEED_ACCOUNTANT_EMAIL || "bncs.accountant@gmail.com",
+    email: process.env.SEED_ACCOUNTANT_EMAIL || "accountant@example.com",
+    legacyEmail: "bncs.accountant@gmail.com",
     password: process.env.SEED_ACCOUNTANT_PASSWORD || "Accountant@12345",
     full_name: "Payroll Accountant",
     employee_id: process.env.SEED_ACCOUNTANT_EMPLOYEE_ID || "BNCS-ACCT-001",
   },
   {
     role: "employee",
-    email: process.env.SEED_EMPLOYEE_EMAIL || "bncs.employee@gmail.com",
+    email: process.env.SEED_EMPLOYEE_EMAIL || "employee@example.com",
+    legacyEmail: "bncs.employee@gmail.com",
     password: process.env.SEED_EMPLOYEE_PASSWORD || "Employee@12345",
     full_name: "Default Employee",
     employee_id: process.env.SEED_EMPLOYEE_LOGIN_ID || "BNCS-EMP-001",
@@ -100,10 +103,13 @@ async function runAdminSeed() {
       throw new Error(`Failed to list users: ${list.error.message}`);
     }
 
-    const existing = list.data.users.find((u) => u.email === account.email);
+    // Find by new email first, then fall back to legacy bncs. email
+    const existing =
+      list.data.users.find((u) => u.email === account.email) ||
+      (account.legacyEmail && list.data.users.find((u) => u.email === account.legacyEmail));
 
     if (existing) {
-      const updated = await supabase.auth.admin.updateUserById(existing.id, {
+      const updates = {
         password: account.password,
         email_confirm: true,
         user_metadata: {
@@ -111,13 +117,19 @@ async function runAdminSeed() {
           full_name: account.full_name,
           employee_id: account.employee_id,
         },
-      });
+      };
+      // Migrate email if it still has the old bncs. address
+      if (existing.email !== account.email) {
+        updates.email = account.email;
+        console.log(`  migrating email: ${existing.email} → ${account.email}`);
+      }
 
+      const updated = await supabase.auth.admin.updateUserById(existing.id, updates);
       if (updated.error) {
         throw new Error(`Failed to update user ${account.email}: ${updated.error.message}`);
       }
 
-      return { id: existing.id, action: "updated" };
+      return { id: existing.id, action: existing.email !== account.email ? "migrated" : "updated" };
     }
 
     const created = await supabase.auth.admin.createUser({
