@@ -132,11 +132,13 @@
   cursor: default;
   transition: transform 0.15s;
 }
-.ad.pr  { background: var(--green-s); color: var(--green); }
-.ad.ab  { background: var(--red-s);   color: var(--red);   }
-.ad.lt  { background: var(--amber-s); color: var(--amber); }
-.ad.em  { color: transparent; }
-.ad.td  { outline: 2px solid var(--teal); outline-offset: 1px; }
+.ad.pr     { background: var(--green-s); color: var(--green); }
+.ad.ab     { background: var(--red-s);   color: var(--red);   }
+.ad.lt     { background: var(--amber-s); color: var(--amber); }
+.ad.em     { color: transparent; }
+.ad.no-rec { color: var(--t3); }
+.ad.future { color: var(--t3); opacity: 0.4; }
+.ad.td     { outline: 2px solid var(--teal); outline-offset: 1px; }
 
 .att-legend { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
 .al { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--t3); }

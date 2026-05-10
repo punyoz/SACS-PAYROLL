@@ -96,12 +96,14 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
   }
 
   const [year, month] = todayKey.split('-').map(Number);
+  const todayDay = Number(todayKey.split('-')[2]);
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
 
   let html = '<div class="adh">Su</div><div class="adh">Mo</div><div class="adh">Tu</div>' +
              '<div class="adh">We</div><div class="adh">Th</div><div class="adh">Fr</div><div class="adh">Sa</div>';
 
+  // Spacer cells — truly empty, `em` keeps them invisible
   for (let i = 0; i < firstDayOfWeek; i++) {
     html += '<div class="ad em"></div>';
   }
@@ -109,13 +111,15 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
   for (let day = 1; day <= daysInMonth; day++) {
     const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const isToday = dateKey === todayKey;
+    const isFuture = day > todayDay;
     const status = statusMap[dateKey];
 
     let cls = 'ad';
     if (status === 'Present') cls += ' pr';
     else if (status === 'Late') cls += ' lt';
     else if (status === 'Absent') cls += ' ab';
-    else cls += ' em';
+    else if (isFuture) cls += ' future';  // upcoming — faded number
+    else cls += ' no-rec';               // past with no record — muted number
 
     if (isToday) cls += ' td';
 
