@@ -59,22 +59,11 @@
 
       <!-- ATTENDANCE CALENDAR -->
       <div class="card">
-        <div class="stitle" style="margin-bottom:3px;">My Attendance — March 2026</div>
+        <div class="stitle" id="emp-att-month-title" style="margin-bottom:3px;">My Attendance</div>
         <div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Read-only · Updated via RFID tap</div>
-        <div class="att-grid">
+        <div class="att-grid" id="emp-att-grid">
           <div class="adh">Su</div><div class="adh">Mo</div><div class="adh">Tu</div>
           <div class="adh">We</div><div class="adh">Th</div><div class="adh">Fr</div><div class="adh">Sa</div>
-          <div class="ad em"></div><div class="ad em"></div><div class="ad em"></div>
-          <div class="ad em"></div><div class="ad em"></div><div class="ad em"></div><div class="ad em">1</div>
-          <div class="ad em">2</div><div class="ad pr">3</div><div class="ad pr">4</div>
-          <div class="ad pr">5</div><div class="ad pr">6</div><div class="ad pr">7</div><div class="ad em">8</div>
-          <div class="ad em">9</div><div class="ad pr">10</div><div class="ad lt">11</div>
-          <div class="ad pr">12</div><div class="ad pr">13</div><div class="ad pr">14</div><div class="ad em">15</div>
-          <div class="ad em">16</div><div class="ad pr">17</div><div class="ad pr">18</div>
-          <div class="ad pr">19</div><div class="ad pr">20</div><div class="ad pr">21</div><div class="ad em">22</div>
-          <div class="ad em">23</div><div class="ad td pr">24</div><div class="ad em">25</div>
-          <div class="ad em">26</div><div class="ad em">27</div><div class="ad em">28</div><div class="ad em">29</div>
-          <div class="ad em">30</div><div class="ad em">31</div>
         </div>
         <div class="att-legend">
           <div class="al"><span class="alb" style="background:var(--green-s);border:1px solid var(--green);"></span>Present</div>
@@ -89,15 +78,17 @@
           <div class="today-log-row">
             <div class="tlc">
               <label>Time In</label>
-              <div class="tl-val" style="color:var(--green);">07:28 AM</div>
+              <div class="tl-val" id="emp-today-timein" style="color:var(--t3);">— : —</div>
             </div>
             <div class="tlc tlc-divider">
               <label>Time Out</label>
-              <div class="tl-val" style="color:var(--t3);">— : —</div>
+              <div class="tl-val" id="emp-today-timeout" style="color:var(--t3);">— : —</div>
             </div>
             <div class="tlc tlc-divider">
               <label>Status</label>
-              <div style="margin-top:5px;"><span class="badge bg"><span class="bd"></span>Present</span></div>
+              <div id="emp-today-status-wrap" style="margin-top:5px;">
+                <span class="badge ba"><span class="bd"></span>No data</span>
+              </div>
             </div>
           </div>
         </div>

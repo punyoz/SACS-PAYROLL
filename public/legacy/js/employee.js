@@ -69,6 +69,92 @@ function applyEmployeeIdentity() {
   }
 }
 
+function formatPhTime(isoString) {
+  if (!isoString) return null;
+  try {
+    return new Intl.DateTimeFormat('en-PH', {
+      timeZone: 'Asia/Manila',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(isoString)).toUpperCase();
+  } catch {
+    return null;
+  }
+}
+
+function renderAttendanceCalendar(records, monthLabel, todayKey) {
+  const titleEl = document.getElementById('emp-att-month-title');
+  if (titleEl) titleEl.textContent = `My Attendance — ${monthLabel}`;
+
+  const grid = document.getElementById('emp-att-grid');
+  if (!grid) return;
+
+  const statusMap = {};
+  for (const rec of records) {
+    statusMap[rec.date] = rec.status;
+  }
+
+  const [year, month] = todayKey.split('-').map(Number);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+
+  let html = '<div class="adh">Su</div><div class="adh">Mo</div><div class="adh">Tu</div>' +
+             '<div class="adh">We</div><div class="adh">Th</div><div class="adh">Fr</div><div class="adh">Sa</div>';
+
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    html += '<div class="ad em"></div>';
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isToday = dateKey === todayKey;
+    const status = statusMap[dateKey];
+
+    let cls = 'ad';
+    if (status === 'Present') cls += ' pr';
+    else if (status === 'Late') cls += ' lt';
+    else if (status === 'Absent') cls += ' ab';
+    else cls += ' em';
+
+    if (isToday) cls += ' td';
+
+    html += `<div class="${cls}">${day}</div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+function updateTodayLog(today) {
+  const timeInEl = document.getElementById('emp-today-timein');
+  const timeOutEl = document.getElementById('emp-today-timeout');
+  const statusWrap = document.getElementById('emp-today-status-wrap');
+
+  if (!today || !today.time_in) {
+    if (timeInEl) { timeInEl.textContent = '— : —'; timeInEl.style.color = 'var(--t3)'; }
+    if (timeOutEl) { timeOutEl.textContent = '— : —'; timeOutEl.style.color = 'var(--t3)'; }
+    if (statusWrap) statusWrap.innerHTML = '<span class="badge ba"><span class="bd"></span>No data</span>';
+    return;
+  }
+
+  const timeIn = formatPhTime(today.time_in);
+  const timeOut = today.time_out ? formatPhTime(today.time_out) : null;
+  const statusLower = String(today.status || '').toLowerCase();
+
+  if (timeInEl) {
+    timeInEl.textContent = timeIn || '— : —';
+    timeInEl.style.color = timeIn ? 'var(--green)' : 'var(--t3)';
+  }
+  if (timeOutEl) {
+    timeOutEl.textContent = timeOut || '— : —';
+    timeOutEl.style.color = timeOut ? 'var(--teal)' : 'var(--t3)';
+  }
+  if (statusWrap) {
+    const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
+    statusWrap.innerHTML = `<span class="badge ${badgeCls}"><span class="bd"></span>${today.status || 'Absent'}</span>`;
+  }
+}
+
 async function loadEmployeeStats() {
   const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
   const email = String(context?.email || '').trim();
@@ -90,6 +176,11 @@ async function loadEmployeeStats() {
 
     const netpayEl = document.getElementById('emp-stat-netpay');
     if (netpayEl) netpayEl.textContent = data.basic_salary || '—';
+
+    if (data.today_key && data.month_label) {
+      renderAttendanceCalendar(data.records || [], data.month_label, data.today_key);
+    }
+    updateTodayLog(data.today || null);
   } catch {
     // Stats are supplementary — fail silently
   }

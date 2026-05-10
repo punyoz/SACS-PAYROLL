@@ -28,7 +28,13 @@ function getCurrentPhilippineMonth() {
   const nextMonth = month === 12 ? 1 : month + 1;
   const monthEnd = `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`;
 
-  return { monthStart, monthEnd, todayKey: dateStr };
+  const monthLabel = new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila",
+    month: "long",
+    year: "numeric",
+  }).format(now);
+
+  return { monthStart, monthEnd, todayKey: dateStr, monthLabel };
 }
 
 function formatPeso(amount) {
@@ -62,13 +68,14 @@ export async function GET(request) {
       return NextResponse.json({ present: 0, late: 0, absent: 0, basic_salary: null, today: null });
     }
 
-    const { monthStart, monthEnd, todayKey } = getCurrentPhilippineMonth();
+    const { monthStart, monthEnd, todayKey, monthLabel } = getCurrentPhilippineMonth();
 
     // Fetch this month's attendance for the employee
     let present = 0;
     let late = 0;
     let absent = 0;
     let today = null;
+    const records = [];
 
     try {
       const attResult = await supabase
@@ -77,7 +84,7 @@ export async function GET(request) {
         .eq("employee_id", user.id)
         .gte("log_date", monthStart)
         .lt("log_date", monthEnd)
-        .order("log_date", { ascending: false });
+        .order("log_date", { ascending: true });
 
       if (!attResult.error && Array.isArray(attResult.data)) {
         for (const row of attResult.data) {
@@ -85,6 +92,13 @@ export async function GET(request) {
           if (status === "present") present++;
           else if (status === "late") late++;
           else if (status === "absent") absent++;
+
+          records.push({
+            date: row.log_date,
+            status: row.status || "Absent",
+            time_in: row.time_in || null,
+            time_out: row.time_out || null,
+          });
 
           if (row.log_date === todayKey && !today) {
             today = {
@@ -108,6 +122,9 @@ export async function GET(request) {
       absent,
       basic_salary: formatPeso(basicSalary),
       today,
+      records,
+      month_label: monthLabel,
+      today_key: todayKey,
     });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
