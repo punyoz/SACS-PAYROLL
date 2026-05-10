@@ -343,6 +343,9 @@
           <button class="st-tab" onclick="acSalaryFilter('approved',this)">Approved</button>
           <button class="st-tab" onclick="acSalaryFilter('rejected',this)">Rejected</button>
         </div>
+        <div style="margin:10px 0 12px;">
+          <input id="ac-salary-search" class="fc" type="text" placeholder="Search employee name…" oninput="setAcSalarySearch(this.value)" style="max-width:360px;" />
+        </div>
         <div class="tw">
           <table>
             <thead>
@@ -377,6 +380,9 @@
           <button class="st-tab" onclick="acLeaveFilter('pending',this)">Pending</button>
           <button class="st-tab" onclick="acLeaveFilter('approved',this)">Approved</button>
           <button class="st-tab" onclick="acLeaveFilter('rejected',this)">Rejected</button>
+        </div>
+        <div style="margin:10px 0 12px;">
+          <input id="ac-leave-search" class="fc" type="text" placeholder="Search employee name or leave type…" oninput="setAcLeaveSearch(this.value)" style="max-width:360px;" />
         </div>
         <div class="tw">
           <table>

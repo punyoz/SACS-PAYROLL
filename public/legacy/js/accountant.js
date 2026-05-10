@@ -39,6 +39,10 @@ let acSalaryStatusPaginator = null;
 let acLeaveStatusPaginator = null;
 let _salaryApprovalsAll = [];
 let _leaveForwardsAll = [];
+let _salaryStatusFilter = 'all';
+let _leaveStatusFilter = 'all';
+let _salarySearch = '';
+let _leaveSearch = '';
 
 function toAmount(value) {
   const amount = Number(value || 0);
@@ -1021,32 +1025,67 @@ function renderLeaveStatusTable(rows) {
   }).join('');
 }
 
+function getFilteredSalaryApprovals() {
+  const search = _salarySearch.toLowerCase();
+  let rows = _salaryStatusFilter === 'all'
+    ? _salaryApprovalsAll
+    : _salaryApprovalsAll.filter((r) => r.status === _salaryStatusFilter);
+  if (search) rows = rows.filter((r) => String(r.employee_name || '').toLowerCase().includes(search));
+  return rows;
+}
+
+function getFilteredLeaveForwards() {
+  const search = _leaveSearch.toLowerCase();
+  const dbStatus = _leaveStatusFilter === 'pending' ? 'pending_admin' : _leaveStatusFilter;
+  let rows = _leaveStatusFilter === 'all'
+    ? _leaveForwardsAll
+    : _leaveForwardsAll.filter((r) => r.status === dbStatus);
+  if (search) rows = rows.filter((r) =>
+    [r.employee_name, r.leave_type].map((v) => String(v || '').toLowerCase()).join(' ').includes(search)
+  );
+  return rows;
+}
+
 function acSalaryFilter(filter, btn) {
+  _salaryStatusFilter = filter;
   document.querySelectorAll('#ac-salary-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
   if (btn) btn.classList.add('st-active');
-  const filtered = filter === 'all'
-    ? _salaryApprovalsAll
-    : _salaryApprovalsAll.filter((r) => r.status === filter);
-  acSalaryStatusPaginator?.setData(filtered);
+  acSalaryStatusPaginator?.setData(getFilteredSalaryApprovals());
 }
 
 function acLeaveFilter(filter, btn) {
+  _leaveStatusFilter = filter;
   document.querySelectorAll('#ac-leave-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
   if (btn) btn.classList.add('st-active');
-  const dbStatus = filter === 'pending' ? 'pending_admin' : filter;
-  const filtered = filter === 'all'
-    ? _leaveForwardsAll
-    : _leaveForwardsAll.filter((r) => r.status === dbStatus);
-  acLeaveStatusPaginator?.setData(filtered);
+  acLeaveStatusPaginator?.setData(getFilteredLeaveForwards());
+}
+
+function setAcSalarySearch(value) {
+  _salarySearch = String(value || '').trim();
+  acSalaryStatusPaginator?.setData(getFilteredSalaryApprovals());
+}
+
+function setAcLeaveSearch(value) {
+  _leaveSearch = String(value || '').trim();
+  acLeaveStatusPaginator?.setData(getFilteredLeaveForwards());
 }
 
 function renderApprovalStatus(salaryApprovals, leaveForwards) {
   _salaryApprovalsAll = salaryApprovals;
   _leaveForwardsAll = leaveForwards;
+  _salaryStatusFilter = 'all';
+  _leaveStatusFilter = 'all';
+  _salarySearch = '';
+  _leaveSearch = '';
 
   // Reset tabs to "All" on fresh load
   document.querySelectorAll('#ac-salary-tabs .st-tab').forEach((b, i) => b.classList.toggle('st-active', i === 0));
   document.querySelectorAll('#ac-leave-tabs .st-tab').forEach((b, i) => b.classList.toggle('st-active', i === 0));
+
+  const salarySearchEl = document.getElementById('ac-salary-search');
+  if (salarySearchEl) salarySearchEl.value = '';
+  const leaveSearchEl = document.getElementById('ac-leave-search');
+  if (leaveSearchEl) leaveSearchEl.value = '';
 
   acSalaryStatusPaginator?.setData(salaryApprovals);
   acLeaveStatusPaginator?.setData(leaveForwards);
@@ -1093,6 +1132,8 @@ function initAccountant() {
 
   window.acSalaryFilter = acSalaryFilter;
   window.acLeaveFilter = acLeaveFilter;
+  window.setAcSalarySearch = setAcSalarySearch;
+  window.setAcLeaveSearch = setAcLeaveSearch;
 
   // Load approval status badge silently on init
   loadApprovalStatus();
