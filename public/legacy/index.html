@@ -174,18 +174,18 @@
       }
 
       try {
-        // Kick off HTML fragments AND script fetches in parallel.
-        // Scripts use defer so they execute in order regardless of load order.
-        const htmlPromise = Promise.all(pageFiles.map(loadFragment));
-        const scriptsPromise = Promise.all(scriptFiles.map(loadScript));
-
-        const htmlChunks = await htmlPromise;
+        // Insert HTML BEFORE loading scripts. Scripts run as soon as they load
+        // (defer is ignored on dynamically-injected scripts), so app.js's
+        // initApp() must find #s-login etc. already in the DOM. The
+        // <link rel="preload"> tags in <head> still let the browser fetch the
+        // scripts in parallel with the HTML fetch — we just defer execution.
+        const htmlChunks = await Promise.all(pageFiles.map(loadFragment));
         appRoot.innerHTML = htmlChunks.join('\n');
 
         // Apply identity immediately so the UI doesn't flash placeholders.
         applyBootIdentityFromStorage();
 
-        await scriptsPromise;
+        await Promise.all(scriptFiles.map(loadScript));
       } catch (error) {
         appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';
       }
