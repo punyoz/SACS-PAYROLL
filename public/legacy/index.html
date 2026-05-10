@@ -10,14 +10,59 @@
       document.documentElement.setAttribute('data-theme', savedTheme);
     })();
   </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="css/theme.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/layout.css">
-  <link rel="stylesheet" href="css/admin.css">
-  <link rel="stylesheet" href="css/accountant.css">
-  <link rel="stylesheet" href="css/employee.css">
+
+  <script>
+    (function() {
+      var role = new URLSearchParams(window.location.search).get('role');
+      var head = document.getElementsByTagName('head')[0];
+      var roleCssMap = { admin: 'css/admin.css', accountant: 'css/accountant.css', employee: 'css/employee.css' };
+
+      function addStylesheet(href) {
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        head.appendChild(link);
+      }
+
+      if (role && roleCssMap[role]) {
+        addStylesheet(roleCssMap[role]);
+      } else {
+        // No role yet (login screen) — load all role styles so post-login render is instant.
+        Object.keys(roleCssMap).forEach(function(k) { addStylesheet(roleCssMap[k]); });
+      }
+
+      // Preload role-specific page + script so the fetch starts before bootstrap runs.
+      function addPreload(href, asType) {
+        var link = document.createElement('link');
+        link.rel = 'preload';
+        link.as = asType;
+        link.href = href;
+        if (asType === 'fetch') link.crossOrigin = 'anonymous';
+        head.appendChild(link);
+      }
+
+      addPreload('js/app.js', 'script');
+      addPreload('pages/login.html', 'fetch');
+      if (role === 'admin') {
+        addPreload('pages/admin.html', 'fetch');
+        addPreload('js/admin.js', 'script');
+      } else if (role === 'accountant') {
+        addPreload('pages/accountant.html', 'fetch');
+        addPreload('js/accountant.js', 'script');
+      } else if (role === 'employee') {
+        addPreload('pages/employee.html', 'fetch');
+        addPreload('js/employee.js', 'script');
+      }
+    })();
+  </script>
 </head>
 <body>
   <main id="app-root" aria-live="polite"></main>
@@ -108,24 +153,39 @@
 
     async function bootstrapApp() {
       const appRoot = document.getElementById('app-root');
-      const pageFiles = [
-        'pages/login.html',
-        'pages/admin.html',
-        'pages/accountant.html',
-        'pages/employee.html'
-      ];
+      const role = new URLSearchParams(window.location.search).get('role');
+
+      // Always include login.html as fallback for logout/unauthenticated state.
+      // Otherwise only load the active role's portal HTML + script — saves ~70% of payload.
+      const pageFiles = ['pages/login.html'];
+      const scriptFiles = ['js/app.js'];
+
+      if (role === 'admin') {
+        pageFiles.push('pages/admin.html');
+        scriptFiles.push('js/admin.js');
+      } else if (role === 'accountant') {
+        pageFiles.push('pages/accountant.html');
+        scriptFiles.push('js/accountant.js');
+      } else if (role === 'employee') {
+        pageFiles.push('pages/employee.html');
+        scriptFiles.push('js/employee.js');
+      } else {
+        // No role param — login screen only; load role bundles lazily on success.
+      }
 
       try {
-        const htmlChunks = await Promise.all(pageFiles.map(loadFragment));
+        // Kick off HTML fragments AND script fetches in parallel.
+        // Scripts use defer so they execute in order regardless of load order.
+        const htmlPromise = Promise.all(pageFiles.map(loadFragment));
+        const scriptsPromise = Promise.all(scriptFiles.map(loadScript));
+
+        const htmlChunks = await htmlPromise;
         appRoot.innerHTML = htmlChunks.join('\n');
 
         // Apply identity immediately so the UI doesn't flash placeholders.
         applyBootIdentityFromStorage();
 
-        await loadScript('js/app.js');
-        await loadScript('js/admin.js');
-        await loadScript('js/accountant.js');
-        await loadScript('js/employee.js');
+        await scriptsPromise;
       } catch (error) {
         appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';
       }
