@@ -110,9 +110,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg1) 45%, #000 55%);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg1) 30%, #000 70%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   padding: 20px;
 }
 
@@ -178,7 +178,7 @@
   min-height: 16px;
 }
 
-.adm-feedback.ok { color: #3EC97A; }
+.adm-feedback.ok { color: var(--t2); }
 .adm-feedback.loading { color: var(--t2); }
 .adm-feedback.err { color: #E85555; font-weight: 700; }
 
