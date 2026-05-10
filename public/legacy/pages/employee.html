@@ -101,19 +101,14 @@
         <div class="ps-card">
           <div class="ps-head">
             <h3>Bagong Nayon II Christian School</h3>
-            <p id="ps-period-label">March 2026 · Issued March 31, 2026</p>
+            <p id="ps-period-label">No payslip available</p>
           </div>
-          <div class="ps-row"><span>Basic Salary</span><span class="mn">₱ 18,500.00</span></div>
-          <div class="ps-row"><span>Transportation</span><span class="mn">₱ 2,000.00</span></div>
-          <div class="ps-row"><span>Rice Allowance</span><span class="mn">₱ 1,500.00</span></div>
-          <div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">₱ 22,000.00</span></div>
-          <div class="ps-row" style="color:var(--red);"><span>SSS</span><span class="mn">- ₱ 800.00</span></div>
-          <div class="ps-row" style="color:var(--red);"><span>PhilHealth</span><span class="mn">- ₱ 450.00</span></div>
-          <div class="ps-row" style="color:var(--red);"><span>Pag-IBIG</span><span class="mn">- ₱ 200.00</span></div>
-          <div class="ps-row" style="color:var(--red);"><span>Withholding Tax</span><span class="mn">- ₱ 320.00</span></div>
-          <div class="ps-net">
-            <div class="ps-net-lbl">Net Pay — March 2026</div>
-            <div class="ps-net-amt" id="ps-net-amount">₱ 20,230.00</div>
+          <div id="ps-rows">
+            <div class="ps-row" style="color:var(--t3);font-style:italic;justify-content:center;padding:16px 16px;">No payslip data available.</div>
+          </div>
+          <div class="ps-net" id="ps-net" style="display:none;">
+            <div class="ps-net-lbl" id="ps-net-label">Net Pay</div>
+            <div class="ps-net-amt" id="ps-net-amount">—</div>
           </div>
         </div>
 
@@ -162,13 +157,8 @@
         <!-- Past payslips -->
         <div style="margin-top:18px;">
           <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:10px;">Previous Payslips</div>
-          <div class="past-ps-item">
-            <div><div class="ppi-name">February 2026</div><div class="ppi-date">Issued Feb 28, 2026</div></div>
-            <div class="ppi-right"><span class="ppi-amt">₱ 19,870</span><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="viewPastPayslip('Feb 2026')">View</button></div>
-          </div>
-          <div class="past-ps-item">
-            <div><div class="ppi-name">January 2026</div><div class="ppi-date">Issued Jan 31, 2026</div></div>
-            <div class="ppi-right"><span class="ppi-amt">₱ 20,230</span><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="viewPastPayslip('Jan 2026')">View</button></div>
+          <div id="emp-prev-payslips">
+            <div style="font-size:12px;color:var(--t3);">No previous payslips.</div>
           </div>
         </div>
       </div>

@@ -6,13 +6,7 @@
 
 'use strict';
 
-/* ── PAYSLIP DATA ── */
-// In production: fetch from /api/payslips?employeeId=...
-const PAYSLIP_DATA = {
-  'Mar 2026': { basic: 18500, transport: 2000, rice: 1500, overtime: 0, bonus: 0, sss: 800, philhealth: 450, pagibig: 200, tax: 320, absences: 0, cashAdv: 0 },
-  'Feb 2026': { basic: 18500, transport: 2000, rice: 1500, overtime: 0, bonus: 0, sss: 800, philhealth: 450, pagibig: 200, tax: 320, absences: 1 * (18500/22), cashAdv: 0 },
-  'Jan 2026': { basic: 18500, transport: 2000, rice: 1500, overtime: 500, bonus: 0, sss: 800, philhealth: 450, pagibig: 200, tax: 320, absences: 0, cashAdv: 0 },
-};
+const payslipState = { list: [] };
 
 const leaveState = {
   requests: [],
@@ -194,12 +188,116 @@ function handleLegacyAuthContextChange() {
   applyEmployeeIdentity();
   loadMyLeaveRequests();
   loadEmployeeStats();
+  loadPayslips();
 }
 
-function calcNet(data) {
-  const gross = data.basic + data.transport + data.rice + data.overtime + data.bonus;
-  const deductions = data.sss + data.philhealth + data.pagibig + data.tax + data.absences + data.cashAdv;
-  return { gross, deductions, net: gross - deductions };
+function fmtPeso(amount) {
+  const n = Number(amount || 0);
+  return '₱ ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPesoShort(amount) {
+  const n = Number(amount || 0);
+  return '₱ ' + n.toLocaleString('en-PH', { maximumFractionDigits: 0 });
+}
+
+function renderPayslipCard(payslip) {
+  const periodLabel = document.getElementById('ps-period-label');
+  const psRows = document.getElementById('ps-rows');
+  const psNet = document.getElementById('ps-net');
+  const psNetLabel = document.getElementById('ps-net-label');
+  const psNetAmount = document.getElementById('ps-net-amount');
+
+  if (!psRows) return;
+
+  if (!payslip) {
+    if (periodLabel) periodLabel.textContent = 'No payslip available';
+    psRows.innerHTML = '<div class="ps-row" style="color:var(--t3);font-style:italic;justify-content:center;padding:16px;">No payslip data available.</div>';
+    if (psNet) psNet.style.display = 'none';
+    return;
+  }
+
+  const issuedDate = payslip.processed_at
+    ? new Intl.DateTimeFormat('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' }).format(new Date(payslip.processed_at))
+    : '';
+  if (periodLabel) periodLabel.textContent = issuedDate ? `${payslip.period_label} · Issued ${issuedDate}` : payslip.period_label;
+
+  let rows = '';
+  if (payslip.has_breakdown) {
+    rows += `<div class="ps-row"><span>Basic Salary</span><span class="mn">${fmtPeso(payslip.basic_salary)}</span></div>`;
+    if (payslip.transportation) rows += `<div class="ps-row"><span>Transportation</span><span class="mn">${fmtPeso(payslip.transportation)}</span></div>`;
+    if (payslip.rice) rows += `<div class="ps-row"><span>Rice Allowance</span><span class="mn">${fmtPeso(payslip.rice)}</span></div>`;
+    if (payslip.overtime) rows += `<div class="ps-row"><span>Overtime</span><span class="mn">${fmtPeso(payslip.overtime)}</span></div>`;
+    if (payslip.bonus) rows += `<div class="ps-row"><span>Bonus</span><span class="mn">${fmtPeso(payslip.bonus)}</span></div>`;
+    rows += `<div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">${fmtPeso(payslip.gross_pay)}</span></div>`;
+    if (payslip.sss) rows += `<div class="ps-row" style="color:var(--red);"><span>SSS</span><span class="mn">- ${fmtPeso(payslip.sss)}</span></div>`;
+    if (payslip.philhealth) rows += `<div class="ps-row" style="color:var(--red);"><span>PhilHealth</span><span class="mn">- ${fmtPeso(payslip.philhealth)}</span></div>`;
+    if (payslip.pagibig) rows += `<div class="ps-row" style="color:var(--red);"><span>Pag-IBIG</span><span class="mn">- ${fmtPeso(payslip.pagibig)}</span></div>`;
+    if (payslip.withholding_tax) rows += `<div class="ps-row" style="color:var(--red);"><span>Withholding Tax</span><span class="mn">- ${fmtPeso(payslip.withholding_tax)}</span></div>`;
+    if (payslip.absence_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Absences (${payslip.absences_days}d)</span><span class="mn">- ${fmtPeso(payslip.absence_deduction)}</span></div>`;
+    if (payslip.cash_advance) rows += `<div class="ps-row" style="color:var(--red);"><span>Cash Advance</span><span class="mn">- ${fmtPeso(payslip.cash_advance)}</span></div>`;
+  } else {
+    rows += `<div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">${fmtPeso(payslip.gross_pay)}</span></div>`;
+    rows += `<div class="ps-row" style="color:var(--red);"><span>Total Deductions</span><span class="mn">- ${fmtPeso(payslip.total_deductions)}</span></div>`;
+  }
+
+  psRows.innerHTML = rows;
+  if (psNet) psNet.style.display = '';
+  if (psNetLabel) psNetLabel.textContent = `Net Pay — ${payslip.period_label}`;
+  if (psNetAmount) psNetAmount.textContent = fmtPeso(payslip.net_pay);
+}
+
+function renderPrevPayslips(payslips, startIdx) {
+  const container = document.getElementById('emp-prev-payslips');
+  if (!container) return;
+
+  if (!payslips.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--t3);">No previous payslips.</div>';
+    return;
+  }
+
+  container.innerHTML = payslips.map((ps, i) => {
+    const globalIdx = startIdx + i;
+    const issuedDate = ps.processed_at
+      ? new Intl.DateTimeFormat('en-PH', { month: 'short', day: '2-digit', year: 'numeric', timeZone: 'Asia/Manila' }).format(new Date(ps.processed_at))
+      : '';
+    return `
+      <div class="past-ps-item">
+        <div>
+          <div class="ppi-name">${ps.period_label}</div>
+          ${issuedDate ? `<div class="ppi-date">Issued ${issuedDate}</div>` : ''}
+        </div>
+        <div class="ppi-right">
+          <span class="ppi-amt">${fmtPesoShort(ps.net_pay)}</span>
+          <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="viewPayslip(${globalIdx})">View</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function viewPayslip(idx) {
+  const payslip = payslipState.list[idx];
+  if (payslip) renderPayslipCard(payslip);
+}
+
+async function loadPayslips() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+  if (!email) return;
+
+  try {
+    const resp = await fetch(`/api/employee/payslips?email=${encodeURIComponent(email)}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const list = Array.isArray(data.payslips) ? data.payslips : [];
+    payslipState.list = list;
+
+    renderPayslipCard(list[0] || null);
+    renderPrevPayslips(list.slice(1), 1);
+  } catch {
+    // fail silently
+  }
 }
 
 function showLeaveFeedback(message, isError = false) {
@@ -418,27 +516,6 @@ async function submitChangePassword() {
   }
 }
 
-/* ── PAYSLIP PRINT ── */
-function printPayslip() {
-  window.print();
-}
-
-/* ── PAST PAYSLIP VIEW ── */
-function viewPastPayslip(period) {
-  const data = PAYSLIP_DATA[period];
-  if (!data) return;
-  const { gross, deductions, net } = calcNet(data);
-
-  const fmt = n => '₱ ' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-
-  // Update mini payslip with selected period data
-  const headPeriod = document.getElementById('ps-period-label');
-  if (headPeriod) headPeriod.textContent = period;
-
-  const netEl = document.getElementById('ps-net-amount');
-  if (netEl) netEl.textContent = fmt(net);
-}
-
 /* ── INIT ── */
 function initEmployeePortal() {
   const currentRole = new URLSearchParams(window.location.search).get('role');
@@ -449,6 +526,7 @@ function initEmployeePortal() {
   applyEmployeeIdentity();
   loadMyLeaveRequests();
   loadEmployeeStats();
+  loadPayslips();
 }
 
 if (document.readyState === 'loading') {
@@ -461,3 +539,4 @@ window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChan
 
 window.submitLeaveRequest = submitLeaveRequest;
 window.submitChangePassword = submitChangePassword;
+window.viewPayslip = viewPayslip;
