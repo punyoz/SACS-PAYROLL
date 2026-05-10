@@ -8,3 +8,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Local Supabase CLI state
+supabase/.branches/
+supabase/.temp/
+supabase/snippets/
+
+# Local runtime fallback storage
+.runtime/

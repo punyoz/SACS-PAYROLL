@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readAllSalaryApprovals } from "@/lib/salary-approvals/store";
-import { GET as getDashboardData, PATCH as patchDashboardData } from "@/app/api/admin/dashboard/route";
+import { PATCH as patchDashboardData } from "@/app/api/admin/dashboard/route";
 
 export async function GET(request) {
   try {

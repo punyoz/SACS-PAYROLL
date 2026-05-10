@@ -60,6 +60,11 @@ export async function POST(request) {
       return NextResponse.json(genericSuccess);
     }
 
+    if (!anonKey) {
+      // Without an anon key we cannot trigger the reset email; respond generically.
+      return NextResponse.json(genericSuccess);
+    }
+
     const origin = request.headers.get("origin") || "";
     const redirectTo = `${origin}/reset-password`;
 

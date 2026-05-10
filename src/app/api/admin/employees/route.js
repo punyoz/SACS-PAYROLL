@@ -193,7 +193,7 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const role = normalizeRole(body.role);
-    const email = normalizeRoleEmail(body.email, role);
+    const email = normalizeRoleEmail(body.email);
     const defaultPassword = buildDefaultPassword(body.last_name, body.date_of_birth);
     const password = normalizeText(body.password, defaultPassword);
     const fullName = buildFullNameFromParts(body);
@@ -363,7 +363,7 @@ export async function PATCH(request) {
     }
 
     const email = action === "update"
-      ? normalizeRoleEmail(normalizeText(body.email, existingUser.email), nextRole)
+      ? normalizeRoleEmail(normalizeText(body.email, existingUser.email))
       : existingUser.email;
 
     const updatePayload = {

@@ -37,20 +37,13 @@ This project has been migrated to Next.js and prepared for Supabase integration.
 
 ## Supabase Migration
 
-To support the accountant-to-admin payroll flow, apply the SQL migration below in your Supabase project:
+The active migrations live in `supabase/migrations/`. Apply any new SQL files there via the Supabase Dashboard SQL Editor, then restart `npm run dev`.
 
-- `supabase/migrations/20260408_accountant_admin_flow.sql`
-- `supabase/migrations/20260408_single_clean_install.sql` (recommended one-shot compatibility install)
+Tables used by the APIs:
 
-This migration creates/updates the tables used by the APIs:
-
+- `profiles`
 - `salary_approvals`
 - `payroll_records`
 - `attendance_logs`
 - `audit_logs`
-
-Quick apply steps:
-
-1. Open Supabase Dashboard -> SQL Editor.
-2. Paste and run the SQL from `supabase/migrations/20260408_single_clean_install.sql`.
-3. Restart `npm run dev` after successful execution.
+- `leave_requests`
