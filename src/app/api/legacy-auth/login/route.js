@@ -9,7 +9,7 @@ const roleRoutes = {
 };
 
 const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "bncsadmin").toLowerCase();
-const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "bncs.admin@gmail.com");
+const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "admin@example.com");
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -29,7 +29,7 @@ function inferNameFromEmail(email) {
   const localPart = raw.includes("@") ? raw.split("@")[0] : raw;
   if (!localPart) return "";
 
-  const cleaned = localPart.replace(/^bncs\./i, "").replace(/[._-]+/g, " ");
+  const cleaned = localPart.replace(/[._-]+/g, " ");
   return toTitleCaseWords(cleaned);
 }
 
@@ -54,11 +54,11 @@ function resolveLoginEmail(identityInput) {
   const lowered = identity.toLowerCase();
   
   if (lowered === ADMIN_USERNAME) {
-    return normalizeRoleEmail(ADMIN_EMAIL, "admin");
+    return normalizeRoleEmail(ADMIN_EMAIL);
   }
 
   if (lowered.includes("@")) {
-    return normalizeRoleEmail(identity, "employee");
+    return normalizeRoleEmail(identity);
   }
 
   return "";

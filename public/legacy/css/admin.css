@@ -111,6 +111,8 @@
   align-items: center;
   justify-content: center;
   background: color-mix(in srgb, var(--bg1) 45%, #000 55%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   padding: 20px;
 }
 
