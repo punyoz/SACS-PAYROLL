@@ -58,7 +58,7 @@ function applyEmployeeIdentity() {
   if (avatar) avatar.textContent = getInitials(displayName);
 
   const helloTitle = document.getElementById('emp-hello-title');
-  if (helloTitle) helloTitle.textContent = `Good morning, ${displayName} 👋`;
+  if (helloTitle) helloTitle.textContent = `${displayName} 👋`;
 
   const helloMeta = document.getElementById('emp-hello-meta');
   if (helloMeta) {
@@ -69,9 +69,36 @@ function applyEmployeeIdentity() {
   }
 }
 
+async function loadEmployeeStats() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+  if (!email) return;
+
+  try {
+    const resp = await fetch(`/api/employee/stats?email=${encodeURIComponent(email)}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+
+    const presentEl = document.getElementById('emp-stat-present');
+    if (presentEl) presentEl.textContent = data.present ?? '—';
+
+    const lateEl = document.getElementById('emp-stat-late');
+    if (lateEl) lateEl.textContent = data.late ?? '—';
+
+    const absentEl = document.getElementById('emp-stat-absent');
+    if (absentEl) absentEl.textContent = data.absent ?? '—';
+
+    const netpayEl = document.getElementById('emp-stat-netpay');
+    if (netpayEl) netpayEl.textContent = data.basic_salary || '—';
+  } catch {
+    // Stats are supplementary — fail silently
+  }
+}
+
 function handleLegacyAuthContextChange() {
   applyEmployeeIdentity();
   loadMyLeaveRequests();
+  loadEmployeeStats();
 }
 
 function calcNet(data) {
@@ -221,8 +248,12 @@ async function submitLeaveRequest() {
       document.getElementById('emp-leave-proof').value = '';
     }
 
-    showLeaveFeedback('Leave request submitted for admin approval.', false);
-    window.pushNotification?.('Leave Request Submitted', 'Your leave request has been submitted and is awaiting admin approval.', 'success');
+    showLeaveFeedback('Leave request submitted successfully.', false);
+    window.pushNotification?.(
+      'Leave Request Submitted',
+      `${leaveType} · ${startDate} to ${endDate} · Awaiting admin approval.`,
+      'success'
+    );
     await loadMyLeaveRequests();
   } catch (error) {
     showLeaveFeedback(error.message, true);
@@ -322,9 +353,7 @@ function initEmployeePortal() {
 
   applyEmployeeIdentity();
   loadMyLeaveRequests();
-
-  // Nothing needed on load for employee portal
-  // Data is static; replace with fetch() calls in production
+  loadEmployeeStats();
 }
 
 if (document.readyState === 'loading') {

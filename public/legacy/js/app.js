@@ -548,17 +548,31 @@ function getRoleNotifications() {
   }
 
   if (screenId === 's-emp') {
-    const netPay = String(document.getElementById('ps-net-amount')?.textContent || '').trim() || 'N/A';
-    const periodLabel = String(document.getElementById('ps-period-label')?.textContent || '').trim() || 'Current Period';
+    const present = String(document.getElementById('emp-stat-present')?.textContent || '').trim();
+    const late    = String(document.getElementById('emp-stat-late')?.textContent    || '').trim();
+    const absent  = String(document.getElementById('emp-stat-absent')?.textContent  || '').trim();
+    const salary  = String(document.getElementById('emp-stat-netpay')?.textContent  || '').trim();
+
+    const hasStats = present && present !== '—';
+    const leaveItems = document.querySelectorAll('#emp-leave-list > div[style*="border"]');
+    const pendingLeaves = Array.from(leaveItems).filter(el =>
+      el.querySelector('.badge.ba')
+    ).length;
 
     return [
       {
-        title: 'Latest payslip is available',
-        desc: `${periodLabel} · Net pay ${netPay}`,
+        title: hasStats
+          ? `This month: ${present} present · ${late} late · ${absent} absent`
+          : 'Attendance data loading…',
+        desc: salary && salary !== '—'
+          ? `Basic salary: ${salary}`
+          : 'Attendance is tracked via RFID tap.',
       },
       {
-        title: 'Attendance summary is view-only',
-        desc: 'Use this page to review attendance and payroll records.',
+        title: pendingLeaves > 0
+          ? `${pendingLeaves} leave request${pendingLeaves > 1 ? 's' : ''} pending approval`
+          : 'No pending leave requests',
+        desc: 'Submit a leave request from the Leave Request form below.',
       },
     ];
   }
