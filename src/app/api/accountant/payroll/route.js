@@ -162,10 +162,10 @@ function normalizePayrollEntry(row) {
     payroll: {
       basic_salary: toAmount(row.payroll?.basic_salary ?? row.basic_salary),
       allowances: {
-        transportation: toAmount(row.payroll?.allowances?.transportation ?? row.transportation),
-        rice: toAmount(row.payroll?.allowances?.rice ?? row.rice),
-        overtime: toAmount(row.payroll?.allowances?.overtime ?? row.overtime),
-        bonus: toAmount(row.payroll?.allowances?.bonus ?? row.bonus),
+        transportation: 0,
+        rice: 0,
+        overtime: 0,
+        bonus: 0,
       },
       deductions: {
         sss: toAmount(row.payroll?.deductions?.sss ?? row.sss),
@@ -173,6 +173,7 @@ function normalizePayrollEntry(row) {
         pagibig: toAmount(row.payroll?.deductions?.pagibig ?? row.pagibig),
         withholding_tax: toAmount(row.payroll?.deductions?.withholding_tax ?? row.withholding_tax),
         absences_days: toAmount(row.payroll?.deductions?.absences_days ?? row.absences_days),
+        late_days: toAmount(row.payroll?.deductions?.late_days ?? 0),
         cash_advance: toAmount(row.payroll?.deductions?.cash_advance ?? row.cash_advance),
       },
       totals: {
@@ -188,32 +189,28 @@ function normalizePayrollEntry(row) {
 function computeTotals(payroll) {
   const basicSalary = toAmount(payroll.basic_salary);
 
-  const transportation = toAmount(payroll.allowances?.transportation);
-  const rice = toAmount(payroll.allowances?.rice);
-  const overtime = toAmount(payroll.allowances?.overtime);
-  const bonus = toAmount(payroll.allowances?.bonus);
-
   const sss = toAmount(payroll.deductions?.sss);
   const philhealth = toAmount(payroll.deductions?.philhealth);
   const pagibig = toAmount(payroll.deductions?.pagibig);
   const withholdingTax = toAmount(payroll.deductions?.withholding_tax);
   const absencesDays = Math.max(0, toAmount(payroll.deductions?.absences_days));
+  const lateDays = Math.max(0, toAmount(payroll.deductions?.late_days));
   const cashAdvance = toAmount(payroll.deductions?.cash_advance);
 
-  const dailyRate = basicSalary / 22;
-  const absenceDeduction = toAmount(dailyRate * absencesDays);
+  // 1 absent = ₱550, 3 late = 1 absent = ₱550
+  const absenceDeduction = toAmount((absencesDays + Math.floor(lateDays / 3)) * 550);
 
-  const grossPay = toAmount(basicSalary + transportation + rice + overtime + bonus);
+  const grossPay = basicSalary; // No allowances; Gross Pay = Basic Salary
   const totalDeductions = toAmount(sss + philhealth + pagibig + withholdingTax + absenceDeduction + cashAdvance);
   const netPay = toAmount(grossPay - totalDeductions);
 
   return {
     basic_salary: basicSalary,
     allowances: {
-      transportation,
-      rice,
-      overtime,
-      bonus,
+      transportation: 0,
+      rice: 0,
+      overtime: 0,
+      bonus: 0,
     },
     deductions: {
       sss,
@@ -221,6 +218,7 @@ function computeTotals(payroll) {
       pagibig,
       withholding_tax: withholdingTax,
       absences_days: absencesDays,
+      late_days: lateDays,
       cash_advance: cashAdvance,
     },
     totals: {
@@ -666,10 +664,6 @@ function buildPayslipDetails(entry) {
     },
     earnings: {
       basic_salary: entry.payroll.basic_salary,
-      transportation: entry.payroll.allowances.transportation,
-      rice: entry.payroll.allowances.rice,
-      overtime: entry.payroll.allowances.overtime,
-      bonus: entry.payroll.allowances.bonus,
       gross_pay: entry.payroll.totals.gross_pay,
     },
     deductions: {
@@ -678,6 +672,7 @@ function buildPayslipDetails(entry) {
       pagibig: entry.payroll.deductions.pagibig,
       withholding_tax: entry.payroll.deductions.withholding_tax,
       absences_days: entry.payroll.deductions.absences_days,
+      late_days: entry.payroll.deductions.late_days ?? 0,
       absence_deduction: entry.payroll.totals.absence_deduction,
       cash_advance: entry.payroll.deductions.cash_advance,
       total_deductions: entry.payroll.totals.total_deductions,
@@ -785,18 +780,13 @@ export async function POST(request) {
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(new Date()));
     const computedPayroll = computeTotals({
       basic_salary: body.basic_salary,
-      allowances: {
-        transportation: body.allowances?.transportation,
-        rice: body.allowances?.rice,
-        overtime: body.allowances?.overtime,
-        bonus: body.allowances?.bonus,
-      },
       deductions: {
         sss: body.deductions?.sss,
         philhealth: body.deductions?.philhealth,
         pagibig: body.deductions?.pagibig,
         withholding_tax: body.deductions?.withholding_tax,
         absences_days: body.deductions?.absences_days,
+        late_days: body.deductions?.late_days,
         cash_advance: body.deductions?.cash_advance,
       },
     });

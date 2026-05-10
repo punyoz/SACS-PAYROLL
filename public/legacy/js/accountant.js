@@ -202,32 +202,34 @@ function getAccountantNavByPageId(pageId) {
 }
 
 /* ── PAYROLL COMPUTATION ── */
-function recalc() {
-  const values = getPayrollFormValues();
-  const basic = values.basic_salary;
-  const transport = values.allowances.transportation;
-  const rice = values.allowances.rice;
-  const overtime = values.allowances.overtime;
-  const bonus = values.allowances.bonus;
-  const sss = values.deductions.sss;
-  const philhealth = values.deductions.philhealth;
-  const pagibig = values.deductions.pagibig;
-  const tax = values.deductions.withholding_tax;
-  const absenceDays = values.deductions.absences_days;
-  const cashAdv = values.deductions.cash_advance;
+function autoFillDeductions(basic) {
+  const pct2 = toAmount(basic * 0.02);
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  setVal('pc-sss', pct2);
+  setVal('pc-philhealth', pct2);
+  setVal('pc-pagibig', pct2);
+  setVal('pc-cashadvance', pct2);
+}
 
-  const dailyRate = basic / 22;
-  const absenceDeduct = toAmount(dailyRate * absenceDays);
-  const grossPay = toAmount(basic + transport + rice + overtime + bonus);
+function recalc() {
+  const get = (id) => toAmount(document.getElementById(id)?.value);
+  const basic = get('pc-basic');
+  const sss = get('pc-sss');
+  const philhealth = get('pc-philhealth');
+  const pagibig = get('pc-pagibig');
+  const tax = get('pc-tax');
+  const absenceDays = get('pc-absences');
+  const lateDays = get('pc-late');
+  const cashAdv = get('pc-cashadvance');
+
+  // 1 absent = ₱550, 3 late = 1 absent = ₱550
+  const absenceDeduct = toAmount((absenceDays + Math.floor(lateDays / 3)) * 550);
+  const grossPay = basic; // No allowances; Gross Pay = Basic Salary
   const totalDeductions = toAmount(sss + philhealth + pagibig + tax + absenceDeduct + cashAdv);
   const netPay = toAmount(grossPay - totalDeductions);
 
   const updates = {
     'sum-basic': formatMoney(basic),
-    'sum-transport': formatMoney(transport),
-    'sum-rice': formatMoney(rice),
-    'sum-overtime': formatMoney(overtime),
-    'sum-bonus': formatMoney(bonus),
     'sum-gross': formatMoney(grossPay),
     'sum-sss': `- ${formatMoney(sss)}`,
     'sum-philhealth': `- ${formatMoney(philhealth)}`,
@@ -250,10 +252,10 @@ function getPayrollFormValues() {
   return {
     basic_salary: get('pc-basic'),
     allowances: {
-      transportation: get('pc-transport'),
-      rice: get('pc-rice'),
-      overtime: get('pc-overtime'),
-      bonus: get('pc-bonus'),
+      transportation: 0,
+      rice: 0,
+      overtime: 0,
+      bonus: 0,
     },
     deductions: {
       sss: get('pc-sss'),
@@ -261,6 +263,7 @@ function getPayrollFormValues() {
       pagibig: get('pc-pagibig'),
       withholding_tax: get('pc-tax'),
       absences_days: get('pc-absences'),
+      late_days: get('pc-late'),
       cash_advance: get('pc-cashadvance'),
     },
   };
@@ -408,6 +411,7 @@ function syncFormForEmployee() {
 
   if (!acctState.currentEntryId) {
     basicInput.value = Number(employee.basic_salary || 0);
+    autoFillDeductions(toAmount(basicInput.value));
   }
 
   recalc();
@@ -618,15 +622,12 @@ function populateFormFromDraft() {
   };
 
   setValue('pc-basic', payroll.basic_salary);
-  setValue('pc-transport', allowances.transportation);
-  setValue('pc-rice', allowances.rice);
-  setValue('pc-overtime', allowances.overtime);
-  setValue('pc-bonus', allowances.bonus);
   setValue('pc-sss', deductions.sss);
   setValue('pc-philhealth', deductions.philhealth);
   setValue('pc-pagibig', deductions.pagibig);
   setValue('pc-tax', deductions.withholding_tax);
   setValue('pc-absences', deductions.absences_days);
+  setValue('pc-late', deductions.late_days ?? 0);
   setValue('pc-cashadvance', deductions.cash_advance);
 
   recalc();
@@ -1145,11 +1146,16 @@ function initAccountant() {
   const initialNav = getAccountantNavByPageId(initialPage);
   acctNav(initialPage, initialNav);
 
-  const inputIds = [
-    'pc-basic','pc-transport','pc-rice','pc-overtime','pc-bonus',
-    'pc-sss','pc-philhealth','pc-pagibig','pc-tax','pc-absences','pc-cashadvance'
-  ];
-  inputIds.forEach(id => {
+  // Basic salary triggers auto-fill of 2% deductions then recalc
+  const basicEl = document.getElementById('pc-basic');
+  if (basicEl) {
+    basicEl.addEventListener('input', () => {
+      autoFillDeductions(toAmount(basicEl.value));
+      recalc();
+    });
+  }
+  // Manual deduction inputs only trigger recalc
+  ['pc-tax', 'pc-absences', 'pc-late'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
   });
@@ -1175,6 +1181,8 @@ function initAccountant() {
     payslipSelect.addEventListener('change', generatePayslip);
   }
 
+  const initBasic = toAmount(document.getElementById('pc-basic')?.value);
+  autoFillDeductions(initBasic);
   recalc();
   loadAccountantData();
 }

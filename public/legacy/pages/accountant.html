@@ -107,19 +107,14 @@
               <input class="fc" type="number" id="pc-basic" value="18500">
             </div>
             <hr class="fd">
-            <div class="fgl">Allowances</div>
-            <div class="fg"><label>Transportation (₱)</label><input class="fc" type="number" id="pc-transport" value="2000"></div>
-            <div class="fg"><label>Rice Allowance (₱)</label><input class="fc" type="number" id="pc-rice" value="1500"></div>
-            <div class="fg"><label>Overtime Pay (₱)</label><input class="fc" type="number" id="pc-overtime" value="0"></div>
-            <div class="fg"><label>Bonus (₱)</label><input class="fc" type="number" id="pc-bonus" value="0"></div>
-            <hr class="fd">
             <div class="fgl">Deductions</div>
-            <div class="fg"><label>SSS (₱)</label><input class="fc" type="number" id="pc-sss" value="800"></div>
-            <div class="fg"><label>PhilHealth (₱)</label><input class="fc" type="number" id="pc-philhealth" value="450"></div>
-            <div class="fg"><label>Pag-IBIG (₱)</label><input class="fc" type="number" id="pc-pagibig" value="200"></div>
-            <div class="fg"><label>Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="320"></div>
-            <div class="fg"><label>Absences (days)</label><input class="fc" type="number" id="pc-absences" value="0"></div>
-            <div class="fg"><label>Cash Advance (₱)</label><input class="fc" type="number" id="pc-cashadvance" value="0"></div>
+            <div class="fg"><label>SSS <span style="color:var(--t3);font-weight:400;">(2% of Basic)</span></label><input class="fc" type="number" id="pc-sss" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
+            <div class="fg"><label>PhilHealth <span style="color:var(--t3);font-weight:400;">(2% of Basic)</span></label><input class="fc" type="number" id="pc-philhealth" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
+            <div class="fg"><label>Pag-IBIG <span style="color:var(--t3);font-weight:400;">(2% of Basic)</span></label><input class="fc" type="number" id="pc-pagibig" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
+            <div class="fg"><label>Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="0"></div>
+            <div class="fg"><label>Absent (days)</label><input class="fc" type="number" id="pc-absences" value="0" min="0"></div>
+            <div class="fg"><label>Late (days) <span style="color:var(--t3);font-weight:400;">3 late = ₱550</span></label><input class="fc" type="number" id="pc-late" value="0" min="0"></div>
+            <div class="fg"><label>Cash Advance <span style="color:var(--t3);font-weight:400;">(2% of Basic)</span></label><input class="fc" type="number" id="pc-cashadvance" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
           </div>
         </div>
 
@@ -128,19 +123,15 @@
           <div class="card" style="margin-bottom:14px;">
             <div class="stitle" style="margin-bottom:14px;">Computation Summary</div>
             <div class="sum-box">
-              <div class="sr"><span>Basic Salary</span><span style="font-family:var(--mono);" id="sum-basic">₱ 18,500.00</span></div>
-              <div class="sr"><span>Transportation</span><span style="font-family:var(--mono);" id="sum-transport">₱ 2,000.00</span></div>
-              <div class="sr"><span>Rice Allowance</span><span style="font-family:var(--mono);" id="sum-rice">₱ 1,500.00</span></div>
-              <div class="sr" style="color:var(--t3);"><span>Overtime</span><span style="font-family:var(--mono);" id="sum-overtime">₱ 0.00</span></div>
-              <div class="sr" style="color:var(--t3);"><span>Bonus</span><span style="font-family:var(--mono);" id="sum-bonus">₱ 0.00</span></div>
-              <div class="sr" style="font-weight:700;color:var(--t1);border-top:1px solid var(--border);margin-top:6px;padding-top:10px;"><span>Gross Pay</span><span style="font-family:var(--mono);color:var(--teal);" id="sum-gross">₱ 22,000.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>SSS</span><span style="font-family:var(--mono);" id="sum-sss">- ₱ 800.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>PhilHealth</span><span style="font-family:var(--mono);" id="sum-philhealth">- ₱ 450.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>Pag-IBIG</span><span style="font-family:var(--mono);" id="sum-pagibig">- ₱ 200.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>Withholding Tax</span><span style="font-family:var(--mono);" id="sum-tax">- ₱ 320.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>Absences</span><span style="font-family:var(--mono);" id="sum-absences">- ₱ 0.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>Cash Advance</span><span style="font-family:var(--mono);" id="sum-cashadvance">- ₱ 0.00</span></div>
-              <div class="sr tot"><span>Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 20,230.00</span></div>
+              <div class="sr"><span>Basic Salary</span><span style="font-family:var(--mono);" id="sum-basic">₱ 0.00</span></div>
+              <div class="sr" style="font-weight:700;color:var(--t1);border-top:1px solid var(--border);margin-top:6px;padding-top:10px;"><span>Gross Pay</span><span style="font-family:var(--mono);color:var(--teal);" id="sum-gross">₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>SSS (2%)</span><span style="font-family:var(--mono);" id="sum-sss">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>PhilHealth (2%)</span><span style="font-family:var(--mono);" id="sum-philhealth">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Pag-IBIG (2%)</span><span style="font-family:var(--mono);" id="sum-pagibig">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Withholding Tax</span><span style="font-family:var(--mono);" id="sum-tax">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Absences &amp; Late</span><span style="font-family:var(--mono);" id="sum-absences">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Cash Advance (2%)</span><span style="font-family:var(--mono);" id="sum-cashadvance">- ₱ 0.00</span></div>
+              <div class="sr tot"><span>Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 0.00</span></div>
             </div>
           </div>
           <div class="card">
@@ -206,20 +197,16 @@
           <div>
             <div class="pf-stitle">Earnings</div>
             <div class="pf-row"><span>Basic Salary</span><span class="mn" id="ac-pf-basic">₱ 0.00</span></div>
-            <div class="pf-row"><span>Transportation</span><span class="mn" id="ac-pf-transport">₱ 0.00</span></div>
-            <div class="pf-row"><span>Rice Allowance</span><span class="mn" id="ac-pf-rice">₱ 0.00</span></div>
-            <div class="pf-row"><span>Overtime</span><span class="mn" id="ac-pf-overtime">₱ 0.00</span></div>
-            <div class="pf-row"><span>Bonus</span><span class="mn" id="ac-pf-bonus">₱ 0.00</span></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Gross Pay</span><span class="mn" style="color:var(--teal);" id="ac-pf-gross">₱ 0.00</span></div>
           </div>
           <div>
             <div class="pf-stitle">Deductions</div>
-            <div class="pf-row"><span>SSS</span><span class="mn" id="ac-pf-sss">₱ 0.00</span></div>
-            <div class="pf-row"><span>PhilHealth</span><span class="mn" id="ac-pf-philhealth">₱ 0.00</span></div>
-            <div class="pf-row"><span>Pag-IBIG</span><span class="mn" id="ac-pf-pagibig">₱ 0.00</span></div>
+            <div class="pf-row"><span>SSS (2%)</span><span class="mn" id="ac-pf-sss">₱ 0.00</span></div>
+            <div class="pf-row"><span>PhilHealth (2%)</span><span class="mn" id="ac-pf-philhealth">₱ 0.00</span></div>
+            <div class="pf-row"><span>Pag-IBIG (2%)</span><span class="mn" id="ac-pf-pagibig">₱ 0.00</span></div>
             <div class="pf-row"><span>Withholding Tax</span><span class="mn" id="ac-pf-tax">₱ 0.00</span></div>
-            <div class="pf-row"><span>Absence Deduction</span><span class="mn" id="ac-pf-absence">₱ 0.00</span></div>
-            <div class="pf-row"><span>Cash Advance</span><span class="mn" id="ac-pf-cashadvance">₱ 0.00</span></div>
+            <div class="pf-row"><span>Absences &amp; Late</span><span class="mn" id="ac-pf-absence">₱ 0.00</span></div>
+            <div class="pf-row"><span>Cash Advance (2%)</span><span class="mn" id="ac-pf-cashadvance">₱ 0.00</span></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);" id="ac-pf-total-deductions">₱ 0.00</span></div>
           </div>
         </div>
