@@ -114,64 +114,128 @@ function buildFallbackPayrollRecords(activeEmployees) {
   });
 }
 
-function mapPayrollRecord(row) {
-  const grossPay = Number(
-    row.gross_pay
-      ?? row.total_gross
-      ?? row.basic_salary
-      ?? 0,
-  );
+function payPeriodToLabel(payPeriod) {
+  if (!payPeriod) return null;
+  const pp = String(payPeriod).trim();
+  // "2026-05" → May 2026
+  if (/^\d{4}-\d{2}$/.test(pp)) {
+    return formatMonthYearLabel(new Date(pp + "-01T00:00:00"));
+  }
+  return pp;
+}
 
-  const totalDeductions = Number(
-    row.total_deductions
-      ?? row.deductions
-      ?? row.deduction_amount
-      ?? 0,
-  );
+// Maps a payroll_entries row (with JSONB payroll column) to the standard record shape.
+function mapPayrollEntryRecord(row) {
+  const payroll = (typeof row.payroll === "string" ? JSON.parse(row.payroll) : row.payroll) || {};
+  const totals = payroll.totals || {};
 
-  const netPay = Number(
-    row.net_pay
-      ?? row.total_net_pay
-      ?? (grossPay - totalDeductions),
-  );
+  const grossPay = roundCurrency(Number(totals.gross_pay ?? payroll.basic_salary ?? 0));
+  const totalDeductions = roundCurrency(Number(totals.total_deductions ?? 0));
+  const netPay = roundCurrency(Number(totals.net_pay ?? (grossPay - totalDeductions)));
+
+  const periodLabel =
+    payPeriodToLabel(row.pay_period) ||
+    formatMonthYearLabel(new Date(row.submitted_at || row.created_at || Date.now()));
 
   return {
-    id: String(row.id || row.record_id || crypto.randomUUID()),
-    employee_id: normalizeText(row.employee_id || row.user_id || row.profile_id),
+    id: String(row.id || crypto.randomUUID()),
+    employee_id: normalizeText(row.employee_id),
     employee_name: normalizeText(row.employee_name),
     employee_type: normalizeText(row.employee_type),
     gross_pay: grossPay,
     total_deductions: totalDeductions,
     net_pay: netPay,
-    period_label: normalizeText(row.period_label),
-    processed_at: row.processed_at || row.created_at || new Date().toISOString(),
+    period_label: periodLabel,
+    processed_at: row.submitted_at || row.created_at || new Date().toISOString(),
+  };
+}
+
+// Maps a salary_approvals row to the standard record shape (deductions unknown — use proposed_salary).
+function mapApprovalRecord(row) {
+  const grossPay = roundCurrency(Number(row.proposed_salary || row.current_salary || 0));
+  return {
+    id: String(row.id || crypto.randomUUID()),
+    employee_id: normalizeText(row.employee_id),
+    employee_name: normalizeText(row.employee_name),
+    employee_type: normalizeText(row.employee_type),
+    gross_pay: grossPay,
+    total_deductions: 0,
+    net_pay: grossPay,
+    period_label: formatMonthYearLabel(new Date(row.submitted_at || Date.now())),
+    processed_at: row.submitted_at || new Date().toISOString(),
   };
 }
 
 async function fetchPayrollRecords(supabase, activeEmployees) {
-  const result = await supabase
-    .from("payroll_records")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(5000);
+  // 1. payroll_entries — primary source (full deduction breakdown in JSONB payroll column).
+  try {
+    const { data, error } = await supabase
+      .from("payroll_entries")
+      .select("id,employee_id,employee_name,employee_type,pay_period,status,payroll,submitted_at,created_at,updated_at")
+      .not("status", "eq", "draft")
+      .order("created_at", { ascending: false })
+      .limit(5000);
 
-  if (result.error) {
-    const message = String(result.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (isMissingTable) {
-      return {
-        source_mode: "fallback",
-        records: buildFallbackPayrollRecords(activeEmployees),
-      };
+    if (!error) {
+      const records = (data || []).map(mapPayrollEntryRecord);
+      if (records.length > 0) {
+        return { source_mode: "payroll_entries", records };
+      }
     }
+  } catch { /* fall through */ }
 
-    throw new Error(`Failed to fetch payroll records: ${result.error.message}`);
-  }
+  // 2. salary_approvals — secondary source (no deduction detail, but real approved data).
+  try {
+    const { data, error } = await supabase
+      .from("salary_approvals")
+      .select("id,employee_id,employee_name,employee_type,current_salary,proposed_salary,submitted_at,status")
+      .in("status", ["pending", "approved"])
+      .order("submitted_at", { ascending: false })
+      .limit(5000);
 
+    if (!error) {
+      const records = (data || []).map(mapApprovalRecord);
+      if (records.length > 0) {
+        return { source_mode: "salary_approvals", records };
+      }
+    }
+  } catch { /* fall through */ }
+
+  // 3. payroll_records — legacy table (may not exist).
+  try {
+    const { data, error } = await supabase
+      .from("payroll_records")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(5000);
+
+    if (!error) {
+      const records = (data || []).map((row) => {
+        const grossPay = roundCurrency(Number(row.gross_pay ?? row.total_gross ?? row.basic_salary ?? 0));
+        const totalDeductions = roundCurrency(Number(row.total_deductions ?? row.deductions ?? 0));
+        const netPay = roundCurrency(Number(row.net_pay ?? row.total_net_pay ?? (grossPay - totalDeductions)));
+        return {
+          id: String(row.id || crypto.randomUUID()),
+          employee_id: normalizeText(row.employee_id || row.user_id || row.profile_id),
+          employee_name: normalizeText(row.employee_name),
+          employee_type: normalizeText(row.employee_type),
+          gross_pay: grossPay,
+          total_deductions: totalDeductions,
+          net_pay: netPay,
+          period_label: normalizeText(row.period_label),
+          processed_at: row.processed_at || row.created_at || new Date().toISOString(),
+        };
+      });
+      if (records.length > 0) {
+        return { source_mode: "payroll_records", records };
+      }
+    }
+  } catch { /* fall through */ }
+
+  // 4. Fallback — estimated from employee basic salaries (no real payroll data available).
   return {
-    source_mode: "table",
-    records: (result.data || []).map(mapPayrollRecord),
+    source_mode: "fallback",
+    records: buildFallbackPayrollRecords(activeEmployees),
   };
 }
 
