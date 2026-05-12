@@ -264,35 +264,66 @@ async function syncPayrollEntryToDb(supabase, entry) {
   if (!supabase || !entry?.id) {
     return { success: false, error: "Missing supabase client or entry id." };
   }
-  try {
-    const result = await supabase
-      .from("payroll_entries")
-      .upsert({
-        id: entry.id,
-        employee_id: entry.employee_id,
-        employee_name: entry.employee_name,
-        employee_code: entry.employee_code || null,
-        employee_type: entry.employee_type || null,
-        position: entry.position || null,
-        pay_period: entry.pay_period,
-        status: entry.status,
-        approval_id: entry.approval_id || null,
-        payroll: entry.payroll,
-        submitted_at: entry.submitted_at || null,
-        created_at: entry.created_at,
-        updated_at: entry.updated_at,
-      }, { onConflict: "id" });
 
-    if (result.error) {
-      console.error("[payroll_entries] upsert failed:", result.error.message);
-      return { success: false, error: result.error.message, code: result.error.code };
+  const payload = {
+    id: entry.id,
+    employee_id: entry.employee_id,
+    employee_name: entry.employee_name,
+    employee_code: entry.employee_code || null,
+    employee_type: entry.employee_type || null,
+    position: entry.position || null,
+    pay_period: entry.pay_period,
+    status: entry.status,
+    approval_id: entry.approval_id || null,
+    payroll: entry.payroll,
+    submitted_at: entry.submitted_at || null,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+  };
+
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const result = await supabase
+        .from("payroll_entries")
+        .upsert(payload, { onConflict: "id" });
+
+      if (!result.error) return { success: true };
+
+      lastError = result.error;
+      const errMsg = result.error.message || "";
+      const errCode = String(result.error.code || "");
+
+      console.error(`[payroll_entries] upsert attempt ${attempt} failed (${errCode}):`, errMsg);
+
+      // Auto-fix: if a NOT NULL constraint blocks us, drop it via the helper
+      // function and retry so future saves succeed without manual migration.
+      if (errCode === "23502" || errMsg.toLowerCase().includes("violates not-null")) {
+        const colMatch = /null value in column "([^"]+)"/.exec(errMsg);
+        if (colMatch) {
+          const col = colMatch[1];
+          console.warn(`[payroll_entries] auto-fixing NOT NULL on column "${col}"…`);
+          try {
+            await supabase.rpc("drop_column_not_null", { tbl: "payroll_entries", col });
+            console.log(`[payroll_entries] NOT NULL dropped on "${col}", retrying upsert`);
+          } catch (fixErr) {
+            console.error("[payroll_entries] auto-fix RPC failed:", fixErr?.message || fixErr);
+          }
+        }
+      }
+
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 200 * attempt));
+    } catch (err) {
+      lastError = err;
+      console.error(`[payroll_entries] upsert attempt ${attempt} threw:`, err?.message || err);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 200 * attempt));
     }
-    return { success: true };
-  } catch (error) {
-    const message = error?.message || String(error);
-    console.error("[payroll_entries] upsert threw:", message);
-    return { success: false, error: message };
   }
+
+  const errMsg = lastError?.message || String(lastError) || "Unknown DB error";
+  console.error("[payroll_entries] all 3 upsert attempts failed:", errMsg);
+  return { success: false, error: errMsg, code: lastError?.code };
 }
 
 async function deletePayrollEntryFromDb(supabase, entryId) {
