@@ -1202,6 +1202,9 @@ function initApp() {
   window.openResetPasswordModal = openResetPasswordModal;
   window.closeResetPasswordModal = closeResetPasswordModal;
   window.submitResetPassword = submitResetPassword;
+  window.toggleLoginPasswordVisibility = toggleLoginPasswordVisibility;
+  window.login = login;
+  window.logout = logout;
   window.createPaginator = createPaginator;
   window.paginatorGoTo = paginatorGoTo;
   window.skeletonCards = skeletonCards;
@@ -1215,6 +1218,16 @@ function initApp() {
 
   attachGlobalSearchHandlers();
   attachNotificationHandlers();
+  attachLoginPasswordToggle();
+}
+
+function attachLoginPasswordToggle() {
+  const btn = document.getElementById('login-password-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', (event) => {
+    event.preventDefault();
+    toggleLoginPasswordVisibility();
+  });
 }
 
 if (document.readyState === 'loading') {
