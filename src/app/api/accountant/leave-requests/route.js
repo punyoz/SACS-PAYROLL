@@ -1,22 +1,57 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { readAllLeaveRequests, updateLeaveRequestStatus } from "@/lib/leave-requests/store";
+
+const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+function getAdminClient() {
+  if (!projectUrl || !serviceRoleKey) return null;
+  return createClient(projectUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+async function getArchivedEmployeeIds(supabase) {
+  if (!supabase) return new Set();
+  try {
+    const { data: { users } = {} } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const archived = new Set();
+    (users || []).forEach((u) => {
+      if (u.user_metadata?.archived === true) archived.add(u.id);
+    });
+    return archived;
+  } catch {
+    return new Set();
+  }
+}
 
 export async function GET(request) {
   try {
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "pending_accountant").trim().toLowerCase();
 
-    const allRequests = await readAllLeaveRequests();
-    const pendingRequests = allRequests.filter((row) => row.status === "pending_accountant");
-    const historyRequests = allRequests.filter((row) => row.status !== "pending_accountant");
+    const supabase = getAdminClient();
+    const [allRequests, archivedIds] = await Promise.all([
+      readAllLeaveRequests(),
+      getArchivedEmployeeIds(supabase),
+    ]);
+
+    const annotated = allRequests.map((r) => ({
+      ...r,
+      employee_archived: r.employee_id ? archivedIds.has(r.employee_id) : false,
+    }));
+
+    const pendingRequests = annotated.filter((row) => row.status === "pending_accountant");
+    const historyRequests = annotated.filter((row) => row.status !== "pending_accountant");
 
     let requests;
     if (status === "all") {
-      requests = allRequests;
+      requests = annotated;
     } else if (status === "history") {
       requests = historyRequests;
     } else {
-      requests = allRequests.filter((row) => row.status === status);
+      requests = annotated.filter((row) => row.status === status);
     }
 
     return NextResponse.json({
@@ -57,6 +92,20 @@ export async function PATCH(request) {
         { error: `Cannot ${action} a leave request with status: ${current.status}.` },
         { status: 400 },
       );
+    }
+
+    // Block action if the employee has been archived.
+    if (current.employee_id) {
+      const supabase = getAdminClient();
+      if (supabase) {
+        const { data: { user } = {} } = await supabase.auth.admin.getUserById(current.employee_id);
+        if (user?.user_metadata?.archived === true) {
+          return NextResponse.json(
+            { error: "Cannot process leave request for an archived employee." },
+            { status: 403 },
+          );
+        }
+      }
     }
 
     // Accountant approve → forwards to admin; reject → final rejection

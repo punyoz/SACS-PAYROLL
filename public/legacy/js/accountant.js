@@ -941,8 +941,11 @@ function renderAccountantPendingLeaves(requests) {
       </td>
       <td>${proofCell}</td>
       <td style="text-align:right;">
-        <button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'approve')">Approve</button>
-        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'reject')">Reject</button>
+        ${req.employee_archived
+          ? `<span class="badge br" style="display:inline-block;white-space:nowrap;">Employee Archived</span>`
+          : `<button class="btn btn-primary" style="font-size:11px;padding:5px 10px;margin-bottom:4px;width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'approve')">✓ Approve</button>
+             <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--red);border-color:var(--red);width:100px;display:block;margin-left:auto;" onclick="processAccountantLeave('${safeId}', 'reject')">✕ Reject</button>`
+        }
       </td>
     </tr>
     `;
