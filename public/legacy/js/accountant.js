@@ -554,7 +554,12 @@ function renderPendingSubmissions() {
       ? `Saved ${escapeHtml(formatDateTime(entry.updated_at || entry.created_at))} · Not yet submitted`
       : `Submitted ${escapeHtml(formatDateTime(entry.submitted_at))} · Awaiting admin action`;
     const actionButton = isDraft
-      ? `<button class="btn btn-outline" style="font-size:11px;padding:7px 14px;" onclick="editDraftFromPending('${safeId}')">Edit Draft</button>`
+      ? `
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline" style="font-size:11px;padding:7px 14px;" onclick="editDraftFromPending('${safeId}')">Edit Draft</button>
+          <button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="cancelDraft('${safeId}')">Withdraw</button>
+        </div>
+      `
       : `<button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="withdrawSubmission('${safeId}')">Withdraw</button>`;
 
     return `
@@ -778,6 +783,41 @@ function openPayslipFromRecord(entryId) {
   const navItems = Array.from(document.querySelectorAll('#s-accountant .ni'));
   const payslipNav = navItems.find((item) => item.textContent.includes('Payslips'));
   acctNav('ac-payslips', payslipNav || null);
+}
+
+async function cancelDraft(entryId) {
+  const normalized = String(entryId || '').trim();
+  if (!normalized) return;
+
+  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(
+    'withdraw this payroll draft',
+    'The draft will be permanently removed and cannot be recovered.',
+  ))) {
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel_draft', entry_id: normalized }),
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || 'Unable to withdraw draft.');
+    }
+
+    if (String(acctState.currentEntryId) === normalized) {
+      acctState.currentEntryId = '';
+    }
+
+    await loadAccountantData();
+    showProcessFeedback('Draft withdrawn.', false);
+    window.pushNotification?.('Draft Withdrawn', 'The payroll draft has been removed.', 'info');
+  } catch (error) {
+    showProcessFeedback(error.message, true);
+  }
 }
 
 async function withdrawSubmission(entryId) {
@@ -1311,6 +1351,7 @@ window.generatePayslip = generatePayslip;
 window.printPayslip = printPayslip;
 window.openPayslipFromRecord = openPayslipFromRecord;
 window.withdrawSubmission = withdrawSubmission;
+window.cancelDraft = cancelDraft;
 window.loadAccountantLeaveRequests = loadAccountantLeaveRequests;
 window.loadAccountantLeaveHistory = loadAccountantLeaveHistory;
 window.submitAccountantChangePassword = submitAccountantChangePassword;

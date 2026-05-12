@@ -915,6 +915,23 @@ export async function POST(request) {
       }
     }
 
+    if (action === "save_draft") {
+      const hasDraftDuplicate = entries.some((entry) => {
+        if (entry.employee_id !== employee.id) return false;
+        if (entry.pay_period !== payPeriod) return false;
+        if (entry.status !== "draft") return false;
+        if (existingId && entry.id === existingId) return false;
+        return true;
+      });
+
+      if (hasDraftDuplicate) {
+        return NextResponse.json(
+          { error: "A draft for this employee and pay period already exists. Edit the existing draft from Pending Submissions instead." },
+          { status: 409 },
+        );
+      }
+    }
+
     const baseEntry = {
       id: existingIndex >= 0 ? entries[existingIndex].id : crypto.randomUUID(),
       employee_id: employee.id,
@@ -1010,8 +1027,8 @@ export async function PATCH(request) {
     const body = await request.json();
     const action = normalizeText(body.action).toLowerCase();
 
-    if (action !== "withdraw") {
-      return NextResponse.json({ error: "Action must be withdraw." }, { status: 400 });
+    if (action !== "withdraw" && action !== "cancel_draft") {
+      return NextResponse.json({ error: "Action must be withdraw or cancel_draft." }, { status: 400 });
     }
 
     const entryId = normalizeText(body.entry_id);
@@ -1028,6 +1045,30 @@ export async function PATCH(request) {
     }
 
     const entry = entries[index];
+
+    if (action === "cancel_draft") {
+      if (entry.status !== "draft") {
+        return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });
+      }
+
+      const remaining = entries.filter((_, i) => i !== index);
+      await writePayrollEntries(remaining);
+      await deletePayrollEntryFromDb(supabase, entryId);
+
+      await appendAuditLog({
+        module: "salary_approvals",
+        action: "cancel_draft",
+        entity_type: "payroll_entry",
+        entity_id: entryId,
+        description: `Accountant withdrew payroll draft for ${entry.employee_name}.`,
+        status: "success",
+        source: "api",
+        metadata: { employee_id: entry.employee_id },
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
     if (entry.status !== "pending") {
       return NextResponse.json({ error: "Only pending submissions can be withdrawn." }, { status: 400 });
     }
