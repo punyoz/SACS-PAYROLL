@@ -95,7 +95,10 @@ export async function PATCH(request) {
     }
 
     // Block action if the employee has been archived.
-    if (current.employee_id) {
+    // Only attempt the lookup when employee_id is a valid UUID — Supabase
+    // throws if the value is empty, a BNCS code, or any other non-UUID string.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (current.employee_id && UUID_RE.test(current.employee_id)) {
       const supabase = getAdminClient();
       if (supabase) {
         const { data: { user } = {} } = await supabase.auth.admin.getUserById(current.employee_id);
