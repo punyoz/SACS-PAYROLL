@@ -734,6 +734,13 @@ async function loadAccountantData(options = {}) {
     acctState.records = payload.records || [];
     acctState.draftEntries = payload.draft_entries || [];
     acctState.pendingSubmissions = payload.pending_submissions || [];
+
+    if (payload.diag) {
+      console.log('[accountant] payroll diag:', payload.diag, 'draft_entries:', (payload.draft_entries || []).length, 'pending:', (payload.pending_submissions || []).length);
+      if (payload.diag.db_error) {
+        console.error('[accountant] payroll_entries DB read error:', payload.diag.db_error);
+      }
+    }
     acctState.attendanceRows = payload.attendance_rows || [];
     acctState.payslipOptions = payload.payslip_options || [];
     acctState.payslip = payload.payslip || null;

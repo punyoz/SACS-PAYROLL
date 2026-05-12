@@ -239,22 +239,24 @@ async function readPayrollEntriesFromDb(supabase) {
   try {
     const result = await supabase
       .from("payroll_entries")
-      .select("id, employee_id, employee_name, employee_code, employee_type, position, pay_period, status, approval_id, payroll, submitted_at, created_at, updated_at")
+      .select("*")
       .order("updated_at", { ascending: false })
       .limit(2000);
 
     if (result.error) {
       const message = String(result.error.message || "").toLowerCase();
       const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-      if (isMissingTable) return null;
+      if (isMissingTable) return { rows: null, error: result.error.message, missingTable: true };
       console.error("[payroll_entries] read failed:", result.error.message);
-      return null;
+      return { rows: null, error: result.error.message, missingTable: false };
     }
 
-    return Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [];
+    const rows = Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [];
+    return { rows, error: null, missingTable: false };
   } catch (error) {
-    console.error("[payroll_entries] read threw:", error?.message || error);
-    return null;
+    const message = error?.message || String(error);
+    console.error("[payroll_entries] read threw:", message);
+    return { rows: null, error: message, missingTable: false };
   }
 }
 
@@ -308,17 +310,25 @@ async function readPayrollEntries(supabase) {
     ? data.entries.map(normalizePayrollEntry)
     : [];
 
-  let dbRows = null;
+  let dbResult = null;
   if (supabase) {
-    dbRows = await readPayrollEntriesFromDb(supabase);
+    dbResult = await readPayrollEntriesFromDb(supabase);
   }
 
-  if (dbRows === null) {
+  if (!dbResult || dbResult.rows === null) {
     // DB unreachable or table missing — /tmp is the only source.
     if (tmpEntries.length !== (Array.isArray(data.entries) ? data.entries.length : 0)) {
       await writeJsonStore(payrollStorePath, { entries: tmpEntries });
     }
-    return tmpEntries;
+    return {
+      entries: tmpEntries,
+      diag: {
+        db_rows: 0,
+        tmp_rows: tmpEntries.length,
+        db_error: dbResult?.error || null,
+        db_missing_table: dbResult?.missingTable || false,
+      },
+    };
   }
 
   // Merge: DB is the durable source, but include /tmp entries the DB
@@ -326,7 +336,7 @@ async function readPayrollEntries(supabase) {
   // entries from a prior instance whose DB write silently failed) and
   // best-effort backfill them so they persist going forward.
   const byId = new Map();
-  for (const row of dbRows) byId.set(row.id, row);
+  for (const row of dbResult.rows) byId.set(row.id, row);
 
   const missingFromDb = [];
   for (const entry of tmpEntries) {
@@ -343,11 +353,21 @@ async function readPayrollEntries(supabase) {
     }
   }
 
-  return Array.from(byId.values()).sort((a, b) => {
+  const merged = Array.from(byId.values()).sort((a, b) => {
     const aT = new Date(a.updated_at || a.created_at || 0).getTime();
     const bT = new Date(b.updated_at || b.created_at || 0).getTime();
     return bT - aT;
   });
+
+  return {
+    entries: merged,
+    diag: {
+      db_rows: dbResult.rows.length,
+      tmp_rows: tmpEntries.length,
+      db_error: null,
+      db_missing_table: false,
+    },
+  };
 }
 
 async function writePayrollEntries(entries) {
@@ -809,11 +829,13 @@ export async function GET(request) {
     const selectedPeriod = normalizeText(url.searchParams.get("period"));
 
     const supabase = getAdminClient();
-    const [employees, entries, approvalsData] = await Promise.all([
+    const [employees, entriesResult, approvalsData] = await Promise.all([
       fetchEmployees(supabase),
       readPayrollEntries(supabase),
       fetchApprovals(supabase),
     ]);
+
+    const entries = entriesResult.entries;
 
     const approvalMap = new Map();
     approvalsData.rows.forEach((row) => {
@@ -861,6 +883,7 @@ export async function GET(request) {
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
+      diag: entriesResult.diag,
     });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -901,7 +924,8 @@ export async function POST(request) {
     });
 
     const nowIso = new Date().toISOString();
-    const entries = await readPayrollEntries(supabase);
+    const entriesResult = await readPayrollEntries(supabase);
+    const entries = entriesResult.entries;
     const existingId = normalizeText(body.entry_id);
     const existingIndex = existingId
       ? entries.findIndex((entry) => entry.id === existingId)
@@ -1047,7 +1071,8 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
-    const entries = await readPayrollEntries(supabase);
+    const entriesResult = await readPayrollEntries(supabase);
+    const entries = entriesResult.entries;
     const index = entries.findIndex((entry) => entry.id === entryId);
 
     if (index < 0) {
