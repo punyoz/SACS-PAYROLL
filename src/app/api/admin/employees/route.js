@@ -78,8 +78,20 @@ function toTitleCaseWords(value) {
     .join(" ");
 }
 
+const ALLOWED_NAME_SUFFIXES = ["Jr.", "Sr.", "II", "III", "IV", "V"];
+
 function normalizeSuffix(value) {
   return normalizeText(value).slice(0, 16);
+}
+
+function stripAllowedSuffix(fullName) {
+  const tokens = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return "";
+  const last = tokens[tokens.length - 1];
+  if (ALLOWED_NAME_SUFFIXES.includes(last)) {
+    return tokens.slice(0, -1).join(" ");
+  }
+  return tokens.join(" ");
 }
 
 function buildFullNameFromParts(body) {
@@ -96,16 +108,7 @@ function buildFullNameFromParts(body) {
 }
 
 function isValidEmployeeName(nameInput) {
-  const normalized = normalizeText(nameInput);
-  if (!normalized) return false;
-
-  const allowedSuffixes = ["Jr.", "Sr.", "II", "III", "IV", "V"];
-  const tokens = normalized.split(/\s+/).filter(Boolean);
-  const last = tokens[tokens.length - 1];
-  const withoutSuffix = allowedSuffixes.includes(last)
-    ? tokens.slice(0, -1).join(" ")
-    : normalized;
-
+  const withoutSuffix = stripAllowedSuffix(normalizeText(nameInput));
   return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
 }
 
