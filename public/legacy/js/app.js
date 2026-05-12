@@ -1223,11 +1223,29 @@ function initApp() {
 
 function attachLoginPasswordToggle() {
   const btn = document.getElementById('login-password-toggle');
-  if (!btn) return;
-  btn.addEventListener('click', (event) => {
-    event.preventDefault();
-    toggleLoginPasswordVisibility();
-  });
+  if (btn && btn.dataset.toggleBound !== '1') {
+    btn.dataset.toggleBound = '1';
+    btn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleLoginPasswordVisibility();
+    });
+  }
+
+  // Document-level delegation as a final fallback in case the inline
+  // onclick and direct listener both fail to fire (overlapping element,
+  // cached HTML, etc.). The dataset.toggleBound guard prevents this from
+  // double-firing alongside the direct listener.
+  if (!document.body.dataset.passwordToggleDelegationBound) {
+    document.body.dataset.passwordToggleDelegationBound = '1';
+    document.addEventListener('click', (event) => {
+      const target = event.target?.closest?.('[data-action="toggle-login-password"]');
+      if (!target) return;
+      if (target.dataset.toggleBound === '1') return;
+      event.preventDefault();
+      toggleLoginPasswordVisibility();
+    });
+  }
 }
 
 if (document.readyState === 'loading') {
