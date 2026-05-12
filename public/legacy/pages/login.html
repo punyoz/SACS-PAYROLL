@@ -26,7 +26,7 @@
       <label>Password</label>
       <div style="position:relative;">
         <input id="login-password-input" class="fi" type="password" placeholder="Enter your password" autocomplete="current-password" style="padding-right:64px;">
-        <button id="login-password-toggle" type="button" data-action="toggle-login-password" onclick="var i=document.getElementById('login-password-input');if(!i)return;var s=i.type==='password';i.type=s?'text':'password';this.textContent=s?'Hide':'Show';this.title=s?'Hide password':'Show password';this.setAttribute('aria-label',this.title);" title="Show password" aria-label="Show password" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--t3);padding:6px 14px;font-size:13px;font-weight:600;letter-spacing:.02em;z-index:5;pointer-events:auto;">Show</button>
+        <button id="login-password-toggle" type="button" data-action="toggle-login-password" title="Show password" aria-label="Show password" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--t3);padding:6px 14px;font-size:13px;font-weight:600;letter-spacing:.02em;z-index:5;pointer-events:auto;">Show</button>
       </div>
     </div>
 
