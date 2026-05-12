@@ -40,6 +40,11 @@ function isMissingTableError(error) {
 }
 
 export function normalizeSalaryApproval(row) {
+  let payrollBreakdown = row.payroll_breakdown || null;
+  if (typeof payrollBreakdown === "string") {
+    try { payrollBreakdown = JSON.parse(payrollBreakdown); } catch { payrollBreakdown = null; }
+  }
+
   return {
     id: String(row.id || ""),
     employee_id: String(row.employee_id || ""),
@@ -54,6 +59,7 @@ export function normalizeSalaryApproval(row) {
     submitted_at: row.submitted_at || new Date().toISOString(),
     status: String(row.status || "pending").toLowerCase(),
     decided_at: row.decided_at || null,
+    payroll_breakdown: payrollBreakdown,
   };
 }
 
@@ -84,7 +90,7 @@ export async function readAllSalaryApprovals() {
         .from("salary_approvals")
         .select(
           "id,employee_id,employee_name,employee_code,employee_type,position," +
-          "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at",
+          "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown",
         )
         .order("submitted_at", { ascending: false });
 
@@ -156,7 +162,7 @@ export async function updateSalaryApprovalStatus(id, nextStatus) {
         .from("salary_approvals")
         .select(
           "id,employee_id,employee_name,employee_code,employee_type,position," +
-          "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at",
+          "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown",
         )
         .eq("id", id)
         .maybeSingle();
@@ -207,7 +213,7 @@ export async function updateSalaryApprovalStatus(id, nextStatus) {
           .from("salary_approvals")
           .select(
             "id,employee_id,employee_name,employee_code,employee_type,position," +
-            "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at",
+            "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown",
           )
           .order("submitted_at", { ascending: false });
 

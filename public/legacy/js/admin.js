@@ -615,6 +615,32 @@ function renderSalaryApprovalCards(approvals = [], canPersist = true) {
     const difference = proposedSalary - currentSalary;
     const diffPrefix = difference >= 0 ? '+' : '-';
 
+    const bd = approval.payroll_breakdown;
+    const breakdownHtml = bd && bd.totals ? (() => {
+      const deductions = bd.deductions || {};
+      const totals = bd.totals || {};
+      const sss = Number(deductions.sss || 0);
+      const philhealth = Number(deductions.philhealth || 0);
+      const pagibig = Number(deductions.pagibig || 0);
+      const tax = Number(deductions.withholding_tax || 0);
+      const absenceDeduct = Number(totals.absence_deduction || 0);
+      const cashAdv = Number(deductions.cash_advance || 0);
+      const totalDeduct = Number(totals.total_deductions || 0);
+      const netPay = Number(totals.net_pay || 0);
+      const grossPay = Number(totals.gross_pay || 0);
+      return `
+        <div class="payroll-breakdown" style="margin-top:10px;padding:10px 12px;background:var(--bg2,#f5f5f5);border-radius:6px;font-size:12px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Gross Pay</span><span>${formatMoney(grossPay)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>SSS (2%)</span><span>- ${formatMoney(sss)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>PhilHealth (2%)</span><span>- ${formatMoney(philhealth)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>Pag-IBIG (2%)</span><span>- ${formatMoney(pagibig)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>Withholding Tax</span><span>- ${formatMoney(tax)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>Absences &amp; Late</span><span>- ${formatMoney(absenceDeduct)}</span></div>
+          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);margin-bottom:6px;"><span>Cash Advance</span><span>- ${formatMoney(cashAdv)}</span></div>
+          <div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--b2,#ddd);padding-top:6px;color:var(--accent,#E8830A);"><span>Net Pay</span><span>${formatMoney(netPay)}</span></div>
+        </div>`;
+    })() : '';
+
     return `
       <div class="approval-card" style="margin-bottom:14px;">
         <div class="approval-card-icon">📝</div>
@@ -628,7 +654,8 @@ function renderSalaryApprovalCards(approvals = [], canPersist = true) {
             <div class="sc-box proposed"><label>Proposed</label><div class="sc-val">${formatMoney(proposedSalary)}</div></div>
             <div class="sc-box diff"><label>Difference</label><div class="sc-val">${diffPrefix} ${formatMoney(Math.abs(difference))}</div></div>
           </div>
-          <div class="approval-reason"><strong>Reason:</strong> ${reason}</div>
+          ${breakdownHtml}
+          <div class="approval-reason" style="margin-top:8px;"><strong>Reason:</strong> ${reason}</div>
         </div>
         <div class="approval-card-actions">
           <button class="btn btn-green" onclick="approveChange('${approvalId}')">✓ Approve</button>

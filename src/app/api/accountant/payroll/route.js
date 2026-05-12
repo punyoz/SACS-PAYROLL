@@ -450,6 +450,11 @@ async function writePayrollEntries(entries) {
 }
 
 function normalizeApprovalRow(row) {
+  let payrollBreakdown = row.payroll_breakdown || null;
+  if (typeof payrollBreakdown === "string") {
+    try { payrollBreakdown = JSON.parse(payrollBreakdown); } catch { payrollBreakdown = null; }
+  }
+
   return {
     id: String(row.id || ""),
     employee_id: normalizeText(row.employee_id),
@@ -464,6 +469,7 @@ function normalizeApprovalRow(row) {
     submitted_at: row.submitted_at || new Date().toISOString(),
     status: normalizeText(row.status, "pending").toLowerCase(),
     decided_at: row.decided_at || null,
+    payroll_breakdown: payrollBreakdown,
   };
 }
 
@@ -486,7 +492,7 @@ async function fetchApprovals(supabase) {
   const overrides = await readApprovalOverrides();
   const result = await supabase
     .from("salary_approvals")
-    .select("id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at")
+    .select("id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown")
     .order("submitted_at", { ascending: false })
     .limit(2000);
 
@@ -514,7 +520,7 @@ async function fetchApprovals(supabase) {
 }
 
 async function createSalaryApprovalRequest(supabase, payload) {
-  const insertPayload = {
+  const baseInsertPayload = {
     employee_id: payload.employee_id,
     employee_name: payload.employee_name,
     employee_code: payload.employee_code,
@@ -528,11 +534,27 @@ async function createSalaryApprovalRequest(supabase, payload) {
     status: "pending",
   };
 
-  const insertResult = await supabase
+  const insertPayload = payload.payroll_breakdown
+    ? { ...baseInsertPayload, payroll_breakdown: payload.payroll_breakdown }
+    : baseInsertPayload;
+
+  let insertResult = await supabase
     .from("salary_approvals")
     .insert(insertPayload)
     .select("id")
     .maybeSingle();
+
+  // If the payroll_breakdown column doesn't exist yet, retry without it.
+  if (insertResult.error) {
+    const colErr = String(insertResult.error.message || "").toLowerCase();
+    if (payload.payroll_breakdown && (colErr.includes("payroll_breakdown") || colErr.includes("column"))) {
+      insertResult = await supabase
+        .from("salary_approvals")
+        .insert(baseInsertPayload)
+        .select("id")
+        .maybeSingle();
+    }
+  }
 
   if (insertResult.error) {
     const message = String(insertResult.error.message || "").toLowerCase();
@@ -930,15 +952,6 @@ export async function GET(request) {
       ? sortedEntries.filter((entry) => entry.pay_period === selectedPeriod)
       : sortedEntries;
 
-    const payrollRecords = filteredByPeriod
-      .filter((entry) => entry.status !== "draft")
-      .map(mapEntryToRecord);
-
-    // Primary pending entries (from payroll_entries or storage)
-    const entryPendingFromEntries = sortedEntries
-      .filter((entry) => entry.status === "pending")
-      .map(mapEntryToRecord);
-
     // Synthesise pending entries from salary_approvals rows that have no
     // matching payroll entry — this covers the case where payroll_entries
     // DB write failed but salary_approvals insert succeeded (common with
@@ -946,22 +959,17 @@ export async function GET(request) {
     const coveredApprovalIds = new Set(
       sortedEntries.map((e) => e.approval_id).filter(Boolean),
     );
-    const orphanPendingMapped = approvalsData.rows
+    // Build raw orphan entry objects so they can serve as payslip sources too.
+    const orphanRawEntries = approvalsData.rows
       .filter((row) => row.status === "pending" && !coveredApprovalIds.has(row.id))
-      .map((row) => mapEntryToRecord({
-        id: `synth-${row.id}`,
-        employee_id: row.employee_id,
-        employee_name: row.employee_name,
-        employee_code: row.employee_code || "",
-        employee_type: row.employee_type || "Teaching",
-        position: row.position || "Employee",
-        pay_period: formatPeriodLabel(new Date(row.submitted_at || Date.now())),
-        status: "pending",
-        approval_id: row.id,
-        submitted_at: row.submitted_at,
-        updated_at: row.submitted_at,
-        created_at: row.submitted_at,
-        payroll: {
+      .map((row) => {
+        const bd = row.payroll_breakdown;
+        const payroll = bd && bd.totals ? {
+          basic_salary: toAmount(bd.basic_salary || row.proposed_salary),
+          allowances: bd.allowances || { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
+          deductions: bd.deductions || { sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: 0 },
+          totals: bd.totals,
+        } : {
           basic_salary: toAmount(row.proposed_salary),
           allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
           deductions: { sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: 0 },
@@ -971,14 +979,50 @@ export async function GET(request) {
             total_deductions: 0,
             net_pay: toAmount(row.proposed_salary),
           },
-        },
-      }));
+        };
+        return {
+          id: `synth-${row.id}`,
+          employee_id: row.employee_id,
+          employee_name: row.employee_name,
+          employee_code: row.employee_code || "",
+          employee_type: row.employee_type || "Teaching",
+          position: row.position || "Employee",
+          pay_period: formatPeriodLabel(new Date(row.submitted_at || Date.now())),
+          status: "pending",
+          approval_id: row.id,
+          submitted_at: row.submitted_at,
+          updated_at: row.submitted_at,
+          created_at: row.submitted_at,
+          payroll,
+        };
+      });
+
+    const orphanPendingMapped = orphanRawEntries.map(mapEntryToRecord);
+
+    // Period-filtered orphans (match the same period filter applied to sortedEntries)
+    const orphanPendingFiltered = selectedPeriod
+      ? orphanPendingMapped.filter((entry) => entry.pay_period === selectedPeriod)
+      : orphanPendingMapped;
+
+    const payrollRecords = [
+      ...filteredByPeriod.filter((entry) => entry.status !== "draft").map(mapEntryToRecord),
+      ...orphanPendingFiltered,
+    ];
+
+    // Primary pending entries (from payroll_entries or storage)
+    const entryPendingFromEntries = sortedEntries
+      .filter((entry) => entry.status === "pending")
+      .map(mapEntryToRecord);
 
     const pendingSubmissions = [...entryPendingFromEntries, ...orphanPendingMapped];
 
+    // Payslip source lookup — raw entries required for buildPayslipDetails (needs position field)
+    const orphanRawById = new Map(orphanRawEntries.map((e) => [e.id, e]));
     const payslipSource = requestedEntryId
-      ? sortedEntries.find((entry) => entry.id === requestedEntryId)
-      : (payrollRecords[0] ? sortedEntries.find((entry) => entry.id === payrollRecords[0].id) : null);
+      ? (sortedEntries.find((entry) => entry.id === requestedEntryId) || orphanRawById.get(requestedEntryId))
+      : (payrollRecords[0]
+          ? (sortedEntries.find((entry) => entry.id === payrollRecords[0].id) || orphanRawById.get(payrollRecords[0].id))
+          : null);
 
     const attendanceRows = await fetchAttendanceSummary(supabase, employees, sortedEntries);
 
@@ -1112,6 +1156,7 @@ export async function POST(request) {
         reason: normalizeText(body.reason, "Submitted via Process Payroll page."),
         submitted_by: "Accountant",
         submitted_at: nowIso,
+        payroll_breakdown: baseEntry.payroll,
       });
 
       baseEntry.approval_id = approvalResult.id;
