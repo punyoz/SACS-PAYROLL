@@ -916,9 +916,47 @@ export async function GET(request) {
       .filter((entry) => entry.status !== "draft")
       .map(mapEntryToRecord);
 
-    const pendingSubmissions = sortedEntries
+    // Primary pending entries (from payroll_entries or storage)
+    const entryPendingFromEntries = sortedEntries
       .filter((entry) => entry.status === "pending")
       .map(mapEntryToRecord);
+
+    // Synthesise pending entries from salary_approvals rows that have no
+    // matching payroll entry — this covers the case where payroll_entries
+    // DB write failed but salary_approvals insert succeeded (common with
+    // pre-existing schema constraints on the payroll_entries table).
+    const coveredApprovalIds = new Set(
+      sortedEntries.map((e) => e.approval_id).filter(Boolean),
+    );
+    const orphanPendingMapped = approvalsData.rows
+      .filter((row) => row.status === "pending" && !coveredApprovalIds.has(row.id))
+      .map((row) => mapEntryToRecord({
+        id: `synth-${row.id}`,
+        employee_id: row.employee_id,
+        employee_name: row.employee_name,
+        employee_code: row.employee_code || "",
+        employee_type: row.employee_type || "Teaching",
+        position: row.position || "Employee",
+        pay_period: formatPeriodLabel(new Date(row.submitted_at || Date.now())),
+        status: "pending",
+        approval_id: row.id,
+        submitted_at: row.submitted_at,
+        updated_at: row.submitted_at,
+        created_at: row.submitted_at,
+        payroll: {
+          basic_salary: toAmount(row.proposed_salary),
+          allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
+          deductions: { sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: 0 },
+          totals: {
+            absence_deduction: 0,
+            gross_pay: toAmount(row.proposed_salary),
+            total_deductions: 0,
+            net_pay: toAmount(row.proposed_salary),
+          },
+        },
+      }));
+
+    const pendingSubmissions = [...entryPendingFromEntries, ...orphanPendingMapped];
 
     const payslipSource = requestedEntryId
       ? sortedEntries.find((entry) => entry.id === requestedEntryId)

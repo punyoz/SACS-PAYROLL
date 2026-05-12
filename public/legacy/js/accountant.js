@@ -971,6 +971,8 @@ async function loadAccountantLeaveRequests() {
       window._acctProofUrls[req.id] = req.proof_url || '';
     });
 
+    updateLeavesBadge(requests.length);
+
     if (acPendingLeavesPaginator) {
       acPendingLeavesPaginator.setData(requests);
     } else {
@@ -980,6 +982,23 @@ async function loadAccountantLeaveRequests() {
     tbody.innerHTML = '';
     emptyMsg.style.display = 'none';
     errorMsg.textContent = err.message;
+  }
+}
+
+function updateLeavesBadge(count) {
+  const badge = document.getElementById('ac-leaves-badge');
+  if (!badge) return;
+  badge.textContent = String(count);
+  badge.style.display = count > 0 ? '' : 'none';
+}
+
+async function refreshLeavesBadge() {
+  try {
+    const res = await fetch('/api/accountant/leave-requests?status=pending_accountant');
+    const data = await res.json();
+    if (res.ok) updateLeavesBadge((data.requests || []).length);
+  } catch {
+    // silent — badge just won't update
   }
 }
 
@@ -1248,8 +1267,9 @@ function initAccountant() {
   window.setAcSalarySearch = setAcSalarySearch;
   window.setAcLeaveSearch = setAcLeaveSearch;
 
-  // Load approval status badge silently on init
+  // Load sidebar badges silently on init
   loadApprovalStatus();
+  refreshLeavesBadge();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('accountant')
