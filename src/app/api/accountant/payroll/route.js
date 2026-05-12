@@ -285,49 +285,36 @@ async function syncPayrollEntryToDb(supabase, entry) {
     updated_at: entry.updated_at,
   };
 
-  let lastError = null;
+  try {
+    // Step 1: Delete any rows that could conflict.
+    // The legacy payroll_entries table may have UNIQUE constraints on
+    // (employee_id, pay_period) in addition to the primary key, so a plain
+    // upsert with onConflict:"id" fails when another row already holds that
+    // employee+period combination. Deleting first makes the insert clean.
+    await supabase.from("payroll_entries").delete().eq("id", entry.id);
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const result = await supabase
+    if (entry.employee_id && entry.pay_period) {
+      await supabase
         .from("payroll_entries")
-        .upsert(payload, { onConflict: "id" });
-
-      if (!result.error) return { success: true };
-
-      lastError = result.error;
-      const errMsg = result.error.message || "";
-      const errCode = String(result.error.code || "");
-
-      console.error(`[payroll_entries] upsert attempt ${attempt} failed (${errCode}):`, errMsg);
-
-      // Auto-fix: if a NOT NULL constraint blocks us, drop it via the helper
-      // function and retry so future saves succeed without manual migration.
-      if (errCode === "23502" || errMsg.toLowerCase().includes("violates not-null")) {
-        const colMatch = /null value in column "([^"]+)"/.exec(errMsg);
-        if (colMatch) {
-          const col = colMatch[1];
-          console.warn(`[payroll_entries] auto-fixing NOT NULL on column "${col}"…`);
-          try {
-            await supabase.rpc("drop_column_not_null", { tbl: "payroll_entries", col });
-            console.log(`[payroll_entries] NOT NULL dropped on "${col}", retrying upsert`);
-          } catch (fixErr) {
-            console.error("[payroll_entries] auto-fix RPC failed:", fixErr?.message || fixErr);
-          }
-        }
-      }
-
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 200 * attempt));
-    } catch (err) {
-      lastError = err;
-      console.error(`[payroll_entries] upsert attempt ${attempt} threw:`, err?.message || err);
-      if (attempt < 3) await new Promise((r) => setTimeout(r, 200 * attempt));
+        .delete()
+        .eq("employee_id", entry.employee_id)
+        .eq("pay_period", entry.pay_period);
     }
-  }
 
-  const errMsg = lastError?.message || String(lastError) || "Unknown DB error";
-  console.error("[payroll_entries] all 3 upsert attempts failed:", errMsg);
-  return { success: false, error: errMsg, code: lastError?.code };
+    // Step 2: Insert fresh — no conflicts possible after the deletes above.
+    const result = await supabase.from("payroll_entries").insert(payload);
+
+    if (result.error) {
+      console.error("[payroll_entries] insert failed:", result.error.message);
+      return { success: false, error: result.error.message, code: result.error.code };
+    }
+
+    return { success: true };
+  } catch (err) {
+    const message = err?.message || String(err);
+    console.error("[payroll_entries] sync threw:", message);
+    return { success: false, error: message };
+  }
 }
 
 async function deletePayrollEntryFromDb(supabase, entryId) {
