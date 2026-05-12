@@ -959,9 +959,17 @@ export async function GET(request) {
     const coveredApprovalIds = new Set(
       sortedEntries.map((e) => e.approval_id).filter(Boolean),
     );
-    // Build raw orphan entry objects so they can serve as payslip sources too.
+    // Synthesise entries for ALL salary_approvals rows (pending, approved, rejected) that
+    // have no matching payroll_entries row — covers the case where the payroll_entries DB
+    // write failed but the salary_approvals insert succeeded.
+    function approvalStatusToEntryStatus(approvalStatus) {
+      if (approvalStatus === "approved") return "paid";
+      if (approvalStatus === "rejected") return "on_hold";
+      return "pending";
+    }
+
     const orphanRawEntries = approvalsData.rows
-      .filter((row) => row.status === "pending" && !coveredApprovalIds.has(row.id))
+      .filter((row) => row.status !== "draft" && !coveredApprovalIds.has(row.id))
       .map((row) => {
         const bd = row.payroll_breakdown;
         const payroll = bd && bd.totals ? {
@@ -988,33 +996,34 @@ export async function GET(request) {
           employee_type: row.employee_type || "Teaching",
           position: row.position || "Employee",
           pay_period: formatPeriodLabel(new Date(row.submitted_at || Date.now())),
-          status: "pending",
+          status: approvalStatusToEntryStatus(row.status),
           approval_id: row.id,
           submitted_at: row.submitted_at,
-          updated_at: row.submitted_at,
+          updated_at: row.decided_at || row.submitted_at,
           created_at: row.submitted_at,
           payroll,
         };
       });
 
-    const orphanPendingMapped = orphanRawEntries.map(mapEntryToRecord);
+    const orphanMapped = orphanRawEntries.map(mapEntryToRecord);
 
     // Period-filtered orphans (match the same period filter applied to sortedEntries)
-    const orphanPendingFiltered = selectedPeriod
-      ? orphanPendingMapped.filter((entry) => entry.pay_period === selectedPeriod)
-      : orphanPendingMapped;
+    const orphanFiltered = selectedPeriod
+      ? orphanMapped.filter((entry) => entry.pay_period === selectedPeriod)
+      : orphanMapped;
 
     const payrollRecords = [
       ...filteredByPeriod.filter((entry) => entry.status !== "draft").map(mapEntryToRecord),
-      ...orphanPendingFiltered,
+      ...orphanFiltered,
     ];
 
-    // Primary pending entries (from payroll_entries or storage)
+    // Pending submissions: only pending-status orphans go to this list
     const entryPendingFromEntries = sortedEntries
       .filter((entry) => entry.status === "pending")
       .map(mapEntryToRecord);
+    const orphanPendingOnly = orphanMapped.filter((e) => e.status === "pending");
 
-    const pendingSubmissions = [...entryPendingFromEntries, ...orphanPendingMapped];
+    const pendingSubmissions = [...entryPendingFromEntries, ...orphanPendingOnly];
 
     // Payslip source lookup — raw entries required for buildPayslipDetails (needs position field)
     const orphanRawById = new Map(orphanRawEntries.map((e) => [e.id, e]));
