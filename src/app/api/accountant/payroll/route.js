@@ -15,6 +15,10 @@ const payrollStorePath = path.join(runtimeDir, "accountant-payroll-entries.json"
 const fallbackApprovalsPath = path.join(runtimeDir, "salary-approvals.json");
 const DUPLICATE_SUBMISSION_MESSAGE = "This payroll entry has already been submitted and is awaiting admin approval.";
 
+// Supabase Storage — schema-free draft persistence that survives Lambda cold starts.
+const DRAFT_BUCKET = "bncs-payroll-runtime";
+const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
+
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
@@ -335,53 +339,72 @@ async function deletePayrollEntryFromDb(supabase, entryId) {
   }
 }
 
+async function readDraftEntriesFromStorage(supabase) {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.storage
+      .from(DRAFT_BUCKET)
+      .download(DRAFT_STORAGE_KEY);
+    if (error || !data) return [];
+    const text = await data.text();
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed.map(normalizePayrollEntry) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeDraftEntriesToStorage(supabase, draftEntries) {
+  if (!supabase) return false;
+  try {
+    await supabase.storage.createBucket(DRAFT_BUCKET, { public: false });
+  } catch {
+    // Bucket already exists — continue
+  }
+  try {
+    const content = Buffer.from(JSON.stringify(draftEntries, null, 2), "utf-8");
+    const { error } = await supabase.storage
+      .from(DRAFT_BUCKET)
+      .upload(DRAFT_STORAGE_KEY, content, { upsert: true, contentType: "application/json" });
+    if (error) {
+      console.error("[storage] write drafts failed:", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error("[storage] write drafts threw:", err?.message || err);
+    return false;
+  }
+}
+
 async function readPayrollEntries(supabase) {
-  const data = await readJsonStore(payrollStorePath, { entries: [] });
-  const tmpEntries = Array.isArray(data.entries)
-    ? data.entries.map(normalizePayrollEntry)
+  // Three sources, merged by id:
+  // 1. Supabase Storage — reliable draft persistence across all Lambda instances
+  // 2. payroll_entries DB — submitted/pending entries (schema may vary)
+  // 3. /tmp — same-instance fallback for very recent writes
+  const [storageDrafts, dbResult, tmpData] = await Promise.all([
+    readDraftEntriesFromStorage(supabase),
+    supabase ? readPayrollEntriesFromDb(supabase) : Promise.resolve(null),
+    readJsonStore(payrollStorePath, { entries: [] }),
+  ]);
+
+  const tmpEntries = Array.isArray(tmpData.entries)
+    ? tmpData.entries.map(normalizePayrollEntry)
     : [];
 
-  let dbResult = null;
-  if (supabase) {
-    dbResult = await readPayrollEntriesFromDb(supabase);
-  }
-
-  if (!dbResult || dbResult.rows === null) {
-    // DB unreachable or table missing — /tmp is the only source.
-    if (tmpEntries.length !== (Array.isArray(data.entries) ? data.entries.length : 0)) {
-      await writeJsonStore(payrollStorePath, { entries: tmpEntries });
-    }
-    return {
-      entries: tmpEntries,
-      diag: {
-        db_rows: 0,
-        tmp_rows: tmpEntries.length,
-        db_error: dbResult?.error || null,
-        db_missing_table: dbResult?.missingTable || false,
-      },
-    };
-  }
-
-  // Merge: DB is the durable source, but include /tmp entries the DB
-  // doesn't have yet (e.g. drafts written before the table existed, or
-  // entries from a prior instance whose DB write silently failed) and
-  // best-effort backfill them so they persist going forward.
   const byId = new Map();
-  for (const row of dbResult.rows) byId.set(row.id, row);
 
-  const missingFromDb = [];
-  for (const entry of tmpEntries) {
-    if (!byId.has(entry.id)) {
-      byId.set(entry.id, entry);
-      missingFromDb.push(entry);
-    }
+  // DB rows first (authoritative for submitted/pending entries)
+  for (const row of (dbResult?.rows ?? [])) byId.set(row.id, row);
+
+  // Storage drafts override DB rows for draft status
+  for (const entry of storageDrafts) {
+    if (!byId.has(entry.id) || entry.status === "draft") byId.set(entry.id, entry);
   }
 
-  for (const entry of missingFromDb) {
-    const result = await syncPayrollEntryToDb(supabase, entry);
-    if (!result.success) {
-      console.error("[payroll_entries] backfill failed for", entry.id, "—", result.error);
-    }
+  // /tmp as same-instance fallback
+  for (const entry of tmpEntries) {
+    if (!byId.has(entry.id)) byId.set(entry.id, entry);
   }
 
   const merged = Array.from(byId.values()).sort((a, b) => {
@@ -393,10 +416,11 @@ async function readPayrollEntries(supabase) {
   return {
     entries: merged,
     diag: {
-      db_rows: dbResult.rows.length,
+      db_rows: (dbResult?.rows ?? []).length,
+      storage_drafts: storageDrafts.length,
       tmp_rows: tmpEntries.length,
-      db_error: null,
-      db_missing_table: false,
+      db_error: dbResult?.error || null,
+      db_missing_table: dbResult?.missingTable || false,
     },
   };
 }
@@ -1050,6 +1074,13 @@ export async function POST(request) {
     }
 
     await writePayrollEntries(entries);
+
+    // Persist current draft list to Supabase Storage (cross-instance reliability).
+    // For submit: the entry moves to pending so remove it from the draft snapshot.
+    // For save_draft: include it in the snapshot.
+    const currentDrafts = entries.filter((e) => e.status === "draft");
+    await writeDraftEntriesToStorage(supabase, currentDrafts);
+
     const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
 
     await appendAuditLog({
@@ -1120,6 +1151,7 @@ export async function PATCH(request) {
       const remaining = entries.filter((_, i) => i !== index);
       await writePayrollEntries(remaining);
       await deletePayrollEntryFromDb(supabase, entryId);
+      await writeDraftEntriesToStorage(supabase, remaining.filter((e) => e.status === "draft"));
 
       await appendAuditLog({
         module: "salary_approvals",
@@ -1157,6 +1189,7 @@ export async function PATCH(request) {
     entries[index] = updatedEntry;
     await writePayrollEntries(entries);
     await syncPayrollEntryToDb(supabase, updatedEntry);
+    await writeDraftEntriesToStorage(supabase, entries.filter((e) => e.status === "draft"));
 
     await appendAuditLog({
       module: "salary_approvals",
