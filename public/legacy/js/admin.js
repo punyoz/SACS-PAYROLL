@@ -227,6 +227,8 @@ function normalizePortalPosition(positionValue, roleValue) {
   return 'Employee';
 }
 
+const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
+
 function isValidNamePart(nameValue) {
   const normalized = String(nameValue || '').trim();
   return normalized.length > 0 && /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/.test(normalized);
