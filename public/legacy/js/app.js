@@ -968,10 +968,23 @@ async function submitResetPassword() {
 }
 
 /* ── LOGIN ── */
+function toggleLoginPasswordVisibility() {
+  const input = document.getElementById('login-password-input');
+  const btn = document.getElementById('login-password-toggle');
+  if (!input) return;
+
+  const isHidden = input.type === 'password';
+  input.type = isHidden ? 'text' : 'password';
+  if (btn) {
+    btn.textContent = isHidden ? 'Hide' : 'Show';
+    btn.title = isHidden ? 'Hide password' : 'Show password';
+    btn.setAttribute('aria-label', btn.title);
+  }
+}
+
 async function login() {
-  const fields = document.querySelectorAll('#s-login .fi');
-  const usernameInput = fields[0]?.value?.trim();
-  const password = fields[1]?.value?.trim();
+  const usernameInput = document.getElementById('login-identity-input')?.value?.trim();
+  const password = document.getElementById('login-password-input')?.value?.trim();
 
   if (!usernameInput || !password) {
     window.alert(`Enter your username or email and password to sign in.`);

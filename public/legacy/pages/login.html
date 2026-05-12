@@ -24,7 +24,10 @@
     </div>
     <div class="fl">
       <label>Password</label>
-      <input class="fi" type="password" placeholder="Enter your password" autocomplete="current-password">
+      <div style="position:relative;">
+        <input id="login-password-input" class="fi" type="password" placeholder="Enter your password" autocomplete="current-password" style="padding-right:64px;">
+        <button id="login-password-toggle" type="button" onclick="toggleLoginPasswordVisibility()" title="Show password" aria-label="Show password" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--t3);padding:6px 10px;font-size:13px;font-weight:600;letter-spacing:.02em;">Show</button>
+      </div>
     </div>
 
     <!-- THEME TOGGLE on login -->

@@ -122,7 +122,7 @@ function formatDateOfBirthForPassword(dateInput) {
 }
 
 function buildDefaultPassword(lastNameInput, dateOfBirthInput) {
-  const lastName = normalizeText(lastNameInput).replace(/\s+/g, "");
+  const lastName = toTitleCaseWords(lastNameInput).replace(/\s+/g, "");
   const dobDigits = formatDateOfBirthForPassword(dateOfBirthInput);
   if (!lastName || !dobDigits) return "";
 

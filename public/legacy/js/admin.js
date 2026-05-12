@@ -309,7 +309,7 @@ function formatDateOfBirthForPassword(dateValue) {
 }
 
 function buildDefaultPassword(lastName, dateOfBirth) {
-  const sanitizedLastName = String(lastName || '').replaceAll(/\s+/g, '');
+  const sanitizedLastName = toTitleCaseWords(lastName).replaceAll(/\s+/g, '');
   const dobDigits = formatDateOfBirthForPassword(dateOfBirth);
   if (!sanitizedLastName || !dobDigits) return '';
   return `${sanitizedLastName}${dobDigits}`;
