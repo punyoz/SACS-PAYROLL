@@ -415,9 +415,20 @@ async function readPayrollEntries(supabase) {
   // DB rows first (authoritative for submitted/pending entries)
   for (const row of (dbResult?.rows ?? [])) byId.set(row.id, row);
 
-  // Storage drafts override DB rows for draft status
+  // Storage entries: used when not in DB, or when DB entry is missing its payroll JSONB.
+  // Storage was previously drafts-only but now holds all entries so the full
+  // deduction breakdown survives Lambda cold starts.
   for (const entry of storageDrafts) {
-    if (!byId.has(entry.id) || entry.status === "draft") byId.set(entry.id, entry);
+    if (!byId.has(entry.id)) {
+      byId.set(entry.id, entry);
+    } else {
+      const existing = byId.get(entry.id);
+      const dbMissingPayroll = !existing.payroll?.deductions?.sss && !existing.payroll?.deductions?.philhealth;
+      const storageHasPayroll = entry.payroll?.deductions?.sss > 0 || entry.payroll?.deductions?.philhealth > 0;
+      if (existing.status === "draft" || (dbMissingPayroll && storageHasPayroll)) {
+        byId.set(entry.id, entry);
+      }
+    }
   }
 
   // /tmp as same-instance fallback
@@ -930,6 +941,20 @@ function getPeriodOptions(entries) {
   return periods;
 }
 
+async function fetchPayrollRecords(supabase) {
+  try {
+    const { data, error } = await supabase
+      .from("payroll_records")
+      .select("employee_id,period_label,gross_pay,total_deductions,net_pay,payslip_no,processed_at")
+      .order("processed_at", { ascending: false })
+      .limit(2000);
+    if (error) return [];
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function GET(request) {
   try {
     const url = new URL(request.url);
@@ -937,13 +962,21 @@ export async function GET(request) {
     const selectedPeriod = normalizeText(url.searchParams.get("period"));
 
     const supabase = getAdminClient();
-    const [employees, entriesResult, approvalsData] = await Promise.all([
+    const [employees, entriesResult, approvalsData, payrollRecordsData] = await Promise.all([
       fetchEmployees(supabase),
       readPayrollEntries(supabase),
       fetchApprovals(supabase),
+      fetchPayrollRecords(supabase),
     ]);
 
     const entries = entriesResult.entries;
+
+    // Build lookup: employee_id::period_label → payroll_records row (for orphan fallback)
+    const prByKey = new Map();
+    payrollRecordsData.forEach((r) => {
+      const key = `${r.employee_id}::${r.period_label}`;
+      if (!prByKey.has(key)) prByKey.set(key, r);
+    });
 
     const approvalMap = new Map();
     approvalsData.rows.forEach((row) => {
@@ -985,22 +1018,50 @@ export async function GET(request) {
       .filter((row) => row.status !== "draft" && !coveredApprovalIds.has(row.id))
       .map((row) => {
         const bd = row.payroll_breakdown;
-        const payroll = bd && bd.totals ? {
-          basic_salary: toAmount(bd.basic_salary || row.proposed_salary),
-          allowances: bd.allowances || { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
-          deductions: bd.deductions || { sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: 0 },
-          totals: bd.totals,
-        } : {
-          basic_salary: toAmount(row.proposed_salary),
-          allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
-          deductions: { sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: 0 },
-          totals: {
-            absence_deduction: 0,
-            gross_pay: toAmount(row.proposed_salary),
-            total_deductions: 0,
-            net_pay: toAmount(row.proposed_salary),
-          },
-        };
+        const payPeriod = formatPeriodLabel(new Date(row.submitted_at || Date.now()));
+        const basicSalary = toAmount(bd?.basic_salary || row.proposed_salary);
+        const pct2 = toAmount(basicSalary * 0.02);
+
+        let payroll;
+        if (bd && bd.totals) {
+          // Full breakdown stored — use it exactly
+          payroll = {
+            basic_salary: basicSalary,
+            allowances: bd.allowances || { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
+            deductions: bd.deductions || { sss: pct2, philhealth: pct2, pagibig: pct2, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: pct2 },
+            totals: bd.totals,
+          };
+        } else {
+          // No breakdown — pull totals from payroll_records and use standard 2% formula
+          const pr = prByKey.get(`${row.employee_id}::${payPeriod}`);
+          const grossPay = toAmount(pr?.gross_pay || basicSalary);
+          const totalDeductions = pr ? toAmount(pr.total_deductions) : toAmount(pct2 * 4);
+          const netPay = pr ? toAmount(pr.net_pay) : toAmount(grossPay - totalDeductions);
+          // Standard fixed deductions at 2% each; any excess goes to absence/other
+          const fixedSum = toAmount(pct2 * 4);
+          const otherDeductions = toAmount(Math.max(0, totalDeductions - fixedSum));
+          payroll = {
+            basic_salary: basicSalary,
+            allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
+            deductions: {
+              sss: pct2,
+              philhealth: pct2,
+              pagibig: pct2,
+              withholding_tax: 0,
+              absences_days: 0,
+              late_days: 0,
+              cash_advance: pct2,
+            },
+            totals: {
+              absence_deduction: otherDeductions,
+              gross_pay: grossPay,
+              total_deductions: totalDeductions,
+              net_pay: netPay,
+            },
+          };
+        }
+
+        const pr = prByKey.get(`${row.employee_id}::${payPeriod}`);
         return {
           id: `synth-${row.id}`,
           employee_id: row.employee_id,
@@ -1008,12 +1069,13 @@ export async function GET(request) {
           employee_code: row.employee_code || "",
           employee_type: row.employee_type || "Teaching",
           position: row.position || "Employee",
-          pay_period: formatPeriodLabel(new Date(row.submitted_at || Date.now())),
+          pay_period: payPeriod,
           status: approvalStatusToEntryStatus(row.status),
           approval_id: row.id,
           submitted_at: row.submitted_at,
           updated_at: row.decided_at || row.submitted_at,
           created_at: row.submitted_at,
+          payslip_no: pr?.payslip_no || null,
           payroll,
         };
       });
@@ -1199,11 +1261,11 @@ export async function POST(request) {
 
     await writePayrollEntries(entries);
 
-    // Persist current draft list to Supabase Storage (cross-instance reliability).
-    // For submit: the entry moves to pending so remove it from the draft snapshot.
-    // For save_draft: include it in the snapshot.
-    const currentDrafts = entries.filter((e) => e.status === "draft");
-    await writeDraftEntriesToStorage(supabase, currentDrafts);
+    // Persist ALL entries to Supabase Storage so the full payroll JSONB
+    // (including individual deductions) survives Lambda cold starts.
+    // Status is resolved dynamically from salary_approvals on each read,
+    // so stale status in storage is safe.
+    await writeDraftEntriesToStorage(supabase, entries);
 
     const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
 
