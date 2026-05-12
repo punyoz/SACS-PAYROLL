@@ -168,38 +168,56 @@ async function applyApprovedSalaryToEmployee(supabase, employeeId, proposedSalar
 }
 
 
-function buildRecentActivity(activeEmployees, pendingApprovals) {
-  const pendingEmployeeIds = new Set(
-    pendingApprovals
-      .map((approval) => approval.employee_id)
-      .filter(Boolean),
-  );
+async function buildRecentActivity(supabase, activeEmployees) {
+  const employeeById = new Map(activeEmployees.map((employee) => [employee.id, employee]));
+
+  try {
+    const { data, error } = await supabase
+      .from("payroll_records")
+      .select("id, employee_id, employee_name, employee_type, net_pay, period_label, processed_at, payslip_no")
+      .order("processed_at", { ascending: false })
+      .limit(5);
+
+    if (!error && Array.isArray(data) && data.length) {
+      return data.map((record) => {
+        const employee = employeeById.get(record.employee_id);
+        return {
+          id: record.id,
+          name: record.employee_name || employee?.full_name || "Unknown",
+          employee_type: record.employee_type || employee?.employee_type || "",
+          amount: Number(record.net_pay || 0),
+          period: record.period_label || "",
+          status: "paid",
+          sub_text: record.payslip_no
+            ? `${record.period_label || ""} · ${record.payslip_no}`
+            : record.period_label || "",
+        };
+      });
+    }
+  } catch {
+    // payroll_records table may not exist yet — fall through to unpaid state
+  }
 
   const monthLabel = formatMonthYearLabel(new Date());
-
-  return activeEmployees.slice(0, 6).map((employee) => {
-    const hasPendingApproval = pendingEmployeeIds.has(employee.id);
-
-    return {
-      id: employee.id,
-      name: employee.full_name,
-      employee_type: employee.employee_type,
-      amount: Number(employee.basic_salary || 0),
-      period: monthLabel,
-      status: hasPendingApproval ? "Pending" : "Paid",
-      sub_text: hasPendingApproval
-        ? `${monthLabel} · Approval pending`
-        : monthLabel,
-    };
-  });
+  return activeEmployees.slice(0, 5).map((employee) => ({
+    id: employee.id,
+    name: employee.full_name,
+    employee_type: employee.employee_type,
+    amount: Number(employee.basic_salary || 0),
+    period: monthLabel,
+    status: "not_paid",
+    sub_text: `${monthLabel} · No payroll processed yet`,
+  }));
 }
 
-function buildDashboardPayload(activeEmployees, approvalData, attendancePanels) {
+async function buildDashboardPayload(supabase, activeEmployees, approvalData, attendancePanels) {
   const totalEmployees = activeEmployees.length;
   const totalPayrollMonth = activeEmployees.reduce(
     (sum, employee) => sum + Number(employee.basic_salary || 0),
     0,
   );
+
+  const recentActivity = await buildRecentActivity(supabase, activeEmployees);
 
   return {
     generated_at: new Date().toISOString(),
@@ -212,7 +230,7 @@ function buildDashboardPayload(activeEmployees, approvalData, attendancePanels) 
     pending_approvals: approvalData.pending,
     approval_history: approvalData.history,
     monthly_payroll: buildMonthlyPayroll(totalPayrollMonth),
-    recent_activity: buildRecentActivity(activeEmployees, approvalData.pending),
+    recent_activity: recentActivity,
     approvals_can_persist: approvalData.can_persist,
   };
 }
@@ -225,7 +243,7 @@ export async function GET() {
 
     const approvalData = await fetchApprovalData();
     const attendancePanels = await getAttendancePanels(supabase, activeEmployees);
-    const payload = buildDashboardPayload(activeEmployees, approvalData, attendancePanels);
+    const payload = await buildDashboardPayload(supabase, activeEmployees, approvalData, attendancePanels);
 
     return NextResponse.json(payload);
   } catch (error) {

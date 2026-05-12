@@ -50,6 +50,28 @@ function toAmount(value) {
   return Math.round(amount * 100) / 100;
 }
 
+const ACCT_SALARY_MAX = 9999999.99;
+
+function clampSalaryInput(input) {
+  if (!input) return;
+  const raw = input.value;
+  if (!raw) return;
+
+  const intPart = raw.split('.')[0].replace(/^-/, '');
+  if (intPart.length > 7) {
+    const decimalIndex = raw.indexOf('.');
+    const trimmedInt = intPart.slice(0, 7);
+    input.value = decimalIndex >= 0
+      ? `${trimmedInt}${raw.slice(decimalIndex)}`
+      : trimmedInt;
+  }
+
+  const value = Number(input.value);
+  if (Number.isFinite(value) && value > ACCT_SALARY_MAX) {
+    input.value = String(ACCT_SALARY_MAX);
+  }
+}
+
 function formatMoney(value) {
   return `₱ ${toAmount(value).toLocaleString('en-PH', {
     minimumFractionDigits: 2,
@@ -1150,6 +1172,7 @@ function initAccountant() {
   const basicEl = document.getElementById('pc-basic');
   if (basicEl) {
     basicEl.addEventListener('input', () => {
+      clampSalaryInput(basicEl);
       autoFillDeductions(toAmount(basicEl.value));
       recalc();
     });

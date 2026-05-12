@@ -256,6 +256,34 @@ function setupNameFieldValidation() {
   });
 }
 
+const ADMIN_SALARY_MAX = 9999999.99;
+
+function setupSalaryFieldValidation(scope = document) {
+  scope.querySelectorAll('.salary-input').forEach((input) => {
+    if (input.dataset.salaryClampBound === '1') return;
+    input.dataset.salaryClampBound = '1';
+
+    input.addEventListener('input', () => {
+      const raw = input.value;
+      if (!raw) return;
+
+      const intPart = raw.split('.')[0].replace(/^-/, '');
+      if (intPart.length > 7) {
+        const decimalIndex = raw.indexOf('.');
+        const trimmedInt = intPart.slice(0, 7);
+        input.value = decimalIndex >= 0
+          ? `${trimmedInt}${raw.slice(decimalIndex)}`
+          : trimmedInt;
+      }
+
+      const value = Number(input.value);
+      if (Number.isFinite(value) && value > ADMIN_SALARY_MAX) {
+        input.value = String(ADMIN_SALARY_MAX);
+      }
+    });
+  });
+}
+
 function normalizeSuffix(value) {
   return String(value || '').trim().slice(0, 16);
 }
@@ -534,8 +562,15 @@ function renderRecentPayrollActivity(activity = []) {
     const status = String(item.status || '').toLowerCase();
     const isPaid = status === 'paid' || status === 'approved';
     const isRejected = status === 'on_hold' || status === 'rejected';
-    const statusClass = isPaid ? 'bg' : isRejected ? 'br' : 'ba';
-    const statusText = isPaid ? 'Paid' : isRejected ? 'On Hold' : 'Pending';
+    const isNotPaid = status === 'not_paid' || status === 'unpaid';
+    const statusClass = isPaid ? 'bg' : isRejected || isNotPaid ? 'br' : 'ba';
+    const statusText = isPaid
+      ? 'Paid'
+      : isRejected
+        ? 'On Hold'
+        : isNotPaid
+          ? 'Not Paid'
+          : 'Pending';
 
     return `
       <div class="ai-item">
@@ -1861,6 +1896,7 @@ function initAdminPortal() {
   }
 
   setupNameFieldValidation();
+  setupSalaryFieldValidation();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('admin')
