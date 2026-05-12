@@ -227,8 +227,6 @@ function normalizePortalPosition(positionValue, roleValue) {
   return 'Employee';
 }
 
-const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
-
 function isValidNamePart(nameValue) {
   const normalized = String(nameValue || '').trim();
   return normalized.length > 0 && /^[A-Za-z]+(?:\s+[A-Za-z]+)*$/.test(normalized);
@@ -257,8 +255,7 @@ function setupNameFieldValidation() {
 }
 
 function normalizeSuffix(value) {
-  const suffix = String(value || '').trim();
-  return ALLOWED_SUFFIXES.includes(suffix) ? suffix : '';
+  return String(value || '').trim().slice(0, 16);
 }
 
 function toTitleCaseWords(value) {

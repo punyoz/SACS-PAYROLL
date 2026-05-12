@@ -79,9 +79,7 @@ function toTitleCaseWords(value) {
 }
 
 function normalizeSuffix(value) {
-  const suffix = normalizeText(value);
-  const allowed = new Set(["", "Jr.", "Sr.", "II", "III", "IV", "V"]);
-  return allowed.has(suffix) ? suffix : "";
+  return normalizeText(value).slice(0, 16);
 }
 
 function buildFullNameFromParts(body) {
