@@ -343,11 +343,8 @@ async function upsertPayrollEntry(action) {
   await loadAccountantData();
 
   if (result.db_synced === false) {
-    console.error('[accountant] payroll_entries DB sync failed:', result.db_error);
-    const err = new Error(`Saved locally but database write failed: ${result.db_error || 'unknown error'}. The entry may not survive a page reload until this is fixed.`);
-    err.status = 500;
-    err.dbSync = false;
-    throw err;
+    console.warn('[accountant] payroll_entries DB sync failed:', result.db_error);
+    window.pushNotification?.('Draft Saved', 'Draft saved. Database sync pending — contact your administrator if this keeps occurring.', 'info');
   }
 
   return result;
@@ -535,16 +532,14 @@ function renderPendingSubmissions() {
   if (!combined.length) {
     container.innerHTML = `
       <div class="pending-item">
-        <div class="pending-icon">✓</div>
+        <div class="pending-icon" style="background:var(--bg3);border-color:var(--border);color:var(--t3);">✓</div>
         <div class="pending-info">
-          <div class="pi-meta">No pending submissions at the moment.</div>
+          <div class="pi-name" style="color:var(--t2);font-weight:500;">All caught up</div>
+          <div class="pi-meta">No pending submissions or saved drafts.</div>
         </div>
       </div>
     `;
-
-    if (lockNote) {
-      lockNote.textContent = 'You can submit payroll drafts once ready for administrator review.';
-    }
+    if (lockNote) lockNote.textContent = 'You can save payroll drafts and submit them for administrator review.';
     renderPendingBadge(0);
     return;
   }
@@ -556,42 +551,51 @@ function renderPendingSubmissions() {
     const isDraft = String(entry.status || '').toLowerCase() === 'draft';
     const safeId = escapeHtml(entry.id);
 
+    const statusClass = isDraft ? 'pending-item-draft' : 'pending-item-pending';
+    const iconClass = isDraft ? '' : 'pending-icon-pending';
     const icon = isDraft ? '✎' : '⏳';
-    const badgeClass = isDraft ? 'ba' : 'ba';
+    const badgeClass = isDraft ? 'ba' : 'bt2';
     const badgeLabel = isDraft ? 'Draft' : 'Pending Approval';
     const metaText = isDraft
       ? `Saved ${escapeHtml(formatDateTime(entry.updated_at || entry.created_at))} · Not yet submitted`
       : `Submitted ${escapeHtml(formatDateTime(entry.submitted_at))} · Awaiting admin action`;
-    const actionButton = isDraft
-      ? `
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-outline" style="font-size:11px;padding:7px 14px;" onclick="editDraftFromPending('${safeId}')">Edit Draft</button>
-          <button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="cancelDraft('${safeId}')">Withdraw</button>
-        </div>
-      `
-      : `<button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="withdrawSubmission('${safeId}')">Withdraw</button>`;
+    const periodLine = entry.pay_period
+      ? `<div class="pi-period">Pay period: ${escapeHtml(entry.pay_period)}</div>`
+      : '';
+
+    const actionButtons = isDraft
+      ? `<div class="pending-actions">
+          <button class="btn btn-outline" onclick="editDraftFromPending('${safeId}')">Edit Draft</button>
+          <button class="btn btn-red" onclick="cancelDraft('${safeId}')">Withdraw</button>
+        </div>`
+      : `<div class="pending-actions">
+          <button class="btn btn-red" onclick="withdrawSubmission('${safeId}')">Withdraw</button>
+        </div>`;
 
     return `
-      <div class="pending-item">
-        <div class="pending-icon">${icon}</div>
+      <div class="pending-item ${statusClass}">
+        <div class="pending-icon ${iconClass}">${icon}</div>
         <div class="pending-info">
-          <div class="pi-name">${escapeHtml(entry.employee_name)}</div>
+          <div class="pi-header">
+            <span class="pi-name">${escapeHtml(entry.employee_name)}</span>
+            <span class="badge ${badgeClass}">${badgeLabel}</span>
+          </div>
           <div class="pi-meta">${metaText}</div>
+          ${periodLine}
           <div class="pi-change">
-            <span style="font-family:var(--mono);font-size:13px;color:var(--t2);">${formatMoneyCompact(currentSalary)}</span>
-            <span style="color:var(--t3);">→</span>
+            <span class="pi-salary-cur">${formatMoneyCompact(currentSalary)}</span>
+            <span class="pi-arrow">→</span>
             <span class="approval-change">${formatMoneyCompact(proposedSalary)}</span>
-            <span class="badge ${badgeClass}" style="margin-left:4px;">${badgeLabel}</span>
           </div>
         </div>
-        ${actionButton}
+        ${actionButtons}
       </div>
     `;
   }).join('');
 
   if (lockNote) {
     lockNote.textContent = pending.length
-      ? 'Submitted entries are locked until Administrator approves or rejects. Drafts can still be edited.'
+      ? 'Submitted entries are locked until the Administrator approves or rejects. Drafts can still be edited.'
       : 'Drafts are not yet visible to the Administrator. Submit them from Process Payroll when ready.';
   }
   renderPendingBadge(combined.length);

@@ -73,12 +73,20 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 15px; flex-shrink: 0;
 }
-.pending-info { flex: 1; }
+.pending-icon-pending { background: var(--blue-s); border-color: var(--blue); }
+.pending-item-draft  { border-left: 3px solid var(--amber); padding-left: 12px; }
+.pending-item-pending { border-left: 3px solid var(--blue);  padding-left: 12px; }
+.pending-info { flex: 1; min-width: 0; }
+.pending-info .pi-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pending-info .pi-name { font-size: 14px; font-weight: 600; color: var(--t1); }
 .pending-info .pi-meta { font-size: 12px; color: var(--t3); margin-top: 2px; }
+.pending-info .pi-period { font-size: 11px; color: var(--t3); margin-top: 1px; }
 .pending-info .pi-change {
-  display: flex; align-items: center; gap: 10px; margin-top: 10px;
+  display: flex; align-items: center; gap: 8px; margin-top: 8px;
 }
+.pending-info .pi-salary-cur { font-family: var(--mono); font-size: 13px; color: var(--t2); }
+.pending-info .pi-arrow { color: var(--t3); font-size: 12px; }
+.pending-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .pending-locked {
   margin-top: 10px;
   padding-top: 14px;
@@ -106,9 +114,8 @@
   flex-wrap: wrap;
 }
 
-.pending-item .btn {
-  width: 100%;
-}
+.pending-actions { width: 100%; }
+.pending-actions .btn { flex: 1; }
 
 #ac-payslips > div[style*="display:flex"] {
   flex-wrap: wrap;
@@ -125,7 +132,7 @@
     flex-wrap: nowrap;
   }
 
-  .pending-item .btn {
-    width: auto;
+  .pending-actions { width: auto; }
+  .pending-actions .btn { flex: none; width: auto;
   }
 }
