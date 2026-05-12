@@ -490,11 +490,24 @@ async function writeFallbackApprovalStore(store) {
 
 async function fetchApprovals(supabase) {
   const overrides = await readApprovalOverrides();
-  const result = await supabase
+  const APPROVALS_FULL = "id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown";
+  const APPROVALS_BASE = "id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at";
+
+  let result = await supabase
     .from("salary_approvals")
-    .select("id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown")
+    .select(APPROVALS_FULL)
     .order("submitted_at", { ascending: false })
     .limit(2000);
+
+  // Migration may not have run — retry without payroll_breakdown rather than
+  // falling back to the empty /tmp store and losing all pending approvals.
+  if (result.error && String(result.error.message || "").toLowerCase().includes("payroll_breakdown")) {
+    result = await supabase
+      .from("salary_approvals")
+      .select(APPROVALS_BASE)
+      .order("submitted_at", { ascending: false })
+      .limit(2000);
+  }
 
   if (result.error) {
     const message = String(result.error.message || "").toLowerCase();

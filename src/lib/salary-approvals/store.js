@@ -80,19 +80,39 @@ async function detectBackend(supabase) {
 
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
+const FULL_SELECT =
+  "id,employee_id,employee_name,employee_code,employee_type,position," +
+  "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown";
+
+const BASE_SELECT =
+  "id,employee_id,employee_name,employee_code,employee_type,position," +
+  "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at";
+
+function isNewColumnMissing(error) {
+  return String(error?.message || "").toLowerCase().includes("payroll_breakdown");
+}
+
 export async function readAllSalaryApprovals() {
   const supabase = getAdminClient();
   const backend = await detectBackend(supabase);
 
   if (backend === "table") {
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("salary_approvals")
-        .select(
-          "id,employee_id,employee_name,employee_code,employee_type,position," +
-          "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown",
-        )
+        .select(FULL_SELECT)
         .order("submitted_at", { ascending: false });
+
+      // Migration may not have run yet — retry without payroll_breakdown
+      // instead of falling back to storage (which would lose all DB records).
+      if (error && isNewColumnMissing(error)) {
+        const r2 = await supabase
+          .from("salary_approvals")
+          .select(BASE_SELECT)
+          .order("submitted_at", { ascending: false });
+        data = r2.data;
+        error = r2.error;
+      }
 
       if (!error) {
         return (data || []).map(normalizeSalaryApproval);
@@ -158,14 +178,19 @@ export async function updateSalaryApprovalStatus(id, nextStatus) {
   if (backend === "table") {
     try {
       // Fetch the current record first.
-      const lookupResult = await supabase
+      let lookupResult = await supabase
         .from("salary_approvals")
-        .select(
-          "id,employee_id,employee_name,employee_code,employee_type,position," +
-          "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown",
-        )
+        .select(FULL_SELECT)
         .eq("id", id)
         .maybeSingle();
+
+      if (lookupResult.error && isNewColumnMissing(lookupResult.error)) {
+        lookupResult = await supabase
+          .from("salary_approvals")
+          .select(BASE_SELECT)
+          .eq("id", id)
+          .maybeSingle();
+      }
 
       if (lookupResult.error) {
         if (!isMissingTableError(lookupResult.error)) throw new Error(lookupResult.error.message);
@@ -209,13 +234,17 @@ export async function updateSalaryApprovalStatus(id, nextStatus) {
         // DB update failed (trigger/permission error). Fall back: read all from DB,
         // apply the change in memory, and write the full list to Storage so that
         // subsequent reads return the correct state.
-        const { data: allRows } = await supabase
+        let allRowsResult = await supabase
           .from("salary_approvals")
-          .select(
-            "id,employee_id,employee_name,employee_code,employee_type,position," +
-            "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown",
-          )
+          .select(FULL_SELECT)
           .order("submitted_at", { ascending: false });
+        if (allRowsResult.error && isNewColumnMissing(allRowsResult.error)) {
+          allRowsResult = await supabase
+            .from("salary_approvals")
+            .select(BASE_SELECT)
+            .order("submitted_at", { ascending: false });
+        }
+        const { data: allRows } = allRowsResult;
 
         const all = (allRows || []).map(normalizeSalaryApproval);
         const idx = all.findIndex((r) => r.id === id);
