@@ -108,6 +108,36 @@
   gap: 8px;
 }
 
+/* ── WITHDRAWAL HISTORY ── */
+.wh-empty {
+  font-size: 12px;
+  color: var(--t3);
+  padding: 8px 0;
+}
+
+.wh-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.wh-item:last-child { border-bottom: none; padding-bottom: 0; }
+
+.wh-icon {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--t3); flex-shrink: 0;
+}
+
+.wh-info { flex: 1; min-width: 0; }
+.wh-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wh-name { font-size: 13px; font-weight: 600; color: var(--t1); }
+.wh-meta { font-size: 11px; color: var(--t3); margin-top: 3px; }
+
 /* ── RESPONSIVE (mobile-first) ── */
 .pending-item {
   align-items: flex-start;

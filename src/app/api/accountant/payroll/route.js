@@ -18,6 +18,7 @@ const DUPLICATE_SUBMISSION_MESSAGE = "This payroll entry has already been submit
 // Supabase Storage — schema-free draft persistence that survives Lambda cold starts.
 const DRAFT_BUCKET = "bncs-payroll-runtime";
 const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
+const WITHDRAWAL_HISTORY_KEY = "accountant-withdrawal-history.json";
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
@@ -361,6 +362,36 @@ async function writeDraftEntriesToStorage(supabase, draftEntries) {
   } catch (err) {
     console.error("[storage] write drafts threw:", err?.message || err);
     return false;
+  }
+}
+
+async function readWithdrawalHistory(supabase) {
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.storage.from(DRAFT_BUCKET).download(WITHDRAWAL_HISTORY_KEY);
+    if (error || !data) return [];
+    const text = await data.text();
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function appendWithdrawalHistory(supabase, entry) {
+  if (!supabase) return;
+  try {
+    await supabase.storage.createBucket(DRAFT_BUCKET, { public: false });
+  } catch { /* already exists */ }
+  try {
+    const existing = await readWithdrawalHistory(supabase);
+    const updated = [entry, ...existing].slice(0, 100); // keep last 100
+    const content = Buffer.from(JSON.stringify(updated, null, 2), "utf-8");
+    await supabase.storage
+      .from(DRAFT_BUCKET)
+      .upload(WITHDRAWAL_HISTORY_KEY, content, { upsert: true, contentType: "application/json" });
+  } catch (err) {
+    console.error("[storage] append withdrawal history failed:", err?.message || err);
   }
 }
 
@@ -963,6 +994,7 @@ export async function GET(request) {
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
+      withdrawal_history: await readWithdrawalHistory(supabase),
       diag: entriesResult.diag,
     });
   } catch (error) {
@@ -1158,6 +1190,34 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
+    const nowIso = new Date().toISOString();
+
+    // Synthesised entries (id prefixed with "synth-") exist only in the GET
+    // response, not in any data store. Withdrawing them means deleting the
+    // salary_approvals row directly.
+    if (entryId.startsWith("synth-")) {
+      const approvalId = entryId.slice(6);
+      const lookup = await supabase
+        .from("salary_approvals")
+        .select("employee_name,employee_id,employee_type,proposed_salary,submitted_at")
+        .eq("id", approvalId)
+        .maybeSingle();
+
+      await withdrawSalaryApprovalRequest(supabase, approvalId);
+
+      const row = lookup.data || {};
+      await appendWithdrawalHistory(supabase, {
+        id: crypto.randomUUID(),
+        type: "pending",
+        employee_id: row.employee_id || "",
+        employee_name: row.employee_name || "Unknown",
+        pay_period: formatPeriodLabel(new Date(row.submitted_at || nowIso)),
+        withdrawn_at: nowIso,
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
     const entriesResult = await readPayrollEntries(supabase);
     const entries = entriesResult.entries;
     const index = entries.findIndex((entry) => entry.id === entryId);
@@ -1177,6 +1237,14 @@ export async function PATCH(request) {
       await writePayrollEntries(remaining);
       await deletePayrollEntryFromDb(supabase, entryId);
       await writeDraftEntriesToStorage(supabase, remaining.filter((e) => e.status === "draft"));
+      await appendWithdrawalHistory(supabase, {
+        id: crypto.randomUUID(),
+        type: "draft",
+        employee_id: entry.employee_id,
+        employee_name: entry.employee_name,
+        pay_period: entry.pay_period,
+        withdrawn_at: nowIso,
+      });
 
       await appendAuditLog({
         module: "salary_approvals",
@@ -1208,13 +1276,21 @@ export async function PATCH(request) {
       status: "draft",
       approval_id: "",
       submitted_at: null,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso,
     };
 
     entries[index] = updatedEntry;
     await writePayrollEntries(entries);
     await syncPayrollEntryToDb(supabase, updatedEntry);
     await writeDraftEntriesToStorage(supabase, entries.filter((e) => e.status === "draft"));
+    await appendWithdrawalHistory(supabase, {
+      id: crypto.randomUUID(),
+      type: "pending",
+      employee_id: entry.employee_id,
+      employee_name: entry.employee_name,
+      pay_period: entry.pay_period,
+      withdrawn_at: nowIso,
+    });
 
     await appendAuditLog({
       module: "salary_approvals",

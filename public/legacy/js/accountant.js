@@ -24,6 +24,7 @@ const acctState = {
   records: [],
   draftEntries: [],
   pendingSubmissions: [],
+  withdrawalHistory: [],
   attendanceRows: [],
   payslipOptions: [],
   payslip: null,
@@ -554,7 +555,7 @@ function renderPendingSubmissions() {
     const statusClass = isDraft ? 'pending-item-draft' : 'pending-item-pending';
     const iconClass = isDraft ? '' : 'pending-icon-pending';
     const icon = isDraft ? '✎' : '⏳';
-    const badgeClass = isDraft ? 'ba' : 'bt2';
+    const badgeClass = isDraft ? 'ba' : 'bb';
     const badgeLabel = isDraft ? 'Draft' : 'Pending Approval';
     const metaText = isDraft
       ? `Saved ${escapeHtml(formatDateTime(entry.updated_at || entry.created_at))} · Not yet submitted`
@@ -599,6 +600,37 @@ function renderPendingSubmissions() {
       : 'Drafts are not yet visible to the Administrator. Submit them from Process Payroll when ready.';
   }
   renderPendingBadge(combined.length);
+}
+
+function renderWithdrawalHistory(history) {
+  const container = document.getElementById('ac-withdrawal-history-list');
+  if (!container) return;
+
+  const rows = Array.isArray(history) ? history : [];
+
+  if (!rows.length) {
+    container.innerHTML = '<p class="wh-empty">No withdrawals yet.</p>';
+    return;
+  }
+
+  container.innerHTML = rows.map((item) => {
+    const typeLabel = item.type === 'draft' ? 'Draft' : 'Pending';
+    const typeClass = item.type === 'draft' ? 'ba' : 'bb';
+    const name = escapeHtml(item.employee_name || '—');
+    const period = escapeHtml(item.pay_period || '—');
+    const when = escapeHtml(formatDateTime(item.withdrawn_at || item.created_at || ''));
+    return `
+      <div class="wh-item">
+        <div class="wh-icon">↩</div>
+        <div class="wh-info">
+          <div class="wh-header">
+            <span class="wh-name">${name}</span>
+            <span class="badge ${typeClass}">${typeLabel}</span>
+          </div>
+          <div class="wh-meta">${period} · Withdrawn ${when}</div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function editDraftFromPending(entryId) {
@@ -738,6 +770,7 @@ async function loadAccountantData(options = {}) {
     acctState.records = payload.records || [];
     acctState.draftEntries = payload.draft_entries || [];
     acctState.pendingSubmissions = payload.pending_submissions || [];
+    acctState.withdrawalHistory = payload.withdrawal_history || [];
 
     if (payload.diag) {
       console.log('[accountant] payroll diag:', payload.diag, 'draft_entries:', (payload.draft_entries || []).length, 'pending:', (payload.pending_submissions || []).length);
@@ -764,6 +797,7 @@ async function loadAccountantData(options = {}) {
       renderAttendanceTable();
     }
     renderPendingSubmissions();
+    renderWithdrawalHistory(acctState.withdrawalHistory);
     renderPayslipOptions();
     renderPayslipDetails();
 
