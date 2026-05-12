@@ -97,7 +97,16 @@ function buildFullNameFromParts(body) {
 
 function isValidEmployeeName(nameInput) {
   const normalized = normalizeText(nameInput);
-  return normalized.length > 0 && /^[A-Za-z\s]+$/.test(normalized);
+  if (!normalized) return false;
+
+  const allowedSuffixes = ["Jr.", "Sr.", "II", "III", "IV", "V"];
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const last = tokens[tokens.length - 1];
+  const withoutSuffix = allowedSuffixes.includes(last)
+    ? tokens.slice(0, -1).join(" ")
+    : normalized;
+
+  return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
 }
 
 function formatDateOfBirthForPassword(dateInput) {
