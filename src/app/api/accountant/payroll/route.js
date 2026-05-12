@@ -146,6 +146,11 @@ async function writeJsonStore(filePath, value) {
 }
 
 function normalizePayrollEntry(row) {
+  let payrollObj = row.payroll;
+  if (typeof payrollObj === "string") {
+    try { payrollObj = JSON.parse(payrollObj); } catch { payrollObj = null; }
+  }
+
   return {
     id: normalizeText(row.id, crypto.randomUUID()),
     employee_id: normalizeText(row.employee_id),
@@ -160,7 +165,7 @@ function normalizePayrollEntry(row) {
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || row.created_at || new Date().toISOString(),
     payroll: {
-      basic_salary: toAmount(row.payroll?.basic_salary ?? row.basic_salary),
+      basic_salary: toAmount(payrollObj?.basic_salary ?? row.basic_salary),
       allowances: {
         transportation: 0,
         rice: 0,
@@ -168,19 +173,19 @@ function normalizePayrollEntry(row) {
         bonus: 0,
       },
       deductions: {
-        sss: toAmount(row.payroll?.deductions?.sss ?? row.sss),
-        philhealth: toAmount(row.payroll?.deductions?.philhealth ?? row.philhealth),
-        pagibig: toAmount(row.payroll?.deductions?.pagibig ?? row.pagibig),
-        withholding_tax: toAmount(row.payroll?.deductions?.withholding_tax ?? row.withholding_tax),
-        absences_days: toAmount(row.payroll?.deductions?.absences_days ?? row.absences_days),
-        late_days: toAmount(row.payroll?.deductions?.late_days ?? 0),
-        cash_advance: toAmount(row.payroll?.deductions?.cash_advance ?? row.cash_advance),
+        sss: toAmount(payrollObj?.deductions?.sss ?? row.sss),
+        philhealth: toAmount(payrollObj?.deductions?.philhealth ?? row.philhealth),
+        pagibig: toAmount(payrollObj?.deductions?.pagibig ?? row.pagibig),
+        withholding_tax: toAmount(payrollObj?.deductions?.withholding_tax ?? row.withholding_tax),
+        absences_days: toAmount(payrollObj?.deductions?.absences_days ?? row.absences_days),
+        late_days: toAmount(payrollObj?.deductions?.late_days ?? 0),
+        cash_advance: toAmount(payrollObj?.deductions?.cash_advance ?? row.cash_advance),
       },
       totals: {
-        absence_deduction: toAmount(row.payroll?.totals?.absence_deduction ?? row.absence_deduction),
-        gross_pay: toAmount(row.payroll?.totals?.gross_pay ?? row.gross_pay),
-        total_deductions: toAmount(row.payroll?.totals?.total_deductions ?? row.total_deductions),
-        net_pay: toAmount(row.payroll?.totals?.net_pay ?? row.net_pay),
+        absence_deduction: toAmount(payrollObj?.totals?.absence_deduction ?? row.absence_deduction),
+        gross_pay: toAmount(payrollObj?.totals?.gross_pay ?? row.gross_pay),
+        total_deductions: toAmount(payrollObj?.totals?.total_deductions ?? row.total_deductions),
+        net_pay: toAmount(payrollObj?.totals?.net_pay ?? row.net_pay),
       },
     },
   };
@@ -242,11 +247,13 @@ async function readPayrollEntriesFromDb(supabase) {
       const message = String(result.error.message || "").toLowerCase();
       const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
       if (isMissingTable) return null;
-      throw new Error(result.error.message);
+      console.error("[payroll_entries] read failed:", result.error.message);
+      return null;
     }
 
     return Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [];
-  } catch {
+  } catch (error) {
+    console.error("[payroll_entries] read threw:", error?.message || error);
     return null;
   }
 }
@@ -271,8 +278,14 @@ async function syncPayrollEntryToDb(supabase, entry) {
         created_at: entry.created_at,
         updated_at: entry.updated_at,
       }, { onConflict: "id" });
-    return !result.error;
-  } catch {
+
+    if (result.error) {
+      console.error("[payroll_entries] upsert failed:", result.error.message);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error("[payroll_entries] upsert threw:", error?.message || error);
     return false;
   }
 }
@@ -287,19 +300,48 @@ async function deletePayrollEntryFromDb(supabase, entryId) {
 }
 
 async function readPayrollEntries(supabase) {
-  if (supabase) {
-    const dbRows = await readPayrollEntriesFromDb(supabase);
-    if (dbRows !== null) return dbRows;
-  }
-
   const data = await readJsonStore(payrollStorePath, { entries: [] });
-  const entries = Array.isArray(data.entries) ? data.entries.map(normalizePayrollEntry) : [];
+  const tmpEntries = Array.isArray(data.entries)
+    ? data.entries.map(normalizePayrollEntry)
+    : [];
 
-  if (entries.length !== (Array.isArray(data.entries) ? data.entries.length : 0)) {
-    await writeJsonStore(payrollStorePath, { entries });
+  let dbRows = null;
+  if (supabase) {
+    dbRows = await readPayrollEntriesFromDb(supabase);
   }
 
-  return entries;
+  if (dbRows === null) {
+    // DB unreachable or table missing — /tmp is the only source.
+    if (tmpEntries.length !== (Array.isArray(data.entries) ? data.entries.length : 0)) {
+      await writeJsonStore(payrollStorePath, { entries: tmpEntries });
+    }
+    return tmpEntries;
+  }
+
+  // Merge: DB is the durable source, but include /tmp entries the DB
+  // doesn't have yet (e.g. drafts written before the table existed, or
+  // entries from a prior instance whose DB write silently failed) and
+  // best-effort backfill them so they persist going forward.
+  const byId = new Map();
+  for (const row of dbRows) byId.set(row.id, row);
+
+  const missingFromDb = [];
+  for (const entry of tmpEntries) {
+    if (!byId.has(entry.id)) {
+      byId.set(entry.id, entry);
+      missingFromDb.push(entry);
+    }
+  }
+
+  for (const entry of missingFromDb) {
+    await syncPayrollEntryToDb(supabase, entry);
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const aT = new Date(a.updated_at || a.created_at || 0).getTime();
+    const bT = new Date(b.updated_at || b.created_at || 0).getTime();
+    return bT - aT;
+  });
 }
 
 async function writePayrollEntries(entries) {
