@@ -230,7 +230,68 @@ function computeTotals(payroll) {
   };
 }
 
-async function readPayrollEntries() {
+async function readPayrollEntriesFromDb(supabase) {
+  try {
+    const result = await supabase
+      .from("payroll_entries")
+      .select("id, employee_id, employee_name, employee_code, employee_type, position, pay_period, status, approval_id, payroll, submitted_at, created_at, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(2000);
+
+    if (result.error) {
+      const message = String(result.error.message || "").toLowerCase();
+      const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
+      if (isMissingTable) return null;
+      throw new Error(result.error.message);
+    }
+
+    return Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [];
+  } catch {
+    return null;
+  }
+}
+
+async function syncPayrollEntryToDb(supabase, entry) {
+  if (!supabase || !entry?.id) return false;
+  try {
+    const result = await supabase
+      .from("payroll_entries")
+      .upsert({
+        id: entry.id,
+        employee_id: entry.employee_id,
+        employee_name: entry.employee_name,
+        employee_code: entry.employee_code || null,
+        employee_type: entry.employee_type || null,
+        position: entry.position || null,
+        pay_period: entry.pay_period,
+        status: entry.status,
+        approval_id: entry.approval_id || null,
+        payroll: entry.payroll,
+        submitted_at: entry.submitted_at || null,
+        created_at: entry.created_at,
+        updated_at: entry.updated_at,
+      }, { onConflict: "id" });
+    return !result.error;
+  } catch {
+    return false;
+  }
+}
+
+async function deletePayrollEntryFromDb(supabase, entryId) {
+  if (!supabase || !entryId) return;
+  try {
+    await supabase.from("payroll_entries").delete().eq("id", entryId);
+  } catch {
+    // best-effort — table may not exist
+  }
+}
+
+async function readPayrollEntries(supabase) {
+  if (supabase) {
+    const dbRows = await readPayrollEntriesFromDb(supabase);
+    if (dbRows !== null) return dbRows;
+  }
+
   const data = await readJsonStore(payrollStorePath, { entries: [] });
   const entries = Array.isArray(data.entries) ? data.entries.map(normalizePayrollEntry) : [];
 
@@ -702,7 +763,7 @@ export async function GET(request) {
     const supabase = getAdminClient();
     const [employees, entries, approvalsData] = await Promise.all([
       fetchEmployees(supabase),
-      readPayrollEntries(),
+      readPayrollEntries(supabase),
       fetchApprovals(supabase),
     ]);
 
@@ -792,7 +853,7 @@ export async function POST(request) {
     });
 
     const nowIso = new Date().toISOString();
-    const entries = await readPayrollEntries();
+    const entries = await readPayrollEntries(supabase);
     const existingId = normalizeText(body.entry_id);
     const existingIndex = existingId
       ? entries.findIndex((entry) => entry.id === existingId)
@@ -869,6 +930,7 @@ export async function POST(request) {
     }
 
     await writePayrollEntries(entries);
+    await syncPayrollEntryToDb(supabase, baseEntry);
 
     await appendAuditLog({
       module: "salary_approvals",
@@ -916,7 +978,7 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
-    const entries = await readPayrollEntries();
+    const entries = await readPayrollEntries(supabase);
     const index = entries.findIndex((entry) => entry.id === entryId);
 
     if (index < 0) {
@@ -945,6 +1007,7 @@ export async function PATCH(request) {
 
     entries[index] = updatedEntry;
     await writePayrollEntries(entries);
+    await syncPayrollEntryToDb(supabase, updatedEntry);
 
     await appendAuditLog({
       module: "salary_approvals",

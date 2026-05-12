@@ -519,7 +519,11 @@ function renderPendingSubmissions() {
   const lockNote = document.getElementById('ac-pending-locked');
   if (!container) return;
 
-  if (!acctState.pendingSubmissions.length) {
+  const drafts = Array.isArray(acctState.draftEntries) ? acctState.draftEntries : [];
+  const pending = Array.isArray(acctState.pendingSubmissions) ? acctState.pendingSubmissions : [];
+  const combined = [...drafts, ...pending];
+
+  if (!combined.length) {
     container.innerHTML = `
       <div class="pending-item">
         <div class="pending-icon">✓</div>
@@ -536,32 +540,58 @@ function renderPendingSubmissions() {
     return;
   }
 
-  container.innerHTML = acctState.pendingSubmissions.map((entry) => {
+  container.innerHTML = combined.map((entry) => {
     const employee = acctState.employees.find((row) => row.id === entry.employee_id);
     const currentSalary = Number(employee?.basic_salary || 0);
     const proposedSalary = Number(entry.payroll?.basic_salary || 0);
+    const isDraft = String(entry.status || '').toLowerCase() === 'draft';
+    const safeId = escapeHtml(entry.id);
+
+    const icon = isDraft ? '✎' : '⏳';
+    const badgeClass = isDraft ? 'ba' : 'ba';
+    const badgeLabel = isDraft ? 'Draft' : 'Pending Approval';
+    const metaText = isDraft
+      ? `Saved ${escapeHtml(formatDateTime(entry.updated_at || entry.created_at))} · Not yet submitted`
+      : `Submitted ${escapeHtml(formatDateTime(entry.submitted_at))} · Awaiting admin action`;
+    const actionButton = isDraft
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:7px 14px;" onclick="editDraftFromPending('${safeId}')">Edit Draft</button>`
+      : `<button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="withdrawSubmission('${safeId}')">Withdraw</button>`;
+
     return `
       <div class="pending-item">
-        <div class="pending-icon">⏳</div>
+        <div class="pending-icon">${icon}</div>
         <div class="pending-info">
           <div class="pi-name">${escapeHtml(entry.employee_name)}</div>
-          <div class="pi-meta">Submitted ${escapeHtml(formatDateTime(entry.submitted_at))} · Awaiting admin action</div>
+          <div class="pi-meta">${metaText}</div>
           <div class="pi-change">
             <span style="font-family:var(--mono);font-size:13px;color:var(--t2);">${formatMoneyCompact(currentSalary)}</span>
             <span style="color:var(--t3);">→</span>
             <span class="approval-change">${formatMoneyCompact(proposedSalary)}</span>
-            <span class="badge ba" style="margin-left:4px;">Pending Approval</span>
+            <span class="badge ${badgeClass}" style="margin-left:4px;">${badgeLabel}</span>
           </div>
         </div>
-        <button class="btn btn-red" style="font-size:11px;padding:7px 14px;" onclick="withdrawSubmission('${escapeHtml(entry.id)}')">Withdraw</button>
+        ${actionButton}
       </div>
     `;
   }).join('');
 
   if (lockNote) {
-    lockNote.textContent = 'Changes are locked until Administrator approves or rejects. You will be notified of the decision.';
+    lockNote.textContent = pending.length
+      ? 'Submitted entries are locked until Administrator approves or rejects. Drafts can still be edited.'
+      : 'Drafts are not yet visible to the Administrator. Submit them from Process Payroll when ready.';
   }
-  renderPendingBadge(acctState.pendingSubmissions.length);
+  renderPendingBadge(combined.length);
+}
+
+function editDraftFromPending(entryId) {
+  const id = String(entryId || '').trim();
+  if (!id) return;
+
+  const processNav = document.querySelector('#s-accountant .ni[onclick*="ac-process"]');
+  acctNav('ac-process', processNav);
+
+  acctState.currentEntryId = id;
+  loadAccountantData({ entryId: id });
 }
 
 function renderPayslipOptions() {
@@ -1276,6 +1306,7 @@ async function submitAccountantChangePassword() {
 window.acctNav = acctNav;
 window.submitForApproval = submitForApproval;
 window.savePayrollDraft = savePayrollDraft;
+window.editDraftFromPending = editDraftFromPending;
 window.generatePayslip = generatePayslip;
 window.printPayslip = printPayslip;
 window.openPayslipFromRecord = openPayslipFromRecord;
