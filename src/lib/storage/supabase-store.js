@@ -11,14 +11,26 @@ function getClient() {
   });
 }
 
+let ensureBucketPromise = null;
+
 async function ensureBucket(supabase) {
-  const { data: existing } = await supabase.storage.getBucket(BUCKET);
-  if (existing) return;
-  await supabase.storage.createBucket(BUCKET, {
-    public: false,
-    fileSizeLimit: 104857600,
-  });
-  // Ignore error — bucket may have been created by a concurrent request or migration.
+  // Memoize across requests in the same Lambda instance — the bucket is created
+  // once and the existence check is a network round-trip we can skip thereafter.
+  if (!ensureBucketPromise) {
+    ensureBucketPromise = (async () => {
+      const { data: existing } = await supabase.storage.getBucket(BUCKET);
+      if (existing) return;
+      await supabase.storage.createBucket(BUCKET, {
+        public: false,
+        fileSizeLimit: 104857600,
+      });
+      // Ignore error — bucket may have been created by a concurrent request or migration.
+    })().catch(() => {
+      // If the check itself failed, clear the cache so the next call can retry.
+      ensureBucketPromise = null;
+    });
+  }
+  return ensureBucketPromise;
 }
 
 export async function storageReadJson(filename, defaultValue = {}) {

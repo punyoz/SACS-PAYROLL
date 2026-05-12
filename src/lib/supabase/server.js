@@ -16,9 +16,15 @@ export async function createClient() {
         return cookieStore.getAll();
       },
       setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          cookieStore.set(name, value, options);
-        });
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // Server Components can't mutate cookies. Safe to ignore when a
+          // middleware (or route handler) is responsible for refreshing the
+          // session on subsequent requests.
+        }
       },
     },
   });
