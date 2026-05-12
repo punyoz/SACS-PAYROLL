@@ -341,6 +341,15 @@ async function upsertPayrollEntry(action) {
   acctState.currentEntryId = String(result.entry?.id || acctState.currentEntryId || '');
 
   await loadAccountantData();
+
+  if (result.db_synced === false) {
+    console.error('[accountant] payroll_entries DB sync failed:', result.db_error);
+    const err = new Error(`Saved locally but database write failed: ${result.db_error || 'unknown error'}. The entry may not survive a page reload until this is fixed.`);
+    err.status = 500;
+    err.dbSync = false;
+    throw err;
+  }
+
   return result;
 }
 

@@ -259,7 +259,9 @@ async function readPayrollEntriesFromDb(supabase) {
 }
 
 async function syncPayrollEntryToDb(supabase, entry) {
-  if (!supabase || !entry?.id) return false;
+  if (!supabase || !entry?.id) {
+    return { success: false, error: "Missing supabase client or entry id." };
+  }
   try {
     const result = await supabase
       .from("payroll_entries")
@@ -281,12 +283,13 @@ async function syncPayrollEntryToDb(supabase, entry) {
 
     if (result.error) {
       console.error("[payroll_entries] upsert failed:", result.error.message);
-      return false;
+      return { success: false, error: result.error.message, code: result.error.code };
     }
-    return true;
+    return { success: true };
   } catch (error) {
-    console.error("[payroll_entries] upsert threw:", error?.message || error);
-    return false;
+    const message = error?.message || String(error);
+    console.error("[payroll_entries] upsert threw:", message);
+    return { success: false, error: message };
   }
 }
 
@@ -334,7 +337,10 @@ async function readPayrollEntries(supabase) {
   }
 
   for (const entry of missingFromDb) {
-    await syncPayrollEntryToDb(supabase, entry);
+    const result = await syncPayrollEntryToDb(supabase, entry);
+    if (!result.success) {
+      console.error("[payroll_entries] backfill failed for", entry.id, "—", result.error);
+    }
   }
 
   return Array.from(byId.values()).sort((a, b) => {
@@ -989,7 +995,7 @@ export async function POST(request) {
     }
 
     await writePayrollEntries(entries);
-    await syncPayrollEntryToDb(supabase, baseEntry);
+    const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
 
     await appendAuditLog({
       module: "salary_approvals",
@@ -1005,6 +1011,8 @@ export async function POST(request) {
         employee_id: employee.id,
         approval_id: baseEntry.approval_id,
         approval_persisted: approvalPersisted,
+        db_synced: dbSync.success,
+        db_error: dbSync.success ? null : dbSync.error,
       },
     });
 
@@ -1012,6 +1020,8 @@ export async function POST(request) {
       success: true,
       entry: mapEntryToRecord(baseEntry),
       approval_persisted: approvalPersisted,
+      db_synced: dbSync.success,
+      db_error: dbSync.success ? null : dbSync.error,
     });
   } catch (error) {
     if (isDuplicateKeyError(error) || isInternalDbSchemaError(error?.message)) {
