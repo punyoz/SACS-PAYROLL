@@ -136,7 +136,7 @@ async function fetchPayslipsForUser(supabase, userId) {
     const { data, error } = await supabase
       .from("payroll_entries")
       .select(
-        "id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,created_at",
+        "id,employee_id,pay_period,status,payroll,submitted_at,created_at",
       )
       .eq("employee_id", userId)
       .not("status", "eq", "draft")
