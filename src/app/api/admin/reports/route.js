@@ -150,17 +150,34 @@ function mapPayrollEntryRecord(row) {
   };
 }
 
-// Maps a salary_approvals row to the standard record shape (deductions unknown — use proposed_salary).
+// Maps a salary_approvals row to the standard record shape.
+// Reads actual totals from payroll_breakdown JSONB when available.
 function mapApprovalRecord(row) {
-  const grossPay = roundCurrency(Number(row.proposed_salary || row.current_salary || 0));
+  const bd =
+    (typeof row.payroll_breakdown === "string"
+      ? JSON.parse(row.payroll_breakdown)
+      : row.payroll_breakdown) || {};
+  const totals = bd.totals || {};
+  const hasBreakdown = Object.keys(bd).length > 0;
+
+  const grossPay = hasBreakdown
+    ? roundCurrency(Number(totals.gross_pay ?? bd.basic_salary ?? row.proposed_salary ?? row.current_salary ?? 0))
+    : roundCurrency(Number(row.proposed_salary || row.current_salary || 0));
+  const totalDeductions = hasBreakdown
+    ? roundCurrency(Number(totals.total_deductions ?? 0))
+    : 0;
+  const netPay = hasBreakdown
+    ? roundCurrency(Number(totals.net_pay ?? grossPay - totalDeductions))
+    : grossPay;
+
   return {
     id: String(row.id || crypto.randomUUID()),
     employee_id: normalizeText(row.employee_id),
     employee_name: normalizeText(row.employee_name),
     employee_type: normalizeText(row.employee_type),
     gross_pay: grossPay,
-    total_deductions: 0,
-    net_pay: grossPay,
+    total_deductions: totalDeductions,
+    net_pay: netPay,
     period_label: formatMonthYearLabel(new Date(row.submitted_at || Date.now())),
     processed_at: row.submitted_at || new Date().toISOString(),
   };
@@ -184,11 +201,11 @@ async function fetchPayrollRecords(supabase, activeEmployees) {
     }
   } catch { /* fall through */ }
 
-  // 2. salary_approvals — secondary source (no deduction detail, but real approved data).
+  // 2. salary_approvals — secondary source (reads payroll_breakdown for real deduction totals).
   try {
     const { data, error } = await supabase
       .from("salary_approvals")
-      .select("id,employee_id,employee_name,employee_type,current_salary,proposed_salary,submitted_at,status")
+      .select("id,employee_id,employee_name,employee_type,current_salary,proposed_salary,submitted_at,status,payroll_breakdown")
       .in("status", ["pending", "approved"])
       .order("submitted_at", { ascending: false })
       .limit(5000);
@@ -199,7 +216,24 @@ async function fetchPayrollRecords(supabase, activeEmployees) {
         return { source_mode: "salary_approvals", records };
       }
     }
-  } catch { /* fall through */ }
+  } catch {
+    // payroll_breakdown column may not exist — retry without it.
+    try {
+      const { data, error } = await supabase
+        .from("salary_approvals")
+        .select("id,employee_id,employee_name,employee_type,current_salary,proposed_salary,submitted_at,status")
+        .in("status", ["pending", "approved"])
+        .order("submitted_at", { ascending: false })
+        .limit(5000);
+
+      if (!error) {
+        const records = (data || []).map((row) => mapApprovalRecord({ ...row, payroll_breakdown: null }));
+        if (records.length > 0) {
+          return { source_mode: "salary_approvals", records };
+        }
+      }
+    } catch { /* fall through */ }
+  }
 
   // 3. payroll_records — legacy table (may not exist).
   try {
