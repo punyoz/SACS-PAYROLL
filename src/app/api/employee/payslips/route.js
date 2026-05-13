@@ -7,7 +7,6 @@ import path from "node:path";
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Same paths the accountant route uses.
 const payrollEntriesTmpPath = path.join(
   os.tmpdir(),
   "bncs-payroll-runtime",
@@ -41,8 +40,12 @@ function payPeriodToLabel(payPeriod) {
   return pp;
 }
 
+function colMissing(error, colName) {
+  return String(error?.message || "").toLowerCase().includes(colName);
+}
+
 // Map a payroll_entries row (or /tmp entry) — has full JSONB payroll.
-function mapPayrollEntryToPayslip(row) {
+function mapEntryToPayslip(row) {
   const payroll =
     (typeof row.payroll === "string" ? JSON.parse(row.payroll) : row.payroll) || {};
   const totals = payroll.totals || {};
@@ -147,10 +150,11 @@ function mapRecordToPayslip(rec) {
 
 async function fetchPayslipsForUser(supabase, userId) {
   // ── 1. payroll_entries DB ─────────────────────────────────────────────────
-  // Full JSONB payroll column; payslip_no present after migration is applied.
+  // Full JSONB payroll; payslip_no present after migration is applied.
+  // Supabase returns errors as { error } objects — never throws — so all
+  // column-missing retries must be handled in the normal flow, not catch.
   try {
-    // Try with payslip_no first (migration applied).
-    let result = await supabase
+    let { data, error } = await supabase
       .from("payroll_entries")
       .select("id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,created_at")
       .eq("employee_id", userId)
@@ -158,26 +162,26 @@ async function fetchPayslipsForUser(supabase, userId) {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    // Retry without payslip_no if the column doesn't exist yet.
-    if (result.error && String(result.error.message || "").toLowerCase().includes("payslip_no")) {
-      result = await supabase
+    if (error && colMissing(error, "payslip_no")) {
+      const r2 = await supabase
         .from("payroll_entries")
         .select("id,employee_id,pay_period,status,payroll,submitted_at,created_at")
         .eq("employee_id", userId)
         .not("status", "eq", "draft")
         .order("created_at", { ascending: false })
         .limit(50);
+      data = r2.data;
+      error = r2.error;
     }
 
-    if (!result.error && Array.isArray(result.data) && result.data.length > 0) {
-      return result.data.map(mapPayrollEntryToPayslip);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return data.map(mapEntryToPayslip);
     }
   } catch {
     // payroll_entries table may not exist — fall through
   }
 
   // ── 2. /tmp accountant payroll-entries file ───────────────────────────────
-  // Same instance as the accountant route: always fresh, has full payroll JSONB.
   try {
     const raw = await fs.readFile(payrollEntriesTmpPath, "utf8");
     const parsed = JSON.parse(raw);
@@ -187,39 +191,36 @@ async function fetchPayslipsForUser(supabase, userId) {
       .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
       .slice(0, 50);
 
-    if (matched.length > 0) {
-      return matched.map(mapPayrollEntryToPayslip);
-    }
+    if (matched.length > 0) return matched.map(mapEntryToPayslip);
   } catch {
     // /tmp empty on cold start — fall through
   }
 
   // ── 3. Supabase Storage draft file ────────────────────────────────────────
-  // Survives cold starts; written by the accountant route on every submit.
   try {
-    const { data, error } = await supabase.storage
+    const { data: blob, error } = await supabase.storage
       .from(DRAFT_BUCKET)
       .download(DRAFT_STORAGE_KEY);
-    if (!error && data) {
-      const text = await data.text();
+    if (!error && blob) {
+      const text = await blob.text();
       const entries = JSON.parse(text);
       if (Array.isArray(entries)) {
         const matched = entries
           .filter((e) => e.employee_id === userId && e.status !== "draft")
           .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
           .slice(0, 50);
-        if (matched.length > 0) {
-          return matched.map(mapPayrollEntryToPayslip);
-        }
+        if (matched.length > 0) return matched.map(mapEntryToPayslip);
       }
     }
   } catch {
     // Storage unavailable — fall through
   }
 
-  // ── 4. salary_approvals (approved only, with payroll_breakdown) ───────────
+  // ── 4. salary_approvals (approved only) ───────────────────────────────────
+  // Shows the payslip once the admin has approved it, even when the
+  // payroll_entries DB sync failed or /tmp was cleared.
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("salary_approvals")
       .select(
         "id,employee_id,current_salary,proposed_salary,submitted_at,status,payroll_breakdown",
@@ -229,31 +230,30 @@ async function fetchPayslipsForUser(supabase, userId) {
       .order("submitted_at", { ascending: false })
       .limit(50);
 
-    if (!error && Array.isArray(data) && data.length > 0) {
-      return data.map(mapApprovalToPayslip);
-    }
-  } catch {
-    // payroll_breakdown column may not exist — retry without it
-    try {
-      const { data, error } = await supabase
+    // payroll_breakdown column may not exist yet — retry without it.
+    if (error && colMissing(error, "payroll_breakdown")) {
+      const r2 = await supabase
         .from("salary_approvals")
         .select("id,employee_id,current_salary,proposed_salary,submitted_at,status")
         .eq("employee_id", userId)
         .eq("status", "approved")
         .order("submitted_at", { ascending: false })
         .limit(50);
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return data.map((row) => mapApprovalToPayslip({ ...row, payroll_breakdown: null }));
-      }
-    } catch {
-      // fall through
+      data = r2.data;
+      error = r2.error;
     }
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return data.map(mapApprovalToPayslip);
+    }
+  } catch {
+    // fall through
   }
 
   // ── 5. payroll_records — legacy totals table ──────────────────────────────
+  // Always created on accountant submit; shows gross/net even without breakdown.
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("payroll_records")
       .select(
         "id,employee_id,employee_name,employee_type,gross_pay,total_deductions,net_pay,period_label,processed_at,payslip_no",
@@ -261,6 +261,20 @@ async function fetchPayslipsForUser(supabase, userId) {
       .eq("employee_id", userId)
       .order("processed_at", { ascending: false })
       .limit(50);
+
+    // payslip_no migration may not have run yet.
+    if (error && colMissing(error, "payslip_no")) {
+      const r2 = await supabase
+        .from("payroll_records")
+        .select(
+          "id,employee_id,employee_name,employee_type,gross_pay,total_deductions,net_pay,period_label,processed_at",
+        )
+        .eq("employee_id", userId)
+        .order("processed_at", { ascending: false })
+        .limit(50);
+      data = r2.data;
+      error = r2.error;
+    }
 
     if (!error && Array.isArray(data) && data.length > 0) {
       return data.map(mapRecordToPayslip);
