@@ -166,6 +166,7 @@ function normalizePayrollEntry(row) {
     pay_period: normalizeText(row.pay_period, formatPeriodLabel(new Date())),
     status: normalizeText(row.status, "draft").toLowerCase(),
     approval_id: normalizeText(row.approval_id),
+    payslip_no: normalizeText(row.payslip_no) || null,
     submitted_at: row.submitted_at || null,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || row.created_at || new Date().toISOString(),
@@ -280,6 +281,7 @@ async function syncPayrollEntryToDb(supabase, entry) {
     pay_period: entry.pay_period,
     status: entry.status,
     approval_id: entry.approval_id || null,
+    payslip_no: entry.payslip_no || null,
     payroll: entry.payroll,
     submitted_at: entry.submitted_at || null,
     created_at: entry.created_at,
@@ -890,10 +892,12 @@ function buildPayrollPanels(records) {
 }
 
 function buildPayslipOptions(records) {
-  return records.map((record) => ({
-    id: record.id,
-    label: `${record.employee_name} — ${record.pay_period}`,
-  }));
+  return records
+    .filter((record) => record.status !== "on_hold")
+    .map((record) => ({
+      id: record.id,
+      label: `${record.employee_name} — ${record.pay_period}`,
+    }));
 }
 
 function buildPayslipDetails(entry) {
