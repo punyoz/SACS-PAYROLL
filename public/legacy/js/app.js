@@ -118,7 +118,7 @@ function getPersistedRolePageState(role) {
 }
 
 function clearPersistedRolePageStates() {
-  ['admin', 'accountant', 'employee'].forEach((role) => {
+  ['admin', 'accountant', 'employee', 'hr'].forEach((role) => {
     localStorage.removeItem(getRolePageStateKey(role));
   });
 }
@@ -323,6 +323,7 @@ function getRoleNameFromScreen(screen) {
   if (id === 's-admin') return 'Administrator';
   if (id === 's-accountant') return 'Accountant';
   if (id === 's-emp') return 'Employee';
+  if (id === 's-hr') return 'HR';
   return 'Portal';
 }
 
@@ -547,6 +548,24 @@ function getRoleNotifications() {
     ];
   }
 
+  if (screenId === 's-hr') {
+    const pending = Number(document.getElementById('hr-dash-pending-leaves')?.textContent || 0);
+    const total = Number(document.getElementById('hr-dash-total-employees')?.textContent || 0);
+
+    return [
+      {
+        title: pending > 0 ? `${pending} leave request${pending > 1 ? 's' : ''} pending approval` : 'No pending leave requests',
+        desc: pending > 0
+          ? 'Open Leave Management to review and approve pending requests.'
+          : 'All leave requests have been processed.',
+      },
+      {
+        title: `${total || 0} employees on record`,
+        desc: 'Use Employee Records to view and update staff information.',
+      },
+    ];
+  }
+
   if (screenId === 's-emp') {
     const present = String(document.getElementById('emp-stat-present')?.textContent || '').trim();
     const late    = String(document.getElementById('emp-stat-late')?.textContent    || '').trim();
@@ -666,6 +685,11 @@ function refreshCurrentPortal() {
         if (typeof applyEmployeeIdentity === 'function') applyEmployeeIdentity();
         if (typeof renderPayslipOptions === 'function') renderPayslipOptions();
         if (typeof loadMyLeaveRequests === 'function') loadMyLeaveRequests();
+        return;
+      }
+      if (currentRole === 'hr' && typeof hrNav === 'function' && pageId) {
+        const navEl = document.querySelector(`#s-hr .ni[onclick*="${pageId}"]`);
+        hrNav(pageId, navEl);
         return;
       }
     }
@@ -1022,14 +1046,14 @@ function logout() {
     return;
   }
 
-  ['s-admin', 's-accountant', 's-emp'].forEach(id => {
+  ['s-admin', 's-accountant', 's-emp', 's-hr'].forEach(id => {
     document.getElementById(id)?.classList.remove('active');
   });
   document.getElementById('s-login').classList.add('active');
 }
 
 function showRoleScreen(role) {
-  const screens = ['s-login', 's-admin', 's-accountant', 's-emp'];
+  const screens = ['s-login', 's-admin', 's-accountant', 's-emp', 's-hr'];
   screens.forEach(id => document.getElementById(id)?.classList.remove('active'));
 
   if (role === 'admin') {
@@ -1038,6 +1062,8 @@ function showRoleScreen(role) {
     document.getElementById('s-accountant')?.classList.add('active');
   } else if (role === 'employee') {
     document.getElementById('s-emp')?.classList.add('active');
+  } else if (role === 'hr') {
+    document.getElementById('s-hr')?.classList.add('active');
   } else {
     document.getElementById('s-login')?.classList.add('active');
   }

@@ -38,6 +38,15 @@ const roleAccounts = [
     full_name: "Default Employee",
     employee_id: process.env.SEED_EMPLOYEE_LOGIN_ID || "SACS-EMP-001",
   },
+  {
+    role: "hr",
+    email: process.env.SEED_HR_EMAIL || "hr@example.com",
+    legacyEmail: "sacs.hr@gmail.com",
+    username: process.env.SEED_HR_USERNAME || "sacshr",
+    password: process.env.SEED_HR_PASSWORD || "Hr@12345",
+    full_name: "HR Officer",
+    employee_id: process.env.SEED_HR_EMPLOYEE_ID || "SACS-HR-001",
+  },
 ];
 
 const adminClient = serviceRoleKey
@@ -157,10 +166,17 @@ async function runAdminSeed() {
     });
 
     if (error) {
-      throw new Error(`Failed to upsert profile for ${account.email}: ${error.message}`);
+      const isEnumError = String(error.message || "").toLowerCase().includes("invalid input value for enum");
+      if (isEnumError) {
+        // The user_role enum doesn't include this role yet.
+        // Run supabase/migrations/20260520_add_hr_role_enum.sql in Supabase SQL editor to fix.
+        console.warn(`WARNING: profiles role enum missing '${account.role}'. Auth user created; run the HR migration to fix profiles. Login will still work via user_metadata.`);
+      } else {
+        throw new Error(`Failed to upsert profile for ${account.email}: ${error.message}`);
+      }
     }
 
-    const loginHint = account.role === "admin" ? ` (username: ${account.username})` : "";
+    const loginHint = account.username ? ` (username: ${account.username})` : "";
     console.log(`${action.toUpperCase()}: ${account.role} -> ${account.email}${loginHint}`);
   }
 }
@@ -212,7 +228,7 @@ async function runAnonSeed() {
 
     await supabase.auth.signOut();
     const label = isExistingUser || isRateLimited ? "VERIFIED" : "CREATED";
-    const loginHint = account.role === "admin" ? ` (username: ${account.username})` : "";
+    const loginHint = account.username ? ` (username: ${account.username})` : "";
     console.log(`${label}: ${account.role} -> ${account.email}${loginHint}`);
   }
 }

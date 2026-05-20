@@ -114,7 +114,8 @@
         'pages/login.html',
         'pages/admin.html',
         'pages/accountant.html',
-        'pages/employee.html'
+        'pages/employee.html',
+        'pages/hr.html'
       ];
 
       try {
@@ -128,6 +129,7 @@
         await loadScript('js/admin.js');
         await loadScript('js/accountant.js');
         await loadScript('js/employee.js');
+        await loadScript('js/hr.js');
       } catch (error) {
         appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';
       }

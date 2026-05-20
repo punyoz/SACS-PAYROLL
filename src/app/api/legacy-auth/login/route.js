@@ -6,10 +6,13 @@ const roleRoutes = {
   admin: "/admin",
   accountant: "/accountant",
   employee: "/employee",
+  hr: "/hr",
 };
 
 const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "sacsadmin").toLowerCase();
 const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "admin@example.com");
+const HR_USERNAME = normalizeText(process.env.SEED_HR_USERNAME, "sacshr").toLowerCase();
+const HR_EMAIL = normalizeText(process.env.SEED_HR_EMAIL, "hr@example.com");
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -55,6 +58,10 @@ function resolveLoginEmail(identityInput) {
   
   if (lowered === ADMIN_USERNAME) {
     return normalizeRoleEmail(ADMIN_EMAIL);
+  }
+
+  if (lowered === HR_USERNAME) {
+    return normalizeRoleEmail(HR_EMAIL);
   }
 
   if (lowered.includes("@")) {

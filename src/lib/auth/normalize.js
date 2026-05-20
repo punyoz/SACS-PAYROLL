@@ -7,6 +7,7 @@ export function normalizeRole(value) {
   const role = normalizeText(value).toLowerCase();
   if (role === "admin") return "admin";
   if (role === "accountant") return "accountant";
+  if (role === "hr") return "hr";
   return "employee";
 }
 

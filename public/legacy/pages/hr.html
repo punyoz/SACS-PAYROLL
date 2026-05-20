@@ -1,0 +1,354 @@
+<!-- ═══════════════════════════════════════
+     pages/hr.html — HR portal
+     Add/remove nav items and pages here.
+     Navigation logic lives in js/hr.js
+     ═══════════════════════════════════════ -->
+<div class="screen" id="s-hr">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <button class="sb-brand sb-refresh-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
+      <div class="bi">S</div>
+      <div class="bt">
+        <div class="bn">SACS Payroll</div>
+        <div class="bs">Human Resources</div>
+      </div>
+    </button>
+
+    <div class="sb-sec">Overview</div>
+    <div class="ni active" onclick="hrNav('hr-dashboard',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg>
+      HR Dashboard
+      <span class="nib" id="hr-dashboard-badge" style="display:none;">0</span>
+    </div>
+
+    <div class="sb-sec">Employees</div>
+    <div class="ni" onclick="hrNav('hr-employees',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="currentColor"/><path d="M2 13c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Employee Records
+    </div>
+    <div class="ni" onclick="hrNav('hr-employee-info',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Employee Information
+    </div>
+
+    <div class="sb-sec">Attendance</div>
+    <div class="ni" onclick="hrNav('hr-attendance',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Attendance Monitoring
+    </div>
+
+    <div class="sb-sec">Leave</div>
+    <div class="ni" onclick="hrNav('hr-leaves',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Leave Management
+      <span class="nib" id="hr-leave-badge" style="display:none;">0</span>
+    </div>
+
+    <div class="sb-sec">Reports</div>
+    <div class="ni" onclick="hrNav('hr-reports',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M2 12l4-4 3 3 5-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      HR Reports
+    </div>
+
+    <div class="sb-foot">
+      <div class="uc">
+        <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">HR</div>
+        <div><div class="un" id="hr-user-name">HR Officer</div><div class="ur">Human Resources</div></div>
+        <button class="xb" onclick="logout()">Sign Out</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <div class="main">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div>
+        <div class="tb-title" id="hr-tb-title">HR Dashboard</div>
+        <div class="tb-sub">Human Resources portal</div>
+      </div>
+      <div class="tb-sp"></div>
+      <span class="role-tag" style="background:rgba(29,184,160,.15);color:var(--teal);border:1px solid rgba(29,184,160,.3);">HR</span>
+      <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
+      <button class="nb" onclick="openSettingsModal('hr')" title="Account Settings" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button class="nb global-notification-trigger" title="Notifications" type="button">🔔<div class="nd"></div></button>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: HR Dashboard
+    ────────────────────────────── -->
+    <div class="page active" id="hr-dashboard">
+      <div class="ph"><h2>HR Dashboard</h2><p>Attendance summaries, leave notifications, and quick HR access</p></div>
+
+      <div class="sg">
+        <div class="card"><div class="ct">Total Employees</div><div class="cv" id="hr-panel-total">0</div><div class="cch">Active staff on record</div></div>
+        <div class="card"><div class="ct">Present Today</div><div class="cv g" id="hr-panel-present">0</div><div class="cch">Attendance today</div></div>
+        <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="hr-panel-absent">0</div><div class="cch">Not yet recorded</div></div>
+        <div class="card"><div class="ct">Pending Leaves</div><div class="cv a" id="hr-panel-leaves">0</div><div class="cch">Awaiting your decision</div></div>
+      </div>
+
+      <div class="sg2">
+        <!-- Staff breakdown -->
+        <div class="card">
+          <div class="sh"><span class="stitle">Staff Breakdown</span></div>
+          <div class="sg3" style="margin-top:10px;">
+            <div class="card"><div class="ct">Teaching</div><div class="cv" id="hr-panel-teaching">0</div></div>
+            <div class="card"><div class="ct">Non-Teaching</div><div class="cv" id="hr-panel-non-teaching">0</div></div>
+            <div class="card"><div class="ct">Late Today</div><div class="cv a" id="hr-panel-late">0</div></div>
+          </div>
+          <div style="margin-top:14px;">
+            <button class="btn btn-outline" style="margin-right:8px;" onclick="hrNav('hr-employees', document.querySelectorAll('#s-hr .ni')[1])">View Employees</button>
+            <button class="btn btn-outline" onclick="hrNav('hr-attendance', document.querySelectorAll('#s-hr .ni')[3])">View Attendance</button>
+          </div>
+        </div>
+
+        <!-- Pending leave requests -->
+        <div class="card">
+          <div class="sh">
+            <span class="stitle">Pending Leave Requests</span>
+            <span class="sp"></span>
+            <button class="btn btn-outline" onclick="hrNav('hr-leaves', document.querySelectorAll('#s-hr .ni')[4])">View all</button>
+          </div>
+          <div id="hr-dashboard-leave-list">
+            <div class="approval-item">
+              <div class="approval-info" style="color:var(--t3);">Loading leave requests...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent attendance -->
+      <div class="card">
+        <div class="sh"><span class="stitle">Recent Attendance Activity</span></div>
+        <div class="ai-list" id="hr-recent-activity">
+          <div class="ai-item"><div class="ai2"><div class="s">Loading attendance activity...</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Employee Records
+    ────────────────────────────── -->
+    <div class="page" id="hr-employees">
+      <div class="ph"><h2>Employee Records</h2><p>Manage employee profiles, employment information, and status</p></div>
+      <div class="chips" id="hr-emp-filter-chips">
+        <div class="chip active" data-filter="all" onclick="setHrEmployeeFilter('all')">All (0)</div>
+        <div class="chip" data-filter="teaching" onclick="setHrEmployeeFilter('teaching')">Teaching (0)</div>
+        <div class="chip" data-filter="non-teaching" onclick="setHrEmployeeFilter('non-teaching')">Non-Teaching (0)</div>
+        <div class="chip" data-filter="archived" onclick="setHrEmployeeFilter('archived')">Archived (0)</div>
+      </div>
+      <div class="adm-employee-controls">
+        <input id="hr-emp-search" class="fc" type="text" placeholder="Search employee name, ID, email, or position" oninput="setHrEmployeeSearch(this.value)" />
+      </div>
+      <div class="sh"><span class="stitle">Staff List</span><span class="sp"></span></div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>ID</th><th>Type</th><th>Position</th><th>Status</th><th>Email</th><th></th></tr></thead>
+        <tbody id="hr-employee-table-body">
+          <tr><td colspan="7" style="color:var(--t3);">Loading employees...</td></tr>
+        </tbody>
+      </table></div>
+      <div class="pg-bar" id="hr-emp-pg"></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Employee Information
+    ────────────────────────────── -->
+    <div class="page" id="hr-employee-info">
+      <div class="ph"><h2>Employee Information Management</h2><p>Maintain employee records, supporting documents, and employment details</p></div>
+      <div class="adm-employee-controls">
+        <input id="hr-info-search" class="fc" type="text" placeholder="Search employee name, ID, or email" oninput="setHrInfoSearch(this.value)" />
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>ID</th><th>Role</th><th>Type</th><th>Position</th><th>Status</th><th>Date of Birth</th><th>Email</th></tr></thead>
+        <tbody id="hr-info-table-body">
+          <tr><td colspan="8" style="color:var(--t3);">Loading employee information...</td></tr>
+        </tbody>
+      </table></div>
+      <div class="pg-bar" id="hr-info-pg"></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Attendance Monitoring
+    ────────────────────────────── -->
+    <div class="page" id="hr-attendance">
+      <div class="ph"><h2>Attendance Monitoring</h2><p>Review employee attendance records, track absences and tardiness</p></div>
+      <div class="sg3">
+        <div class="card"><div class="ct">Present</div><div class="cv g" id="hr-att-present">0</div></div>
+        <div class="card"><div class="ct">Late</div><div class="cv a" id="hr-att-late">0</div></div>
+        <div class="card"><div class="ct">Absent</div><div class="cv r" id="hr-att-absent">0</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px;">
+        <div class="sh" style="margin-bottom:10px;"><span class="stitle">Filter by Date</span></div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="fg" style="margin:0;min-width:200px;">
+            <label>Date</label>
+            <input id="hr-att-date" class="fc" type="date" onchange="loadHRAttendance()" />
+          </div>
+          <button class="btn btn-outline" onclick="loadHRAllAttendance()">View All Records</button>
+        </div>
+      </div>
+
+      <div class="sh"><span class="stitle" id="hr-att-title">Attendance Log — Today</span><span class="sp"></span><button class="btn btn-outline" onclick="exportHRAttendanceCsv()">Export CSV</button></div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>Type</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
+        <tbody id="hr-att-table-body">
+          <tr><td colspan="7" style="color:var(--t3);">Loading attendance records...</td></tr>
+        </tbody>
+      </table></div>
+      <div class="pg-bar" id="hr-att-pg"></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Leave Management
+    ────────────────────────────── -->
+    <div class="page" id="hr-leaves">
+      <div class="ph"><h2>Leave Management</h2><p>Review, approve, or reject employee leave applications and monitor leave history</p></div>
+      <div class="banner banner-blue">ℹ Leave requests forwarded for approval are listed here. Approved or rejected requests move to Leave History.</div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div id="hr-leave-list">
+          <div class="approval-card">
+            <div class="approval-card-body">
+              <div class="approval-card-meta">Loading leave requests...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="sh"><span class="stitle">Leave History</span></div>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Leave Type</th><th>Duration</th><th>Reason</th><th>Proof</th><th>Decision</th><th>Submitted</th><th>Decided</th></tr></thead>
+          <tbody id="hr-leave-history-body">
+            <tr><td colspan="8" style="color:var(--t3);">Loading leave history...</td></tr>
+          </tbody>
+        </table></div>
+        <div class="pg-bar" id="hr-leave-hist-pg"></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: HR Reports
+    ────────────────────────────── -->
+    <div class="page" id="hr-reports">
+      <div class="ph"><h2>HR Reports</h2><p>Generate attendance reports and employee record summaries for documentation</p></div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="sh" style="margin-bottom:12px;"><span class="stitle">Report Options</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;flex-wrap:wrap;">
+          <div class="fg" style="margin:0;">
+            <label>Report Type</label>
+            <select id="hr-report-type" class="fc" onchange="onHrReportTypeChange()">
+              <option value="attendance">Attendance Report</option>
+              <option value="employees">Employee Records</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;" id="hr-report-from-wrap">
+            <label>From Date</label>
+            <input id="hr-report-from" class="fc" type="date" />
+          </div>
+          <div class="fg" style="margin:0;" id="hr-report-to-wrap">
+            <label>To Date</label>
+            <input id="hr-report-to" class="fc" type="date" />
+          </div>
+          <button class="btn btn-primary" onclick="loadHRReports()">Generate</button>
+        </div>
+      </div>
+
+      <div class="sg" id="hr-reports-summary" style="display:none;">
+        <div class="card"><div class="ct">Total Records</div><div class="cv" id="hr-rep-total">0</div></div>
+        <div class="card"><div class="ct" id="hr-rep-stat1-label">Present Days</div><div class="cv g" id="hr-rep-stat1">0</div></div>
+        <div class="card"><div class="ct" id="hr-rep-stat2-label">Late Days</div><div class="cv a" id="hr-rep-stat2">0</div></div>
+        <div class="card"><div class="ct" id="hr-rep-stat3-label">Absent Days</div><div class="cv r" id="hr-rep-stat3">0</div></div>
+      </div>
+
+      <div class="sh" style="margin-top:6px;"><span class="stitle" id="hr-rep-table-title">Report Results</span><span class="sp"></span><button class="btn btn-outline" onclick="exportHRReportCsv()">Export CSV</button></div>
+      <div class="tw"><table>
+        <thead><tr id="hr-rep-thead"><th colspan="6" style="color:var(--t3);">Generate a report to view results</th></tr></thead>
+        <tbody id="hr-rep-table-body"></tbody>
+      </table></div>
+      <div class="pg-bar" id="hr-rep-pg"></div>
+    </div>
+
+  </div><!-- end .main -->
+
+  <!-- ── EDIT EMPLOYEE STATUS MODAL ── -->
+  <div id="hr-edit-employee-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="max-width:480px;">
+      <div class="adm-modal-head">
+        <h3>Update Employee Status</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeHrEditEmployeeModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="hr-edit-employee-form" class="adm-modal-form" onsubmit="submitHrEditEmployee(event)">
+        <input type="hidden" name="id" />
+        <div class="fg">
+          <label>Full Name</label>
+          <input class="fc" name="full_name" readonly style="opacity:.6;" />
+        </div>
+        <div class="fg">
+          <label>Employee ID</label>
+          <input class="fc" name="employee_id" readonly style="opacity:.6;" />
+        </div>
+        <div class="fg">
+          <label>Type</label>
+          <select class="fc" name="employee_type">
+            <option value="Teaching">Teaching</option>
+            <option value="Non-Teaching">Non-Teaching</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Position</label>
+          <select class="fc" name="position">
+            <option value="Employee">Employee</option>
+            <option value="Accountant">Accountant</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label>Employment Status</label>
+          <select class="fc" name="employee_status">
+            <option value="Active">Active</option>
+            <option value="Pending">Pending</option>
+            <option value="On Leave">On Leave</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <p id="hr-edit-employee-feedback" class="adm-feedback"></p>
+        <div class="adm-modal-actions">
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── SETTINGS MODAL ── -->
+  <div id="hr-settings-modal" class="adm-modal-backdrop" aria-hidden="true" style="display:none;">
+    <div class="adm-modal-card" style="max-width:400px;">
+      <div class="adm-modal-head">
+        <h3>Account Settings</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeSettingsModal('hr')" title="Close">&#x2715;</button>
+      </div>
+      <div style="padding:0 0 4px;">
+        <div class="fg">
+          <label>Current Password</label>
+          <input id="hr-current-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+        </div>
+        <div class="fg">
+          <label>New Password</label>
+          <input id="hr-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+        </div>
+        <div class="fg">
+          <label>Confirm New Password</label>
+          <input id="hr-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
+        </div>
+        <p id="hr-change-password-feedback" class="adm-feedback"></p>
+        <button class="lb" onclick="submitHrChangePassword()">Update Password</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end #s-hr -->
