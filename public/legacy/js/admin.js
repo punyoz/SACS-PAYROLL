@@ -9,7 +9,6 @@
 /* ── PAGE MAP ── */
 const ADMIN_PAGES = {
   'adm-dashboard':  'Dashboard',
-  'adm-employees':  'Manage Employees',
   'adm-attendance': 'Attendance',
   'adm-audit-logs': 'Audit Logs',
   'adm-users':      'User Management',
@@ -17,10 +16,6 @@ const ADMIN_PAGES = {
 };
 
 const AVATAR_COLORS = ['#3EC97A', '#F5A623', '#1DB8A0', '#E85555', '#7F77DD'];
-let allEmployees = [];
-let employeeTypeFilter = 'all';
-let employeeSearch = '';
-let currentEditingEmployee = null;
 let dashboardData = null;
 let attendanceData = null;
 let auditLogsData = [];
@@ -29,7 +24,6 @@ let auditSearch = '';
 let auditModuleFilter = 'all';
 let auditActionFilter = 'all';
 
-let empPaginator = null;
 let attPaginator = null;
 let auditPaginator = null;
 
@@ -67,10 +61,6 @@ function adminNav(pageId, navEl) {
 
   if (window.persistRolePageState) {
     window.persistRolePageState('admin', pageId);
-  }
-
-  if (pageId === 'adm-employees') {
-    loadEmployees();
   }
 
   if (pageId === 'adm-dashboard') {
@@ -171,6 +161,10 @@ function normalizePortalPosition(positionValue, roleValue) {
 
   if (role === 'accountant' || position === 'accountant' || position.includes('account')) {
     return 'Accountant';
+  }
+
+  if (role === 'hr' || position === 'hr officer' || position.includes('hr officer')) {
+    return 'HR Officer';
   }
 
   return 'Employee';
@@ -825,403 +819,7 @@ async function loadDashboard() {
   }
 }
 
-function updateFilterChipCounts() {
-  const allCount = allEmployees.filter((employee) => !employee.archived).length;
-  const teachingCount = allEmployees.filter((employee) => !employee.archived && employee.employee_type === 'Teaching').length;
-  const nonTeachingCount = allEmployees.filter((employee) => !employee.archived && employee.employee_type === 'Non-Teaching').length;
-  const archivedCount = allEmployees.filter((employee) => employee.archived).length;
-
-  document.querySelectorAll('#adm-filter-chips .chip').forEach((chip) => {
-    const filter = chip.getAttribute('data-filter');
-    if (filter === 'all') chip.textContent = `All (${allCount})`;
-    if (filter === 'teaching') chip.textContent = `Teaching (${teachingCount})`;
-    if (filter === 'non-teaching') chip.textContent = `Non-Teaching (${nonTeachingCount})`;
-    if (filter === 'archived') chip.textContent = `Archived (${archivedCount})`;
-  });
-}
-
-function getFilteredEmployees() {
-  const search = employeeSearch.toLowerCase();
-  return allEmployees.filter((employee) => {
-    if (employeeTypeFilter === 'all' && employee.archived) return false;
-    if (employeeTypeFilter === 'teaching' && (employee.archived || employee.employee_type !== 'Teaching')) return false;
-    if (employeeTypeFilter === 'non-teaching' && (employee.archived || employee.employee_type !== 'Non-Teaching')) return false;
-    if (employeeTypeFilter === 'archived' && !employee.archived) return false;
-
-    if (!search) return true;
-
-    const haystack = [employee.full_name, employee.email, employee.employee_id, employee.position]
-      .map((value) => String(value || '').toLowerCase())
-      .join(' ');
-
-    return haystack.includes(search);
-  });
-}
-
-function renderEmployees(employees) {
-  const tbody = document.getElementById('adm-employee-table-body');
-  if (!tbody) return;
-
-  if (!employees.length) {
-    const emptyMessage = employeeTypeFilter === 'archived'
-      ? 'No archived employees found.'
-      : 'No employees found. Add your first employee.';
-    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--t3);">${emptyMessage}</td></tr>`;
-    return;
-  }
-
-  const rows = employees.map((employee) => {
-    const initials = getInitials(employee.full_name);
-    const avatarColor = getAvatarColor(employee.email || employee.id);
-    const typeBadgeClass = employee.employee_type === 'Teaching' ? 'bt2' : 'ba';
-    const normalizedStatus = String(employee.employee_status || employee.rfid_status || 'Active').toLowerCase();
-    const statusBadgeClass = employee.archived ? 'br' : (normalizedStatus === 'pending' ? 'ba' : 'bg');
-    const employmentBadgeClass = employee.archived ? 'br' : (employee.employment_status === 'Probationary' ? 'ba' : 'bg');
-    const rfidText = employee.archived ? 'Archived' : escapeHtml(employee.rfid_status);
-    const statusText = employee.archived ? 'Archived' : escapeHtml(employee.employee_status || employee.rfid_status || 'Active');
-    const safeName = escapeHtml(employee.full_name);
-    const safeId = escapeHtml(employee.employee_id);
-    const safeType = escapeHtml(employee.employee_type);
-    const safePosition = escapeHtml(normalizePortalPosition(employee.position, employee.role));
-    const safeEmployeeId = escapeHtml(employee.id);
-
-    return `
-      <tr>
-        <td class="nm">
-          <div style="display:flex;align-items:center;gap:9px;">
-            <div class="av" style="width:28px;height:28px;font-size:10px;background:${avatarColor};">${initials}</div>
-            ${safeName}
-          </div>
-        </td>
-        <td class="mn">${safeId}</td>
-        <td><span class="badge ${typeBadgeClass}">${safeType}</span></td>
-        <td>${safePosition}</td>
-        <td class="mn">${formatMoney(employee.basic_salary)}</td>
-        <td><span class="badge ${statusBadgeClass}"><span class="bd"></span>${rfidText}</span></td>
-        <td><span class="badge ${employmentBadgeClass}">${statusText}</span></td>
-        <td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openEditEmployeeModal('${safeEmployeeId}')">Edit</button></td>
-      </tr>
-    `;
-  }).join('');
-
-  tbody.innerHTML = rows;
-}
-
-function renderFilteredEmployees() {
-  updateFilterChipCounts();
-  if (empPaginator) {
-    empPaginator.setData(getFilteredEmployees());
-  } else {
-    renderEmployees(getFilteredEmployees());
-  }
-}
-
-function setEmployeeTypeFilter(filter) {
-  employeeTypeFilter = filter;
-  document.querySelectorAll('#adm-filter-chips .chip').forEach((chip) => {
-    chip.classList.toggle('active', chip.getAttribute('data-filter') === filter);
-  });
-  renderFilteredEmployees();
-}
-
-function setEmployeeSearch(value) {
-  employeeSearch = String(value || '').trim();
-  renderFilteredEmployees();
-}
-
-async function loadEmployees() {
-  const tbody = document.getElementById('adm-employee-table-body');
-  if (!tbody) return;
-
-  tbody.innerHTML = skeletonRows(8);
-
-  try {
-    const response = await fetch('/api/admin/employees', { method: 'GET' });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to load employees');
-    }
-
-    allEmployees = payload.employees || [];
-    renderFilteredEmployees();
-  } catch (error) {
-    tbody.innerHTML = `<tr><td colspan="8" style="color:#E85555;">${error.message}</td></tr>`;
-  }
-}
-
-function showEmployeeFeedback(message, isError = false) {
-  const el = document.getElementById('add-employee-feedback');
-  if (!el) return;
-  el.textContent = message;
-  el.classList.toggle('err', isError);
-  el.classList.toggle('ok', !isError);
-}
-
-function openAddEmployeeModal() {
-  const modal = document.getElementById('add-employee-modal');
-  const form = document.getElementById('add-employee-form');
-  if (!modal || !form) return;
-
-  form.reset();
-  if (form.elements.suffix) form.elements.suffix.value = '';
-  syncPositionFieldWithRole(form);
-  showEmployeeFeedback('');
-  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
-  modal.style.display = 'flex';
-}
-
-function closeAddEmployeeModal() {
-  const modal = document.getElementById('add-employee-modal');
-  if (!modal) return;
-  modal.style.display = 'none';
-}
-
-function showEditFeedback(message, isError = false) {
-  const el = document.getElementById('edit-employee-feedback');
-  if (!el) return;
-  el.textContent = message;
-  el.classList.toggle('err', isError);
-  el.classList.toggle('ok', !isError);
-}
-
-function openEditEmployeeModal(employeeId) {
-  const modal = document.getElementById('edit-employee-modal');
-  const form = document.getElementById('edit-employee-form');
-  const archiveButton = document.getElementById('archive-employee-button');
-  if (!modal || !form || !archiveButton) return;
-
-  currentEditingEmployee = allEmployees.find((employee) => employee.id === employeeId);
-  if (!currentEditingEmployee) {
-    window.alert('Employee record not found. Please refresh the list.');
-    return;
-  }
-
-  form.elements.id.value = currentEditingEmployee.id;
-  const nameParts = splitFullName(currentEditingEmployee.full_name || '');
-  form.elements.first_name.value = nameParts.first_name || '';
-  form.elements.middle_initial.value = nameParts.middle_initial || '';
-  form.elements.last_name.value = nameParts.last_name || '';
-  form.elements.suffix.value = normalizeSuffix(nameParts.suffix);
-  form.elements.role.value = currentEditingEmployee.role || 'employee';
-  form.elements.email.value = currentEditingEmployee.email || '';
-  form.elements.employee_id.value = currentEditingEmployee.employee_id || '';
-  form.elements.employee_type.value = currentEditingEmployee.employee_type || 'Teaching';
-  form.elements.position.value = normalizePortalPosition(currentEditingEmployee.position, currentEditingEmployee.role);
-  form.elements.employee_status.value = currentEditingEmployee.employee_status || currentEditingEmployee.rfid_status || 'Active';
-  form.elements.basic_salary.value = Number(currentEditingEmployee.basic_salary || 0);
-  form.elements.date_of_birth.value = currentEditingEmployee.date_of_birth || '';
-  form.elements.password.value = '';
-
-  archiveButton.className = currentEditingEmployee.archived ? 'btn btn-green' : 'btn btn-red';
-  archiveButton.textContent = currentEditingEmployee.archived ? 'Restore Employee' : 'Archive Employee';
-
-  showEditFeedback('');
-  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
-  modal.style.display = 'flex';
-}
-
-function closeEditEmployeeModal() {
-  const modal = document.getElementById('edit-employee-modal');
-  if (!modal) return;
-  modal.style.display = 'none';
-}
-
-async function toggleArchiveCurrentEmployee() {
-  if (!currentEditingEmployee) return;
-  const archiveButton = document.getElementById('archive-employee-button');
-  if (!archiveButton) return;
-
-  const action = currentEditingEmployee.archived ? 'restore' : 'archive';
-  const actionPrompt = action === 'archive'
-    ? 'archive this employee record'
-    : 'restore this employee record';
-  const detailPrompt = action === 'archive'
-    ? 'Archived records are hidden from active lists and related payroll processing views.'
-    : 'This employee will return to active lists and payroll processing views.';
-
-  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(actionPrompt, detailPrompt))) {
-    return;
-  }
-
-  try {
-    archiveButton.disabled = true;
-    archiveButton.textContent = action === 'archive' ? 'Archiving...' : 'Restoring...';
-
-    const response = await fetch('/api/admin/employees', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: currentEditingEmployee.id, action }),
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to update archive status');
-    }
-
-    showEditFeedback(action === 'archive' ? 'Employee archived from active list.' : 'Employee restored to active list.', false);
-    window.pushNotification?.(
-      action === 'archive' ? 'Employee Archived' : 'Employee Restored',
-      action === 'archive' ? 'The employee record has been moved to the archive.' : 'The employee record has been restored to the active list.',
-      'info'
-    );
-    await Promise.all([loadEmployees(), loadDashboard(), loadAttendanceData(), loadAuditLogs()]);
-    closeEditEmployeeModal();
-  } catch (error) {
-    showEditFeedback(error.message, true);
-  } finally {
-    archiveButton.disabled = false;
-    archiveButton.textContent = currentEditingEmployee.archived ? 'Restore Employee' : 'Archive Employee';
-  }
-}
-
-async function submitAddEmployee(event) {
-  event.preventDefault();
-
-  const form = event.target;
-  const submitButton = form.querySelector('button[type="submit"]');
-  const formData = new FormData(form);
-  const payload = {
-    first_name: String(formData.get('first_name') || '').trim(),
-    middle_initial: String(formData.get('middle_initial') || '').trim(),
-    last_name: String(formData.get('last_name') || '').trim(),
-    suffix: normalizeSuffix(formData.get('suffix')),
-    role: String(formData.get('role') || 'employee').trim().toLowerCase(),
-    email: String(formData.get('email') || '').trim(),
-    date_of_birth: String(formData.get('date_of_birth') || '').trim(),
-    employee_type: String(formData.get('employee_type') || 'Teaching').trim(),
-    position: normalizePortalPosition(String(formData.get('position') || '').trim(), String(formData.get('role') || 'employee').trim()),
-    employee_status: String(formData.get('employee_status') || 'Active').trim(),
-    basic_salary: Number(formData.get('basic_salary') || 0),
-  };
-
-  payload.full_name = composeFullName(payload);
-  payload.password = buildDefaultPassword(payload.last_name, payload.date_of_birth);
-
-  if (!payload.first_name || !payload.last_name || !payload.email || !payload.date_of_birth) {
-    showEmployeeFeedback('First name, last name, email, and date of birth are required.', true);
-    return;
-  }
-
-  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.last_name)) {
-    showEmployeeFeedback('Name fields must contain letters only — no numbers or special characters.', true);
-    return;
-  }
-
-  if (payload.middle_initial && !/^[A-Za-z\s]+$/.test(payload.middle_initial)) {
-    showEmployeeFeedback('Middle name must contain letters only — no numbers or special characters.', true);
-    return;
-  }
-
-  if (!payload.password) {
-    showEmployeeFeedback('Date of birth is invalid. Use a valid date.', true);
-    return;
-  }
-
-  try {
-    submitButton.disabled = true;
-    submitButton.textContent = 'Creating...';
-
-    const response = await fetch('/api/admin/employees', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to create employee');
-    }
-
-    const createdId = result.employee?.employee_id || '';
-    showEmployeeFeedback(`Employee created with ID ${createdId}.`, false);
-    window.pushNotification?.('Employee Added', `New employee created with ID ${createdId}.`, 'success');
-    await Promise.all([loadEmployees(), loadDashboard(), loadAttendanceData(), loadAuditLogs()]);
-
-    setTimeout(() => {
-      closeAddEmployeeModal();
-    }, 500);
-  } catch (error) {
-    showEmployeeFeedback(error.message, true);
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = 'Create Employee';
-  }
-}
-
-async function submitEditEmployee(event) {
-  event.preventDefault();
-
-  const form = event.target;
-  const submitButton = form.querySelector('button[type="submit"]');
-  const formData = new FormData(form);
-
-  const payload = {
-    id: String(formData.get('id') || '').trim(),
-    action: 'update',
-    first_name: String(formData.get('first_name') || '').trim(),
-    middle_initial: String(formData.get('middle_initial') || '').trim(),
-    last_name: String(formData.get('last_name') || '').trim(),
-    suffix: normalizeSuffix(formData.get('suffix')),
-    role: String(formData.get('role') || 'employee').trim().toLowerCase(),
-    email: String(formData.get('email') || '').trim(),
-    employee_id: String(formData.get('employee_id') || '').trim(),
-    employee_type: String(formData.get('employee_type') || 'Teaching').trim(),
-    position: normalizePortalPosition(String(formData.get('position') || '').trim(), String(formData.get('role') || 'employee').trim()),
-    employee_status: String(formData.get('employee_status') || 'Active').trim(),
-    basic_salary: Number(formData.get('basic_salary') || 0),
-    date_of_birth: String(formData.get('date_of_birth') || '').trim(),
-    password: String(formData.get('password') || '').trim(),
-  };
-
-  payload.full_name = composeFullName(payload);
-
-  if (!payload.id || !payload.first_name || !payload.last_name || !payload.email || !payload.employee_id) {
-    showEditFeedback('ID, first name, last name, email, and employee ID are required.', true);
-    return;
-  }
-
-  if (!isValidNamePart(payload.first_name) || !isValidNamePart(payload.last_name)) {
-    showEditFeedback('Name fields must contain letters only — no numbers or special characters.', true);
-    return;
-  }
-
-  if (payload.middle_initial && !/^[A-Za-z\s]+$/.test(payload.middle_initial)) {
-    showEditFeedback('Middle name must contain letters only — no numbers or special characters.', true);
-    return;
-  }
-
-  if (!payload.password) {
-    delete payload.password;
-  }
-
-  try {
-    submitButton.disabled = true;
-    submitButton.textContent = 'Saving...';
-
-    const response = await fetch('/api/admin/employees', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to update employee');
-    }
-
-    showEditFeedback('Employee details updated.', false);
-    window.pushNotification?.('Employee Updated', 'Employee details have been saved successfully.', 'success');
-    await Promise.all([loadEmployees(), loadDashboard(), loadAttendanceData(), loadAuditLogs()]);
-    closeEditEmployeeModal();
-  } catch (error) {
-    showEditFeedback(error.message, true);
-  } finally {
-    submitButton.disabled = false;
-    submitButton.textContent = 'Save Changes';
-  }
-}
-
+window.onAddUserRoleChange = onAddUserRoleChange;
 window.openAddUserModal = openAddUserModal;
 window.closeAddUserModal = closeAddUserModal;
 window.submitAddUser = submitAddUser;
@@ -1236,15 +834,6 @@ window.closeRfidEditModal = closeRfidEditModal;
 window.submitRfidUpdate = submitRfidUpdate;
 window.setRfidDeviceSearch = setRfidDeviceSearch;
 window.loadSystemData = loadSystemData;
-window.openAddEmployeeModal = openAddEmployeeModal;
-window.closeAddEmployeeModal = closeAddEmployeeModal;
-window.submitAddEmployee = submitAddEmployee;
-window.openEditEmployeeModal = openEditEmployeeModal;
-window.closeEditEmployeeModal = closeEditEmployeeModal;
-window.submitEditEmployee = submitEditEmployee;
-window.toggleArchiveCurrentEmployee = toggleArchiveCurrentEmployee;
-window.setEmployeeTypeFilter = setEmployeeTypeFilter;
-window.setEmployeeSearch = setEmployeeSearch;
 window.submitRfidAttendanceScan = submitRfidAttendanceScan;
 window.exportAttendanceCsv = exportAttendanceCsv;
 window.setAuditSearch = setAuditSearch;
@@ -1312,7 +901,7 @@ function getFilteredUsers() {
     if (user.archived) return false;
     if (userRoleFilter !== 'all' && user.role !== userRoleFilter) return false;
     if (!search) return true;
-    const haystack = [user.full_name, user.email, user.role]
+    const haystack = [user.full_name, user.email, user.role, user.employee_type, user.employee_id]
       .map((v) => String(v || '').toLowerCase())
       .join(' ');
     return haystack.includes(search);
@@ -1324,7 +913,7 @@ function renderUsers(users) {
   if (!tbody) return;
 
   if (!users.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);">No users found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--t3);">No users found.</td></tr>`;
     return;
   }
 
@@ -1335,12 +924,13 @@ function renderUsers(users) {
     const badgeClass = getRoleBadgeClass(role);
     const statusClass = user.archived ? 'br' : 'bg';
     const statusText = user.archived ? 'Archived' : 'Active';
-    const lastLogin = user.last_sign_in
-      ? formatDateTime(user.last_sign_in)
-      : 'Never';
+    const lastLogin = user.last_sign_in ? formatDateTime(user.last_sign_in) : 'Never';
     const safeId = escapeHtml(user.id);
     const safeName = escapeHtml(user.full_name);
     const safeEmail = escapeHtml(user.email);
+    const typeText = user.employee_type ? escapeHtml(user.employee_type) : '—';
+    const typeClass = user.employee_type === 'Non-Teaching' ? 'ba' : (user.employee_type ? 'bt2' : '');
+    const empIdText = user.employee_id ? escapeHtml(user.employee_id) : '—';
 
     return `
       <tr>
@@ -1352,6 +942,8 @@ function renderUsers(users) {
         </td>
         <td class="mn">${safeEmail}</td>
         <td><span class="badge ${badgeClass}">${escapeHtml(getRoleLabel(role))}</span></td>
+        <td>${typeClass ? `<span class="badge ${typeClass}">${typeText}</span>` : `<span style="color:var(--t3);">—</span>`}</td>
+        <td class="mn">${empIdText}</td>
         <td class="mn" style="font-size:11px;">${escapeHtml(lastLogin)}</td>
         <td><span class="badge ${statusClass}"><span class="bd"></span>${statusText}</span></td>
         <td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openEditUserModal('${safeId}')">Edit</button></td>
@@ -1384,18 +976,28 @@ function setUserSearch(value) {
 
 async function loadUsers() {
   const tbody = document.getElementById('adm-users-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(6);
+  if (tbody) tbody.innerHTML = skeletonRows(8);
 
   try {
-    const response = await fetch('/api/admin/users', { method: 'GET' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Failed to load users');
+    const [usersRes, empRes] = await Promise.all([
+      fetch('/api/admin/users', { method: 'GET' }),
+      fetch('/api/admin/employees', { method: 'GET' }),
+    ]);
+    const usersPayload = await usersRes.json();
+    if (!usersRes.ok) throw new Error(usersPayload.error || 'Failed to load users');
 
-    allUsers = payload.users || [];
+    const empPayload = empRes.ok ? await empRes.json() : { employees: [] };
+    const empMap = new Map((empPayload.employees || []).map((e) => [e.id, e]));
+
+    allUsers = (usersPayload.users || []).map((u) => {
+      const empData = empMap.get(u.id) || {};
+      return { ...u, ...empData, last_sign_in: u.last_sign_in, created_at: u.created_at };
+    });
+
     renderFilteredUsers();
   } catch (error) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
     }
   }
 }
@@ -1408,12 +1010,24 @@ function showAddUserFeedback(message, isError = false) {
   el.classList.toggle('ok', !isError && Boolean(message));
 }
 
+function onAddUserRoleChange(role) {
+  const form = document.getElementById('add-user-form');
+  if (!form) return;
+  const isEmpRole = ['employee', 'accountant', 'hr'].includes(String(role || '').toLowerCase());
+  form.querySelectorAll('.adm-emp-fields').forEach((el) => { el.style.display = isEmpRole ? '' : 'none'; });
+  form.querySelectorAll('.adm-nomp-fields').forEach((el) => { el.style.display = isEmpRole ? 'none' : ''; });
+  syncPositionFieldWithRole(form);
+}
+
 function openAddUserModal() {
   const modal = document.getElementById('add-user-modal');
   const form = document.getElementById('add-user-form');
   if (!modal || !form) return;
   form.reset();
+  if (form.elements.suffix) form.elements.suffix.value = '';
   showAddUserFeedback('');
+  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
+  onAddUserRoleChange('employee');
   modal.style.display = 'flex';
 }
 
@@ -1428,38 +1042,75 @@ async function submitAddUser(event) {
   const submitBtn = form.querySelector('button[type="submit"]');
   const formData = new FormData(form);
 
-  const payload = {
-    full_name: String(formData.get('full_name') || '').trim(),
-    email: String(formData.get('email') || '').trim(),
-    role: String(formData.get('role') || 'employee').trim(),
-    password: String(formData.get('password') || '').trim(),
-  };
+  const role = String(formData.get('role') || 'employee').trim().toLowerCase();
+  const firstName = String(formData.get('first_name') || '').trim();
+  const lastName = String(formData.get('last_name') || '').trim();
+  const middleInitial = String(formData.get('middle_initial') || '').trim();
+  const suffix = String(formData.get('suffix') || '').trim();
+  const email = String(formData.get('email') || '').trim();
+  const isEmpRole = ['employee', 'accountant', 'hr'].includes(role);
 
-  if (!payload.full_name || !payload.email || !payload.password) {
-    showAddUserFeedback('Full name, email, and password are required.', true);
+  if (!firstName || !lastName) {
+    showAddUserFeedback('First name and last name are required.', true);
+    return;
+  }
+  if (!email) {
+    showAddUserFeedback('Email is required.', true);
     return;
   }
 
-  if (payload.password.length < 6) {
-    showAddUserFeedback('Password must be at least 6 characters.', true);
-    return;
-  }
+  const fullName = composeFullName({ first_name: firstName, middle_initial: middleInitial, last_name: lastName, suffix });
 
   try {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Creating...';
 
-    const response = await fetch('/api/admin/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let response;
+    if (isEmpRole) {
+      const dateOfBirth = String(formData.get('date_of_birth') || '').trim();
+      if (!dateOfBirth) {
+        showAddUserFeedback('Date of birth is required.', true);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create User';
+        return;
+      }
+      response = await fetch('/api/admin/employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: firstName,
+          middle_initial: middleInitial,
+          last_name: lastName,
+          suffix,
+          email,
+          role,
+          date_of_birth: dateOfBirth,
+          employee_type: String(formData.get('employee_type') || 'Teaching').trim(),
+          position: String(formData.get('position') || '').trim(),
+          basic_salary: Number(formData.get('basic_salary') || 0) || 0,
+          employee_status: String(formData.get('employee_status') || 'Active').trim(),
+        }),
+      });
+    } else {
+      const password = String(formData.get('password') || '').trim();
+      if (!password || password.length < 6) {
+        showAddUserFeedback('Password must be at least 6 characters.', true);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create User';
+        return;
+      }
+      response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: fullName, email, role, password }),
+      });
+    }
 
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Failed to create user');
 
     showAddUserFeedback('User account created successfully.', false);
-    window.pushNotification?.('User Created', `New ${payload.role} account created for ${payload.full_name}.`, 'success');
+    window.pushNotification?.('User Created', `New ${role} account created for ${fullName}.`, 'success');
     await loadUsers();
     setTimeout(() => closeAddUserModal(), 500);
   } catch (error) {
@@ -1490,16 +1141,39 @@ function openEditUserModal(userId) {
     return;
   }
 
+  const nameParts = splitFullName(currentEditingUser.full_name || '');
+
   form.elements.id.value = currentEditingUser.id;
-  form.elements.full_name.value = currentEditingUser.full_name || '';
+  const midName = nameParts.middle_initial
+    || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
+
+  if (form.elements.first_name) form.elements.first_name.value = nameParts.first_name || '';
+  if (form.elements.middle_initial) form.elements.middle_initial.value = midName;
+  if (form.elements.last_name) form.elements.last_name.value = nameParts.last_name || '';
+  if (form.elements.suffix) form.elements.suffix.value = nameParts.suffix || '';
   form.elements.email.value = currentEditingUser.email || '';
   form.elements.role.value = currentEditingUser.role || 'employee';
-  form.elements.password.value = '';
+  if (form.elements.password) form.elements.password.value = '';
+
+  const hasEmpProfile = Boolean(currentEditingUser.employee_id);
+  form.querySelectorAll('.adm-edit-emp-fields').forEach((el) => {
+    el.style.display = hasEmpProfile ? '' : 'none';
+  });
+
+  if (hasEmpProfile) {
+    if (form.elements.employee_id) form.elements.employee_id.value = currentEditingUser.employee_id || '';
+    if (form.elements.date_of_birth) form.elements.date_of_birth.value = currentEditingUser.date_of_birth || '';
+    if (form.elements.employee_type) form.elements.employee_type.value = currentEditingUser.employee_type || 'Teaching';
+    if (form.elements.position) form.elements.position.value = currentEditingUser.position || 'Employee';
+    if (form.elements.employee_status) form.elements.employee_status.value = currentEditingUser.employee_status || 'Active';
+    if (form.elements.basic_salary) form.elements.basic_salary.value = currentEditingUser.basic_salary || 0;
+  }
 
   archiveBtn.className = currentEditingUser.archived ? 'btn btn-green' : 'btn btn-red';
   archiveBtn.textContent = currentEditingUser.archived ? 'Restore User' : 'Archive User';
 
   showEditUserFeedback('');
+  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
   modal.style.display = 'flex';
 }
 
@@ -1560,36 +1234,63 @@ async function submitEditUser(event) {
   const submitBtn = form.querySelector('button[type="submit"]');
   const formData = new FormData(form);
 
-  const payload = {
-    id: String(formData.get('id') || '').trim(),
-    action: 'update',
-    full_name: String(formData.get('full_name') || '').trim(),
-    email: String(formData.get('email') || '').trim(),
-    role: String(formData.get('role') || 'employee').trim(),
-    password: String(formData.get('password') || '').trim(),
-  };
+  const id = String(formData.get('id') || '').trim();
+  const firstName = String(formData.get('first_name') || '').trim();
+  const lastName = String(formData.get('last_name') || '').trim();
+  const middleInitial = String(formData.get('middle_initial') || '').trim();
+  const suffix = String(formData.get('suffix') || '').trim();
+  const email = String(formData.get('email') || '').trim();
+  const role = String(formData.get('role') || 'employee').trim();
+  const password = String(formData.get('password') || '').trim();
 
-  if (!payload.id || !payload.full_name || !payload.email) {
-    showEditUserFeedback('Full name and email are required.', true);
+  if (!id || !firstName || !lastName || !email) {
+    showEditUserFeedback('First name, last name, and email are required.', true);
     return;
   }
 
-  if (payload.password && payload.password.length < 6) {
+  if (password && password.length < 6) {
     showEditUserFeedback('Password must be at least 6 characters.', true);
     return;
   }
 
-  if (!payload.password) delete payload.password;
+  const fullName = composeFullName({ first_name: firstName, middle_initial: middleInitial, last_name: lastName, suffix });
+  const hasEmpProfile = Boolean(currentEditingUser?.employee_id);
 
   try {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Saving...';
 
-    const response = await fetch('/api/admin/users', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let response;
+    if (hasEmpProfile) {
+      const payload = {
+        id,
+        action: 'update',
+        full_name: fullName,
+        email,
+        role,
+        employee_type: String(formData.get('employee_type') || 'Teaching').trim(),
+        position: String(formData.get('position') || '').trim(),
+        basic_salary: Number(formData.get('basic_salary') || 0) || 0,
+        date_of_birth: String(formData.get('date_of_birth') || '').trim(),
+        employee_status: String(formData.get('employee_status') || 'Active').trim(),
+      };
+      if (password) payload.password = password;
+
+      response = await fetch('/api/admin/employees', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      const payload = { id, action: 'update', full_name: fullName, email, role };
+      if (password) payload.password = password;
+
+      response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    }
 
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Failed to update user');
@@ -1838,21 +1539,14 @@ function initAdminPortal() {
 
   attachSidebarSpotlight(document.querySelector('#s-admin .sidebar'));
 
-  empPaginator = window.createPaginator({ id: 'adm-emp', pageSize: 15, renderFn: renderEmployees });
   attPaginator = window.createPaginator({ id: 'adm-att', pageSize: 15, renderFn: renderAttendanceTable });
   auditPaginator = window.createPaginator({ id: 'adm-audit', pageSize: 20, renderFn: renderAuditTable });
   usersPaginator = window.createPaginator({ id: 'adm-users', pageSize: 20, renderFn: renderUsers });
   rfidPaginator = window.createPaginator({ id: 'adm-rfid', pageSize: 15, renderFn: renderRfidDevices });
 
-  const addForm = document.getElementById('add-employee-form');
-  const editForm = document.getElementById('edit-employee-form');
-
-  if (addForm?.elements?.role) {
-    addForm.elements.role.addEventListener('change', () => syncPositionFieldWithRole(addForm));
-  }
-
-  if (editForm?.elements?.role) {
-    editForm.elements.role.addEventListener('change', () => syncPositionFieldWithRole(editForm));
+  const addUserForm = document.getElementById('add-user-form');
+  if (addUserForm?.elements?.role) {
+    addUserForm.elements.role.addEventListener('change', (e) => onAddUserRoleChange(e.target.value));
   }
 
   setupNameFieldValidation();

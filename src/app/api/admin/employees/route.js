@@ -64,6 +64,10 @@ function normalizePositionForRole(positionInput, roleInput) {
     return "Accountant";
   }
 
+  if (role === "hr" || position === "hr officer" || position.includes("hr officer")) {
+    return "HR Officer";
+  }
+
   return "Employee";
 }
 
@@ -163,7 +167,7 @@ async function fetchEmployees(supabase) {
 
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return role === "employee" || role === "accountant";
+    return role === "employee" || role === "accountant" || role === "hr";
   });
 
   const userIds = employeeUsers.map((user) => user.id);

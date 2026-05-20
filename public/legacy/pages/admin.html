@@ -20,10 +20,6 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg>
       Dashboard
     </div>
-    <div class="ni" onclick="adminNav('adm-employees',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="currentColor"/><path d="M2 13c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-      Manage Employees
-    </div>
     <div class="ni" onclick="adminNav('adm-attendance',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Attendance
@@ -96,37 +92,6 @@
           <div class="ai-item"><div class="ai2"><div class="s">Loading recent payroll activity...</div></div></div>
         </div>
       </div>
-    </div>
-
-    <!-- ──────────────────────────────
-         PAGE: Manage Employees
-    ────────────────────────────── -->
-    <div class="page" id="adm-employees">
-      <div class="ph"><h2>Manage Employees</h2><p>Add, edit, or remove teaching and non-teaching staff</p></div>
-      <div class="chips" id="adm-filter-chips">
-        <div class="chip active" data-filter="all" onclick="setEmployeeTypeFilter('all')">All (0)</div>
-        <div class="chip" data-filter="teaching" onclick="setEmployeeTypeFilter('teaching')">Teaching (0)</div>
-        <div class="chip" data-filter="non-teaching" onclick="setEmployeeTypeFilter('non-teaching')">Non-Teaching (0)</div>
-        <div class="chip" data-filter="archived" onclick="setEmployeeTypeFilter('archived')">Archived (0)</div>
-      </div>
-      <div class="adm-employee-controls">
-        <input
-          id="adm-employee-search"
-          class="fc"
-          type="text"
-          placeholder="Search employee name, ID, email, or position"
-          oninput="setEmployeeSearch(this.value)"
-        />
-      </div>
-      <div class="sh"><span class="stitle">Staff List</span><span class="sp"></span><button class="btn btn-primary" onclick="openAddEmployeeModal()">+ Add Employee</button></div>
-      <div class="tw"><table>
-        <thead><tr><th>Employee</th><th>ID</th><th>Type</th><th>Position</th><th>Basic Salary</th><th>RFID</th><th>Status</th><th></th></tr></thead>
-        <tbody id="adm-employee-table-body">
-          <tr><td colspan="8" style="color:var(--t3);">Loading employees...</td></tr>
-        </tbody>
-      </table></div>
-      <div class="pg-bar" id="adm-emp-pg"></div>
-
     </div>
 
     <!-- ──────────────────────────────
@@ -256,9 +221,9 @@
       </div>
 
       <div class="tw"><table>
-        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Last Login</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Type</th><th>Employee ID</th><th>Last Login</th><th>Status</th><th></th></tr></thead>
         <tbody id="adm-users-table-body">
-          <tr><td colspan="6" style="color:var(--t3);">Loading users...</td></tr>
+          <tr><td colspan="8" style="color:var(--t3);">Loading users...</td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="adm-users-pg"></div>
@@ -315,21 +280,40 @@
   <div id="add-user-modal" class="adm-modal-backdrop" style="display:none;">
     <div class="adm-modal-card">
       <div class="adm-modal-head">
-        <h3>Add User Account</h3>
+        <h3>Add User</h3>
         <button class="btn btn-close-x" type="button" onclick="closeAddUserModal()" title="Close">&#x2715;</button>
       </div>
       <form id="add-user-form" class="adm-modal-form" onsubmit="submitAddUser(event)">
         <div class="fg">
-          <label>Full Name</label>
-          <input class="fc" name="full_name" required maxlength="60" placeholder="e.g. Juan Dela Cruz" />
+          <label>First Name</label>
+          <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+          <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Email</label>
-          <input class="fc" name="email" type="email" required placeholder="e.g. juan@example.com" />
+          <label>Middle Name</label>
+          <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Last Name</label>
+          <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Suffix</label>
+          <select class="fc" name="suffix">
+            <option value="">None</option>
+            <option value="Jr.">Jr.</option>
+            <option value="Sr.">Sr.</option>
+            <option value="II">II</option>
+            <option value="III">III</option>
+            <option value="IV">IV</option>
+            <option value="V">V</option>
+          </select>
         </div>
         <div class="fg">
           <label>Role</label>
-          <select class="fc" name="role">
+          <select class="fc" name="role" onchange="onAddUserRoleChange(this.value)">
             <option value="employee">Employee</option>
             <option value="accountant">Accountant</option>
             <option value="hr">HR</option>
@@ -337,9 +321,44 @@
           </select>
         </div>
         <div class="fg">
-          <label>Password</label>
-          <input class="fc" name="password" type="password" required minlength="6" placeholder="Minimum 6 characters" />
+          <label>Email</label>
+          <input class="fc" name="email" type="email" required placeholder="e.g. maria.employee@example.com" />
         </div>
+        <div class="fg adm-emp-fields">
+          <label>Date of Birth</label>
+          <input class="fc" name="date_of_birth" type="date" />
+        </div>
+        <div class="fg adm-emp-fields">
+          <label>Type</label>
+          <select class="fc" name="employee_type">
+            <option value="Teaching">Teaching</option>
+            <option value="Non-Teaching">Non-Teaching</option>
+          </select>
+        </div>
+        <div class="fg adm-emp-fields">
+          <label>Position</label>
+          <select class="fc" name="position">
+            <option value="Employee">Employee</option>
+            <option value="Accountant">Accountant</option>
+            <option value="HR Officer">HR Officer</option>
+          </select>
+        </div>
+        <div class="fg adm-emp-fields">
+          <label>Status</label>
+          <select class="fc" name="employee_status">
+            <option value="Active">Active</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </div>
+        <div class="fg adm-emp-fields" style="grid-column:1/-1;">
+          <label>Basic Salary (PHP)</label>
+          <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" placeholder="e.g. 18500" />
+        </div>
+        <div class="fg adm-nomp-fields" style="grid-column:1/-1;display:none;">
+          <label>Password</label>
+          <input class="fc" name="password" type="password" placeholder="Minimum 6 characters" />
+        </div>
+        <p class="adm-feedback adm-emp-fields" style="grid-column:1/-1;">Employee ID is auto-generated and unique. Default password format: LastNameMMDDYYYY (example: Refuerzo10082004).</p>
         <p id="add-user-feedback" class="adm-feedback" style="grid-column:1/-1;"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Create User</button>
@@ -351,14 +370,37 @@
   <div id="edit-user-modal" class="adm-modal-backdrop" style="display:none;">
     <div class="adm-modal-card">
       <div class="adm-modal-head">
-        <h3>Edit User Account</h3>
+        <h3>Edit User</h3>
         <button class="btn btn-close-x" type="button" onclick="closeEditUserModal()" title="Close">&#x2715;</button>
       </div>
       <form id="edit-user-form" class="adm-modal-form" onsubmit="submitEditUser(event)">
         <input type="hidden" name="id" />
         <div class="fg">
-          <label>Full Name</label>
-          <input class="fc" name="full_name" required maxlength="60" />
+          <label>First Name</label>
+          <input class="fc name-input" name="first_name" required maxlength="16" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Middle Name</label>
+          <input class="fc name-input" name="middle_initial" maxlength="16" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Last Name</label>
+          <input class="fc name-input" name="last_name" required maxlength="16" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Suffix</label>
+          <select class="fc" name="suffix">
+            <option value="">None</option>
+            <option value="Jr.">Jr.</option>
+            <option value="Sr.">Sr.</option>
+            <option value="II">II</option>
+            <option value="III">III</option>
+            <option value="IV">IV</option>
+            <option value="V">V</option>
+          </select>
         </div>
         <div class="fg">
           <label>Email</label>
@@ -374,7 +416,41 @@
             <option value="admin">Admin</option>
           </select>
         </div>
-        <div class="fg">
+        <div class="fg adm-edit-emp-fields">
+          <label>Employee ID</label>
+          <input class="fc" name="employee_id" readonly style="background:var(--bg3);cursor:default;" />
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Date of Birth</label>
+          <input class="fc" name="date_of_birth" type="date" />
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Type</label>
+          <select class="fc" name="employee_type">
+            <option value="Teaching">Teaching</option>
+            <option value="Non-Teaching">Non-Teaching</option>
+          </select>
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Position</label>
+          <select class="fc" name="position">
+            <option value="Employee">Employee</option>
+            <option value="Accountant">Accountant</option>
+            <option value="HR Officer">HR Officer</option>
+          </select>
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Status</label>
+          <select class="fc" name="employee_status">
+            <option value="Active">Active</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Basic Salary (PHP)</label>
+          <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" />
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
           <label>New Password (Optional)</label>
           <input class="fc" name="password" type="password" placeholder="Leave blank to keep current" />
         </div>
@@ -408,189 +484,6 @@
         <p id="rfid-edit-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Save RFID</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div id="add-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card">
-      <div class="adm-modal-head">
-        <h3>Add Employee</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeAddEmployeeModal()" title="Close">&#x2715;</button>
-      </div>
-
-      <form id="add-employee-form" class="adm-modal-form" onsubmit="submitAddEmployee(event)">
-        <div class="fg">
-          <label>First Name</label>
-          <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Middle Name</label>
-          <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Last Name</label>
-          <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Suffix</label>
-          <select class="fc" name="suffix">
-            <option value="">None</option>
-            <option value="Jr.">Jr.</option>
-            <option value="Sr.">Sr.</option>
-            <option value="II">II</option>
-            <option value="III">III</option>
-            <option value="IV">IV</option>
-            <option value="V">V</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Role</label>
-          <select class="fc" name="role">
-            <option value="employee">Employee</option>
-            <option value="accountant">Accountant</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Email</label>
-          <input class="fc" name="email" type="email" required placeholder="e.g. maria.employee@example.com" />
-        </div>
-        <div class="fg">
-          <label>Date of Birth</label>
-          <input class="fc" name="date_of_birth" type="date" required />
-        </div>
-        <div class="fg">
-          <label>Type</label>
-          <select class="fc" name="employee_type">
-            <option value="Teaching">Teaching</option>
-            <option value="Non-Teaching">Non-Teaching</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Position</label>
-          <select class="fc" name="position">
-            <option value="Employee">Employee</option>
-            <option value="Accountant">Accountant</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Status</label>
-          <select class="fc" name="employee_status">
-            <option value="Active">Active</option>
-            <option value="Pending">Pending</option>
-          </select>
-        </div>
-        <div class="fg" style="grid-column:1/-1;">
-          <label>Basic Salary (PHP)</label>
-          <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" placeholder="e.g. 18500" />
-        </div>
-
-        <p class="adm-feedback" style="grid-column:1/-1;">Employee ID is auto-generated and unique. Default password format: LastNameMMDDYYYY (example: Refuerzo10082004).</p>
-
-        <p id="add-employee-feedback" class="adm-feedback"></p>
-
-        <div class="adm-modal-actions">
-          <button type="submit" class="btn btn-primary">Create Employee</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div id="edit-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card">
-      <div class="adm-modal-head">
-        <h3>Edit Employee</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeEditEmployeeModal()" title="Close">&#x2715;</button>
-      </div>
-
-      <form id="edit-employee-form" class="adm-modal-form" onsubmit="submitEditEmployee(event)">
-        <input type="hidden" name="id" />
-
-        <div class="fg">
-          <label>First Name</label>
-          <input class="fc name-input" name="first_name" required maxlength="16" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Middle Name</label>
-          <input class="fc name-input" name="middle_initial" maxlength="16" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Last Name</label>
-          <input class="fc name-input" name="last_name" required maxlength="16" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Suffix</label>
-          <select class="fc" name="suffix">
-            <option value="">None</option>
-            <option value="Jr.">Jr.</option>
-            <option value="Sr.">Sr.</option>
-            <option value="II">II</option>
-            <option value="III">III</option>
-            <option value="IV">IV</option>
-            <option value="V">V</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Email</label>
-          <input class="fc" name="email" type="email" required />
-        </div>
-        <div class="fg">
-          <label>Employee ID</label>
-          <input class="fc" name="employee_id" required readonly />
-        </div>
-        <div class="fg">
-          <label>Role</label>
-          <select class="fc" name="role">
-            <option value="employee">Employee</option>
-            <option value="accountant">Accountant</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Type</label>
-          <select class="fc" name="employee_type">
-            <option value="Teaching">Teaching</option>
-            <option value="Non-Teaching">Non-Teaching</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Position</label>
-          <select class="fc" name="position">
-            <option value="Employee">Employee</option>
-            <option value="Accountant">Accountant</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Status</label>
-          <select class="fc" name="employee_status">
-            <option value="Active">Active</option>
-            <option value="Pending">Pending</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Basic Salary (PHP)</label>
-          <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" />
-        </div>
-        <div class="fg">
-          <label>Date of Birth</label>
-          <input class="fc" name="date_of_birth" type="date" />
-        </div>
-        <div class="fg" style="grid-column:1/-1;">
-          <label>New Password (Optional)</label>
-          <input class="fc" name="password" type="password" placeholder="Leave blank to keep current password" />
-        </div>
-
-        <p id="edit-employee-feedback" class="adm-feedback"></p>
-
-        <div class="adm-modal-actions" style="justify-content:space-between;">
-          <button type="button" id="archive-employee-button" class="btn btn-red" onclick="toggleArchiveCurrentEmployee()">Archive Employee</button>
-          <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
     </div>
