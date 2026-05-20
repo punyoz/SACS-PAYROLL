@@ -19,7 +19,6 @@
     <div class="ni active" onclick="adminNav('adm-dashboard',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg>
       Dashboard
-      <span class="nib" id="adm-dashboard-badge" style="display:none;">0</span>
     </div>
     <div class="ni" onclick="adminNav('adm-employees',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="currentColor"/><path d="M2 13c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -28,24 +27,6 @@
     <div class="ni" onclick="adminNav('adm-attendance',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       Attendance
-    </div>
-
-    <div class="sb-sec">Approvals</div>
-    <div class="ni" onclick="adminNav('adm-approvals',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Salary Approvals
-      <span class="nib" id="adm-salary-badge" style="display:none;">0</span>
-    </div>
-    <div class="ni" onclick="adminNav('adm-leave-approvals',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Leave Approvals
-      <span class="nib" id="adm-leave-badge" style="display:none;">0</span>
-    </div>
-
-    <div class="sb-sec">Reports</div>
-    <div class="ni" onclick="adminNav('adm-reports',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M2 12l4-4 3 3 5-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Summary Reports
     </div>
 
     <div class="sb-sec">Logs</div>
@@ -96,10 +77,9 @@
     <div class="page active" id="adm-dashboard">
       <div class="ph"><h2>Dashboard</h2><p>School-wide payroll and attendance overview</p></div>
 
-      <div class="sg">
+      <div class="sg3">
         <div class="card"><div class="ct">Total Employees</div><div class="cv" id="adm-panel-total-employees">0</div><div class="cch" id="adm-panel-emp-breakdown">Registered active staff</div></div>
         <div class="card"><div class="ct">Total Payroll (Month)</div><div class="cv a" id="adm-panel-total-payroll">₱ 0</div><div class="cch">Current month estimate</div></div>
-        <div class="card"><div class="ct">Pending Approvals</div><div class="cv r" id="adm-panel-pending-approvals">0</div><div class="cch">Salary updates awaiting you</div></div>
         <div class="card"><div class="ct">Absent Today</div><div class="cv" id="adm-panel-absent-today">0</div><div class="cch">Based on employee status</div></div>
       </div>
 
@@ -107,36 +87,6 @@
         <div class="card"><div class="ct">Present Today</div><div class="cv g" id="adm-panel-present-today">0</div><div class="cch">Employees logged in on time</div></div>
         <div class="card"><div class="ct">Late Today</div><div class="cv a" id="adm-panel-late-today">0</div><div class="cch">Arrived after 8:00 AM</div></div>
         <div class="card"><div class="ct">Teaching Staff</div><div class="cv" id="adm-panel-teaching-count">0</div><div class="cch" id="adm-panel-non-teaching-hint">Non-Teaching: 0</div></div>
-      </div>
-
-      <div class="sg2">
-        <!-- Pending approvals widget -->
-        <div class="card">
-          <div class="sh">
-            <span class="stitle">Pending Salary Approvals</span>
-            <span class="sp"></span>
-            <button class="btn btn-outline" onclick="adminNav('adm-approvals', document.querySelectorAll('#s-admin .ni')[3])">View all</button>
-          </div>
-          <div id="adm-dashboard-pending-list">
-            <div class="approval-item">
-              <div class="approval-info" style="color:var(--t3);">Loading pending salary approvals...</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Leave approvals widget -->
-        <div class="card">
-          <div class="sh">
-            <span class="stitle">Pending Leave Approvals</span>
-            <span class="sp"></span>
-            <button class="btn btn-outline" onclick="adminNav('adm-leave-approvals', document.querySelectorAll('#s-admin .ni')[4])">View all</button>
-          </div>
-          <div id="adm-dashboard-leave-list">
-            <div class="approval-item">
-              <div class="approval-info" style="color:var(--t3);">Loading pending leave approvals...</div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Recent activity -->
@@ -210,85 +160,6 @@
         </tbody>
       </table></div>
       <div class="pg-bar" id="adm-att-pg"></div>
-    </div>
-
-    <!-- ──────────────────────────────
-         PAGE: Salary Approvals
-    ────────────────────────────── -->
-    <div class="page" id="adm-approvals">
-      <div class="ph"><h2>Salary Approvals</h2><p>Review and approve or reject salary changes submitted by the Accountant. Changes are locked until you act.</p></div>
-      <div class="banner banner-amber">⚠ Only you can approve salary changes. No change reaches the database without your decision.</div>
-
-      <div class="card" style="margin-bottom:16px;">
-        <div id="adm-approvals-list">
-          <div class="approval-card">
-            <div class="approval-card-body">
-              <div class="approval-card-meta">Loading salary approval requests...</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="sh"><span class="stitle">Approval History</span></div>
-        <div class="tw"><table>
-          <thead><tr><th>Employee</th><th>Type</th><th>Salary Change</th><th>Decision</th><th>Submitted</th><th>Decided</th></tr></thead>
-          <tbody id="adm-approval-history-body">
-            <tr><td colspan="6" style="color:var(--t3);">Loading approval history...</td></tr>
-          </tbody>
-        </table></div>
-        <div class="pg-bar" id="adm-sal-hist-pg"></div>
-      </div>
-    </div>
-
-    <!-- ──────────────────────────────
-         PAGE: Leave Approvals
-    ────────────────────────────── -->
-    <div class="page" id="adm-leave-approvals">
-      <div class="ph"><h2>Leave Approvals</h2><p>Review and approve or reject employee leave requests.</p></div>
-      <div class="banner banner-blue">ℹ Leave requests submitted by employees are listed here for your decision.</div>
-
-      <div class="card" style="margin-bottom:16px;">
-        <div id="adm-leave-approvals-list">
-          <div class="approval-card">
-            <div class="approval-card-body">
-              <div class="approval-card-meta">Loading leave requests...</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="sh"><span class="stitle">Leave Request History</span></div>
-        <div class="tw"><table>
-          <thead><tr><th>Employee</th><th>Leave Type</th><th>Duration</th><th>Reason</th><th>Proof</th><th>Decision</th><th>Submitted</th><th>Decided</th></tr></thead>
-          <tbody id="adm-leave-history-body">
-            <tr><td colspan="8" style="color:var(--t3);">Loading leave history...</td></tr>
-          </tbody>
-        </table></div>
-        <div class="pg-bar" id="adm-leave-hist-pg"></div>
-      </div>
-    </div>
-
-    <!-- ──────────────────────────────
-         PAGE: Summary Reports
-    ────────────────────────────── -->
-    <div class="page" id="adm-reports">
-      <div class="ph"><h2>Summary Reports</h2><p>Payroll analytics and export</p></div>
-      <div class="sg">
-        <div class="card"><div class="ct">Total Records</div><div class="cv" id="adm-reports-total-records">0</div><div class="cch" id="adm-reports-period-note">Current period</div></div>
-        <div class="card"><div class="ct">Total Gross</div><div class="cv a" id="adm-reports-total-gross">₱ 0</div><div class="cch">Gross salary processed</div></div>
-        <div class="card"><div class="ct">Total Deductions</div><div class="cv r" id="adm-reports-total-deductions">₱ 0</div><div class="cch">Payroll deductions total</div></div>
-        <div class="card"><div class="ct">Total Net Pay</div><div class="cv t" id="adm-reports-total-net-pay">₱ 0</div><div class="cch">Net pay released</div></div>
-      </div>
-      <div class="sh"><span class="stitle" id="adm-reports-table-title">Payroll by Employee — Current Period</span><span class="sp"></span><button class="btn btn-outline" onclick="exportSummaryReportsCsv()">Export CSV</button></div>
-      <div class="tw"><table>
-        <thead><tr><th>Employee</th><th>Type</th><th>Records</th><th>Total Gross</th><th>Total Deductions</th><th>Total Net Pay</th></tr></thead>
-        <tbody id="adm-reports-table-body">
-          <tr><td colspan="6" style="color:var(--t3);">Loading payroll summary...</td></tr>
-        </tbody>
-      </table></div>
-      <div class="pg-bar" id="adm-rep-pg"></div>
     </div>
 
     <!-- ──────────────────────────────

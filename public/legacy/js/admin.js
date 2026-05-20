@@ -11,9 +11,6 @@ const ADMIN_PAGES = {
   'adm-dashboard':  'Dashboard',
   'adm-employees':  'Manage Employees',
   'adm-attendance': 'Attendance',
-  'adm-approvals':  'Salary Approvals',
-  'adm-leave-approvals': 'Leave Approvals',
-  'adm-reports':    'Summary Reports',
   'adm-audit-logs': 'Audit Logs',
   'adm-users':      'User Management',
   'adm-maintenance':'System Maintenance',
@@ -25,12 +22,6 @@ let employeeTypeFilter = 'all';
 let employeeSearch = '';
 let currentEditingEmployee = null;
 let dashboardData = null;
-let salaryApprovalsData = [];
-let salaryApprovalHistoryData = [];
-let salaryApprovalsCanPersist = true;
-let leaveApprovalsData = [];
-let leaveApprovalHistoryData = [];
-let summaryReportsData = null;
 let attendanceData = null;
 let auditLogsData = [];
 let auditSummary = { total: 0, success: 0, failed: 0 };
@@ -40,9 +31,6 @@ let auditActionFilter = 'all';
 
 let empPaginator = null;
 let attPaginator = null;
-let salHistPaginator = null;
-let leaveHistPaginator = null;
-let repPaginator = null;
 let auditPaginator = null;
 
 /* ── USER MANAGEMENT STATE ── */
@@ -89,18 +77,6 @@ function adminNav(pageId, navEl) {
     loadDashboard();
   }
 
-  if (pageId === 'adm-approvals') {
-    loadSalaryApprovals();
-  }
-
-  if (pageId === 'adm-leave-approvals') {
-    loadLeaveApprovals();
-  }
-
-  if (pageId === 'adm-reports') {
-    loadSummaryReports();
-  }
-
   if (pageId === 'adm-attendance') {
     loadAttendanceData();
   }
@@ -133,57 +109,6 @@ function getAdminNavByPageId(pageId) {
   return navItems.find((item) => String(item.getAttribute('onclick') || '').includes(`'${pageId}'`)) || null;
 }
 
-/* ── APPROVAL ACTIONS ── */
-async function approveChange(approvalId) {
-  if (window.confirmApproveAction && !(await window.confirmApproveAction('approve this salary change', 'The salary update will be applied and the accountant will be notified.'))) {
-    return;
-  }
-  await updateApprovalStatus(approvalId, 'approve');
-}
-
-async function rejectChange(approvalId) {
-  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction('Reject Salary Change', 'Are you sure you want to reject this salary update?'))) {
-    return;
-  }
-  await updateApprovalStatus(approvalId, 'reject');
-}
-
-function updateSalaryApprovalBadge(pendingCount) {
-  const count = Number(pendingCount || 0);
-  const badge = document.getElementById('adm-salary-badge');
-  if (badge) {
-    badge.textContent = String(count);
-    badge.style.display = count > 0 ? '' : 'none';
-  }
-
-  refreshAdminNotificationBadges();
-}
-
-function updateLeaveApprovalBadge(pendingCount) {
-  const count = Number(pendingCount || 0);
-  const badge = document.getElementById('adm-leave-badge');
-  if (badge) {
-    badge.textContent = String(count);
-    badge.style.display = count > 0 ? '' : 'none';
-  }
-
-  refreshAdminNotificationBadges();
-}
-
-function refreshAdminNotificationBadges() {
-  const dashboardBadge = document.getElementById('adm-dashboard-badge');
-  const salaryBadge = document.getElementById('adm-salary-badge');
-  const leaveBadge = document.getElementById('adm-leave-badge');
-
-  const salaryCount = Number(salaryBadge?.textContent || 0);
-  const leaveCount = Number(leaveBadge?.textContent || 0);
-  const totalCount = salaryCount + leaveCount;
-
-  if (dashboardBadge) {
-    dashboardBadge.textContent = String(totalCount);
-    dashboardBadge.style.display = totalCount > 0 ? '' : 'none';
-  }
-}
 
 function getInitials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -449,15 +374,11 @@ function formatHours(value) {
 function renderDashboardPanels(panels = {}) {
   const totalEmployeesEl = document.getElementById('adm-panel-total-employees');
   const totalPayrollEl = document.getElementById('adm-panel-total-payroll');
-  const pendingApprovalsEl = document.getElementById('adm-panel-pending-approvals');
   const absentTodayEl = document.getElementById('adm-panel-absent-today');
 
   if (totalEmployeesEl) totalEmployeesEl.textContent = String(panels.total_employees || 0);
   if (totalPayrollEl) totalPayrollEl.textContent = formatMoney(panels.total_payroll_month || 0);
-  if (pendingApprovalsEl) pendingApprovalsEl.textContent = String(panels.pending_approvals || 0);
   if (absentTodayEl) absentTodayEl.textContent = String(panels.absent_today || 0);
-
-  updateSalaryApprovalBadge(panels.pending_approvals || 0);
 
   const presentTodayEl = document.getElementById('adm-panel-present-today');
   const lateTodayEl = document.getElementById('adm-panel-late-today');
@@ -476,84 +397,6 @@ function renderDashboardPanels(panels = {}) {
   }
 }
 
-function renderPendingSalaryApprovals(approvals = []) {
-  const container = document.getElementById('adm-dashboard-pending-list');
-  if (!container) return;
-
-  if (!approvals.length) {
-    container.innerHTML = `
-      <div class="approval-item">
-        <div class="approval-info" style="color:var(--t3);">No pending salary approvals.</div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = approvals.slice(0, 3).map((approval) => {
-    const approvalId = escapeJsString(approval.id);
-    const currentSalary = Number(approval.current_salary || 0);
-    const proposedSalary = Number(approval.proposed_salary || 0);
-    const employeeName = escapeHtml(approval.employee_name);
-    const submittedBy = escapeHtml(approval.submitted_by || 'Accountant');
-    const submittedAt = escapeHtml(formatDateTime(approval.submitted_at));
-
-    return `
-      <div class="approval-item">
-        <div class="approval-icon">📝</div>
-        <div class="approval-info">
-          <div class="ai-name">${employeeName}</div>
-          <div class="ai-sub">Submitted by ${submittedBy} · ${submittedAt}</div>
-          <div style="margin-top:6px;display:flex;align-items:center;gap:8px;">
-            <span style="font-size:11px;color:var(--t3);">${formatMoney(currentSalary)}</span>
-            <span style="color:var(--t3);">→</span>
-            <span class="approval-change">${formatMoney(proposedSalary)}</span>
-          </div>
-        </div>
-        <div class="acts">
-          <button class="btn btn-green" style="font-size:11px;padding:6px 12px;" onclick="approveChange('${approvalId}')">Approve</button>
-          <button class="btn btn-red" style="font-size:11px;padding:6px 12px;" onclick="rejectChange('${approvalId}')">Reject</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function renderPendingLeaveApprovalsDashboard(requests = []) {
-  const container = document.getElementById('adm-dashboard-leave-list');
-  if (!container) return;
-
-  if (!requests.length) {
-    container.innerHTML = `
-      <div class="approval-item">
-        <div class="approval-info" style="color:var(--t3);">No pending leave approvals.</div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = requests.slice(0, 3).map((request) => {
-    const requestId = escapeJsString(request.id);
-    const employeeName = escapeHtml(request.employee_name || 'Unknown Employee');
-    const leaveType = escapeHtml(request.leave_type || 'Leave');
-    const submittedAt = escapeHtml(formatDateTime(request.submitted_at));
-    const duration = `${escapeHtml(request.start_date || 'N/A')} → ${escapeHtml(request.end_date || 'N/A')}`;
-
-    return `
-      <div class="approval-item">
-        <div class="approval-icon">🗓</div>
-        <div class="approval-info">
-          <div class="ai-name">${employeeName}</div>
-          <div class="ai-sub">${leaveType} · ${duration}</div>
-          <div class="ai-sub">Submitted ${submittedAt}</div>
-        </div>
-        <div class="acts">
-          <button class="btn btn-green" style="font-size:11px;padding:6px 12px;" onclick="approveLeaveRequest('${requestId}')">Approve</button>
-          <button class="btn btn-red" style="font-size:11px;padding:6px 12px;" onclick="rejectLeaveRequest('${requestId}')">Reject</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
 
 function renderMonthlyPayrollChart(monthlyPayroll = []) {
   const chartContainer = document.getElementById('adm-monthly-payroll-chart');
@@ -624,164 +467,6 @@ function renderRecentPayrollActivity(activity = []) {
           <div class="st"><span class="badge ${statusClass}"><span class="bd"></span>${statusText}</span></div>
         </div>
       </div>
-    `;
-  }).join('');
-}
-
-function renderSalaryApprovalCards(approvals = [], canPersist = true) {
-  const container = document.getElementById('adm-approvals-list');
-  if (!container) return;
-
-  const notice = canPersist
-    ? ''
-    : '<div class="banner banner-amber" style="margin-bottom:12px;">Demo mode: salary approvals are simulated because salary_approvals table is not yet available.</div>';
-
-  if (!approvals.length) {
-    container.innerHTML = `${notice}<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta">No pending salary approvals.</div></div></div>`;
-    return;
-  }
-
-  container.innerHTML = `${notice}${approvals.map((approval) => {
-    const approvalId = escapeJsString(approval.id);
-    const name = escapeHtml(approval.employee_name);
-    const employeeCode = escapeHtml(approval.employee_code || 'N/A');
-    const employeeType = escapeHtml(approval.employee_type || 'Teaching');
-    const position = escapeHtml(approval.position || 'Staff');
-    const submittedBy = escapeHtml(approval.submitted_by || 'Accountant');
-    const submittedAt = escapeHtml(formatDateTime(approval.submitted_at));
-    const reason = escapeHtml(approval.reason || 'No reason provided.');
-    const currentSalary = Number(approval.current_salary || 0);
-    const proposedSalary = Number(approval.proposed_salary || 0);
-    const difference = proposedSalary - currentSalary;
-    const diffPrefix = difference >= 0 ? '+' : '-';
-
-    const bd = approval.payroll_breakdown;
-    const breakdownHtml = bd && bd.totals ? (() => {
-      const deductions = bd.deductions || {};
-      const totals = bd.totals || {};
-      const sss = Number(deductions.sss || 0);
-      const philhealth = Number(deductions.philhealth || 0);
-      const pagibig = Number(deductions.pagibig || 0);
-      const tax = Number(deductions.withholding_tax || 0);
-      const absenceDeduct = Number(totals.absence_deduction || 0);
-      const cashAdv = Number(deductions.cash_advance || 0);
-      const totalDeduct = Number(totals.total_deductions || 0);
-      const netPay = Number(totals.net_pay || 0);
-      const grossPay = Number(totals.gross_pay || 0);
-      return `
-        <div class="payroll-breakdown" style="margin-top:10px;padding:10px 12px;background:var(--bg2,#f5f5f5);border-radius:6px;font-size:12px;">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span>Gross Pay</span><span>${formatMoney(grossPay)}</span></div>
-          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>SSS (2%)</span><span>- ${formatMoney(sss)}</span></div>
-          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>PhilHealth (2%)</span><span>- ${formatMoney(philhealth)}</span></div>
-          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>Pag-IBIG (2%)</span><span>- ${formatMoney(pagibig)}</span></div>
-          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>Withholding Tax</span><span>- ${formatMoney(tax)}</span></div>
-          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);"><span>Absences &amp; Late</span><span>- ${formatMoney(absenceDeduct)}</span></div>
-          <div style="display:flex;justify-content:space-between;color:var(--red,#E85555);margin-bottom:6px;"><span>Cash Advance</span><span>- ${formatMoney(cashAdv)}</span></div>
-          <div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--b2,#ddd);padding-top:6px;color:var(--accent,#E8830A);"><span>Net Pay</span><span>${formatMoney(netPay)}</span></div>
-        </div>`;
-    })() : '';
-
-    return `
-      <div class="approval-card" style="margin-bottom:14px;">
-        <div class="approval-card-icon">📝</div>
-        <div class="approval-card-body">
-          <div class="approval-card-name">${name}</div>
-          <div class="approval-card-meta">${employeeCode} · ${employeeType} · ${position}</div>
-          <div class="approval-card-meta">Submitted by: ${submittedBy} · ${submittedAt}</div>
-          <div class="salary-compare">
-            <div class="sc-box"><label>Current Salary</label><div class="sc-val">${formatMoney(currentSalary)}</div></div>
-            <span class="sc-arrow">→</span>
-            <div class="sc-box proposed"><label>Proposed</label><div class="sc-val">${formatMoney(proposedSalary)}</div></div>
-            <div class="sc-box diff"><label>Difference</label><div class="sc-val">${diffPrefix} ${formatMoney(Math.abs(difference))}</div></div>
-          </div>
-          ${breakdownHtml}
-          <div class="approval-reason" style="margin-top:8px;"><strong>Reason:</strong> ${reason}</div>
-        </div>
-        <div class="approval-card-actions">
-          <button class="btn btn-green" onclick="approveChange('${approvalId}')">✓ Approve</button>
-          <button class="btn btn-red" onclick="rejectChange('${approvalId}')">✕ Reject</button>
-        </div>
-      </div>
-    `;
-  }).join('')}`;
-}
-
-function renderSalaryApprovalHistory(history = []) {
-  const tbody = document.getElementById('adm-approval-history-body');
-  if (!tbody) return;
-
-  if (!history.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No approval history yet.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = history.map((item) => {
-    const name = escapeHtml(item.employee_name || 'Unknown Employee');
-    const type = escapeHtml(item.employee_type || 'Teaching');
-    const typeBadgeClass = type === 'Non-Teaching' ? 'ba' : 'bt2';
-    const currentSalary = Number(item.current_salary || 0);
-    const proposedSalary = Number(item.proposed_salary || 0);
-    const diff = proposedSalary - currentSalary;
-    const diffPrefix = diff >= 0 ? '+' : '-';
-    const status = String(item.status || '').toLowerCase();
-    const statusClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
-    const decidedAt = item.decided_at || item.updated_at || item.submitted_at;
-
-    return `
-      <tr>
-        <td class="nm">${name}</td>
-        <td><span class="badge ${typeBadgeClass}">${type}</span></td>
-        <td class="mn">${formatMoney(currentSalary)} → ${formatMoney(proposedSalary)} <span style="color:var(--t3);">(${diffPrefix}${formatMoney(Math.abs(diff))})</span></td>
-        <td><span class="badge ${statusClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
-        <td class="mn">${escapeHtml(formatDateTime(item.submitted_at))}</td>
-        <td class="mn">${escapeHtml(formatDateTime(decidedAt))}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function renderSummaryPanels(summary = {}) {
-  const panels = summary?.panels || {};
-  const periodLabel = summary?.period_label || 'Current Period';
-
-  const totalRecordsEl = document.getElementById('adm-reports-total-records');
-  const totalGrossEl = document.getElementById('adm-reports-total-gross');
-  const totalDeductionsEl = document.getElementById('adm-reports-total-deductions');
-  const totalNetPayEl = document.getElementById('adm-reports-total-net-pay');
-  const periodNoteEl = document.getElementById('adm-reports-period-note');
-  const tableTitleEl = document.getElementById('adm-reports-table-title');
-
-  if (totalRecordsEl) totalRecordsEl.textContent = String(panels.total_records || 0);
-  if (totalGrossEl) totalGrossEl.textContent = formatMoney(panels.total_gross || 0);
-  if (totalDeductionsEl) totalDeductionsEl.textContent = formatMoney(panels.total_deductions || 0);
-  if (totalNetPayEl) totalNetPayEl.textContent = formatMoney(panels.total_net_pay || 0);
-  if (periodNoteEl) periodNoteEl.textContent = periodLabel;
-  if (tableTitleEl) tableTitleEl.textContent = `Payroll by Employee — ${periodLabel}`;
-}
-
-function renderSummaryTable(rows = []) {
-  const tbody = document.getElementById('adm-reports-table-body');
-  if (!tbody) return;
-
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No payroll records found for this period.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = rows.map((row) => {
-    const name = escapeHtml(row.employee_name || 'Unknown Employee');
-    const type = escapeHtml(row.employee_type || 'Teaching');
-    const typeBadgeClass = type === 'Non-Teaching' ? 'ba' : 'bt2';
-
-    return `
-      <tr>
-        <td class="nm">${name}</td>
-        <td><span class="badge ${typeBadgeClass}">${type}</span></td>
-        <td class="mn">${Number(row.total_records || 0)}</td>
-        <td class="mn">${formatMoney(row.total_gross || 0)}</td>
-        <td class="mn">${formatMoney(row.total_deductions || 0)}</td>
-        <td class="mn">${formatMoney(row.total_net_pay || 0)}</td>
-      </tr>
     `;
   }).join('');
 }
@@ -1117,87 +802,11 @@ function exportAuditLogsCsv() {
   });
 }
 
-function exportSummaryReportsCsv() {
-  const rows = summaryReportsData?.payroll_by_employee || [];
-  if (!rows.length) {
-    window.alert('No payroll report data available to export.');
-    return;
-  }
-
-  const headers = ['Employee', 'Type', 'Records', 'Total Gross', 'Total Deductions', 'Total Net Pay'];
-  const lines = [headers.join(',')];
-
-  rows.forEach((row) => {
-    lines.push([
-      toCsvValue(row.employee_name || ''),
-      toCsvValue(row.employee_type || ''),
-      toCsvValue(Number(row.total_records || 0)),
-      toCsvValue(Number(row.total_gross || 0).toFixed(2)),
-      toCsvValue(Number(row.total_deductions || 0).toFixed(2)),
-      toCsvValue(Number(row.total_net_pay || 0).toFixed(2)),
-    ].join(','));
-  });
-
-  const csvContent = `\uFEFF${lines.join('\n')}`;
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  const period = String(summaryReportsData?.period_label || 'report').replaceAll(' ', '-').toLowerCase();
-
-  anchor.href = url;
-  anchor.download = `sacs-summary-reports-${period}.csv`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-
-  logAuditMovement({
-    module: 'ui',
-    action: 'export_csv',
-    entity_type: 'summary_reports',
-    entity_id: period,
-    description: 'Admin exported summary reports CSV.',
-    source: 'ui',
-    metadata: { row_count: rows.length },
-  });
-}
-
-async function loadSummaryReports() {
-  const tbody = document.getElementById('adm-reports-table-body');
-  if (tbody) {
-    tbody.innerHTML = skeletonRows(6);
-  }
-
-  try {
-    const response = await fetch('/api/admin/reports', { method: 'GET' });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to load summary reports');
-    }
-
-    summaryReportsData = payload;
-    renderSummaryPanels(payload);
-    if (repPaginator) {
-      repPaginator.setData(payload.payroll_by_employee || []);
-    } else {
-      renderSummaryTable(payload.payroll_by_employee || []);
-    }
-  } catch (error) {
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
-    }
-  }
-}
-
 function renderDashboard(data) {
   dashboardData = data || null;
   const panels = data?.panels || {};
-  const approvals = data?.pending_approvals || [];
 
   renderDashboardPanels(panels);
-  renderPendingSalaryApprovals(approvals);
-  // Leave approvals widget uses /api/admin/leave-requests.
   renderRecentPayrollActivity(data?.recent_activity || []);
 }
 
@@ -1211,307 +820,8 @@ async function loadDashboard() {
     }
 
     renderDashboard(payload);
-
-    const leaveRes = await fetch('/api/admin/leave-requests?status=pending_admin', { method: 'GET' });
-    const leavePayload = await leaveRes.json().catch(() => ({}));
-    if (leaveRes.ok) {
-      renderPendingLeaveApprovalsDashboard(leavePayload.pending_requests || leavePayload.requests || []);
-    } else {
-      throw new Error(leavePayload.error || 'Failed to load leave approvals');
-    }
   } catch (error) {
-    const pendingContainer = document.getElementById('adm-dashboard-pending-list');
-    if (pendingContainer) {
-      pendingContainer.innerHTML = `<div class="approval-item"><div class="approval-info" style="color:#E85555;">${escapeHtml(error.message)}</div></div>`;
-    }
-
-    const leaveContainer = document.getElementById('adm-dashboard-leave-list');
-    if (leaveContainer) {
-      leaveContainer.innerHTML = `<div class="approval-item"><div class="approval-info" style="color:#E85555;">${escapeHtml(error.message)}</div></div>`;
-    }
-  }
-}
-
-async function loadSalaryApprovals() {
-  const approvalsContainer = document.getElementById('adm-approvals-list');
-  const historyBody = document.getElementById('adm-approval-history-body');
-
-  if (historyBody) {
-    historyBody.innerHTML = skeletonRows(6);
-  }
-
-  try {
-    const response = await fetch('/api/admin/salary-approvals?status=all', { method: 'GET' });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to load salary approvals');
-    }
-
-    salaryApprovalsData = payload.pending_requests || payload.requests || [];
-    salaryApprovalHistoryData = payload.history_requests || [];
-    salaryApprovalsCanPersist = Boolean(payload.can_persist);
-    updateSalaryApprovalBadge(salaryApprovalsData.length);
-    renderSalaryApprovalCards(salaryApprovalsData, salaryApprovalsCanPersist);
-    if (salHistPaginator) {
-      salHistPaginator.setData(salaryApprovalHistoryData);
-    } else {
-      renderSalaryApprovalHistory(salaryApprovalHistoryData);
-    }
-  } catch (error) {
-    if (!approvalsContainer) return;
-    approvalsContainer.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:#E85555;">${escapeHtml(error.message)}</div></div></div>`;
-    if (historyBody) {
-      historyBody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
-    }
-  }
-}
-
-function renderLeaveApprovalCards(requests = []) {
-  const container = document.getElementById('adm-leave-approvals-list');
-  if (!container) return;
-
-  // Store proof URLs by request ID so large base64 strings are never
-  // embedded inside HTML onclick attributes.
-  if (!window._adminProofUrls) window._adminProofUrls = {};
-  requests.forEach((req) => {
-    window._adminProofUrls[req.id] = req.proof_url || '';
-  });
-
-  if (!requests.length) {
-    container.innerHTML = '<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta">No pending leave requests.</div></div></div>';
-    return;
-  }
-
-  container.innerHTML = requests.map((request) => {
-    const safeId = escapeJsString(request.id);
-    const employeeName = escapeHtml(request.employee_name || 'Unknown Employee');
-    const employeeCode = escapeHtml(request.employee_id || 'N/A');
-    const leaveType = escapeHtml(request.leave_type || 'Leave');
-    const duration = `${escapeHtml(request.start_date || 'N/A')} to ${escapeHtml(request.end_date || 'N/A')}`;
-    const reason = escapeHtml(request.reason || 'No reason provided.');
-    const submittedAt = escapeHtml(formatDateTime(request.submitted_at));
-    const hasProof = Boolean(String(request.proof_url || '').trim());
-    const proofButton = hasProof
-      ? `<button class="btn btn-outline" style="margin-top:10px;" onclick="openProofDocument(window._adminProofUrls['${safeId}'])">View Proof</button>`
-      : `<div class="approval-card-meta" style="margin-top:10px;color:var(--t3);">No proof attached.</div>`;
-
-    return `
-      <div class="approval-card" style="margin-bottom:14px;">
-        <div class="approval-card-icon">🗓</div>
-        <div class="approval-card-body">
-          <div class="approval-card-name">${employeeName}</div>
-          <div class="approval-card-meta">${employeeCode} · ${leaveType}</div>
-          <div class="approval-card-meta">Requested: ${duration}</div>
-          <div class="approval-card-meta">Submitted: ${submittedAt}</div>
-          <div class="approval-reason"><strong>Reason:</strong> ${reason}</div>
-          ${proofButton}
-        </div>
-        <div class="approval-card-actions">
-          <button class="btn btn-green" onclick="approveLeaveRequest('${safeId}')">✓ Approve</button>
-          <button class="btn btn-red" onclick="rejectLeaveRequest('${safeId}')">✕ Reject</button>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function renderLeaveApprovalHistory(history = []) {
-  const tbody = document.getElementById('adm-leave-history-body');
-  if (!tbody) return;
-
-  // Store proof URLs for history rows
-  if (!window._adminProofUrls) window._adminProofUrls = {};
-  history.forEach((entry) => {
-    window._adminProofUrls[entry.id] = entry.proof_url || '';
-  });
-
-  if (!history.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">No leave approval history yet.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = history.map((entry) => {
-    const status = String(entry.status || 'pending').toLowerCase();
-    const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
-    const decidedAt = entry.decided_at || entry.updated_at || entry.submitted_at;
-    const safeId = escapeJsString(entry.id);
-    const hasProof = Boolean(String(entry.proof_url || '').trim());
-    const proofCell = hasProof
-      ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openProofDocument(window._adminProofUrls['${safeId}'])">View</button>`
-      : `<span style="color:var(--t3);font-size:11px;">—</span>`;
-
-    return `
-      <tr>
-        <td class="nm">${escapeHtml(entry.employee_name || 'Unknown Employee')}</td>
-        <td>${escapeHtml(entry.leave_type || 'Leave')}</td>
-        <td class="mn">${escapeHtml(entry.start_date || 'N/A')} → ${escapeHtml(entry.end_date || 'N/A')}</td>
-        <td>${escapeHtml(entry.reason || 'No reason provided.')}</td>
-        <td>${proofCell}</td>
-        <td><span class="badge ${badgeClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
-        <td class="mn">${escapeHtml(formatDateTime(entry.submitted_at))}</td>
-        <td class="mn">${escapeHtml(formatDateTime(decidedAt))}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-async function loadLeaveApprovals() {
-  const list = document.getElementById('adm-leave-approvals-list');
-  const historyBody = document.getElementById('adm-leave-history-body');
-
-  if (historyBody) {
-    historyBody.innerHTML = skeletonRows(8);
-  }
-
-  try {
-    const response = await fetch('/api/admin/leave-requests?status=all', { method: 'GET' });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to load leave requests');
-    }
-
-    leaveApprovalsData = payload.pending_requests || [];
-    leaveApprovalHistoryData = payload.history_requests || [];
-    updateLeaveApprovalBadge(leaveApprovalsData.length);
-    renderLeaveApprovalCards(leaveApprovalsData);
-    if (leaveHistPaginator) {
-      leaveHistPaginator.setData(leaveApprovalHistoryData);
-    } else {
-      renderLeaveApprovalHistory(leaveApprovalHistoryData);
-    }
-  } catch (error) {
-    if (list) {
-      list.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:#E85555;">${escapeHtml(error.message)}</div></div></div>`;
-    }
-    if (historyBody) {
-      historyBody.innerHTML = `<tr><td colspan="7" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
-    }
-  }
-}
-
-function showLeaveApprovalFeedback(message, isError = false) {
-  const container = document.getElementById('adm-leave-approvals-list');
-  if (container) {
-    const existing = container.querySelector('.leave-action-feedback');
-    if (existing) existing.remove();
-
-    if (message) {
-      const banner = document.createElement('div');
-      banner.className = 'leave-action-feedback';
-      banner.style.cssText = isError
-        ? 'background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#dc2626;font-size:13px;'
-        : 'background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#15803d;font-size:13px;';
-      banner.textContent = message;
-      container.insertAdjacentElement('afterbegin', banner);
-    }
-  }
-  if (isError) { try { window.alert(message); } catch {} }
-}
-
-async function updateLeaveRequestStatus(requestId, action) {
-  const id = String(requestId || '').trim();
-  if (!id) return;
-
-  const allLeaveButtons = document.querySelectorAll('#adm-leave-approvals-list .approval-card-actions .btn');
-  allLeaveButtons.forEach((btn) => { btn.disabled = true; btn.style.opacity = '0.6'; });
-  showLeaveApprovalFeedback('Processing...', false);
-
-  try {
-    const response = await fetch('/api/admin/leave-requests', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action }),
-    });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to update leave request status');
-    }
-
-    const label = action === 'approve' ? 'approved' : 'rejected';
-    showLeaveApprovalFeedback(`Leave request ${label}. Refreshing...`, false);
-    window.pushNotification?.(
-      action === 'approve' ? 'Leave Request Approved' : 'Leave Request Rejected',
-      action === 'approve' ? 'The leave request has been approved and the employee notified.' : 'The leave request has been declined.',
-      action === 'approve' ? 'success' : 'info'
-    );
-    await Promise.all([loadLeaveApprovals(), loadAuditLogs()]);
-  } catch (error) {
-    showLeaveApprovalFeedback(`Error: ${error.message}`, true);
-    allLeaveButtons.forEach((btn) => { btn.disabled = false; btn.style.opacity = ''; });
-  }
-}
-
-async function approveLeaveRequest(requestId) {
-  if (window.confirmApproveAction && !(await window.confirmApproveAction('approve this leave request', 'The leave request will be approved and the employee will be notified.'))) {
-    return;
-  }
-  await updateLeaveRequestStatus(requestId, 'approve');
-}
-
-async function rejectLeaveRequest(requestId) {
-  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction('Reject Leave Request', 'Are you sure you want to reject this leave request?'))) {
-    return;
-  }
-  await updateLeaveRequestStatus(requestId, 'reject');
-}
-
-function showSalaryApprovalFeedback(message, isError = false) {
-  const container = document.getElementById('adm-approvals-list');
-  if (container) {
-    const existing = container.querySelector('.salary-action-feedback');
-    if (existing) existing.remove();
-
-    if (message) {
-      const banner = document.createElement('div');
-      banner.className = 'salary-action-feedback';
-      banner.style.cssText = isError
-        ? 'background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#dc2626;font-size:13px;'
-        : 'background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#15803d;font-size:13px;';
-      banner.textContent = message;
-      container.insertAdjacentElement('afterbegin', banner);
-    }
-  }
-
-  if (isError) {
-    try { window.alert(message); } catch {}
-  }
-}
-
-async function updateApprovalStatus(approvalId, action) {
-  const id = String(approvalId || '').trim();
-  if (!id) return;
-
-  const allActionButtons = document.querySelectorAll('.approval-card-actions .btn, .acts .btn[onclick*="approveChange"], .acts .btn[onclick*="rejectChange"]');
-  allActionButtons.forEach((btn) => { btn.disabled = true; btn.style.opacity = '0.6'; });
-  showSalaryApprovalFeedback('Processing...', false);
-
-  try {
-    const response = await fetch('/api/admin/salary-approvals', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action }),
-    });
-
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to update approval status');
-    }
-
-    const label = action === 'approve' ? 'approved' : 'rejected';
-    showSalaryApprovalFeedback(`Salary change successfully ${label}. Refreshing...`, false);
-    window.pushNotification?.(
-      action === 'approve' ? 'Salary Change Approved' : 'Salary Change Rejected',
-      action === 'approve' ? 'The salary update has been approved and applied.' : 'The salary change request has been rejected.',
-      action === 'approve' ? 'success' : 'info'
-    );
-
-    await Promise.all([loadDashboard(), loadSalaryApprovals(), loadAuditLogs()]);
-  } catch (error) {
-    showSalaryApprovalFeedback(`Error: ${error.message}`, true);
-    allActionButtons.forEach((btn) => { btn.disabled = false; btn.style.opacity = ''; });
+    console.error('Dashboard load error:', error.message);
   }
 }
 
@@ -1755,7 +1065,7 @@ async function toggleArchiveCurrentEmployee() {
       action === 'archive' ? 'The employee record has been moved to the archive.' : 'The employee record has been restored to the active list.',
       'info'
     );
-    await Promise.all([loadEmployees(), loadDashboard(), loadSummaryReports(), loadAttendanceData(), loadAuditLogs()]);
+    await Promise.all([loadEmployees(), loadDashboard(), loadAttendanceData(), loadAuditLogs()]);
     closeEditEmployeeModal();
   } catch (error) {
     showEditFeedback(error.message, true);
@@ -1826,7 +1136,7 @@ async function submitAddEmployee(event) {
     const createdId = result.employee?.employee_id || '';
     showEmployeeFeedback(`Employee created with ID ${createdId}.`, false);
     window.pushNotification?.('Employee Added', `New employee created with ID ${createdId}.`, 'success');
-    await Promise.all([loadEmployees(), loadDashboard(), loadSummaryReports(), loadAttendanceData(), loadAuditLogs()]);
+    await Promise.all([loadEmployees(), loadDashboard(), loadAttendanceData(), loadAuditLogs()]);
 
     setTimeout(() => {
       closeAddEmployeeModal();
@@ -1902,7 +1212,7 @@ async function submitEditEmployee(event) {
 
     showEditFeedback('Employee details updated.', false);
     window.pushNotification?.('Employee Updated', 'Employee details have been saved successfully.', 'success');
-    await Promise.all([loadEmployees(), loadDashboard(), loadSummaryReports(), loadAttendanceData(), loadAuditLogs()]);
+    await Promise.all([loadEmployees(), loadDashboard(), loadAttendanceData(), loadAuditLogs()]);
     closeEditEmployeeModal();
   } catch (error) {
     showEditFeedback(error.message, true);
@@ -1935,11 +1245,6 @@ window.submitEditEmployee = submitEditEmployee;
 window.toggleArchiveCurrentEmployee = toggleArchiveCurrentEmployee;
 window.setEmployeeTypeFilter = setEmployeeTypeFilter;
 window.setEmployeeSearch = setEmployeeSearch;
-window.approveChange = approveChange;
-window.rejectChange = rejectChange;
-window.approveLeaveRequest = approveLeaveRequest;
-window.rejectLeaveRequest = rejectLeaveRequest;
-window.exportSummaryReportsCsv = exportSummaryReportsCsv;
 window.submitRfidAttendanceScan = submitRfidAttendanceScan;
 window.exportAttendanceCsv = exportAttendanceCsv;
 window.setAuditSearch = setAuditSearch;
@@ -2535,9 +1840,6 @@ function initAdminPortal() {
 
   empPaginator = window.createPaginator({ id: 'adm-emp', pageSize: 15, renderFn: renderEmployees });
   attPaginator = window.createPaginator({ id: 'adm-att', pageSize: 15, renderFn: renderAttendanceTable });
-  salHistPaginator = window.createPaginator({ id: 'adm-sal-hist', pageSize: 15, renderFn: renderSalaryApprovalHistory });
-  leaveHistPaginator = window.createPaginator({ id: 'adm-leave-hist', pageSize: 15, renderFn: renderLeaveApprovalHistory });
-  repPaginator = window.createPaginator({ id: 'adm-rep', pageSize: 15, renderFn: renderSummaryTable });
   auditPaginator = window.createPaginator({ id: 'adm-audit', pageSize: 20, renderFn: renderAuditTable });
   usersPaginator = window.createPaginator({ id: 'adm-users', pageSize: 20, renderFn: renderUsers });
   rfidPaginator = window.createPaginator({ id: 'adm-rfid', pageSize: 15, renderFn: renderRfidDevices });
@@ -2563,8 +1865,6 @@ function initAdminPortal() {
   const initialNav = getAdminNavByPageId(initialPage);
 
   adminNav(initialPage, initialNav);
-  loadSalaryApprovals();
-  loadLeaveApprovals();
 }
 
 if (document.readyState === 'loading') {
