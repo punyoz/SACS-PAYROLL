@@ -39,7 +39,7 @@ export async function POST(request) {
       const meta = u.user_metadata || {};
       const empId = normalizeText(meta.employee_id).toLowerCase();
       const fullEmail = normalizeText(u.email).toLowerCase();
-      const rawEmail = fullEmail.replace(/^bncs\./, "");
+      const rawEmail = fullEmail.replace(/^sacs\./, "");
       return empId === lower || fullEmail === lower || rawEmail === lower;
     });
 

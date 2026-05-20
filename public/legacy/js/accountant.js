@@ -1447,4 +1447,4 @@ if (document.readyState === 'loading') {
   maybeInitAccountant();
 }
 
-window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);
+window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChange);

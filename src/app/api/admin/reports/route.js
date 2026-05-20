@@ -20,14 +20,14 @@ function getAdminClient() {
 }
 
 function parseEmployeeIdNumber(employeeId) {
-  const match = /^BNCS-(\d+)$/i.exec(String(employeeId || "").trim());
+  const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
   if (!match) return null;
   return Number(match[1]);
 }
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
-  return `BNCS-${String(next).padStart(3, "0")}`;
+  return `SACS-${String(next).padStart(3, "0")}`;
 }
 
 function formatMonthYearLabel(dateInput) {

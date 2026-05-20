@@ -3,7 +3,7 @@
  *
  * Priority order (most reliable first):
  *   1. Supabase database table `salary_approvals`
- *   2. Supabase Storage JSON file (bncs-payroll-store bucket)
+ *   2. Supabase Storage JSON file (sacs-payroll-store bucket)
  *   3. /tmp filesystem (development only — ephemeral on Vercel)
  */
 
@@ -17,7 +17,7 @@ const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const STORAGE_FILE = "salary-approvals.json";
-const tmpPath = path.join(os.tmpdir(), "bncs-payroll-runtime", "salary-approvals.json");
+const tmpPath = path.join(os.tmpdir(), "sacs-payroll-runtime", "salary-approvals.json");
 
 // Cached per warm serverless instance to avoid repeated probes.
 let _backend = null; // 'table' | 'storage' | 'tmp'

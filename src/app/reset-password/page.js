@@ -130,10 +130,10 @@ const S = {
 function Brand() {
   return (
     <div style={S.brand}>
-      <div style={S.brandIcon}>B</div>
+      <div style={S.brandIcon}>S</div>
       <div>
-        <div style={S.brandName}>BNCS Payroll</div>
-        <div style={S.brandSub}>Bagong Nayon II Christian School</div>
+        <div style={S.brandName}>SACS Payroll</div>
+        <div style={S.brandSub}>Shepherd Angels Christian School</div>
       </div>
     </div>
   );

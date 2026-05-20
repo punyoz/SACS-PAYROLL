@@ -901,7 +901,7 @@ function exportAttendanceCsv() {
   const dateKey = String(attendanceData?.date_key || 'today').replaceAll('/', '-');
 
   anchor.href = url;
-  anchor.download = `bncs-attendance-${dateKey}.csv`;
+  anchor.download = `sacs-attendance-${dateKey}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -1060,7 +1060,7 @@ function exportAuditLogsCsv() {
   const anchor = document.createElement('a');
 
   anchor.href = url;
-  anchor.download = 'bncs-audit-logs.csv';
+  anchor.download = 'sacs-audit-logs.csv';
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -1105,7 +1105,7 @@ function exportSummaryReportsCsv() {
   const period = String(summaryReportsData?.period_label || 'report').replaceAll(' ', '-').toLowerCase();
 
   anchor.href = url;
-  anchor.download = `bncs-summary-reports-${period}.csv`;
+  anchor.download = `sacs-summary-reports-${period}.csv`;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
@@ -1942,4 +1942,4 @@ if (document.readyState === 'loading') {
   initAdminPortal();
 }
 
-window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);
+window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChange);

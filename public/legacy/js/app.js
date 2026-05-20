@@ -7,7 +7,7 @@
 'use strict';
 
 /* ── THEME ── */
-const THEME_KEY = 'bncs-theme';
+const THEME_KEY = 'sacs-theme';
 
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
@@ -27,9 +27,9 @@ function toggleTheme() {
 }
 
 /* ── AUTH CONSTANTS ── */
-const AUTH_CONTEXT_KEY = 'bncs-auth-context';
-const AUTH_CONTEXT_EVENT = 'bncs-auth-context-changed';
-const ROLE_PAGE_STATE_PREFIX = 'bncs-active-page-';
+const AUTH_CONTEXT_KEY = 'sacs-auth-context';
+const AUTH_CONTEXT_EVENT = 'sacs-auth-context-changed';
+const ROLE_PAGE_STATE_PREFIX = 'sacs-active-page-';
 
 function dispatchAuthContextChanged(context) {
   try {

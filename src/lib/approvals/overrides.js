@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 const STORAGE_FILE = "approval-overrides.json";
-const tmpPath = path.join(os.tmpdir(), "bncs-payroll-runtime", "approval-overrides.json");
+const tmpPath = path.join(os.tmpdir(), "sacs-payroll-runtime", "approval-overrides.json");
 
 function normalizeStatus(status) {
   const value = String(status || "").toLowerCase();

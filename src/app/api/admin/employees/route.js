@@ -21,11 +21,11 @@ function getAdminClient() {
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
-  return `BNCS-${String(next).padStart(3, "0")}`;
+  return `SACS-${String(next).padStart(3, "0")}`;
 }
 
 function parseEmployeeIdNumber(employeeId) {
-  const match = /^BNCS-(\d+)$/i.exec(String(employeeId || "").trim());
+  const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
   if (!match) return null;
   return Number(match[1]);
 }
@@ -46,11 +46,11 @@ function generateUniqueEmployeeId(existingEmployees = []) {
   });
 
   let next = max + 1;
-  let candidate = `BNCS-${String(next).padStart(3, "0")}`;
+  let candidate = `SACS-${String(next).padStart(3, "0")}`;
 
   while (used.has(candidate.toUpperCase())) {
     next += 1;
-    candidate = `BNCS-${String(next).padStart(3, "0")}`;
+    candidate = `SACS-${String(next).padStart(3, "0")}`;
   }
 
   return candidate;

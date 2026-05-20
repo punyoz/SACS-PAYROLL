@@ -10,13 +10,13 @@ import { applyApprovalOverrides, readApprovalOverrides } from "@/lib/approvals/o
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const runtimeDir = path.join(os.tmpdir(), "bncs-payroll-runtime");
+const runtimeDir = path.join(os.tmpdir(), "sacs-payroll-runtime");
 const payrollStorePath = path.join(runtimeDir, "accountant-payroll-entries.json");
 const fallbackApprovalsPath = path.join(runtimeDir, "salary-approvals.json");
 const DUPLICATE_SUBMISSION_MESSAGE = "This payroll entry has already been submitted and is awaiting admin approval.";
 
 // Supabase Storage — schema-free draft persistence that survives Lambda cold starts.
-const DRAFT_BUCKET = "bncs-payroll-runtime";
+const DRAFT_BUCKET = "sacs-payroll-runtime";
 const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
 const WITHDRAWAL_HISTORY_KEY = "accountant-withdrawal-history.json";
 
@@ -34,7 +34,7 @@ function getAdminClient() {
 }
 
 function parseEmployeeIdNumber(employeeId) {
-  const match = /^BNCS-(\d+)$/i.exec(String(employeeId || "").trim());
+  const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
   if (!match) return null;
   return Number(match[1]);
 }
@@ -88,7 +88,7 @@ function shapeEmployee(user, profile, index) {
     role,
     full_name: normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email)),
     email: normalizeText(profile?.email, user.email),
-    employee_id: normalizeText(metadata.employee_id, `BNCS-${String(index + 1).padStart(3, "0")}`),
+    employee_id: normalizeText(metadata.employee_id, `SACS-${String(index + 1).padStart(3, "0")}`),
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
     position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),

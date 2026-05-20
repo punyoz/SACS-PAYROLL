@@ -3,8 +3,8 @@ import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata = {
-  title: "BNCS Payroll",
-  description: "BNCS Payroll Management System",
+  title: "SACS Payroll",
+  description: "SACS Payroll Management System",
 };
 
 export default function RootLayout({ children }) {

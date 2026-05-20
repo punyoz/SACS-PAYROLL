@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BNCS Payroll Management System</title>
+  <title>SACS Payroll Management System</title>
   <script>
     (function() {
-      var savedTheme = localStorage.getItem('bncs-theme') || 'dark';
+      var savedTheme = localStorage.getItem('sacs-theme') || 'dark';
       document.documentElement.setAttribute('data-theme', savedTheme);
       // Cache-bust version: changes every 5 min so deploys take effect quickly.
       window._bv = Math.floor(Date.now() / 300000);
@@ -26,7 +26,7 @@
 
   <script>
     async function loadFragment(path) {
-      const response = await fetch(path);
+      const response = await fetch(path + '?v=' + (window._bv || 0));
       if (!response.ok) {
         throw new Error('Failed to load ' + path + ' (' + response.status + ')');
       }
@@ -61,7 +61,7 @@
     }
 
     function applyBootIdentityFromStorage() {
-      var raw = localStorage.getItem('bncs-auth-context');
+      var raw = localStorage.getItem('sacs-auth-context');
       var ctx = safeParseJson(raw) || {};
 
       var fullName = String(ctx.full_name || '').trim();

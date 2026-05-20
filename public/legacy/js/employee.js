@@ -535,7 +535,7 @@ if (document.readyState === 'loading') {
   initEmployeePortal();
 }
 
-window.addEventListener('bncs-auth-context-changed', handleLegacyAuthContextChange);
+window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChange);
 
 window.submitLeaveRequest = submitLeaveRequest;
 window.submitChangePassword = submitChangePassword;

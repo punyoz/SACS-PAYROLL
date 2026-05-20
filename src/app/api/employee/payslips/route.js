@@ -9,10 +9,10 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const payrollEntriesTmpPath = path.join(
   os.tmpdir(),
-  "bncs-payroll-runtime",
+  "sacs-payroll-runtime",
   "accountant-payroll-entries.json",
 );
-const DRAFT_BUCKET = "bncs-payroll-runtime";
+const DRAFT_BUCKET = "sacs-payroll-runtime";
 const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
 
 function getAdminClient() {
@@ -150,9 +150,6 @@ function mapRecordToPayslip(rec) {
 
 async function fetchPayslipsForUser(supabase, userId) {
   // ── 1. payroll_entries DB ─────────────────────────────────────────────────
-  // Full JSONB payroll; payslip_no present after migration is applied.
-  // Supabase returns errors as { error } objects — never throws — so all
-  // column-missing retries must be handled in the normal flow, not catch.
   try {
     let { data, error } = await supabase
       .from("payroll_entries")
@@ -217,8 +214,6 @@ async function fetchPayslipsForUser(supabase, userId) {
   }
 
   // ── 4. salary_approvals (approved only) ───────────────────────────────────
-  // Shows the payslip once the admin has approved it, even when the
-  // payroll_entries DB sync failed or /tmp was cleared.
   try {
     let { data, error } = await supabase
       .from("salary_approvals")
@@ -230,7 +225,6 @@ async function fetchPayslipsForUser(supabase, userId) {
       .order("submitted_at", { ascending: false })
       .limit(50);
 
-    // payroll_breakdown column may not exist yet — retry without it.
     if (error && colMissing(error, "payroll_breakdown")) {
       const r2 = await supabase
         .from("salary_approvals")
@@ -251,7 +245,6 @@ async function fetchPayslipsForUser(supabase, userId) {
   }
 
   // ── 5. payroll_records — legacy totals table ──────────────────────────────
-  // Always created on accountant submit; shows gross/net even without breakdown.
   try {
     let { data, error } = await supabase
       .from("payroll_records")
@@ -262,7 +255,6 @@ async function fetchPayslipsForUser(supabase, userId) {
       .order("processed_at", { ascending: false })
       .limit(50);
 
-    // payslip_no migration may not have run yet.
     if (error && colMissing(error, "payslip_no")) {
       const r2 = await supabase
         .from("payroll_records")

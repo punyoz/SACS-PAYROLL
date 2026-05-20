@@ -18,7 +18,7 @@ const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const STORAGE_FILE = "leave-requests.json";
-const tmpPath = path.join(os.tmpdir(), "bncs-payroll-runtime", "leave-requests.json");
+const tmpPath = path.join(os.tmpdir(), "sacs-payroll-runtime", "leave-requests.json");
 
 // Cached per warm serverless instance to avoid repeated probes.
 let _backend = null; // 'table' | 'storage' | 'tmp'

@@ -16,8 +16,8 @@ const roleAccounts = [
   {
     role: "admin",
     email: process.env.SEED_ADMIN_EMAIL || "admin@example.com",
-    legacyEmail: "bncs.admin@gmail.com",
-    username: process.env.SEED_ADMIN_USERNAME || "bncsadmin",
+    legacyEmail: "sacs.admin@gmail.com",
+    username: process.env.SEED_ADMIN_USERNAME || "sacsadmin",
     password: process.env.SEED_ADMIN_PASSWORD || "Admin@12345",
     full_name: "System Admin",
     employee_id: "",
@@ -25,18 +25,18 @@ const roleAccounts = [
   {
     role: "accountant",
     email: process.env.SEED_ACCOUNTANT_EMAIL || "accountant@example.com",
-    legacyEmail: "bncs.accountant@gmail.com",
+    legacyEmail: "sacs.accountant@gmail.com",
     password: process.env.SEED_ACCOUNTANT_PASSWORD || "Accountant@12345",
     full_name: "Payroll Accountant",
-    employee_id: process.env.SEED_ACCOUNTANT_EMPLOYEE_ID || "BNCS-ACCT-001",
+    employee_id: process.env.SEED_ACCOUNTANT_EMPLOYEE_ID || "SACS-ACCT-001",
   },
   {
     role: "employee",
     email: process.env.SEED_EMPLOYEE_EMAIL || "employee@example.com",
-    legacyEmail: "bncs.employee@gmail.com",
+    legacyEmail: "sacs.employee@gmail.com",
     password: process.env.SEED_EMPLOYEE_PASSWORD || "Employee@12345",
     full_name: "Default Employee",
-    employee_id: process.env.SEED_EMPLOYEE_LOGIN_ID || "BNCS-EMP-001",
+    employee_id: process.env.SEED_EMPLOYEE_LOGIN_ID || "SACS-EMP-001",
   },
 ];
 
@@ -103,7 +103,7 @@ async function runAdminSeed() {
       throw new Error(`Failed to list users: ${list.error.message}`);
     }
 
-    // Find by new email first, then fall back to legacy bncs. email
+    // Find by new email first, then fall back to legacy sacs. email
     const existing =
       list.data.users.find((u) => u.email === account.email) ||
       (account.legacyEmail && list.data.users.find((u) => u.email === account.legacyEmail));
@@ -118,7 +118,7 @@ async function runAdminSeed() {
           employee_id: account.employee_id,
         },
       };
-      // Migrate email if it still has the old bncs. address
+      // Migrate email if it still has the old sacs. address
       if (existing.email !== account.email) {
         updates.email = account.email;
         console.log(`  migrating email: ${existing.email} → ${account.email}`);
