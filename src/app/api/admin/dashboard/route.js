@@ -217,6 +217,9 @@ async function buildDashboardPayload(supabase, activeEmployees, approvalData, at
     0,
   );
 
+  const teachingCount = activeEmployees.filter((e) => e.employee_type === "Teaching").length;
+  const nonTeachingCount = activeEmployees.filter((e) => e.employee_type === "Non-Teaching").length;
+
   const recentActivity = await buildRecentActivity(supabase, activeEmployees);
 
   return {
@@ -226,6 +229,10 @@ async function buildDashboardPayload(supabase, activeEmployees, approvalData, at
       total_payroll_month: totalPayrollMonth,
       pending_approvals: approvalData.pending.length,
       absent_today: Number(attendancePanels.absent_today || 0),
+      present_today: Number(attendancePanels.present_today || 0),
+      late_today: Number(attendancePanels.late_today || 0),
+      teaching_count: teachingCount,
+      non_teaching_count: nonTeachingCount,
     },
     pending_approvals: approvalData.pending,
     approval_history: approvalData.history,

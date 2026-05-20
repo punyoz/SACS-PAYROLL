@@ -15,6 +15,8 @@ const ADMIN_PAGES = {
   'adm-leave-approvals': 'Leave Approvals',
   'adm-reports':    'Summary Reports',
   'adm-audit-logs': 'Audit Logs',
+  'adm-users':      'User Management',
+  'adm-maintenance':'System Maintenance',
 };
 
 const AVATAR_COLORS = ['#3EC97A', '#F5A623', '#1DB8A0', '#E85555', '#7F77DD'];
@@ -42,6 +44,20 @@ let salHistPaginator = null;
 let leaveHistPaginator = null;
 let repPaginator = null;
 let auditPaginator = null;
+
+/* ── USER MANAGEMENT STATE ── */
+let allUsers = [];
+let userRoleFilter = 'all';
+let userSearch = '';
+let currentEditingUser = null;
+let usersPaginator = null;
+
+/* ── SYSTEM MAINTENANCE STATE ── */
+let systemData = null;
+let allRfidDevices = [];
+let rfidDeviceSearch = '';
+let rfidPaginator = null;
+let currentEditingRfid = null;
 
 /* ── NAVIGATE ── */
 function adminNav(pageId, navEl) {
@@ -91,6 +107,14 @@ function adminNav(pageId, navEl) {
 
   if (pageId === 'adm-audit-logs') {
     loadAuditLogs();
+  }
+
+  if (pageId === 'adm-users') {
+    loadUsers();
+  }
+
+  if (pageId === 'adm-maintenance') {
+    loadSystemData();
   }
 
   logAuditMovement({
@@ -434,6 +458,22 @@ function renderDashboardPanels(panels = {}) {
   if (absentTodayEl) absentTodayEl.textContent = String(panels.absent_today || 0);
 
   updateSalaryApprovalBadge(panels.pending_approvals || 0);
+
+  const presentTodayEl = document.getElementById('adm-panel-present-today');
+  const lateTodayEl = document.getElementById('adm-panel-late-today');
+  const teachingCountEl = document.getElementById('adm-panel-teaching-count');
+  const nonTeachingHintEl = document.getElementById('adm-panel-non-teaching-hint');
+  const empBreakdownEl = document.getElementById('adm-panel-emp-breakdown');
+
+  if (presentTodayEl) presentTodayEl.textContent = String(panels.present_today || 0);
+  if (lateTodayEl) lateTodayEl.textContent = String(panels.late_today || 0);
+  if (teachingCountEl) teachingCountEl.textContent = String(panels.teaching_count || 0);
+  if (nonTeachingHintEl) nonTeachingHintEl.textContent = `Non-Teaching: ${panels.non_teaching_count || 0}`;
+  if (empBreakdownEl) {
+    const t = panels.teaching_count || 0;
+    const nt = panels.non_teaching_count || 0;
+    empBreakdownEl.textContent = `Teaching: ${t} · Non-Teaching: ${nt}`;
+  }
 }
 
 function renderPendingSalaryApprovals(approvals = []) {
@@ -1872,6 +1912,20 @@ async function submitEditEmployee(event) {
   }
 }
 
+window.openAddUserModal = openAddUserModal;
+window.closeAddUserModal = closeAddUserModal;
+window.submitAddUser = submitAddUser;
+window.openEditUserModal = openEditUserModal;
+window.closeEditUserModal = closeEditUserModal;
+window.submitEditUser = submitEditUser;
+window.toggleArchiveCurrentUser = toggleArchiveCurrentUser;
+window.setUserRoleFilter = setUserRoleFilter;
+window.setUserSearch = setUserSearch;
+window.openRfidEditModal = openRfidEditModal;
+window.closeRfidEditModal = closeRfidEditModal;
+window.submitRfidUpdate = submitRfidUpdate;
+window.setRfidDeviceSearch = setRfidDeviceSearch;
+window.loadSystemData = loadSystemData;
 window.openAddEmployeeModal = openAddEmployeeModal;
 window.closeAddEmployeeModal = closeAddEmployeeModal;
 window.submitAddEmployee = submitAddEmployee;
@@ -1893,6 +1947,581 @@ window.setAuditModuleFilter = setAuditModuleFilter;
 window.setAuditActionFilter = setAuditActionFilter;
 window.exportAuditLogsCsv = exportAuditLogsCsv;
 
+/* ═══════════════════════════════════════
+   USER MANAGEMENT
+   ═══════════════════════════════════════ */
+
+const ROLE_LABELS = {
+  admin:     'Administrator',
+  hr:        'HR',
+  it:        'IT',
+  accountant:'Accountant',
+  employee:  'Employee',
+};
+
+const ROLE_BADGE_CLASS = {
+  admin:     'ba',
+  hr:        'bt2',
+  it:        'bg',
+  accountant:'bt2',
+  employee:  'bg',
+};
+
+function getRoleLabel(role) {
+  return ROLE_LABELS[String(role || '').toLowerCase()] || 'Employee';
+}
+
+function getRoleBadgeClass(role) {
+  return ROLE_BADGE_CLASS[String(role || '').toLowerCase()] || 'bg';
+}
+
+function updateUserPanels() {
+  const active = allUsers.filter((u) => !u.archived);
+  const archived = allUsers.filter((u) => u.archived);
+
+  const totalEl = document.getElementById('adm-users-total');
+  const activeEl = document.getElementById('adm-users-active');
+  const archivedEl = document.getElementById('adm-users-archived');
+
+  if (totalEl) totalEl.textContent = String(allUsers.length);
+  if (activeEl) activeEl.textContent = String(active.length);
+  if (archivedEl) archivedEl.textContent = String(archived.length);
+
+  document.querySelectorAll('#adm-users-filter-chips .chip').forEach((chip) => {
+    const filter = chip.getAttribute('data-role-filter');
+    if (filter === 'all') {
+      chip.textContent = `All (${active.length})`;
+    } else if (filter === 'archived') {
+      chip.textContent = `Archived (${archived.length})`;
+    } else {
+      const count = active.filter((u) => u.role === filter).length;
+      chip.textContent = `${getRoleLabel(filter)} (${count})`;
+    }
+  });
+}
+
+function getFilteredUsers() {
+  const search = userSearch.toLowerCase();
+  return allUsers.filter((user) => {
+    if (userRoleFilter === 'archived') return user.archived;
+    if (user.archived) return false;
+    if (userRoleFilter !== 'all' && user.role !== userRoleFilter) return false;
+    if (!search) return true;
+    const haystack = [user.full_name, user.email, user.role]
+      .map((v) => String(v || '').toLowerCase())
+      .join(' ');
+    return haystack.includes(search);
+  });
+}
+
+function renderUsers(users) {
+  const tbody = document.getElementById('adm-users-table-body');
+  if (!tbody) return;
+
+  if (!users.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);">No users found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = users.map((user) => {
+    const initials = getInitials(user.full_name);
+    const avatarColor = getAvatarColor(user.email || user.id);
+    const role = String(user.role || 'employee').toLowerCase();
+    const badgeClass = getRoleBadgeClass(role);
+    const statusClass = user.archived ? 'br' : 'bg';
+    const statusText = user.archived ? 'Archived' : 'Active';
+    const lastLogin = user.last_sign_in
+      ? formatDateTime(user.last_sign_in)
+      : 'Never';
+    const safeId = escapeHtml(user.id);
+    const safeName = escapeHtml(user.full_name);
+    const safeEmail = escapeHtml(user.email);
+
+    return `
+      <tr>
+        <td class="nm">
+          <div style="display:flex;align-items:center;gap:9px;">
+            <div class="av" style="width:28px;height:28px;font-size:10px;background:${avatarColor};">${initials}</div>
+            ${safeName}
+          </div>
+        </td>
+        <td class="mn">${safeEmail}</td>
+        <td><span class="badge ${badgeClass}">${escapeHtml(getRoleLabel(role))}</span></td>
+        <td class="mn" style="font-size:11px;">${escapeHtml(lastLogin)}</td>
+        <td><span class="badge ${statusClass}"><span class="bd"></span>${statusText}</span></td>
+        <td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openEditUserModal('${safeId}')">Edit</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderFilteredUsers() {
+  updateUserPanels();
+  if (usersPaginator) {
+    usersPaginator.setData(getFilteredUsers());
+  } else {
+    renderUsers(getFilteredUsers());
+  }
+}
+
+function setUserRoleFilter(filter) {
+  userRoleFilter = filter;
+  document.querySelectorAll('#adm-users-filter-chips .chip').forEach((chip) => {
+    chip.classList.toggle('active', chip.getAttribute('data-role-filter') === filter);
+  });
+  renderFilteredUsers();
+}
+
+function setUserSearch(value) {
+  userSearch = String(value || '').trim();
+  renderFilteredUsers();
+}
+
+async function loadUsers() {
+  const tbody = document.getElementById('adm-users-table-body');
+  if (tbody) tbody.innerHTML = skeletonRows(6);
+
+  try {
+    const response = await fetch('/api/admin/users', { method: 'GET' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load users');
+
+    allUsers = payload.users || [];
+    renderFilteredUsers();
+  } catch (error) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+    }
+  }
+}
+
+function showAddUserFeedback(message, isError = false) {
+  const el = document.getElementById('add-user-feedback');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle('err', isError);
+  el.classList.toggle('ok', !isError && Boolean(message));
+}
+
+function openAddUserModal() {
+  const modal = document.getElementById('add-user-modal');
+  const form = document.getElementById('add-user-form');
+  if (!modal || !form) return;
+  form.reset();
+  showAddUserFeedback('');
+  modal.style.display = 'flex';
+}
+
+function closeAddUserModal() {
+  const modal = document.getElementById('add-user-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitAddUser(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const formData = new FormData(form);
+
+  const payload = {
+    full_name: String(formData.get('full_name') || '').trim(),
+    email: String(formData.get('email') || '').trim(),
+    role: String(formData.get('role') || 'employee').trim(),
+    password: String(formData.get('password') || '').trim(),
+  };
+
+  if (!payload.full_name || !payload.email || !payload.password) {
+    showAddUserFeedback('Full name, email, and password are required.', true);
+    return;
+  }
+
+  if (payload.password.length < 6) {
+    showAddUserFeedback('Password must be at least 6 characters.', true);
+    return;
+  }
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating...';
+
+    const response = await fetch('/api/admin/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to create user');
+
+    showAddUserFeedback('User account created successfully.', false);
+    window.pushNotification?.('User Created', `New ${payload.role} account created for ${payload.full_name}.`, 'success');
+    await loadUsers();
+    setTimeout(() => closeAddUserModal(), 500);
+  } catch (error) {
+    showAddUserFeedback(error.message, true);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Create User';
+  }
+}
+
+function showEditUserFeedback(message, isError = false) {
+  const el = document.getElementById('edit-user-feedback');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle('err', isError);
+  el.classList.toggle('ok', !isError && Boolean(message));
+}
+
+function openEditUserModal(userId) {
+  const modal = document.getElementById('edit-user-modal');
+  const form = document.getElementById('edit-user-form');
+  const archiveBtn = document.getElementById('archive-user-button');
+  if (!modal || !form || !archiveBtn) return;
+
+  currentEditingUser = allUsers.find((u) => u.id === userId);
+  if (!currentEditingUser) {
+    window.alert('User record not found. Please refresh the list.');
+    return;
+  }
+
+  form.elements.id.value = currentEditingUser.id;
+  form.elements.full_name.value = currentEditingUser.full_name || '';
+  form.elements.email.value = currentEditingUser.email || '';
+  form.elements.role.value = currentEditingUser.role || 'employee';
+  form.elements.password.value = '';
+
+  archiveBtn.className = currentEditingUser.archived ? 'btn btn-green' : 'btn btn-red';
+  archiveBtn.textContent = currentEditingUser.archived ? 'Restore User' : 'Archive User';
+
+  showEditUserFeedback('');
+  modal.style.display = 'flex';
+}
+
+function closeEditUserModal() {
+  const modal = document.getElementById('edit-user-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function toggleArchiveCurrentUser() {
+  if (!currentEditingUser) return;
+  const archiveBtn = document.getElementById('archive-user-button');
+  if (!archiveBtn) return;
+
+  const action = currentEditingUser.archived ? 'restore' : 'archive';
+  const prompt = action === 'archive'
+    ? 'archive this user account'
+    : 'restore this user account';
+  const detail = action === 'archive'
+    ? 'Archived users cannot log in and will be hidden from active lists.'
+    : 'This user account will be restored to active status.';
+
+  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(prompt, detail))) {
+    return;
+  }
+
+  try {
+    archiveBtn.disabled = true;
+    archiveBtn.textContent = action === 'archive' ? 'Archiving...' : 'Restoring...';
+
+    const response = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: currentEditingUser.id, action }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update user');
+
+    showEditUserFeedback(action === 'archive' ? 'User archived.' : 'User restored.', false);
+    window.pushNotification?.(
+      action === 'archive' ? 'User Archived' : 'User Restored',
+      action === 'archive' ? 'The user account has been archived.' : 'The user account has been restored.',
+      'info',
+    );
+    await loadUsers();
+    closeEditUserModal();
+  } catch (error) {
+    showEditUserFeedback(error.message, true);
+  } finally {
+    archiveBtn.disabled = false;
+    archiveBtn.textContent = currentEditingUser?.archived ? 'Restore User' : 'Archive User';
+  }
+}
+
+async function submitEditUser(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const formData = new FormData(form);
+
+  const payload = {
+    id: String(formData.get('id') || '').trim(),
+    action: 'update',
+    full_name: String(formData.get('full_name') || '').trim(),
+    email: String(formData.get('email') || '').trim(),
+    role: String(formData.get('role') || 'employee').trim(),
+    password: String(formData.get('password') || '').trim(),
+  };
+
+  if (!payload.id || !payload.full_name || !payload.email) {
+    showEditUserFeedback('Full name and email are required.', true);
+    return;
+  }
+
+  if (payload.password && payload.password.length < 6) {
+    showEditUserFeedback('Password must be at least 6 characters.', true);
+    return;
+  }
+
+  if (!payload.password) delete payload.password;
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+
+    const response = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update user');
+
+    showEditUserFeedback('User account updated.', false);
+    window.pushNotification?.('User Updated', 'User account details have been saved.', 'success');
+    await loadUsers();
+    closeEditUserModal();
+  } catch (error) {
+    showEditUserFeedback(error.message, true);
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Save Changes';
+  }
+}
+
+/* ═══════════════════════════════════════
+   SYSTEM MAINTENANCE
+   ═══════════════════════════════════════ */
+
+function renderSystemHealthPanels(data) {
+  const dbStatus = document.getElementById('adm-sys-db-status');
+  const attStatus = document.getElementById('adm-sys-att-status');
+  const payStatus = document.getElementById('adm-sys-pay-status');
+  const rfidCount = document.getElementById('adm-sys-rfid-count');
+  const rfidHint = document.getElementById('adm-sys-rfid-hint');
+
+  const dbOk = data?.database_status?.connection === 'ok';
+  const attOk = data?.database_status?.attendance_logs === 'ok';
+  const payOk = data?.database_status?.payroll_records === 'ok';
+
+  if (dbStatus) {
+    dbStatus.textContent = dbOk ? 'OK' : 'Error';
+    dbStatus.className = `cv ${dbOk ? 'g' : 'r'}`;
+  }
+  if (attStatus) {
+    attStatus.textContent = attOk ? 'OK' : 'Missing';
+    attStatus.className = `cv ${attOk ? 'g' : 'a'}`;
+  }
+  if (payStatus) {
+    payStatus.textContent = payOk ? 'OK' : 'Missing';
+    payStatus.className = `cv ${payOk ? 'g' : 'a'}`;
+  }
+  const stats = data?.system_stats || {};
+  if (rfidCount) rfidCount.textContent = String(stats.rfid_registered || 0);
+  if (rfidHint) rfidHint.textContent = `Unregistered: ${stats.rfid_unregistered || 0}`;
+}
+
+function renderSecurityEvents(logs = []) {
+  const tbody = document.getElementById('adm-security-events-body');
+  if (!tbody) return;
+
+  if (!logs.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--t3);">No recent security events.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = logs.slice(0, 10).map((log) => {
+    const timestamp = escapeHtml(formatDateTime(log.created_at));
+    const moduleName = escapeHtml(String(log.module || '').replaceAll('_', ' '));
+    const action = escapeHtml(String(log.action || '').replaceAll('_', ' '));
+    const description = escapeHtml(log.description || 'No description.');
+    const status = String(log.status || '').toLowerCase();
+    const statusClass = status === 'success' ? 'bg' : status === 'failed' ? 'br' : 'ba';
+
+    return `
+      <tr>
+        <td class="mn">${timestamp}</td>
+        <td>${moduleName}</td>
+        <td>${action}</td>
+        <td>${description}</td>
+        <td><span class="badge ${statusClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function getFilteredRfidDevices() {
+  const search = rfidDeviceSearch.toLowerCase();
+  if (!search) return allRfidDevices;
+  return allRfidDevices.filter((device) => {
+    const haystack = [device.full_name, device.employee_id, device.rfid_uid]
+      .map((v) => String(v || '').toLowerCase())
+      .join(' ');
+    return haystack.includes(search);
+  });
+}
+
+function renderRfidDevices(devices) {
+  const tbody = document.getElementById('adm-rfid-table-body');
+  if (!tbody) return;
+
+  if (!devices.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);">No employees found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = devices.map((device) => {
+    const safeName = escapeHtml(device.full_name);
+    const safeEmpId = escapeHtml(device.employee_id || 'N/A');
+    const safeType = escapeHtml(device.employee_type || 'Teaching');
+    const typeBadge = safeType === 'Non-Teaching' ? 'ba' : 'bt2';
+    const hasRfid = Boolean(String(device.rfid_uid || '').trim());
+    const rfidDisplay = hasRfid ? escapeHtml(device.rfid_uid) : '—';
+    const rfidBadge = hasRfid ? 'bg' : 'ba';
+    const rfidStatus = hasRfid ? 'Assigned' : 'Unassigned';
+    const deviceId = escapeHtml(device.id);
+    const isArchived = device.archived;
+
+    if (isArchived) return '';
+
+    return `
+      <tr>
+        <td class="nm">${safeName}</td>
+        <td class="mn">${safeEmpId}</td>
+        <td><span class="badge ${typeBadge}">${safeType}</span></td>
+        <td class="mn" style="font-family:var(--mono);font-size:12px;">${rfidDisplay}</td>
+        <td><span class="badge ${rfidBadge}"><span class="bd"></span>${rfidStatus}</span></td>
+        <td>
+          <button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openRfidEditModal('${deviceId}')">
+            ${hasRfid ? 'Update' : 'Assign'}
+          </button>
+        </td>
+      </tr>
+    `;
+  }).filter(Boolean).join('');
+}
+
+function renderFilteredRfidDevices() {
+  if (rfidPaginator) {
+    rfidPaginator.setData(getFilteredRfidDevices().filter((d) => !d.archived));
+  } else {
+    renderRfidDevices(getFilteredRfidDevices().filter((d) => !d.archived));
+  }
+}
+
+function setRfidDeviceSearch(value) {
+  rfidDeviceSearch = String(value || '').trim();
+  renderFilteredRfidDevices();
+}
+
+async function loadSystemData() {
+  const rfidTbody = document.getElementById('adm-rfid-table-body');
+  const securityTbody = document.getElementById('adm-security-events-body');
+
+  if (rfidTbody) rfidTbody.innerHTML = skeletonRows(6);
+  if (securityTbody) securityTbody.innerHTML = skeletonRows(5);
+
+  try {
+    const response = await fetch('/api/admin/system', { method: 'GET' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load system data');
+
+    systemData = payload;
+    allRfidDevices = payload.rfid_devices || [];
+
+    renderSystemHealthPanels(payload);
+    renderSecurityEvents(payload.recent_security_events || []);
+    renderFilteredRfidDevices();
+  } catch (error) {
+    if (rfidTbody) {
+      rfidTbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+    }
+    if (securityTbody) {
+      securityTbody.innerHTML = `<tr><td colspan="5" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+    }
+  }
+}
+
+function openRfidEditModal(employeeId) {
+  const modal = document.getElementById('rfid-edit-modal');
+  const form = document.getElementById('rfid-edit-form');
+  if (!modal || !form) return;
+
+  currentEditingRfid = allRfidDevices.find((d) => d.id === employeeId);
+  if (!currentEditingRfid) {
+    window.alert('Employee not found. Please refresh the list.');
+    return;
+  }
+
+  form.elements.id.value = currentEditingRfid.id;
+  form.elements.employee_display.value = `${currentEditingRfid.full_name} (${currentEditingRfid.employee_id || 'N/A'})`;
+  form.elements.rfid_uid.value = currentEditingRfid.rfid_uid || '';
+
+  const feedbackEl = document.getElementById('rfid-edit-feedback');
+  if (feedbackEl) feedbackEl.textContent = '';
+
+  modal.style.display = 'flex';
+}
+
+function closeRfidEditModal() {
+  const modal = document.getElementById('rfid-edit-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitRfidUpdate(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const formData = new FormData(form);
+  const feedbackEl = document.getElementById('rfid-edit-feedback');
+
+  const payload = {
+    id: String(formData.get('id') || '').trim(),
+    rfid_uid: String(formData.get('rfid_uid') || '').trim(),
+  };
+
+  if (!payload.id) {
+    if (feedbackEl) { feedbackEl.textContent = 'Employee ID is missing.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+
+    const response = await fetch('/api/admin/system', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update RFID');
+
+    if (feedbackEl) { feedbackEl.textContent = payload.rfid_uid ? 'RFID assigned successfully.' : 'RFID removed.'; feedbackEl.className = 'adm-feedback ok'; }
+    window.pushNotification?.('RFID Updated', payload.rfid_uid ? 'RFID UID has been assigned to the employee.' : 'RFID UID has been removed.', 'success');
+    await loadSystemData();
+    setTimeout(() => closeRfidEditModal(), 500);
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Save RFID';
+  }
+}
+
 /* ── INIT ── */
 function initAdminPortal() {
   const currentRole = new URLSearchParams(window.location.search).get('role');
@@ -1910,6 +2539,8 @@ function initAdminPortal() {
   leaveHistPaginator = window.createPaginator({ id: 'adm-leave-hist', pageSize: 15, renderFn: renderLeaveApprovalHistory });
   repPaginator = window.createPaginator({ id: 'adm-rep', pageSize: 15, renderFn: renderSummaryTable });
   auditPaginator = window.createPaginator({ id: 'adm-audit', pageSize: 20, renderFn: renderAuditTable });
+  usersPaginator = window.createPaginator({ id: 'adm-users', pageSize: 20, renderFn: renderUsers });
+  rfidPaginator = window.createPaginator({ id: 'adm-rfid', pageSize: 15, renderFn: renderRfidDevices });
 
   const addForm = document.getElementById('add-employee-form');
   const editForm = document.getElementById('edit-employee-form');
