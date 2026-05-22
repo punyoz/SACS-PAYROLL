@@ -92,9 +92,11 @@ export async function GET() {
       fetchRfidDevices(supabase),
     ]);
 
-    const [attendanceOk, payrollOk, auditResult] = await Promise.all([
+    const [attendanceOk, payrollOk, branchesOk, configOk, auditResult] = await Promise.all([
       checkTableExists(supabase, "attendance_logs"),
       checkTableExists(supabase, "payroll_records"),
+      checkTableExists(supabase, "branches"),
+      checkTableExists(supabase, "system_config"),
       listAuditLogs({ module: "all", action: "all", search: "", limit: 10 }),
     ]);
 
@@ -106,6 +108,8 @@ export async function GET() {
         attendance_logs: attendanceOk ? "ok" : "missing",
         payroll_records: payrollOk ? "ok" : "missing",
         profiles: "ok",
+        branches: branchesOk ? "ok" : "missing",
+        system_config: configOk ? "ok" : "missing",
       },
       rfid_devices: rfidDevices,
       recent_security_events: auditResult.logs || [],

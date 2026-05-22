@@ -14,6 +14,14 @@ if (!projectUrl) {
 
 const roleAccounts = [
   {
+    role: "super_admin",
+    email: process.env.SEED_SUPER_ADMIN_EMAIL || "superadmin@example.com",
+    username: process.env.SEED_SUPER_ADMIN_USERNAME || "sacssuperadmin",
+    password: process.env.SEED_SUPER_ADMIN_PASSWORD || "SuperAdmin@12345",
+    full_name: "Super Administrator",
+    employee_id: "",
+  },
+  {
     role: "admin",
     email: process.env.SEED_ADMIN_EMAIL || "admin@example.com",
     legacyEmail: "sacs.admin@gmail.com",
