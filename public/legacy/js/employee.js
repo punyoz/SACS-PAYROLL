@@ -570,6 +570,7 @@ function empNav(pageId, tabEl) {
 
   if (pageId === 'emp-attendance') loadAttendanceRecords();
   if (pageId === 'emp-timesheet')  _initTimesheetTab();
+  if (pageId === 'emp-profile')    loadProfilePage?.();
 }
 
 function _initTimesheetTab() {
@@ -906,3 +907,37 @@ window.tsCopyTable        = tsCopyTable;
 window.tsExportExcel      = tsExportExcel;
 window.printTimesheet     = printTimesheet;
 window.loadAttendanceRecords = loadAttendanceRecords;
+
+/* ══════════════════════════════════════════════════
+   PROFILE PAGE MODULE
+   ══════════════════════════════════════════════════ */
+EMP_PAGES['emp-profile'] = 'Profile';
+
+function loadProfilePage() {
+  const ctx = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  if (!ctx) return;
+
+  const initials = (String(ctx.full_name || '').trim()
+    .split(/\s+/).slice(0, 2).map(w => w[0] || '').join('') || 'EM').toUpperCase();
+
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+
+  setTxt('ep-avatar-circle', initials);
+  setTxt('ep-banner-name',   ctx.full_name   || 'Employee Name');
+  setTxt('ep-banner-pos',    ctx.position    || ctx.employee_type || '');
+  setTxt('ep-role-tag',      ctx.role        || 'Employee');
+  setTxt('ep-info-name',     ctx.full_name);
+  setTxt('ep-info-id',       ctx.employee_id);
+  setTxt('ep-info-pos',      ctx.position);
+  setTxt('ep-info-type',     ctx.employee_type);
+  setTxt('ep-info-email',    ctx.email);
+  setTxt('ep-info-role',     ctx.role);
+}
+
+document.addEventListener('sacs-auth-context-changed', function _onAuthForProfile() {
+  if (document.getElementById('emp-profile')?.classList.contains('active')) {
+    loadProfilePage();
+  }
+});
+
+window.loadProfilePage = loadProfilePage;

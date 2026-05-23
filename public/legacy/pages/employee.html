@@ -47,6 +47,10 @@
       <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 2v2M11 2v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Leave
     </div>
+    <div class="emp-tab" role="tab" data-emp-page="emp-profile" onclick="empNav('emp-profile',this)">
+      <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.5"/><path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      Profile
+    </div>
   </nav>
 
   <!-- SCROLLABLE BODY -->
@@ -361,6 +365,64 @@
       </div>
 
     </div><!-- end #emp-leave -->
+
+    <!-- ══════════════════════════════════════
+         PAGE: PROFILE
+    ══════════════════════════════════════ -->
+    <div class="emp-page" id="emp-profile" role="tabpanel">
+
+      <!-- Banner -->
+      <div class="ep-banner">
+        <span class="ep-role-tag" id="ep-role-tag">Employee</span>
+        <div class="ep-avatar-circle" id="ep-avatar-circle">EM</div>
+        <div class="ep-banner-name" id="ep-banner-name">Employee Name</div>
+        <div class="ep-banner-pos" id="ep-banner-pos">Position</div>
+      </div>
+
+      <!-- Institution row -->
+      <div class="card ep-inst-card">
+        <div class="ep-inst-left">
+          <div class="ep-inst-name">Shepherd Angels Christian School</div>
+          <div class="ep-inst-sys">SACS Payroll System</div>
+        </div>
+        <button class="btn btn-outline ep-edit-btn" onclick="openSettingsModal('emp')">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit Account
+        </button>
+      </div>
+
+      <!-- Info grid -->
+      <div class="card ep-info-card">
+        <div class="stitle" style="margin-bottom:14px;">Personal Information</div>
+        <div class="ep-info-grid">
+          <div class="ep-info-item">
+            <div class="ep-info-label">Full Name</div>
+            <div class="ep-info-value" id="ep-info-name">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Employee ID</div>
+            <div class="ep-info-value" id="ep-info-id">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Position</div>
+            <div class="ep-info-value" id="ep-info-pos">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Employee Type</div>
+            <div class="ep-info-value" id="ep-info-type">—</div>
+          </div>
+          <div class="ep-info-item" style="grid-column:1/-1;">
+            <div class="ep-info-label">Email Address</div>
+            <div class="ep-info-value" id="ep-info-email">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Account Role</div>
+            <div class="ep-info-value" id="ep-info-role">—</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end #emp-profile -->
 
   </div><!-- end emp-body -->
 

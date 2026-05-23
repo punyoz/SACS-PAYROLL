@@ -741,3 +741,164 @@
     display: none !important;
   }
 }
+
+/* ══════════════════════════════════════════════════
+   PROFILE PAGE
+   ══════════════════════════════════════════════════ */
+
+#emp-profile.emp-page {
+  max-width: 720px;
+}
+
+/* Banner */
+.ep-banner {
+  position: relative;
+  background: linear-gradient(135deg, #1a3a5c 0%, #1e5799 50%, #2d86c5 100%);
+  border-radius: 12px;
+  padding: 36px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.ep-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 70% 30%, rgba(255,255,255,.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.ep-avatar-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.18);
+  border: 3px solid rgba(255,255,255,.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: .5px;
+  flex-shrink: 0;
+}
+
+.ep-banner-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-top: 4px;
+  text-align: center;
+}
+
+.ep-banner-pos {
+  font-size: 12px;
+  color: rgba(255,255,255,.72);
+  text-align: center;
+}
+
+.ep-role-tag {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  background: rgba(255,255,255,.18);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,255,255,.3);
+  backdrop-filter: blur(4px);
+}
+
+/* Institution card */
+.ep-inst-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+}
+
+.ep-inst-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.ep-inst-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--blue, #3b82f6);
+}
+
+.ep-inst-sys {
+  font-size: 11px;
+  color: var(--t3);
+  margin-top: 2px;
+}
+
+.ep-edit-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 7px 14px;
+}
+
+/* Info card grid */
+.ep-info-card {
+  padding: 18px 18px 20px;
+}
+
+.ep-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 24px;
+}
+
+.ep-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ep-info-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--t3);
+}
+
+.ep-info-value {
+  font-size: 13px;
+  color: var(--t1);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+/* Responsive */
+@media (max-width: 540px) {
+  .ep-info-grid {
+    grid-template-columns: 1fr;
+  }
+  .ep-info-item[style*="grid-column"] {
+    grid-column: 1 !important;
+  }
+  .ep-inst-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .ep-edit-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
