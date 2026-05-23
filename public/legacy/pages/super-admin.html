@@ -106,7 +106,7 @@
               <div class="backup-icon">👥</div>
               <div class="backup-info">
                 <div class="backup-label">User Accounts</div>
-                <div class="backup-meta" id="sa-health-users-meta">Loading...</div>
+                <div class="backup-meta" id="sa-health-users-meta">—</div>
               </div>
               <span class="sa-pill sa-pill-info" id="sa-health-users-pill">—</span>
             </div>
@@ -114,7 +114,7 @@
               <div class="backup-icon">📋</div>
               <div class="backup-info">
                 <div class="backup-label">Attendance Records</div>
-                <div class="backup-meta" id="sa-health-att-meta">Loading...</div>
+                <div class="backup-meta" id="sa-health-att-meta">—</div>
               </div>
               <span class="sa-pill sa-pill-info" id="sa-health-att-pill">—</span>
             </div>
@@ -122,7 +122,7 @@
               <div class="backup-icon">💰</div>
               <div class="backup-info">
                 <div class="backup-label">Payroll Records</div>
-                <div class="backup-meta" id="sa-health-pay-meta">Loading...</div>
+                <div class="backup-meta" id="sa-health-pay-meta">—</div>
               </div>
               <span class="sa-pill sa-pill-info" id="sa-health-pay-pill">—</span>
             </div>
@@ -148,7 +148,9 @@
       <div class="card">
         <div class="sh"><span class="stitle">Recent System Activity</span></div>
         <div class="ai-list" id="sa-recent-activity">
-          <div class="ai-item"><div class="ai2"><div class="s" style="color:var(--t3);">Loading system activity...</div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:70%"></div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:55%"></div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:80%"></div></div></div>
         </div>
       </div>
     </div>
@@ -160,8 +162,8 @@
       <div class="ph"><h2>Branch Management</h2><p>Manage branch information, configurations, and employee distribution across all branches</p></div>
 
       <div class="sg3" style="margin-bottom:16px;">
-        <div class="card"><div class="ct">Total Branches</div><div class="cv b" id="sa-branch-total">1</div><div class="cch">Registered branches</div></div>
-        <div class="card"><div class="ct">Active Branches</div><div class="cv g" id="sa-branch-active">1</div><div class="cch">Currently operating</div></div>
+        <div class="card"><div class="ct">Total Branches</div><div class="cv b" id="sa-branch-total">—</div><div class="cch">Registered branches</div></div>
+        <div class="card"><div class="ct">Active Branches</div><div class="cv g" id="sa-branch-active">—</div><div class="cch">Currently operating</div></div>
         <div class="card"><div class="ct">Total Staff</div><div class="cv" id="sa-branch-staff">—</div><div class="cch">Across all branches</div></div>
       </div>
 
@@ -253,7 +255,11 @@
       <div class="tw"><table>
         <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Employee ID</th><th>Type</th><th>Status</th><th>Last Login</th></tr></thead>
         <tbody id="sa-users-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading users...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="sa-users-pg"></div>
@@ -449,7 +455,11 @@
       <div class="tw" style="margin-top:10px;"><table>
         <thead><tr><th>Timestamp</th><th>Module</th><th>Action</th><th>Entity</th><th>Description</th><th>Status</th><th>Source</th></tr></thead>
         <tbody id="sa-audit-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading audit logs...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="sa-audit-pg"></div>
@@ -583,7 +593,11 @@
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Employee ID</th><th>Type</th><th>Position</th><th>Branch</th><th>Assigned At</th><th></th></tr></thead>
         <tbody id="sa-ba-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading branch assignments...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="sa-ba-pg"></div>

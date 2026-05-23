@@ -179,10 +179,8 @@ async function loadSABranches() {
     if (branchRes.status === 'fulfilled' && branchRes.value.ok) {
       const d = await branchRes.value.json();
       saBranches = d.branches || [];
-    } else if (!saBranches.length) {
-      saBranches = [
-        { id: null, name: 'Main Campus', location: 'SACS — Main Branch', code: 'MAIN-01', status: 'Active' },
-      ];
+    } else {
+      saBranches = [];
     }
 
     const staffCountEl = document.getElementById('sa-branch-staff');
@@ -303,7 +301,7 @@ async function submitSABranch(event) {
 /* ── ROLES & PERMISSIONS ── */
 async function loadSAUsers() {
   const tbody = document.getElementById('sa-users-table-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const res = await fetch('/api/admin/users');
@@ -503,7 +501,7 @@ async function saveSAConfig(section) {
 /* ── AUDIT & MONITORING ── */
 async function loadSAAuditLogs() {
   const tbody = document.getElementById('sa-audit-table-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     let url = '/api/admin/audit-logs?limit=200';
@@ -892,7 +890,7 @@ function setSABranchSearch(value) {
 
 async function loadSABranchAssignment() {
   const tbody = document.getElementById('sa-ba-table-body');
-  if (tbody) tbody.innerHTML = `<tr>${Array(7).fill('<td><div class="skel"></div></td>').join('')}</tr>`.repeat(5);
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const response = await fetch('/api/admin/branch-employees', { method: 'GET' });

@@ -156,6 +156,11 @@ function shapeEmployee(user, profile, index) {
     employment_status: normalizeText(metadata.employment_status, "Regular"),
     archived: Boolean(metadata.archived),
     date_of_birth: normalizeText(metadata.date_of_birth, ""),
+    sss_number: normalizeText(metadata.sss_number, ""),
+    pagibig_number: normalizeText(metadata.pagibig_number, ""),
+    philhealth_number: normalizeText(metadata.philhealth_number, ""),
+    bank_name: normalizeText(metadata.bank_name, ""),
+    bank_account_number: normalizeText(metadata.bank_account_number, ""),
   };
 }
 
@@ -250,6 +255,11 @@ export async function POST(request) {
       employee_status: normalizeText(body.employee_status, "Active"),
       employment_status: "Regular",
       archived: false,
+      sss_number: normalizeText(body.sss_number, ""),
+      pagibig_number: normalizeText(body.pagibig_number, ""),
+      philhealth_number: normalizeText(body.philhealth_number, ""),
+      bank_name: normalizeText(body.bank_name, ""),
+      bank_account_number: normalizeText(body.bank_account_number, ""),
     };
 
     const createUserResult = await supabase.auth.admin.createUser({
@@ -374,6 +384,11 @@ export async function PATCH(request) {
       if (typeof currentMetadata.archived !== "boolean") {
         nextMetadata.archived = false;
       }
+      if (body.sss_number !== undefined) nextMetadata.sss_number = normalizeText(body.sss_number, normalizeText(currentMetadata.sss_number, ""));
+      if (body.pagibig_number !== undefined) nextMetadata.pagibig_number = normalizeText(body.pagibig_number, normalizeText(currentMetadata.pagibig_number, ""));
+      if (body.philhealth_number !== undefined) nextMetadata.philhealth_number = normalizeText(body.philhealth_number, normalizeText(currentMetadata.philhealth_number, ""));
+      if (body.bank_name !== undefined) nextMetadata.bank_name = normalizeText(body.bank_name, normalizeText(currentMetadata.bank_name, ""));
+      if (body.bank_account_number !== undefined) nextMetadata.bank_account_number = normalizeText(body.bank_account_number, normalizeText(currentMetadata.bank_account_number, ""));
     }
 
     const email = action === "update"

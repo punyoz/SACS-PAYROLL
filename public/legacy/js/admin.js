@@ -13,6 +13,7 @@ const ADMIN_PAGES = {
   'adm-audit-logs':   'Audit Logs',
   'adm-users':        'User Management',
   'adm-branch-assign':'Branch Assignment',
+  'adm-branches':     'Branch Management',
   'adm-maintenance':  'System Maintenance',
 };
 
@@ -41,6 +42,9 @@ let branchFilter = 'all';
 let branchSearch = '';
 let currentBranchEmployee = null;
 let branchPaginator = null;
+
+/* ── BRANCH MANAGEMENT STATE ── */
+let admBranches = [];
 
 /* ── SYSTEM MAINTENANCE STATE ── */
 let systemData = null;
@@ -93,6 +97,10 @@ function adminNav(pageId, navEl) {
 
   if (pageId === 'adm-maintenance') {
     loadSystemData();
+  }
+
+  if (pageId === 'adm-branches') {
+    loadAdmBranches();
   }
 
   logAuditMovement({
@@ -1107,6 +1115,11 @@ async function submitAddUser(event) {
           position: String(formData.get('position') || '').trim(),
           basic_salary: Number(formData.get('basic_salary') || 0) || 0,
           employee_status: String(formData.get('employee_status') || 'Active').trim(),
+          sss_number: String(formData.get('sss_number') || '').trim(),
+          pagibig_number: String(formData.get('pagibig_number') || '').trim(),
+          philhealth_number: String(formData.get('philhealth_number') || '').trim(),
+          bank_name: String(formData.get('bank_name') || '').trim(),
+          bank_account_number: String(formData.get('bank_account_number') || '').trim(),
         }),
       });
     } else {
@@ -1185,6 +1198,11 @@ function openEditUserModal(userId) {
     if (form.elements.position) form.elements.position.value = currentEditingUser.position || 'Employee';
     if (form.elements.employee_status) form.elements.employee_status.value = currentEditingUser.employee_status || 'Active';
     if (form.elements.basic_salary) form.elements.basic_salary.value = currentEditingUser.basic_salary || 0;
+    if (form.elements.sss_number) form.elements.sss_number.value = currentEditingUser.sss_number || '';
+    if (form.elements.pagibig_number) form.elements.pagibig_number.value = currentEditingUser.pagibig_number || '';
+    if (form.elements.philhealth_number) form.elements.philhealth_number.value = currentEditingUser.philhealth_number || '';
+    if (form.elements.bank_name) form.elements.bank_name.value = currentEditingUser.bank_name || '';
+    if (form.elements.bank_account_number) form.elements.bank_account_number.value = currentEditingUser.bank_account_number || '';
   }
 
   archiveBtn.className = currentEditingUser.archived ? 'btn btn-green' : 'btn btn-red';
@@ -1291,6 +1309,11 @@ async function submitEditUser(event) {
         basic_salary: Number(formData.get('basic_salary') || 0) || 0,
         date_of_birth: String(formData.get('date_of_birth') || '').trim(),
         employee_status: String(formData.get('employee_status') || 'Active').trim(),
+        sss_number: String(formData.get('sss_number') || '').trim(),
+        pagibig_number: String(formData.get('pagibig_number') || '').trim(),
+        philhealth_number: String(formData.get('philhealth_number') || '').trim(),
+        bank_name: String(formData.get('bank_name') || '').trim(),
+        bank_account_number: String(formData.get('bank_account_number') || '').trim(),
       };
       if (password) payload.password = password;
 
@@ -1802,5 +1825,141 @@ async function submitBranchAssign(event) {
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Confirm Assignment';
+  }
+}
+
+/* ═══════════════════════════════════════
+   ADMIN BRANCH MANAGEMENT
+   ═══════════════════════════════════════ */
+
+async function loadAdmBranches() {
+  const grid = document.getElementById('adm-branch-grid');
+  if (!grid) return;
+
+  try {
+    const [branchRes, staffRes] = await Promise.allSettled([
+      fetch('/api/super-admin/branches'),
+      fetch('/api/admin/dashboard'),
+    ]);
+
+    if (branchRes.status === 'fulfilled' && branchRes.value.ok) {
+      const d = await branchRes.value.json();
+      admBranches = d.branches || [];
+    } else {
+      admBranches = [];
+    }
+
+    const staffCountEl = document.getElementById('adm-branch-staff');
+    if (staffRes.status === 'fulfilled' && staffRes.value.ok) {
+      const d = await staffRes.value.json();
+      if (staffCountEl) staffCountEl.textContent = d.total_employees ?? d.totalEmployees ?? '—';
+    }
+  } catch {}
+
+  renderAdmBranchGrid();
+}
+
+function renderAdmBranchGrid() {
+  const grid = document.getElementById('adm-branch-grid');
+  if (!grid) return;
+
+  const totalEl = document.getElementById('adm-branch-total');
+  const activeEl = document.getElementById('adm-branch-active');
+  if (totalEl) totalEl.textContent = admBranches.length;
+  if (activeEl) activeEl.textContent = admBranches.filter((b) => b.status === 'Active').length;
+
+  if (!admBranches.length) {
+    grid.innerHTML = '<p style="color:var(--t3);grid-column:1/-1;">No branches configured yet.</p>';
+    return;
+  }
+
+  grid.innerHTML = admBranches.map((b) => {
+    const statusColor = b.status === 'Active' ? 'var(--green)' : 'var(--red)';
+    return `<div class="branch-card">
+      <div class="branch-name">${escapeHtml(b.name)}</div>
+      <div class="branch-meta">${escapeHtml(b.location)}</div>
+      <div class="branch-meta">Code: <code style="font-size:11px;">${escapeHtml(b.code || '—')}</code></div>
+      <div style="margin-top:4px;"><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${escapeHtml(b.status)}</span></div>
+      <div class="branch-actions" style="margin-top:8px;">
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openAdmBranchModal(${JSON.stringify(b).replace(/"/g,'&quot;')})">Edit</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openAdmBranchModal(branch) {
+  const modal = document.getElementById('adm-branch-modal');
+  const form = document.getElementById('adm-branch-form');
+  const title = document.getElementById('adm-branch-modal-title');
+  const fb = document.getElementById('adm-branch-feedback');
+  if (!modal || !form) return;
+
+  if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
+
+  if (branch && typeof branch === 'object') {
+    if (title) title.textContent = 'Edit Branch';
+    form.querySelector('[name="id"]').value = branch.id || '';
+    form.querySelector('[name="name"]').value = branch.name || '';
+    form.querySelector('[name="location"]').value = branch.location || '';
+    form.querySelector('[name="code"]').value = branch.code || '';
+    const statusEl = form.querySelector('[name="status"]');
+    if (statusEl) statusEl.value = branch.status || 'Active';
+  } else {
+    if (title) title.textContent = 'Add Branch';
+    form.reset();
+    form.querySelector('[name="id"]').value = '';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeAdmBranchModal() {
+  const modal = document.getElementById('adm-branch-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitAdmBranch(event) {
+  event.preventDefault();
+  const form = event.target;
+  const fb = document.getElementById('adm-branch-feedback');
+
+  const id = form.querySelector('[name="id"]').value;
+  const payload = {
+    name: form.querySelector('[name="name"]').value.trim(),
+    location: form.querySelector('[name="location"]').value.trim(),
+    code: form.querySelector('[name="code"]').value.trim(),
+    status: form.querySelector('[name="status"]').value,
+  };
+
+  if (!payload.name || !payload.location) {
+    if (fb) { fb.textContent = 'Branch name and location are required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+
+  if (fb) { fb.textContent = 'Saving...'; fb.style.color = 'var(--t3)'; }
+
+  try {
+    const res = await fetch('/api/super-admin/branches', {
+      method: id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(id ? { id, ...payload } : payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save branch.');
+
+    if (id) {
+      const idx = admBranches.findIndex((b) => b.id === id);
+      if (idx !== -1) admBranches[idx] = data.branch || { id, ...payload };
+    } else {
+      admBranches.push(data.branch || { id: `branch-${Date.now()}`, ...payload });
+    }
+
+    if (fb) { fb.textContent = 'Branch saved.'; fb.style.color = 'var(--green)'; }
+    setTimeout(() => {
+      closeAdmBranchModal();
+      renderAdmBranchGrid();
+    }, 600);
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
   }
 }

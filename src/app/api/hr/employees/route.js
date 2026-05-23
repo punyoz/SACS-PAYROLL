@@ -28,6 +28,11 @@ function shapeEmployee(user, profile) {
     date_of_birth: normalizeText(meta.date_of_birth),
     archived: Boolean(meta.archived),
     created_at: user.created_at,
+    sss_number: normalizeText(meta.sss_number, ""),
+    pagibig_number: normalizeText(meta.pagibig_number, ""),
+    philhealth_number: normalizeText(meta.philhealth_number, ""),
+    bank_name: normalizeText(meta.bank_name, ""),
+    bank_account_number: normalizeText(meta.bank_account_number, ""),
   };
 }
 
@@ -92,6 +97,11 @@ export async function PATCH(request) {
     if (employee_status !== undefined) updatedMeta.employee_status = normalizeText(employee_status, currentMeta.employee_status);
     if (position !== undefined) updatedMeta.position = normalizeText(position, currentMeta.position);
     if (employee_type !== undefined) updatedMeta.employee_type = normalizeText(employee_type, currentMeta.employee_type);
+    if (body.sss_number !== undefined) updatedMeta.sss_number = normalizeText(body.sss_number, normalizeText(currentMeta.sss_number, ""));
+    if (body.pagibig_number !== undefined) updatedMeta.pagibig_number = normalizeText(body.pagibig_number, normalizeText(currentMeta.pagibig_number, ""));
+    if (body.philhealth_number !== undefined) updatedMeta.philhealth_number = normalizeText(body.philhealth_number, normalizeText(currentMeta.philhealth_number, ""));
+    if (body.bank_name !== undefined) updatedMeta.bank_name = normalizeText(body.bank_name, normalizeText(currentMeta.bank_name, ""));
+    if (body.bank_account_number !== undefined) updatedMeta.bank_account_number = normalizeText(body.bank_account_number, normalizeText(currentMeta.bank_account_number, ""));
 
     const { error: updateErr } = await supabase.auth.admin.updateUserById(id, {
       user_metadata: updatedMeta,

@@ -36,6 +36,10 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Branch Assignment
     </div>
+    <div class="ni" onclick="hrNav('hr-branches',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V3.5A1.5 1.5 0 0 1 5.5 2h5A1.5 1.5 0 0 1 12 3.5V6" stroke="currentColor" stroke-width="1.2"/></svg>
+      Branch Management
+    </div>
 
     <div class="sb-sec">Attendance</div>
     <div class="ni" onclick="hrNav('hr-attendance',this)">
@@ -120,7 +124,10 @@
           </div>
           <div id="hr-dashboard-leave-list">
             <div class="approval-item">
-              <div class="approval-info" style="color:var(--t3);">Loading leave requests...</div>
+              <div class="approval-info"><div class="sk-bar" style="width:65%"></div></div>
+            </div>
+            <div class="approval-item">
+              <div class="approval-info"><div class="sk-bar" style="width:50%"></div></div>
             </div>
           </div>
         </div>
@@ -130,7 +137,9 @@
       <div class="card">
         <div class="sh"><span class="stitle">Recent Attendance Activity</span></div>
         <div class="ai-list" id="hr-recent-activity">
-          <div class="ai-item"><div class="ai2"><div class="s">Loading attendance activity...</div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:70%"></div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:55%"></div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:80%"></div></div></div>
         </div>
       </div>
     </div>
@@ -149,11 +158,15 @@
       <div class="adm-employee-controls">
         <input id="hr-emp-search" class="fc" type="text" placeholder="Search employee name, ID, email, or position" oninput="setHrEmployeeSearch(this.value)" />
       </div>
-      <div class="sh"><span class="stitle">Staff List</span><span class="sp"></span></div>
+      <div class="sh"><span class="stitle">Staff List</span><span class="sp"></span><button class="btn btn-primary" onclick="openHrAddEmployeeModal()">+ Add Employee</button></div>
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>ID</th><th>Type</th><th>Position</th><th>Status</th><th>Email</th><th></th></tr></thead>
         <tbody id="hr-employee-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading employees...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="hr-emp-pg"></div>
@@ -170,7 +183,11 @@
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>ID</th><th>Role</th><th>Type</th><th>Position</th><th>Status</th><th>Date of Birth</th><th>Email</th></tr></thead>
         <tbody id="hr-info-table-body">
-          <tr><td colspan="8" style="color:var(--t3);">Loading employee information...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="hr-info-pg"></div>
@@ -202,7 +219,11 @@
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Type</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
         <tbody id="hr-att-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading attendance records...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="hr-att-pg"></div>
@@ -219,7 +240,12 @@
         <div id="hr-leave-list">
           <div class="approval-card">
             <div class="approval-card-body">
-              <div class="approval-card-meta">Loading leave requests...</div>
+              <div class="approval-card-meta"><div class="sk-bar" style="width:60%"></div></div>
+            </div>
+          </div>
+          <div class="approval-card">
+            <div class="approval-card-body">
+              <div class="approval-card-meta"><div class="sk-bar" style="width:75%"></div></div>
             </div>
           </div>
         </div>
@@ -230,7 +256,11 @@
         <div class="tw"><table>
           <thead><tr><th>Employee</th><th>Leave Type</th><th>Duration</th><th>Reason</th><th>Proof</th><th>Decision</th><th>Submitted</th><th>Decided</th></tr></thead>
           <tbody id="hr-leave-history-body">
-            <tr><td colspan="8" style="color:var(--t3);">Loading leave history...</td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
           </tbody>
         </table></div>
         <div class="pg-bar" id="hr-leave-hist-pg"></div>
@@ -319,10 +349,37 @@
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Employee ID</th><th>Type</th><th>Position</th><th>Branch</th><th>Assigned At</th><th></th></tr></thead>
         <tbody id="hr-ba-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading branch assignments...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="hr-ba-pg"></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Branch Management
+    ────────────────────────────── -->
+    <div class="page" id="hr-branches">
+      <div class="ph"><h2>Branch Management</h2><p>Manage branch information, configurations, and employee distribution across all branches</p></div>
+
+      <div class="sg3" style="margin-bottom:16px;">
+        <div class="card"><div class="ct">Total Branches</div><div class="cv b" id="hr-branch-total">—</div><div class="cch">Registered branches</div></div>
+        <div class="card"><div class="ct">Active Branches</div><div class="cv g" id="hr-branch-active">—</div><div class="cch">Currently operating</div></div>
+        <div class="card"><div class="ct">Total Staff</div><div class="cv" id="hr-branch-staff">—</div><div class="cch">Across all branches</div></div>
+      </div>
+
+      <div class="sh" style="margin-bottom:12px;">
+        <span class="stitle">Branch List</span>
+        <span class="sp"></span>
+        <button class="btn btn-primary" onclick="openHrBranchMgmtModal()">+ Add Branch</button>
+      </div>
+
+      <div class="branch-grid" id="hr-branch-grid">
+        <!-- Rendered by JS -->
+      </div>
     </div>
 
   </div><!-- end .main -->
@@ -400,6 +457,155 @@
         <p id="hr-edit-employee-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── HR BRANCH MANAGEMENT MODAL ── -->
+  <div id="hr-branch-mgmt-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="max-width:480px;">
+      <div class="adm-modal-head">
+        <h3 id="hr-branch-mgmt-title">Add Branch</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeHrBranchMgmtModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="hr-branch-mgmt-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitHrBranchMgmt(event)">
+        <input type="hidden" name="id" />
+        <div class="fg" style="margin:0;">
+          <label>Branch Name</label>
+          <input class="fc" name="name" required placeholder="e.g. Main Campus" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Location / Address</label>
+          <input class="fc" name="location" required placeholder="e.g. Quezon City, Metro Manila" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Branch Code</label>
+          <input class="fc" name="code" placeholder="e.g. MAIN-01" maxlength="20" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Status</label>
+          <select class="fc" name="status">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <p id="hr-branch-mgmt-feedback" class="adm-feedback"></p>
+        <div class="adm-modal-actions">
+          <button type="submit" class="btn btn-primary">Save Branch</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── HR ADD EMPLOYEE MODAL ── -->
+  <div id="hr-add-employee-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="max-width:700px;">
+      <div class="adm-modal-head">
+        <h3>Add Employee</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeHrAddEmployeeModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="hr-add-employee-form" class="adm-modal-form" onsubmit="submitHrAddEmployee(event)">
+        <!-- Name -->
+        <div class="fg">
+          <label>First Name</label>
+          <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Middle Name</label>
+          <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Last Name</label>
+          <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Suffix</label>
+          <select class="fc" name="suffix">
+            <option value="">None</option>
+            <option value="Jr.">Jr.</option>
+            <option value="Sr.">Sr.</option>
+            <option value="II">II</option>
+            <option value="III">III</option>
+            <option value="IV">IV</option>
+            <option value="V">V</option>
+          </select>
+        </div>
+        <!-- Role & Email -->
+        <div class="fg">
+          <label>Role</label>
+          <select class="fc" name="role">
+            <option value="employee">Employee</option>
+            <option value="accountant">Accountant</option>
+            <option value="hr">HR</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Email</label>
+          <input class="fc" name="email" type="email" required placeholder="e.g. juan.employee@example.com" />
+        </div>
+        <!-- Employment Info -->
+        <div class="fg">
+          <label>Date of Birth</label>
+          <input class="fc" name="date_of_birth" type="date" required />
+        </div>
+        <div class="fg">
+          <label>Type</label>
+          <select class="fc" name="employee_type">
+            <option value="Teaching">Teaching</option>
+            <option value="Non-Teaching">Non-Teaching</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Position</label>
+          <select class="fc" name="position">
+            <option value="Employee">Employee</option>
+            <option value="Accountant">Accountant</option>
+            <option value="HR Officer">HR Officer</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label>Status</label>
+          <select class="fc" name="employee_status">
+            <option value="Active">Active</option>
+            <option value="Pending">Pending</option>
+          </select>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label>Basic Salary (PHP)</label>
+          <input class="fc" name="basic_salary" type="number" min="0" step="0.01" placeholder="e.g. 18500" />
+        </div>
+        <!-- Government IDs -->
+        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
+        <div class="fg">
+          <label>SSS Number</label>
+          <input class="fc" name="sss_number" placeholder="e.g. 12-3456789-0" maxlength="20" />
+        </div>
+        <div class="fg">
+          <label>Pag-IBIG Number</label>
+          <input class="fc" name="pagibig_number" placeholder="e.g. 1234-5678-9012" maxlength="20" />
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label>PhilHealth Number</label>
+          <input class="fc" name="philhealth_number" placeholder="e.g. 12-345678901-2" maxlength="20" />
+        </div>
+        <!-- Bank Account -->
+        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">BANK ACCOUNT</div></div>
+        <div class="fg">
+          <label>Bank Name</label>
+          <input class="fc" name="bank_name" placeholder="e.g. BDO, BPI, Metrobank" maxlength="50" />
+        </div>
+        <div class="fg">
+          <label>Bank Account Number</label>
+          <input class="fc" name="bank_account_number" placeholder="e.g. 1234567890" maxlength="30" />
+        </div>
+        <p class="adm-feedback" style="grid-column:1/-1;font-size:11px;color:var(--t3);">Employee ID is auto-generated. Default password: LastNameMMDDYYYY (e.g. Refuerzo10082004).</p>
+        <p id="hr-add-employee-feedback" class="adm-feedback" style="grid-column:1/-1;"></p>
+        <div class="adm-modal-actions">
+          <button type="submit" class="btn btn-primary">Create Employee</button>
         </div>
       </form>
     </div>

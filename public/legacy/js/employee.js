@@ -613,7 +613,7 @@ async function loadAttendanceRecords() {
   const labelEl = document.getElementById('emp-att-records-label');
   if (!container) return;
 
-  container.innerHTML = '<div style="font-size:12px;color:var(--t3);padding:12px 0;">Loading...</div>';
+  container.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Status</th></tr></thead><tbody>${skeletonRows(5, 5)}</tbody></table></div>`;
 
   if (!email) {
     container.innerHTML = '<div style="font-size:12px;color:var(--t3);">Unable to load records.</div>';
@@ -799,7 +799,7 @@ async function generateTimesheet() {
     if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">Start date must not be after end date.</td></tr>';
     return;
   }
-  if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--t3);font-size:12px;">Generating timesheet...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(12, 5);
 
   try {
     const params = new URLSearchParams({ email, start_date: startDate, end_date: endDate });

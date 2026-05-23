@@ -12,6 +12,7 @@ const HR_PAGES = {
   'hr-employees':     'Employee Records',
   'hr-employee-info': 'Employee Information',
   'hr-branch-assign': 'Branch Assignment',
+  'hr-branches':      'Branch Management',
   'hr-attendance':    'Attendance Monitoring',
   'hr-leaves':        'Leave Management',
   'hr-reports':       'HR Reports',
@@ -33,6 +34,8 @@ let hrBranchFilter = 'all';
 let hrBranchSearch = '';
 let hrCurrentBranchEmployee = null;
 let hrBranchPaginator = null;
+
+let hrMgmtBranches = [];
 
 let hrEmpPaginator = null;
 let hrInfoPaginator = null;
@@ -62,6 +65,7 @@ function hrNav(pageId, navEl) {
   else if (pageId === 'hr-employees') loadHREmployees();
   else if (pageId === 'hr-employee-info') loadHREmployeeInfo();
   else if (pageId === 'hr-branch-assign') loadHrBranchAssignment();
+  else if (pageId === 'hr-branches') loadHrBranchMgmt();
   else if (pageId === 'hr-attendance') loadHRAttendance();
   else if (pageId === 'hr-leaves') loadHRLeaves();
   else if (pageId === 'hr-reports') { /* user clicks Generate */ }
@@ -153,7 +157,7 @@ function renderHRRecentActivity(activity) {
 /* ── EMPLOYEE RECORDS ── */
 async function loadHREmployees() {
   const tbody = document.getElementById('hr-employee-table-body');
-  if (tbody) tbody.innerHTML = `<tr>${skeletonRows ? skeletonRows(7) : '<td colspan="7" style="color:var(--t3);">Loading...</td>'}</tr>`;
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const includeArchived = hrEmployeeFilter === 'archived';
@@ -310,7 +314,7 @@ async function submitHrEditEmployee(event) {
 /* ── EMPLOYEE INFORMATION ── */
 async function loadHREmployeeInfo() {
   const tbody = document.getElementById('hr-info-table-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">Loading...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(8);
 
   try {
     const res = await fetch('/api/hr/employees?archived=true');
@@ -383,7 +387,7 @@ async function loadHRAttendance() {
   if (titleEl) titleEl.textContent = `Attendance Log — ${date === today ? 'Today' : date}`;
 
   const tbody = document.getElementById('hr-att-table-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const res = await fetch(`/api/hr/attendance?date=${date}`);
@@ -408,7 +412,7 @@ async function loadHRAllAttendance() {
   if (titleEl) titleEl.textContent = 'Attendance Log — All Records';
 
   const tbody = document.getElementById('hr-att-table-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">Loading...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const res = await fetch('/api/hr/attendance?view=all');
@@ -482,7 +486,7 @@ function exportHRAttendanceCsv() {
 /* ── LEAVE MANAGEMENT ── */
 async function loadHRLeaves() {
   const listEl = document.getElementById('hr-leave-list');
-  if (listEl) listEl.innerHTML = '<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta">Loading...</div></div></div>';
+  if (listEl) listEl.innerHTML = skeletonCards(3);
 
   try {
     const res = await fetch('/api/hr/leave-requests?status=all');
@@ -621,7 +625,7 @@ async function loadHRReports() {
   const summary = document.getElementById('hr-reports-summary');
   const titleEl = document.getElementById('hr-rep-table-title');
 
-  if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">Loading...</td></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(6);
   if (summary) summary.style.display = 'none';
 
   try {
@@ -954,7 +958,7 @@ function setHrBranchSearch(value) {
 
 async function loadHrBranchAssignment() {
   const tbody = document.getElementById('hr-ba-table-body');
-  if (tbody) tbody.innerHTML = `<tr>${Array(7).fill('<td><div class="skel"></div></td>').join('')}</tr>`.repeat(5);
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
@@ -1050,6 +1054,227 @@ window.loadHrBranchAssignment = loadHrBranchAssignment;
 window.openHrBranchAssignModal = openHrBranchAssignModal;
 window.closeHrBranchAssignModal = closeHrBranchAssignModal;
 window.submitHrBranchAssign = submitHrBranchAssign;
+
+/* ═══════════════════════════════════════
+   HR BRANCH MANAGEMENT
+   ═══════════════════════════════════════ */
+
+async function loadHrBranchMgmt() {
+  const grid = document.getElementById('hr-branch-grid');
+  if (!grid) return;
+
+  try {
+    const [branchRes, staffRes] = await Promise.allSettled([
+      fetch('/api/super-admin/branches'),
+      fetch('/api/admin/dashboard'),
+    ]);
+
+    if (branchRes.status === 'fulfilled' && branchRes.value.ok) {
+      const d = await branchRes.value.json();
+      hrMgmtBranches = d.branches || [];
+    } else {
+      hrMgmtBranches = [];
+    }
+
+    const staffCountEl = document.getElementById('hr-branch-staff');
+    if (staffRes.status === 'fulfilled' && staffRes.value.ok) {
+      const d = await staffRes.value.json();
+      if (staffCountEl) staffCountEl.textContent = d.total_employees ?? d.totalEmployees ?? '—';
+    }
+  } catch {}
+
+  renderHrBranchMgmtGrid();
+}
+
+function renderHrBranchMgmtGrid() {
+  const grid = document.getElementById('hr-branch-grid');
+  if (!grid) return;
+
+  const totalEl = document.getElementById('hr-branch-total');
+  const activeEl = document.getElementById('hr-branch-active');
+  if (totalEl) totalEl.textContent = hrMgmtBranches.length;
+  if (activeEl) activeEl.textContent = hrMgmtBranches.filter((b) => b.status === 'Active').length;
+
+  if (!hrMgmtBranches.length) {
+    grid.innerHTML = '<p style="color:var(--t3);grid-column:1/-1;">No branches configured yet.</p>';
+    return;
+  }
+
+  grid.innerHTML = hrMgmtBranches.map((b) => {
+    const statusColor = b.status === 'Active' ? 'var(--green)' : 'var(--red)';
+    const safeName = String(b.name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeLoc = String(b.location || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeCode = String(b.code || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<div class="branch-card">
+      <div class="branch-name">${safeName}</div>
+      <div class="branch-meta">${safeLoc}</div>
+      <div class="branch-meta">Code: <code style="font-size:11px;">${safeCode}</code></div>
+      <div style="margin-top:4px;"><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${b.status}</span></div>
+      <div class="branch-actions" style="margin-top:8px;">
+        <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrBranchMgmtModal(${JSON.stringify(b).replace(/"/g,'&quot;')})">Edit</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openHrBranchMgmtModal(branch) {
+  const modal = document.getElementById('hr-branch-mgmt-modal');
+  const form = document.getElementById('hr-branch-mgmt-form');
+  const title = document.getElementById('hr-branch-mgmt-title');
+  const fb = document.getElementById('hr-branch-mgmt-feedback');
+  if (!modal || !form) return;
+
+  if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
+
+  if (branch && typeof branch === 'object') {
+    if (title) title.textContent = 'Edit Branch';
+    form.querySelector('[name="id"]').value = branch.id || '';
+    form.querySelector('[name="name"]').value = branch.name || '';
+    form.querySelector('[name="location"]').value = branch.location || '';
+    form.querySelector('[name="code"]').value = branch.code || '';
+    const statusEl = form.querySelector('[name="status"]');
+    if (statusEl) statusEl.value = branch.status || 'Active';
+  } else {
+    if (title) title.textContent = 'Add Branch';
+    form.reset();
+    form.querySelector('[name="id"]').value = '';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeHrBranchMgmtModal() {
+  const modal = document.getElementById('hr-branch-mgmt-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitHrBranchMgmt(event) {
+  event.preventDefault();
+  const form = event.target;
+  const fb = document.getElementById('hr-branch-mgmt-feedback');
+
+  const id = form.querySelector('[name="id"]').value;
+  const payload = {
+    name: form.querySelector('[name="name"]').value.trim(),
+    location: form.querySelector('[name="location"]').value.trim(),
+    code: form.querySelector('[name="code"]').value.trim(),
+    status: form.querySelector('[name="status"]').value,
+  };
+
+  if (!payload.name || !payload.location) {
+    if (fb) { fb.textContent = 'Branch name and location are required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+
+  if (fb) { fb.textContent = 'Saving...'; fb.style.color = 'var(--t3)'; }
+
+  try {
+    const res = await fetch('/api/super-admin/branches', {
+      method: id ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(id ? { id, ...payload } : payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save branch.');
+
+    if (id) {
+      const idx = hrMgmtBranches.findIndex((b) => b.id === id);
+      if (idx !== -1) hrMgmtBranches[idx] = data.branch || { id, ...payload };
+    } else {
+      hrMgmtBranches.push(data.branch || { id: `branch-${Date.now()}`, ...payload });
+    }
+
+    if (fb) { fb.textContent = 'Branch saved.'; fb.style.color = 'var(--green)'; }
+    setTimeout(() => {
+      closeHrBranchMgmtModal();
+      renderHrBranchMgmtGrid();
+    }, 600);
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
+  }
+}
+
+/* ═══════════════════════════════════════
+   HR ADD EMPLOYEE
+   ═══════════════════════════════════════ */
+
+function openHrAddEmployeeModal() {
+  const modal = document.getElementById('hr-add-employee-modal');
+  const form = document.getElementById('hr-add-employee-form');
+  if (!modal || !form) return;
+  form.reset();
+  const fb = document.getElementById('hr-add-employee-feedback');
+  if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
+  modal.style.display = 'flex';
+}
+
+function closeHrAddEmployeeModal() {
+  const modal = document.getElementById('hr-add-employee-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitHrAddEmployee(event) {
+  event.preventDefault();
+  const form = event.target;
+  const fb = document.getElementById('hr-add-employee-feedback');
+  const submitBtn = form.querySelector('button[type="submit"]');
+
+  const payload = {
+    first_name: form.querySelector('[name="first_name"]').value.trim(),
+    middle_initial: form.querySelector('[name="middle_initial"]').value.trim(),
+    last_name: form.querySelector('[name="last_name"]').value.trim(),
+    suffix: form.querySelector('[name="suffix"]').value,
+    role: form.querySelector('[name="role"]').value,
+    email: form.querySelector('[name="email"]').value.trim(),
+    date_of_birth: form.querySelector('[name="date_of_birth"]').value,
+    employee_type: form.querySelector('[name="employee_type"]').value,
+    position: form.querySelector('[name="position"]').value,
+    employee_status: form.querySelector('[name="employee_status"]').value,
+    basic_salary: Number(form.querySelector('[name="basic_salary"]').value || 0),
+    sss_number: form.querySelector('[name="sss_number"]').value.trim(),
+    pagibig_number: form.querySelector('[name="pagibig_number"]').value.trim(),
+    philhealth_number: form.querySelector('[name="philhealth_number"]').value.trim(),
+    bank_name: form.querySelector('[name="bank_name"]').value.trim(),
+    bank_account_number: form.querySelector('[name="bank_account_number"]').value.trim(),
+  };
+
+  if (!payload.first_name || !payload.last_name) {
+    if (fb) { fb.textContent = 'First and last name are required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (!payload.email) {
+    if (fb) { fb.textContent = 'Email is required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (!payload.date_of_birth) {
+    if (fb) { fb.textContent = 'Date of birth is required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+
+  if (fb) { fb.textContent = 'Creating employee...'; fb.style.color = 'var(--t3)'; }
+  submitBtn.disabled = true;
+
+  try {
+    const res = await fetch('/api/admin/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to create employee.');
+
+    if (fb) { fb.textContent = `Employee ${data.employee?.full_name || ''} created successfully.`; fb.style.color = 'var(--green)'; }
+    if (typeof pushNotification === 'function') pushNotification('Employee Created', `${data.employee?.full_name || 'New employee'} has been added.`, 'success');
+    setTimeout(() => {
+      closeHrAddEmployeeModal();
+      loadHREmployees();
+    }, 900);
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
 
 const hrScreen = document.getElementById('s-hr');
 if (hrScreen?.classList.contains('active')) {

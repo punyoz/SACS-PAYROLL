@@ -35,6 +35,10 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Branch Assignment
     </div>
+    <div class="ni" onclick="adminNav('adm-branches',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V3.5A1.5 1.5 0 0 1 5.5 2h5A1.5 1.5 0 0 1 12 3.5V6" stroke="currentColor" stroke-width="1.2"/></svg>
+      Branch Management
+    </div>
 
     <div class="sb-sec">System</div>
     <div class="ni" onclick="adminNav('adm-maintenance',this)">
@@ -91,7 +95,9 @@
       <div class="card">
         <div class="sh"><span class="stitle">Recent Payroll Activity</span></div>
         <div class="ai-list" id="adm-recent-activity-list">
-          <div class="ai-item"><div class="ai2"><div class="s">Loading recent payroll activity...</div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:70%"></div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:55%"></div></div></div>
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:80%"></div></div></div>
         </div>
       </div>
     </div>
@@ -123,7 +129,11 @@
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Type</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
         <tbody id="adm-attendance-table-body">
-          <tr><td colspan="6" style="color:var(--t3);">Loading attendance records...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="adm-att-pg"></div>
@@ -178,7 +188,11 @@
       <div class="tw" style="margin-top:10px;"><table>
         <thead><tr><th>Timestamp</th><th>Module</th><th>Action</th><th>Entity</th><th>Description</th><th>Status</th><th>Source</th></tr></thead>
         <tbody id="adm-audit-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading audit logs...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="adm-audit-pg"></div>
@@ -225,7 +239,11 @@
       <div class="tw"><table>
         <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Type</th><th>Employee ID</th><th>Last Login</th><th>Status</th><th></th></tr></thead>
         <tbody id="adm-users-table-body">
-          <tr><td colspan="8" style="color:var(--t3);">Loading users...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="adm-users-pg"></div>
@@ -270,7 +288,11 @@
       <div class="tw"><table>
         <thead><tr><th>Employee</th><th>Employee ID</th><th>Type</th><th>Position</th><th>Branch</th><th>Assigned At</th><th></th></tr></thead>
         <tbody id="ba-table-body">
-          <tr><td colspan="7" style="color:var(--t3);">Loading branch assignments...</td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="ba-pg"></div>
@@ -304,7 +326,11 @@
         <div class="tw"><table>
           <thead><tr><th>Employee</th><th>Employee ID</th><th>Type</th><th>RFID UID</th><th>Status</th><th></th></tr></thead>
           <tbody id="adm-rfid-table-body">
-            <tr><td colspan="6" style="color:var(--t3);">Loading RFID device registry...</td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
           </tbody>
         </table></div>
         <div class="pg-bar" id="adm-rfid-pg"></div>
@@ -315,9 +341,36 @@
         <div class="tw"><table>
           <thead><tr><th>Timestamp</th><th>Module</th><th>Action</th><th>Description</th><th>Status</th></tr></thead>
           <tbody id="adm-security-events-body">
-            <tr><td colspan="5" style="color:var(--t3);">Loading security events...</td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
+            <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
           </tbody>
         </table></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Branch Management
+    ────────────────────────────── -->
+    <div class="page" id="adm-branches">
+      <div class="ph"><h2>Branch Management</h2><p>Manage branch information, configurations, and employee distribution across all branches</p></div>
+
+      <div class="sg3" style="margin-bottom:16px;">
+        <div class="card"><div class="ct">Total Branches</div><div class="cv b" id="adm-branch-total">—</div><div class="cch">Registered branches</div></div>
+        <div class="card"><div class="ct">Active Branches</div><div class="cv g" id="adm-branch-active">—</div><div class="cch">Currently operating</div></div>
+        <div class="card"><div class="ct">Total Staff</div><div class="cv" id="adm-branch-staff">—</div><div class="cch">Across all branches</div></div>
+      </div>
+
+      <div class="sh" style="margin-bottom:12px;">
+        <span class="stitle">Branch List</span>
+        <span class="sp"></span>
+        <button class="btn btn-primary" onclick="openAdmBranchModal()">+ Add Branch</button>
+      </div>
+
+      <div class="branch-grid" id="adm-branch-grid">
+        <!-- Rendered by JS -->
       </div>
     </div>
 
@@ -400,6 +453,30 @@
         <div class="fg adm-emp-fields" style="grid-column:1/-1;">
           <label>Basic Salary (PHP)</label>
           <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" placeholder="e.g. 18500" />
+        </div>
+        <!-- Government IDs -->
+        <div class="adm-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
+        <div class="fg adm-emp-fields">
+          <label>SSS Number</label>
+          <input class="fc" name="sss_number" placeholder="e.g. 12-3456789-0" maxlength="20" />
+        </div>
+        <div class="fg adm-emp-fields">
+          <label>Pag-IBIG Number</label>
+          <input class="fc" name="pagibig_number" placeholder="e.g. 1234-5678-9012" maxlength="20" />
+        </div>
+        <div class="fg adm-emp-fields" style="grid-column:1/-1;">
+          <label>PhilHealth Number</label>
+          <input class="fc" name="philhealth_number" placeholder="e.g. 12-345678901-2" maxlength="20" />
+        </div>
+        <!-- Bank Account -->
+        <div class="adm-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">BANK ACCOUNT</div></div>
+        <div class="fg adm-emp-fields">
+          <label>Bank Name</label>
+          <input class="fc" name="bank_name" placeholder="e.g. BDO, BPI, Metrobank" maxlength="50" />
+        </div>
+        <div class="fg adm-emp-fields">
+          <label>Bank Account Number</label>
+          <input class="fc" name="bank_account_number" placeholder="e.g. 1234567890" maxlength="30" />
         </div>
         <div class="fg adm-nomp-fields" style="grid-column:1/-1;display:none;">
           <label>Password</label>
@@ -497,6 +574,30 @@
           <label>Basic Salary (PHP)</label>
           <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" />
         </div>
+        <!-- Government IDs -->
+        <div class="adm-edit-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
+        <div class="fg adm-edit-emp-fields">
+          <label>SSS Number</label>
+          <input class="fc" name="sss_number" placeholder="e.g. 12-3456789-0" maxlength="20" />
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Pag-IBIG Number</label>
+          <input class="fc" name="pagibig_number" placeholder="e.g. 1234-5678-9012" maxlength="20" />
+        </div>
+        <div class="fg adm-edit-emp-fields" style="grid-column:1/-1;">
+          <label>PhilHealth Number</label>
+          <input class="fc" name="philhealth_number" placeholder="e.g. 12-345678901-2" maxlength="20" />
+        </div>
+        <!-- Bank Account -->
+        <div class="adm-edit-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">BANK ACCOUNT</div></div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Bank Name</label>
+          <input class="fc" name="bank_name" placeholder="e.g. BDO, BPI, Metrobank" maxlength="50" />
+        </div>
+        <div class="fg adm-edit-emp-fields">
+          <label>Bank Account Number</label>
+          <input class="fc" name="bank_account_number" placeholder="e.g. 1234567890" maxlength="30" />
+        </div>
         <div class="fg" style="grid-column:1/-1;">
           <label>New Password (Optional)</label>
           <input class="fc" name="password" type="password" placeholder="Leave blank to keep current" />
@@ -561,6 +662,42 @@
         <p id="rfid-edit-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Save RFID</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── BRANCH MANAGEMENT MODAL ── -->
+  <div id="adm-branch-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="max-width:480px;">
+      <div class="adm-modal-head">
+        <h3 id="adm-branch-modal-title">Add Branch</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeAdmBranchModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="adm-branch-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitAdmBranch(event)">
+        <input type="hidden" name="id" />
+        <div class="fg" style="margin:0;">
+          <label>Branch Name</label>
+          <input class="fc" name="name" required placeholder="e.g. Main Campus" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Location / Address</label>
+          <input class="fc" name="location" required placeholder="e.g. Quezon City, Metro Manila" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Branch Code</label>
+          <input class="fc" name="code" placeholder="e.g. MAIN-01" maxlength="20" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Status</label>
+          <select class="fc" name="status">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <p id="adm-branch-feedback" class="adm-feedback"></p>
+        <div class="adm-modal-actions">
+          <button type="submit" class="btn btn-primary">Save Branch</button>
         </div>
       </form>
     </div>

@@ -1280,6 +1280,7 @@ function initApp() {
   window.logout = logout;
   window.createPaginator = createPaginator;
   window.paginatorGoTo = paginatorGoTo;
+  window.skeletonRows = skeletonRows;
   window.skeletonCards = skeletonCards;
 
   // Sync auth context across tabs/windows without requiring refresh.
