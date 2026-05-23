@@ -30,6 +30,10 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="5.5" cy="5" r="2.5" fill="currentColor"/><circle cx="10.5" cy="5" r="2.5" fill="currentColor" opacity=".5"/><path d="M1 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M11 9c1.5 0 3 .8 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".5"/></svg>
       Roles &amp; Permissions
     </div>
+    <div class="ni" onclick="saNav('sa-branch-assign',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Branch Assignment
+    </div>
 
     <div class="sb-sec">System</div>
     <div class="ni" onclick="saNav('sa-config',this)">
@@ -540,7 +544,82 @@
       </div>
     </div>
 
+    <!-- ──────────────────────────────
+         PAGE: Branch Assignment
+    ────────────────────────────── -->
+    <div class="page" id="sa-branch-assign">
+      <div class="ph"><h2>Branch Assignment</h2><p>Assign employees to their respective school branch campus</p></div>
+
+      <div class="sg3" style="margin-bottom:8px;">
+        <div class="card"><div class="ct">Unassigned</div><div class="cv r" id="sa-ba-count-unassigned">0</div><div class="cch">Not yet in a branch</div></div>
+        <div class="card"><div class="ct">Main Branch</div><div class="cv a" id="sa-ba-count-main">0</div><div class="cch">Main campus</div></div>
+        <div class="card"><div class="ct">2nd Branch</div><div class="cv b" id="sa-ba-count-2">0</div><div class="cch">2nd campus</div></div>
+      </div>
+      <div class="sg3" style="margin-bottom:14px;">
+        <div class="card"><div class="ct">3rd Branch</div><div class="cv t" id="sa-ba-count-3">0</div><div class="cch">3rd campus</div></div>
+        <div class="card"><div class="ct">4th Branch</div><div class="cv g" id="sa-ba-count-4">0</div><div class="cch">4th campus</div></div>
+        <div class="card"><div class="ct">Total Employees</div><div class="cv" id="sa-ba-count-total">0</div><div class="cch">All active employees</div></div>
+      </div>
+
+      <div class="chips" id="sa-ba-filter-chips">
+        <div class="chip active" data-sabf="all" onclick="setSABranchFilter('all')">All (0)</div>
+        <div class="chip" data-sabf="unassigned" onclick="setSABranchFilter('unassigned')">Unassigned (0)</div>
+        <div class="chip" data-sabf="main" onclick="setSABranchFilter('main')">Main Branch (0)</div>
+        <div class="chip" data-sabf="2" onclick="setSABranchFilter('2')">2nd Branch (0)</div>
+        <div class="chip" data-sabf="3" onclick="setSABranchFilter('3')">3rd Branch (0)</div>
+        <div class="chip" data-sabf="4" onclick="setSABranchFilter('4')">4th Branch (0)</div>
+      </div>
+
+      <div class="adm-employee-controls" style="margin-top:10px;">
+        <input id="sa-ba-search" class="fc" type="text" placeholder="Search by name or employee ID" oninput="setSABranchSearch(this.value)" />
+      </div>
+
+      <div class="sh">
+        <span class="stitle">Employee Branch List</span>
+        <span class="sp"></span>
+        <button class="btn btn-outline" onclick="loadSABranchAssignment()">Refresh</button>
+      </div>
+
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>Employee ID</th><th>Type</th><th>Position</th><th>Branch</th><th>Assigned At</th><th></th></tr></thead>
+        <tbody id="sa-ba-table-body">
+          <tr><td colspan="7" style="color:var(--t3);">Loading branch assignments...</td></tr>
+        </tbody>
+      </table></div>
+      <div class="pg-bar" id="sa-ba-pg"></div>
+    </div>
+
   </div><!-- end .main -->
+
+  <!-- ── SA BRANCH ASSIGNMENT MODAL ── -->
+  <div id="sa-branch-assign-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="width:min(480px,100%);">
+      <div class="adm-modal-head">
+        <h3 id="sa-ba-modal-title">Assign Branch</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeSABranchAssignModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="sa-branch-assign-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSABranchAssign(event)">
+        <input type="hidden" name="user_id" />
+        <div class="fg" style="margin:0;">
+          <label>Employee</label>
+          <input class="fc" name="employee_display" readonly style="background:var(--bg3);cursor:default;" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Assign to Branch</label>
+          <select class="fc" name="branch">
+            <option value="main">Main Branch</option>
+            <option value="2">2nd Branch</option>
+            <option value="3">3rd Branch</option>
+            <option value="4">4th Branch</option>
+          </select>
+        </div>
+        <p id="sa-ba-modal-feedback" class="adm-feedback"></p>
+        <div class="adm-modal-actions">
+          <button type="submit" class="btn btn-primary">Confirm Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- ── BRANCH MODAL ── -->
   <div id="sa-branch-modal" class="adm-modal-backdrop" style="display:none;">

@@ -11,6 +11,7 @@ const HR_PAGES = {
   'hr-dashboard':     'HR Dashboard',
   'hr-employees':     'Employee Records',
   'hr-employee-info': 'Employee Information',
+  'hr-branch-assign': 'Branch Assignment',
   'hr-attendance':    'Attendance Monitoring',
   'hr-leaves':        'Leave Management',
   'hr-reports':       'HR Reports',
@@ -26,6 +27,12 @@ let hrLeaveHistory = [];
 let hrReportData = [];
 let hrReportType = 'attendance';
 let hrCurrentEditEmployee = null;
+
+let hrBranchAllEmployees = [];
+let hrBranchFilter = 'all';
+let hrBranchSearch = '';
+let hrCurrentBranchEmployee = null;
+let hrBranchPaginator = null;
 
 let hrEmpPaginator = null;
 let hrInfoPaginator = null;
@@ -54,6 +61,7 @@ function hrNav(pageId, navEl) {
   if (pageId === 'hr-dashboard') loadHRDashboard();
   else if (pageId === 'hr-employees') loadHREmployees();
   else if (pageId === 'hr-employee-info') loadHREmployeeInfo();
+  else if (pageId === 'hr-branch-assign') loadHrBranchAssignment();
   else if (pageId === 'hr-attendance') loadHRAttendance();
   else if (pageId === 'hr-leaves') loadHRLeaves();
   else if (pageId === 'hr-reports') { /* user clicks Generate */ }
@@ -824,6 +832,225 @@ window.addEventListener('sacs-auth-context-changed', (event) => {
 });
 
 // Auto-init when HR screen becomes active
+/* ═══════════════════════════════════════
+   HR BRANCH ASSIGNMENT
+   ═══════════════════════════════════════ */
+
+const HR_BRANCH_LABELS = {
+  main: 'Main Branch',
+  '2':  '2nd Branch',
+  '3':  '3rd Branch',
+  '4':  '4th Branch',
+};
+
+const HR_BRANCH_COLORS = {
+  main: 'var(--amber)',
+  '2':  'var(--blue)',
+  '3':  'var(--teal)',
+  '4':  'var(--green)',
+};
+
+function hrGetBranchLabel(key) {
+  return HR_BRANCH_LABELS[String(key || '')] || '—';
+}
+
+function hrUpdateBranchSummary() {
+  const total = hrBranchAllEmployees.length;
+  const unassigned = hrBranchAllEmployees.filter((e) => !e.branch).length;
+  const mainCount = hrBranchAllEmployees.filter((e) => e.branch === 'main').length;
+  const count2 = hrBranchAllEmployees.filter((e) => e.branch === '2').length;
+  const count3 = hrBranchAllEmployees.filter((e) => e.branch === '3').length;
+  const count4 = hrBranchAllEmployees.filter((e) => e.branch === '4').length;
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val); };
+  set('hr-ba-count-total', total);
+  set('hr-ba-count-unassigned', unassigned);
+  set('hr-ba-count-main', mainCount);
+  set('hr-ba-count-2', count2);
+  set('hr-ba-count-3', count3);
+  set('hr-ba-count-4', count4);
+
+  document.querySelectorAll('#hr-ba-filter-chips .chip').forEach((chip) => {
+    const bf = chip.getAttribute('data-hbf');
+    if (bf === 'all')             chip.textContent = `All (${total})`;
+    else if (bf === 'unassigned') chip.textContent = `Unassigned (${unassigned})`;
+    else if (bf === 'main')       chip.textContent = `Main Branch (${mainCount})`;
+    else if (bf === '2')          chip.textContent = `2nd Branch (${count2})`;
+    else if (bf === '3')          chip.textContent = `3rd Branch (${count3})`;
+    else if (bf === '4')          chip.textContent = `4th Branch (${count4})`;
+  });
+}
+
+function hrGetFilteredBranchEmployees() {
+  const search = hrBranchSearch.toLowerCase();
+  return hrBranchAllEmployees.filter((e) => {
+    if (hrBranchFilter === 'unassigned') { if (e.branch) return false; }
+    else if (hrBranchFilter !== 'all')   { if (e.branch !== hrBranchFilter) return false; }
+    if (!search) return true;
+    const hay = [e.full_name, e.employee_id, e.email].map((v) => String(v || '').toLowerCase()).join(' ');
+    return hay.includes(search);
+  });
+}
+
+function hrRenderBranchTable(employees) {
+  const tbody = document.getElementById('hr-ba-table-body');
+  if (!tbody) return;
+
+  if (!employees.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--t3);">No employees found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = employees.map((emp) => {
+    const branchColor = emp.branch ? HR_BRANCH_COLORS[emp.branch] : null;
+    const branchLabel = emp.branch ? hrGetBranchLabel(emp.branch) : null;
+    const branchCell = branchLabel
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${branchLabel}</span>`
+      : `<span class="badge br"><span class="bd"></span>Unassigned</span>`;
+    const assignedAt = emp.assigned_at
+      ? new Date(emp.assigned_at).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
+      : '—';
+    const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
+    const safeId = String(emp.id || '').replaceAll("'", "\\'");
+    const actionBtn = emp.branch
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${safeId}')">Reassign</button>`
+      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${safeId}')">Assign</button>`;
+
+    return `
+      <tr>
+        <td class="nm">${String(emp.full_name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+        <td class="mn">${String(emp.employee_id || '—').replace(/&/g,'&amp;')}</td>
+        <td><span class="badge ${typeClass}">${emp.employee_type || 'Teaching'}</span></td>
+        <td class="mn">${emp.position || '—'}</td>
+        <td>${branchCell}</td>
+        <td class="mn" style="font-size:11px;">${assignedAt}</td>
+        <td>${actionBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function hrRenderFilteredBranch() {
+  hrUpdateBranchSummary();
+  if (hrBranchPaginator) {
+    hrBranchPaginator.setData(hrGetFilteredBranchEmployees());
+  } else {
+    hrRenderBranchTable(hrGetFilteredBranchEmployees());
+  }
+}
+
+function setHrBranchFilter(filter) {
+  hrBranchFilter = filter;
+  document.querySelectorAll('#hr-ba-filter-chips .chip').forEach((chip) => {
+    chip.classList.toggle('active', chip.getAttribute('data-hbf') === filter);
+  });
+  hrRenderFilteredBranch();
+}
+
+function setHrBranchSearch(value) {
+  hrBranchSearch = String(value || '').trim();
+  hrRenderFilteredBranch();
+}
+
+async function loadHrBranchAssignment() {
+  const tbody = document.getElementById('hr-ba-table-body');
+  if (tbody) tbody.innerHTML = `<tr>${Array(7).fill('<td><div class="skel"></div></td>').join('')}</tr>`.repeat(5);
+
+  try {
+    const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load branch assignments');
+
+    hrBranchAllEmployees = payload.employees || [];
+    hrRenderFilteredBranch();
+  } catch (error) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${String(error.message || 'Error').replace(/</g,'&lt;')}</td></tr>`;
+    }
+  }
+}
+
+function openHrBranchAssignModal(userId) {
+  const modal = document.getElementById('hr-branch-assign-modal');
+  const form = document.getElementById('hr-branch-assign-form');
+  if (!modal || !form) return;
+
+  hrCurrentBranchEmployee = hrBranchAllEmployees.find((e) => e.id === userId);
+  if (!hrCurrentBranchEmployee) {
+    window.alert('Employee not found. Please refresh.');
+    return;
+  }
+
+  const titleEl = document.getElementById('hr-ba-modal-title');
+  if (titleEl) titleEl.textContent = hrCurrentBranchEmployee.branch ? 'Reassign Branch' : 'Assign Branch';
+
+  form.elements.user_id.value = hrCurrentBranchEmployee.id;
+  form.elements.employee_display.value = `${hrCurrentBranchEmployee.full_name} (${hrCurrentBranchEmployee.employee_id || 'N/A'})`;
+  if (hrCurrentBranchEmployee.branch && form.elements.branch) {
+    form.elements.branch.value = hrCurrentBranchEmployee.branch;
+  }
+
+  const feedbackEl = document.getElementById('hr-ba-modal-feedback');
+  if (feedbackEl) feedbackEl.textContent = '';
+
+  modal.style.display = 'flex';
+}
+
+function closeHrBranchAssignModal() {
+  const modal = document.getElementById('hr-branch-assign-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitHrBranchAssign(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const feedbackEl = document.getElementById('hr-ba-modal-feedback');
+  const formData = new FormData(form);
+
+  const userId = String(formData.get('user_id') || '').trim();
+  const branch = String(formData.get('branch') || '').trim();
+
+  if (!userId || !branch) {
+    if (feedbackEl) { feedbackEl.textContent = 'Missing required fields.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
+  const assignedBy = String(ctx?.full_name || ctx?.email || 'hr').trim();
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Assigning...';
+
+    const response = await fetch('/api/admin/branch-employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, branch, assigned_by: assignedBy }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to assign branch');
+
+    if (feedbackEl) { feedbackEl.textContent = `Employee assigned to ${result.branch_label}.`; feedbackEl.className = 'adm-feedback ok'; }
+    if (typeof pushNotification === 'function') pushNotification('Branch Assigned', `Employee assigned to ${result.branch_label}.`, 'success');
+    await loadHrBranchAssignment();
+    setTimeout(() => closeHrBranchAssignModal(), 600);
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Confirm Assignment';
+  }
+}
+
+window.setHrBranchFilter = setHrBranchFilter;
+window.setHrBranchSearch = setHrBranchSearch;
+window.loadHrBranchAssignment = loadHrBranchAssignment;
+window.openHrBranchAssignModal = openHrBranchAssignModal;
+window.closeHrBranchAssignModal = closeHrBranchAssignModal;
+window.submitHrBranchAssign = submitHrBranchAssign;
+
 const hrScreen = document.getElementById('s-hr');
 if (hrScreen?.classList.contains('active')) {
   if (document.readyState === 'loading') {

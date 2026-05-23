@@ -8,12 +8,13 @@
 
 /* ── PAGE MAP ── */
 const SA_PAGES = {
-  'sa-dashboard': 'SA Dashboard',
-  'sa-branches':  'Branch Management',
-  'sa-roles':     'Roles & Permissions',
-  'sa-config':    'System Configuration',
-  'sa-audit':     'Audit & Monitoring',
-  'sa-backup':    'Backup & Recovery',
+  'sa-dashboard':    'SA Dashboard',
+  'sa-branches':     'Branch Management',
+  'sa-roles':        'Roles & Permissions',
+  'sa-branch-assign':'Branch Assignment',
+  'sa-config':       'System Configuration',
+  'sa-audit':        'Audit & Monitoring',
+  'sa-backup':       'Backup & Recovery',
 };
 
 let saAllUsers = [];
@@ -28,6 +29,11 @@ let saReportData = [];
 
 let saUsersPaginator = null;
 let saAuditPaginator = null;
+let saBranchAllEmployees = [];
+let saBranchFilter = 'all';
+let saBranchSearch = '';
+let saCurrentBranchEmployee = null;
+let saBranchPaginator = null;
 
 /* ── NAVIGATE ── */
 function saNav(pageId, navEl) {
@@ -45,12 +51,13 @@ function saNav(pageId, navEl) {
 
   if (typeof persistRolePageState === 'function') persistRolePageState('super_admin', pageId);
 
-  if (pageId === 'sa-dashboard')  loadSADashboard();
-  else if (pageId === 'sa-branches') loadSABranches();
-  else if (pageId === 'sa-roles')    loadSAUsers();
-  else if (pageId === 'sa-config')   loadSAConfig();
-  else if (pageId === 'sa-audit')    loadSAAuditLogs();
-  else if (pageId === 'sa-backup')   loadSABackupStatus();
+  if (pageId === 'sa-dashboard')       loadSADashboard();
+  else if (pageId === 'sa-branches')   loadSABranches();
+  else if (pageId === 'sa-roles')      loadSAUsers();
+  else if (pageId === 'sa-branch-assign') loadSABranchAssignment();
+  else if (pageId === 'sa-config')     loadSAConfig();
+  else if (pageId === 'sa-audit')      loadSAAuditLogs();
+  else if (pageId === 'sa-backup')     loadSABackupStatus();
 }
 
 /* ── IDENTITY ── */
@@ -762,6 +769,224 @@ window.addEventListener('sacs-auth-context-changed', (event) => {
   const ctx = event?.detail;
   if (ctx?.role === 'super_admin') applySAIdentity();
 });
+
+/* ═══════════════════════════════════════
+   SA BRANCH ASSIGNMENT
+   ═══════════════════════════════════════ */
+
+const SA_BRANCH_LABELS = {
+  main: 'Main Branch',
+  '2':  '2nd Branch',
+  '3':  '3rd Branch',
+  '4':  '4th Branch',
+};
+
+const SA_BRANCH_COLORS = {
+  main: 'var(--amber)',
+  '2':  'var(--blue)',
+  '3':  'var(--teal)',
+  '4':  'var(--green)',
+};
+
+function saGetBranchLabel(key) {
+  return SA_BRANCH_LABELS[String(key || '')] || '—';
+}
+
+function saUpdateBranchSummary() {
+  const total = saBranchAllEmployees.length;
+  const unassigned = saBranchAllEmployees.filter((e) => !e.branch).length;
+  const mainCount = saBranchAllEmployees.filter((e) => e.branch === 'main').length;
+  const count2 = saBranchAllEmployees.filter((e) => e.branch === '2').length;
+  const count3 = saBranchAllEmployees.filter((e) => e.branch === '3').length;
+  const count4 = saBranchAllEmployees.filter((e) => e.branch === '4').length;
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val); };
+  set('sa-ba-count-total', total);
+  set('sa-ba-count-unassigned', unassigned);
+  set('sa-ba-count-main', mainCount);
+  set('sa-ba-count-2', count2);
+  set('sa-ba-count-3', count3);
+  set('sa-ba-count-4', count4);
+
+  document.querySelectorAll('#sa-ba-filter-chips .chip').forEach((chip) => {
+    const bf = chip.getAttribute('data-sabf');
+    if (bf === 'all')             chip.textContent = `All (${total})`;
+    else if (bf === 'unassigned') chip.textContent = `Unassigned (${unassigned})`;
+    else if (bf === 'main')       chip.textContent = `Main Branch (${mainCount})`;
+    else if (bf === '2')          chip.textContent = `2nd Branch (${count2})`;
+    else if (bf === '3')          chip.textContent = `3rd Branch (${count3})`;
+    else if (bf === '4')          chip.textContent = `4th Branch (${count4})`;
+  });
+}
+
+function saGetFilteredBranchEmployees() {
+  const search = saBranchSearch.toLowerCase();
+  return saBranchAllEmployees.filter((e) => {
+    if (saBranchFilter === 'unassigned') { if (e.branch) return false; }
+    else if (saBranchFilter !== 'all')   { if (e.branch !== saBranchFilter) return false; }
+    if (!search) return true;
+    const hay = [e.full_name, e.employee_id, e.email].map((v) => String(v || '').toLowerCase()).join(' ');
+    return hay.includes(search);
+  });
+}
+
+function saRenderBranchTable(employees) {
+  const tbody = document.getElementById('sa-ba-table-body');
+  if (!tbody) return;
+
+  if (!employees.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--t3);">No employees found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = employees.map((emp) => {
+    const branchColor = emp.branch ? SA_BRANCH_COLORS[emp.branch] : null;
+    const branchLabel = emp.branch ? saGetBranchLabel(emp.branch) : null;
+    const branchCell = branchLabel
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${branchLabel}</span>`
+      : `<span class="badge br"><span class="bd"></span>Unassigned</span>`;
+    const assignedAt = emp.assigned_at
+      ? new Date(emp.assigned_at).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
+      : '—';
+    const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
+    const safeId = String(emp.id || '').replaceAll("'", "\\'");
+    const actionBtn = emp.branch
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openSABranchAssignModal('${safeId}')">Reassign</button>`
+      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openSABranchAssignModal('${safeId}')">Assign</button>`;
+
+    return `
+      <tr>
+        <td class="nm">${String(emp.full_name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+        <td class="mn">${String(emp.employee_id || '—').replace(/&/g,'&amp;')}</td>
+        <td><span class="badge ${typeClass}">${emp.employee_type || 'Teaching'}</span></td>
+        <td class="mn">${emp.position || '—'}</td>
+        <td>${branchCell}</td>
+        <td class="mn" style="font-size:11px;">${assignedAt}</td>
+        <td>${actionBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function saRenderFilteredBranch() {
+  saUpdateBranchSummary();
+  if (saBranchPaginator) {
+    saBranchPaginator.setData(saGetFilteredBranchEmployees());
+  } else {
+    saRenderBranchTable(saGetFilteredBranchEmployees());
+  }
+}
+
+function setSABranchFilter(filter) {
+  saBranchFilter = filter;
+  document.querySelectorAll('#sa-ba-filter-chips .chip').forEach((chip) => {
+    chip.classList.toggle('active', chip.getAttribute('data-sabf') === filter);
+  });
+  saRenderFilteredBranch();
+}
+
+function setSABranchSearch(value) {
+  saBranchSearch = String(value || '').trim();
+  saRenderFilteredBranch();
+}
+
+async function loadSABranchAssignment() {
+  const tbody = document.getElementById('sa-ba-table-body');
+  if (tbody) tbody.innerHTML = `<tr>${Array(7).fill('<td><div class="skel"></div></td>').join('')}</tr>`.repeat(5);
+
+  try {
+    const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load branch assignments');
+
+    saBranchAllEmployees = payload.employees || [];
+    saRenderFilteredBranch();
+  } catch (error) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${String(error.message || 'Error').replace(/</g,'&lt;')}</td></tr>`;
+    }
+  }
+}
+
+function openSABranchAssignModal(userId) {
+  const modal = document.getElementById('sa-branch-assign-modal');
+  const form = document.getElementById('sa-branch-assign-form');
+  if (!modal || !form) return;
+
+  saCurrentBranchEmployee = saBranchAllEmployees.find((e) => e.id === userId);
+  if (!saCurrentBranchEmployee) {
+    window.alert('Employee not found. Please refresh.');
+    return;
+  }
+
+  const titleEl = document.getElementById('sa-ba-modal-title');
+  if (titleEl) titleEl.textContent = saCurrentBranchEmployee.branch ? 'Reassign Branch' : 'Assign Branch';
+
+  form.elements.user_id.value = saCurrentBranchEmployee.id;
+  form.elements.employee_display.value = `${saCurrentBranchEmployee.full_name} (${saCurrentBranchEmployee.employee_id || 'N/A'})`;
+  if (saCurrentBranchEmployee.branch && form.elements.branch) {
+    form.elements.branch.value = saCurrentBranchEmployee.branch;
+  }
+
+  const feedbackEl = document.getElementById('sa-ba-modal-feedback');
+  if (feedbackEl) feedbackEl.textContent = '';
+
+  modal.style.display = 'flex';
+}
+
+function closeSABranchAssignModal() {
+  const modal = document.getElementById('sa-branch-assign-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitSABranchAssign(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const feedbackEl = document.getElementById('sa-ba-modal-feedback');
+  const formData = new FormData(form);
+
+  const userId = String(formData.get('user_id') || '').trim();
+  const branch = String(formData.get('branch') || '').trim();
+
+  if (!userId || !branch) {
+    if (feedbackEl) { feedbackEl.textContent = 'Missing required fields.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
+  const assignedBy = String(ctx?.full_name || ctx?.email || 'super_admin').trim();
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Assigning...';
+
+    const response = await fetch('/api/admin/branch-employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, branch, assigned_by: assignedBy }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to assign branch');
+
+    if (feedbackEl) { feedbackEl.textContent = `Employee assigned to ${result.branch_label}.`; feedbackEl.className = 'adm-feedback ok'; }
+    await loadSABranchAssignment();
+    setTimeout(() => closeSABranchAssignModal(), 600);
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Confirm Assignment';
+  }
+}
+
+window.setSABranchFilter = setSABranchFilter;
+window.setSABranchSearch = setSABranchSearch;
+window.loadSABranchAssignment = loadSABranchAssignment;
+window.openSABranchAssignModal = openSABranchAssignModal;
+window.closeSABranchAssignModal = closeSABranchAssignModal;
+window.submitSABranchAssign = submitSABranchAssign;
 
 const saScreen = document.getElementById('s-super-admin');
 if (saScreen?.classList.contains('active')) {

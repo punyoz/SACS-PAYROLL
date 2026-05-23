@@ -8,11 +8,12 @@
 
 /* ── PAGE MAP ── */
 const ADMIN_PAGES = {
-  'adm-dashboard':  'Dashboard',
-  'adm-attendance': 'Attendance',
-  'adm-audit-logs': 'Audit Logs',
-  'adm-users':      'User Management',
-  'adm-maintenance':'System Maintenance',
+  'adm-dashboard':    'Dashboard',
+  'adm-attendance':   'Attendance',
+  'adm-audit-logs':   'Audit Logs',
+  'adm-users':        'User Management',
+  'adm-branch-assign':'Branch Assignment',
+  'adm-maintenance':  'System Maintenance',
 };
 
 const AVATAR_COLORS = ['#3EC97A', '#F5A623', '#1DB8A0', '#E85555', '#7F77DD'];
@@ -33,6 +34,13 @@ let userRoleFilter = 'all';
 let userSearch = '';
 let currentEditingUser = null;
 let usersPaginator = null;
+
+/* ── BRANCH ASSIGNMENT STATE ── */
+let branchAllEmployees = [];
+let branchFilter = 'all';
+let branchSearch = '';
+let currentBranchEmployee = null;
+let branchPaginator = null;
 
 /* ── SYSTEM MAINTENANCE STATE ── */
 let systemData = null;
@@ -77,6 +85,10 @@ function adminNav(pageId, navEl) {
 
   if (pageId === 'adm-users') {
     loadUsers();
+  }
+
+  if (pageId === 'adm-branch-assign') {
+    loadBranchAssignment();
   }
 
   if (pageId === 'adm-maintenance') {
@@ -840,6 +852,12 @@ window.setAuditSearch = setAuditSearch;
 window.setAuditModuleFilter = setAuditModuleFilter;
 window.setAuditActionFilter = setAuditActionFilter;
 window.exportAuditLogsCsv = exportAuditLogsCsv;
+window.loadBranchAssignment = loadBranchAssignment;
+window.setBranchFilter = setBranchFilter;
+window.setBranchSearch = setBranchSearch;
+window.openBranchAssignModal = openBranchAssignModal;
+window.closeBranchAssignModal = closeBranchAssignModal;
+window.submitBranchAssign = submitBranchAssign;
 
 /* ═══════════════════════════════════════
    USER MANAGEMENT
@@ -1543,6 +1561,7 @@ function initAdminPortal() {
   auditPaginator = window.createPaginator({ id: 'adm-audit', pageSize: 20, renderFn: renderAuditTable });
   usersPaginator = window.createPaginator({ id: 'adm-users', pageSize: 20, renderFn: renderUsers });
   rfidPaginator = window.createPaginator({ id: 'adm-rfid', pageSize: 15, renderFn: renderRfidDevices });
+  branchPaginator = window.createPaginator({ id: 'ba', pageSize: 20, renderFn: renderBranchTable });
 
   const addUserForm = document.getElementById('add-user-form');
   if (addUserForm?.elements?.role) {
@@ -1568,3 +1587,220 @@ if (document.readyState === 'loading') {
 }
 
 window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChange);
+
+/* ═══════════════════════════════════════
+   BRANCH ASSIGNMENT
+   ═══════════════════════════════════════ */
+
+const BRANCH_LABELS_UI = {
+  main: 'Main Branch',
+  '2':  '2nd Branch',
+  '3':  '3rd Branch',
+  '4':  '4th Branch',
+};
+
+const BRANCH_BADGE_COLORS = {
+  main: 'var(--amber)',
+  '2':  'var(--blue)',
+  '3':  'var(--teal)',
+  '4':  'var(--green)',
+};
+
+function getBranchLabel(key) {
+  return BRANCH_LABELS_UI[String(key || '')] || '—';
+}
+
+function updateBranchSummary() {
+  const total = branchAllEmployees.length;
+  const unassigned = branchAllEmployees.filter((e) => !e.branch).length;
+  const mainCount = branchAllEmployees.filter((e) => e.branch === 'main').length;
+  const count2 = branchAllEmployees.filter((e) => e.branch === '2').length;
+  const count3 = branchAllEmployees.filter((e) => e.branch === '3').length;
+  const count4 = branchAllEmployees.filter((e) => e.branch === '4').length;
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val); };
+  set('ba-count-total', total);
+  set('ba-count-unassigned', unassigned);
+  set('ba-count-main', mainCount);
+  set('ba-count-2', count2);
+  set('ba-count-3', count3);
+  set('ba-count-4', count4);
+
+  document.querySelectorAll('#ba-filter-chips .chip').forEach((chip) => {
+    const bf = chip.getAttribute('data-bf');
+    if (bf === 'all')        chip.textContent = `All (${total})`;
+    else if (bf === 'unassigned') chip.textContent = `Unassigned (${unassigned})`;
+    else if (bf === 'main')  chip.textContent = `Main Branch (${mainCount})`;
+    else if (bf === '2')     chip.textContent = `2nd Branch (${count2})`;
+    else if (bf === '3')     chip.textContent = `3rd Branch (${count3})`;
+    else if (bf === '4')     chip.textContent = `4th Branch (${count4})`;
+  });
+}
+
+function getFilteredBranchEmployees() {
+  const search = branchSearch.toLowerCase();
+  return branchAllEmployees.filter((e) => {
+    if (branchFilter === 'unassigned') { if (e.branch) return false; }
+    else if (branchFilter !== 'all')   { if (e.branch !== branchFilter) return false; }
+    if (!search) return true;
+    const hay = [e.full_name, e.employee_id, e.email].map((v) => String(v || '').toLowerCase()).join(' ');
+    return hay.includes(search);
+  });
+}
+
+function renderBranchTable(employees) {
+  const tbody = document.getElementById('ba-table-body');
+  if (!tbody) return;
+
+  if (!employees.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--t3);">No employees found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = employees.map((emp) => {
+    const initials = getInitials(emp.full_name);
+    const avatarColor = getAvatarColor(emp.email || emp.id);
+    const branchColor = emp.branch ? BRANCH_BADGE_COLORS[emp.branch] : null;
+    const branchLabel = emp.branch ? getBranchLabel(emp.branch) : null;
+    const branchCell = branchLabel
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${escapeHtml(branchLabel)}</span>`
+      : `<span class="badge br"><span class="bd"></span>Unassigned</span>`;
+    const assignedAt = emp.assigned_at ? formatDateTime(emp.assigned_at) : '—';
+    const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
+    const safeId = escapeJsString(emp.id);
+    const actionBtn = emp.branch
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openBranchAssignModal('${safeId}')">Reassign</button>`
+      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openBranchAssignModal('${safeId}')">Assign</button>`;
+
+    return `
+      <tr>
+        <td class="nm">
+          <div style="display:flex;align-items:center;gap:9px;">
+            <div class="av" style="width:28px;height:28px;font-size:10px;background:${avatarColor};">${initials}</div>
+            ${escapeHtml(emp.full_name)}
+          </div>
+        </td>
+        <td class="mn">${escapeHtml(emp.employee_id || '—')}</td>
+        <td><span class="badge ${typeClass}">${escapeHtml(emp.employee_type || 'Teaching')}</span></td>
+        <td class="mn">${escapeHtml(emp.position || '—')}</td>
+        <td>${branchCell}</td>
+        <td class="mn" style="font-size:11px;">${escapeHtml(assignedAt)}</td>
+        <td>${actionBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderFilteredBranchEmployees() {
+  updateBranchSummary();
+  if (branchPaginator) {
+    branchPaginator.setData(getFilteredBranchEmployees());
+  } else {
+    renderBranchTable(getFilteredBranchEmployees());
+  }
+}
+
+function setBranchFilter(filter) {
+  branchFilter = filter;
+  document.querySelectorAll('#ba-filter-chips .chip').forEach((chip) => {
+    chip.classList.toggle('active', chip.getAttribute('data-bf') === filter);
+  });
+  renderFilteredBranchEmployees();
+}
+
+function setBranchSearch(value) {
+  branchSearch = String(value || '').trim();
+  renderFilteredBranchEmployees();
+}
+
+async function loadBranchAssignment() {
+  const tbody = document.getElementById('ba-table-body');
+  if (tbody) tbody.innerHTML = skeletonRows(7);
+
+  try {
+    const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load branch assignments');
+
+    branchAllEmployees = payload.employees || [];
+    renderFilteredBranchEmployees();
+  } catch (error) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+    }
+  }
+}
+
+function openBranchAssignModal(userId) {
+  const modal = document.getElementById('branch-assign-modal');
+  const form = document.getElementById('branch-assign-form');
+  if (!modal || !form) return;
+
+  currentBranchEmployee = branchAllEmployees.find((e) => e.id === userId);
+  if (!currentBranchEmployee) {
+    window.alert('Employee not found. Please refresh.');
+    return;
+  }
+
+  const titleEl = document.getElementById('ba-modal-title');
+  if (titleEl) titleEl.textContent = currentBranchEmployee.branch ? 'Reassign Branch' : 'Assign Branch';
+
+  form.elements.user_id.value = currentBranchEmployee.id;
+  form.elements.employee_display.value = `${currentBranchEmployee.full_name} (${currentBranchEmployee.employee_id || 'N/A'})`;
+  if (currentBranchEmployee.branch && form.elements.branch) {
+    form.elements.branch.value = currentBranchEmployee.branch;
+  }
+
+  const feedbackEl = document.getElementById('ba-modal-feedback');
+  if (feedbackEl) feedbackEl.textContent = '';
+
+  modal.style.display = 'flex';
+}
+
+function closeBranchAssignModal() {
+  const modal = document.getElementById('branch-assign-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitBranchAssign(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const feedbackEl = document.getElementById('ba-modal-feedback');
+  const formData = new FormData(form);
+
+  const userId = String(formData.get('user_id') || '').trim();
+  const branch = String(formData.get('branch') || '').trim();
+
+  if (!userId || !branch) {
+    if (feedbackEl) { feedbackEl.textContent = 'Missing required fields.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const ctx = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const assignedBy = String(ctx?.full_name || ctx?.email || 'admin').trim();
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Assigning...';
+
+    const response = await fetch('/api/admin/branch-employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, branch, assigned_by: assignedBy }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to assign branch');
+
+    if (feedbackEl) { feedbackEl.textContent = `Employee assigned to ${result.branch_label}.`; feedbackEl.className = 'adm-feedback ok'; }
+    window.pushNotification?.('Branch Assigned', `Employee assigned to ${result.branch_label}.`, 'success');
+    await loadBranchAssignment();
+    setTimeout(() => closeBranchAssignModal(), 600);
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Confirm Assignment';
+  }
+}
