@@ -664,116 +664,210 @@ async function loadAttendanceRecords() {
 }
 
 /* ════════════════════════════════════════════
-   TIMESHEET MODULE
+   TIMESHEET MODULE — date-range DTR
 ════════════════════════════════════════════ */
-const timesheetState = { records: [], totals: {} };
+const timesheetState = {
+  allRecords: [],
+  filtered:   [],
+  page:       1,
+  perPage:    10,
+};
 
-function renderTimesheetTable(records, totals) {
-  const wrap = document.getElementById('ts-table-wrap');
-  if (!wrap) return;
+function _tsGetPerPage() {
+  const val = document.getElementById('ts-perpage')?.value || '10';
+  return val === 'all' ? Infinity : parseInt(val, 10);
+}
 
-  if (!records || !records.length) {
-    wrap.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--t3);">No records found for this month.</div>';
+function tsOnPerPage() {
+  timesheetState.page    = 1;
+  timesheetState.perPage = _tsGetPerPage();
+  renderTsPage();
+}
+
+function tsOnSearch() {
+  const q = String(document.getElementById('ts-search')?.value || '').toLowerCase().trim();
+  timesheetState.filtered = q
+    ? timesheetState.allRecords.filter(r =>
+        [r.date, r.day, r.shift_type, r.time_in, r.time_out, r.status]
+          .some(v => v && String(v).toLowerCase().includes(q))
+      )
+    : [...timesheetState.allRecords];
+  timesheetState.page = 1;
+  renderTsPage();
+}
+
+function renderTsPage() {
+  const tbody = document.getElementById('ts-tbody');
+  if (!tbody) return;
+
+  const { filtered, page } = timesheetState;
+  const perPage = _tsGetPerPage();
+  const total   = filtered.length;
+  const start   = perPage === Infinity ? 0 : (page - 1) * perPage;
+  const end     = perPage === Infinity ? total : Math.min(start + perPage, total);
+  const slice   = filtered.slice(start, end);
+
+  if (!slice.length) {
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--t3);font-size:12px;">No records found.</td></tr>';
+  } else {
+    tbody.innerHTML = slice.map(r => {
+      const rowCls =
+        r.row_type === 'rest'    ? 'ts-row-rest' :
+        r.row_type === 'holiday' ? 'ts-row-holiday' :
+        r.row_type === 'special' ? 'ts-row-special' : '';
+      return `<tr class="${rowCls}">
+        <td style="padding:8px 10px;"><span class="ts-expand-btn">+</span></td>
+        <td class="nm">${r.date}</td>
+        <td>${r.day}</td>
+        <td>${r.shift_type}</td>
+        <td class="mn">${r.shift_in  || ''}</td>
+        <td class="mn">${r.shift_out || ''}</td>
+        <td class="mn">${r.time_in   || ''}</td>
+        <td class="mn">${r.time_out  || ''}</td>
+        <td style="text-align:center;">${r.required_hours}</td>
+        <td style="text-align:center;">${r.tardiness}</td>
+        <td style="text-align:center;">${r.undertime}</td>
+        <td style="text-align:center;">${r.leave_with_pay}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  const showingEl = document.getElementById('ts-showing');
+  if (showingEl) {
+    const from = total === 0 ? 0 : start + 1;
+    const to   = total === 0 ? 0 : end;
+    showingEl.textContent = `Showing ${from} to ${to} of ${total} entries`;
+  }
+
+  _renderTsPagination(total, perPage, page);
+}
+
+function _renderTsPagination(total, perPage, currentPage) {
+  const prevBtn  = document.getElementById('ts-prev');
+  const nextBtn  = document.getElementById('ts-next');
+  const numsCont = document.getElementById('ts-page-nums');
+
+  if (perPage === Infinity || total === 0) {
+    if (prevBtn)  prevBtn.style.display  = 'none';
+    if (nextBtn)  nextBtn.style.display  = 'none';
+    if (numsCont) numsCont.innerHTML     = '';
     return;
   }
 
-  const t = totals || {};
+  if (prevBtn)  prevBtn.style.display = '';
+  if (nextBtn)  nextBtn.style.display = '';
 
-  const rows = records.map(r => {
-    const statusLower = String(r.status || '').toLowerCase();
-    const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
-    const hoursDisplay = r.hours ? r.hours.toFixed(2) + 'h' : '—';
-    const otDisplay = r.overtime
-      ? `<span style="color:var(--amber);">${r.overtime.toFixed(2)}h</span>`
-      : '<span style="color:var(--t3);">—</span>';
+  const totalPages = Math.ceil(total / perPage);
+  if (prevBtn) prevBtn.disabled = currentPage <= 1;
+  if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
 
-    return `<tr>
-      <td class="nm">${r.date}</td>
-      <td style="color:var(--t3);">${r.day}</td>
-      <td class="mn">${r.time_in || '—'}</td>
-      <td class="mn">${r.time_out || '—'}</td>
-      <td class="mn">${hoursDisplay}</td>
-      <td class="mn">${otDisplay}</td>
-      <td><span class="badge ${badgeCls}"><span class="bd"></span>${r.status}</span></td>
-    </tr>`;
-  }).join('');
-
-  const totalHours = (t.hours || 0).toFixed(2);
-  const totalOt    = (t.overtime || 0).toFixed(2);
-
-  wrap.innerHTML = `<table>
-    <thead><tr>
-      <th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th>
-      <th>Hours</th><th>Overtime</th><th>Status</th>
-    </tr></thead>
-    <tbody>${rows}</tbody>
-    <tfoot>
-      <tr style="background:var(--bg3);">
-        <td colspan="4" style="font-weight:600;color:var(--t1);font-size:12px;text-transform:uppercase;letter-spacing:.04em;">Monthly Total</td>
-        <td class="mn" style="font-weight:700;color:var(--teal);">${totalHours}h</td>
-        <td class="mn" style="font-weight:700;color:var(--amber);">${totalOt}h</td>
-        <td></td>
-      </tr>
-    </tfoot>
-  </table>`;
-}
-
-async function loadTimesheet() {
-  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
-  const email = String(context?.email || '').trim();
-  const monthEl = document.getElementById('ts-month-picker');
-  const month = monthEl?.value || '';
-
-  const wrap = document.getElementById('ts-table-wrap');
-  if (wrap) wrap.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--t3);">Loading timesheet...</div>';
-
-  const statIds = ['ts-days', 'ts-hours', 'ts-overtime', 'ts-avg'];
-  statIds.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
-
-  if (!email) return;
-
-  try {
-    const params = new URLSearchParams({ email });
-    if (month) params.set('month', month);
-    const resp = await fetch(`/api/employee/timesheet?${params.toString()}`);
-    if (!resp.ok) throw new Error('Failed to load timesheet.');
-    const data = await resp.json();
-
-    timesheetState.records = data.records || [];
-    timesheetState.totals  = data.totals  || {};
-
-    const labelEl = document.getElementById('ts-month-label');
-    if (labelEl) labelEl.textContent = data.month_label || '';
-
-    const t = data.totals || {};
-
-    const daysEl = document.getElementById('ts-days');
-    if (daysEl) daysEl.textContent = t.days ?? '0';
-
-    const hoursEl = document.getElementById('ts-hours');
-    if (hoursEl) hoursEl.textContent = t.hours != null ? t.hours.toFixed(1) + 'h' : '—';
-
-    const otEl = document.getElementById('ts-overtime');
-    if (otEl) otEl.textContent = t.overtime != null ? t.overtime.toFixed(1) + 'h' : '—';
-
-    const avgEl = document.getElementById('ts-avg');
-    if (avgEl) avgEl.textContent = t.avg != null ? t.avg.toFixed(1) + 'h' : '—';
-
-    const printNameEl = document.getElementById('ts-print-name');
-    if (printNameEl) {
-      const name  = String(context?.full_name || '').trim();
-      const label = data.month_label || '';
-      printNameEl.textContent = [name, label].filter(Boolean).join(' · ');
-    }
-
-    renderTimesheetTable(timesheetState.records, timesheetState.totals);
-  } catch (err) {
-    if (wrap) wrap.innerHTML = `<div style="padding:20px;text-align:center;font-size:12px;color:var(--red);">${err.message}</div>`;
+  if (numsCont) {
+    numsCont.innerHTML = Array.from({ length: totalPages }, (_, i) => i + 1)
+      .map(n => `<span class="ts-pg-num${n === currentPage ? ' active' : ''}" onclick="tsGoPage(${n})">${n}</span>`)
+      .join('');
   }
 }
 
-function onTimesheetMonthChange() {
-  loadTimesheet();
+function tsGoPage(n) {
+  timesheetState.page = n;
+  renderTsPage();
+}
+
+function tsPrevPage() {
+  if (timesheetState.page > 1) { timesheetState.page--; renderTsPage(); }
+}
+
+function tsNextPage() {
+  const perPage     = _tsGetPerPage();
+  const totalPages  = perPage === Infinity ? 1 : Math.ceil(timesheetState.filtered.length / perPage);
+  if (timesheetState.page < totalPages) { timesheetState.page++; renderTsPage(); }
+}
+
+async function generateTimesheet() {
+  const context   = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email     = String(context?.email || '').trim();
+  const startDate = String(document.getElementById('ts-start-date')?.value || '').trim();
+  const endDate   = String(document.getElementById('ts-end-date')?.value   || '').trim();
+  const tbody     = document.getElementById('ts-tbody');
+
+  if (!startDate || !endDate) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">Please select both start and end dates.</td></tr>';
+    return;
+  }
+  if (startDate > endDate) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">Start date must not be after end date.</td></tr>';
+    return;
+  }
+  if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--t3);font-size:12px;">Generating timesheet...</td></tr>';
+
+  try {
+    const params = new URLSearchParams({ email, start_date: startDate, end_date: endDate });
+    const resp   = await fetch(`/api/employee/timesheet?${params.toString()}`);
+    if (!resp.ok) throw new Error('Failed to load timesheet data.');
+    const data   = await resp.json();
+    if (data.error) throw new Error(data.error);
+
+    timesheetState.allRecords = Array.isArray(data.records) ? data.records : [];
+    timesheetState.filtered   = [...timesheetState.allRecords];
+    timesheetState.page       = 1;
+    timesheetState.perPage    = _tsGetPerPage();
+
+    const searchEl = document.getElementById('ts-search');
+    if (searchEl) searchEl.value = '';
+
+    renderTsPage();
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">${err.message}</td></tr>`;
+  }
+}
+
+function tsCopyTable() {
+  const records = timesheetState.filtered;
+  if (!records.length) return;
+  const headers = ['Date','Day','Shift Type','Shift In','Shift Out','Time In','Time Out','Required Hours','Tardiness','Undertime','Leave w/ Pay'];
+  const rows    = records.map(r => [
+    r.date, r.day, r.shift_type,
+    r.shift_in || '', r.shift_out || '',
+    r.time_in  || '', r.time_out  || '',
+    r.required_hours, r.tardiness, r.undertime, r.leave_with_pay,
+  ].join('\t'));
+  const text = [headers.join('\t'), ...rows].join('\n');
+  navigator.clipboard?.writeText(text).then(() => {
+    window.pushNotification?.('Copied', 'Timesheet copied to clipboard.', 'success');
+  }).catch(() => {
+    const el = document.createElement('textarea');
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  });
+}
+
+function tsExportExcel() {
+  const records = timesheetState.filtered;
+  if (!records.length) return;
+  const context   = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const name      = String(context?.full_name || 'employee').trim().replace(/\s+/g, '_');
+  const startDate = document.getElementById('ts-start-date')?.value || '';
+  const endDate   = document.getElementById('ts-end-date')?.value   || '';
+  const headers   = ['Date','Day','Shift Type','Shift In','Shift Out','Time In','Time Out','Required Hours','Tardiness','Undertime','Leave w/ Pay'];
+  const rows      = records.map(r => [
+    r.date, r.day, r.shift_type,
+    r.shift_in || '', r.shift_out || '',
+    r.time_in  || '', r.time_out  || '',
+    r.required_hours, r.tardiness, r.undertime, r.leave_with_pay,
+  ]);
+  const csv  = [headers, ...rows].map(row =>
+    row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+  ).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `timesheet_${name}_${startDate}_${endDate}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function printTimesheet() {
@@ -782,9 +876,33 @@ function printTimesheet() {
   document.body.classList.remove('ts-printing');
 }
 
+function loadTimesheet() {
+  /* Pre-fill date inputs with current month range when tab first opens */
+  const startEl = document.getElementById('ts-start-date');
+  const endEl   = document.getElementById('ts-end-date');
+  if (startEl && endEl && !startEl.value && !endEl.value) {
+    try {
+      const today = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date());
+      startEl.value = today.slice(0, 7) + '-01';
+      endEl.value   = today;
+    } catch { /* best-effort */ }
+  }
+}
+
 /* ── expose new globals ── */
-window.empNav               = empNav;
-window.loadTimesheet        = loadTimesheet;
-window.onTimesheetMonthChange = onTimesheetMonthChange;
-window.printTimesheet       = printTimesheet;
+window.empNav             = empNav;
+window.loadTimesheet      = loadTimesheet;
+window.generateTimesheet  = generateTimesheet;
+window.tsOnPerPage        = tsOnPerPage;
+window.tsOnSearch         = tsOnSearch;
+window.renderTsPage       = renderTsPage;
+window.tsGoPage           = tsGoPage;
+window.tsPrevPage         = tsPrevPage;
+window.tsNextPage         = tsNextPage;
+window.tsCopyTable        = tsCopyTable;
+window.tsExportExcel      = tsExportExcel;
+window.printTimesheet     = printTimesheet;
 window.loadAttendanceRecords = loadAttendanceRecords;

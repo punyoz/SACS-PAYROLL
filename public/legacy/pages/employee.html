@@ -200,54 +200,85 @@
     ══════════════════════════════════════ -->
     <div class="emp-page" id="emp-timesheet" role="tabpanel">
 
-      <!-- Header row -->
-      <div class="ts-header">
-        <div>
-          <h3 style="font-size:17px;font-weight:700;color:var(--t1);">My Timesheet</h3>
-          <p style="font-size:12px;color:var(--t3);margin-top:3px;" id="ts-month-label">Select a month to load records.</p>
+      <!-- Step Wizard -->
+      <div class="card ts-wizard">
+        <div class="ts-step">
+          <div class="ts-step-label"><span class="ts-step-num">1</span>Select Start Date:</div>
+          <input type="date" id="ts-start-date" class="fc" style="width:160px;">
         </div>
-        <div class="ts-actions">
-          <input type="month" id="ts-month-picker" class="fc" style="width:160px;" onchange="onTimesheetMonthChange()">
-          <button class="btn btn-outline" onclick="printTimesheet()" style="display:flex;align-items:center;gap:6px;">
-            <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4 5V3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.4"/><path d="M4 11h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="8" r="1" fill="currentColor"/></svg>
-            Print
-          </button>
+        <div class="ts-step-sep"></div>
+        <div class="ts-step">
+          <div class="ts-step-label"><span class="ts-step-num">2</span>Select End Date:</div>
+          <input type="date" id="ts-end-date" class="fc" style="width:160px;">
         </div>
-      </div>
-
-      <!-- Summary stats -->
-      <div class="ts-stats-row">
-        <div class="ts-stat">
-          <div class="ts-sv" id="ts-days">—</div>
-          <div class="ts-sl">Days Present</div>
-        </div>
-        <div class="ts-stat">
-          <div class="ts-sv" id="ts-hours" style="color:var(--teal);">—</div>
-          <div class="ts-sl">Total Hours</div>
-        </div>
-        <div class="ts-stat">
-          <div class="ts-sv" id="ts-overtime" style="color:var(--amber);">—</div>
-          <div class="ts-sl">Overtime Hours</div>
-        </div>
-        <div class="ts-stat">
-          <div class="ts-sv" id="ts-avg" style="color:var(--green);">—</div>
-          <div class="ts-sl">Avg hrs / Day</div>
+        <div class="ts-step-sep"></div>
+        <div class="ts-step">
+          <div class="ts-step-label"><span class="ts-step-num">3</span>Generate Timesheet</div>
+          <button class="btn btn-primary" onclick="generateTimesheet()" style="padding:9px 22px;">Generate</button>
         </div>
       </div>
 
-      <!-- Printable card with daily records table -->
-      <div class="card ts-card" id="ts-printable">
-        <div class="sh" style="margin-bottom:0;">
-          <span class="stitle">Daily Records</span>
-          <span class="sp"></span>
-          <span class="ts-print-header" id="ts-print-name" style="font-size:12px;color:var(--t3);"></span>
-        </div>
-        <div style="overflow-x:auto;margin-top:14px;">
-          <div id="ts-table-wrap">
-            <div style="padding:20px;text-align:center;font-size:12px;color:var(--t3);">Select a month above to load records.</div>
+      <!-- Table Card -->
+      <div class="card ts-table-card" id="ts-printable">
+
+        <!-- Table controls -->
+        <div class="ts-controls">
+          <div class="ts-ctl-left">
+            Show
+            <select id="ts-perpage" class="fc" style="width:65px;padding:5px 6px;font-size:12px;" onchange="tsOnPerPage()">
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="all">All</option>
+            </select>
+            entries
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="btn ts-btn-copy" onclick="tsCopyTable()">Copy</button>
+            <button class="btn ts-btn-excel" onclick="tsExportExcel()">Excel</button>
+          </div>
+          <div class="ts-ctl-right">
+            <label style="font-size:12px;color:var(--t2);">Search:</label>
+            <input type="text" id="ts-search" class="fc" style="width:150px;padding:6px 10px;font-size:12px;" oninput="tsOnSearch()" placeholder="">
           </div>
         </div>
-      </div>
+
+        <!-- Scrollable table -->
+        <div style="overflow-x:auto;">
+          <table id="ts-main-table" style="min-width:860px;">
+            <thead>
+              <tr>
+                <th style="width:36px;padding:10px 8px;"></th>
+                <th>Date</th>
+                <th>Day</th>
+                <th>Shift Type</th>
+                <th>Shift In</th>
+                <th>Shift Out</th>
+                <th>Time In</th>
+                <th>Time Out</th>
+                <th style="text-align:center;">Required Hours</th>
+                <th style="text-align:center;">Tardiness</th>
+                <th style="text-align:center;">Undertime</th>
+                <th style="text-align:center;">Leave w/ Pay</th>
+              </tr>
+            </thead>
+            <tbody id="ts-tbody">
+              <tr><td colspan="12" style="text-align:center;padding:28px;color:var(--t3);font-size:12px;">Select a date range above and click Generate.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Footer: showing label + pagination -->
+        <div class="ts-table-footer">
+          <div id="ts-showing" style="font-size:12px;color:var(--t3);">Showing 0 to 0 of 0 entries</div>
+          <div class="ts-pagination">
+            <button class="btn btn-outline ts-pg-btn" id="ts-prev" onclick="tsPrevPage()">Previous</button>
+            <div id="ts-page-nums" class="ts-page-nums"></div>
+            <button class="btn btn-outline ts-pg-btn" id="ts-next" onclick="tsNextPage()">Next</button>
+          </div>
+        </div>
+
+      </div><!-- end ts-table-card -->
 
     </div><!-- end #emp-timesheet -->
 

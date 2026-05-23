@@ -538,9 +538,182 @@
 }
 
 /* ════════════════════════════════════════════
+   TIMESHEET PAGE — wider than default 860px
+════════════════════════════════════════════ */
+#emp-timesheet.emp-page { max-width: 1060px; }
+
+/* ════════════════════════════════════════════
+   STEP WIZARD
+════════════════════════════════════════════ */
+.ts-wizard {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.ts-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ts-step-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ts-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px; height: 17px;
+  border-radius: 50%;
+  background: var(--amber);
+  color: #0D1B2A;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+
+.ts-step-sep {
+  width: 1px;
+  height: 52px;
+  background: var(--border);
+  flex-shrink: 0;
+  align-self: flex-end;
+}
+
+/* ════════════════════════════════════════════
+   TABLE CARD & CONTROLS
+════════════════════════════════════════════ */
+.ts-table-card { width: 100%; }
+
+.ts-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--t2);
+}
+
+.ts-ctl-left  { display: flex; align-items: center; gap: 6px; }
+.ts-ctl-right { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+
+.ts-btn-copy {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--t2);
+  padding: 5px 12px;
+  font-size: 11px;
+}
+.ts-btn-copy:hover { border-color: var(--t2); color: var(--t1); }
+
+.ts-btn-excel {
+  background: var(--green-s);
+  border: 1px solid var(--green);
+  color: var(--green);
+  padding: 5px 12px;
+  font-size: 11px;
+}
+.ts-btn-excel:hover { background: var(--green); color: #fff; }
+
+/* ════════════════════════════════════════════
+   TABLE ROW COLORS (shift type)
+════════════════════════════════════════════ */
+.ts-row-rest    td { background: rgba(245,166,35,.09) !important; }
+.ts-row-holiday td { background: rgba(232,85,85,.10)  !important; }
+.ts-row-special td { background: rgba(74,158,245,.10) !important; }
+
+/* Override hover on colored rows to keep color visible */
+.ts-row-rest:hover    td { background: rgba(245,166,35,.17) !important; }
+.ts-row-holiday:hover td { background: rgba(232,85,85,.17)  !important; }
+.ts-row-special:hover td { background: rgba(74,158,245,.17) !important; }
+
+/* Expand (+) button */
+.ts-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: var(--green-s);
+  border: 1.5px solid var(--green);
+  color: var(--green);
+  font-size: 15px;
+  font-weight: 700;
+  font-family: var(--mono);
+  cursor: default;
+  line-height: 1;
+  user-select: none;
+}
+
+/* ════════════════════════════════════════════
+   PAGINATION FOOTER
+════════════════════════════════════════════ */
+.ts-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.ts-pagination {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ts-pg-btn {
+  padding: 5px 11px;
+  font-size: 11px;
+}
+
+.ts-page-nums {
+  display: flex;
+  gap: 3px;
+}
+
+.ts-pg-num {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--t2);
+  border: 1px solid var(--border);
+  background: transparent;
+  user-select: none;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.ts-pg-num:hover { border-color: var(--amber); color: var(--amber); }
+.ts-pg-num.active { background: var(--amber); color: #fff; border-color: var(--amber); }
+[data-theme="dark"] .ts-pg-num.active { color: #0D1B2A; }
+
+/* ════════════════════════════════════════════
+   RESPONSIVE — wizard and controls
+════════════════════════════════════════════ */
+@media (max-width: 599px) {
+  .ts-wizard     { flex-direction: column; gap: 14px; }
+  .ts-step-sep   { display: none; }
+  .ts-controls   { flex-direction: column; align-items: flex-start; }
+  .ts-ctl-right  { margin-left: 0; }
+  .ts-table-footer { flex-direction: column; align-items: flex-start; }
+}
+
+/* ════════════════════════════════════════════
    TIMESHEET PRINT
-   Override existing print rule to show
-   timesheet table instead of payslip card.
 ════════════════════════════════════════════ */
 @media print {
   body.ts-printing #s-emp.active .ps-card,
@@ -561,5 +734,10 @@
     border: none;
     border-radius: 0;
     background: #ffffff;
+  }
+
+  body.ts-printing .ts-controls,
+  body.ts-printing .ts-table-footer {
+    display: none !important;
   }
 }

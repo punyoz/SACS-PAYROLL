@@ -4,6 +4,58 @@ import { createClient } from "@supabase/supabase-js";
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+/* ── Philippine national holidays (2024-2027) ── */
+const PH_HOLIDAYS = {
+  "2024-01-01": { name: "New Year's Day",       type: "holiday" },
+  "2024-04-09": { name: "Araw ng Kagitingan",   type: "holiday" },
+  "2024-03-28": { name: "Maundy Thursday",      type: "holiday" },
+  "2024-03-29": { name: "Good Friday",          type: "holiday" },
+  "2024-05-01": { name: "Labor Day",            type: "holiday" },
+  "2024-06-12": { name: "Independence Day",     type: "holiday" },
+  "2024-08-26": { name: "National Heroes Day",  type: "holiday" },
+  "2024-11-01": { name: "All Saints Day",       type: "special" },
+  "2024-11-30": { name: "Bonifacio Day",        type: "holiday" },
+  "2024-12-25": { name: "Christmas Day",        type: "holiday" },
+  "2024-12-30": { name: "Rizal Day",            type: "holiday" },
+  "2025-01-01": { name: "New Year's Day",       type: "holiday" },
+  "2025-04-09": { name: "Araw ng Kagitingan",   type: "holiday" },
+  "2025-04-17": { name: "Maundy Thursday",      type: "holiday" },
+  "2025-04-18": { name: "Good Friday",          type: "holiday" },
+  "2025-05-01": { name: "Labor Day",            type: "holiday" },
+  "2025-06-12": { name: "Independence Day",     type: "holiday" },
+  "2025-08-25": { name: "National Heroes Day",  type: "holiday" },
+  "2025-11-01": { name: "All Saints Day",       type: "special" },
+  "2025-11-30": { name: "Bonifacio Day",        type: "holiday" },
+  "2025-12-25": { name: "Christmas Day",        type: "holiday" },
+  "2025-12-30": { name: "Rizal Day",            type: "holiday" },
+  "2026-01-01": { name: "New Year's Day",       type: "holiday" },
+  "2026-04-02": { name: "Maundy Thursday",      type: "holiday" },
+  "2026-04-03": { name: "Good Friday",          type: "holiday" },
+  "2026-04-09": { name: "Araw ng Kagitingan",   type: "holiday" },
+  "2026-05-01": { name: "Labor Day",            type: "holiday" },
+  "2026-06-12": { name: "Independence Day",     type: "holiday" },
+  "2026-08-31": { name: "National Heroes Day",  type: "holiday" },
+  "2026-11-01": { name: "All Saints Day",       type: "special" },
+  "2026-11-30": { name: "Bonifacio Day",        type: "holiday" },
+  "2026-12-25": { name: "Christmas Day",        type: "holiday" },
+  "2026-12-30": { name: "Rizal Day",            type: "holiday" },
+  "2027-01-01": { name: "New Year's Day",       type: "holiday" },
+  "2027-04-01": { name: "Maundy Thursday",      type: "holiday" },
+  "2027-04-02": { name: "Good Friday",          type: "holiday" },
+  "2027-04-09": { name: "Araw ng Kagitingan",   type: "holiday" },
+  "2027-05-01": { name: "Labor Day",            type: "holiday" },
+  "2027-06-12": { name: "Independence Day",     type: "holiday" },
+  "2027-08-30": { name: "National Heroes Day",  type: "holiday" },
+  "2027-11-01": { name: "All Saints Day",       type: "special" },
+  "2027-11-30": { name: "Bonifacio Day",        type: "holiday" },
+  "2027-12-25": { name: "Christmas Day",        type: "holiday" },
+  "2027-12-30": { name: "Rizal Day",            type: "holiday" },
+};
+
+const SHIFT_IN_H  = 8;   // 08:00 AM
+const SHIFT_OUT_H = 17;  // 05:00 PM
+const REQ_HOURS   = 8;
+
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
@@ -13,17 +65,7 @@ function getAdminClient() {
   });
 }
 
-function calcHours(timeIn, timeOut) {
-  if (!timeIn || !timeOut) return 0;
-  try {
-    const diff = (new Date(timeOut) - new Date(timeIn)) / 3600000;
-    return diff > 0 && diff < 24 ? Math.round(diff * 100) / 100 : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function formatTime(isoString) {
+function formatTime12(isoString) {
   if (!isoString) return null;
   try {
     return new Intl.DateTimeFormat("en-PH", {
@@ -39,126 +81,236 @@ function formatTime(isoString) {
   }
 }
 
-function getMonthRange(monthParam) {
-  if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
-    const [year, mon] = monthParam.split("-").map(Number);
-    const monthStart = `${year}-${String(mon).padStart(2, "0")}-01`;
-    const nextYear = mon === 12 ? year + 1 : year;
-    const nextMon = mon === 12 ? 1 : mon + 1;
-    const monthEnd = `${nextYear}-${String(nextMon).padStart(2, "0")}-01`;
-    const monthLabel = new Intl.DateTimeFormat("en-PH", {
+function getDayName(dateStr) {
+  try {
+    return new Intl.DateTimeFormat("en-PH", {
       timeZone: "Asia/Manila",
-      month: "long",
+      weekday: "long",
+    }).format(new Date(`${dateStr}T00:00:00+08:00`));
+  } catch {
+    return "";
+  }
+}
+
+function getDayOfWeek(dateStr) {
+  try {
+    return new Date(`${dateStr}T00:00:00+08:00`).getDay();
+  } catch {
+    return -1;
+  }
+}
+
+function calcTardiness(timeInIso) {
+  if (!timeInIso) return 0;
+  try {
+    const timeIn = new Date(timeInIso);
+    const phDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
       year: "numeric",
-    }).format(new Date(`${monthStart}T00:00:00+08:00`));
-    return { monthStart, monthEnd, monthLabel };
+      month: "2-digit",
+      day: "2-digit",
+    }).format(timeIn);
+    const shiftIn = new Date(
+      `${phDate}T${String(SHIFT_IN_H).padStart(2, "0")}:00:00+08:00`,
+    );
+    const diff = Math.floor((timeIn - shiftIn) / 60000);
+    return diff > 0 ? diff : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function calcUndertime(timeOutIso) {
+  if (!timeOutIso) return 0;
+  try {
+    const timeOut = new Date(timeOutIso);
+    const phDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(timeOut);
+    const shiftOut = new Date(
+      `${phDate}T${String(SHIFT_OUT_H).padStart(2, "0")}:00:00+08:00`,
+    );
+    const diff = Math.floor((shiftOut - timeOut) / 60000);
+    return diff > 0 ? diff : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function generateDateRange(startDate, endDate) {
+  const dates = [];
+  const cur   = new Date(`${startDate}T00:00:00+08:00`);
+  const end   = new Date(`${endDate}T00:00:00+08:00`);
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, "0");
+    const d = String(cur.getDate()).padStart(2, "0");
+    dates.push(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function getShiftInfo(dateStr) {
+  const dow = getDayOfWeek(dateStr);
+
+  if (dow === 0 || dow === 6) {
+    return {
+      row_type: "rest",
+      shift_type: "Rest Day",
+      shift_in: null,
+      shift_out: null,
+      required_hours: 0,
+    };
   }
 
-  const now = new Date();
-  const dateStr = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-  const [year, mon] = dateStr.split("-").map(Number);
-  const monthStart = `${year}-${String(mon).padStart(2, "0")}-01`;
-  const nextYear = mon === 12 ? year + 1 : year;
-  const nextMon = mon === 12 ? 1 : mon + 1;
-  const monthEnd = `${nextYear}-${String(nextMon).padStart(2, "0")}-01`;
-  const monthLabel = new Intl.DateTimeFormat("en-PH", {
-    timeZone: "Asia/Manila",
-    month: "long",
-    year: "numeric",
-  }).format(now);
-  return { monthStart, monthEnd, monthLabel };
+  const holiday = PH_HOLIDAYS[dateStr];
+  if (holiday) {
+    return {
+      row_type: holiday.type,
+      shift_type: holiday.name,
+      shift_in: null,
+      shift_out: null,
+      required_hours: 0,
+    };
+  }
+
+  return {
+    row_type: "regular",
+    shift_type: "Regular",
+    shift_in: `${String(SHIFT_IN_H).padStart(2, "0")}:00 AM`,
+    shift_out: `${String(SHIFT_OUT_H - 12).padStart(2, "0")}:00 PM`,
+    required_hours: REQ_HOURS,
+  };
 }
 
 export async function GET(request) {
   try {
-    const url = new URL(request.url);
-    const email = String(url.searchParams.get("email") || "").trim().toLowerCase();
-    const month = String(url.searchParams.get("month") || "").trim();
+    const url       = new URL(request.url);
+    const email     = String(url.searchParams.get("email")      || "").trim().toLowerCase();
+    const startDate = String(url.searchParams.get("start_date") || "").trim();
+    const endDate   = String(url.searchParams.get("end_date")   || "").trim();
 
     if (!email) {
       return NextResponse.json({ error: "email is required." }, { status: 400 });
     }
+    if (!startDate || !endDate) {
+      return NextResponse.json(
+        { error: "start_date and end_date are required." },
+        { status: 400 },
+      );
+    }
+    if (startDate > endDate) {
+      return NextResponse.json(
+        { error: "start_date must not be after end_date." },
+        { status: 400 },
+      );
+    }
 
-    const { monthStart, monthEnd, monthLabel } = getMonthRange(month);
+    const dayDiff = (new Date(endDate) - new Date(startDate)) / 86400000;
+    if (dayDiff > 366) {
+      return NextResponse.json(
+        { error: "Date range cannot exceed 366 days." },
+        { status: 400 },
+      );
+    }
+
     const supabase = getAdminClient();
 
     const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    if (usersResult.error) throw new Error(`Failed to list users: ${usersResult.error.message}`);
+    if (usersResult.error)
+      throw new Error(`Failed to list users: ${usersResult.error.message}`);
 
     const user = (usersResult.data.users || []).find(
       (u) => String(u.email || "").trim().toLowerCase() === email,
     );
 
-    const empty = {
-      records: [],
-      month_label: monthLabel,
-      totals: { days: 0, hours: 0, overtime: 0, avg: 0 },
-    };
-    if (!user) return NextResponse.json(empty);
+    if (!user) return NextResponse.json({ records: [] });
 
+    /* Attendance logs for the date range */
     const attResult = await supabase
       .from("attendance_logs")
       .select("status, log_date, time_in, time_out")
       .eq("employee_id", user.id)
-      .gte("log_date", monthStart)
-      .lt("log_date", monthEnd)
+      .gte("log_date", startDate)
+      .lte("log_date", endDate)
       .order("log_date", { ascending: true });
 
-    if (attResult.error) return NextResponse.json(empty);
-
-    let totalDays = 0;
-    let totalHours = 0;
-    let totalOvertime = 0;
-
-    const records = (attResult.data || []).map((row) => {
-      const hours = calcHours(row.time_in, row.time_out);
-      const overtime = Math.max(0, hours - 8);
-      const status = String(row.status || "").toLowerCase();
-
-      if (status === "present" || status === "late") {
-        totalDays++;
-        totalHours += hours;
-        totalOvertime += overtime;
+    const attMap = {};
+    if (!attResult.error && Array.isArray(attResult.data)) {
+      for (const row of attResult.data) {
+        attMap[row.log_date] = row;
       }
+    }
 
-      let dayName = "";
-      try {
-        dayName = new Intl.DateTimeFormat("en-PH", {
-          timeZone: "Asia/Manila",
-          weekday: "short",
-        }).format(new Date(`${row.log_date}T00:00:00+08:00`));
-      } catch {
-        dayName = "";
+    /* Approved leave requests overlapping the date range */
+    const leaveDates = new Set();
+    try {
+      const fullName = String(user.user_metadata?.full_name || "").trim();
+      let leaveQuery = supabase
+        .from("leave_requests")
+        .select("start_date, end_date")
+        .eq("status", "Approved")
+        .lte("start_date", endDate)
+        .gte("end_date", startDate);
+
+      if (user.id) leaveQuery = leaveQuery.eq("employee_id", user.id);
+
+      const leaveResult = await leaveQuery;
+      if (!leaveResult.error && Array.isArray(leaveResult.data)) {
+        for (const lv of leaveResult.data) {
+          const lc = new Date(`${lv.start_date}T00:00:00+08:00`);
+          const le = new Date(`${lv.end_date}T00:00:00+08:00`);
+          while (lc <= le) {
+            const y = lc.getFullYear();
+            const m = String(lc.getMonth() + 1).padStart(2, "0");
+            const d = String(lc.getDate()).padStart(2, "0");
+            leaveDates.add(`${y}-${m}-${d}`);
+            lc.setDate(lc.getDate() + 1);
+          }
+        }
+      }
+    } catch {
+      /* leave table may not exist — silently skip */
+    }
+
+    /* Build a record for every calendar day in the range */
+    const dates   = generateDateRange(startDate, endDate);
+    const records = dates.map((dateStr) => {
+      const shift     = getShiftInfo(dateStr);
+      const att       = attMap[dateStr] || null;
+      const hasLeave  = leaveDates.has(dateStr) ? 1 : 0;
+      const timeInIso = att?.time_in  || null;
+      const timeOutIso= att?.time_out || null;
+
+      let tardiness = 0;
+      let undertime = 0;
+      if (shift.row_type === "regular" && att?.time_in) {
+        tardiness = calcTardiness(att.time_in);
+        if (att.time_out) undertime = calcUndertime(att.time_out);
       }
 
       return {
-        date: row.log_date,
-        day: dayName,
-        time_in: formatTime(row.time_in),
-        time_out: formatTime(row.time_out),
-        hours: hours ? Math.round(hours * 100) / 100 : 0,
-        overtime: overtime ? Math.round(overtime * 100) / 100 : 0,
-        status: row.status || "Absent",
+        date:           dateStr,
+        day:            getDayName(dateStr),
+        shift_type:     shift.shift_type,
+        shift_in:       shift.shift_in,
+        shift_out:      shift.shift_out,
+        required_hours: shift.required_hours,
+        time_in:        formatTime12(timeInIso),
+        time_out:       formatTime12(timeOutIso),
+        tardiness,
+        undertime,
+        leave_with_pay: hasLeave,
+        row_type:       shift.row_type,
+        status:         att?.status || (shift.row_type === "rest" ? "Rest Day" : "No Record"),
       };
     });
 
-    const avg = totalDays > 0 ? Math.round((totalHours / totalDays) * 100) / 100 : 0;
-
-    return NextResponse.json({
-      records,
-      month_label: monthLabel,
-      totals: {
-        days: totalDays,
-        hours: Math.round(totalHours * 100) / 100,
-        overtime: Math.round(totalOvertime * 100) / 100,
-        avg,
-      },
-    });
+    return NextResponse.json({ records });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
