@@ -265,6 +265,36 @@ function openHrEditEmployeeModal(employee) {
   const statusEl = form.querySelector('[name="employee_status"]');
   if (statusEl) statusEl.value = employee.employee_status || 'Active';
 
+  if (form.elements.sss_number) form.elements.sss_number.value = employee.sss_number || '';
+  if (form.elements.pagibig_number) form.elements.pagibig_number.value = employee.pagibig_number || '';
+  if (form.elements.philhealth_number) form.elements.philhealth_number.value = employee.philhealth_number || '';
+  if (form.elements.bank_name) form.elements.bank_name.value = employee.bank_name || '';
+  if (form.elements.bank_account_number) form.elements.bank_account_number.value = employee.bank_account_number || '';
+
+  form.querySelectorAll('.field-error').forEach((s) => { s.textContent = ''; });
+
+  const INVALID_ID_CHARS = /[A-Za-z]/g;
+  ['sss_number', 'pagibig_number', 'philhealth_number', 'bank_account_number'].forEach((fieldName) => {
+    const input = form.elements[fieldName];
+    if (!input || input.dataset.hrEditGovIdBound === '1') return;
+    input.dataset.hrEditGovIdBound = '1';
+    const errorSpan = input.nextElementSibling;
+    input.addEventListener('input', () => {
+      const original = input.value;
+      const cleaned = original.replace(INVALID_ID_CHARS, '');
+      if (cleaned !== original) {
+        const pos = input.selectionStart - (original.length - cleaned.length);
+        input.value = cleaned;
+        input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+        if (errorSpan && errorSpan.classList.contains('field-error')) {
+          errorSpan.textContent = 'Letters are not allowed in this field.';
+        }
+      } else {
+        if (errorSpan && errorSpan.classList.contains('field-error')) errorSpan.textContent = '';
+      }
+    });
+  });
+
   const fb = document.getElementById('hr-edit-employee-feedback');
   if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
 
@@ -288,6 +318,11 @@ async function submitHrEditEmployee(event) {
     employee_type: form.querySelector('[name="employee_type"]').value,
     position: form.querySelector('[name="position"]').value,
     employee_status: form.querySelector('[name="employee_status"]').value,
+    sss_number: (form.elements.sss_number?.value || '').trim(),
+    pagibig_number: (form.elements.pagibig_number?.value || '').trim(),
+    philhealth_number: (form.elements.philhealth_number?.value || '').trim(),
+    bank_name: (form.elements.bank_name?.value || '').trim(),
+    bank_account_number: (form.elements.bank_account_number?.value || '').trim(),
   };
 
   try {
@@ -823,10 +858,11 @@ function setupHrAddEmployeeValidation() {
       }
     });
   });
-  ['sss_number', 'pagibig_number', 'philhealth_number'].forEach((fieldName) => {
+  ['sss_number', 'pagibig_number', 'philhealth_number', 'bank_account_number'].forEach((fieldName) => {
     const input = form.elements[fieldName];
     if (!input || input.dataset.hrGovIdBound === '1') return;
     input.dataset.hrGovIdBound = '1';
+    const errorSpan = input.nextElementSibling;
     input.addEventListener('input', () => {
       const original = input.value;
       const cleaned = original.replace(INVALID_ID_CHARS, '');
@@ -834,9 +870,32 @@ function setupHrAddEmployeeValidation() {
         const pos = input.selectionStart - (original.length - cleaned.length);
         input.value = cleaned;
         input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+        if (errorSpan && errorSpan.classList.contains('field-error')) {
+          errorSpan.textContent = 'Letters are not allowed in this field.';
+        }
+      } else {
+        if (errorSpan && errorSpan.classList.contains('field-error')) {
+          errorSpan.textContent = '';
+        }
       }
     });
   });
+
+  const salaryInput = form.elements.basic_salary;
+  if (salaryInput && salaryInput.dataset.hrSalaryBound !== '1') {
+    salaryInput.dataset.hrSalaryBound = '1';
+    const salaryError = salaryInput.nextElementSibling;
+    salaryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'e' || e.key === 'E' || e.key === '+') {
+        e.preventDefault();
+        if (salaryError) { salaryError.textContent = 'Only numbers are allowed.'; }
+        setTimeout(() => { if (salaryError) salaryError.textContent = ''; }, 2000);
+      }
+    });
+    salaryInput.addEventListener('input', () => {
+      if (salaryError) salaryError.textContent = '';
+    });
+  }
 }
 
 /* ── INIT ── */
@@ -1193,6 +1252,10 @@ async function submitHrAddEmployee(event) {
   }
   if (payload.philhealth_number && /[A-Za-z]/.test(payload.philhealth_number)) {
     if (fb) { fb.textContent = 'PhilHealth Number must not contain letters.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (payload.bank_account_number && /[A-Za-z]/.test(payload.bank_account_number)) {
+    if (fb) { fb.textContent = 'Bank Account Number must not contain letters.'; fb.style.color = 'var(--red)'; }
     return;
   }
 

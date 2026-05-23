@@ -227,9 +227,19 @@ function setupSalaryFieldValidation(scope = document) {
     if (input.dataset.salaryClampBound === '1') return;
     input.dataset.salaryClampBound = '1';
 
+    const errorSpan = input.nextElementSibling;
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'e' || e.key === 'E' || e.key === '+') {
+        e.preventDefault();
+        if (errorSpan) { errorSpan.textContent = 'Only numbers are allowed.'; }
+        setTimeout(() => { if (errorSpan) errorSpan.textContent = ''; }, 2000);
+      }
+    });
+
     input.addEventListener('input', () => {
       const raw = input.value;
-      if (!raw) return;
+      if (!raw) { if (errorSpan) errorSpan.textContent = ''; return; }
 
       const intPart = raw.split('.')[0].replace(/^-/, '');
       if (intPart.length > 7) {
@@ -244,6 +254,37 @@ function setupSalaryFieldValidation(scope = document) {
       if (Number.isFinite(value) && value > ADMIN_SALARY_MAX) {
         input.value = String(ADMIN_SALARY_MAX);
       }
+
+      if (errorSpan) errorSpan.textContent = '';
+    });
+  });
+}
+
+function setupGovIdBankFieldValidation(scope = document) {
+  const INVALID_CHARS = /[A-Za-z]/g;
+  const fields = ['sss_number', 'pagibig_number', 'philhealth_number', 'bank_account_number'];
+
+  fields.forEach((fieldName) => {
+    scope.querySelectorAll(`[name="${fieldName}"]`).forEach((input) => {
+      if (input.dataset.govIdBound === '1') return;
+      input.dataset.govIdBound = '1';
+      const errorSpan = input.nextElementSibling;
+      input.addEventListener('input', () => {
+        const original = input.value;
+        const cleaned = original.replace(INVALID_CHARS, '');
+        if (cleaned !== original) {
+          const pos = input.selectionStart - (original.length - cleaned.length);
+          input.value = cleaned;
+          input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
+          if (errorSpan && errorSpan.classList.contains('field-error')) {
+            errorSpan.textContent = 'Letters are not allowed in this field.';
+          }
+        } else {
+          if (errorSpan && errorSpan.classList.contains('field-error')) {
+            errorSpan.textContent = '';
+          }
+        }
+      });
     });
   });
 }
@@ -1594,6 +1635,7 @@ function initAdminPortal() {
 
   setupNameFieldValidation();
   setupSalaryFieldValidation();
+  setupGovIdBankFieldValidation();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('admin')
