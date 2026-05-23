@@ -540,3 +540,251 @@ window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChan
 window.submitLeaveRequest = submitLeaveRequest;
 window.submitChangePassword = submitChangePassword;
 window.viewPayslip = viewPayslip;
+
+/* ════════════════════════════════════════════
+   EMPLOYEE TAB NAVIGATION
+════════════════════════════════════════════ */
+const EMP_PAGES = {
+  'emp-dash':        'Dashboard',
+  'emp-attendance':  'Attendance',
+  'emp-timesheet':   'Timesheet',
+  'emp-payslips':    'Payslips',
+  'emp-leave':       'Leave',
+};
+
+function empNav(pageId, tabEl) {
+  Object.keys(EMP_PAGES).forEach(id => {
+    document.getElementById(id)?.classList.remove('active');
+  });
+  document.getElementById(pageId)?.classList.add('active');
+
+  document.querySelectorAll('#emp-tabnav .emp-tab').forEach(t => t.classList.remove('active'));
+  if (tabEl) {
+    tabEl.classList.add('active');
+  } else {
+    const matchTab = document.querySelector(`#emp-tabnav .emp-tab[data-emp-page="${pageId}"]`);
+    if (matchTab) matchTab.classList.add('active');
+  }
+
+  window.persistRolePageState?.('employee', pageId);
+
+  if (pageId === 'emp-attendance') loadAttendanceRecords();
+  if (pageId === 'emp-timesheet')  _initTimesheetTab();
+}
+
+function _initTimesheetTab() {
+  const monthEl = document.getElementById('ts-month-picker');
+  if (monthEl && !monthEl.value) {
+    try {
+      const phDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+      monthEl.value = phDate.slice(0, 7);
+    } catch { /* best-effort */ }
+  }
+  loadTimesheet();
+}
+
+/* Restore last-active tab once auth context is ready (runs once per session) */
+let _empTabsRestored = false;
+function _restoreEmpTabs() {
+  if (_empTabsRestored) return;
+  const currentRole = new URLSearchParams(window.location.search).get('role');
+  if (String(currentRole || '').toLowerCase() !== 'employee') return;
+  _empTabsRestored = true;
+  const savedPage = window.getPersistedRolePageState?.('employee');
+  if (savedPage && EMP_PAGES[savedPage] && savedPage !== 'emp-dash') {
+    empNav(savedPage, null);
+  }
+}
+window.addEventListener('sacs-auth-context-changed', _restoreEmpTabs);
+
+/* ════════════════════════════════════════════
+   ATTENDANCE RECORDS LIST (Attendance tab)
+════════════════════════════════════════════ */
+async function loadAttendanceRecords() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+  const container = document.getElementById('emp-att-records');
+  const labelEl = document.getElementById('emp-att-records-label');
+  if (!container) return;
+
+  container.innerHTML = '<div style="font-size:12px;color:var(--t3);padding:12px 0;">Loading...</div>';
+
+  if (!email) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--t3);">Unable to load records.</div>';
+    return;
+  }
+
+  try {
+    const resp = await fetch(`/api/employee/stats?email=${encodeURIComponent(email)}`);
+    if (!resp.ok) throw new Error('Failed to load attendance data.');
+    const data = await resp.json();
+    const records = Array.isArray(data.records) ? data.records : [];
+
+    if (labelEl && data.month_label) labelEl.textContent = data.month_label;
+
+    if (!records.length) {
+      container.innerHTML = '<div style="font-size:12px;color:var(--t3);padding:12px 0;">No records found for this month.</div>';
+      return;
+    }
+
+    const rows = records.map(r => {
+      const statusLower = String(r.status || '').toLowerCase();
+      const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
+      const timeIn  = formatPhTime(r.time_in)  || '—';
+      const timeOut = formatPhTime(r.time_out) || '—';
+      let dayName = '';
+      try {
+        dayName = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'short' })
+          .format(new Date(`${r.date}T00:00:00+08:00`));
+      } catch { /* best-effort */ }
+
+      return `<tr>
+        <td class="nm">${r.date}</td>
+        <td style="color:var(--t3);">${dayName}</td>
+        <td class="mn">${timeIn}</td>
+        <td class="mn">${timeOut}</td>
+        <td><span class="badge ${badgeCls}"><span class="bd"></span>${r.status}</span></td>
+      </tr>`;
+    }).join('');
+
+    container.innerHTML = `<div style="overflow-x:auto;"><table>
+      <thead><tr>
+        <th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Status</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  } catch (err) {
+    container.innerHTML = `<div style="font-size:12px;color:var(--red);padding:8px 0;">${err.message}</div>`;
+  }
+}
+
+/* ════════════════════════════════════════════
+   TIMESHEET MODULE
+════════════════════════════════════════════ */
+const timesheetState = { records: [], totals: {} };
+
+function renderTimesheetTable(records, totals) {
+  const wrap = document.getElementById('ts-table-wrap');
+  if (!wrap) return;
+
+  if (!records || !records.length) {
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--t3);">No records found for this month.</div>';
+    return;
+  }
+
+  const t = totals || {};
+
+  const rows = records.map(r => {
+    const statusLower = String(r.status || '').toLowerCase();
+    const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
+    const hoursDisplay = r.hours ? r.hours.toFixed(2) + 'h' : '—';
+    const otDisplay = r.overtime
+      ? `<span style="color:var(--amber);">${r.overtime.toFixed(2)}h</span>`
+      : '<span style="color:var(--t3);">—</span>';
+
+    return `<tr>
+      <td class="nm">${r.date}</td>
+      <td style="color:var(--t3);">${r.day}</td>
+      <td class="mn">${r.time_in || '—'}</td>
+      <td class="mn">${r.time_out || '—'}</td>
+      <td class="mn">${hoursDisplay}</td>
+      <td class="mn">${otDisplay}</td>
+      <td><span class="badge ${badgeCls}"><span class="bd"></span>${r.status}</span></td>
+    </tr>`;
+  }).join('');
+
+  const totalHours = (t.hours || 0).toFixed(2);
+  const totalOt    = (t.overtime || 0).toFixed(2);
+
+  wrap.innerHTML = `<table>
+    <thead><tr>
+      <th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th>
+      <th>Hours</th><th>Overtime</th><th>Status</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot>
+      <tr style="background:var(--bg3);">
+        <td colspan="4" style="font-weight:600;color:var(--t1);font-size:12px;text-transform:uppercase;letter-spacing:.04em;">Monthly Total</td>
+        <td class="mn" style="font-weight:700;color:var(--teal);">${totalHours}h</td>
+        <td class="mn" style="font-weight:700;color:var(--amber);">${totalOt}h</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>`;
+}
+
+async function loadTimesheet() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+  const monthEl = document.getElementById('ts-month-picker');
+  const month = monthEl?.value || '';
+
+  const wrap = document.getElementById('ts-table-wrap');
+  if (wrap) wrap.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;color:var(--t3);">Loading timesheet...</div>';
+
+  const statIds = ['ts-days', 'ts-hours', 'ts-overtime', 'ts-avg'];
+  statIds.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = '—'; });
+
+  if (!email) return;
+
+  try {
+    const params = new URLSearchParams({ email });
+    if (month) params.set('month', month);
+    const resp = await fetch(`/api/employee/timesheet?${params.toString()}`);
+    if (!resp.ok) throw new Error('Failed to load timesheet.');
+    const data = await resp.json();
+
+    timesheetState.records = data.records || [];
+    timesheetState.totals  = data.totals  || {};
+
+    const labelEl = document.getElementById('ts-month-label');
+    if (labelEl) labelEl.textContent = data.month_label || '';
+
+    const t = data.totals || {};
+
+    const daysEl = document.getElementById('ts-days');
+    if (daysEl) daysEl.textContent = t.days ?? '0';
+
+    const hoursEl = document.getElementById('ts-hours');
+    if (hoursEl) hoursEl.textContent = t.hours != null ? t.hours.toFixed(1) + 'h' : '—';
+
+    const otEl = document.getElementById('ts-overtime');
+    if (otEl) otEl.textContent = t.overtime != null ? t.overtime.toFixed(1) + 'h' : '—';
+
+    const avgEl = document.getElementById('ts-avg');
+    if (avgEl) avgEl.textContent = t.avg != null ? t.avg.toFixed(1) + 'h' : '—';
+
+    const printNameEl = document.getElementById('ts-print-name');
+    if (printNameEl) {
+      const name  = String(context?.full_name || '').trim();
+      const label = data.month_label || '';
+      printNameEl.textContent = [name, label].filter(Boolean).join(' · ');
+    }
+
+    renderTimesheetTable(timesheetState.records, timesheetState.totals);
+  } catch (err) {
+    if (wrap) wrap.innerHTML = `<div style="padding:20px;text-align:center;font-size:12px;color:var(--red);">${err.message}</div>`;
+  }
+}
+
+function onTimesheetMonthChange() {
+  loadTimesheet();
+}
+
+function printTimesheet() {
+  document.body.classList.add('ts-printing');
+  window.print();
+  document.body.classList.remove('ts-printing');
+}
+
+/* ── expose new globals ── */
+window.empNav               = empNav;
+window.loadTimesheet        = loadTimesheet;
+window.onTimesheetMonthChange = onTimesheetMonthChange;
+window.printTimesheet       = printTimesheet;
+window.loadAttendanceRecords = loadAttendanceRecords;

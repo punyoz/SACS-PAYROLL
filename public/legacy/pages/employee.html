@@ -1,6 +1,7 @@
 <!-- ═══════════════════════════════════════
      pages/employee.html — Employee portal
-     No sidebar — centered card layout.
+     Tab layout: Dashboard, Attendance,
+     Timesheet, Payslips, Leave.
      Logic lives in js/employee.js
      ═══════════════════════════════════════ -->
 <div class="screen" id="s-emp">
@@ -24,146 +25,311 @@
     <button class="xb" onclick="logout()" style="margin-left:4px;">Sign out</button>
   </div>
 
+  <!-- TAB NAVIGATION -->
+  <nav class="emp-tabnav" id="emp-tabnav" role="tablist">
+    <div class="emp-tab active" role="tab" data-emp-page="emp-dash" onclick="empNav('emp-dash',this)">
+      <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg>
+      Dashboard
+    </div>
+    <div class="emp-tab" role="tab" data-emp-page="emp-attendance" onclick="empNav('emp-attendance',this)">
+      <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Attendance
+    </div>
+    <div class="emp-tab" role="tab" data-emp-page="emp-timesheet" onclick="empNav('emp-timesheet',this)">
+      <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Timesheet
+    </div>
+    <div class="emp-tab" role="tab" data-emp-page="emp-payslips" onclick="empNav('emp-payslips',this)">
+      <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Payslips
+    </div>
+    <div class="emp-tab" role="tab" data-emp-page="emp-leave" onclick="empNav('emp-leave',this)">
+      <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 2v2M11 2v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      Leave
+    </div>
+  </nav>
+
   <!-- SCROLLABLE BODY -->
   <div class="emp-body">
 
-    <!-- HERO -->
-    <div class="emp-hero">
-      <div class="emp-avatar" id="emp-avatar">EM</div>
-      <div class="emp-hello">
-        <h2 id="emp-hello-title">Employee 👋</h2>
-        <p id="emp-hello-meta">Employee · Teaching Staff · N/A</p>
+    <!-- ══════════════════════════════════════
+         PAGE: DASHBOARD
+    ══════════════════════════════════════ -->
+    <div class="emp-page active" id="emp-dash" role="tabpanel">
+
+      <!-- HERO -->
+      <div class="emp-hero">
+        <div class="emp-avatar" id="emp-avatar">EM</div>
+        <div class="emp-hello">
+          <h2 id="emp-hello-title">Employee 👋</h2>
+          <p id="emp-hello-meta">Employee · Teaching Staff · N/A</p>
+        </div>
+        <div class="emp-stat-row">
+          <div class="emp-stat">
+            <div class="es-v" id="emp-stat-present" style="color:var(--green);">—</div>
+            <div class="es-l">Present</div>
+          </div>
+          <div class="emp-stat">
+            <div class="es-v" id="emp-stat-late" style="color:var(--amber);">—</div>
+            <div class="es-l">Late</div>
+          </div>
+          <div class="emp-stat">
+            <div class="es-v" id="emp-stat-absent" style="color:var(--red);">—</div>
+            <div class="es-l">Absent</div>
+          </div>
+          <div class="emp-stat">
+            <div class="es-v" id="emp-stat-netpay" style="color:var(--amber);font-size:14px;">—</div>
+            <div class="es-l">Basic Salary</div>
+          </div>
+        </div>
       </div>
-      <div class="emp-stat-row">
-        <div class="emp-stat">
-          <div class="es-v" id="emp-stat-present" style="color:var(--green);">—</div>
-          <div class="es-l">Present</div>
-        </div>
-        <div class="emp-stat">
-          <div class="es-v" id="emp-stat-late" style="color:var(--amber);">—</div>
-          <div class="es-l">Late</div>
-        </div>
-        <div class="emp-stat">
-          <div class="es-v" id="emp-stat-absent" style="color:var(--red);">—</div>
-          <div class="es-l">Absent</div>
-        </div>
-        <div class="emp-stat">
-          <div class="es-v" id="emp-stat-netpay" style="color:var(--amber);font-size:14px;">—</div>
-          <div class="es-l">Basic Salary</div>
-        </div>
-      </div>
-    </div>
 
-    <!-- TWO COLUMNS -->
-    <div class="emp-cols">
+      <!-- MODULE QUICK ACCESS -->
+      <div class="emp-modules">
 
-      <!-- ATTENDANCE CALENDAR -->
-      <div class="card">
-        <div class="stitle" id="emp-att-month-title" style="margin-bottom:3px;">My Attendance</div>
-        <div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Read-only · Updated via RFID tap</div>
-        <div class="att-grid" id="emp-att-grid">
-          <div class="adh">Su</div><div class="adh">Mo</div><div class="adh">Tu</div>
-          <div class="adh">We</div><div class="adh">Th</div><div class="adh">Fr</div><div class="adh">Sa</div>
-        </div>
-        <div class="att-legend">
-          <div class="al"><span class="alb" style="background:var(--green-s);border:1px solid var(--green);"></span>Present</div>
-          <div class="al"><span class="alb" style="background:var(--amber-s);border:1px solid var(--amber);"></span>Late</div>
-          <div class="al"><span class="alb" style="background:var(--red-s);border:1px solid var(--red);"></span>Absent</div>
-          <div class="al"><span class="alb" style="outline:2px solid var(--teal);"></span>Today</div>
+        <div class="emp-module-card" onclick="empNav('emp-attendance',null)">
+          <div class="emc-icon" style="background:var(--green-s);color:var(--green);">
+            <svg width="20" height="20" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="emc-body">
+            <div class="emc-title">Attendance</div>
+            <div class="emc-desc">View your monthly attendance calendar, check-in and check-out times, and daily status.</div>
+          </div>
+          <button class="btn btn-outline emc-btn" tabindex="-1">View →</button>
         </div>
 
-        <!-- Today's log -->
-        <div class="today-log">
-          <div class="today-log-title">Today's log</div>
-          <div class="today-log-row">
-            <div class="tlc">
-              <label>Time In</label>
-              <div class="tl-val" id="emp-today-timein" style="color:var(--t3);">— : —</div>
-            </div>
-            <div class="tlc tlc-divider">
-              <label>Time Out</label>
-              <div class="tl-val" id="emp-today-timeout" style="color:var(--t3);">— : —</div>
-            </div>
-            <div class="tlc tlc-divider">
-              <label>Status</label>
-              <div id="emp-today-status-wrap" style="margin-top:5px;">
-                <span class="badge ba"><span class="bd"></span>No data</span>
+        <div class="emp-module-card" onclick="empNav('emp-timesheet',null)">
+          <div class="emc-icon" style="background:var(--teal-s);color:var(--teal);">
+            <svg width="20" height="20" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="emc-body">
+            <div class="emc-title">Timesheet</div>
+            <div class="emc-desc">Track daily and monthly work hours, overtime rendered, and print timesheet summaries.</div>
+          </div>
+          <button class="btn btn-outline emc-btn" tabindex="-1">View →</button>
+        </div>
+
+        <div class="emp-module-card" onclick="empNav('emp-payslips',null)">
+          <div class="emc-icon" style="background:var(--amber-s);color:var(--amber);">
+            <svg width="20" height="20" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </div>
+          <div class="emc-body">
+            <div class="emc-title">Payslips</div>
+            <div class="emc-desc">Access current and previous payslips with full earnings and deductions breakdown.</div>
+          </div>
+          <button class="btn btn-outline emc-btn" tabindex="-1">View →</button>
+        </div>
+
+        <div class="emp-module-card" onclick="empNav('emp-leave',null)">
+          <div class="emc-icon" style="background:var(--blue-s);color:var(--blue);">
+            <svg width="20" height="20" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 7h6M5 10h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M5 2v2M11 2v2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </div>
+          <div class="emc-body">
+            <div class="emc-title">Leave Requests</div>
+            <div class="emc-desc">Submit leave requests with supporting documents and track their approval status.</div>
+          </div>
+          <button class="btn btn-outline emc-btn" tabindex="-1">Manage →</button>
+        </div>
+
+      </div><!-- end .emp-modules -->
+
+    </div><!-- end #emp-dash -->
+
+    <!-- ══════════════════════════════════════
+         PAGE: ATTENDANCE
+    ══════════════════════════════════════ -->
+    <div class="emp-page" id="emp-attendance" role="tabpanel">
+
+      <div class="emp-att-cols">
+
+        <!-- Attendance Calendar -->
+        <div class="card">
+          <div class="stitle" id="emp-att-month-title" style="margin-bottom:3px;">My Attendance</div>
+          <div style="font-size:11px;color:var(--t3);margin-bottom:10px;">Read-only · Updated via RFID tap</div>
+          <div class="att-grid" id="emp-att-grid">
+            <div class="adh">Su</div><div class="adh">Mo</div><div class="adh">Tu</div>
+            <div class="adh">We</div><div class="adh">Th</div><div class="adh">Fr</div><div class="adh">Sa</div>
+          </div>
+          <div class="att-legend">
+            <div class="al"><span class="alb" style="background:var(--green-s);border:1px solid var(--green);"></span>Present</div>
+            <div class="al"><span class="alb" style="background:var(--amber-s);border:1px solid var(--amber);"></span>Late</div>
+            <div class="al"><span class="alb" style="background:var(--red-s);border:1px solid var(--red);"></span>Absent</div>
+            <div class="al"><span class="alb" style="outline:2px solid var(--teal);"></span>Today</div>
+          </div>
+
+          <!-- Today's log -->
+          <div class="today-log">
+            <div class="today-log-title">Today's log</div>
+            <div class="today-log-row">
+              <div class="tlc">
+                <label>Time In</label>
+                <div class="tl-val" id="emp-today-timein" style="color:var(--t3);">— : —</div>
+              </div>
+              <div class="tlc tlc-divider">
+                <label>Time Out</label>
+                <div class="tl-val" id="emp-today-timeout" style="color:var(--t3);">— : —</div>
+              </div>
+              <div class="tlc tlc-divider">
+                <label>Status</label>
+                <div id="emp-today-status-wrap" style="margin-top:5px;">
+                  <span class="badge ba"><span class="bd"></span>No data</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
+
+        <!-- Attendance Records List -->
+        <div class="card">
+          <div class="sh" style="margin-bottom:12px;">
+            <span class="stitle">Attendance Records</span>
+            <span class="sp"></span>
+            <span style="font-size:11px;color:var(--t3);" id="emp-att-records-label">This month</span>
+          </div>
+          <div id="emp-att-records">
+            <div style="font-size:12px;color:var(--t3);padding:12px 0;">Loading records...</div>
+          </div>
+        </div>
+
+      </div><!-- end .emp-att-cols -->
+
+    </div><!-- end #emp-attendance -->
+
+    <!-- ══════════════════════════════════════
+         PAGE: TIMESHEET
+    ══════════════════════════════════════ -->
+    <div class="emp-page" id="emp-timesheet" role="tabpanel">
+
+      <!-- Header row -->
+      <div class="ts-header">
+        <div>
+          <h3 style="font-size:17px;font-weight:700;color:var(--t1);">My Timesheet</h3>
+          <p style="font-size:12px;color:var(--t3);margin-top:3px;" id="ts-month-label">Select a month to load records.</p>
+        </div>
+        <div class="ts-actions">
+          <input type="month" id="ts-month-picker" class="fc" style="width:160px;" onchange="onTimesheetMonthChange()">
+          <button class="btn btn-outline" onclick="printTimesheet()" style="display:flex;align-items:center;gap:6px;">
+            <svg width="13" height="13" fill="none" viewBox="0 0 16 16"><rect x="2" y="5" width="12" height="8" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M4 5V3a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="1.4"/><path d="M4 11h8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="12" cy="8" r="1" fill="currentColor"/></svg>
+            Print
+          </button>
+        </div>
       </div>
 
-      <!-- PAYSLIP + HISTORY -->
+      <!-- Summary stats -->
+      <div class="ts-stats-row">
+        <div class="ts-stat">
+          <div class="ts-sv" id="ts-days">—</div>
+          <div class="ts-sl">Days Present</div>
+        </div>
+        <div class="ts-stat">
+          <div class="ts-sv" id="ts-hours" style="color:var(--teal);">—</div>
+          <div class="ts-sl">Total Hours</div>
+        </div>
+        <div class="ts-stat">
+          <div class="ts-sv" id="ts-overtime" style="color:var(--amber);">—</div>
+          <div class="ts-sl">Overtime Hours</div>
+        </div>
+        <div class="ts-stat">
+          <div class="ts-sv" id="ts-avg" style="color:var(--green);">—</div>
+          <div class="ts-sl">Avg hrs / Day</div>
+        </div>
+      </div>
+
+      <!-- Printable card with daily records table -->
+      <div class="card ts-card" id="ts-printable">
+        <div class="sh" style="margin-bottom:0;">
+          <span class="stitle">Daily Records</span>
+          <span class="sp"></span>
+          <span class="ts-print-header" id="ts-print-name" style="font-size:12px;color:var(--t3);"></span>
+        </div>
+        <div style="overflow-x:auto;margin-top:14px;">
+          <div id="ts-table-wrap">
+            <div style="padding:20px;text-align:center;font-size:12px;color:var(--t3);">Select a month above to load records.</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- end #emp-timesheet -->
+
+    <!-- ══════════════════════════════════════
+         PAGE: PAYSLIPS
+    ══════════════════════════════════════ -->
+    <div class="emp-page" id="emp-payslips" role="tabpanel">
+
+      <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;">My Latest Payslip</div>
+
+      <div class="ps-card">
+        <div class="ps-head">
+          <h3>Shepherd Angels Christian School</h3>
+          <p id="ps-period-label">No payslip available</p>
+        </div>
+        <div id="ps-rows">
+          <div class="ps-row" style="color:var(--t3);font-style:italic;justify-content:center;padding:16px;">No payslip data available.</div>
+        </div>
+        <div class="ps-net" id="ps-net" style="display:none;">
+          <div class="ps-net-lbl" id="ps-net-label">Net Pay</div>
+          <div class="ps-net-amt" id="ps-net-amount">—</div>
+        </div>
+      </div>
+
+      <!-- Previous payslips -->
       <div>
-        <div style="font-size:11px;color:var(--t3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;">My Latest Payslip</div>
-
-        <div class="ps-card">
-          <div class="ps-head">
-            <h3>Shepherd Angels Christian School</h3>
-            <p id="ps-period-label">No payslip available</p>
-          </div>
-          <div id="ps-rows">
-            <div class="ps-row" style="color:var(--t3);font-style:italic;justify-content:center;padding:16px 16px;">No payslip data available.</div>
-          </div>
-          <div class="ps-net" id="ps-net" style="display:none;">
-            <div class="ps-net-lbl" id="ps-net-label">Net Pay</div>
-            <div class="ps-net-amt" id="ps-net-amount">—</div>
-          </div>
-        </div>
-
-        <div class="card" style="margin-top:10px;padding:14px 14px 12px;">
-          <div class="stitle" style="margin-bottom:10px;">Leave Request</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div class="fg" style="margin:0;">
-              <label>Leave Type</label>
-              <select id="emp-leave-type" class="fc">
-                <option value="">Select leave type</option>
-                <option value="Sick Leave">Sick Leave</option>
-                <option value="Vacation Leave">Vacation Leave</option>
-                <option value="Emergency Leave">Emergency Leave</option>
-                <option value="Maternity Leave">Maternity Leave</option>
-                <option value="Paternity Leave">Paternity Leave</option>
-              </select>
-            </div>
-            <div class="fg" style="margin:0;">
-              <label>Start Date</label>
-              <input id="emp-leave-start" class="fc" type="date">
-            </div>
-            <div class="fg" style="margin:0;">
-              <label>End Date</label>
-              <input id="emp-leave-end" class="fc" type="date">
-            </div>
-            <div class="fg" style="margin:0;grid-column:1/-1;">
-              <label>Reason</label>
-              <textarea id="emp-leave-reason" class="fc" rows="3" placeholder="State the reason for your leave request"></textarea>
-            </div>
-            <div class="fg" style="margin:0;grid-column:1/-1;">
-              <label>Proof Document (Optional)</label>
-              <input id="emp-leave-proof" class="fc" type="file" accept=".pdf,.png,.jpg,.jpeg">
-            </div>
-          </div>
-          <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;" onclick="submitLeaveRequest()">Submit Leave Request</button>
-          <p id="emp-leave-feedback" class="adm-feedback" style="margin-top:8px;"></p>
-        </div>
-
-        <div class="card" style="margin-top:10px;padding:14px;">
-          <div class="sh" style="margin-bottom:8px;"><span class="stitle">My Leave Requests</span></div>
-          <div id="emp-leave-list" style="display:grid;gap:8px;">
-            <div style="font-size:12px;color:var(--t3);">No leave requests submitted yet.</div>
-          </div>
-        </div>
-
-        <!-- Past payslips -->
-        <div style="margin-top:18px;">
-          <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:10px;">Previous Payslips</div>
-          <div id="emp-prev-payslips">
-            <div style="font-size:12px;color:var(--t3);">No previous payslips.</div>
-          </div>
+        <div style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;margin-bottom:10px;">Previous Payslips</div>
+        <div id="emp-prev-payslips">
+          <div style="font-size:12px;color:var(--t3);">No previous payslips.</div>
         </div>
       </div>
 
-    </div><!-- end emp-cols -->
+    </div><!-- end #emp-payslips -->
+
+    <!-- ══════════════════════════════════════
+         PAGE: LEAVE
+    ══════════════════════════════════════ -->
+    <div class="emp-page" id="emp-leave" role="tabpanel">
+
+      <div class="card" style="padding:14px 14px 12px;">
+        <div class="stitle" style="margin-bottom:10px;">Leave Request</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="fg" style="margin:0;">
+            <label>Leave Type</label>
+            <select id="emp-leave-type" class="fc">
+              <option value="">Select leave type</option>
+              <option value="Sick Leave">Sick Leave</option>
+              <option value="Vacation Leave">Vacation Leave</option>
+              <option value="Emergency Leave">Emergency Leave</option>
+              <option value="Maternity Leave">Maternity Leave</option>
+              <option value="Paternity Leave">Paternity Leave</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>Start Date</label>
+            <input id="emp-leave-start" class="fc" type="date">
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>End Date</label>
+            <input id="emp-leave-end" class="fc" type="date">
+          </div>
+          <div class="fg" style="margin:0;grid-column:1/-1;">
+            <label>Reason</label>
+            <textarea id="emp-leave-reason" class="fc" rows="3" placeholder="State the reason for your leave request"></textarea>
+          </div>
+          <div class="fg" style="margin:0;grid-column:1/-1;">
+            <label>Proof Document (Optional)</label>
+            <input id="emp-leave-proof" class="fc" type="file" accept=".pdf,.png,.jpg,.jpeg">
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;" onclick="submitLeaveRequest()">Submit Leave Request</button>
+        <p id="emp-leave-feedback" class="adm-feedback" style="margin-top:8px;"></p>
+      </div>
+
+      <div class="card" style="padding:14px;">
+        <div class="sh" style="margin-bottom:8px;"><span class="stitle">My Leave Requests</span></div>
+        <div id="emp-leave-list" style="display:grid;gap:8px;">
+          <div style="font-size:12px;color:var(--t3);">No leave requests submitted yet.</div>
+        </div>
+      </div>
+
+    </div><!-- end #emp-leave -->
 
   </div><!-- end emp-body -->
 

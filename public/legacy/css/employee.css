@@ -358,3 +358,208 @@
     background: #ffffff;
   }
 }
+
+/* ════════════════════════════════════════════
+   TAB NAVIGATION
+════════════════════════════════════════════ */
+.emp-tabnav {
+  display: flex;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 14px;
+  gap: 2px;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+  transition: background 0.25s, border-color 0.25s;
+}
+.emp-tabnav::-webkit-scrollbar { display: none; }
+
+.emp-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 13px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  user-select: none;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.emp-tab:hover { color: var(--t1); background: var(--bg3); }
+.emp-tab.active { color: var(--amber); border-bottom-color: var(--amber); font-weight: 600; }
+.emp-tab svg { flex-shrink: 0; opacity: 0.8; }
+.emp-tab.active svg { opacity: 1; }
+
+/* ════════════════════════════════════════════
+   EMP PAGES (tab panels)
+════════════════════════════════════════════ */
+.emp-page { display: none; width: 100%; max-width: 860px; }
+.emp-page.active {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: emp-pg-in 0.2s ease both;
+}
+
+@keyframes emp-pg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ════════════════════════════════════════════
+   DASHBOARD — MODULE QUICK ACCESS CARDS
+════════════════════════════════════════════ */
+.emp-modules {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  width: 100%;
+}
+
+.emp-module-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--rl);
+  padding: 18px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.emp-module-card:hover {
+  border-color: var(--amber);
+  background: var(--bg3);
+  transform: translateY(-1px);
+}
+
+.emc-icon {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.emc-body { flex: 1; min-width: 0; }
+
+.emc-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  margin-bottom: 4px;
+}
+
+.emc-desc {
+  font-size: 11px;
+  color: var(--t3);
+  line-height: 1.5;
+}
+
+.emc-btn { flex-shrink: 0; pointer-events: none; }
+
+/* ════════════════════════════════════════════
+   ATTENDANCE PAGE
+════════════════════════════════════════════ */
+.emp-att-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  width: 100%;
+}
+
+/* ════════════════════════════════════════════
+   TIMESHEET PAGE
+════════════════════════════════════════════ */
+.ts-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.ts-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ts-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+.ts-stat {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  text-align: center;
+  transition: background 0.25s;
+}
+.ts-sv { font-size: 20px; font-weight: 700; font-family: var(--mono); color: var(--t1); }
+.ts-sl { font-size: 10px; color: var(--t3); margin-top: 3px; }
+
+.ts-card { width: 100%; }
+
+.ts-print-header { flex-shrink: 0; }
+
+/* ════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════ */
+@media (max-width: 599px) {
+  .emp-modules       { grid-template-columns: 1fr; }
+  .emp-att-cols      { grid-template-columns: 1fr; }
+  .ts-stats-row      { grid-template-columns: repeat(2, 1fr); }
+  .emc-btn           { display: none; }
+  .ts-header         { flex-direction: column; gap: 10px; }
+  .ts-actions        { width: 100%; }
+  .ts-actions .fc    { flex: 1; }
+}
+
+@media (min-width: 768px) {
+  .emp-tabnav { padding: 0 20px; }
+}
+
+@media (min-width: 1024px) {
+  .emp-tabnav { padding: 0 24px; }
+}
+
+@media (min-width: 1440px) {
+  .emp-page { max-width: 960px; }
+}
+
+/* ════════════════════════════════════════════
+   TIMESHEET PRINT
+   Override existing print rule to show
+   timesheet table instead of payslip card.
+════════════════════════════════════════════ */
+@media print {
+  body.ts-printing #s-emp.active .ps-card,
+  body.ts-printing #s-emp.active .ps-card * {
+    visibility: hidden !important;
+  }
+
+  body.ts-printing #ts-printable,
+  body.ts-printing #ts-printable * {
+    visibility: visible !important;
+  }
+
+  body.ts-printing #ts-printable {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 20px;
+    border: none;
+    border-radius: 0;
+    background: #ffffff;
+  }
+}
