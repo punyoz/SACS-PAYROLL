@@ -25,7 +25,7 @@
     <div class="sb-sec">Employees</div>
     <div class="ni" onclick="hrNav('hr-employees',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="currentColor"/><path d="M2 13c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-      Employee Records
+      User Management
     </div>
     <div class="ni" onclick="hrNav('hr-employee-info',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
@@ -35,10 +35,6 @@
     <div class="ni" onclick="hrNav('hr-branch-assign',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Branch Assignment
-    </div>
-    <div class="ni" onclick="hrNav('hr-branches',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V3.5A1.5 1.5 0 0 1 5.5 2h5A1.5 1.5 0 0 1 12 3.5V6" stroke="currentColor" stroke-width="1.2"/></svg>
-      Branch Management
     </div>
 
     <div class="sb-sec">Attendance</div>
@@ -148,7 +144,7 @@
          PAGE: Employee Records
     ────────────────────────────── -->
     <div class="page" id="hr-employees">
-      <div class="ph"><h2>Employee Records</h2><p>Manage employee profiles, employment information, and status</p></div>
+      <div class="ph"><h2>User Management</h2><p>Manage employee profiles, employment information, and status</p></div>
       <div class="chips" id="hr-emp-filter-chips">
         <div class="chip active" data-filter="all" onclick="setHrEmployeeFilter('all')">All (0)</div>
         <div class="chip" data-filter="teaching" onclick="setHrEmployeeFilter('teaching')">Teaching (0)</div>
@@ -359,29 +355,6 @@
       <div class="pg-bar" id="hr-ba-pg"></div>
     </div>
 
-    <!-- ──────────────────────────────
-         PAGE: Branch Management
-    ────────────────────────────── -->
-    <div class="page" id="hr-branches">
-      <div class="ph"><h2>Branch Management</h2><p>Manage branch information, configurations, and employee distribution across all branches</p></div>
-
-      <div class="sg3" style="margin-bottom:16px;">
-        <div class="card"><div class="ct">Total Branches</div><div class="cv b" id="hr-branch-total">—</div><div class="cch">Registered branches</div></div>
-        <div class="card"><div class="ct">Active Branches</div><div class="cv g" id="hr-branch-active">—</div><div class="cch">Currently operating</div></div>
-        <div class="card"><div class="ct">Total Staff</div><div class="cv" id="hr-branch-staff">—</div><div class="cch">Across all branches</div></div>
-      </div>
-
-      <div class="sh" style="margin-bottom:12px;">
-        <span class="stitle">Branch List</span>
-        <span class="sp"></span>
-        <button class="btn btn-primary" onclick="openHrBranchMgmtModal()">+ Add Branch</button>
-      </div>
-
-      <div class="branch-grid" id="hr-branch-grid">
-        <!-- Rendered by JS -->
-      </div>
-    </div>
-
   </div><!-- end .main -->
 
   <!-- ── HR BRANCH ASSIGNMENT MODAL ── -->
@@ -399,12 +372,7 @@
         </div>
         <div class="fg" style="margin:0;">
           <label>Assign to Branch</label>
-          <select class="fc" name="branch">
-            <option value="main">Main Branch</option>
-            <option value="2">2nd Branch</option>
-            <option value="3">3rd Branch</option>
-            <option value="4">4th Branch</option>
-          </select>
+          <select class="fc" name="branch"></select>
         </div>
         <p id="hr-ba-modal-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
@@ -457,42 +425,6 @@
         <p id="hr-edit-employee-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Save Changes</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ── HR BRANCH MANAGEMENT MODAL ── -->
-  <div id="hr-branch-mgmt-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:480px;">
-      <div class="adm-modal-head">
-        <h3 id="hr-branch-mgmt-title">Add Branch</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeHrBranchMgmtModal()" title="Close">&#x2715;</button>
-      </div>
-      <form id="hr-branch-mgmt-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitHrBranchMgmt(event)">
-        <input type="hidden" name="id" />
-        <div class="fg" style="margin:0;">
-          <label>Branch Name</label>
-          <input class="fc" name="name" required placeholder="e.g. Main Campus" />
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Location / Address</label>
-          <input class="fc" name="location" required placeholder="e.g. Quezon City, Metro Manila" />
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Branch Code</label>
-          <input class="fc" name="code" placeholder="e.g. MAIN-01" maxlength="20" />
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Status</label>
-          <select class="fc" name="status">
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-        <p id="hr-branch-mgmt-feedback" class="adm-feedback"></p>
-        <div class="adm-modal-actions">
-          <button type="submit" class="btn btn-primary">Save Branch</button>
         </div>
       </form>
     </div>
@@ -564,7 +496,6 @@
           <select class="fc" name="position">
             <option value="Employee">Employee</option>
             <option value="Accountant">Accountant</option>
-            <option value="HR Officer">HR Officer</option>
           </select>
         </div>
         <div class="fg">

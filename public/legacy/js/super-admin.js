@@ -25,6 +25,7 @@ let saAuditSearch = '';
 let saAuditModule = 'all';
 let saAuditAction = 'all';
 let saBranches = [];
+let saAssignBranches = [];
 let saReportData = [];
 
 let saUsersPaginator = null;
@@ -787,7 +788,10 @@ const SA_BRANCH_COLORS = {
 };
 
 function saGetBranchLabel(key) {
-  return SA_BRANCH_LABELS[String(key || '')] || '—';
+  const BRANCH_KEYS = ['main', '2', '3', '4'];
+  const idx = BRANCH_KEYS.indexOf(String(key || ''));
+  if (idx >= 0 && saAssignBranches[idx]) return saAssignBranches[idx].name;
+  return SA_BRANCH_LABELS[String(key || '')] || String(key || '') || '—';
 }
 
 function saUpdateBranchSummary() {
@@ -806,14 +810,17 @@ function saUpdateBranchSummary() {
   set('sa-ba-count-3', count3);
   set('sa-ba-count-4', count4);
 
+  const BRANCH_KEYS = ['main', '2', '3', '4'];
+  const branchCounts = { main: mainCount, '2': count2, '3': count3, '4': count4 };
   document.querySelectorAll('#sa-ba-filter-chips .chip').forEach((chip) => {
     const bf = chip.getAttribute('data-sabf');
     if (bf === 'all')             chip.textContent = `All (${total})`;
     else if (bf === 'unassigned') chip.textContent = `Unassigned (${unassigned})`;
-    else if (bf === 'main')       chip.textContent = `Main Branch (${mainCount})`;
-    else if (bf === '2')          chip.textContent = `2nd Branch (${count2})`;
-    else if (bf === '3')          chip.textContent = `3rd Branch (${count3})`;
-    else if (bf === '4')          chip.textContent = `4th Branch (${count4})`;
+    else {
+      const idx = BRANCH_KEYS.indexOf(bf);
+      const label = (idx >= 0 && saAssignBranches[idx]) ? saAssignBranches[idx].name : (SA_BRANCH_LABELS[bf] || bf);
+      chip.textContent = `${label} (${branchCounts[bf] ?? 0})`;
+    }
   });
 }
 
@@ -893,6 +900,12 @@ async function loadSABranchAssignment() {
   if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
+    const [branchRes] = await Promise.allSettled([fetch('/api/super-admin/branches')]);
+    if (branchRes.status === 'fulfilled' && branchRes.value.ok) {
+      const bd = await branchRes.value.json();
+      saAssignBranches = (bd.branches || []).filter((b) => b.status === 'Active');
+    }
+
     const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || 'Failed to load branch assignments');
@@ -922,8 +935,18 @@ function openSABranchAssignModal(userId) {
 
   form.elements.user_id.value = saCurrentBranchEmployee.id;
   form.elements.employee_display.value = `${saCurrentBranchEmployee.full_name} (${saCurrentBranchEmployee.employee_id || 'N/A'})`;
-  if (saCurrentBranchEmployee.branch && form.elements.branch) {
-    form.elements.branch.value = saCurrentBranchEmployee.branch;
+
+  const BRANCH_KEYS = ['main', '2', '3', '4'];
+  const branchSelect = form.elements.branch;
+  if (branchSelect) {
+    if (saAssignBranches.length) {
+      branchSelect.innerHTML = saAssignBranches.slice(0, 4).map((b, i) =>
+        `<option value="${BRANCH_KEYS[i]}">${String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}</option>`
+      ).join('');
+    } else {
+      branchSelect.innerHTML = '<option value="" disabled>No branches configured yet.</option>';
+    }
+    if (saCurrentBranchEmployee.branch) branchSelect.value = saCurrentBranchEmployee.branch;
   }
 
   const feedbackEl = document.getElementById('sa-ba-modal-feedback');
