@@ -1193,11 +1193,34 @@ function initApp() {
   const saved = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(saved);
 
+  const roleRouteMap = {
+    super_admin: '/super-admin',
+    admin: '/admin',
+    accountant: '/accountant',
+    employee: '/employee',
+    hr: '/hr',
+  };
+
   const role = new URLSearchParams(window.location.search).get('role');
   if (role) {
+    const ctx = getAuthContext();
+    if (!ctx || !ctx.role) {
+      window.top.location.href = '/login';
+      return;
+    }
+    if (ctx.role !== role) {
+      window.top.location.href = roleRouteMap[ctx.role] || '/login';
+      return;
+    }
     showRoleScreen(role);
   } else {
-    showRoleScreen(''); // Show login screen
+    // On the login page — if already authenticated, send to their portal
+    const ctx = getAuthContext();
+    if (ctx && ctx.role && roleRouteMap[ctx.role]) {
+      window.top.location.href = roleRouteMap[ctx.role];
+      return;
+    }
+    showRoleScreen('');
   }
 
   // Rebind listeners whenever role/page classes change.
