@@ -15,8 +15,14 @@
       </div>
     </button>
 
+    <div class="sb-sec">Overview</div>
+    <div class="ni active" onclick="acctNav('ac-dashboard',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="1" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="1" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="9" y="9" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.5"/></svg>
+      Dashboard
+    </div>
+
     <div class="sb-sec">Payroll</div>
-    <div class="ni active" onclick="acctNav('ac-process',this)">
+    <div class="ni" onclick="acctNav('ac-process',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       Process Payroll
     </div>
@@ -42,16 +48,16 @@
       View Attendance
     </div>
 
-    <div class="sb-sec">Status</div>
-    <div class="ni" onclick="acctNav('ac-pending',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-      Pending Submissions
-      <span class="nib" id="ac-pending-count">0</span>
+    <div class="sb-sec">Monitoring</div>
+    <div class="ni" onclick="acctNav('ac-monitoring',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><polyline points="2,11 5,7 8,10 12,5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+      Payroll Monitoring
     </div>
-    <div class="ni" onclick="acctNav('ac-approval-status',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1.5A6.5 6.5 0 1 1 1.5 8 6.5 6.5 0 0 1 8 1.5z" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 8l1.5 1.5L10.5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Approval Status
-      <span class="nib" id="ac-approval-pending-badge" style="display:none;">0</span>
+
+    <div class="sb-sec">Reports</div>
+    <div class="ni" onclick="acctNav('ac-reports',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M4 4h8M4 8h6M4 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>
+      Payroll Reports
     </div>
 
     <div class="sb-foot">
@@ -69,7 +75,7 @@
     <!-- TOPBAR -->
     <div class="topbar">
       <div>
-        <div class="tb-title" id="ac-tb-title">Process Payroll</div>
+        <div class="tb-title" id="ac-tb-title">Dashboard</div>
         <div class="tb-sub">Accountant portal — March 2026</div>
       </div>
       <div class="tb-sp"></div>
@@ -82,10 +88,65 @@
     </div>
 
     <!-- ──────────────────────────────
+         PAGE: Dashboard
+    ────────────────────────────── -->
+    <div class="page active" id="ac-dashboard">
+      <div class="ph"><h2>Dashboard</h2><p>Payroll overview and activity summary for the current period</p></div>
+
+      <div class="sg3">
+        <div class="card">
+          <div class="ct">Total Employees</div>
+          <div class="cv t" id="dash-total-employees">0</div>
+          <div class="cch">Active staff</div>
+        </div>
+        <div class="card">
+          <div class="ct">Period Gross Pay</div>
+          <div class="cv t" id="dash-month-gross">₱ 0</div>
+          <div class="cch" id="dash-month-label">Current period</div>
+        </div>
+        <div class="card">
+          <div class="ct">Period Net Pay</div>
+          <div class="cv a" id="dash-month-net">₱ 0</div>
+        </div>
+      </div>
+
+      <div class="sg3" style="margin-top:0;">
+        <div class="card">
+          <div class="ct">Paid Payrolls</div>
+          <div class="cv t" id="dash-paid-count">0</div>
+          <div class="cch">Processed entries</div>
+        </div>
+        <div class="card">
+          <div class="ct">Draft Payrolls</div>
+          <div class="cv" id="dash-draft-count">0</div>
+          <div class="cch">Saved drafts</div>
+        </div>
+        <div class="card">
+          <div class="ct">Total Deductions</div>
+          <div class="cv r" id="dash-total-deductions">₱ 0</div>
+          <div class="cch">Current period</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="sh">
+          <span class="stitle">Recent Payroll Activity</span>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="acctNav('ac-records', getAccountantNavByPageId('ac-records'))">View All Records</button>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Period</th><th>Gross Pay</th><th>Net Pay</th><th>Status</th><th>Processed</th></tr></thead>
+          <tbody id="dash-recent-body">
+            <tr><td colspan="6" style="color:var(--t3);">Loading...</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
          PAGE: Process Payroll
     ────────────────────────────── -->
-    <div class="page active" id="ac-process">
-      <div class="ph"><h2>Process Payroll</h2><p>Compute salary and submit for Administrator approval. You cannot apply changes directly.</p></div>
+    <div class="page" id="ac-process">
+      <div class="ph"><h2>Process Payroll</h2><p>Compute employee salaries including deductions. Processed payrolls generate payslips automatically.</p></div>
       <div id="ac-pending-banner" class="pending-banner" style="display:none;"></div>
 
       <div class="sg2">
@@ -137,9 +198,9 @@
           </div>
           <div class="card">
             <div class="submit-note">
-              <strong>Approval required.</strong> This draft will be sent to the Administrator and placed in the admin approval process. Salary changes cannot be applied to the database without admin approval.
+              <strong>Ready to Process.</strong> Review all computed values before processing. Once confirmed, the payslip will be generated and stored in Payroll Records.
             </div>
-            <button id="ac-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="submitForApproval()">Send for Admin Approval →</button>
+            <button id="ac-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="processPayroll()">Process Payroll →</button>
             <button id="ac-save-draft-btn" class="btn btn-outline" style="width:100%;padding:10px;font-size:13px;margin-top:8px;" onclick="savePayrollDraft()">Save as Draft</button>
             <p id="ac-process-feedback" class="adm-feedback" style="margin-top:10px;"></p>
           </div>
@@ -230,33 +291,94 @@
       <div class="pg-bar" id="ac-att-pg"></div>
     </div>
 
+
     <!-- ──────────────────────────────
-         PAGE: Pending Submissions
+         PAGE: Payroll Monitoring
     ────────────────────────────── -->
-    <div class="page" id="ac-pending">
-      <div class="ph"><h2>Pending Submissions</h2><p>Saved drafts and payroll entries awaiting Administrator decision</p></div>
+    <div class="page" id="ac-monitoring">
+      <div class="ph"><h2>Payroll Monitoring</h2><p>Monitor all payroll status and history across all periods</p></div>
+
+      <div class="sg3">
+        <div class="card"><div class="ct">Total Records</div><div class="cv t" id="mon-total-count">0</div></div>
+        <div class="card"><div class="ct">Paid</div><div class="cv t" id="mon-paid-count">0</div></div>
+        <div class="card"><div class="ct">On Hold</div><div class="cv r" id="mon-hold-count">0</div></div>
+      </div>
+
       <div class="card">
-        <div id="ac-pending-list">
-          <div class="pending-item">
-            <div class="pending-icon">⏳</div>
-            <div class="pending-info">
-              <div class="pi-meta">Loading pending submissions...</div>
+        <div class="sh">
+          <span class="stitle">Payroll History</span>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="loadAccountantData()">Refresh</button>
+        </div>
+        <div class="status-tabs" id="mon-status-tabs">
+          <button class="st-tab st-active" onclick="monFilter('all', this)">All</button>
+          <button class="st-tab" onclick="monFilter('paid', this)">Paid</button>
+          <button class="st-tab" onclick="monFilter('draft', this)">Draft</button>
+          <button class="st-tab" onclick="monFilter('on_hold', this)">On Hold</button>
+        </div>
+        <div style="margin:10px 0 12px;">
+          <input class="fc" type="text" placeholder="Search employee name..." id="mon-search" oninput="setMonSearch(this.value)" style="max-width:360px;">
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Pay Period</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Status</th><th>Date</th><th></th></tr></thead>
+          <tbody id="mon-tbody">
+            <tr><td colspan="8" style="color:var(--t3);">Loading...</td></tr>
+          </tbody>
+        </table></div>
+        <div class="pg-bar" id="mon-pg"></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Payroll Reports
+    ────────────────────────────── -->
+    <div class="page" id="ac-reports">
+      <div class="ph"><h2>Payroll Reports</h2><p>Generate and export payroll reports for documentation and audit purposes</p></div>
+
+      <div class="sg2">
+        <div class="card">
+          <div class="stitle" style="margin-bottom:14px;">Report Settings</div>
+          <div class="form-grid">
+            <div class="fg">
+              <label>Pay Period</label>
+              <select class="fc" id="rpt-period">
+                <option value="all">All Periods</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label>Report Type</label>
+              <select class="fc" id="rpt-type">
+                <option value="summary">Payroll Summary</option>
+                <option value="deductions">Deductions Report</option>
+              </select>
             </div>
           </div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="generateReport()">Generate Report</button>
+            <button class="btn btn-outline" onclick="exportReportCSV()">Export CSV</button>
+            <button class="btn btn-outline" onclick="printReport()">🖨 Print</button>
+          </div>
         </div>
-        <div class="pending-locked" id="ac-pending-locked">
-          Changes are locked until Administrator approves or rejects. You will be notified of the decision.
+
+        <div class="card">
+          <div class="stitle" style="margin-bottom:14px;">Report Summary</div>
+          <div class="sum-box" id="rpt-summary-box">
+            <div class="sr"><span style="color:var(--t3);font-size:12px;">Select a period and click Generate Report</span></div>
+          </div>
         </div>
       </div>
 
-      <!-- Withdrawal History -->
-      <div class="card" style="margin-top:18px;">
+      <div class="card">
         <div class="sh">
-          <span class="stitle">Withdrawal History</span>
+          <span class="stitle" id="rpt-table-title">Report</span>
         </div>
-        <div id="ac-withdrawal-history-list">
-          <p class="wh-empty">No withdrawals yet.</p>
-        </div>
+        <div class="tw"><table id="rpt-table">
+          <thead id="rpt-thead">
+            <tr><th>Employee</th><th>Period</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr>
+          </thead>
+          <tbody id="rpt-tbody">
+            <tr><td colspan="6" style="color:var(--t3);">No report generated yet. Select a period and click Generate.</td></tr>
+          </tbody>
+        </table></div>
       </div>
     </div>
 
@@ -320,88 +442,6 @@
       </div>
     </div>
 
-    <!-- ──────────────────────────────
-         PAGE: Approval Status
-    ────────────────────────────── -->
-    <div class="page" id="ac-approval-status">
-      <div class="ph"><h2>Approval Status</h2><p>Track the status of salary change requests and leave forwards you submitted to the Administrator</p></div>
-
-      <!-- Salary Change Approvals -->
-      <div class="card" style="margin-bottom:20px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <div>
-            <div style="font-size:14px;font-weight:700;color:var(--t1);">Salary Change Requests</div>
-            <div style="font-size:11px;color:var(--t3);margin-top:2px;">Salary adjustments you submitted for admin approval</div>
-          </div>
-          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px;" onclick="loadApprovalStatus()">Refresh</button>
-        </div>
-        <div class="status-tabs" id="ac-salary-tabs">
-          <button class="st-tab st-active" onclick="acSalaryFilter('all',this)">All</button>
-          <button class="st-tab" onclick="acSalaryFilter('pending',this)">Pending</button>
-          <button class="st-tab" onclick="acSalaryFilter('approved',this)">Approved</button>
-          <button class="st-tab" onclick="acSalaryFilter('rejected',this)">Rejected</button>
-        </div>
-        <div style="margin:10px 0 12px;">
-          <input id="ac-salary-search" class="fc" type="text" placeholder="Search employee name…" oninput="setAcSalarySearch(this.value)" style="max-width:360px;" />
-        </div>
-        <div class="tw">
-          <table>
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Current Salary</th>
-                <th>Proposed</th>
-                <th>Submitted</th>
-                <th>Status</th>
-                <th>Decided</th>
-              </tr>
-            </thead>
-            <tbody id="ac-salary-status-tbody">
-              <tr><td colspan="6" style="color:var(--t3);">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p id="ac-salary-status-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:24px 0;display:none;">No salary change requests found.</p>
-        <div class="pg-bar" id="ac-salary-status-pg"></div>
-      </div>
-
-      <!-- Leave Request Admin Status -->
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <div>
-            <div style="font-size:14px;font-weight:700;color:var(--t1);">Leave Requests — Admin Status</div>
-            <div style="font-size:11px;color:var(--t3);margin-top:2px;">Leave requests you forwarded to the Administrator</div>
-          </div>
-        </div>
-        <div class="status-tabs" id="ac-leave-tabs">
-          <button class="st-tab st-active" onclick="acLeaveFilter('all',this)">All</button>
-          <button class="st-tab" onclick="acLeaveFilter('pending',this)">Pending</button>
-          <button class="st-tab" onclick="acLeaveFilter('approved',this)">Approved</button>
-          <button class="st-tab" onclick="acLeaveFilter('rejected',this)">Rejected</button>
-        </div>
-        <div style="margin:10px 0 12px;">
-          <input id="ac-leave-search" class="fc" type="text" placeholder="Search employee name or leave type…" oninput="setAcLeaveSearch(this.value)" style="max-width:360px;" />
-        </div>
-        <div class="tw">
-          <table>
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Type</th>
-                <th>Date Range</th>
-                <th>Forwarded</th>
-                <th>Admin Status</th>
-              </tr>
-            </thead>
-            <tbody id="ac-leave-status-tbody">
-              <tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p id="ac-leave-status-empty" style="text-align:center;color:var(--t3);font-size:13px;padding:24px 0;display:none;">No forwarded leave requests found.</p>
-        <div class="pg-bar" id="ac-leave-status-pg"></div>
-      </div>
-    </div>
 
   </div><!-- end .main -->
 

@@ -6,19 +6,16 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { applyApprovalOverrides, readApprovalOverrides } from "@/lib/approvals/overrides";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const runtimeDir = path.join(os.tmpdir(), "sacs-payroll-runtime");
 const payrollStorePath = path.join(runtimeDir, "accountant-payroll-entries.json");
-const fallbackApprovalsPath = path.join(runtimeDir, "salary-approvals.json");
-const DUPLICATE_SUBMISSION_MESSAGE = "This payroll entry has already been submitted and is awaiting admin approval.";
+const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
 // Supabase Storage — schema-free draft persistence that survives Lambda cold starts.
 const DRAFT_BUCKET = "sacs-payroll-runtime";
 const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
-const WITHDRAWAL_HISTORY_KEY = "accountant-withdrawal-history.json";
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
@@ -367,35 +364,6 @@ async function writeDraftEntriesToStorage(supabase, draftEntries) {
   }
 }
 
-async function readWithdrawalHistory(supabase) {
-  if (!supabase) return [];
-  try {
-    const { data, error } = await supabase.storage.from(DRAFT_BUCKET).download(WITHDRAWAL_HISTORY_KEY);
-    if (error || !data) return [];
-    const text = await data.text();
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-async function appendWithdrawalHistory(supabase, entry) {
-  if (!supabase) return;
-  try {
-    await supabase.storage.createBucket(DRAFT_BUCKET, { public: false });
-  } catch { /* already exists */ }
-  try {
-    const existing = await readWithdrawalHistory(supabase);
-    const updated = [entry, ...existing].slice(0, 100); // keep last 100
-    const content = Buffer.from(JSON.stringify(updated, null, 2), "utf-8");
-    await supabase.storage
-      .from(DRAFT_BUCKET)
-      .upload(WITHDRAWAL_HISTORY_KEY, content, { upsert: true, contentType: "application/json" });
-  } catch (err) {
-    console.error("[storage] append withdrawal history failed:", err?.message || err);
-  }
-}
 
 async function readPayrollEntries(supabase) {
   // Three sources, merged by id:
@@ -462,223 +430,6 @@ async function writePayrollEntries(entries) {
   });
 }
 
-function normalizeApprovalRow(row) {
-  let payrollBreakdown = row.payroll_breakdown || null;
-  if (typeof payrollBreakdown === "string") {
-    try { payrollBreakdown = JSON.parse(payrollBreakdown); } catch { payrollBreakdown = null; }
-  }
-
-  return {
-    id: String(row.id || ""),
-    employee_id: normalizeText(row.employee_id),
-    employee_name: normalizeText(row.employee_name, "Unknown Employee"),
-    employee_code: normalizeText(row.employee_code),
-    employee_type: normalizeText(row.employee_type, "Teaching"),
-    position: normalizePositionForRole(row.position, row.role),
-    current_salary: Number(row.current_salary || 0),
-    proposed_salary: Number(row.proposed_salary || 0),
-    reason: normalizeText(row.reason, "No reason provided."),
-    submitted_by: normalizeText(row.submitted_by, "Accountant"),
-    submitted_at: row.submitted_at || new Date().toISOString(),
-    status: normalizeText(row.status, "pending").toLowerCase(),
-    decided_at: row.decided_at || null,
-    payroll_breakdown: payrollBreakdown,
-  };
-}
-
-async function readFallbackApprovalStore() {
-  const parsed = await readJsonStore(fallbackApprovalsPath, { pending: [], history: [] });
-  return {
-    pending: Array.isArray(parsed.pending) ? parsed.pending.map(normalizeApprovalRow) : [],
-    history: Array.isArray(parsed.history) ? parsed.history.map(normalizeApprovalRow) : [],
-  };
-}
-
-async function writeFallbackApprovalStore(store) {
-  await writeJsonStore(fallbackApprovalsPath, {
-    pending: Array.isArray(store.pending) ? store.pending : [],
-    history: Array.isArray(store.history) ? store.history : [],
-  });
-}
-
-async function fetchApprovals(supabase) {
-  const overrides = await readApprovalOverrides();
-  const APPROVALS_FULL = "id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown";
-  const APPROVALS_BASE = "id,employee_id,employee_name,employee_code,employee_type,position,current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at";
-
-  let result = await supabase
-    .from("salary_approvals")
-    .select(APPROVALS_FULL)
-    .order("submitted_at", { ascending: false })
-    .limit(2000);
-
-  // Migration may not have run — retry without payroll_breakdown rather than
-  // falling back to the empty /tmp store and losing all pending approvals.
-  if (result.error && String(result.error.message || "").toLowerCase().includes("payroll_breakdown")) {
-    result = await supabase
-      .from("salary_approvals")
-      .select(APPROVALS_BASE)
-      .order("submitted_at", { ascending: false })
-      .limit(2000);
-  }
-
-  if (result.error) {
-    const message = String(result.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (!isMissingTable) {
-      throw new Error(`Failed to fetch salary approvals: ${result.error.message}`);
-    }
-
-    const fallback = await readFallbackApprovalStore();
-    const allRows = [...fallback.pending, ...fallback.history].map(normalizeApprovalRow);
-
-    return {
-      can_persist: false,
-      rows: allRows,
-    };
-  }
-
-  return {
-    can_persist: true,
-    rows: applyApprovalOverrides((result.data || []).map(normalizeApprovalRow), overrides),
-  };
-}
-
-async function createSalaryApprovalRequest(supabase, payload) {
-  const baseInsertPayload = {
-    employee_id: payload.employee_id,
-    employee_name: payload.employee_name,
-    employee_code: payload.employee_code,
-    employee_type: payload.employee_type,
-    position: normalizePositionForRole(payload.position, payload.role),
-    current_salary: toAmount(payload.current_salary),
-    proposed_salary: toAmount(payload.proposed_salary),
-    reason: normalizeText(payload.reason, "Submitted for payroll approval."),
-    submitted_by: normalizeText(payload.submitted_by, "Accountant"),
-    submitted_at: payload.submitted_at || new Date().toISOString(),
-    status: "pending",
-  };
-
-  const insertPayload = payload.payroll_breakdown
-    ? { ...baseInsertPayload, payroll_breakdown: payload.payroll_breakdown }
-    : baseInsertPayload;
-
-  let insertResult = await supabase
-    .from("salary_approvals")
-    .insert(insertPayload)
-    .select("id")
-    .maybeSingle();
-
-  // If the payroll_breakdown column doesn't exist yet, retry without it.
-  if (insertResult.error) {
-    const colErr = String(insertResult.error.message || "").toLowerCase();
-    if (payload.payroll_breakdown && (colErr.includes("payroll_breakdown") || colErr.includes("column"))) {
-      insertResult = await supabase
-        .from("salary_approvals")
-        .insert(baseInsertPayload)
-        .select("id")
-        .maybeSingle();
-    }
-  }
-
-  if (insertResult.error) {
-    const message = String(insertResult.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (!isMissingTable) {
-      if (!isDuplicateKeyError(insertResult.error)) {
-        throw new Error(insertResult.error.message);
-      }
-
-      const existingPending = await supabase
-        .from("salary_approvals")
-        .select("id")
-        .eq("employee_id", payload.employee_id)
-        .eq("status", "pending")
-        .order("submitted_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingPending.error || !existingPending.data?.id) {
-        throw new Error(insertResult.error.message);
-      }
-
-      const updateResult = await supabase
-        .from("salary_approvals")
-        .update({
-          ...insertPayload,
-          status: "pending",
-        })
-        .eq("id", existingPending.data.id)
-        .select("id")
-        .maybeSingle();
-
-      if (updateResult.error || !updateResult.data?.id) {
-        throw new Error(updateResult.error?.message || "Failed to update existing pending approval.");
-      }
-
-      return {
-        id: updateResult.data.id,
-        persisted: true,
-      };
-    }
-
-    const fallback = await readFallbackApprovalStore();
-    const generatedId = `fallback-${crypto.randomUUID()}`;
-
-    fallback.pending.unshift({
-      ...insertPayload,
-      id: generatedId,
-      decided_at: null,
-    });
-
-    await writeFallbackApprovalStore(fallback);
-
-    return { id: generatedId, persisted: false };
-  }
-
-  return {
-    id: insertResult.data?.id || "",
-    persisted: true,
-  };
-}
-
-async function withdrawSalaryApprovalRequest(supabase, approvalId) {
-  const normalizedId = normalizeText(approvalId);
-  if (!normalizedId) {
-    return { found: false, persisted: true };
-  }
-
-  const deleteResult = await supabase
-    .from("salary_approvals")
-    .delete()
-    .eq("id", normalizedId)
-    .select("id")
-    .maybeSingle();
-
-  if (!deleteResult.error) {
-    return { found: Boolean(deleteResult.data), persisted: true };
-  }
-
-  const message = String(deleteResult.error.message || "").toLowerCase();
-  const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-  if (!isMissingTable) {
-    throw new Error(deleteResult.error.message);
-  }
-
-  const fallback = await readFallbackApprovalStore();
-  const index = fallback.pending.findIndex((row) => String(row.id) === normalizedId);
-
-  if (index < 0) {
-    return { found: false, persisted: false };
-  }
-
-  fallback.pending.splice(index, 1);
-  await writeFallbackApprovalStore(fallback);
-  return { found: true, persisted: false };
-}
 
 async function generatePayslipNo(supabase, processedAt) {
   const date = processedAt ? new Date(processedAt) : new Date();
@@ -742,21 +493,8 @@ async function appendPayrollRecord(supabase, entry) {
   return { persisted: true, id: result.data?.id, payslip_no: result.data?.payslip_no };
 }
 
-function resolveEntryStatus(entry, approvalMap) {
-  if (!entry.approval_id) {
-    return entry.status === "draft" ? "draft" : "draft";
-  }
-
-  const approval = approvalMap.get(entry.approval_id);
-  if (!approval) {
-    return entry.status === "pending" ? "pending" : entry.status;
-  }
-
-  if (approval.status === "pending") return "pending";
-  if (approval.status === "approved") return "paid";
-  if (approval.status === "rejected") return "on_hold";
-
-  return entry.status;
+function resolveEntryStatus(entry) {
+  return entry.status || "draft";
 }
 
 function getCurrentMonthPrefix() {
@@ -966,31 +704,17 @@ export async function GET(request) {
     const selectedPeriod = normalizeText(url.searchParams.get("period"));
 
     const supabase = getAdminClient();
-    const [employees, entriesResult, approvalsData, payrollRecordsData] = await Promise.all([
+    const [employees, entriesResult] = await Promise.all([
       fetchEmployees(supabase),
       readPayrollEntries(supabase),
-      fetchApprovals(supabase),
-      fetchPayrollRecords(supabase),
     ]);
 
     const entries = entriesResult.entries;
 
-    // Build lookup: employee_id::period_label → payroll_records row (for orphan fallback)
-    const prByKey = new Map();
-    payrollRecordsData.forEach((r) => {
-      const key = `${r.employee_id}::${r.period_label}`;
-      if (!prByKey.has(key)) prByKey.set(key, r);
-    });
-
-    const approvalMap = new Map();
-    approvalsData.rows.forEach((row) => {
-      approvalMap.set(row.id, row);
-    });
-
     const sortedEntries = entries
       .map((entry) => ({
         ...entry,
-        status: resolveEntryStatus(entry, approvalMap),
+        status: resolveEntryStatus(entry),
       }))
       .sort((a, b) => {
         const dateA = new Date(a.updated_at || a.created_at || 0).getTime();
@@ -1002,131 +726,28 @@ export async function GET(request) {
       ? sortedEntries.filter((entry) => entry.pay_period === selectedPeriod)
       : sortedEntries;
 
-    // Synthesise pending entries from salary_approvals rows that have no
-    // matching payroll entry — this covers the case where payroll_entries
-    // DB write failed but salary_approvals insert succeeded (common with
-    // pre-existing schema constraints on the payroll_entries table).
-    const coveredApprovalIds = new Set(
-      sortedEntries.map((e) => e.approval_id).filter(Boolean),
-    );
-    // Synthesise entries for ALL salary_approvals rows (pending, approved, rejected) that
-    // have no matching payroll_entries row — covers the case where the payroll_entries DB
-    // write failed but the salary_approvals insert succeeded.
-    function approvalStatusToEntryStatus(approvalStatus) {
-      if (approvalStatus === "approved") return "paid";
-      if (approvalStatus === "rejected") return "on_hold";
-      return "pending";
-    }
-
-    const orphanRawEntries = approvalsData.rows
-      .filter((row) => row.status !== "draft" && !coveredApprovalIds.has(row.id))
-      .map((row) => {
-        const bd = row.payroll_breakdown;
-        const payPeriod = formatPeriodLabel(new Date(row.submitted_at || Date.now()));
-        const basicSalary = toAmount(bd?.basic_salary || row.proposed_salary);
-        const pct2 = toAmount(basicSalary * 0.02);
-
-        let payroll;
-        if (bd && bd.totals) {
-          // Full breakdown stored — use it exactly
-          payroll = {
-            basic_salary: basicSalary,
-            allowances: bd.allowances || { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
-            deductions: bd.deductions || { sss: pct2, philhealth: pct2, pagibig: pct2, withholding_tax: 0, absences_days: 0, late_days: 0, cash_advance: pct2 },
-            totals: bd.totals,
-          };
-        } else {
-          // No breakdown — pull totals from payroll_records and use standard 2% formula
-          const pr = prByKey.get(`${row.employee_id}::${payPeriod}`);
-          const grossPay = toAmount(pr?.gross_pay || basicSalary);
-          const totalDeductions = pr ? toAmount(pr.total_deductions) : toAmount(pct2 * 4);
-          const netPay = pr ? toAmount(pr.net_pay) : toAmount(grossPay - totalDeductions);
-          // Standard fixed deductions at 2% each; any excess goes to absence/other
-          const fixedSum = toAmount(pct2 * 4);
-          const otherDeductions = toAmount(Math.max(0, totalDeductions - fixedSum));
-          payroll = {
-            basic_salary: basicSalary,
-            allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
-            deductions: {
-              sss: pct2,
-              philhealth: pct2,
-              pagibig: pct2,
-              withholding_tax: 0,
-              absences_days: 0,
-              late_days: 0,
-              cash_advance: pct2,
-            },
-            totals: {
-              absence_deduction: otherDeductions,
-              gross_pay: grossPay,
-              total_deductions: totalDeductions,
-              net_pay: netPay,
-            },
-          };
-        }
-
-        const pr = prByKey.get(`${row.employee_id}::${payPeriod}`);
-        return {
-          id: `synth-${row.id}`,
-          employee_id: row.employee_id,
-          employee_name: row.employee_name,
-          employee_code: row.employee_code || "",
-          employee_type: row.employee_type || "Teaching",
-          position: row.position || "Employee",
-          pay_period: payPeriod,
-          status: approvalStatusToEntryStatus(row.status),
-          approval_id: row.id,
-          submitted_at: row.submitted_at,
-          updated_at: row.decided_at || row.submitted_at,
-          created_at: row.submitted_at,
-          payslip_no: pr?.payslip_no || null,
-          payroll,
-        };
-      });
-
-    const orphanMapped = orphanRawEntries.map(mapEntryToRecord);
-
-    // Period-filtered orphans (match the same period filter applied to sortedEntries)
-    const orphanFiltered = selectedPeriod
-      ? orphanMapped.filter((entry) => entry.pay_period === selectedPeriod)
-      : orphanMapped;
-
-    const payrollRecords = [
-      ...filteredByPeriod.filter((entry) => entry.status !== "draft").map(mapEntryToRecord),
-      ...orphanFiltered,
-    ];
-
-    // Pending submissions: only pending-status orphans go to this list
-    const entryPendingFromEntries = sortedEntries
-      .filter((entry) => entry.status === "pending")
+    const payrollRecords = filteredByPeriod
+      .filter((entry) => entry.status !== "draft")
       .map(mapEntryToRecord);
-    const orphanPendingOnly = orphanMapped.filter((e) => e.status === "pending");
 
-    const pendingSubmissions = [...entryPendingFromEntries, ...orphanPendingOnly];
-
-    // Payslip source lookup — raw entries required for buildPayslipDetails (needs position field)
-    const orphanRawById = new Map(orphanRawEntries.map((e) => [e.id, e]));
     const payslipSource = requestedEntryId
-      ? (sortedEntries.find((entry) => entry.id === requestedEntryId) || orphanRawById.get(requestedEntryId))
+      ? sortedEntries.find((entry) => entry.id === requestedEntryId)
       : (payrollRecords[0]
-          ? (sortedEntries.find((entry) => entry.id === payrollRecords[0].id) || orphanRawById.get(payrollRecords[0].id))
+          ? sortedEntries.find((entry) => entry.id === payrollRecords[0].id)
           : null);
 
     const attendanceRows = await fetchAttendanceSummary(supabase, employees, sortedEntries);
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
-      can_persist_approvals: approvalsData.can_persist,
       employees,
       period_options: getPeriodOptions(sortedEntries),
       records: payrollRecords,
       panels: buildPayrollPanels(payrollRecords),
-      pending_submissions: pendingSubmissions,
       attendance_rows: attendanceRows,
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
-      withdrawal_history: await readWithdrawalHistory(supabase),
       diag: entriesResult.diag,
     });
   } catch (error) {
@@ -1176,15 +797,14 @@ export async function POST(request) {
       : -1;
 
     if (action === "submit") {
-      const hasPendingDuplicate = entries.some((entry) => {
+      const hasAlreadyPaid = entries.some((entry) => {
         if (entry.employee_id !== employee.id) return false;
         if (entry.pay_period !== payPeriod) return false;
-        if (entry.status !== "pending") return false;
-        if (existingId && entry.id === existingId) return true;
-        return true;
+        if (existingId && entry.id === existingId) return false;
+        return entry.status === "paid";
       });
 
-      if (hasPendingDuplicate) {
+      if (hasAlreadyPaid) {
         return NextResponse.json({ error: DUPLICATE_SUBMISSION_MESSAGE }, { status: 409 });
       }
     }
@@ -1214,43 +834,14 @@ export async function POST(request) {
       employee_type: employee.employee_type,
       position: employee.position,
       pay_period: payPeriod,
-      status: action === "submit" ? "pending" : "draft",
-      approval_id: existingIndex >= 0 ? normalizeText(entries[existingIndex].approval_id) : "",
+      status: action === "submit" ? "paid" : "draft",
       submitted_at: action === "submit" ? nowIso : (existingIndex >= 0 ? entries[existingIndex].submitted_at : null),
       created_at: existingIndex >= 0 ? entries[existingIndex].created_at : nowIso,
       updated_at: nowIso,
       payroll: computedPayroll,
     };
 
-    let approvalPersisted = null;
-
     if (action === "submit") {
-      if (baseEntry.approval_id) {
-        const withdrawn = await withdrawSalaryApprovalRequest(supabase, baseEntry.approval_id);
-        if (!withdrawn.found) {
-          baseEntry.approval_id = "";
-        }
-      }
-
-      const approvalResult = await createSalaryApprovalRequest(supabase, {
-        employee_id: employee.id,
-        employee_name: employee.full_name,
-        employee_code: employee.employee_id,
-        employee_type: employee.employee_type,
-        position: employee.position,
-        role: employee.role,
-        current_salary: Number(employee.basic_salary || 0),
-        proposed_salary: Number(baseEntry.payroll.basic_salary || 0),
-        reason: normalizeText(body.reason, "Submitted via Process Payroll page."),
-        submitted_by: "Accountant",
-        submitted_at: nowIso,
-        payroll_breakdown: baseEntry.payroll,
-      });
-
-      baseEntry.approval_id = approvalResult.id;
-      baseEntry.submitted_at = nowIso;
-      approvalPersisted = approvalResult.persisted;
-
       const recordResult = await appendPayrollRecord(supabase, baseEntry);
       if (recordResult.payslip_no) {
         baseEntry.payslip_no = recordResult.payslip_no;
@@ -1267,26 +858,23 @@ export async function POST(request) {
 
     // Persist ALL entries to Supabase Storage so the full payroll JSONB
     // (including individual deductions) survives Lambda cold starts.
-    // Status is resolved dynamically from salary_approvals on each read,
-    // so stale status in storage is safe.
     await writeDraftEntriesToStorage(supabase, entries);
 
     const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
 
     await appendAuditLog({
-      module: "salary_approvals",
-      action: action === "submit" ? "submit" : "draft",
+      module: "payroll",
+      action: action === "submit" ? "process" : "draft",
       entity_type: "payroll_entry",
       entity_id: baseEntry.id,
       description: action === "submit"
-        ? `Payroll entry for ${employee.full_name} submitted for admin approval.`
+        ? `Payroll entry for ${employee.full_name} processed. Payslip generated.`
         : `Payroll draft for ${employee.full_name} saved.`,
       status: "success",
       source: "api",
       metadata: {
         employee_id: employee.id,
-        approval_id: baseEntry.approval_id,
-        approval_persisted: approvalPersisted,
+        payslip_no: baseEntry.payslip_no || null,
         db_synced: dbSync.success,
         db_error: dbSync.success ? null : dbSync.error,
       },
@@ -1295,7 +883,6 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       entry: mapEntryToRecord(baseEntry),
-      approval_persisted: approvalPersisted,
       db_synced: dbSync.success,
       db_error: dbSync.success ? null : dbSync.error,
     });
@@ -1313,8 +900,8 @@ export async function PATCH(request) {
     const body = await request.json();
     const action = normalizeText(body.action).toLowerCase();
 
-    if (action !== "withdraw" && action !== "cancel_draft") {
-      return NextResponse.json({ error: "Action must be withdraw or cancel_draft." }, { status: 400 });
+    if (action !== "cancel_draft") {
+      return NextResponse.json({ error: "Action must be cancel_draft." }, { status: 400 });
     }
 
     const entryId = normalizeText(body.entry_id);
@@ -1324,32 +911,6 @@ export async function PATCH(request) {
 
     const supabase = getAdminClient();
     const nowIso = new Date().toISOString();
-
-    // Synthesised entries (id prefixed with "synth-") exist only in the GET
-    // response, not in any data store. Withdrawing them means deleting the
-    // salary_approvals row directly.
-    if (entryId.startsWith("synth-")) {
-      const approvalId = entryId.slice(6);
-      const lookup = await supabase
-        .from("salary_approvals")
-        .select("employee_name,employee_id,employee_type,proposed_salary,submitted_at")
-        .eq("id", approvalId)
-        .maybeSingle();
-
-      await withdrawSalaryApprovalRequest(supabase, approvalId);
-
-      const row = lookup.data || {};
-      await appendWithdrawalHistory(supabase, {
-        id: crypto.randomUUID(),
-        type: "pending",
-        employee_id: row.employee_id || "",
-        employee_name: row.employee_name || "Unknown",
-        pay_period: formatPeriodLabel(new Date(row.submitted_at || nowIso)),
-        withdrawn_at: nowIso,
-      });
-
-      return NextResponse.json({ success: true });
-    }
 
     const entriesResult = await readPayrollEntries(supabase);
     const entries = entriesResult.entries;
@@ -1361,84 +922,27 @@ export async function PATCH(request) {
 
     const entry = entries[index];
 
-    if (action === "cancel_draft") {
-      if (entry.status !== "draft") {
-        return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });
-      }
-
-      const remaining = entries.filter((_, i) => i !== index);
-      await writePayrollEntries(remaining);
-      await deletePayrollEntryFromDb(supabase, entryId);
-      await writeDraftEntriesToStorage(supabase, remaining.filter((e) => e.status === "draft"));
-      await appendWithdrawalHistory(supabase, {
-        id: crypto.randomUUID(),
-        type: "draft",
-        employee_id: entry.employee_id,
-        employee_name: entry.employee_name,
-        pay_period: entry.pay_period,
-        withdrawn_at: nowIso,
-      });
-
-      await appendAuditLog({
-        module: "salary_approvals",
-        action: "cancel_draft",
-        entity_type: "payroll_entry",
-        entity_id: entryId,
-        description: `Accountant withdrew payroll draft for ${entry.employee_name}.`,
-        status: "success",
-        source: "api",
-        metadata: { employee_id: entry.employee_id },
-      });
-
-      return NextResponse.json({ success: true });
+    if (entry.status !== "draft") {
+      return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });
     }
 
-    if (entry.status !== "pending") {
-      return NextResponse.json({ error: "Only pending submissions can be withdrawn." }, { status: 400 });
-    }
-
-    if (entry.approval_id) {
-      const withdrawn = await withdrawSalaryApprovalRequest(supabase, entry.approval_id);
-      if (!withdrawn.found) {
-        return NextResponse.json({ error: "Linked approval request was not found." }, { status: 404 });
-      }
-    }
-
-    const updatedEntry = {
-      ...entry,
-      status: "draft",
-      approval_id: "",
-      submitted_at: null,
-      updated_at: nowIso,
-    };
-
-    entries[index] = updatedEntry;
-    await writePayrollEntries(entries);
-    await syncPayrollEntryToDb(supabase, updatedEntry);
-    await writeDraftEntriesToStorage(supabase, entries.filter((e) => e.status === "draft"));
-    await appendWithdrawalHistory(supabase, {
-      id: crypto.randomUUID(),
-      type: "pending",
-      employee_id: entry.employee_id,
-      employee_name: entry.employee_name,
-      pay_period: entry.pay_period,
-      withdrawn_at: nowIso,
-    });
+    const remaining = entries.filter((_, i) => i !== index);
+    await writePayrollEntries(remaining);
+    await deletePayrollEntryFromDb(supabase, entryId);
+    await writeDraftEntriesToStorage(supabase, remaining.filter((e) => e.status === "draft"));
 
     await appendAuditLog({
-      module: "salary_approvals",
-      action: "withdraw",
+      module: "payroll",
+      action: "cancel_draft",
       entity_type: "payroll_entry",
       entity_id: entryId,
-      description: `Accountant withdrew pending payroll submission for ${entry.employee_name}.`,
+      description: `Accountant cancelled payroll draft for ${entry.employee_name}.`,
       status: "success",
       source: "api",
-      metadata: {
-        employee_id: entry.employee_id,
-      },
+      metadata: { employee_id: entry.employee_id },
     });
 
-    return NextResponse.json({ success: true, entry: mapEntryToRecord(updatedEntry) });
+    return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

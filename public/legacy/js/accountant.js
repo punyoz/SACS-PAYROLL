@@ -9,13 +9,14 @@
 
 /* ── PAGE MAP ── */
 const ACCT_PAGES = {
-  'ac-process':          'Process Payroll',
-  'ac-records':          'Payroll Records',
-  'ac-payslips':         'Payslips',
-  'ac-attendance':       'View Attendance',
-  'ac-pending':          'Pending Submissions',
-  'ac-leaves':           'Leave Approvals',
-  'ac-approval-status':  'Approval Status',
+  'ac-dashboard':  'Dashboard',
+  'ac-process':    'Process Payroll',
+  'ac-records':    'Payroll Records',
+  'ac-payslips':   'Payslips',
+  'ac-attendance': 'View Attendance',
+  'ac-monitoring': 'Payroll Monitoring',
+  'ac-reports':    'Payroll Reports',
+  'ac-leaves':     'Leave Approvals',
 };
 
 const acctState = {
@@ -23,8 +24,7 @@ const acctState = {
   employees: [],
   records: [],
   draftEntries: [],
-  pendingSubmissions: [],
-  withdrawalHistory: [],
+  panels: {},
   attendanceRows: [],
   payslipOptions: [],
   payslip: null,
@@ -36,14 +36,11 @@ let acRecordsPaginator = null;
 let acAttPaginator = null;
 let acPendingLeavesPaginator = null;
 let acLeaveHistPaginator = null;
-let acSalaryStatusPaginator = null;
-let acLeaveStatusPaginator = null;
-let _salaryApprovalsAll = [];
-let _leaveForwardsAll = [];
-let _salaryStatusFilter = 'all';
-let _leaveStatusFilter = 'all';
-let _salarySearch = '';
-let _leaveSearch = '';
+let monPaginator = null;
+let _monStatusFilter = 'all';
+let _monSearch = '';
+let _monAllRows = [];
+let _reportData = [];
 
 function toAmount(value) {
   const amount = Number(value || 0);
@@ -214,9 +211,6 @@ function acctNav(pageId, navEl) {
     loadAccountantLeaveRequests();
     loadAccountantLeaveHistory();
   }
-  if (pageId === 'ac-approval-status') {
-    loadApprovalStatus();
-  }
 }
 
 function getAccountantNavByPageId(pageId) {
@@ -319,7 +313,7 @@ function buildSubmissionPayload(action) {
     basic_salary: formValues.basic_salary,
     allowances: formValues.allowances,
     deductions: formValues.deductions,
-    reason: 'Payroll processed by accountant and submitted for admin approval.',
+    reason: 'Payroll processed by accountant.',
   };
 }
 
@@ -351,28 +345,29 @@ async function upsertPayrollEntry(action) {
   return result;
 }
 
-/* ── SUBMIT FOR APPROVAL ── */
-async function submitForApproval() {
+/* ── PROCESS PAYROLL ── */
+async function processPayroll() {
   try {
     setActionButtonsDisabled(true);
-    showProcessFeedback('Sending payroll for admin approval...', false, false);
+    showProcessFeedback('Processing payroll...', false, false);
 
     await upsertPayrollEntry('submit');
-    showProcessFeedback('Approval has been sent and is now under admin review.', false, true);
-    window.pushNotification?.('Payroll Submitted', 'Payroll has been sent to the admin for review and approval.', 'success');
+    showProcessFeedback('Payroll processed successfully. Payslip generated.', false, true);
+    window.pushNotification?.('Payroll Processed', 'Payroll has been processed and payslip generated.', 'success');
 
     const banner = document.getElementById('ac-pending-banner');
     if (banner) {
       banner.style.display = 'flex';
-      banner.innerHTML = '<strong>Approval sent:</strong> Payroll is now in the admin approval process. Changes stay locked until a decision is made.';
+      banner.innerHTML = '<strong>Payroll Processed:</strong> Payslip has been generated and recorded in Payroll Records.';
+      setTimeout(() => { banner.style.display = 'none'; }, 5000);
     }
 
-    const pendingNavEl = document.querySelector('#s-accountant .ni:last-of-type');
-    acctNav('ac-pending', pendingNavEl);
+    const recordsNavEl = getAccountantNavByPageId('ac-records');
+    acctNav('ac-records', recordsNavEl);
   } catch (error) {
     if (error.status === 409) {
       showProcessFeedback('', false);
-      window.pushNotification?.('Already Submitted', 'This payroll entry has already been submitted and is awaiting admin approval.', 'info');
+      window.pushNotification?.('Already Processed', 'Payroll for this employee and period has already been processed.', 'info');
     } else {
       showProcessFeedback(error.message, true);
     }
@@ -513,135 +508,261 @@ function renderAttendanceTable(rows) {
   `).join('');
 }
 
-function renderPendingBadge(count) {
-  const badge = document.getElementById('ac-pending-count');
-  if (!badge) return;
+/* ── DASHBOARD ── */
+function renderDashboard() {
+  const employees = acctState.employees || [];
+  const records = acctState.records || [];
+  const drafts = acctState.draftEntries || [];
+  const panels = acctState.panels || {};
 
-  badge.textContent = String(count);
-  badge.style.display = count > 0 ? '' : 'none';
-}
+  const paidRecords = records.filter((r) => r.status === 'paid' || r.status === 'approved');
 
-function renderPendingSubmissions() {
-  const container = document.getElementById('ac-pending-list');
-  const lockNote = document.getElementById('ac-pending-locked');
-  if (!container) return;
+  const empEl = document.getElementById('dash-total-employees');
+  if (empEl) empEl.textContent = String(employees.length);
 
-  const drafts = Array.isArray(acctState.draftEntries) ? acctState.draftEntries : [];
-  const pending = Array.isArray(acctState.pendingSubmissions) ? acctState.pendingSubmissions : [];
-  const combined = [...drafts, ...pending];
+  const grossEl = document.getElementById('dash-month-gross');
+  if (grossEl) grossEl.textContent = formatMoneyCompact(panels.total_gross || 0);
 
-  if (!combined.length) {
-    container.innerHTML = `
-      <div class="pending-item">
-        <div class="pending-icon" style="background:var(--bg3);border-color:var(--border);color:var(--t3);">✓</div>
-        <div class="pending-info">
-          <div class="pi-name" style="color:var(--t2);font-weight:500;">All caught up</div>
-          <div class="pi-meta">No pending submissions or saved drafts.</div>
-        </div>
-      </div>
-    `;
-    if (lockNote) lockNote.textContent = 'You can save payroll drafts and submit them for administrator review.';
-    renderPendingBadge(0);
+  const netEl = document.getElementById('dash-month-net');
+  if (netEl) netEl.textContent = formatMoneyCompact(panels.total_net || 0);
+
+  const deductEl = document.getElementById('dash-total-deductions');
+  if (deductEl) deductEl.textContent = formatMoneyCompact(panels.total_deductions || 0);
+
+  const paidCountEl = document.getElementById('dash-paid-count');
+  if (paidCountEl) paidCountEl.textContent = String(paidRecords.length);
+
+  const draftCountEl = document.getElementById('dash-draft-count');
+  if (draftCountEl) draftCountEl.textContent = String(drafts.length);
+
+  const tbody = document.getElementById('dash-recent-body');
+  if (!tbody) return;
+
+  const recent = records.slice(0, 5);
+  if (!recent.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No recent payroll activity.</td></tr>';
     return;
   }
 
-  container.innerHTML = combined.map((entry) => {
-    const employee = acctState.employees.find((row) => row.id === entry.employee_id);
-    const currentSalary = Number(employee?.basic_salary || 0);
-    const proposedSalary = Number(entry.payroll?.basic_salary || 0);
-    const isDraft = String(entry.status || '').toLowerCase() === 'draft';
-    const safeId = escapeHtml(entry.id);
-
-    const statusClass = isDraft ? 'pending-item-draft' : 'pending-item-pending';
-    const iconClass = isDraft ? '' : 'pending-icon-pending';
-    const icon = isDraft ? '✎' : '⏳';
-    const badgeClass = isDraft ? 'ba' : 'bb';
-    const badgeLabel = isDraft ? 'Draft' : 'Pending Approval';
-    const metaText = isDraft
-      ? `Saved ${escapeHtml(formatDateTime(entry.updated_at || entry.created_at))} · Not yet submitted`
-      : `Submitted ${escapeHtml(formatDateTime(entry.submitted_at))} · Awaiting admin action`;
-    const periodLine = entry.pay_period
-      ? `<div class="pi-period">Pay period: ${escapeHtml(entry.pay_period)}</div>`
-      : '';
-
-    const actionButtons = isDraft
-      ? `<div class="pending-actions">
-          <button class="btn btn-outline" onclick="editDraftFromPending('${safeId}')">Edit Draft</button>
-          <button class="btn btn-red" onclick="cancelDraft('${safeId}')">Withdraw</button>
-        </div>`
-      : `<div class="pending-actions">
-          <button class="btn btn-red" onclick="withdrawSubmission('${safeId}')">Withdraw</button>
-        </div>`;
-
+  tbody.innerHTML = recent.map((r) => {
+    const status = statusMeta(r.status);
+    const date = r.submitted_at || r.updated_at || '';
     return `
-      <div class="pending-item ${statusClass}">
-        <div class="pending-icon ${iconClass}">${icon}</div>
-        <div class="pending-info">
-          <div class="pi-header">
-            <span class="pi-name">${escapeHtml(entry.employee_name)}</span>
-            <span class="badge ${badgeClass}">${badgeLabel}</span>
-          </div>
-          <div class="pi-meta">${metaText}</div>
-          ${periodLine}
-          <div class="pi-change">
-            <span class="pi-salary-cur">${formatMoneyCompact(currentSalary)}</span>
-            <span class="pi-arrow">→</span>
-            <span class="approval-change">${formatMoneyCompact(proposedSalary)}</span>
-          </div>
-        </div>
-        ${actionButtons}
-      </div>
-    `;
+      <tr>
+        <td class="nm">${escapeHtml(r.employee_name)}</td>
+        <td>${escapeHtml(r.pay_period)}</td>
+        <td class="mn">${formatMoneyCompact(r.gross_pay)}</td>
+        <td class="mn">${formatMoneyCompact(r.net_pay)}</td>
+        <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
+        <td class="mn" style="font-size:11px;">${date ? formatDateTime(date) : '—'}</td>
+      </tr>`;
   }).join('');
-
-  if (lockNote) {
-    lockNote.textContent = pending.length
-      ? 'Submitted entries are locked until the Administrator approves or rejects. Drafts can still be edited.'
-      : 'Drafts are not yet visible to the Administrator. Submit them from Process Payroll when ready.';
-  }
-  renderPendingBadge(combined.length);
 }
 
-function renderWithdrawalHistory(history) {
-  const container = document.getElementById('ac-withdrawal-history-list');
-  if (!container) return;
+/* ── MONITORING ── */
+function getFilteredMonRows() {
+  let rows = _monStatusFilter === 'all'
+    ? _monAllRows
+    : _monAllRows.filter((r) => String(r.status || '').toLowerCase() === _monStatusFilter);
+  if (_monSearch) {
+    rows = rows.filter((r) => String(r.employee_name || '').toLowerCase().includes(_monSearch));
+  }
+  return rows;
+}
 
-  const rows = Array.isArray(history) ? history : [];
+function renderMonitoringTable(rows) {
+  const tbody = document.getElementById('mon-tbody');
+  if (!tbody) return;
 
-  if (!rows.length) {
-    container.innerHTML = '<p class="wh-empty">No withdrawals yet.</p>';
+  const data = Array.isArray(rows) ? rows : getFilteredMonRows();
+
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">No payroll records found.</td></tr>';
     return;
   }
 
-  container.innerHTML = rows.map((item) => {
-    const typeLabel = item.type === 'draft' ? 'Draft' : 'Pending';
-    const typeClass = item.type === 'draft' ? 'ba' : 'bb';
-    const name = escapeHtml(item.employee_name || '—');
-    const period = escapeHtml(item.pay_period || '—');
-    const when = escapeHtml(formatDateTime(item.withdrawn_at || item.created_at || ''));
+  tbody.innerHTML = data.map((record) => {
+    const status = statusMeta(record.status);
+    const date = record.submitted_at || record.updated_at || '';
+    const isDraft = String(record.status || '').toLowerCase() === 'draft';
+    const safeId = escapeHtml(record.id);
+
+    const actionBtn = isDraft
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;margin-right:4px;" onclick="editDraftEntry('${safeId}')">Edit</button><button class="btn btn-red" style="font-size:11px;padding:4px 8px;" onclick="cancelDraft('${safeId}')">Cancel</button>`
+      : `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;" onclick="openPayslipFromRecord('${safeId}')">Payslip</button>`;
+
     return `
-      <div class="wh-item">
-        <div class="wh-icon">↩</div>
-        <div class="wh-info">
-          <div class="wh-header">
-            <span class="wh-name">${name}</span>
-            <span class="badge ${typeClass}">${typeLabel}</span>
-          </div>
-          <div class="wh-meta">${period} · Withdrawn ${when}</div>
-        </div>
-      </div>`;
+      <tr>
+        <td class="nm">${escapeHtml(record.employee_name)}</td>
+        <td>${escapeHtml(record.pay_period)}</td>
+        <td class="mn">${formatMoneyCompact(record.gross_pay)}</td>
+        <td class="mn">${formatMoneyCompact(record.total_deductions)}</td>
+        <td class="mn">${formatMoneyCompact(record.net_pay)}</td>
+        <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
+        <td class="mn" style="font-size:11px;">${date ? formatDateTime(date) : '—'}</td>
+        <td>${actionBtn}</td>
+      </tr>`;
   }).join('');
+}
+
+function renderMonitoringStats() {
+  const allRows = _monAllRows;
+  const paidCount = allRows.filter((r) => r.status === 'paid' || r.status === 'approved').length;
+  const holdCount = allRows.filter((r) => r.status === 'on_hold').length;
+
+  const totalEl = document.getElementById('mon-total-count');
+  const paidEl = document.getElementById('mon-paid-count');
+  const holdEl = document.getElementById('mon-hold-count');
+
+  if (totalEl) totalEl.textContent = String(allRows.length);
+  if (paidEl) paidEl.textContent = String(paidCount);
+  if (holdEl) holdEl.textContent = String(holdCount);
+}
+
+function renderMonitoringPage() {
+  const all = [...(acctState.records || []), ...(acctState.draftEntries || [])];
+  _monAllRows = all;
+  renderMonitoringStats();
+  if (monPaginator) {
+    monPaginator.setData(getFilteredMonRows());
+  } else {
+    renderMonitoringTable(getFilteredMonRows());
+  }
+}
+
+function monFilter(filter, btn) {
+  _monStatusFilter = filter;
+  document.querySelectorAll('#mon-status-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
+  if (btn) btn.classList.add('st-active');
+  if (monPaginator) monPaginator.setData(getFilteredMonRows());
+  else renderMonitoringTable(getFilteredMonRows());
+}
+
+function setMonSearch(value) {
+  _monSearch = String(value || '').trim().toLowerCase();
+  if (monPaginator) monPaginator.setData(getFilteredMonRows());
+  else renderMonitoringTable(getFilteredMonRows());
+}
+
+function editDraftEntry(entryId) {
+  const id = String(entryId || '').trim();
+  if (!id) return;
+  const processNav = getAccountantNavByPageId('ac-process');
+  acctNav('ac-process', processNav);
+  acctState.currentEntryId = id;
+  loadAccountantData({ entryId: id });
+}
+
+/* ── REPORTS ── */
+function renderReportPeriodDropdown() {
+  const select = document.getElementById('rpt-period');
+  if (!select) return;
+  const periods = acctState.periodOptions || [];
+  const prev = select.value;
+  select.innerHTML = `<option value="all">All Periods</option>${periods.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('')}`;
+  if (prev && (prev === 'all' || periods.includes(prev))) select.value = prev;
+}
+
+function generateReport() {
+  const period = document.getElementById('rpt-period')?.value || 'all';
+  const reportType = document.getElementById('rpt-type')?.value || 'summary';
+
+  const all = [...(acctState.records || []), ...(acctState.draftEntries || [])];
+  _reportData = period === 'all' ? all : all.filter((r) => r.pay_period === period);
+
+  const summaryBox = document.getElementById('rpt-summary-box');
+  const titleEl = document.getElementById('rpt-table-title');
+
+  if (summaryBox) {
+    const total_gross = _reportData.reduce((s, r) => s + Number(r.gross_pay || 0), 0);
+    const total_deductions = _reportData.reduce((s, r) => s + Number(r.total_deductions || 0), 0);
+    const total_net = _reportData.reduce((s, r) => s + Number(r.net_pay || 0), 0);
+    summaryBox.innerHTML = `
+      <div class="sr"><span>Records</span><span style="font-family:var(--mono);">${_reportData.length}</span></div>
+      <div class="sr"><span>Total Gross Pay</span><span style="font-family:var(--mono);color:var(--teal);">${formatMoney(total_gross)}</span></div>
+      <div class="sr" style="color:var(--red);"><span>Total Deductions</span><span style="font-family:var(--mono);">- ${formatMoney(total_deductions)}</span></div>
+      <div class="sr tot"><span>Total Net Pay</span><span style="font-family:var(--mono);color:var(--amber);">${formatMoney(total_net)}</span></div>`;
+  }
+
+  if (titleEl) titleEl.textContent = `Payroll Report — ${period === 'all' ? 'All Periods' : period}`;
+  renderReportTable(reportType);
+}
+
+function renderReportTable(reportType) {
+  const tbody = document.getElementById('rpt-tbody');
+  const thead = document.getElementById('rpt-thead');
+  if (!tbody) return;
+
+  if (!_reportData.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No records for selected period.</td></tr>';
+    return;
+  }
+
+  if (reportType === 'deductions') {
+    if (thead) thead.innerHTML = '<tr><th>Employee</th><th>Period</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Tax</th><th>Absence Ded.</th><th>Net Pay</th></tr>';
+    tbody.innerHTML = _reportData.map((r) => {
+      const ded = r.payroll?.deductions || {};
+      const absence = r.payroll?.totals?.absence_deduction || 0;
+      return `
+        <tr>
+          <td class="nm">${escapeHtml(r.employee_name)}</td>
+          <td>${escapeHtml(r.pay_period)}</td>
+          <td class="mn">${formatMoneyCompact(ded.sss || 0)}</td>
+          <td class="mn">${formatMoneyCompact(ded.philhealth || 0)}</td>
+          <td class="mn">${formatMoneyCompact(ded.pagibig || 0)}</td>
+          <td class="mn">${formatMoneyCompact(ded.withholding_tax || 0)}</td>
+          <td class="mn">${formatMoneyCompact(absence)}</td>
+          <td class="mn">${formatMoneyCompact(r.net_pay)}</td>
+        </tr>`;
+    }).join('');
+  } else {
+    if (thead) thead.innerHTML = '<tr><th>Employee</th><th>Period</th><th>Gross Pay</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr>';
+    tbody.innerHTML = _reportData.map((r) => {
+      const status = statusMeta(r.status);
+      return `
+        <tr>
+          <td class="nm">${escapeHtml(r.employee_name)}</td>
+          <td>${escapeHtml(r.pay_period)}</td>
+          <td class="mn">${formatMoneyCompact(r.gross_pay)}</td>
+          <td class="mn">${formatMoneyCompact(r.total_deductions)}</td>
+          <td class="mn">${formatMoneyCompact(r.net_pay)}</td>
+          <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
+        </tr>`;
+    }).join('');
+  }
+}
+
+function exportReportCSV() {
+  if (!_reportData.length) {
+    window.pushNotification?.('No Data', 'Generate a report first before exporting.', 'info');
+    return;
+  }
+  const period = document.getElementById('rpt-period')?.value || 'all';
+  const headers = ['Employee', 'Pay Period', 'Gross Pay', 'Total Deductions', 'Net Pay', 'Status'];
+  const rows = _reportData.map((r) => [
+    r.employee_name || '',
+    r.pay_period || '',
+    String(toAmount(r.gross_pay)),
+    String(toAmount(r.total_deductions)),
+    String(toAmount(r.net_pay)),
+    r.status || '',
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `payroll-report-${period}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function printReport() {
+  window.print();
 }
 
 function editDraftFromPending(entryId) {
-  const id = String(entryId || '').trim();
-  if (!id) return;
-
-  const processNav = document.querySelector('#s-accountant .ni[onclick*="ac-process"]');
-  acctNav('ac-process', processNav);
-
-  acctState.currentEntryId = id;
-  loadAccountantData({ entryId: id });
+  editDraftEntry(entryId);
 }
 
 function renderPayslipOptions() {
@@ -769,11 +890,10 @@ async function loadAccountantData(options = {}) {
     acctState.employees = payload.employees || [];
     acctState.records = payload.records || [];
     acctState.draftEntries = payload.draft_entries || [];
-    acctState.pendingSubmissions = payload.pending_submissions || [];
-    acctState.withdrawalHistory = payload.withdrawal_history || [];
+    acctState.panels = payload.panels || {};
 
     if (payload.diag) {
-      console.log('[accountant] payroll diag:', payload.diag, 'draft_entries:', (payload.draft_entries || []).length, 'pending:', (payload.pending_submissions || []).length);
+      console.log('[accountant] payroll diag:', payload.diag, 'draft_entries:', (payload.draft_entries || []).length, 'records:', (payload.records || []).length);
       if (payload.diag.db_error) {
         console.error('[accountant] payroll_entries DB read error:', payload.diag.db_error);
       }
@@ -785,7 +905,7 @@ async function loadAccountantData(options = {}) {
 
     renderEmployeeDropdown();
     renderPeriodDropdown();
-    renderRecordsPanels(payload.panels || {});
+    renderRecordsPanels(acctState.panels);
     if (acRecordsPaginator) {
       acRecordsPaginator.setData(acctState.records);
     } else {
@@ -796,10 +916,11 @@ async function loadAccountantData(options = {}) {
     } else {
       renderAttendanceTable();
     }
-    renderPendingSubmissions();
-    renderWithdrawalHistory(acctState.withdrawalHistory);
     renderPayslipOptions();
     renderPayslipDetails();
+    renderDashboard();
+    renderMonitoringPage();
+    renderReportPeriodDropdown();
 
     if (!acctState.currentEntryId && payload.draft_entries?.length) {
       acctState.currentEntryId = String(payload.draft_entries[0].id || '');
@@ -874,37 +995,6 @@ async function cancelDraft(entryId) {
   }
 }
 
-async function withdrawSubmission(entryId) {
-  const normalized = String(entryId || '').trim();
-  if (!normalized) return;
-
-  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(
-    'withdraw this pending payroll submission',
-    'This removes the current approval request and returns the payroll entry to draft mode.',
-  ))) {
-    return;
-  }
-
-  try {
-    const response = await fetch('/api/accountant/payroll', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'withdraw', entry_id: normalized }),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.error || 'Unable to withdraw pending submission.');
-    }
-
-    acctState.currentEntryId = normalized;
-    await loadAccountantData();
-    showProcessFeedback('Pending submission withdrawn and moved back to draft.', false);
-    window.pushNotification?.('Submission Withdrawn', 'Payroll has been pulled back and returned to draft mode.', 'info');
-  } catch (error) {
-    showProcessFeedback(error.message, true);
-  }
-}
 
 /* ── LEAVE APPROVALS ── */
 function renderAccountantPendingLeaves(requests) {
@@ -1141,150 +1231,6 @@ window.processAccountantLeave = async function(id, action) {
   }
 };
 
-/* ── APPROVAL STATUS ── */
-function renderSalaryStatusTable(rows) {
-  const tbody = document.getElementById('ac-salary-status-tbody');
-  const empty = document.getElementById('ac-salary-status-empty');
-  if (!tbody) return;
-  if (!rows.length) {
-    tbody.innerHTML = '';
-    if (empty) empty.style.display = '';
-    return;
-  }
-  if (empty) empty.style.display = 'none';
-  tbody.innerHTML = rows.map((row) => {
-    const status = String(row.status || 'pending').toLowerCase();
-    const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
-    const badgeLabel = status === 'approved' ? 'Approved' : status === 'rejected' ? 'Rejected' : 'Pending';
-    const decidedAt = row.decided_at ? formatDateTime(row.decided_at) : '—';
-    return `<tr>
-      <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
-      <td class="mn">${formatMoney(Number(row.current_salary || 0))}</td>
-      <td class="mn">${formatMoney(Number(row.proposed_salary || 0))}</td>
-      <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
-      <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
-      <td class="mn">${escapeHtml(decidedAt)}</td>
-    </tr>`;
-  }).join('');
-}
-
-function renderLeaveStatusTable(rows) {
-  const tbody = document.getElementById('ac-leave-status-tbody');
-  const empty = document.getElementById('ac-leave-status-empty');
-  if (!tbody) return;
-  if (!rows.length) {
-    tbody.innerHTML = '';
-    if (empty) empty.style.display = '';
-    return;
-  }
-  if (empty) empty.style.display = 'none';
-  tbody.innerHTML = rows.map((row) => {
-    const status = String(row.status || '').toLowerCase();
-    let badgeClass = 'ba', badgeLabel = 'Pending Admin';
-    if (status === 'approved') { badgeClass = 'bg'; badgeLabel = 'Approved'; }
-    else if (status === 'rejected') { badgeClass = 'br'; badgeLabel = 'Rejected'; }
-    const dateRange = `${escapeHtml(row.start_date || '?')} → ${escapeHtml(row.end_date || '?')}`;
-    return `<tr>
-      <td class="nm">${escapeHtml(row.employee_name || 'Unknown')}</td>
-      <td>${escapeHtml(row.leave_type || '—')}</td>
-      <td class="mn">${dateRange}</td>
-      <td class="mn">${escapeHtml(formatDateTime(row.submitted_at))}</td>
-      <td><span class="badge ${badgeClass}"><span class="bd"></span>${badgeLabel}</span></td>
-    </tr>`;
-  }).join('');
-}
-
-function getFilteredSalaryApprovals() {
-  const search = _salarySearch.toLowerCase();
-  let rows = _salaryStatusFilter === 'all'
-    ? _salaryApprovalsAll
-    : _salaryApprovalsAll.filter((r) => r.status === _salaryStatusFilter);
-  if (search) rows = rows.filter((r) => String(r.employee_name || '').toLowerCase().includes(search));
-  return rows;
-}
-
-function getFilteredLeaveForwards() {
-  const search = _leaveSearch.toLowerCase();
-  const dbStatus = _leaveStatusFilter === 'pending' ? 'pending_admin' : _leaveStatusFilter;
-  let rows = _leaveStatusFilter === 'all'
-    ? _leaveForwardsAll
-    : _leaveForwardsAll.filter((r) => r.status === dbStatus);
-  if (search) rows = rows.filter((r) =>
-    [r.employee_name, r.leave_type].map((v) => String(v || '').toLowerCase()).join(' ').includes(search)
-  );
-  return rows;
-}
-
-function acSalaryFilter(filter, btn) {
-  _salaryStatusFilter = filter;
-  document.querySelectorAll('#ac-salary-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
-  if (btn) btn.classList.add('st-active');
-  acSalaryStatusPaginator?.setData(getFilteredSalaryApprovals());
-}
-
-function acLeaveFilter(filter, btn) {
-  _leaveStatusFilter = filter;
-  document.querySelectorAll('#ac-leave-tabs .st-tab').forEach((b) => b.classList.remove('st-active'));
-  if (btn) btn.classList.add('st-active');
-  acLeaveStatusPaginator?.setData(getFilteredLeaveForwards());
-}
-
-function setAcSalarySearch(value) {
-  _salarySearch = String(value || '').trim();
-  acSalaryStatusPaginator?.setData(getFilteredSalaryApprovals());
-}
-
-function setAcLeaveSearch(value) {
-  _leaveSearch = String(value || '').trim();
-  acLeaveStatusPaginator?.setData(getFilteredLeaveForwards());
-}
-
-function renderApprovalStatus(salaryApprovals, leaveForwards) {
-  _salaryApprovalsAll = salaryApprovals;
-  _leaveForwardsAll = leaveForwards;
-  _salaryStatusFilter = 'all';
-  _leaveStatusFilter = 'all';
-  _salarySearch = '';
-  _leaveSearch = '';
-
-  // Reset tabs to "All" on fresh load
-  document.querySelectorAll('#ac-salary-tabs .st-tab').forEach((b, i) => b.classList.toggle('st-active', i === 0));
-  document.querySelectorAll('#ac-leave-tabs .st-tab').forEach((b, i) => b.classList.toggle('st-active', i === 0));
-
-  const salarySearchEl = document.getElementById('ac-salary-search');
-  if (salarySearchEl) salarySearchEl.value = '';
-  const leaveSearchEl = document.getElementById('ac-leave-search');
-  if (leaveSearchEl) leaveSearchEl.value = '';
-
-  acSalaryStatusPaginator?.setData(salaryApprovals);
-  acLeaveStatusPaginator?.setData(leaveForwards);
-
-  // Update sidebar badge — count items still pending
-  const pendingCount = salaryApprovals.filter((r) => r.status === 'pending').length
-    + leaveForwards.filter((r) => r.status === 'pending_admin').length;
-  const badge = document.getElementById('ac-approval-pending-badge');
-  if (badge) {
-    badge.textContent = String(pendingCount);
-    badge.style.display = pendingCount > 0 ? '' : 'none';
-  }
-}
-
-async function loadApprovalStatus() {
-  const salaryBody = document.getElementById('ac-salary-status-tbody');
-  const leaveBody = document.getElementById('ac-leave-status-tbody');
-  if (salaryBody) salaryBody.innerHTML = skeletonRows(6);
-  if (leaveBody) leaveBody.innerHTML = skeletonRows(5);
-
-  try {
-    const res = await fetch('/api/accountant/approval-status');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to load approval status.');
-    renderApprovalStatus(data.salary_approvals || [], data.leave_forwards || []);
-  } catch (err) {
-    if (salaryBody) salaryBody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
-    if (leaveBody) leaveBody.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
 
 /* ── INIT ── */
 function initAccountant() {
@@ -1296,22 +1242,21 @@ function initAccountant() {
   acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });
   acPendingLeavesPaginator = window.createPaginator({ id: 'ac-leave-pend', pageSize: 15, renderFn: renderAccountantPendingLeaves });
   acLeaveHistPaginator = window.createPaginator({ id: 'ac-leave-hist', pageSize: 15, renderFn: renderAccountantLeaveHistory });
-  acSalaryStatusPaginator = window.createPaginator({ id: 'ac-salary-status', pageSize: 15, renderFn: renderSalaryStatusTable });
-  acLeaveStatusPaginator = window.createPaginator({ id: 'ac-leave-status', pageSize: 15, renderFn: renderLeaveStatusTable });
+  monPaginator = window.createPaginator({ id: 'mon', pageSize: 15, renderFn: renderMonitoringTable });
 
-  window.acSalaryFilter = acSalaryFilter;
-  window.acLeaveFilter = acLeaveFilter;
-  window.setAcSalarySearch = setAcSalarySearch;
-  window.setAcLeaveSearch = setAcLeaveSearch;
+  window.monFilter = monFilter;
+  window.setMonSearch = setMonSearch;
+  window.generateReport = generateReport;
+  window.exportReportCSV = exportReportCSV;
+  window.printReport = printReport;
 
-  // Load sidebar badges silently on init
-  loadApprovalStatus();
+  // Load sidebar leaves badge silently on init
   refreshLeavesBadge();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('accountant')
     : '';
-  const initialPage = ACCT_PAGES[savedPage] ? savedPage : 'ac-process';
+  const initialPage = ACCT_PAGES[savedPage] ? savedPage : 'ac-dashboard';
   const initialNav = getAccountantNavByPageId(initialPage);
   acctNav(initialPage, initialNav);
 
@@ -1421,17 +1366,18 @@ async function submitAccountantChangePassword() {
 }
 
 window.acctNav = acctNav;
-window.submitForApproval = submitForApproval;
+window.processPayroll = processPayroll;
 window.savePayrollDraft = savePayrollDraft;
 window.editDraftFromPending = editDraftFromPending;
+window.editDraftEntry = editDraftEntry;
 window.generatePayslip = generatePayslip;
 window.printPayslip = printPayslip;
 window.openPayslipFromRecord = openPayslipFromRecord;
-window.withdrawSubmission = withdrawSubmission;
 window.cancelDraft = cancelDraft;
 window.loadAccountantLeaveRequests = loadAccountantLeaveRequests;
 window.loadAccountantLeaveHistory = loadAccountantLeaveHistory;
 window.submitAccountantChangePassword = submitAccountantChangePassword;
+window.loadAccountantData = loadAccountantData;
 
 function maybeInitAccountant() {
   const currentRole = new URLSearchParams(window.location.search).get('role');
