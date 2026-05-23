@@ -958,6 +958,57 @@ function hrGetBranchLabel(key) {
   return HR_BRANCH_LABELS[String(key || '')] || String(key || '') || '—';
 }
 
+function hrRenderBranchFilterUI() {
+  const BRANCH_KEYS = ['main', '2', '3', '4'];
+  const CARD_COLORS = ['a', 'b', 't', 'g'];
+
+  // Reset filter to 'all' if selected branch no longer exists
+  if (hrBranchFilter !== 'all' && hrBranchFilter !== 'unassigned') {
+    const idx = BRANCH_KEYS.indexOf(hrBranchFilter);
+    if (idx < 0 || !hrBranches[idx]) hrBranchFilter = 'all';
+  }
+
+  // Render summary cards
+  const cardsEl = document.getElementById('hr-ba-branch-cards');
+  if (cardsEl) {
+    let html = `
+      <div class="card"><div class="ct">Total Employees</div><div class="cv" id="hr-ba-count-total">0</div><div class="cch">All active employees</div></div>
+      <div class="card"><div class="ct">Unassigned</div><div class="cv r" id="hr-ba-count-unassigned">0</div><div class="cch">Not yet in a branch</div></div>
+    `;
+    hrBranches.forEach((b, i) => {
+      const key = BRANCH_KEYS[i];
+      if (!key) return;
+      const colorClass = CARD_COLORS[i] || 'b';
+      const safeName = String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      html += `<div class="card"><div class="ct">${safeName}</div><div class="cv ${colorClass}" id="hr-ba-count-${key}">0</div><div class="cch">Branch campus</div></div>`;
+    });
+    cardsEl.innerHTML = html;
+  }
+
+  // Render filter chips — only for branches that exist in the DB
+  const chipsEl = document.getElementById('hr-ba-filter-chips');
+  if (!chipsEl) return;
+
+  let chipsHtml = `
+    <div class="chip ${hrBranchFilter === 'all' ? 'active' : ''}" data-hbf="all" onclick="setHrBranchFilter('all')">All (0)</div>
+    <div class="chip ${hrBranchFilter === 'unassigned' ? 'active' : ''}" data-hbf="unassigned" onclick="setHrBranchFilter('unassigned')">Unassigned (0)</div>
+  `;
+
+  if (hrBranches.length) {
+    hrBranches.forEach((b, i) => {
+      const key = BRANCH_KEYS[i];
+      if (!key) return;
+      const safeName = String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const isActive = hrBranchFilter === key;
+      chipsHtml += `<div class="chip ${isActive ? 'active' : ''}" data-hbf="${key}" onclick="setHrBranchFilter('${key}')">${safeName} (0)</div>`;
+    });
+  } else {
+    chipsHtml += `<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No branches configured — ask the Super Admin to add branches first.</span>`;
+  }
+
+  chipsEl.innerHTML = chipsHtml;
+}
+
 function hrUpdateBranchSummary() {
   const total = hrBranchAllEmployees.length;
   const unassigned = hrBranchAllEmployees.filter((e) => !e.branch).length;
@@ -1069,6 +1120,7 @@ async function loadHrBranchAssignment() {
       const bd = await branchRes.value.json();
       hrBranches = (bd.branches || []).filter((b) => b.status === 'Active');
     }
+    hrRenderBranchFilterUI();
 
     const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
     const payload = await response.json();
