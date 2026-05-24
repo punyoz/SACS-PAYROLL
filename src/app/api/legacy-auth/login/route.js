@@ -171,6 +171,8 @@ export async function POST(request) {
       employee_id: resolvedEmployeeId,
       employee_type: resolvedEmployeeType,
       position: resolvedPosition,
+      bank_name: normalizeText(metadata.bank_name, ""),
+      bank_account_number: normalizeText(metadata.bank_account_number, ""),
     },
   });
 }

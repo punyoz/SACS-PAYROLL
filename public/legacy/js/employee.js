@@ -932,6 +932,8 @@ function loadProfilePage() {
   setTxt('ep-info-type',     ctx.employee_type);
   setTxt('ep-info-email',    ctx.email);
   setTxt('ep-info-role',     ctx.role);
+  setTxt('ep-bank-name',     ctx.bank_name);
+  setTxt('ep-bank-account',  ctx.bank_account_number);
 }
 
 document.addEventListener('sacs-auth-context-changed', function _onAuthForProfile() {

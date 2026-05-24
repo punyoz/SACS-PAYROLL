@@ -356,8 +356,7 @@ async function processPayroll() {
       setTimeout(() => { banner.style.display = 'none'; }, 5000);
     }
 
-    const recordsNavEl = getAccountantNavByPageId('ac-records');
-    acctNav('ac-records', recordsNavEl);
+    openPayslipFromRecord(acctState.currentEntryId);
   } catch (error) {
     if (error.status === 409) {
       showProcessFeedback('', false);
@@ -818,7 +817,6 @@ function populateFormFromDraft() {
   if (!employeeSelect || !periodSelect) return;
 
   const draft = acctState.records.find((row) => String(row.id) === String(acctState.currentEntryId))
-    || acctState.pendingSubmissions.find((row) => String(row.id) === String(acctState.currentEntryId))
     || acctState.draftEntries.find((row) => String(row.id) === String(acctState.currentEntryId));
 
   if (!draft) {
@@ -1240,12 +1238,14 @@ function loadAccountantProfile() {
   setTxt('ac-ep-name',      ctx.full_name    || 'Accountant');
   setTxt('ac-ep-pos',       ctx.position     || ctx.employee_type || '');
   setTxt('ac-ep-role-tag',  ctx.role         || 'Accountant');
-  setTxt('ac-ep-info-name', ctx.full_name);
-  setTxt('ac-ep-info-id',   ctx.employee_id);
-  setTxt('ac-ep-info-pos',  ctx.position);
-  setTxt('ac-ep-info-type', ctx.employee_type);
-  setTxt('ac-ep-info-email',ctx.email);
-  setTxt('ac-ep-info-role', ctx.role);
+  setTxt('ac-ep-info-name',    ctx.full_name);
+  setTxt('ac-ep-info-id',     ctx.employee_id);
+  setTxt('ac-ep-info-pos',    ctx.position);
+  setTxt('ac-ep-info-type',   ctx.employee_type);
+  setTxt('ac-ep-info-email',  ctx.email);
+  setTxt('ac-ep-info-role',   ctx.role);
+  setTxt('ac-ep-bank-name',   ctx.bank_name);
+  setTxt('ac-ep-bank-account',ctx.bank_account_number);
 }
 
 /* ── INIT ── */
