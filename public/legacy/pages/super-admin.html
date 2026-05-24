@@ -571,13 +571,12 @@
         <div class="card"><div class="ct">Total Employees</div><div class="cv" id="sa-ba-count-total">0</div><div class="cch">All active employees</div></div>
       </div>
 
-      <div class="chips" id="sa-ba-filter-chips">
-        <div class="chip active" data-sabf="all" onclick="setSABranchFilter('all')">All (0)</div>
-        <div class="chip" data-sabf="unassigned" onclick="setSABranchFilter('unassigned')">Unassigned (0)</div>
-        <div class="chip" data-sabf="main" onclick="setSABranchFilter('main')">Main Branch (0)</div>
-        <div class="chip" data-sabf="2" onclick="setSABranchFilter('2')">2nd Branch (0)</div>
-        <div class="chip" data-sabf="3" onclick="setSABranchFilter('3')">3rd Branch (0)</div>
-        <div class="chip" data-sabf="4" onclick="setSABranchFilter('4')">4th Branch (0)</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <label style="font-size:12px;color:var(--t3);white-space:nowrap;flex-shrink:0;">Filter by Branch</label>
+        <select class="fc" id="sa-ba-branch-select" style="max-width:300px;" onchange="setSABranchFilter(this.value)">
+          <option value="all">All (0)</option>
+          <option value="unassigned">Unassigned (0)</option>
+        </select>
       </div>
 
       <div class="adm-employee-controls" style="margin-top:10px;">
@@ -644,12 +643,49 @@
           <input class="fc" name="name" required placeholder="e.g. Main Campus" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Location / Address</label>
-          <input class="fc" name="location" required placeholder="e.g. Quezon City, Metro Manila" />
+          <label>Region</label>
+          <select class="fc" id="sa-branch-region" required onchange="onSABranchRegionChange()">
+            <option value="">Select Region</option>
+            <option value="NCR">NCR – National Capital Region</option>
+            <option value="Region I">Region I – Ilocos Region</option>
+            <option value="CAR">CAR – Cordillera Administrative Region</option>
+            <option value="Region II">Region II – Cagayan Valley</option>
+            <option value="Region III">Region III – Central Luzon</option>
+            <option value="Region IV-A (CALABARZON)">Region IV-A – CALABARZON</option>
+            <option value="Region IV-B (MIMAROPA)">Region IV-B – MIMAROPA</option>
+            <option value="Region V">Region V – Bicol Region</option>
+            <option value="Region VI">Region VI – Western Visayas</option>
+            <option value="Region VII">Region VII – Central Visayas</option>
+            <option value="Region VIII">Region VIII – Eastern Visayas</option>
+            <option value="Region IX">Region IX – Zamboanga Peninsula</option>
+            <option value="Region X">Region X – Northern Mindanao</option>
+            <option value="Region XI">Region XI – Davao Region</option>
+            <option value="Region XII">Region XII – SOCCSKSARGEN</option>
+            <option value="Region XIII (CARAGA)">Region XIII – CARAGA</option>
+            <option value="BARMM">BARMM – Bangsamoro Autonomous Region</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Province / District</label>
+          <select class="fc" id="sa-branch-province" required onchange="onSABranchProvinceChange()">
+            <option value="">Select Province / District</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>City / Municipality</label>
+          <select class="fc" id="sa-branch-city" required onchange="onSABranchCityChange()">
+            <option value="">Select City / Municipality</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Barangay</label>
+          <select class="fc" id="sa-branch-barangay">
+            <option value="">Select Barangay</option>
+          </select>
         </div>
         <div class="fg" style="margin:0;">
           <label>Branch Code</label>
-          <input class="fc" name="code" placeholder="e.g. MAIN-01" maxlength="20" />
+          <input class="fc" name="code" maxlength="20" readonly style="background:var(--bg3);cursor:default;" />
         </div>
         <div class="fg" style="margin:0;">
           <label>Status</label>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -306,6 +307,6 @@ export async function GET(request) {
 
     return NextResponse.json({ payslips });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

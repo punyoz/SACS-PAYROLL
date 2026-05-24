@@ -21,7 +21,7 @@ export async function GET(request) {
 
     return NextResponse.json({ requests });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -93,6 +93,6 @@ export async function POST(request) {
     const saved = await insertLeaveRequest(newRequest);
     return NextResponse.json({ success: true, request: saved }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

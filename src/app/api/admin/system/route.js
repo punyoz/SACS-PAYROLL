@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog, listAuditLogs } from "@/lib/audit/store";
 
@@ -115,7 +116,7 @@ export async function GET() {
       recent_security_events: auditResult.logs || [],
     });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -146,7 +147,7 @@ export async function PATCH(request) {
     });
 
     if (updatedResult.error) {
-      return NextResponse.json({ error: updatedResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(updatedResult.error) }, { status: 400 });
     }
 
     await appendAuditLog({
@@ -164,6 +165,6 @@ export async function PATCH(request) {
 
     return NextResponse.json({ success: true, rfid_uid: rfidUid });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { readAllSalaryApprovals, updateSalaryApprovalStatus } from "@/lib/salary-approvals/store";
@@ -254,7 +255,7 @@ export async function GET() {
 
     return NextResponse.json(payload);
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -325,6 +326,6 @@ export async function PATCH(request) {
 
     return NextResponse.json({ success: true, status: nextStatus, salary_applied: salaryApplied });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

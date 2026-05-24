@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 
@@ -62,7 +63,7 @@ export async function GET() {
     const users = await fetchAllUsers(supabase);
     return NextResponse.json({ users });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -103,7 +104,7 @@ export async function POST(request) {
     });
 
     if (createResult.error) {
-      return NextResponse.json({ error: createResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(createResult.error) }, { status: 400 });
     }
 
     const newUser = createResult.data.user;
@@ -128,7 +129,7 @@ export async function POST(request) {
       { status: 201 },
     );
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -183,7 +184,7 @@ export async function PATCH(request) {
 
     const updatedResult = await supabase.auth.admin.updateUserById(id, updatePayload);
     if (updatedResult.error) {
-      return NextResponse.json({ error: updatedResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(updatedResult.error) }, { status: 400 });
     }
 
     if (action === "update") {
@@ -214,6 +215,6 @@ export async function PATCH(request) {
       }),
     });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

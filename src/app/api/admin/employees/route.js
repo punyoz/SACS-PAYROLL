@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 
@@ -204,7 +205,7 @@ export async function GET() {
     const employees = await fetchEmployees(supabase);
     return NextResponse.json({ employees });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -270,7 +271,7 @@ export async function POST(request) {
     });
 
     if (createUserResult.error) {
-      return NextResponse.json({ error: createUserResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(createUserResult.error) }, { status: 400 });
     }
 
     const newUser = createUserResult.data.user;
@@ -287,7 +288,7 @@ export async function POST(request) {
     );
 
     if (profileResult.error) {
-      return NextResponse.json({ error: profileResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(profileResult.error) }, { status: 400 });
     }
 
     const employee = shapeEmployee(newUser, {
@@ -314,7 +315,7 @@ export async function POST(request) {
 
     return NextResponse.json({ employee }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -332,7 +333,7 @@ export async function PATCH(request) {
     const listResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
 
     if (listResult.error) {
-      return NextResponse.json({ error: listResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(listResult.error) }, { status: 400 });
     }
 
     const existingUser = (listResult.data.users || []).find((user) => user.id === id);
@@ -409,7 +410,7 @@ export async function PATCH(request) {
 
     const updatedResult = await supabase.auth.admin.updateUserById(id, updatePayload);
     if (updatedResult.error) {
-      return NextResponse.json({ error: updatedResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(updatedResult.error) }, { status: 400 });
     }
 
     if (action === "update") {
@@ -426,7 +427,7 @@ export async function PATCH(request) {
       );
 
       if (profileResult.error) {
-        return NextResponse.json({ error: profileResult.error.message }, { status: 400 });
+        return NextResponse.json({ error: sanitizeError(profileResult.error) }, { status: 400 });
       }
     }
 
@@ -462,7 +463,7 @@ export async function PATCH(request) {
 
     return NextResponse.json({ employee });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -478,12 +479,12 @@ export async function DELETE(request) {
     const supabase = getAdminClient();
     const deleteProfile = await supabase.from("profiles").delete().eq("id", id);
     if (deleteProfile.error) {
-      return NextResponse.json({ error: deleteProfile.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(deleteProfile.error) }, { status: 400 });
     }
 
     const deleteUser = await supabase.auth.admin.deleteUser(id);
     if (deleteUser.error) {
-      return NextResponse.json({ error: deleteUser.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(deleteUser.error) }, { status: 400 });
     }
 
     await appendAuditLog({
@@ -501,6 +502,6 @@ export async function DELETE(request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

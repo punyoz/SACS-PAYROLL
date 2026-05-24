@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 
@@ -36,12 +37,12 @@ export async function GET() {
       .order("created_at", { ascending: true });
 
     if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 500 });
+      return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
     }
 
     return NextResponse.json({ branches: (result.data || []).map(shapeBranch) });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -68,7 +69,7 @@ export async function POST(request) {
       .maybeSingle();
 
     if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
     }
 
     await appendAuditLog({
@@ -84,7 +85,7 @@ export async function POST(request) {
 
     return NextResponse.json({ branch: shapeBranch(result.data) }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -119,7 +120,7 @@ export async function PATCH(request) {
       .maybeSingle();
 
     if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
     }
 
     await appendAuditLog({
@@ -135,7 +136,7 @@ export async function PATCH(request) {
 
     return NextResponse.json({ branch: shapeBranch(result.data) });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -156,7 +157,7 @@ export async function DELETE(request) {
 
     const result = await supabase.from("branches").delete().eq("id", id);
     if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
     }
 
     await appendAuditLog({
@@ -172,6 +173,6 @@ export async function DELETE(request) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

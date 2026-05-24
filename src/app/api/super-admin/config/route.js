@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 
@@ -37,12 +38,12 @@ export async function GET() {
       .order("key");
 
     if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 500 });
+      return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
     }
 
     return NextResponse.json({ config: rowsToConfig(result.data || []) });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
@@ -77,7 +78,7 @@ export async function PATCH(request) {
       .select("section,key,value,updated_at");
 
     if (result.error) {
-      return NextResponse.json({ error: result.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
     }
 
     await appendAuditLog({
@@ -101,6 +102,6 @@ export async function PATCH(request) {
       config: rowsToConfig(allResult.data || result.data || []),
     });
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

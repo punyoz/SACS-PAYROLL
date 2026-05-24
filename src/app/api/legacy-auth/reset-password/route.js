@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -76,6 +77,6 @@ export async function POST(request) {
 
     return NextResponse.json(genericSuccess);
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
