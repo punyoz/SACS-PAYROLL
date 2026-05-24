@@ -397,6 +397,10 @@
           <div class="ep-inst-name">Shepherd Angels Christian School</div>
           <div class="ep-inst-sys">SACS Payroll System</div>
         </div>
+        <button class="btn btn-outline ep-edit-btn" onclick="openSettingsModal('adm')">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          Edit Account
+        </button>
       </div>
 
       <div class="card ep-info-card">
@@ -438,6 +442,64 @@
     </div><!-- end #adm-profile -->
 
   </div><!-- end .main -->
+
+  <!-- ── SETTINGS MODAL ── -->
+  <div id="adm-settings-modal" class="settings-backdrop" aria-hidden="true">
+    <div class="settings-card card" role="dialog" aria-modal="true" aria-labelledby="adm-settings-title">
+      <div class="settings-header">
+        <div class="settings-header-left">
+          <div class="settings-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <div>
+            <div class="settings-title" id="adm-settings-title">Account Settings</div>
+            <div class="settings-sub">Administrator</div>
+          </div>
+        </div>
+        <button class="settings-close" onclick="closeSettingsModal('adm')" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section-label">Personal Information</div>
+        <div style="display:grid;gap:12px;margin-bottom:14px;">
+          <div class="fg" style="margin:0;">
+            <label>Full Name</label>
+            <input id="adm-edit-fullname" class="fc" type="text" placeholder="Your full name" autocomplete="name" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>Bank Name</label>
+            <input id="adm-edit-bankname" class="fc" type="text" placeholder="e.g. BPI, BDO, Landbank" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>Bank Account Number</label>
+            <input id="adm-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" />
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;padding:11px;margin-bottom:6px;" onclick="saveProfileInfo('adm')">Save Information</button>
+        <p id="adm-profile-feedback" class="adm-feedback" style="margin-bottom:14px;"></p>
+        <div style="border-top:1px solid var(--border);margin:0 0 16px;"></div>
+        <div class="settings-section-label">Change Password</div>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Enter your current password to verify your identity, then set a new password. Must be at least 8 characters.</p>
+        <div style="display:grid;gap:12px;">
+          <div class="fg" style="margin:0;">
+            <label>Current Password</label>
+            <input id="adm-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>New Password</label>
+            <input id="adm-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>Confirm New Password</label>
+            <input id="adm-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
+          </div>
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:11px;" onclick="submitAdminChangePassword()">Update Password</button>
+        <p id="adm-change-password-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+      </div>
+    </div>
+  </div>
 
   <!-- ── USER MANAGEMENT MODALS ── -->
   <div id="add-user-modal" class="adm-modal-backdrop" style="display:none;">

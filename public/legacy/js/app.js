@@ -207,9 +207,67 @@ async function confirmDestructiveAction(actionLabel, detailText) {
 }
 
 /* ── SETTINGS MODAL ── */
+function populateSettingsModalProfile(prefix) {
+  const ctx = getAuthContext();
+  if (!ctx) return;
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  setVal(`${prefix}-edit-fullname`,    ctx.full_name);
+  setVal(`${prefix}-edit-bankname`,    ctx.bank_name);
+  setVal(`${prefix}-edit-bankaccount`, ctx.bank_account_number);
+}
+
+async function saveProfileInfo(prefix) {
+  const ctx = getAuthContext();
+  const email = String(ctx?.email || '').trim();
+  const feedbackEl = document.getElementById(`${prefix}-profile-feedback`);
+
+  if (!email) {
+    if (feedbackEl) { feedbackEl.textContent = 'Unable to identify account. Please sign in again.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const full_name        = String(document.getElementById(`${prefix}-edit-fullname`)?.value    || '').trim();
+  const bank_name        = String(document.getElementById(`${prefix}-edit-bankname`)?.value     || '').trim();
+  const bank_account_number = String(document.getElementById(`${prefix}-edit-bankaccount`)?.value || '').trim();
+
+  if (!full_name) {
+    if (feedbackEl) { feedbackEl.textContent = 'Full name is required.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  if (feedbackEl) { feedbackEl.textContent = 'Saving...'; feedbackEl.className = 'adm-feedback loading'; }
+
+  try {
+    const response = await fetch('/api/legacy-auth/update-profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, full_name, bank_name, bank_account_number }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Failed to update profile.');
+
+    const updatedCtx = { ...ctx, full_name, bank_name, bank_account_number };
+    localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(updatedCtx));
+    dispatchAuthContextChanged(updatedCtx);
+
+    if (feedbackEl) { feedbackEl.textContent = 'Profile updated successfully.'; feedbackEl.className = 'adm-feedback ok'; }
+    pushNotification('Profile Updated', 'Your information has been saved.', 'success');
+
+    setTimeout(() => {
+      if (feedbackEl && feedbackEl.textContent.includes('successfully')) {
+        feedbackEl.textContent = '';
+        feedbackEl.className = 'adm-feedback';
+      }
+    }, 3000);
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  }
+}
+
 function openSettingsModal(prefix) {
   const modal = document.getElementById(`${prefix}-settings-modal`);
   if (!modal) return;
+  populateSettingsModalProfile(prefix);
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');
 
@@ -232,6 +290,9 @@ function closeSettingsModal(prefix) {
 
   const feedback = document.getElementById(`${prefix}-change-password-feedback`);
   if (feedback) { feedback.textContent = ''; feedback.className = 'adm-feedback'; }
+
+  const profileFeedback = document.getElementById(`${prefix}-profile-feedback`);
+  if (profileFeedback) { profileFeedback.textContent = ''; profileFeedback.className = 'adm-feedback'; }
 }
 
 function ensureApproveDialog() {
@@ -1270,6 +1331,7 @@ function initApp() {
   window.pushNotification = pushNotification;
   window.openSettingsModal = openSettingsModal;
   window.closeSettingsModal = closeSettingsModal;
+  window.saveProfileInfo = saveProfileInfo;
   window.persistRolePageState = persistRolePageState;
   window.getPersistedRolePageState = getPersistedRolePageState;
   window.refreshCurrentPortal = refreshCurrentPortal;

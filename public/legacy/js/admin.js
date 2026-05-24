@@ -936,6 +936,52 @@ window.closeBranchAssignModal = closeBranchAssignModal;
 window.submitBranchAssign = submitBranchAssign;
 window.loadAdminProfile = loadAdminProfile;
 
+/* ── CHANGE PASSWORD ── */
+function showAdmChangePasswordFeedback(message, isError = false) {
+  const el = document.getElementById('adm-change-password-feedback');
+  if (!el) return;
+  el.textContent = message;
+  el.classList.toggle('err', isError);
+  el.classList.toggle('ok', !isError && Boolean(message));
+}
+
+async function submitAdminChangePassword() {
+  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  const email = String(context?.email || '').trim();
+
+  const currentPassword = String(document.getElementById('adm-cur-password')?.value || '').trim();
+  const newPassword = String(document.getElementById('adm-new-password')?.value || '').trim();
+  const confirmPassword = String(document.getElementById('adm-confirm-password')?.value || '').trim();
+
+  if (!email) { showAdmChangePasswordFeedback('Unable to identify account. Please sign in again.', true); return; }
+  if (!currentPassword || !newPassword || !confirmPassword) { showAdmChangePasswordFeedback('All password fields are required.', true); return; }
+  if (newPassword !== confirmPassword) { showAdmChangePasswordFeedback('New passwords do not match.', true); return; }
+  if (newPassword.length < 8) { showAdmChangePasswordFeedback('New password must be at least 8 characters.', true); return; }
+
+  try {
+    showAdmChangePasswordFeedback('Updating password...', false);
+    const response = await fetch('/api/legacy-auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, current_password: currentPassword, new_password: newPassword }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Failed to update password.');
+
+    document.getElementById('adm-cur-password').value = '';
+    document.getElementById('adm-new-password').value = '';
+    document.getElementById('adm-confirm-password').value = '';
+
+    showAdmChangePasswordFeedback('Password updated successfully.', false);
+    window.pushNotification?.('Password Changed', 'Your account password has been updated successfully.', 'success');
+    setTimeout(() => window.closeSettingsModal?.('adm'), 1200);
+  } catch (error) {
+    showAdmChangePasswordFeedback(error.message, true);
+  }
+}
+
+window.submitAdminChangePassword = submitAdminChangePassword;
+
 /* ═══════════════════════════════════════
    USER MANAGEMENT
    ═══════════════════════════════════════ */

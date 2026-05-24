@@ -1,0 +1,71 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { normalizeText } from "@/lib/auth/normalize";
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+export async function POST(request) {
+  const body = await request.json().catch(() => ({}));
+
+  const email = normalizeText(body.email);
+  const full_name = normalizeText(body.full_name, "");
+  const bank_name = normalizeText(body.bank_name, "");
+  const bank_account_number = normalizeText(body.bank_account_number, "");
+
+  if (!email) {
+    return NextResponse.json({ error: "Email is required." }, { status: 400 });
+  }
+
+  if (!full_name) {
+    return NextResponse.json({ error: "Full name is required." }, { status: 400 });
+  }
+
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    return NextResponse.json({ error: "Server configuration error." }, { status: 500 });
+  }
+
+  const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: usersData, error: listError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (listError) {
+    return NextResponse.json({ error: "Failed to verify account." }, { status: 500 });
+  }
+
+  const user = (usersData.users || []).find(
+    (u) => (u.email || "").toLowerCase() === email.toLowerCase(),
+  );
+
+  if (!user) {
+    return NextResponse.json({ error: "Account not found." }, { status: 404 });
+  }
+
+  const currentMeta = user.user_metadata || {};
+  const updatedMeta = {
+    ...currentMeta,
+    full_name,
+    bank_name,
+    bank_account_number,
+  };
+
+  const { error: updateError } = await supabase.auth.admin.updateUserById(user.id, {
+    user_metadata: updatedMeta,
+  });
+
+  if (updateError) {
+    return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  await supabase.from("profiles").update({ full_name }).eq("id", user.id);
+
+  return NextResponse.json({
+    success: true,
+    profile: {
+      full_name: updatedMeta.full_name,
+      bank_name: updatedMeta.bank_name,
+      bank_account_number: updatedMeta.bank_account_number,
+    },
+  });
+}
