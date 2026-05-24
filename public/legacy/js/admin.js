@@ -15,6 +15,7 @@ const ADMIN_PAGES = {
   'adm-branch-assign':'Branch Assignment',
   'adm-branches':     'Branch Management',
   'adm-maintenance':  'System Maintenance',
+  'adm-profile':      'Profile',
 };
 
 const AVATAR_COLORS = ['#3EC97A', '#F5A623', '#1DB8A0', '#E85555', '#7F77DD'];
@@ -104,6 +105,10 @@ function adminNav(pageId, navEl) {
     loadAdmBranches();
   }
 
+  if (pageId === 'adm-profile') {
+    loadAdminProfile();
+  }
+
   logAuditMovement({
     module: 'ui',
     action: 'navigate',
@@ -141,6 +146,25 @@ function applyAdminIdentity() {
 
   const roleEl = document.querySelector('#s-admin .sb-foot .ur');
   if (roleEl) roleEl.textContent = 'Administrator';
+}
+
+function loadAdminProfile() {
+  const ctx = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  if (!ctx) return;
+
+  const initials = (String(ctx.full_name || '').trim()
+    .split(/\s+/).slice(0, 2).map(w => w[0] || '').join('') || 'AD').toUpperCase();
+
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+
+  setTxt('adm-ep-avatar',    initials);
+  setTxt('adm-ep-name',      ctx.full_name    || 'Admin User');
+  setTxt('adm-ep-pos',       ctx.position     || 'Administrator');
+  setTxt('adm-ep-role-tag',  ctx.role         || 'Administrator');
+  setTxt('adm-ep-info-name', ctx.full_name);
+  setTxt('adm-ep-info-id',   ctx.employee_id);
+  setTxt('adm-ep-info-email',ctx.email);
+  setTxt('adm-ep-info-role', ctx.role);
 }
 
 function handleLegacyAuthContextChange() {
@@ -908,6 +932,7 @@ window.setBranchSearch = setBranchSearch;
 window.openBranchAssignModal = openBranchAssignModal;
 window.closeBranchAssignModal = closeBranchAssignModal;
 window.submitBranchAssign = submitBranchAssign;
+window.loadAdminProfile = loadAdminProfile;
 
 /* ═══════════════════════════════════════
    USER MANAGEMENT

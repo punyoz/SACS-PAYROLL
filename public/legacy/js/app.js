@@ -573,7 +573,7 @@ function getRoleNotifications() {
       {
         title: pending > 0 ? `${pending} leave request${pending > 1 ? 's' : ''} pending approval` : 'No pending leave requests',
         desc: pending > 0
-          ? 'Open Leave Management to review and approve pending requests.'
+          ? 'Open Leave Approval to review and approve pending requests.'
           : 'All leave requests have been processed.',
       },
       {

@@ -16,7 +16,7 @@ const ACCT_PAGES = {
   'ac-attendance': 'View Attendance',
   'ac-monitoring': 'Payroll Monitoring',
   'ac-reports':    'Payroll Reports',
-  'ac-leaves':     'Leave Approvals',
+  'ac-profile':    'Profile',
 };
 
 const acctState = {
@@ -34,8 +34,6 @@ const acctState = {
 
 let acRecordsPaginator = null;
 let acAttPaginator = null;
-let acPendingLeavesPaginator = null;
-let acLeaveHistPaginator = null;
 let monPaginator = null;
 let _monStatusFilter = 'all';
 let _monSearch = '';
@@ -206,11 +204,7 @@ function acctNav(pageId, navEl) {
     window.persistRolePageState('accountant', pageId);
   }
 
-  // Auto-loaders per page
-  if (pageId === 'ac-leaves') {
-    loadAccountantLeaveRequests();
-    loadAccountantLeaveHistory();
-  }
+  if (pageId === 'ac-profile') loadAccountantProfile();
 }
 
 function getAccountantNavByPageId(pageId) {
@@ -1232,6 +1226,28 @@ window.processAccountantLeave = async function(id, action) {
 };
 
 
+/* ── PROFILE ── */
+function loadAccountantProfile() {
+  const ctx = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
+  if (!ctx) return;
+
+  const initials = (String(ctx.full_name || '').trim()
+    .split(/\s+/).slice(0, 2).map(w => w[0] || '').join('') || 'AC').toUpperCase();
+
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+
+  setTxt('ac-ep-avatar',    initials);
+  setTxt('ac-ep-name',      ctx.full_name    || 'Accountant');
+  setTxt('ac-ep-pos',       ctx.position     || ctx.employee_type || '');
+  setTxt('ac-ep-role-tag',  ctx.role         || 'Accountant');
+  setTxt('ac-ep-info-name', ctx.full_name);
+  setTxt('ac-ep-info-id',   ctx.employee_id);
+  setTxt('ac-ep-info-pos',  ctx.position);
+  setTxt('ac-ep-info-type', ctx.employee_type);
+  setTxt('ac-ep-info-email',ctx.email);
+  setTxt('ac-ep-info-role', ctx.role);
+}
+
 /* ── INIT ── */
 function initAccountant() {
   applyAccountantIdentity();
@@ -1240,8 +1256,6 @@ function initAccountant() {
 
   acRecordsPaginator = window.createPaginator({ id: 'ac-rec', pageSize: 15, renderFn: renderPayrollRecordsTable });
   acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });
-  acPendingLeavesPaginator = window.createPaginator({ id: 'ac-leave-pend', pageSize: 15, renderFn: renderAccountantPendingLeaves });
-  acLeaveHistPaginator = window.createPaginator({ id: 'ac-leave-hist', pageSize: 15, renderFn: renderAccountantLeaveHistory });
   monPaginator = window.createPaginator({ id: 'mon', pageSize: 15, renderFn: renderMonitoringTable });
 
   window.monFilter = monFilter;
@@ -1249,9 +1263,6 @@ function initAccountant() {
   window.generateReport = generateReport;
   window.exportReportCSV = exportReportCSV;
   window.printReport = printReport;
-
-  // Load sidebar leaves badge silently on init
-  refreshLeavesBadge();
 
   const savedPage = window.getPersistedRolePageState
     ? window.getPersistedRolePageState('accountant')
@@ -1378,6 +1389,7 @@ window.loadAccountantLeaveRequests = loadAccountantLeaveRequests;
 window.loadAccountantLeaveHistory = loadAccountantLeaveHistory;
 window.submitAccountantChangePassword = submitAccountantChangePassword;
 window.loadAccountantData = loadAccountantData;
+window.loadAccountantProfile = loadAccountantProfile;
 
 function maybeInitAccountant() {
   const currentRole = new URLSearchParams(window.location.search).get('role');

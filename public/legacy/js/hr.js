@@ -13,8 +13,9 @@ const HR_PAGES = {
   'hr-employee-info': 'Employee Information',
   'hr-branch-assign': 'Branch Assignment',
   'hr-attendance':    'Attendance Monitoring',
-  'hr-leaves':        'Leave Management',
+  'hr-leaves':        'Leave Approval',
   'hr-reports':       'HR Reports',
+  'hr-profile':       'Profile',
 };
 
 let hrAllEmployees = [];
@@ -67,6 +68,7 @@ function hrNav(pageId, navEl) {
   else if (pageId === 'hr-attendance') loadHRAttendance();
   else if (pageId === 'hr-leaves') loadHRLeaves();
   else if (pageId === 'hr-reports') { /* user clicks Generate */ }
+  else if (pageId === 'hr-profile') loadHRProfile();
 }
 
 /* ── IDENTITY ── */
@@ -898,6 +900,28 @@ function setupHrAddEmployeeValidation() {
   }
 }
 
+/* ── PROFILE ── */
+function loadHRProfile() {
+  const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
+  if (!ctx) return;
+
+  const initials = (String(ctx.full_name || '').trim()
+    .split(/\s+/).slice(0, 2).map(w => w[0] || '').join('') || 'HR').toUpperCase();
+
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+
+  setTxt('hr-ep-avatar',    initials);
+  setTxt('hr-ep-name',      ctx.full_name    || 'HR Officer');
+  setTxt('hr-ep-pos',       ctx.position     || ctx.employee_type || '');
+  setTxt('hr-ep-role-tag',  ctx.role         || 'HR');
+  setTxt('hr-ep-info-name', ctx.full_name);
+  setTxt('hr-ep-info-id',   ctx.employee_id);
+  setTxt('hr-ep-info-pos',  ctx.position);
+  setTxt('hr-ep-info-type', ctx.employee_type);
+  setTxt('hr-ep-info-email',ctx.email);
+  setTxt('hr-ep-info-role', ctx.role);
+}
+
 /* ── INIT ── */
 function initHRPortal() {
   applyHRIdentity();
@@ -1225,6 +1249,7 @@ window.loadHrBranchAssignment = loadHrBranchAssignment;
 window.openHrBranchAssignModal = openHrBranchAssignModal;
 window.closeHrBranchAssignModal = closeHrBranchAssignModal;
 window.submitHrBranchAssign = submitHrBranchAssign;
+window.loadHRProfile = loadHRProfile;
 
 /* ═══════════════════════════════════════
    HR ADD EMPLOYEE
