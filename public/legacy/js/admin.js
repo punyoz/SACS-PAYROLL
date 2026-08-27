@@ -1741,53 +1741,68 @@ window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChan
    BRANCH ASSIGNMENT
    ═══════════════════════════════════════ */
 
-const BRANCH_LABELS_UI = {
-  main: 'Main Branch',
-  '2':  '2nd Branch',
-  '3':  '3rd Branch',
-  '4':  '4th Branch',
-};
+const BRANCH_CARD_COLORS = ['a', 'b', 't', 'g', 'r'];
+const BRANCH_BADGE_COLORS = ['var(--amber)', 'var(--blue)', 'var(--teal)', 'var(--green)', 'var(--red)'];
 
-const BRANCH_BADGE_COLORS = {
-  main: 'var(--amber)',
-  '2':  'var(--blue)',
-  '3':  'var(--teal)',
-  '4':  'var(--green)',
-};
+function renderBranchFilterUI() {
+  if (branchFilter !== 'all' && branchFilter !== 'unassigned' && !admAssignBranches.some((b) => b.id === branchFilter)) {
+    branchFilter = 'all';
+  }
 
-function getBranchLabel(key) {
-  const BRANCH_KEYS = ['main', '2', '3', '4'];
-  const idx = BRANCH_KEYS.indexOf(String(key || ''));
-  if (idx >= 0 && admAssignBranches[idx]) return admAssignBranches[idx].name;
-  return BRANCH_LABELS_UI[String(key || '')] || String(key || '') || '—';
+  const cardsEl = document.getElementById('ba-branch-cards');
+  if (cardsEl) {
+    let html = `
+      <div class="card"><div class="ct">Total Employees</div><div class="cv" id="ba-count-total">0</div><div class="cch">All active employees</div></div>
+      <div class="card"><div class="ct">Unassigned</div><div class="cv r" id="ba-count-unassigned">0</div><div class="cch">Not yet in a branch</div></div>
+    `;
+    admAssignBranches.forEach((b, i) => {
+      const colorClass = BRANCH_CARD_COLORS[i % BRANCH_CARD_COLORS.length];
+      html += `<div class="card"><div class="ct">${escapeHtml(b.name)}</div><div class="cv ${colorClass}" id="ba-count-${escapeHtml(b.id)}">0</div><div class="cch">Branch campus</div></div>`;
+    });
+    cardsEl.innerHTML = html;
+  }
+
+  const chipsEl = document.getElementById('ba-filter-chips');
+  if (!chipsEl) return;
+
+  let chipsHtml = `
+    <div class="chip ${branchFilter === 'all' ? 'active' : ''}" data-bf="all" onclick="setBranchFilter('all')">All (0)</div>
+    <div class="chip ${branchFilter === 'unassigned' ? 'active' : ''}" data-bf="unassigned" onclick="setBranchFilter('unassigned')">Unassigned (0)</div>
+  `;
+
+  if (admAssignBranches.length) {
+    admAssignBranches.forEach((b) => {
+      const isActive = branchFilter === b.id;
+      chipsHtml += `<div class="chip ${isActive ? 'active' : ''}" data-bf="${escapeHtml(b.id)}" onclick="setBranchFilter('${escapeJsString(b.id)}')">${escapeHtml(b.name)} (0)</div>`;
+    });
+  } else {
+    chipsHtml += `<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No active branches configured — add one in Branch Management first.</span>`;
+  }
+
+  chipsEl.innerHTML = chipsHtml;
 }
 
 function updateBranchSummary() {
   const total = branchAllEmployees.length;
   const unassigned = branchAllEmployees.filter((e) => !e.branch).length;
-  const mainCount = branchAllEmployees.filter((e) => e.branch === 'main').length;
-  const count2 = branchAllEmployees.filter((e) => e.branch === '2').length;
-  const count3 = branchAllEmployees.filter((e) => e.branch === '3').length;
-  const count4 = branchAllEmployees.filter((e) => e.branch === '4').length;
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val); };
   set('ba-count-total', total);
   set('ba-count-unassigned', unassigned);
-  set('ba-count-main', mainCount);
-  set('ba-count-2', count2);
-  set('ba-count-3', count3);
-  set('ba-count-4', count4);
 
-  const BRANCH_KEYS = ['main', '2', '3', '4'];
-  const branchCounts = { main: mainCount, '2': count2, '3': count3, '4': count4 };
+  const countsByBranch = {};
+  admAssignBranches.forEach((b) => {
+    countsByBranch[b.id] = branchAllEmployees.filter((e) => e.branch === b.id).length;
+    set(`ba-count-${b.id}`, countsByBranch[b.id]);
+  });
+
   document.querySelectorAll('#ba-filter-chips .chip').forEach((chip) => {
     const bf = chip.getAttribute('data-bf');
     if (bf === 'all')             chip.textContent = `All (${total})`;
     else if (bf === 'unassigned') chip.textContent = `Unassigned (${unassigned})`;
     else {
-      const idx = BRANCH_KEYS.indexOf(bf);
-      const label = (idx >= 0 && admAssignBranches[idx]) ? admAssignBranches[idx].name : (BRANCH_LABELS_UI[bf] || bf);
-      chip.textContent = `${label} (${branchCounts[bf] ?? 0})`;
+      const branch = admAssignBranches.find((b) => b.id === bf);
+      chip.textContent = `${branch ? branch.name : 'Branch'} (${countsByBranch[bf] ?? 0})`;
     }
   });
 }
@@ -1815,10 +1830,11 @@ function renderBranchTable(employees) {
   tbody.innerHTML = employees.map((emp) => {
     const initials = getInitials(emp.full_name);
     const avatarColor = getAvatarColor(emp.email || emp.id);
-    const branchColor = emp.branch ? BRANCH_BADGE_COLORS[emp.branch] : null;
-    const branchLabel = emp.branch ? getBranchLabel(emp.branch) : null;
-    const branchCell = branchLabel
-      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${escapeHtml(branchLabel)}</span>`
+    const branchIdx = emp.branch ? admAssignBranches.findIndex((b) => b.id === emp.branch) : -1;
+    const branchColor = branchIdx >= 0 ? BRANCH_BADGE_COLORS[branchIdx % BRANCH_BADGE_COLORS.length] : 'var(--t3)';
+    const inactiveTag = emp.branch && emp.branch_status && emp.branch_status !== 'Active' ? ' (Inactive)' : '';
+    const branchCell = emp.branch
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${escapeHtml((emp.branch_label || 'Unknown branch') + inactiveTag)}</span>`
       : `<span class="badge br"><span class="bd"></span>Unassigned</span>`;
     const assignedAt = emp.assigned_at ? formatDateTime(emp.assigned_at) : '—';
     const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
@@ -1878,6 +1894,7 @@ async function loadBranchAssignment() {
       const bd = await branchRes.value.json();
       admAssignBranches = (bd.branches || []).filter((b) => b.status === 'Active');
     }
+    renderBranchFilterUI();
 
     const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
     const payload = await response.json();
@@ -1909,12 +1926,18 @@ function openBranchAssignModal(userId) {
   form.elements.user_id.value = currentBranchEmployee.id;
   form.elements.employee_display.value = `${currentBranchEmployee.full_name} (${currentBranchEmployee.employee_id || 'N/A'})`;
 
-  const BRANCH_KEYS = ['main', '2', '3', '4'];
   const branchSelect = form.elements.branch;
   if (branchSelect) {
-    if (admAssignBranches.length) {
-      branchSelect.innerHTML = admAssignBranches.slice(0, 4).map((b, i) =>
-        `<option value="${BRANCH_KEYS[i]}">${escapeHtml(b.name)}</option>`
+    // Always offer active branches; also include the employee's current branch even if
+    // it has since gone inactive, so reassigning away from it stays possible.
+    const options = [...admAssignBranches];
+    if (currentBranchEmployee.branch && !options.some((b) => b.id === currentBranchEmployee.branch)) {
+      options.push({ id: currentBranchEmployee.branch, name: `${currentBranchEmployee.branch_label || 'Unknown branch'} (Inactive)` });
+    }
+
+    if (options.length) {
+      branchSelect.innerHTML = options.map((b) =>
+        `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`
       ).join('');
     } else {
       branchSelect.innerHTML = '<option value="" disabled>No branches configured yet.</option>';
@@ -1941,9 +1964,9 @@ async function submitBranchAssign(event) {
   const formData = new FormData(form);
 
   const userId = String(formData.get('user_id') || '').trim();
-  const branch = String(formData.get('branch') || '').trim();
+  const branchId = String(formData.get('branch') || '').trim();
 
-  if (!userId || !branch) {
+  if (!userId || !branchId) {
     if (feedbackEl) { feedbackEl.textContent = 'Missing required fields.'; feedbackEl.className = 'adm-feedback err'; }
     return;
   }
@@ -1958,7 +1981,7 @@ async function submitBranchAssign(event) {
     const response = await fetch('/api/admin/branch-employees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, branch, assigned_by: assignedBy }),
+      body: JSON.stringify({ user_id: userId, branch_id: branchId, assigned_by: assignedBy }),
     });
 
     const result = await response.json();

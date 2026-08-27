@@ -307,24 +307,17 @@
     <div class="page" id="adm-branch-assign">
       <div class="ph"><h2>Branch Assignment</h2><p>Assign employees to their respective school branch campus</p></div>
 
-      <div class="sg3" style="margin-bottom:8px;">
-        <div class="card"><div class="ct">Unassigned</div><div class="cv r" id="ba-count-unassigned">0</div><div class="cch">Not yet in a branch</div></div>
-        <div class="card"><div class="ct">Main Branch</div><div class="cv a" id="ba-count-main">0</div><div class="cch">Main campus</div></div>
-        <div class="card"><div class="ct">2nd Branch</div><div class="cv b" id="ba-count-2">0</div><div class="cch">2nd campus</div></div>
-      </div>
-      <div class="sg3" style="margin-bottom:14px;">
-        <div class="card"><div class="ct">3rd Branch</div><div class="cv t" id="ba-count-3">0</div><div class="cch">3rd campus</div></div>
-        <div class="card"><div class="ct">4th Branch</div><div class="cv g" id="ba-count-4">0</div><div class="cch">4th campus</div></div>
-        <div class="card"><div class="ct">Total Employees</div><div class="cv" id="ba-count-total">0</div><div class="cch">All active employees</div></div>
+      <div id="ba-branch-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
+        <!-- Rendered dynamically by JS after branches load -->
+        <div class="card"><div class="ct">Total Employees</div><div class="cv sk-bar" style="width:40%;height:22px;border-radius:4px;" id="ba-count-total"></div></div>
+        <div class="card"><div class="ct">Unassigned</div><div class="cv sk-bar" style="width:40%;height:22px;border-radius:4px;" id="ba-count-unassigned"></div></div>
       </div>
 
-      <div class="chips" id="ba-filter-chips">
-        <div class="chip active" data-bf="all" onclick="setBranchFilter('all')">All (0)</div>
-        <div class="chip" data-bf="unassigned" onclick="setBranchFilter('unassigned')">Unassigned (0)</div>
-        <div class="chip" data-bf="main" onclick="setBranchFilter('main')">Main Branch (0)</div>
-        <div class="chip" data-bf="2" onclick="setBranchFilter('2')">2nd Branch (0)</div>
-        <div class="chip" data-bf="3" onclick="setBranchFilter('3')">3rd Branch (0)</div>
-        <div class="chip" data-bf="4" onclick="setBranchFilter('4')">4th Branch (0)</div>
+      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+        <div style="font-size:11px;color:var(--t3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">Filter by Branch</div>
+        <div class="chips" id="ba-filter-chips" style="margin:0;flex-wrap:wrap;gap:6px;">
+          <!-- Rendered dynamically by JS -->
+        </div>
       </div>
 
       <div class="adm-employee-controls" style="margin-top:10px;">
