@@ -56,8 +56,16 @@ export async function POST(request) {
     }
 
     const userId = signInData.user.id;
+    const role = normalizeText(signInData.user.user_metadata?.role).toLowerCase();
 
     await authClient.auth.signOut();
+
+    if (role === "admin") {
+      return NextResponse.json(
+        { error: "Password change is not available for admin accounts via this feature." },
+        { status: 403 },
+      );
+    }
 
     const adminClient = getAdminClient();
     const { error: updateError } = await adminClient.auth.admin.updateUserById(userId, {

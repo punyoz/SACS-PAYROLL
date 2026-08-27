@@ -10,7 +10,7 @@
       document.documentElement.setAttribute('data-theme', savedTheme);
       // Cache-bust version: changes every 5 min so deploys take effect quickly.
       window._bv = Math.floor(Date.now() / 300000);
-      var sheets = ['css/theme.css','css/base.css','css/layout.css','css/admin.css','css/accountant.css','css/employee.css'];
+      var sheets = ['css/theme.css','css/base.css','css/layout.css','css/admin.css','css/accountant.css','css/employee.css','css/super-admin.css'];
       sheets.forEach(function(href) {
         var l = document.createElement('link');
         l.rel = 'stylesheet';
@@ -106,6 +106,19 @@
       if (admName && role === 'admin') {
         admName.textContent = fullName;
       }
+
+      // Super Admin portal placeholders
+      var saName = document.getElementById('sa-user-name');
+      if (saName && role === 'super_admin') {
+        saName.textContent = fullName;
+      }
+      var saAvatar = document.getElementById('sa-avatar');
+      if (saAvatar && role === 'super_admin' && fullName) {
+        var saParts = fullName.trim().split(/\s+/);
+        saAvatar.textContent = saParts.length >= 2
+          ? (saParts[0][0] + saParts[saParts.length - 1][0]).toUpperCase()
+          : fullName.slice(0, 2).toUpperCase();
+      }
     }
 
     async function bootstrapApp() {
@@ -115,7 +128,8 @@
         'pages/admin.html',
         'pages/accountant.html',
         'pages/employee.html',
-        'pages/hr.html'
+        'pages/hr.html',
+        'pages/super-admin.html'
       ];
 
       try {
@@ -130,6 +144,7 @@
         await loadScript('js/accountant.js');
         await loadScript('js/employee.js');
         await loadScript('js/hr.js');
+        await loadScript('js/super-admin.js');
       } catch (error) {
         appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';
       }

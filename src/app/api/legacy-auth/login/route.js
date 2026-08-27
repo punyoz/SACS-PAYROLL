@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 
 const roleRoutes = {
+  super_admin: "/super-admin",
   admin: "/admin",
   accountant: "/accountant",
   employee: "/employee",
@@ -13,6 +14,8 @@ const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "sacsadmin
 const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "admin@example.com");
 const HR_USERNAME = normalizeText(process.env.SEED_HR_USERNAME, "sacshr").toLowerCase();
 const HR_EMAIL = normalizeText(process.env.SEED_HR_EMAIL, "hr@example.com");
+const SUPER_ADMIN_USERNAME = normalizeText(process.env.SEED_SUPER_ADMIN_USERNAME, "sacssuperadmin").toLowerCase();
+const SUPER_ADMIN_EMAIL = normalizeText(process.env.SEED_SUPER_ADMIN_EMAIL, "superadmin@example.com");
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -55,6 +58,10 @@ function resolveLoginEmail(identityInput) {
   }
 
   const lowered = identity.toLowerCase();
+
+  if (lowered === SUPER_ADMIN_USERNAME) {
+    return normalizeRoleEmail(SUPER_ADMIN_EMAIL);
+  }
 
   if (lowered === ADMIN_USERNAME) {
     return normalizeRoleEmail(ADMIN_EMAIL);
@@ -105,9 +112,25 @@ export async function POST(request) {
     return NextResponse.json({ error: error?.message || "Invalid login credentials." }, { status: 401 });
   }
 
-  const actualRole = data.user.user_metadata?.role;
+  if (data.user.user_metadata?.archived === true) {
+    await supabase.auth.signOut();
+    return NextResponse.json(
+      { error: "This account has been archived and can no longer sign in." },
+      { status: 403 },
+    );
+  }
 
-  if (!actualRole || !roleRoutes[normalizeRole(actualRole)]) {
+  // Check the raw role string directly against the known routable roles —
+  // do NOT go through normalizeRole() here, since it silently falls back to
+  // "employee" for anything it doesn't recognize. That fallback is fine for
+  // display/formatting purposes elsewhere, but here it would let an account
+  // whose role has become momentarily unrecognized (e.g. a role renamed or
+  // temporarily removed in code) log in *as a different role* instead of
+  // being rejected — exactly the bug that once silently reassigned the
+  // super_admin account to the employee portal.
+  const actualRole = normalizeText(data.user.user_metadata?.role).toLowerCase();
+
+  if (!actualRole || !Object.prototype.hasOwnProperty.call(roleRoutes, actualRole)) {
     await supabase.auth.signOut();
     return NextResponse.json(
       {
