@@ -5,7 +5,6 @@ export function normalizeText(value, fallback = "") {
 
 export function normalizeRole(value) {
   const role = normalizeText(value).toLowerCase();
-  if (role === "super_admin") return "super_admin";
   if (role === "admin") return "admin";
   if (role === "accountant") return "accountant";
   if (role === "hr") return "hr";

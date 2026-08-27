@@ -55,12 +55,6 @@ export async function POST(request) {
       return NextResponse.json(genericSuccess);
     }
 
-    const role = normalizeText(user.user_metadata?.role).toLowerCase();
-    if (role === "admin") {
-      // Admin accounts cannot use this reset flow
-      return NextResponse.json(genericSuccess);
-    }
-
     if (!anonKey) {
       // Without an anon key we cannot trigger the reset email; respond generically.
       return NextResponse.json(genericSuccess);

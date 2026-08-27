@@ -120,7 +120,7 @@ function getPersistedRolePageState(role) {
 }
 
 function clearPersistedRolePageStates() {
-  ['super_admin', 'admin', 'accountant', 'employee', 'hr'].forEach((role) => {
+  ['admin', 'accountant', 'employee', 'hr'].forEach((role) => {
     localStorage.removeItem(getRolePageStateKey(role));
   });
 }
@@ -383,7 +383,6 @@ function getActiveScreen() {
 
 function getRoleNameFromScreen(screen) {
   const id = screen?.id;
-  if (id === 's-super-admin') return 'Super Administrator';
   if (id === 's-admin') return 'Administrator';
   if (id === 's-accountant') return 'Accountant';
   if (id === 's-emp') return 'Employee';
@@ -576,22 +575,6 @@ function pushNotification(title, desc, type) {
 function getRoleNotifications() {
   const screenId = getActiveScreen()?.id;
 
-  if (screenId === 's-super-admin') {
-    const users = Number(document.getElementById('sa-dash-users')?.textContent || 0);
-    const dbStatus = String(document.getElementById('sa-dash-status')?.textContent || 'Online');
-
-    return [
-      {
-        title: `System Status: ${dbStatus}`,
-        desc: 'All services are being monitored centrally.',
-      },
-      {
-        title: users > 0 ? `${users} users registered system-wide` : 'User data loading…',
-        desc: 'Go to Roles & Permissions to manage user accounts.',
-      },
-    ];
-  }
-
   if (screenId === 's-admin') {
     const pending = Number(document.getElementById('adm-panel-pending-approvals')?.textContent || 0);
     const totalEmployees = Number(document.getElementById('adm-panel-total-employees')?.textContent || 0);
@@ -770,11 +753,6 @@ function refreshCurrentPortal() {
       if (currentRole === 'hr' && typeof hrNav === 'function' && pageId) {
         const navEl = document.querySelector(`#s-hr .ni[onclick*="${pageId}"]`);
         hrNav(pageId, navEl);
-        return;
-      }
-      if (currentRole === 'super_admin' && typeof saNav === 'function' && pageId) {
-        const navEl = document.querySelector(`#s-super-admin .ni[onclick*="${pageId}"]`);
-        saNav(pageId, navEl);
         return;
       }
     }
@@ -1131,19 +1109,17 @@ function logout() {
     return;
   }
 
-  ['s-super-admin', 's-admin', 's-accountant', 's-emp', 's-hr'].forEach(id => {
+  ['s-admin', 's-accountant', 's-emp', 's-hr'].forEach(id => {
     document.getElementById(id)?.classList.remove('active');
   });
   document.getElementById('s-login').classList.add('active');
 }
 
 function showRoleScreen(role) {
-  const screens = ['s-login', 's-super-admin', 's-admin', 's-accountant', 's-emp', 's-hr'];
+  const screens = ['s-login', 's-admin', 's-accountant', 's-emp', 's-hr'];
   screens.forEach(id => document.getElementById(id)?.classList.remove('active'));
 
-  if (role === 'super_admin') {
-    document.getElementById('s-super-admin')?.classList.add('active');
-  } else if (role === 'admin') {
+  if (role === 'admin') {
     document.getElementById('s-admin')?.classList.add('active');
   } else if (role === 'accountant') {
     document.getElementById('s-accountant')?.classList.add('active');
@@ -1257,7 +1233,6 @@ function initApp() {
   applyTheme(saved);
 
   const roleRouteMap = {
-    super_admin: '/super-admin',
     admin: '/admin',
     accountant: '/accountant',
     employee: '/employee',

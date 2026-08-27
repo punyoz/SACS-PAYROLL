@@ -1029,7 +1029,7 @@ function hrRenderBranchFilterUI() {
       chipsHtml += `<div class="chip ${isActive ? 'active' : ''}" data-hbf="${key}" onclick="setHrBranchFilter('${key}')">${safeName} (0)</div>`;
     });
   } else {
-    chipsHtml += `<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No branches configured — ask the Super Admin to add branches first.</span>`;
+    chipsHtml += `<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No branches configured — ask an Administrator to add branches first.</span>`;
   }
 
   chipsEl.innerHTML = chipsHtml;
@@ -1141,7 +1141,7 @@ async function loadHrBranchAssignment() {
   if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
-    const [branchRes] = await Promise.allSettled([fetch('/api/super-admin/branches')]);
+    const [branchRes] = await Promise.allSettled([fetch('/api/admin/branches')]);
     if (branchRes.status === 'fulfilled' && branchRes.value.ok) {
       const bd = await branchRes.value.json();
       hrBranches = (bd.branches || []).filter((b) => b.status === 'Active');

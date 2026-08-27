@@ -5,8 +5,7 @@
 
 /* ── APP SHELL ── */
 #s-admin,
-#s-accountant,
-#s-super-admin {
+#s-accountant {
   flex-direction: row;
   min-height: 100vh;
   align-items: flex-start;
@@ -314,8 +313,7 @@
 
 /* ── RESPONSIVE SHELL (mobile-first) ── */
 #s-admin,
-#s-accountant,
-#s-super-admin {
+#s-accountant {
   flex-direction: column;
   min-height: 100dvh;
 }
@@ -403,8 +401,7 @@
 
 @media (min-width: 1024px) {
   #s-admin,
-  #s-accountant,
-  #s-super-admin {
+  #s-accountant {
     flex-direction: row;
     min-height: 100vh;
   }

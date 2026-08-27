@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 
 const roleRoutes = {
-  super_admin: "/super-admin",
   admin: "/admin",
   accountant: "/accountant",
   employee: "/employee",
@@ -14,8 +13,6 @@ const ADMIN_USERNAME = normalizeText(process.env.SEED_ADMIN_USERNAME, "sacsadmin
 const ADMIN_EMAIL = normalizeText(process.env.SEED_ADMIN_EMAIL, "admin@example.com");
 const HR_USERNAME = normalizeText(process.env.SEED_HR_USERNAME, "sacshr").toLowerCase();
 const HR_EMAIL = normalizeText(process.env.SEED_HR_EMAIL, "hr@example.com");
-const SUPER_ADMIN_USERNAME = normalizeText(process.env.SEED_SUPER_ADMIN_USERNAME, "sacssuperadmin").toLowerCase();
-const SUPER_ADMIN_EMAIL = normalizeText(process.env.SEED_SUPER_ADMIN_EMAIL, "superadmin@example.com");
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -58,10 +55,6 @@ function resolveLoginEmail(identityInput) {
   }
 
   const lowered = identity.toLowerCase();
-
-  if (lowered === SUPER_ADMIN_USERNAME) {
-    return normalizeRoleEmail(SUPER_ADMIN_EMAIL);
-  }
 
   if (lowered === ADMIN_USERNAME) {
     return normalizeRoleEmail(ADMIN_EMAIL);
