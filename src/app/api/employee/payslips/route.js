@@ -83,7 +83,9 @@ function mapEntryToPayslip(row) {
     withholding_tax: toAmount(deductions.withholding_tax),
     absences_days: toAmount(deductions.absences_days),
     absence_deduction: toAmount(totals.absence_deduction),
-    cash_advance: toAmount(deductions.cash_advance),
+    leave_with_pay_days: toAmount(deductions.leave_with_pay_days),
+    leave_without_pay_days: toAmount(deductions.leave_without_pay_days),
+    leave_without_pay_deduction: toAmount(totals.leave_without_pay_deduction),
   };
 }
 
@@ -131,7 +133,9 @@ function mapApprovalToPayslip(row) {
     withholding_tax: toAmount(deductions.withholding_tax),
     absences_days: toAmount(deductions.absences_days),
     absence_deduction: toAmount(totals.absence_deduction),
-    cash_advance: toAmount(deductions.cash_advance),
+    leave_with_pay_days: toAmount(deductions.leave_with_pay_days),
+    leave_without_pay_days: toAmount(deductions.leave_without_pay_days),
+    leave_without_pay_deduction: toAmount(totals.leave_without_pay_deduction),
   };
 }
 

@@ -26,6 +26,7 @@ const acctState = {
   draftEntries: [],
   panels: {},
   attendanceRows: [],
+  leaveSummary: [],
   payslipOptions: [],
   payslip: null,
   periodOptions: [],
@@ -219,7 +220,16 @@ function autoFillDeductions(basic) {
   setVal('pc-sss', pct2);
   setVal('pc-philhealth', pct2);
   setVal('pc-pagibig', pct2);
-  setVal('pc-cashadvance', pct2);
+}
+
+// Auto-fills the current employee's Leave With Pay / Without Pay day counts for
+// the selected pay period, from real approved leave requests (acctState.leaveSummary,
+// populated by loadAccountantData() from GET /api/accountant/payroll's leave_summary).
+function autoFillLeaveDays(employeeId) {
+  const summary = (acctState.leaveSummary || []).find((row) => row.employee_id === employeeId);
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  setVal('pc-leave-with-pay-days', summary?.with_pay_days || 0);
+  setVal('pc-leave-without-pay-days', summary?.without_pay_days || 0);
 }
 
 function recalc() {
@@ -231,12 +241,15 @@ function recalc() {
   const tax = get('pc-tax');
   const absenceDays = get('pc-absences');
   const lateDays = get('pc-late');
-  const cashAdv = get('pc-cashadvance');
+  const leaveWithPayDays = get('pc-leave-with-pay-days');
+  const leaveWithoutPayDays = get('pc-leave-without-pay-days');
 
   // 1 absent = ₱550, 3 late = 1 absent = ₱550
   const absenceDeduct = toAmount((absenceDays + Math.floor(lateDays / 3)) * 550);
+  // Leave Without Pay deducts at the same ₱550/day rate as an absence.
+  const leaveWithoutPayDeduct = toAmount(leaveWithoutPayDays * 550);
   const grossPay = basic; // No allowances; Gross Pay = Basic Salary
-  const totalDeductions = toAmount(sss + philhealth + pagibig + tax + absenceDeduct + cashAdv);
+  const totalDeductions = toAmount(sss + philhealth + pagibig + tax + absenceDeduct + leaveWithoutPayDeduct);
   const netPay = toAmount(grossPay - totalDeductions);
 
   const updates = {
@@ -247,7 +260,8 @@ function recalc() {
     'sum-pagibig': `- ${formatMoney(pagibig)}`,
     'sum-tax': `- ${formatMoney(tax)}`,
     'sum-absences': `- ${formatMoney(absenceDeduct)}`,
-    'sum-cashadvance': `- ${formatMoney(cashAdv)}`,
+    'sum-leave-with-pay': `${leaveWithPayDays} day${leaveWithPayDays === 1 ? '' : 's'}`,
+    'sum-leave-without-pay': `- ${formatMoney(leaveWithoutPayDeduct)}`,
     'sum-net': formatMoney(netPay),
   };
 
@@ -275,7 +289,8 @@ function getPayrollFormValues() {
       withholding_tax: get('pc-tax'),
       absences_days: get('pc-absences'),
       late_days: get('pc-late'),
-      cash_advance: get('pc-cashadvance'),
+      leave_with_pay_days: get('pc-leave-with-pay-days'),
+      leave_without_pay_days: get('pc-leave-without-pay-days'),
     },
   };
 }
@@ -429,6 +444,7 @@ function syncFormForEmployee() {
   if (!acctState.currentEntryId) {
     basicInput.value = Number(employee.basic_salary || 0);
     autoFillDeductions(toAmount(basicInput.value));
+    autoFillLeaveDays(employee.id);
   }
 
   recalc();
@@ -806,7 +822,9 @@ function renderPayslipDetails() {
   assign('ac-pf-pagibig', formatMoney(payslip.deductions?.pagibig || 0));
   assign('ac-pf-tax', formatMoney(payslip.deductions?.withholding_tax || 0));
   assign('ac-pf-absence', formatMoney(payslip.deductions?.absence_deduction || 0));
-  assign('ac-pf-cashadvance', formatMoney(payslip.deductions?.cash_advance || 0));
+  const leaveWithPayDays = payslip.deductions?.leave_with_pay_days || 0;
+  assign('ac-pf-leave-with-pay', `${leaveWithPayDays} day${leaveWithPayDays === 1 ? '' : 's'}`);
+  assign('ac-pf-leave-without-pay', formatMoney(payslip.deductions?.leave_without_pay_deduction || 0));
   assign('ac-pf-total-deductions', formatMoney(payslip.deductions?.total_deductions || 0));
   assign('ac-pf-net', formatMoney(payslip.net_pay || 0));
 }
@@ -843,9 +861,177 @@ function populateFormFromDraft() {
   setValue('pc-tax', deductions.withholding_tax);
   setValue('pc-absences', deductions.absences_days);
   setValue('pc-late', deductions.late_days ?? 0);
-  setValue('pc-cashadvance', deductions.cash_advance);
+  setValue('pc-leave-with-pay-days', deductions.leave_with_pay_days ?? 0);
+  setValue('pc-leave-without-pay-days', deductions.leave_without_pay_days ?? 0);
 
   recalc();
+}
+
+/* ── BATCH PAYROLL PROCESSING ── */
+function renderBatchPeriodDropdown() {
+  const select = document.getElementById('pc-batch-period');
+  if (!select) return;
+
+  if (!acctState.periodOptions.length) {
+    select.innerHTML = '<option>Current period</option>';
+    return;
+  }
+
+  const previousValue = select.value;
+  select.innerHTML = acctState.periodOptions.map((period) => `<option value="${escapeHtml(period)}">${escapeHtml(period)}</option>`).join('');
+
+  if (previousValue && acctState.periodOptions.includes(previousValue)) {
+    select.value = previousValue;
+  }
+}
+
+function computeBatchRowNetPay(row) {
+  const absenceDeduct = toAmount((row.absences_days + Math.floor(row.late_days / 3)) * 550);
+  const leaveWithoutPayDeduct = toAmount(row.leave_without_pay_days * 550);
+  const totalDeductions = toAmount(row.sss + row.philhealth + row.pagibig + row.tax + absenceDeduct + leaveWithoutPayDeduct);
+  return toAmount(row.basic_salary - totalDeductions);
+}
+
+function recalcBatchRow(employeeId) {
+  const safeId = escapeJsAttr(employeeId);
+  const get = (field) => toAmount(document.getElementById(`batch-${field}-${safeId}`)?.value);
+
+  const row = {
+    basic_salary: get('basic'),
+    sss: get('sss'),
+    philhealth: get('philhealth'),
+    pagibig: get('pagibig'),
+    tax: get('tax'),
+    absences_days: get('absent'),
+    late_days: get('late'),
+    leave_without_pay_days: get('lwop'),
+  };
+
+  const netPay = computeBatchRowNetPay(row);
+  const netEl = document.getElementById(`batch-net-${safeId}`);
+  if (netEl) netEl.textContent = formatMoney(netPay);
+}
+
+function escapeJsAttr(value) {
+  return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function loadBatchPayrollTable() {
+  const tbody = document.getElementById('pc-batch-table-body');
+  if (!tbody) return;
+
+  if (!acctState.employees.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="color:var(--t3);">No employees found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = acctState.employees.map((employee) => {
+    const id = escapeJsAttr(employee.id);
+    const basic = toAmount(employee.basic_salary);
+    const pct2 = toAmount(basic * 0.02);
+    const attendance = acctState.attendanceRows.find((row) => row.employee_id === employee.id);
+    const leave = acctState.leaveSummary.find((row) => row.employee_id === employee.id);
+    const absentDays = attendance?.absent_days || 0;
+    const lateDays = attendance?.late_days || 0;
+    const leaveWithPayDays = leave?.with_pay_days || 0;
+    const leaveWithoutPayDays = leave?.without_pay_days || 0;
+    const netPay = computeBatchRowNetPay({
+      basic_salary: basic,
+      sss: pct2,
+      philhealth: pct2,
+      pagibig: pct2,
+      tax: 0,
+      absences_days: absentDays,
+      late_days: lateDays,
+      leave_without_pay_days: leaveWithoutPayDays,
+    });
+
+    return `
+      <tr data-employee-id="${escapeHtml(employee.id)}">
+        <td class="nm">${escapeHtml(employee.full_name)}</td>
+        <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}"></td>
+        <td class="mn"><span id="batch-sss-display-${id}">${formatMoney(pct2)}</span><input type="hidden" id="batch-sss-${id}" value="${pct2}"></td>
+        <td class="mn"><span id="batch-philhealth-display-${id}">${formatMoney(pct2)}</span><input type="hidden" id="batch-philhealth-${id}" value="${pct2}"></td>
+        <td class="mn"><span id="batch-pagibig-display-${id}">${formatMoney(pct2)}</span><input type="hidden" id="batch-pagibig-${id}" value="${pct2}"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-tax-${id}" value="0" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-absent-${id}" value="${absentDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-late-${id}" value="${lateDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><span id="batch-lwp-display-${id}">${leaveWithPayDays}</span><input type="hidden" id="batch-lwp-${id}" value="${leaveWithPayDays}"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-lwop-${id}" value="${leaveWithoutPayDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn" style="font-family:var(--mono);font-weight:600;" id="batch-net-${id}">${formatMoney(netPay)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function processBatchPayroll() {
+  const feedbackEl = document.getElementById('pc-batch-feedback');
+  const submitBtn = document.getElementById('pc-batch-submit-btn');
+  const payPeriod = String(document.getElementById('pc-batch-period')?.value || '').trim();
+
+  if (!payPeriod) {
+    if (feedbackEl) { feedbackEl.textContent = 'Select a pay period first.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const rows = Array.from(document.querySelectorAll('#pc-batch-table-body tr[data-employee-id]'));
+  if (!rows.length) {
+    if (feedbackEl) { feedbackEl.textContent = 'No employees to process.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const confirmed = window.confirmDestructiveAction
+    ? await window.confirmDestructiveAction(`process payroll for all ${rows.length} employees`, 'This will generate a payslip for each employee. Already-paid employees for this period will be skipped.')
+    : window.confirm(`Process payroll for all ${rows.length} employees?`);
+  if (!confirmed) return;
+
+  const entries = rows.map((row) => {
+    const employeeId = row.getAttribute('data-employee-id');
+    const id = escapeJsAttr(employeeId);
+    const get = (field) => toAmount(document.getElementById(`batch-${field}-${id}`)?.value);
+
+    return {
+      employee_id: employeeId,
+      basic_salary: get('basic'),
+      deductions: {
+        sss: get('sss'),
+        philhealth: get('philhealth'),
+        pagibig: get('pagibig'),
+        withholding_tax: get('tax'),
+        absences_days: get('absent'),
+        late_days: get('late'),
+        leave_with_pay_days: get('lwp'),
+        leave_without_pay_days: get('lwop'),
+      },
+    };
+  });
+
+  try {
+    submitBtn.disabled = true;
+    if (feedbackEl) { feedbackEl.textContent = 'Processing payroll for all employees...'; feedbackEl.className = 'adm-feedback'; }
+
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'batch_submit', pay_period: payPeriod, entries }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Failed to process batch payroll.');
+
+    const processedCount = result.processed?.length || 0;
+    const skippedCount = result.skipped?.length || 0;
+    const message = `Processed ${processedCount} payslip${processedCount === 1 ? '' : 's'}.${skippedCount ? ` ${skippedCount} skipped (already paid for this period).` : ''}`;
+
+    if (feedbackEl) { feedbackEl.textContent = message; feedbackEl.className = 'adm-feedback ok'; }
+    window.pushNotification?.('Batch Payroll Processed', message, 'success');
+
+    await loadAccountantData();
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+  }
 }
 
 async function loadAccountantData(options = {}) {
@@ -891,12 +1077,15 @@ async function loadAccountantData(options = {}) {
       }
     }
     acctState.attendanceRows = payload.attendance_rows || [];
+    acctState.leaveSummary = payload.leave_summary || [];
     acctState.payslipOptions = payload.payslip_options || [];
     acctState.payslip = payload.payslip || null;
     acctState.periodOptions = payload.period_options || [];
 
     renderEmployeeDropdown();
     renderPeriodDropdown();
+    renderBatchPeriodDropdown();
+    loadBatchPayrollTable();
     renderRecordsPanels(acctState.panels);
     if (acRecordsPaginator) {
       acRecordsPaginator.setData(acctState.records);

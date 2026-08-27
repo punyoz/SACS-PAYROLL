@@ -7,6 +7,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -183,10 +184,12 @@ function normalizePayrollEntry(row) {
         withholding_tax: toAmount(payrollObj?.deductions?.withholding_tax ?? row.withholding_tax),
         absences_days: toAmount(payrollObj?.deductions?.absences_days ?? row.absences_days),
         late_days: toAmount(payrollObj?.deductions?.late_days ?? 0),
-        cash_advance: toAmount(payrollObj?.deductions?.cash_advance ?? row.cash_advance),
+        leave_with_pay_days: toAmount(payrollObj?.deductions?.leave_with_pay_days),
+        leave_without_pay_days: toAmount(payrollObj?.deductions?.leave_without_pay_days),
       },
       totals: {
         absence_deduction: toAmount(payrollObj?.totals?.absence_deduction ?? row.absence_deduction),
+        leave_without_pay_deduction: toAmount(payrollObj?.totals?.leave_without_pay_deduction),
         gross_pay: toAmount(payrollObj?.totals?.gross_pay ?? row.gross_pay),
         total_deductions: toAmount(payrollObj?.totals?.total_deductions ?? row.total_deductions),
         net_pay: toAmount(payrollObj?.totals?.net_pay ?? row.net_pay),
@@ -204,13 +207,16 @@ function computeTotals(payroll) {
   const withholdingTax = toAmount(payroll.deductions?.withholding_tax);
   const absencesDays = Math.max(0, toAmount(payroll.deductions?.absences_days));
   const lateDays = Math.max(0, toAmount(payroll.deductions?.late_days));
-  const cashAdvance = toAmount(payroll.deductions?.cash_advance);
+  const leaveWithPayDays = Math.max(0, toAmount(payroll.deductions?.leave_with_pay_days));
+  const leaveWithoutPayDays = Math.max(0, toAmount(payroll.deductions?.leave_without_pay_days));
 
   // 1 absent = ₱550, 3 late = 1 absent = ₱550
   const absenceDeduction = toAmount((absencesDays + Math.floor(lateDays / 3)) * 550);
+  // Leave Without Pay deducts at the same ₱550/day rate as an absence.
+  const leaveWithoutPayDeduction = toAmount(leaveWithoutPayDays * 550);
 
   const grossPay = basicSalary; // No allowances; Gross Pay = Basic Salary
-  const totalDeductions = toAmount(sss + philhealth + pagibig + withholdingTax + absenceDeduction + cashAdvance);
+  const totalDeductions = toAmount(sss + philhealth + pagibig + withholdingTax + absenceDeduction + leaveWithoutPayDeduction);
   const netPay = toAmount(grossPay - totalDeductions);
 
   return {
@@ -228,10 +234,12 @@ function computeTotals(payroll) {
       withholding_tax: withholdingTax,
       absences_days: absencesDays,
       late_days: lateDays,
-      cash_advance: cashAdvance,
+      leave_with_pay_days: leaveWithPayDays,
+      leave_without_pay_days: leaveWithoutPayDays,
     },
     totals: {
       absence_deduction: absenceDeduction,
+      leave_without_pay_deduction: leaveWithoutPayDeduction,
       gross_pay: grossPay,
       total_deductions: totalDeductions,
       net_pay: netPay,
@@ -593,6 +601,41 @@ async function fetchAttendanceSummary(supabase, employees, payrollEntries) {
   return Array.from(grouped.values()).sort((a, b) => a.employee_name.localeCompare(b.employee_name));
 }
 
+// Sums each employee's approved Leave With Pay / Without Pay days that fall in
+// the current calendar month, matching fetchAttendanceSummary()'s same
+// current-month scoping (pay periods aren't otherwise date-ranged in this app).
+async function computeLeaveSummary(employees) {
+  const monthPrefix = getCurrentMonthPrefix();
+  const allLeaveRequests = await readAllLeaveRequests();
+  const approved = allLeaveRequests.filter((r) => r.status === "approved");
+
+  return employees.map((employee) => {
+    // leave_requests.employee_id stores the human-readable SACS-XXX code
+    // (see submitLeaveRequest() in employee.js), not the auth user UUID that
+    // `employee.id` is — match on employee.employee_id, but key the returned
+    // summary by employee.id (UUID) to match attendance_rows' convention.
+    const requestsForEmployee = approved.filter((r) => r.employee_id === employee.employee_id);
+
+    let withPayDays = 0;
+    let withoutPayDays = 0;
+
+    requestsForEmployee.forEach((request) => {
+      if (!String(request.start_date || "").startsWith(monthPrefix) && !String(request.end_date || "").startsWith(monthPrefix)) {
+        return;
+      }
+      const days = countLeaveDays(request.start_date, request.end_date);
+      if (request.pay_status === "without_pay") withoutPayDays += days;
+      else withPayDays += days;
+    });
+
+    return {
+      employee_id: employee.id,
+      with_pay_days: withPayDays,
+      without_pay_days: withoutPayDays,
+    };
+  });
+}
+
 function mapEntryToRecord(entry) {
   const grossPay = Number(entry.payroll?.totals?.gross_pay || 0);
   const totalDeductions = Number(entry.payroll?.totals?.total_deductions || 0);
@@ -665,7 +708,9 @@ function buildPayslipDetails(entry) {
       absences_days: entry.payroll.deductions.absences_days,
       late_days: entry.payroll.deductions.late_days ?? 0,
       absence_deduction: entry.payroll.totals.absence_deduction,
-      cash_advance: entry.payroll.deductions.cash_advance,
+      leave_with_pay_days: entry.payroll.deductions.leave_with_pay_days ?? 0,
+      leave_without_pay_days: entry.payroll.deductions.leave_without_pay_days ?? 0,
+      leave_without_pay_deduction: entry.payroll.totals.leave_without_pay_deduction ?? 0,
       total_deductions: entry.payroll.totals.total_deductions,
     },
     net_pay: entry.payroll.totals.net_pay,
@@ -738,6 +783,7 @@ export async function GET(request) {
           : null);
 
     const attendanceRows = await fetchAttendanceSummary(supabase, employees, sortedEntries);
+    const leaveSummary = await computeLeaveSummary(employees);
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -746,6 +792,7 @@ export async function GET(request) {
       records: payrollRecords,
       panels: buildPayrollPanels(payrollRecords),
       attendance_rows: attendanceRows,
+      leave_summary: leaveSummary,
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
@@ -756,16 +803,124 @@ export async function GET(request) {
   }
 }
 
+// Processes every employee in one request — used by the "Process Payroll for
+// All" batch table. Does not touch the existing single-employee save_draft/
+// submit path below; reuses the same computeTotals()/appendPayrollRecord()/
+// syncPayrollEntryToDb() building blocks that path already relies on.
+async function handleBatchSubmit(supabase, body) {
+  const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(new Date()));
+  const requestedEntries = Array.isArray(body.entries) ? body.entries : [];
+
+  if (!requestedEntries.length) {
+    return NextResponse.json({ error: "At least one employee entry is required." }, { status: 400 });
+  }
+
+  const employees = await fetchEmployees(supabase);
+  const entriesResult = await readPayrollEntries(supabase);
+  const entries = entriesResult.entries;
+  const nowIso = new Date().toISOString();
+
+  const processed = [];
+  const skipped = [];
+
+  for (const item of requestedEntries) {
+    const employeeId = normalizeText(item.employee_id);
+    const employee = employees.find((row) => row.id === employeeId);
+
+    if (!employee) {
+      skipped.push({ employee_id: employeeId, reason: "Employee not found." });
+      continue;
+    }
+
+    const hasAlreadyPaid = entries.some(
+      (entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod && entry.status === "paid",
+    );
+
+    if (hasAlreadyPaid) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: DUPLICATE_SUBMISSION_MESSAGE });
+      continue;
+    }
+
+    const computedPayroll = computeTotals({
+      basic_salary: item.basic_salary,
+      deductions: {
+        sss: item.deductions?.sss,
+        philhealth: item.deductions?.philhealth,
+        pagibig: item.deductions?.pagibig,
+        withholding_tax: item.deductions?.withholding_tax,
+        absences_days: item.deductions?.absences_days,
+        late_days: item.deductions?.late_days,
+        leave_with_pay_days: item.deductions?.leave_with_pay_days,
+        leave_without_pay_days: item.deductions?.leave_without_pay_days,
+      },
+    });
+
+    const baseEntry = {
+      id: crypto.randomUUID(),
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      employee_code: employee.employee_id,
+      employee_type: employee.employee_type,
+      position: employee.position,
+      pay_period: payPeriod,
+      status: "paid",
+      submitted_at: nowIso,
+      created_at: nowIso,
+      updated_at: nowIso,
+      payroll: computedPayroll,
+    };
+
+    const recordResult = await appendPayrollRecord(supabase, baseEntry);
+    if (recordResult.payslip_no) {
+      baseEntry.payslip_no = recordResult.payslip_no;
+    }
+
+    entries.unshift(baseEntry);
+    processed.push({
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      entry_id: baseEntry.id,
+      payslip_no: baseEntry.payslip_no || null,
+    });
+  }
+
+  await writePayrollEntries(entries);
+  await writeDraftEntriesToStorage(supabase, entries);
+
+  for (const p of processed) {
+    const entry = entries.find((e) => e.id === p.entry_id);
+    if (entry) await syncPayrollEntryToDb(supabase, entry);
+  }
+
+  await appendAuditLog({
+    module: "payroll",
+    action: "batch_process",
+    entity_type: "payroll_entry",
+    entity_id: payPeriod,
+    description: `Batch payroll processed for ${processed.length} employee(s), pay period ${payPeriod}${skipped.length ? ` (${skipped.length} skipped)` : ""}.`,
+    status: "success",
+    source: "api",
+    metadata: { pay_period: payPeriod, processed_count: processed.length, skipped_count: skipped.length, skipped },
+  });
+
+  return NextResponse.json({ success: true, processed, skipped });
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
     const action = normalizeText(body.action, "save_draft").toLowerCase();
 
-    if (action !== "save_draft" && action !== "submit") {
-      return NextResponse.json({ error: "Action must be save_draft or submit." }, { status: 400 });
+    if (action !== "save_draft" && action !== "submit" && action !== "batch_submit") {
+      return NextResponse.json({ error: "Action must be save_draft, submit, or batch_submit." }, { status: 400 });
     }
 
     const supabase = getAdminClient();
+
+    if (action === "batch_submit") {
+      return await handleBatchSubmit(supabase, body);
+    }
+
     const employees = await fetchEmployees(supabase);
 
     const employeeId = normalizeText(body.employee_id);
@@ -785,7 +940,8 @@ export async function POST(request) {
         withholding_tax: body.deductions?.withholding_tax,
         absences_days: body.deductions?.absences_days,
         late_days: body.deductions?.late_days,
-        cash_advance: body.deductions?.cash_advance,
+        leave_with_pay_days: body.deductions?.leave_with_pay_days,
+        leave_without_pay_days: body.deductions?.leave_without_pay_days,
       },
     });
 

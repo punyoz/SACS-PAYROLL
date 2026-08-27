@@ -343,6 +343,13 @@
             </select>
           </div>
           <div class="fg" style="margin:0;">
+            <label>Pay Status</label>
+            <select id="emp-leave-pay-status" class="fc">
+              <option value="with_pay">With Pay</option>
+              <option value="without_pay">Without Pay</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;">
             <label>Start Date</label>
             <input id="emp-leave-start" class="fc" type="date">
           </div>
@@ -361,6 +368,15 @@
         </div>
         <button class="btn btn-primary" style="width:100%;margin-top:8px;padding:10px;" onclick="submitLeaveRequest()">Submit Leave Request</button>
         <p id="emp-leave-feedback" class="adm-feedback" style="margin-top:8px;"></p>
+      </div>
+
+      <div class="card" style="padding:14px;">
+        <div class="stitle" style="margin-bottom:10px;">Leave Balance</div>
+        <div class="sum-box">
+          <div class="sr"><span>Leave With Pay — Used</span><span style="font-family:var(--mono);" id="emp-leave-bal-with-used">0 of 0 days</span></div>
+          <div class="sr tot"><span>Leave With Pay — Remaining</span><span style="font-family:var(--mono);color:var(--teal);" id="emp-leave-bal-with-remaining">0 days</span></div>
+          <div class="sr" style="color:var(--amber);"><span>Leave Without Pay — Used</span><span style="font-family:var(--mono);" id="emp-leave-bal-without-used">0 days</span></div>
+        </div>
       </div>
 
       <div class="card" style="padding:14px;">

@@ -235,7 +235,8 @@ function renderPayslipCard(payslip) {
     if (payslip.pagibig) rows += `<div class="ps-row" style="color:var(--red);"><span>Pag-IBIG</span><span class="mn">- ${fmtPeso(payslip.pagibig)}</span></div>`;
     if (payslip.withholding_tax) rows += `<div class="ps-row" style="color:var(--red);"><span>Withholding Tax</span><span class="mn">- ${fmtPeso(payslip.withholding_tax)}</span></div>`;
     if (payslip.absence_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Absences (${payslip.absences_days}d)</span><span class="mn">- ${fmtPeso(payslip.absence_deduction)}</span></div>`;
-    if (payslip.cash_advance) rows += `<div class="ps-row" style="color:var(--red);"><span>Cash Advance</span><span class="mn">- ${fmtPeso(payslip.cash_advance)}</span></div>`;
+    if (payslip.leave_with_pay_days) rows += `<div class="ps-row"><span>Leave With Pay (${payslip.leave_with_pay_days}d)</span><span class="mn">—</span></div>`;
+    if (payslip.leave_without_pay_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Leave Without Pay (${payslip.leave_without_pay_days}d)</span><span class="mn">- ${fmtPeso(payslip.leave_without_pay_deduction)}</span></div>`;
   } else {
     rows += `<div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">${fmtPeso(payslip.gross_pay)}</span></div>`;
     rows += `<div class="ps-row" style="color:var(--red);"><span>Total Deductions</span><span class="mn">- ${fmtPeso(payslip.total_deductions)}</span></div>`;
@@ -321,6 +322,7 @@ function renderLeaveRequests() {
   container.innerHTML = leaveState.requests.map((request) => {
     const status = String(request.status || 'pending').toLowerCase();
     const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
+    const payStatusLabel = request.pay_status === 'without_pay' ? 'Without Pay' : 'With Pay';
     const submittedAt = request.submitted_at ? new Date(request.submitted_at).toLocaleString('en-PH', {
       month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
     }) : 'Unknown date';
@@ -328,7 +330,7 @@ function renderLeaveRequests() {
     return `
       <div style="border:1px solid var(--border);border-radius:10px;padding:10px 11px;background:var(--bg3);">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <div style="font-size:12px;font-weight:600;color:var(--t1);">${request.leave_type}</div>
+          <div style="font-size:12px;font-weight:600;color:var(--t1);">${request.leave_type} · ${payStatusLabel}</div>
           <span class="badge ${badgeClass}"><span class="bd"></span>${status}</span>
         </div>
         <div style="margin-top:4px;font-size:11px;color:var(--t2);">${request.start_date} to ${request.end_date}</div>
@@ -337,6 +339,15 @@ function renderLeaveRequests() {
       </div>
     `;
   }).join('');
+}
+
+function renderLeaveBalance(balance) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  const bal = balance || { with_pay_allotment: 0, with_pay_used: 0, with_pay_remaining: 0, without_pay_used: 0 };
+
+  set('emp-leave-bal-with-used', `${bal.with_pay_used} of ${bal.with_pay_allotment} days`);
+  set('emp-leave-bal-with-remaining', `${bal.with_pay_remaining} days`);
+  set('emp-leave-bal-without-used', `${bal.without_pay_used} days`);
 }
 
 async function loadMyLeaveRequests() {
@@ -367,6 +378,7 @@ async function loadMyLeaveRequests() {
 
     leaveState.requests = Array.isArray(payload.requests) ? payload.requests : [];
     renderLeaveRequests();
+    renderLeaveBalance(payload.balance);
   } catch (error) {
     showLeaveFeedback(error.message, true);
   }
@@ -379,6 +391,7 @@ async function submitLeaveRequest() {
   const position = String(context?.position || '').trim();
 
   const leaveType = String(document.getElementById('emp-leave-type')?.value || '').trim();
+  const payStatus = String(document.getElementById('emp-leave-pay-status')?.value || 'with_pay').trim();
   const startDate = String(document.getElementById('emp-leave-start')?.value || '').trim();
   const endDate = String(document.getElementById('emp-leave-end')?.value || '').trim();
   const reason = String(document.getElementById('emp-leave-reason')?.value || '').trim();
@@ -421,6 +434,7 @@ async function submitLeaveRequest() {
         employee_name: employeeName,
         position,
         leave_type: leaveType,
+        pay_status: payStatus,
         start_date: startDate,
         end_date: endDate,
         reason,
@@ -434,6 +448,9 @@ async function submitLeaveRequest() {
     }
 
     document.getElementById('emp-leave-type').value = '';
+    if (document.getElementById('emp-leave-pay-status')) {
+      document.getElementById('emp-leave-pay-status').value = 'with_pay';
+    }
     document.getElementById('emp-leave-start').value = '';
     document.getElementById('emp-leave-end').value = '';
     document.getElementById('emp-leave-reason').value = '';

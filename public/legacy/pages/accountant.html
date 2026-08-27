@@ -152,6 +152,31 @@
       <div class="ph"><h2>Process Payroll</h2><p>Compute employee salaries including deductions. Processed payrolls generate payslips automatically.</p></div>
       <div id="ac-pending-banner" class="pending-banner" style="display:none;"></div>
 
+      <!-- BATCH PROCESSING -->
+      <div class="card" style="margin-bottom:14px;">
+        <div class="sh" style="margin-bottom:12px;flex-wrap:wrap;gap:10px;">
+          <span class="stitle">Batch Process Payroll</span>
+          <span class="sp"></span>
+          <select class="fc" id="pc-batch-period" style="max-width:220px;"><option>Loading periods...</option></select>
+          <button class="btn btn-outline" onclick="loadBatchPayrollTable()">Refresh</button>
+        </div>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:12px;">Review every employee's computed values below — auto-filled from attendance logs and approved leave requests — then process payroll for everyone in one go.</p>
+        <div class="tw"><table>
+          <thead>
+            <tr>
+              <th>Employee</th><th>Basic Salary</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th>
+              <th>Tax</th><th>Absent</th><th>Late</th><th>Leave w/ Pay</th><th>Leave w/o Pay</th><th>Net Pay</th>
+            </tr>
+          </thead>
+          <tbody id="pc-batch-table-body">
+            <tr><td colspan="11" style="color:var(--t3);">Loading employees...</td></tr>
+          </tbody>
+        </table></div>
+        <button id="pc-batch-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;margin-top:14px;" onclick="processBatchPayroll()">Process Payroll for All →</button>
+        <p id="pc-batch-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+      </div>
+
+      <div class="sh" style="margin:18px 0 10px;"><span class="stitle">Single Entry / Edit Draft</span></div>
       <div class="sg2">
         <!-- FORM -->
         <div class="card">
@@ -179,7 +204,8 @@
             <div class="fg"><label>Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="0"></div>
             <div class="fg"><label>Absent (days)</label><input class="fc" type="number" id="pc-absences" value="0" min="0"></div>
             <div class="fg"><label>Late (days) <span style="color:var(--t3);font-weight:400;">3 late = ₱550</span></label><input class="fc" type="number" id="pc-late" value="0" min="0"></div>
-            <div class="fg"><label>Cash Advance <span style="color:var(--t3);font-weight:400;">(2% of Basic)</span></label><input class="fc" type="number" id="pc-cashadvance" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
+            <div class="fg"><label>Leave With Pay <span style="color:var(--t3);font-weight:400;">(days, no deduction)</span></label><input class="fc" type="number" id="pc-leave-with-pay-days" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
+            <div class="fg"><label>Leave Without Pay <span style="color:var(--t3);font-weight:400;">(days, ₱550/day)</span></label><input class="fc" type="number" id="pc-leave-without-pay-days" value="0" min="0"></div>
           </div>
         </div>
 
@@ -195,7 +221,8 @@
               <div class="sr" style="color:var(--red);"><span>Pag-IBIG (2%)</span><span style="font-family:var(--mono);" id="sum-pagibig">- ₱ 0.00</span></div>
               <div class="sr" style="color:var(--red);"><span>Withholding Tax</span><span style="font-family:var(--mono);" id="sum-tax">- ₱ 0.00</span></div>
               <div class="sr" style="color:var(--red);"><span>Absences &amp; Late</span><span style="font-family:var(--mono);" id="sum-absences">- ₱ 0.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>Cash Advance (2%)</span><span style="font-family:var(--mono);" id="sum-cashadvance">- ₱ 0.00</span></div>
+              <div class="sr"><span>Leave With Pay</span><span style="font-family:var(--mono);" id="sum-leave-with-pay">0 days</span></div>
+              <div class="sr" style="color:var(--red);"><span>Leave Without Pay</span><span style="font-family:var(--mono);" id="sum-leave-without-pay">- ₱ 0.00</span></div>
               <div class="sr tot"><span>Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 0.00</span></div>
             </div>
           </div>
@@ -275,7 +302,8 @@
             <div class="pf-row"><span>Pag-IBIG (2%)</span><span class="mn" id="ac-pf-pagibig">₱ 0.00</span></div>
             <div class="pf-row"><span>Withholding Tax</span><span class="mn" id="ac-pf-tax">₱ 0.00</span></div>
             <div class="pf-row"><span>Absences &amp; Late</span><span class="mn" id="ac-pf-absence">₱ 0.00</span></div>
-            <div class="pf-row"><span>Cash Advance (2%)</span><span class="mn" id="ac-pf-cashadvance">₱ 0.00</span></div>
+            <div class="pf-row"><span>Leave With Pay</span><span class="mn" id="ac-pf-leave-with-pay">0 days</span></div>
+            <div class="pf-row"><span>Leave Without Pay</span><span class="mn" id="ac-pf-leave-without-pay">₱ 0.00</span></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);" id="ac-pf-total-deductions">₱ 0.00</span></div>
           </div>
         </div>

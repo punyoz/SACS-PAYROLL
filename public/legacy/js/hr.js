@@ -555,12 +555,13 @@ function renderHRLeaveList() {
     const from = req.from_date || req.start_date || '—';
     const to = req.to_date || req.end_date || '—';
     const proof = req.proof_url || req.proof_data || '';
+    const payStatusLabel = req.pay_status === 'without_pay' ? 'Without Pay' : 'With Pay';
 
     return `<div class="approval-card">
       <div class="approval-card-body">
         <div class="approval-card-name">${req.employee_name || req.employee_id || 'Unknown'}</div>
         <div class="approval-card-meta">
-          <strong>${req.leave_type || 'Leave'}</strong> · ${days} day${days !== 1 ? 's' : ''} · ${from} to ${to}
+          <strong>${req.leave_type || 'Leave'}</strong> · ${payStatusLabel} · ${days} day${days !== 1 ? 's' : ''} · ${from} to ${to}
         </div>
         <div class="approval-card-meta" style="margin-top:4px;">${req.reason || '—'}</div>
         ${proof ? `<button class="btn btn-outline" style="font-size:11px;padding:3px 9px;margin-top:6px;" onclick="openProofDocument('${proof}')">View Proof</button>` : ''}

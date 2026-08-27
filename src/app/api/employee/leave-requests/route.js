@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { readAllLeaveRequests, insertLeaveRequest, normalizeLeaveRequest } from "@/lib/leave-requests/store";
+import {
+  readAllLeaveRequests,
+  insertLeaveRequest,
+  normalizeLeaveRequest,
+  summarizeLeaveBalance,
+} from "@/lib/leave-requests/store";
 
 export async function GET(request) {
   try {
@@ -19,7 +24,9 @@ export async function GET(request) {
       return false;
     });
 
-    return NextResponse.json({ requests });
+    const balance = summarizeLeaveBalance(requests, employeeId);
+
+    return NextResponse.json({ requests, balance });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -33,6 +40,9 @@ export async function POST(request) {
     const employeeName = String(body.employee_name || "").trim();
     const position = String(body.position || "Employee").trim();
     const leaveType = String(body.leave_type || "").trim();
+    const payStatus = String(body.pay_status || "with_pay").trim().toLowerCase() === "without_pay"
+      ? "without_pay"
+      : "with_pay";
     const startDate = String(body.start_date || "").trim();
     const endDate = String(body.end_date || "").trim();
     const reason = String(body.reason || "").trim();
@@ -80,6 +90,7 @@ export async function POST(request) {
       employee_name: employeeName,
       position,
       leave_type: leaveType,
+      pay_status: payStatus,
       start_date: startDate,
       end_date: endDate,
       reason,
