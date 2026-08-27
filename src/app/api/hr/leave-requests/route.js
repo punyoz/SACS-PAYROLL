@@ -7,7 +7,12 @@ export async function GET(request) {
     const status = String(url.searchParams.get("status") || "pending").trim().toLowerCase();
 
     const allRequests = await readAllLeaveRequests();
-    const pending = allRequests.filter((r) => r.status === "pending_admin");
+    // pending_accountant is a legacy status from before Leave Approval moved to HR —
+    // treat it the same as pending_admin so any request stuck in that state (submitted
+    // before this fix) still surfaces here instead of being invisible.
+    const pending = allRequests.filter(
+      (r) => r.status === "pending_admin" || r.status === "pending_accountant",
+    );
     const history = allRequests.filter(
       (r) => r.status !== "pending_admin" && r.status !== "pending_accountant",
     );
@@ -52,7 +57,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     }
 
-    if (current.status !== "pending_admin") {
+    if (current.status !== "pending_admin" && current.status !== "pending_accountant") {
       return NextResponse.json(
         { error: `Cannot ${action} a leave request with status: ${current.status}.` },
         { status: 409 },

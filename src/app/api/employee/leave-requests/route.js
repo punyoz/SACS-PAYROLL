@@ -84,7 +84,7 @@ export async function POST(request) {
       end_date: endDate,
       reason,
       proof_url: proofUrl,
-      status: "pending_accountant",
+      status: "pending_admin",
       submitted_at: nowIso,
       decided_at: null,
       updated_at: nowIso,

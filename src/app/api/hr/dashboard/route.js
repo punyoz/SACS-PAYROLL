@@ -71,7 +71,9 @@ export async function GET() {
     let pendingLeaves = 0;
     try {
       const allLeaves = await readAllLeaveRequests();
-      pendingLeaves = allLeaves.filter((r) => r.status === "pending_admin").length;
+      pendingLeaves = allLeaves.filter(
+        (r) => r.status === "pending_admin" || r.status === "pending_accountant",
+      ).length;
     } catch { /* ignore */ }
 
     // Recent attendance logs (last 10)
