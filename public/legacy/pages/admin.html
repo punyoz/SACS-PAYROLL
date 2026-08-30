@@ -572,6 +572,12 @@
           <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" placeholder="e.g. 18500" />
           <span class="field-error" aria-live="polite"></span>
         </div>
+        <!-- Address -->
+        <div class="adm-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">ADDRESS</div></div>
+        <div class="fg adm-emp-fields" style="grid-column:1/-1;">
+          <label>Home Address</label>
+          <textarea class="fc" name="address" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
+        </div>
         <!-- Government IDs -->
         <div class="adm-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
         <div class="fg adm-emp-fields">
@@ -694,6 +700,12 @@
           <input class="fc salary-input" name="basic_salary" type="number" min="0" max="9999999.99" step="0.01" />
           <span class="field-error" aria-live="polite"></span>
         </div>
+        <!-- Address -->
+        <div class="adm-edit-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">ADDRESS</div></div>
+        <div class="fg adm-edit-emp-fields" style="grid-column:1/-1;">
+          <label>Home Address</label>
+          <textarea class="fc" name="address" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
+        </div>
         <!-- Government IDs -->
         <div class="adm-edit-emp-fields" style="grid-column:1/-1;margin:8px 0 4px;"><div style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
         <div class="fg adm-edit-emp-fields">
@@ -797,8 +809,45 @@
           <input class="fc" name="name" required placeholder="e.g. Main Campus" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Location / Address</label>
-          <input class="fc" name="location" required placeholder="e.g. Quezon City, Metro Manila" />
+          <label>Region</label>
+          <select class="fc" id="adm-branch-region" required onchange="onAdmBranchRegionChange()">
+            <option value="">Select Region</option>
+            <option value="NCR">NCR – National Capital Region</option>
+            <option value="Region I">Region I – Ilocos Region</option>
+            <option value="CAR">CAR – Cordillera Administrative Region</option>
+            <option value="Region II">Region II – Cagayan Valley</option>
+            <option value="Region III">Region III – Central Luzon</option>
+            <option value="Region IV-A (CALABARZON)">Region IV-A – CALABARZON</option>
+            <option value="Region IV-B (MIMAROPA)">Region IV-B – MIMAROPA</option>
+            <option value="Region V">Region V – Bicol Region</option>
+            <option value="Region VI">Region VI – Western Visayas</option>
+            <option value="Region VII">Region VII – Central Visayas</option>
+            <option value="Region VIII">Region VIII – Eastern Visayas</option>
+            <option value="Region IX">Region IX – Zamboanga Peninsula</option>
+            <option value="Region X">Region X – Northern Mindanao</option>
+            <option value="Region XI">Region XI – Davao Region</option>
+            <option value="Region XII">Region XII – SOCCSKSARGEN</option>
+            <option value="Region XIII (CARAGA)">Region XIII – CARAGA</option>
+            <option value="BARMM">BARMM – Bangsamoro Autonomous Region</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Province / District</label>
+          <select class="fc" id="adm-branch-province" required onchange="onAdmBranchProvinceChange()">
+            <option value="">Select Province / District</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>City / Municipality</label>
+          <select class="fc" id="adm-branch-city" required onchange="onAdmBranchCityChange()">
+            <option value="">Select City / Municipality</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Barangay</label>
+          <select class="fc" id="adm-branch-barangay">
+            <option value="">Select Barangay</option>
+          </select>
         </div>
         <div class="fg" style="margin:0;">
           <label>Branch Code</label>

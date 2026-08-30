@@ -157,6 +157,7 @@ function shapeEmployee(user, profile, index) {
     employment_status: normalizeText(metadata.employment_status, "Regular"),
     archived: Boolean(metadata.archived),
     date_of_birth: normalizeText(metadata.date_of_birth, ""),
+    address: normalizeText(metadata.address, ""),
     sss_number: normalizeText(metadata.sss_number, ""),
     pagibig_number: normalizeText(metadata.pagibig_number, ""),
     philhealth_number: normalizeText(metadata.philhealth_number, ""),
@@ -256,6 +257,7 @@ export async function POST(request) {
       employee_status: normalizeText(body.employee_status, "Active"),
       employment_status: "Regular",
       archived: false,
+      address: normalizeText(body.address, ""),
       sss_number: normalizeText(body.sss_number, ""),
       pagibig_number: normalizeText(body.pagibig_number, ""),
       philhealth_number: normalizeText(body.philhealth_number, ""),
@@ -385,6 +387,7 @@ export async function PATCH(request) {
       if (typeof currentMetadata.archived !== "boolean") {
         nextMetadata.archived = false;
       }
+      if (body.address !== undefined) nextMetadata.address = normalizeText(body.address, normalizeText(currentMetadata.address, ""));
       if (body.sss_number !== undefined) nextMetadata.sss_number = normalizeText(body.sss_number, normalizeText(currentMetadata.sss_number, ""));
       if (body.pagibig_number !== undefined) nextMetadata.pagibig_number = normalizeText(body.pagibig_number, normalizeText(currentMetadata.pagibig_number, ""));
       if (body.philhealth_number !== undefined) nextMetadata.philhealth_number = normalizeText(body.philhealth_number, normalizeText(currentMetadata.philhealth_number, ""));

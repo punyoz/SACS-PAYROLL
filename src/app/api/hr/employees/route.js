@@ -29,6 +29,7 @@ function shapeEmployee(user, profile) {
     date_of_birth: normalizeText(meta.date_of_birth),
     archived: Boolean(meta.archived),
     created_at: user.created_at,
+    address: normalizeText(meta.address, ""),
     sss_number: normalizeText(meta.sss_number, ""),
     pagibig_number: normalizeText(meta.pagibig_number, ""),
     philhealth_number: normalizeText(meta.philhealth_number, ""),
@@ -98,6 +99,7 @@ export async function PATCH(request) {
     if (employee_status !== undefined) updatedMeta.employee_status = normalizeText(employee_status, currentMeta.employee_status);
     if (position !== undefined) updatedMeta.position = normalizeText(position, currentMeta.position);
     if (employee_type !== undefined) updatedMeta.employee_type = normalizeText(employee_type, currentMeta.employee_type);
+    if (body.address !== undefined) updatedMeta.address = normalizeText(body.address, normalizeText(currentMeta.address, ""));
     if (body.sss_number !== undefined) updatedMeta.sss_number = normalizeText(body.sss_number, normalizeText(currentMeta.sss_number, ""));
     if (body.pagibig_number !== undefined) updatedMeta.pagibig_number = normalizeText(body.pagibig_number, normalizeText(currentMeta.pagibig_number, ""));
     if (body.philhealth_number !== undefined) updatedMeta.philhealth_number = normalizeText(body.philhealth_number, normalizeText(currentMeta.philhealth_number, ""));

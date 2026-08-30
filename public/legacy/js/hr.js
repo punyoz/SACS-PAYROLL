@@ -267,6 +267,7 @@ function openHrEditEmployeeModal(employee) {
   const statusEl = form.querySelector('[name="employee_status"]');
   if (statusEl) statusEl.value = employee.employee_status || 'Active';
 
+  if (form.elements.address) form.elements.address.value = employee.address || '';
   if (form.elements.sss_number) form.elements.sss_number.value = employee.sss_number || '';
   if (form.elements.pagibig_number) form.elements.pagibig_number.value = employee.pagibig_number || '';
   if (form.elements.philhealth_number) form.elements.philhealth_number.value = employee.philhealth_number || '';
@@ -320,6 +321,7 @@ async function submitHrEditEmployee(event) {
     employee_type: form.querySelector('[name="employee_type"]').value,
     position: form.querySelector('[name="position"]').value,
     employee_status: form.querySelector('[name="employee_status"]').value,
+    address: (form.elements.address?.value || '').trim(),
     sss_number: (form.elements.sss_number?.value || '').trim(),
     pagibig_number: (form.elements.pagibig_number?.value || '').trim(),
     philhealth_number: (form.elements.philhealth_number?.value || '').trim(),
@@ -1269,6 +1271,7 @@ async function submitHrAddEmployee(event) {
     position: form.querySelector('[name="position"]').value,
     employee_status: form.querySelector('[name="employee_status"]').value,
     basic_salary: Number(form.querySelector('[name="basic_salary"]').value || 0),
+    address: form.querySelector('[name="address"]').value.trim(),
     sss_number: form.querySelector('[name="sss_number"]').value.trim(),
     pagibig_number: form.querySelector('[name="pagibig_number"]').value.trim(),
     philhealth_number: form.querySelector('[name="philhealth_number"]').value.trim(),
