@@ -2130,11 +2130,19 @@ function openAdmBranchModal(branch) {
 
   if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
 
+  const codeEl = form.querySelector('[name="code"]');
+
   if (branch && typeof branch === 'object') {
     if (title) title.textContent = 'Edit Branch';
     form.querySelector('[name="id"]').value = branch.id || '';
     form.querySelector('[name="name"]').value = branch.name || '';
-    form.querySelector('[name="code"]').value = branch.code || '';
+    if (codeEl) {
+      codeEl.value = branch.code || '';
+      // Branch Code is the branch's identifier — locked once a branch exists.
+      codeEl.readOnly = true;
+      codeEl.style.background = 'var(--bg3)';
+      codeEl.style.cursor = 'default';
+    }
     const statusEl = form.querySelector('[name="status"]');
     if (statusEl) statusEl.value = branch.status || 'Active';
     populateAdmBranchLocationSelects(branch.location || '');
@@ -2142,6 +2150,11 @@ function openAdmBranchModal(branch) {
     if (title) title.textContent = 'Add Branch';
     form.reset();
     form.querySelector('[name="id"]').value = '';
+    if (codeEl) {
+      codeEl.readOnly = false;
+      codeEl.style.background = '';
+      codeEl.style.cursor = '';
+    }
     const regionEl = document.getElementById('adm-branch-region');
     const provinceEl = document.getElementById('adm-branch-province');
     const cityEl = document.getElementById('adm-branch-city');
