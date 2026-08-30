@@ -12,6 +12,7 @@ const SA_PAGES = {
   'sa-branches':     'Branch Management',
   'sa-roles':        'Roles & Permissions',
   'sa-branch-assign':'Branch Assignment',
+  'sa-maintenance':  'System Maintenance',
   'sa-config':       'System Configuration',
   'sa-audit':        'Audit & Monitoring',
   'sa-backup':       'Backup & Recovery',
@@ -36,6 +37,11 @@ let saBranchSearch = '';
 let saCurrentBranchEmployee = null;
 let saBranchPaginator = null;
 
+let saAllRfidDevices = [];
+let saRfidDeviceSearch = '';
+let saRfidPaginator = null;
+let saCurrentEditingRfid = null;
+
 /* ── NAVIGATE ── */
 function saNav(pageId, navEl) {
   Object.keys(SA_PAGES).forEach((id) => {
@@ -56,6 +62,12 @@ function saNav(pageId, navEl) {
   else if (pageId === 'sa-branches')   loadSABranches();
   else if (pageId === 'sa-roles')      loadSAUsers();
   else if (pageId === 'sa-branch-assign') loadSABranchAssignment();
+  else if (pageId === 'sa-maintenance') {
+    loadSASystemData();
+    // Auto-focus the scan field so a HID RFID reader's keystrokes land there
+    // immediately without an extra click.
+    setTimeout(() => document.getElementById('sa-rfid-input')?.focus(), 0);
+  }
   else if (pageId === 'sa-config')     loadSAConfig();
   else if (pageId === 'sa-audit')      loadSAAuditLogs();
   else if (pageId === 'sa-backup')     loadSABackupStatus();
@@ -848,6 +860,8 @@ function initSAPortal() {
 
   const sidebar = document.querySelector('#s-super-admin .sidebar');
   if (typeof attachSidebarSpotlight === 'function') attachSidebarSpotlight(sidebar);
+
+  attachSARfidScannerInput();
 }
 
 window.addEventListener('sacs-auth-context-changed', (event) => {
@@ -1351,6 +1365,287 @@ async function submitSABranchAssign(event) {
     submitBtn.textContent = 'Confirm Assignment';
   }
 }
+
+/* ═══════════════════════════════════════
+   SA SYSTEM MAINTENANCE — RFID
+   ═══════════════════════════════════════ */
+
+function saFormatTimeOnly(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-PH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
+function formatSARfidScanFeedback(record) {
+  if (!record) return '';
+  const name = record.employee_name || 'Employee';
+  if (record.time_out) {
+    return `${name}: Time Out recorded at ${saFormatTimeOnly(record.time_out)}.`;
+  }
+  return `${name}: Time In recorded at ${saFormatTimeOnly(record.time_in)} (${record.status || 'Present'}).`;
+}
+
+function saGetFilteredRfidDevices() {
+  const search = saRfidDeviceSearch.toLowerCase();
+  if (!search) return saAllRfidDevices;
+  return saAllRfidDevices.filter((device) => {
+    const haystack = [device.full_name, device.employee_id, device.rfid_uid]
+      .map((v) => String(v || '').toLowerCase())
+      .join(' ');
+    return haystack.includes(search);
+  });
+}
+
+function saRenderRfidDevices(devices) {
+  const tbody = document.getElementById('sa-rfid-table-body');
+  if (!tbody) return;
+
+  if (!devices.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);">No employees found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = devices.map((device) => {
+    const safeName = String(device.full_name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeEmpId = String(device.employee_id || 'N/A').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safeType = String(device.employee_type || 'Teaching').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const typeBadge = safeType === 'Non-Teaching' ? 'ba' : 'bt2';
+    const hasRfid = Boolean(String(device.rfid_uid || '').trim());
+    const rfidDisplay = hasRfid ? String(device.rfid_uid).replace(/</g,'&lt;').replace(/>/g,'&gt;') : '—';
+    const rfidBadge = hasRfid ? 'bg' : 'ba';
+    const rfidStatus = hasRfid ? 'Assigned' : 'Unassigned';
+    const deviceId = String(device.id).replace(/'/g, "\\'");
+
+    if (device.archived) return '';
+
+    return `
+      <tr>
+        <td class="nm">${safeName}</td>
+        <td class="mn">${safeEmpId}</td>
+        <td><span class="badge ${typeBadge}">${safeType}</span></td>
+        <td class="mn" style="font-family:var(--mono);font-size:12px;">${rfidDisplay}</td>
+        <td><span class="badge ${rfidBadge}"><span class="bd"></span>${rfidStatus}</span></td>
+        <td>
+          <button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openSARfidEditModal('${deviceId}')">
+            ${hasRfid ? 'Update' : 'Assign'}
+          </button>
+          ${hasRfid ? `<button class="btn btn-red" style="font-size:11px;padding:5px 11px;margin-left:6px;" onclick="voidSARfidCard('${deviceId}')">Void</button>` : ''}
+        </td>
+      </tr>
+    `;
+  }).filter(Boolean).join('');
+}
+
+function saRenderFilteredRfidDevices() {
+  const filtered = saGetFilteredRfidDevices().filter((d) => !d.archived);
+  if (saRfidPaginator) {
+    saRfidPaginator.setData(filtered);
+  } else {
+    saRenderRfidDevices(filtered);
+  }
+}
+
+function setSARfidDeviceSearch(value) {
+  saRfidDeviceSearch = String(value || '').trim();
+  saRenderFilteredRfidDevices();
+}
+
+async function loadSASystemData() {
+  const rfidTbody = document.getElementById('sa-rfid-table-body');
+  if (rfidTbody) rfidTbody.innerHTML = skeletonRows(6);
+
+  try {
+    const response = await fetch('/api/admin/system', { method: 'GET' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Failed to load system data');
+
+    saAllRfidDevices = payload.rfid_devices || [];
+
+    if (!saRfidPaginator) {
+      saRfidPaginator = createPaginator({ id: 'sa-rfid', pageSize: 15, renderFn: saRenderRfidDevices });
+    }
+    saRenderFilteredRfidDevices();
+  } catch (error) {
+    if (rfidTbody) {
+      rfidTbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${String(error.message).replace(/</g,'&lt;')}</td></tr>`;
+    }
+  }
+}
+
+function openSARfidEditModal(employeeId) {
+  const modal = document.getElementById('sa-rfid-edit-modal');
+  const form = document.getElementById('sa-rfid-edit-form');
+  if (!modal || !form) return;
+
+  saCurrentEditingRfid = saAllRfidDevices.find((d) => d.id === employeeId);
+  if (!saCurrentEditingRfid) {
+    window.alert('Employee not found. Please refresh the list.');
+    return;
+  }
+
+  form.elements.id.value = saCurrentEditingRfid.id;
+  form.elements.employee_display.value = `${saCurrentEditingRfid.full_name} (${saCurrentEditingRfid.employee_id || 'N/A'})`;
+  form.elements.rfid_uid.value = saCurrentEditingRfid.rfid_uid || '';
+
+  const feedbackEl = document.getElementById('sa-rfid-edit-feedback');
+  if (feedbackEl) feedbackEl.textContent = '';
+
+  modal.style.display = 'flex';
+}
+
+function closeSARfidEditModal() {
+  const modal = document.getElementById('sa-rfid-edit-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitSARfidUpdate(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const formData = new FormData(form);
+  const feedbackEl = document.getElementById('sa-rfid-edit-feedback');
+
+  const payload = {
+    id: String(formData.get('id') || '').trim(),
+    rfid_uid: String(formData.get('rfid_uid') || '').trim(),
+  };
+
+  if (!payload.id) {
+    if (feedbackEl) { feedbackEl.textContent = 'Employee ID is missing.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+
+    const response = await fetch('/api/admin/system', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update RFID');
+
+    if (feedbackEl) { feedbackEl.textContent = payload.rfid_uid ? 'RFID assigned successfully.' : 'RFID removed.'; feedbackEl.className = 'adm-feedback ok'; }
+    if (typeof pushNotification === 'function') pushNotification('RFID Updated', payload.rfid_uid ? 'RFID UID has been assigned to the employee.' : 'RFID UID has been removed.', 'success');
+    await loadSASystemData();
+    setTimeout(() => closeSARfidEditModal(), 500);
+  } catch (error) {
+    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Save RFID';
+  }
+}
+
+async function voidSARfidCard(employeeId) {
+  const device = saAllRfidDevices.find((d) => d.id === employeeId);
+  if (!device) {
+    window.alert('Employee not found. Please refresh the list.');
+    return;
+  }
+
+  const confirmed = window.confirmDestructiveAction
+    ? await window.confirmDestructiveAction(`void the RFID card for ${device.full_name}`, 'The employee will no longer be able to tap in with this card.')
+    : window.confirm(`Void the RFID card for ${device.full_name}?`);
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch('/api/admin/system', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: employeeId, rfid_uid: '' }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to void RFID card.');
+
+    if (typeof pushNotification === 'function') pushNotification('RFID Voided', `RFID card for ${device.full_name} has been voided.`, 'success');
+    await loadSASystemData();
+  } catch (error) {
+    if (typeof pushNotification === 'function') pushNotification('Error', error.message, 'error');
+  }
+}
+
+function showSARfidFeedback(message, isError = false) {
+  const feedback = document.getElementById('sa-rfid-feedback');
+  if (!feedback) return;
+
+  feedback.textContent = message;
+  feedback.classList.toggle('err', isError);
+  feedback.classList.toggle('ok', !isError && Boolean(message));
+}
+
+// USB RFID readers plug in as HID keyboards: tapping a card types the UID
+// into whichever input has focus, then sends Enter. Bound once so the field
+// auto-submits on Enter instead of requiring a manual button click.
+function attachSARfidScannerInput() {
+  const input = document.getElementById('sa-rfid-input');
+  if (!input || input.dataset.scannerBound === '1') return;
+  input.dataset.scannerBound = '1';
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitSARfidAttendanceScan();
+    }
+  });
+}
+
+let saRfidScanInFlight = false;
+
+async function submitSARfidAttendanceScan() {
+  const input = document.getElementById('sa-rfid-input');
+  if (!input || saRfidScanInFlight) return;
+
+  const rfidCode = String(input.value || '').trim();
+  if (!rfidCode) {
+    showSARfidFeedback('Enter RFID or employee ID first.', true);
+    return;
+  }
+
+  saRfidScanInFlight = true;
+  input.disabled = true;
+
+  try {
+    showSARfidFeedback('Processing RFID scan...', false);
+
+    const response = await fetch('/api/admin/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rfid_code: rfidCode }),
+    });
+
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Failed to process RFID scan');
+    }
+
+    input.value = '';
+    showSARfidFeedback(formatSARfidScanFeedback(payload.record) || payload.message || 'RFID scan recorded.', false);
+  } catch (error) {
+    showSARfidFeedback(error.message, true);
+  } finally {
+    saRfidScanInFlight = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+window.setSARfidDeviceSearch = setSARfidDeviceSearch;
+window.loadSASystemData = loadSASystemData;
+window.openSARfidEditModal = openSARfidEditModal;
+window.closeSARfidEditModal = closeSARfidEditModal;
+window.submitSARfidUpdate = submitSARfidUpdate;
+window.voidSARfidCard = voidSARfidCard;
+window.submitSARfidAttendanceScan = submitSARfidAttendanceScan;
 
 window.setSABranchFilter = setSABranchFilter;
 window.setSABranchSearch = setSABranchSearch;

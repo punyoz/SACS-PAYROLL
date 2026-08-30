@@ -83,6 +83,9 @@ function adminNav(pageId, navEl) {
 
   if (pageId === 'adm-attendance') {
     loadAttendanceData();
+    // Auto-focus the scan field so a HID RFID reader's keystrokes land there
+    // immediately without an extra click.
+    setTimeout(() => document.getElementById('adm-rfid-input')?.focus(), 0);
   }
 
   if (pageId === 'adm-audit-logs') {
@@ -639,15 +642,45 @@ async function loadAttendanceData() {
   }
 }
 
+function formatRfidScanFeedback(record) {
+  if (!record) return '';
+  const name = record.employee_name || 'Employee';
+  if (record.time_out) {
+    return `${name}: Time Out recorded at ${formatTimeOnly(record.time_out)}.`;
+  }
+  return `${name}: Time In recorded at ${formatTimeOnly(record.time_in)} (${record.status || 'Present'}).`;
+}
+
+// USB RFID readers plug in as HID keyboards: tapping a card types the UID
+// into whichever input has focus, then sends Enter. Bound once so the field
+// auto-submits on Enter instead of requiring a manual button click.
+function attachRfidScannerInput() {
+  const input = document.getElementById('adm-rfid-input');
+  if (!input || input.dataset.scannerBound === '1') return;
+  input.dataset.scannerBound = '1';
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitRfidAttendanceScan();
+    }
+  });
+}
+
+let rfidScanInFlight = false;
+
 async function submitRfidAttendanceScan() {
   const input = document.getElementById('adm-rfid-input');
-  if (!input) return;
+  if (!input || rfidScanInFlight) return;
 
   const rfidCode = String(input.value || '').trim();
   if (!rfidCode) {
     showRfidFeedback('Enter RFID or employee ID first.', true);
     return;
   }
+
+  rfidScanInFlight = true;
+  input.disabled = true;
 
   try {
     showRfidFeedback('Processing RFID scan...', false);
@@ -664,7 +697,7 @@ async function submitRfidAttendanceScan() {
     }
 
     input.value = '';
-    showRfidFeedback(payload.message || 'RFID scan recorded.', false);
+    showRfidFeedback(formatRfidScanFeedback(payload.record) || payload.message || 'RFID scan recorded.', false);
     logAuditMovement({
       module: 'ui',
       action: 'rfid_scan',
@@ -677,6 +710,10 @@ async function submitRfidAttendanceScan() {
     await loadAttendanceData();
   } catch (error) {
     showRfidFeedback(error.message, true);
+  } finally {
+    rfidScanInFlight = false;
+    input.disabled = false;
+    input.focus();
   }
 }
 
@@ -920,6 +957,7 @@ window.setUserSearch = setUserSearch;
 window.openRfidEditModal = openRfidEditModal;
 window.closeRfidEditModal = closeRfidEditModal;
 window.submitRfidUpdate = submitRfidUpdate;
+window.voidRfidCard = voidRfidCard;
 window.setRfidDeviceSearch = setRfidDeviceSearch;
 window.loadSystemData = loadSystemData;
 window.submitRfidAttendanceScan = submitRfidAttendanceScan;
@@ -1569,6 +1607,7 @@ function renderRfidDevices(devices) {
           <button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openRfidEditModal('${deviceId}')">
             ${hasRfid ? 'Update' : 'Assign'}
           </button>
+          ${hasRfid ? `<button class="btn btn-red" style="font-size:11px;padding:5px 11px;margin-left:6px;" onclick="voidRfidCard('${deviceId}')">Void</button>` : ''}
         </td>
       </tr>
     `;
@@ -1684,6 +1723,35 @@ async function submitRfidUpdate(event) {
   }
 }
 
+async function voidRfidCard(employeeId) {
+  const device = allRfidDevices.find((d) => d.id === employeeId);
+  if (!device) {
+    window.alert('Employee not found. Please refresh the list.');
+    return;
+  }
+
+  const confirmed = window.confirmDestructiveAction
+    ? await window.confirmDestructiveAction(`void the RFID card for ${device.full_name}`, 'The employee will no longer be able to tap in with this card.')
+    : window.confirm(`Void the RFID card for ${device.full_name}?`);
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch('/api/admin/system', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: employeeId, rfid_uid: '' }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to void RFID card.');
+
+    window.pushNotification?.('RFID Voided', `RFID card for ${device.full_name} has been voided.`, 'success');
+    await loadSystemData();
+  } catch (error) {
+    window.pushNotification?.('Error', error.message, 'error');
+  }
+}
+
 /* ── INIT ── */
 function initAdminPortal() {
   const currentRole = new URLSearchParams(window.location.search).get('role');
@@ -1700,6 +1768,8 @@ function initAdminPortal() {
   usersPaginator = window.createPaginator({ id: 'adm-users', pageSize: 20, renderFn: renderUsers });
   rfidPaginator = window.createPaginator({ id: 'adm-rfid', pageSize: 15, renderFn: renderRfidDevices });
   branchPaginator = window.createPaginator({ id: 'ba', pageSize: 20, renderFn: renderBranchTable });
+
+  attachRfidScannerInput();
 
   const addUserForm = document.getElementById('add-user-form');
   if (addUserForm?.elements?.role) {
