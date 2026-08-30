@@ -980,8 +980,8 @@ async function processBatchPayroll() {
     return;
   }
 
-  const confirmed = window.confirmDestructiveAction
-    ? await window.confirmDestructiveAction(`process payroll for all ${rows.length} employees`, 'This will generate a payslip for each employee. Already-paid employees for this period will be skipped.')
+  const confirmed = window.confirmApproveAction
+    ? await window.confirmApproveAction(`process payroll for all ${rows.length} employees`, 'This will generate a payslip for each employee. Already-paid employees for this period will be skipped.')
     : window.confirm(`Process payroll for all ${rows.length} employees?`);
   if (!confirmed) return;
 
@@ -1019,14 +1019,24 @@ async function processBatchPayroll() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Failed to process batch payroll.');
 
-    const processedCount = result.processed?.length || 0;
-    const skippedCount = result.skipped?.length || 0;
-    const message = `Processed ${processedCount} payslip${processedCount === 1 ? '' : 's'}.${skippedCount ? ` ${skippedCount} skipped (already paid for this period).` : ''}`;
+    const processedList = result.processed || [];
+    const skippedList = result.skipped || [];
+    let message = `Processed ${processedList.length} payslip${processedList.length === 1 ? '' : 's'}.`;
+    if (skippedList.length) {
+      const reasons = skippedList
+        .map((s) => `${s.employee_name || s.employee_id || 'Unknown'}: ${s.reason || 'skipped'}`)
+        .join(' · ');
+      message += ` ${skippedList.length} skipped — ${reasons}`;
+    }
 
     if (feedbackEl) { feedbackEl.textContent = message; feedbackEl.className = 'adm-feedback ok'; }
-    window.pushNotification?.('Batch Payroll Processed', message, 'success');
+    window.pushNotification?.('Batch Payroll Processed', message, skippedList.length && !processedList.length ? 'info' : 'success');
 
-    await loadAccountantData();
+    await loadAccountantData({ period: payPeriod });
+    const singlePeriodSelect = document.getElementById('pc-period');
+    if (singlePeriodSelect && acctState.periodOptions.includes(payPeriod)) {
+      singlePeriodSelect.value = payPeriod;
+    }
   } catch (error) {
     if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
   } finally {
@@ -1477,6 +1487,7 @@ function initAccountant() {
 
   const employeeSelect = document.getElementById('pc-employee');
   const periodSelect = document.getElementById('pc-period');
+  const batchPeriodSelect = document.getElementById('pc-batch-period');
   const payslipSelect = document.getElementById('ac-payslip-select');
 
   if (employeeSelect) {
@@ -1486,9 +1497,25 @@ function initAccountant() {
     });
   }
 
+  // The single-entry and batch sections share one "current period" concept —
+  // changing either selector keeps the other in sync and reloads Payroll
+  // Records/Monitoring/Payslips for that period, so nothing looks empty just
+  // because a different period is selected elsewhere on the page.
   if (periodSelect) {
     periodSelect.addEventListener('change', () => {
+      if (batchPeriodSelect && acctState.periodOptions.includes(periodSelect.value)) {
+        batchPeriodSelect.value = periodSelect.value;
+      }
       loadAccountantData({ period: periodSelect.value });
+    });
+  }
+
+  if (batchPeriodSelect) {
+    batchPeriodSelect.addEventListener('change', () => {
+      if (periodSelect && acctState.periodOptions.includes(batchPeriodSelect.value)) {
+        periodSelect.value = batchPeriodSelect.value;
+      }
+      loadAccountantData({ period: batchPeriodSelect.value });
     });
   }
 
