@@ -685,7 +685,14 @@ async function handleBatchSubmit(supabase, body) {
         baseEntry.payslip_no = recordResult.payslip_no;
       }
 
-      await syncPayrollEntryToDb(supabase, baseEntry);
+      // payroll_entries is the only place Payslips/Payroll Records/Payroll
+      // Monitoring read a processed entry from — a sync failure here must
+      // count as a skip, not a silent success with nothing to show for it.
+      const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+      if (!dbSync.success) {
+        skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: `Payroll was not saved: ${dbSync.error}` });
+        continue;
+      }
 
       processed.push({
         employee_id: employee.id,
@@ -815,6 +822,29 @@ export async function POST(request) {
     }
 
     const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+
+    // payroll_entries is the only place Payslips/Payroll Records/Payroll
+    // Monitoring read a processed entry from — a submit whose entries-sync
+    // fails has produced no visible or printable result anywhere, so it must
+    // be reported as a failure rather than the misleading "processed
+    // successfully" response this used to return.
+    if (action === "submit" && !dbSync.success) {
+      await appendAuditLog({
+        module: "payroll",
+        action: "process",
+        entity_type: "payroll_entry",
+        entity_id: baseEntry.id,
+        description: `Payroll entry for ${employee.full_name} failed to save: ${dbSync.error}`,
+        status: "failed",
+        source: "api",
+        metadata: { employee_id: employee.id, db_error: dbSync.error },
+      });
+
+      return NextResponse.json(
+        { error: `Payroll was not saved: ${dbSync.error}` },
+        { status: 500 },
+      );
+    }
 
     await appendAuditLog({
       module: "payroll",
