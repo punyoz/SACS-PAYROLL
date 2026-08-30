@@ -4,9 +4,6 @@ import { normalizeText } from "@/lib/auth/normalize";
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-let fallbackCounter = 0;
-const fallbackLogs = [];
-
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
@@ -34,23 +31,6 @@ function shapeLogRow(row) {
     status: normalizeText(row.status, "success"),
     source: normalizeText(row.source, "api"),
     metadata,
-  };
-}
-
-function createFallbackLog(payload) {
-  fallbackCounter += 1;
-
-  return {
-    id: `fallback-audit-${fallbackCounter}`,
-    created_at: new Date().toISOString(),
-    module: normalizeText(payload.module, "system"),
-    action: normalizeText(payload.action, "event"),
-    entity_type: normalizeText(payload.entity_type, "resource"),
-    entity_id: normalizeText(payload.entity_id),
-    description: normalizeText(payload.description, "No description provided."),
-    status: normalizeText(payload.status, "success"),
-    source: normalizeText(payload.source, "api"),
-    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
   };
 }
 
@@ -104,73 +84,59 @@ function buildSummary(logs) {
   return summary;
 }
 
+// Audit logging is a side effect called from many otherwise-unrelated routes
+// (creating a branch, assigning an RFID card, etc.). A failure here must not
+// fail the primary operation that triggered it — but unlike before, a failed
+// write is no longer silently faked into an in-memory record that looks like
+// it succeeded. It's reported honestly as unpersisted and logged server-side.
 export async function appendAuditLog(payload) {
-  const fallbackLog = createFallbackLog(payload);
+  const entry = {
+    module: normalizeText(payload.module, "system"),
+    action: normalizeText(payload.action, "event"),
+    entity_type: normalizeText(payload.entity_type, "resource"),
+    entity_id: normalizeText(payload.entity_id) || null,
+    description: normalizeText(payload.description, "No description provided."),
+    status: normalizeText(payload.status, "success"),
+    source: normalizeText(payload.source, "api"),
+    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+  };
 
   try {
     const supabase = getAdminClient();
-    const insertResult = await supabase
-      .from("audit_logs")
-      .insert({
-        created_at: fallbackLog.created_at,
-        module: fallbackLog.module,
-        action: fallbackLog.action,
-        entity_type: fallbackLog.entity_type,
-        entity_id: fallbackLog.entity_id || null,
-        description: fallbackLog.description,
-        status: fallbackLog.status,
-        source: fallbackLog.source,
-        metadata: fallbackLog.metadata,
-      })
-      .select("*")
-      .maybeSingle();
+    const insertResult = await supabase.from("audit_logs").insert(entry).select("*").maybeSingle();
 
     if (insertResult.error || !insertResult.data) {
-      fallbackLogs.unshift(fallbackLog);
-      return { ...fallbackLog, persisted: false };
+      console.error("[audit_logs] insert failed:", insertResult.error?.message);
+      return { ...entry, id: null, created_at: new Date().toISOString(), persisted: false };
     }
 
     return { ...shapeLogRow(insertResult.data), persisted: true };
-  } catch {
-    fallbackLogs.unshift(fallbackLog);
-    return { ...fallbackLog, persisted: false };
+  } catch (error) {
+    console.error("[audit_logs] insert threw:", error?.message || error);
+    return { ...entry, id: null, created_at: new Date().toISOString(), persisted: false };
   }
 }
 
 export async function listAuditLogs(options = {}) {
   const limit = Math.max(1, Math.min(500, Number(options.limit || 150)));
+  const supabase = getAdminClient();
 
-  try {
-    const supabase = getAdminClient();
-    const queryResult = await supabase
-      .from("audit_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(limit);
+  const queryResult = await supabase
+    .from("audit_logs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
 
-    if (queryResult.error) {
-      const filteredFallback = applyFilters(fallbackLogs, options).slice(0, limit);
-      return {
-        logs: filteredFallback,
-        summary: buildSummary(filteredFallback),
-        source_mode: "fallback",
-      };
-    }
-
-    const shaped = (queryResult.data || []).map(shapeLogRow);
-    const filtered = applyFilters(shaped, options).slice(0, limit);
-
-    return {
-      logs: filtered,
-      summary: buildSummary(filtered),
-      source_mode: "table",
-    };
-  } catch {
-    const filteredFallback = applyFilters(fallbackLogs, options).slice(0, limit);
-    return {
-      logs: filteredFallback,
-      summary: buildSummary(filteredFallback),
-      source_mode: "fallback",
-    };
+  if (queryResult.error) {
+    throw new Error(queryResult.error.message);
   }
+
+  const shaped = (queryResult.data || []).map(shapeLogRow);
+  const filtered = applyFilters(shaped, options).slice(0, limit);
+
+  return {
+    logs: filtered,
+    summary: buildSummary(filtered),
+    source_mode: "table",
+  };
 }

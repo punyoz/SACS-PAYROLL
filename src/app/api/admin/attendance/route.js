@@ -7,9 +7,6 @@ import { appendAuditLog } from "@/lib/audit/store";
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// In-memory fallback for environments without attendance_logs table.
-const fallbackAttendanceByDate = new Map();
-
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
@@ -133,33 +130,6 @@ async function fetchEmployees(supabase) {
     });
 }
 
-function buildFallbackRows(activeEmployees, dateKey) {
-  const dayMap = fallbackAttendanceByDate.get(dateKey) || new Map();
-
-  return activeEmployees.map((employee) => {
-    const existing = dayMap.get(employee.id);
-    if (existing) {
-      return {
-        ...existing,
-        employee_name: employee.full_name,
-        employee_type: employee.employee_type,
-      };
-    }
-
-    return {
-      id: `absent-${dateKey}-${employee.id}`,
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      employee_type: employee.employee_type,
-      time_in: null,
-      time_out: null,
-      total_hours: 0,
-      status: "Absent",
-      log_date: dateKey,
-    };
-  });
-}
-
 function mapAttendanceRow(row) {
   const status = normalizeAttendanceStatus(
     row.status
@@ -198,17 +168,6 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey) {
     .limit(3000);
 
   if (result.error) {
-    const message = String(result.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (isMissingTable) {
-      return {
-        source_mode: "fallback",
-        can_persist: false,
-        rows: buildFallbackRows(activeEmployees, dateKey),
-      };
-    }
-
     throw new Error(`Failed to fetch attendance logs: ${result.error.message}`);
   }
 
@@ -332,42 +291,6 @@ function isLateInManila(now = new Date()) {
   return false;
 }
 
-function upsertFallbackScan(employee, dateKey, nowIso) {
-  const dayMap = fallbackAttendanceByDate.get(dateKey) || new Map();
-  const existing = dayMap.get(employee.id);
-
-  if (existing && existing.time_in && !existing.time_out) {
-    const timeOut = nowIso;
-    const totalHours = calculateHours(existing.time_in, timeOut);
-
-    const updated = {
-      ...existing,
-      time_out: timeOut,
-      total_hours: totalHours,
-    };
-
-    dayMap.set(employee.id, updated);
-    fallbackAttendanceByDate.set(dateKey, dayMap);
-    return updated;
-  }
-
-  const created = {
-    id: `fallback-${employee.id}-${dateKey}`,
-    employee_id: employee.id,
-    employee_name: employee.full_name,
-    employee_type: employee.employee_type,
-    time_in: nowIso,
-    time_out: null,
-    total_hours: 0,
-    status: isLateInManila(new Date(nowIso)) ? "Late" : "Present",
-    log_date: dateKey,
-  };
-
-  dayMap.set(employee.id, created);
-  fallbackAttendanceByDate.set(dateKey, dayMap);
-  return created;
-}
-
 async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode) {
   const lookupResult = await supabase
     .from("attendance_logs")
@@ -482,21 +405,7 @@ export async function POST(request) {
     const nowIso = new Date().toISOString();
     const dateKey = getDateKey(new Date());
 
-    let record;
-    let persisted = true;
-
-    try {
-      const probe = await supabase.from("attendance_logs").select("id").limit(1);
-      if (probe.error) {
-        persisted = false;
-        record = upsertFallbackScan(employee, dateKey, nowIso);
-      } else {
-        record = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode);
-      }
-    } catch {
-      persisted = false;
-      record = upsertFallbackScan(employee, dateKey, nowIso);
-    }
+    const record = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode);
 
     await appendAuditLog({
       module: "attendance",
@@ -509,14 +418,13 @@ export async function POST(request) {
       metadata: {
         employee_id: employee.id,
         rfid_code: rfidCode,
-        persisted,
         date_key: dateKey,
       },
     });
 
     return NextResponse.json({
       success: true,
-      persisted,
+      persisted: true,
       message: record.time_out
         ? "RFID time-out recorded."
         : "RFID time-in recorded.",

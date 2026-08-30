@@ -1,42 +1,22 @@
 /**
- * Persistent salary-approval storage — mirrors leave-requests/store.js.
- *
- * Priority order (most reliable first):
- *   1. Supabase database table `salary_approvals`
- *   2. Supabase Storage JSON file (sacs-payroll-store bucket)
- *   3. /tmp filesystem (development only — ephemeral on Vercel)
+ * Persistent salary-approval storage — backed solely by the Supabase
+ * `salary_approvals` table (see supabase/migrations/20260401_backfill_core_schema.sql
+ * and 20260513_add_payroll_breakdown_to_salary_approvals.sql). No ephemeral
+ * fallback: a real database error is thrown, not swallowed into temporary storage.
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { storageReadJson, storageWriteJson } from "@/lib/storage/supabase-store";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const STORAGE_FILE = "salary-approvals.json";
-const tmpPath = path.join(os.tmpdir(), "sacs-payroll-runtime", "salary-approvals.json");
-
-// Cached per warm serverless instance to avoid repeated probes.
-let _backend = null; // 'table' | 'storage' | 'tmp'
-
 function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) return null;
+  if (!projectUrl || !serviceRoleKey) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
+  }
   return createClient(projectUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-}
-
-function isMissingTableError(error) {
-  const msg = String(error?.message || error || "").toLowerCase();
-  return (
-    msg.includes("does not exist") ||
-    msg.includes("could not find the table") ||
-    msg.includes("relation") ||
-    msg.includes("undefined table")
-  );
 }
 
 export function normalizeSalaryApproval(row) {
@@ -63,23 +43,6 @@ export function normalizeSalaryApproval(row) {
   };
 }
 
-// ─── Backend Detection ────────────────────────────────────────────────────────
-
-async function detectBackend(supabase) {
-  if (_backend) return _backend;
-
-  if (!supabase) {
-    _backend = "tmp";
-    return _backend;
-  }
-
-  const { error } = await supabase.from("salary_approvals").select("id").limit(0);
-  _backend = error ? "storage" : "table";
-  return _backend;
-}
-
-// ─── Read ─────────────────────────────────────────────────────────────────────
-
 const FULL_SELECT =
   "id,employee_id,employee_name,employee_code,employee_type,position," +
   "current_salary,proposed_salary,reason,submitted_by,submitted_at,status,decided_at,payroll_breakdown";
@@ -92,80 +55,30 @@ function isNewColumnMissing(error) {
   return String(error?.message || "").toLowerCase().includes("payroll_breakdown");
 }
 
+// ─── Read ─────────────────────────────────────────────────────────────────────
+
 export async function readAllSalaryApprovals() {
   const supabase = getAdminClient();
-  const backend = await detectBackend(supabase);
 
-  if (backend === "table") {
-    try {
-      let { data, error } = await supabase
-        .from("salary_approvals")
-        .select(FULL_SELECT)
-        .order("submitted_at", { ascending: false });
+  let { data, error } = await supabase
+    .from("salary_approvals")
+    .select(FULL_SELECT)
+    .order("submitted_at", { ascending: false });
 
-      // Migration may not have run yet — retry without payroll_breakdown
-      // instead of falling back to storage (which would lose all DB records).
-      if (error && isNewColumnMissing(error)) {
-        const r2 = await supabase
-          .from("salary_approvals")
-          .select(BASE_SELECT)
-          .order("submitted_at", { ascending: false });
-        data = r2.data;
-        error = r2.error;
-      }
-
-      if (!error) {
-        return (data || []).map(normalizeSalaryApproval);
-      }
-
-      if (!isMissingTableError(error)) throw new Error(error.message);
-      _backend = "storage";
-    } catch (err) {
-      if (!isMissingTableError(err)) throw err;
-      _backend = "storage";
-    }
+  // The payroll_breakdown migration may not have run yet — retry without it
+  // rather than treating this as a fatal error.
+  if (error && isNewColumnMissing(error)) {
+    const retry = await supabase
+      .from("salary_approvals")
+      .select(BASE_SELECT)
+      .order("submitted_at", { ascending: false });
+    data = retry.data;
+    error = retry.error;
   }
 
-  if (_backend === "storage" || backend === "storage") {
-    try {
-      const parsed = await storageReadJson(STORAGE_FILE, { approvals: [] });
-      const rows = Array.isArray(parsed.approvals) ? parsed.approvals : [];
-      return rows
-        .map(normalizeSalaryApproval)
-        .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
-    } catch {
-      // Fall through to /tmp
-    }
-  }
+  if (error) throw new Error(error.message);
 
-  // /tmp — last resort
-  try {
-    const raw = await fs.readFile(tmpPath, "utf8");
-    const parsed = JSON.parse(raw);
-    const rows = Array.isArray(parsed.approvals) ? parsed.approvals : [];
-    return rows
-      .map(normalizeSalaryApproval)
-      .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
-  } catch {
-    return [];
-  }
-}
-
-// ─── Write Helpers ────────────────────────────────────────────────────────────
-
-async function writeAllToStorage(approvals) {
-  await storageWriteJson(STORAGE_FILE, {
-    approvals: approvals.map(normalizeSalaryApproval),
-  });
-}
-
-async function writeAllToTmp(approvals) {
-  await fs.mkdir(path.dirname(tmpPath), { recursive: true });
-  await fs.writeFile(
-    tmpPath,
-    JSON.stringify({ approvals: approvals.map(normalizeSalaryApproval) }, null, 2),
-    "utf8",
-  );
+  return (data || []).map(normalizeSalaryApproval);
 }
 
 // ─── Update Status ────────────────────────────────────────────────────────────
@@ -173,135 +86,49 @@ async function writeAllToTmp(approvals) {
 export async function updateSalaryApprovalStatus(id, nextStatus) {
   const nowIso = new Date().toISOString();
   const supabase = getAdminClient();
-  const backend = await detectBackend(supabase);
 
-  if (backend === "table") {
-    try {
-      // Fetch the current record first.
-      let lookupResult = await supabase
+  let lookupResult = await supabase
+    .from("salary_approvals")
+    .select(FULL_SELECT)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (lookupResult.error && isNewColumnMissing(lookupResult.error)) {
+    lookupResult = await supabase
+      .from("salary_approvals")
+      .select(BASE_SELECT)
+      .eq("id", id)
+      .maybeSingle();
+  }
+
+  if (lookupResult.error) throw new Error(lookupResult.error.message);
+  if (!lookupResult.data) return { found: false, approval: null };
+
+  // Try the UPDATE with decided_at first; if that column is somehow missing,
+  // retry with just status rather than failing the whole request.
+  const { error: err1 } = await supabase
+    .from("salary_approvals")
+    .update({ status: nextStatus, decided_at: nowIso })
+    .eq("id", id);
+
+  if (err1) {
+    const msg = String(err1.message || "").toLowerCase();
+    if (msg.includes("decided_at")) {
+      const { error: err2 } = await supabase
         .from("salary_approvals")
-        .select(FULL_SELECT)
-        .eq("id", id)
-        .maybeSingle();
-
-      if (lookupResult.error && isNewColumnMissing(lookupResult.error)) {
-        lookupResult = await supabase
-          .from("salary_approvals")
-          .select(BASE_SELECT)
-          .eq("id", id)
-          .maybeSingle();
-      }
-
-      if (lookupResult.error) {
-        if (!isMissingTableError(lookupResult.error)) throw new Error(lookupResult.error.message);
-        _backend = "storage";
-      } else {
-        if (!lookupResult.data) return { found: false, approval: null };
-
-        // Try the UPDATE. Attempt with decided_at first; if that column is missing
-        // in the schema, retry with just status.
-        let updateError = null;
-
-        const { error: err1 } = await supabase
-          .from("salary_approvals")
-          .update({ status: nextStatus, decided_at: nowIso })
-          .eq("id", id);
-
-        if (err1) {
-          const msg = String(err1.message || "").toLowerCase();
-          if (msg.includes("decided_at")) {
-            // Column missing — retry without it.
-            const { error: err2 } = await supabase
-              .from("salary_approvals")
-              .update({ status: nextStatus })
-              .eq("id", id);
-            updateError = err2;
-          } else {
-            updateError = err1;
-          }
-        }
-
-        if (!updateError) {
-          // DB update succeeded.
-          const updated = normalizeSalaryApproval({
-            ...lookupResult.data,
-            status: nextStatus,
-            decided_at: nowIso,
-          });
-          return { found: true, approval: updated };
-        }
-
-        // DB update failed (trigger/permission error). Fall back: read all from DB,
-        // apply the change in memory, and write the full list to Storage so that
-        // subsequent reads return the correct state.
-        let allRowsResult = await supabase
-          .from("salary_approvals")
-          .select(FULL_SELECT)
-          .order("submitted_at", { ascending: false });
-        if (allRowsResult.error && isNewColumnMissing(allRowsResult.error)) {
-          allRowsResult = await supabase
-            .from("salary_approvals")
-            .select(BASE_SELECT)
-            .order("submitted_at", { ascending: false });
-        }
-        const { data: allRows } = allRowsResult;
-
-        const all = (allRows || []).map(normalizeSalaryApproval);
-        const idx = all.findIndex((r) => r.id === id);
-        const updated = normalizeSalaryApproval({
-          ...(idx >= 0 ? all[idx] : lookupResult.data),
-          status: nextStatus,
-          decided_at: nowIso,
-        });
-        if (idx >= 0) all[idx] = updated;
-
-        // Persist to Storage so the next request sees the correct state.
-        _backend = "storage";
-        try {
-          await writeAllToStorage(all);
-        } catch {
-          await writeAllToTmp(all).catch(() => {});
-        }
-
-        return { found: true, approval: updated };
-      }
-    } catch (err) {
-      if (!isMissingTableError(err)) throw err;
-      _backend = "storage";
+        .update({ status: nextStatus })
+        .eq("id", id);
+      if (err2) throw new Error(err2.message);
+    } else {
+      throw new Error(err1.message);
     }
   }
-
-  // Storage path
-  if (_backend === "storage" || backend === "storage") {
-    try {
-      const all = await readAllSalaryApprovals();
-      const idx = all.findIndex((r) => r.id === id);
-      if (idx < 0) return { found: false, approval: null };
-
-      const updated = normalizeSalaryApproval({
-        ...all[idx],
-        status: nextStatus,
-        decided_at: nowIso,
-      });
-      all[idx] = updated;
-      await writeAllToStorage(all);
-      return { found: true, approval: updated };
-    } catch {
-      // Fall through to /tmp
-    }
-  }
-
-  // /tmp fallback
-  const all = await readAllSalaryApprovals();
-  const idx = all.findIndex((r) => r.id === id);
-  if (idx < 0) return { found: false, approval: null };
 
   const updated = normalizeSalaryApproval({
-    ...all[idx],
+    ...lookupResult.data,
     status: nextStatus,
     decided_at: nowIso,
   });
-  all[idx] = updated;
-  await writeAllToTmp(all);
+
   return { found: true, approval: updated };
 }

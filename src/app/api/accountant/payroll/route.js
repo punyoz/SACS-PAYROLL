@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -11,13 +8,7 @@ import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const runtimeDir = path.join(os.tmpdir(), "sacs-payroll-runtime");
-const payrollStorePath = path.join(runtimeDir, "accountant-payroll-entries.json");
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
-
-// Supabase Storage — schema-free draft persistence that survives Lambda cold starts.
-const DRAFT_BUCKET = "sacs-payroll-runtime";
-const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
@@ -135,20 +126,6 @@ async function fetchEmployees(supabase) {
     });
 }
 
-async function readJsonStore(filePath, fallbackValue) {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    return JSON.parse(raw);
-  } catch {
-    return fallbackValue;
-  }
-}
-
-async function writeJsonStore(filePath, value) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
-}
-
 function normalizePayrollEntry(row) {
   let payrollObj = row.payroll;
   if (typeof payrollObj === "string") {
@@ -247,29 +224,18 @@ function computeTotals(payroll) {
   };
 }
 
-async function readPayrollEntriesFromDb(supabase) {
-  try {
-    const result = await supabase
-      .from("payroll_entries")
-      .select("*")
-      .order("updated_at", { ascending: false })
-      .limit(2000);
+async function readPayrollEntries(supabase) {
+  const result = await supabase
+    .from("payroll_entries")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(2000);
 
-    if (result.error) {
-      const message = String(result.error.message || "").toLowerCase();
-      const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-      if (isMissingTable) return { rows: null, error: result.error.message, missingTable: true };
-      console.error("[payroll_entries] read failed:", result.error.message);
-      return { rows: null, error: result.error.message, missingTable: false };
-    }
-
-    const rows = Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [];
-    return { rows, error: null, missingTable: false };
-  } catch (error) {
-    const message = error?.message || String(error);
-    console.error("[payroll_entries] read threw:", message);
-    return { rows: null, error: message, missingTable: false };
+  if (result.error) {
+    throw new Error(result.error.message);
   }
+
+  return { entries: Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [] };
 }
 
 async function syncPayrollEntryToDb(supabase, entry) {
@@ -328,142 +294,31 @@ async function syncPayrollEntryToDb(supabase, entry) {
 
 async function deletePayrollEntryFromDb(supabase, entryId) {
   if (!supabase || !entryId) return;
-  try {
-    await supabase.from("payroll_entries").delete().eq("id", entryId);
-  } catch {
-    // best-effort — table may not exist
+  const result = await supabase.from("payroll_entries").delete().eq("id", entryId);
+  if (result.error) {
+    throw new Error(result.error.message);
   }
 }
-
-async function readDraftEntriesFromStorage(supabase) {
-  if (!supabase) return [];
-  try {
-    const { data, error } = await supabase.storage
-      .from(DRAFT_BUCKET)
-      .download(DRAFT_STORAGE_KEY);
-    if (error || !data) return [];
-    const text = await data.text();
-    const parsed = JSON.parse(text);
-    return Array.isArray(parsed) ? parsed.map(normalizePayrollEntry) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeDraftEntriesToStorage(supabase, draftEntries) {
-  if (!supabase) return false;
-  try {
-    await supabase.storage.createBucket(DRAFT_BUCKET, { public: false });
-  } catch {
-    // Bucket already exists — continue
-  }
-  try {
-    const content = Buffer.from(JSON.stringify(draftEntries, null, 2), "utf-8");
-    const { error } = await supabase.storage
-      .from(DRAFT_BUCKET)
-      .upload(DRAFT_STORAGE_KEY, content, { upsert: true, contentType: "application/json" });
-    if (error) {
-      console.error("[storage] write drafts failed:", error.message);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error("[storage] write drafts threw:", err?.message || err);
-    return false;
-  }
-}
-
-
-async function readPayrollEntries(supabase) {
-  // Three sources, merged by id:
-  // 1. Supabase Storage — reliable draft persistence across all Lambda instances
-  // 2. payroll_entries DB — submitted/pending entries (schema may vary)
-  // 3. /tmp — same-instance fallback for very recent writes
-  const [storageDrafts, dbResult, tmpData] = await Promise.all([
-    readDraftEntriesFromStorage(supabase),
-    supabase ? readPayrollEntriesFromDb(supabase) : Promise.resolve(null),
-    readJsonStore(payrollStorePath, { entries: [] }),
-  ]);
-
-  const tmpEntries = Array.isArray(tmpData.entries)
-    ? tmpData.entries.map(normalizePayrollEntry)
-    : [];
-
-  const byId = new Map();
-
-  // DB rows first (authoritative for submitted/pending entries)
-  for (const row of (dbResult?.rows ?? [])) byId.set(row.id, row);
-
-  // Storage entries: used when not in DB, or when DB entry is missing its payroll JSONB.
-  // Storage was previously drafts-only but now holds all entries so the full
-  // deduction breakdown survives Lambda cold starts.
-  for (const entry of storageDrafts) {
-    if (!byId.has(entry.id)) {
-      byId.set(entry.id, entry);
-    } else {
-      const existing = byId.get(entry.id);
-      const dbMissingPayroll = !existing.payroll?.deductions?.sss && !existing.payroll?.deductions?.philhealth;
-      const storageHasPayroll = entry.payroll?.deductions?.sss > 0 || entry.payroll?.deductions?.philhealth > 0;
-      if (existing.status === "draft" || (dbMissingPayroll && storageHasPayroll)) {
-        byId.set(entry.id, entry);
-      }
-    }
-  }
-
-  // /tmp as same-instance fallback
-  for (const entry of tmpEntries) {
-    if (!byId.has(entry.id)) byId.set(entry.id, entry);
-  }
-
-  const merged = Array.from(byId.values()).sort((a, b) => {
-    const aT = new Date(a.updated_at || a.created_at || 0).getTime();
-    const bT = new Date(b.updated_at || b.created_at || 0).getTime();
-    return bT - aT;
-  });
-
-  return {
-    entries: merged,
-    diag: {
-      db_rows: (dbResult?.rows ?? []).length,
-      storage_drafts: storageDrafts.length,
-      tmp_rows: tmpEntries.length,
-      db_error: dbResult?.error || null,
-      db_missing_table: dbResult?.missingTable || false,
-    },
-  };
-}
-
-async function writePayrollEntries(entries) {
-  await writeJsonStore(payrollStorePath, {
-    entries: entries.map(normalizePayrollEntry),
-  });
-}
-
 
 async function generatePayslipNo(supabase, processedAt) {
   const date = processedAt ? new Date(processedAt) : new Date();
   const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
   const prefix = `PS-${ym}-`;
 
-  try {
-    const { data } = await supabase
-      .from("payroll_records")
-      .select("payslip_no")
-      .like("payslip_no", `${prefix}%`)
-      .order("payslip_no", { ascending: false })
-      .limit(1);
+  const { data } = await supabase
+    .from("payroll_records")
+    .select("payslip_no")
+    .like("payslip_no", `${prefix}%`)
+    .order("payslip_no", { ascending: false })
+    .limit(1);
 
-    let seq = 1;
-    if (data?.length && data[0].payslip_no) {
-      const last = data[0].payslip_no.split("-").pop();
-      seq = (Number(last) || 0) + 1;
-    }
-
-    return `${prefix}${String(seq).padStart(4, "0")}`;
-  } catch {
-    // Fallback: timestamp-based unique ID
-    return `${prefix}${Date.now().toString().slice(-4)}`;
+  let seq = 1;
+  if (data?.length && data[0].payslip_no) {
+    const last = data[0].payslip_no.split("-").pop();
+    seq = (Number(last) || 0) + 1;
   }
+
+  return `${prefix}${String(seq).padStart(4, "0")}`;
 }
 
 async function appendPayrollRecord(supabase, entry) {
@@ -489,14 +344,7 @@ async function appendPayrollRecord(supabase, entry) {
     .maybeSingle();
 
   if (result.error) {
-    const message = String(result.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (!isMissingTable) {
-      throw new Error(result.error.message);
-    }
-
-    return { persisted: false };
+    throw new Error(result.error.message);
   }
 
   return { persisted: true, id: result.data?.id, payslip_no: result.data?.payslip_no };
@@ -520,29 +368,7 @@ function normalizeAttendanceStatus(value) {
   return "absent";
 }
 
-function buildAttendanceSummaryFallback(employees, payrollEntries) {
-  const byEmployee = new Map();
-
-  employees.forEach((employee) => {
-    const entriesForEmployee = payrollEntries.filter((entry) => entry.employee_id === employee.id);
-    const latest = entriesForEmployee[0];
-    const deductionDays = Number(latest?.payroll?.deductions?.absences_days || 0);
-
-    byEmployee.set(employee.id, {
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      employee_type: employee.employee_type,
-      present_days: Math.max(0, 22 - deductionDays),
-      late_days: 0,
-      absent_days: deductionDays,
-      deduction_days: deductionDays,
-    });
-  });
-
-  return Array.from(byEmployee.values());
-}
-
-async function fetchAttendanceSummary(supabase, employees, payrollEntries) {
+async function fetchAttendanceSummary(supabase, employees) {
   const result = await supabase
     .from("attendance_logs")
     .select("employee_id,status,log_date,time_in,created_at")
@@ -550,13 +376,6 @@ async function fetchAttendanceSummary(supabase, employees, payrollEntries) {
     .limit(5000);
 
   if (result.error) {
-    const message = String(result.error.message || "").toLowerCase();
-    const isMissingTable = message.includes("does not exist") || message.includes("could not find the table");
-
-    if (isMissingTable) {
-      return buildAttendanceSummaryFallback(employees, payrollEntries);
-    }
-
     throw new Error(`Failed to fetch attendance summary: ${result.error.message}`);
   }
 
@@ -729,20 +548,6 @@ function getPeriodOptions(entries) {
   return periods;
 }
 
-async function fetchPayrollRecords(supabase) {
-  try {
-    const { data, error } = await supabase
-      .from("payroll_records")
-      .select("employee_id,period_label,gross_pay,total_deductions,net_pay,payslip_no,processed_at")
-      .order("processed_at", { ascending: false })
-      .limit(2000);
-    if (error) return [];
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
 export async function GET(request) {
   try {
     const url = new URL(request.url);
@@ -782,7 +587,7 @@ export async function GET(request) {
           ? sortedEntries.find((entry) => entry.id === payrollRecords[0].id)
           : null);
 
-    const attendanceRows = await fetchAttendanceSummary(supabase, employees, sortedEntries);
+    const attendanceRows = await fetchAttendanceSummary(supabase, employees);
     const leaveSummary = await computeLeaveSummary(employees);
 
     return NextResponse.json({
@@ -796,7 +601,6 @@ export async function GET(request) {
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
-      diag: entriesResult.diag,
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
@@ -841,55 +645,60 @@ async function handleBatchSubmit(supabase, body) {
       continue;
     }
 
-    const computedPayroll = computeTotals({
-      basic_salary: item.basic_salary,
-      deductions: {
-        sss: item.deductions?.sss,
-        philhealth: item.deductions?.philhealth,
-        pagibig: item.deductions?.pagibig,
-        withholding_tax: item.deductions?.withholding_tax,
-        absences_days: item.deductions?.absences_days,
-        late_days: item.deductions?.late_days,
-        leave_with_pay_days: item.deductions?.leave_with_pay_days,
-        leave_without_pay_days: item.deductions?.leave_without_pay_days,
-      },
-    });
+    // Each employee's write is isolated: a failure here (e.g. a genuine
+    // duplicate-key conflict from stale data the in-memory check above
+    // couldn't see) must not abort the rest of the batch or get reported
+    // as a blanket "already processed" for employees who were never
+    // actually touched.
+    try {
+      const computedPayroll = computeTotals({
+        basic_salary: item.basic_salary,
+        deductions: {
+          sss: item.deductions?.sss,
+          philhealth: item.deductions?.philhealth,
+          pagibig: item.deductions?.pagibig,
+          withholding_tax: item.deductions?.withholding_tax,
+          absences_days: item.deductions?.absences_days,
+          late_days: item.deductions?.late_days,
+          leave_with_pay_days: item.deductions?.leave_with_pay_days,
+          leave_without_pay_days: item.deductions?.leave_without_pay_days,
+        },
+      });
 
-    const baseEntry = {
-      id: crypto.randomUUID(),
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      employee_code: employee.employee_id,
-      employee_type: employee.employee_type,
-      position: employee.position,
-      pay_period: payPeriod,
-      status: "paid",
-      submitted_at: nowIso,
-      created_at: nowIso,
-      updated_at: nowIso,
-      payroll: computedPayroll,
-    };
+      const baseEntry = {
+        id: crypto.randomUUID(),
+        employee_id: employee.id,
+        employee_name: employee.full_name,
+        employee_code: employee.employee_id,
+        employee_type: employee.employee_type,
+        position: employee.position,
+        pay_period: payPeriod,
+        status: "paid",
+        submitted_at: nowIso,
+        created_at: nowIso,
+        updated_at: nowIso,
+        payroll: computedPayroll,
+      };
 
-    const recordResult = await appendPayrollRecord(supabase, baseEntry);
-    if (recordResult.payslip_no) {
-      baseEntry.payslip_no = recordResult.payslip_no;
+      const recordResult = await appendPayrollRecord(supabase, baseEntry);
+      if (recordResult.payslip_no) {
+        baseEntry.payslip_no = recordResult.payslip_no;
+      }
+
+      await syncPayrollEntryToDb(supabase, baseEntry);
+
+      processed.push({
+        employee_id: employee.id,
+        employee_name: employee.full_name,
+        entry_id: baseEntry.id,
+        payslip_no: baseEntry.payslip_no || null,
+      });
+    } catch (error) {
+      const reason = isDuplicateKeyError(error)
+        ? DUPLICATE_SUBMISSION_MESSAGE
+        : (error?.message || "Failed to process this employee.");
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason });
     }
-
-    entries.unshift(baseEntry);
-    processed.push({
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      entry_id: baseEntry.id,
-      payslip_no: baseEntry.payslip_no || null,
-    });
-  }
-
-  await writePayrollEntries(entries);
-  await writeDraftEntriesToStorage(supabase, entries);
-
-  for (const p of processed) {
-    const entry = entries.find((e) => e.id === p.entry_id);
-    if (entry) await syncPayrollEntryToDb(supabase, entry);
   }
 
   await appendAuditLog({
@@ -1005,18 +814,6 @@ export async function POST(request) {
       }
     }
 
-    if (existingIndex >= 0) {
-      entries[existingIndex] = baseEntry;
-    } else {
-      entries.unshift(baseEntry);
-    }
-
-    await writePayrollEntries(entries);
-
-    // Persist ALL entries to Supabase Storage so the full payroll JSONB
-    // (including individual deductions) survives Lambda cold starts.
-    await writeDraftEntriesToStorage(supabase, entries);
-
     const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
 
     await appendAuditLog({
@@ -1067,7 +864,6 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
-    const nowIso = new Date().toISOString();
 
     const entriesResult = await readPayrollEntries(supabase);
     const entries = entriesResult.entries;
@@ -1083,10 +879,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });
     }
 
-    const remaining = entries.filter((_, i) => i !== index);
-    await writePayrollEntries(remaining);
     await deletePayrollEntryFromDb(supabase, entryId);
-    await writeDraftEntriesToStorage(supabase, remaining.filter((e) => e.status === "draft"));
 
     await appendAuditLog({
       module: "payroll",

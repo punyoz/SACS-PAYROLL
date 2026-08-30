@@ -290,7 +290,6 @@ export async function PATCH(request) {
       );
     }
 
-    // Persist the status change (DB → Storage → /tmp, same as leave approvals).
     const result = await updateSalaryApprovalStatus(id, nextStatus);
 
     if (!result.found) {

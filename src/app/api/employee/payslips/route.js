@@ -1,20 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const payrollEntriesTmpPath = path.join(
-  os.tmpdir(),
-  "sacs-payroll-runtime",
-  "accountant-payroll-entries.json",
-);
-const DRAFT_BUCKET = "sacs-payroll-runtime";
-const DRAFT_STORAGE_KEY = "accountant-draft-entries.json";
 
 function getAdminClient() {
   if (!projectUrl || !serviceRoleKey) {
@@ -45,7 +34,7 @@ function colMissing(error, colName) {
   return String(error?.message || "").toLowerCase().includes(colName);
 }
 
-// Map a payroll_entries row (or /tmp entry) — has full JSONB payroll.
+// Map a payroll_entries row — has full JSONB payroll.
 function mapEntryToPayslip(row) {
   const payroll =
     (typeof row.payroll === "string" ? JSON.parse(row.payroll) : row.payroll) || {};
@@ -183,42 +172,7 @@ async function fetchPayslipsForUser(supabase, userId) {
     // payroll_entries table may not exist — fall through
   }
 
-  // ── 2. /tmp accountant payroll-entries file ───────────────────────────────
-  try {
-    const raw = await fs.readFile(payrollEntriesTmpPath, "utf8");
-    const parsed = JSON.parse(raw);
-    const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-    const matched = entries
-      .filter((e) => e.employee_id === userId && e.status !== "draft")
-      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-      .slice(0, 50);
-
-    if (matched.length > 0) return matched.map(mapEntryToPayslip);
-  } catch {
-    // /tmp empty on cold start — fall through
-  }
-
-  // ── 3. Supabase Storage draft file ────────────────────────────────────────
-  try {
-    const { data: blob, error } = await supabase.storage
-      .from(DRAFT_BUCKET)
-      .download(DRAFT_STORAGE_KEY);
-    if (!error && blob) {
-      const text = await blob.text();
-      const entries = JSON.parse(text);
-      if (Array.isArray(entries)) {
-        const matched = entries
-          .filter((e) => e.employee_id === userId && e.status !== "draft")
-          .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0))
-          .slice(0, 50);
-        if (matched.length > 0) return matched.map(mapEntryToPayslip);
-      }
-    }
-  } catch {
-    // Storage unavailable — fall through
-  }
-
-  // ── 4. salary_approvals (approved only) ───────────────────────────────────
+  // ── 2. salary_approvals (approved only) ───────────────────────────────────
   try {
     let { data, error } = await supabase
       .from("salary_approvals")
@@ -249,7 +203,7 @@ async function fetchPayslipsForUser(supabase, userId) {
     // fall through
   }
 
-  // ── 5. payroll_records — legacy totals table ──────────────────────────────
+  // ── 3. payroll_records — legacy totals table ──────────────────────────────
   try {
     let { data, error } = await supabase
       .from("payroll_records")
