@@ -18,6 +18,9 @@ function getAdminClient() {
 
 async function fetchBranchMap(supabase) {
   const result = await supabase.from("branches").select("id,name,status");
+  if (result.error) {
+    throw new Error(`Failed to fetch branches: ${result.error.message}`);
+  }
   const map = new Map();
   (result.data || []).forEach((b) => map.set(b.id, b));
   return map;
@@ -27,6 +30,10 @@ async function fetchAllBranchAssignments(supabase, branchMap) {
   const result = await supabase
     .from("employee_branch_assignments")
     .select("user_id, branch_id, assigned_by, assigned_at");
+
+  if (result.error) {
+    throw new Error(`Failed to fetch branch assignments: ${result.error.message}`);
+  }
 
   const assignments = {};
   (result.data || []).forEach((row) => {
