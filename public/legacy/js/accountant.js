@@ -1037,6 +1037,13 @@ async function processBatchPayroll() {
     if (singlePeriodSelect && acctState.periodOptions.includes(payPeriod)) {
       singlePeriodSelect.value = payPeriod;
     }
+
+    // Same handoff as the single-employee "Process Payroll" action: land the
+    // accountant on the Payslips tab with a printable payslip already selected
+    // instead of leaving them to find it manually.
+    if (processedList.length) {
+      openPayslipFromRecord(processedList[0].entry_id);
+    }
   } catch (error) {
     if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
   } finally {
