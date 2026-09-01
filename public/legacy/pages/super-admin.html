@@ -306,7 +306,7 @@
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
           <div class="fg" style="margin:0;min-width:260px;flex:1;">
             <label>RFID / Employee ID</label>
-            <input id="sa-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" />
+            <input id="sa-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" maxlength="16" />
           </div>
           <button class="btn btn-primary" onclick="submitSARfidAttendanceScan()">Record Scan</button>
         </div>
@@ -668,7 +668,7 @@
         </div>
         <div class="fg" style="margin:0;">
           <label>RFID UID</label>
-          <input class="fc" name="rfid_uid" placeholder="Tap RFID card or enter UID manually" maxlength="64" />
+          <input class="fc" name="rfid_uid" placeholder="Tap RFID card or enter UID manually" maxlength="16" />
         </div>
         <p style="font-size:11px;color:var(--t3);">Leave blank to remove the current RFID assignment for this employee.</p>
         <p id="sa-rfid-edit-feedback" class="adm-feedback"></p>
