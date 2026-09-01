@@ -18,6 +18,9 @@ const TECHNICAL_PATTERNS = [
   'Failed to list users:',
   'Failed to fetch profiles:',
   'Failed to fetch attendance',
+  'record "new"',
+  'record "old"',
+  'has no field',
 ];
 
 export function sanitizeError(error, fallback = 'Something went wrong. Please try again.') {
