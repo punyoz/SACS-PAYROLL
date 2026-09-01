@@ -534,6 +534,7 @@ async function submitChangePassword() {
 }
 
 /* ── INIT ── */
+let _empStatsPollStarted = false;
 function initEmployeePortal() {
   const currentRole = new URLSearchParams(window.location.search).get('role');
   if (String(currentRole || '').toLowerCase() !== 'employee') {
@@ -544,6 +545,16 @@ function initEmployeePortal() {
   loadMyLeaveRequests();
   loadEmployeeStats();
   loadPayslips();
+
+  // An RFID tap is recorded by an admin elsewhere (System Maintenance scan
+  // input), so poll here — it's the only way this dashboard's Present/Time
+  // In status reflects that tap without the employee manually reloading.
+  if (!_empStatsPollStarted) {
+    _empStatsPollStarted = true;
+    setInterval(() => {
+      if (document.visibilityState === 'visible') loadEmployeeStats();
+    }, 30000);
+  }
 }
 
 if (document.readyState === 'loading') {
