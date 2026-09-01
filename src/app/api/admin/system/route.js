@@ -136,6 +136,19 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
 
+    if (rfidUid) {
+      const rfidDevices = await fetchRfidDevices(supabase);
+      const conflict = rfidDevices.find(
+        (device) => device.id !== id && !device.archived && device.rfid_uid.toLowerCase() === rfidUid.toLowerCase(),
+      );
+      if (conflict) {
+        return NextResponse.json(
+          { error: `This RFID card is already assigned to ${conflict.full_name}.` },
+          { status: 409 },
+        );
+      }
+    }
+
     const existingUser = userResult.data.user;
     const nextMetadata = {
       ...(existingUser.user_metadata || {}),

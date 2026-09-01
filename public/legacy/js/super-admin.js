@@ -1496,6 +1496,9 @@ function openSARfidEditModal(employeeId) {
   if (feedbackEl) feedbackEl.textContent = '';
 
   modal.style.display = 'flex';
+
+  // Auto-focus so a HID RFID reader's keystrokes land in the field immediately
+  setTimeout(() => form.elements.rfid_uid?.select(), 0);
 }
 
 function closeSARfidEditModal() {
