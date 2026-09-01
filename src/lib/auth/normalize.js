@@ -9,7 +9,6 @@ export function normalizeRole(value) {
   if (role === "admin") return "admin";
   if (role === "accountant") return "accountant";
   if (role === "hr") return "hr";
-  if (role === "it") return "it";
   return "employee";
 }
 

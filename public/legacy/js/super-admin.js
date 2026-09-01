@@ -487,7 +487,6 @@ function renderSAUsersTable() {
     hr: 'var(--teal)',
     accountant: 'var(--green)',
     employee: 'var(--t2)',
-    it: 'var(--t3)',
   };
 
   if (!saUsersPaginator) {

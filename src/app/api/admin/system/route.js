@@ -20,7 +20,7 @@ async function fetchSystemStats(supabase) {
   const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
   const users = usersResult.error ? [] : (usersResult.data.users || []);
 
-  const roleCounts = { admin: 0, hr: 0, it: 0, accountant: 0, employee: 0 };
+  const roleCounts = { admin: 0, hr: 0, accountant: 0, employee: 0 };
   let rfidRegistered = 0;
 
   users.forEach((user) => {

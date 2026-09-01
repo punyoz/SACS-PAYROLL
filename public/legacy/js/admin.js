@@ -1041,7 +1041,6 @@ window.submitAdminChangePassword = submitAdminChangePassword;
 const ROLE_LABELS = {
   admin:     'Administrator',
   hr:        'HR',
-  it:        'IT',
   accountant:'Accountant',
   employee:  'Employee',
 };
@@ -1049,7 +1048,6 @@ const ROLE_LABELS = {
 const ROLE_BADGE_CLASS = {
   admin:     'ba',
   hr:        'bt2',
-  it:        'bg',
   accountant:'bt2',
   employee:  'bg',
 };
