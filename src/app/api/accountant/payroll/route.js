@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store";
+import { listUsersCached } from "@/lib/auth/users-cache";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -87,7 +88,7 @@ function shapeEmployee(user, profile, index) {
 }
 
 async function fetchEmployees(supabase) {
-  const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
   }

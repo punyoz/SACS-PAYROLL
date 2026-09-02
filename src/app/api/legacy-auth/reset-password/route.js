@@ -1,3 +1,4 @@
+import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -26,10 +27,7 @@ export async function POST(request) {
     }
 
     const supabase = getAdminClient();
-    const { data: listData, error: listError } = await supabase.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    });
+    const { data: listData, error: listError } = await listUsersCached(supabase);
 
     if (listError) {
       throw new Error(listError.message);

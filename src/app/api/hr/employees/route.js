@@ -1,3 +1,4 @@
+import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -44,7 +45,7 @@ export async function GET(request) {
     const url = new URL(request.url);
     const includeArchived = url.searchParams.get("archived") === "true";
 
-    const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const usersResult = await listUsersCached(supabase);
     if (usersResult.error) throw new Error(usersResult.error.message);
 
     const allUsers = usersResult.data.users || [];
@@ -110,6 +111,8 @@ export async function PATCH(request) {
       user_metadata: updatedMeta,
     });
     if (updateErr) throw new Error(updateErr.message);
+
+    invalidateUsersCache();
 
     // Sync profile table
     const profilePatch = {};

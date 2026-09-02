@@ -1,3 +1,4 @@
+import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -35,12 +36,12 @@ export async function GET(request) {
     if (type === "attendance") {
       let query = supabase
         .from("attendance_logs")
-        .select("employee_id, employee_name, employee_type, date, time_in, time_out, status, hours_worked")
-        .order("date", { ascending: false })
+        .select("employee_id, employee_name, employee_type, log_date, time_in, time_out, status, total_hours")
+        .order("log_date", { ascending: false })
         .limit(1000);
 
-      if (from) query = query.gte("date", from);
-      if (to) query = query.lte("date", to);
+      if (from) query = query.gte("log_date", from);
+      if (to) query = query.lte("log_date", to);
 
       const { data, error } = await query;
       if (error) throw new Error(error.message);
@@ -67,7 +68,7 @@ export async function GET(request) {
         if (s === "present") rec.present++;
         else if (s === "late") { rec.present++; rec.late++; }
         else if (s === "absent") rec.absent++;
-        rec.total_hours += Number(row.hours_worked || 0);
+        rec.total_hours += Number(row.total_hours || 0);
       });
 
       return NextResponse.json({
@@ -80,7 +81,7 @@ export async function GET(request) {
     }
 
     if (type === "employees") {
-      const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const usersResult = await listUsersCached(supabase);
       if (usersResult.error) throw new Error(usersResult.error.message);
 
       const employees = (usersResult.data.users || [])

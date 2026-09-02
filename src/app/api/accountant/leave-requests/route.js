@@ -1,3 +1,4 @@
+import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -16,7 +17,7 @@ function getAdminClient() {
 async function getArchivedEmployeeIds(supabase) {
   if (!supabase) return new Set();
   try {
-    const { data: { users } = {} } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const { data: { users } = {} } = await listUsersCached(supabase);
     const archived = new Set();
     (users || []).forEach((u) => {
       if (u.user_metadata?.archived === true) archived.add(u.id);

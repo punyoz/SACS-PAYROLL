@@ -1,3 +1,4 @@
+import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -30,7 +31,7 @@ export async function GET() {
     const supabase = getAdminClient();
 
     // Fetch all users
-    const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const usersResult = await listUsersCached(supabase);
     if (usersResult.error) throw new Error(usersResult.error.message);
 
     const allUsers = usersResult.data.users || [];
@@ -51,7 +52,7 @@ export async function GET() {
       const { data: attRows } = await supabase
         .from("attendance_logs")
         .select("employee_id, status")
-        .eq("date", today);
+        .eq("log_date", today);
 
       if (Array.isArray(attRows)) {
         const seenEmployees = new Set();
@@ -81,10 +82,10 @@ export async function GET() {
     try {
       const { data: recent } = await supabase
         .from("attendance_logs")
-        .select("employee_id, employee_name, date, time_in, time_out, status")
+        .select("employee_id, employee_name, log_date, time_in, time_out, status")
         .order("created_at", { ascending: false })
         .limit(10);
-      recentActivity = recent || [];
+      recentActivity = (recent || []).map((row) => ({ ...row, date: row.log_date }));
     } catch { /* ignore */ }
 
     // Employee type breakdown

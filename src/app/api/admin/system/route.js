@@ -1,3 +1,4 @@
+import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -17,7 +18,7 @@ function getAdminClient() {
 }
 
 async function fetchSystemStats(supabase) {
-  const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const usersResult = await listUsersCached(supabase);
   const users = usersResult.error ? [] : (usersResult.data.users || []);
 
   const roleCounts = { admin: 0, hr: 0, accountant: 0, employee: 0 };
@@ -43,7 +44,7 @@ async function fetchSystemStats(supabase) {
 }
 
 async function fetchRfidDevices(supabase) {
-  const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
   }
@@ -162,6 +163,8 @@ export async function PATCH(request) {
     if (updatedResult.error) {
       return NextResponse.json({ error: sanitizeError(updatedResult.error) }, { status: 400 });
     }
+
+    invalidateUsersCache();
 
     await appendAuditLog({
       module: "system",

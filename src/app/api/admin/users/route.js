@@ -1,3 +1,4 @@
+import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -32,7 +33,7 @@ function shapeUser(user, profile) {
 }
 
 async function fetchAllUsers(supabase) {
-  const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
   }
@@ -106,6 +107,8 @@ export async function POST(request) {
     if (createResult.error) {
       return NextResponse.json({ error: sanitizeError(createResult.error) }, { status: 400 });
     }
+
+    invalidateUsersCache();
 
     const newUser = createResult.data.user;
     await supabase.from("profiles").upsert(
@@ -186,6 +189,8 @@ export async function PATCH(request) {
     if (updatedResult.error) {
       return NextResponse.json({ error: sanitizeError(updatedResult.error) }, { status: 400 });
     }
+
+    invalidateUsersCache();
 
     if (action === "update") {
       const email = updatePayload.email || existingUser.email;

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { listUsersCached } from "@/lib/auth/users-cache";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -53,7 +54,7 @@ export async function GET() {
   try {
     const supabase = getAdminClient();
 
-    const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const usersResult = await listUsersCached(supabase);
     if (usersResult.error) throw new Error(usersResult.error.message);
 
     const employees = (usersResult.data.users || [])

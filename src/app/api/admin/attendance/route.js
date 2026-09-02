@@ -1,3 +1,4 @@
+import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -91,7 +92,7 @@ function shapeEmployee(user, profile, index) {
 }
 
 async function fetchEmployees(supabase) {
-  const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
   }

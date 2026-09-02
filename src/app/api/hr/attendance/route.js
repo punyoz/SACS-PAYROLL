@@ -45,7 +45,7 @@ export async function GET(request) {
       const { data, error } = await supabase
         .from("attendance_logs")
         .select("*")
-        .order("date", { ascending: false })
+        .order("log_date", { ascending: false })
         .order("time_in", { ascending: false })
         .limit(500);
       if (!error) logs = data || [];
@@ -53,10 +53,12 @@ export async function GET(request) {
       const { data, error } = await supabase
         .from("attendance_logs")
         .select("*")
-        .eq("date", dateParam)
+        .eq("log_date", dateParam)
         .order("time_in", { ascending: true });
       if (!error) logs = data || [];
     }
+
+    logs = logs.map((row) => ({ ...row, date: row.log_date }));
 
     // Summary counts
     const present = logs.filter((r) => String(r.status || "").toLowerCase() === "present").length;

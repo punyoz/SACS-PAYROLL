@@ -1,3 +1,4 @@
+import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -29,7 +30,7 @@ export async function POST(request) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  const { data: usersData, error: listError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const { data: usersData, error: listError } = await listUsersCached(supabase);
   if (listError) {
     return NextResponse.json({ error: "Failed to verify account." }, { status: 500 });
   }
@@ -57,6 +58,8 @@ export async function POST(request) {
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+
+  invalidateUsersCache();
 
   await supabase.from("profiles").update({ full_name }).eq("id", user.id);
 

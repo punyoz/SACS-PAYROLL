@@ -1,3 +1,4 @@
+import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -167,7 +168,7 @@ function shapeEmployee(user, profile, index) {
 }
 
 async function fetchEmployees(supabase) {
-  const usersResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
   }
@@ -276,6 +277,8 @@ export async function POST(request) {
       return NextResponse.json({ error: sanitizeError(createUserResult.error) }, { status: 400 });
     }
 
+    invalidateUsersCache();
+
     const newUser = createUserResult.data.user;
     const profileResult = await supabase.from("profiles").upsert(
       {
@@ -332,7 +335,7 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
-    const listResult = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const listResult = await listUsersCached(supabase);
 
     if (listResult.error) {
       return NextResponse.json({ error: sanitizeError(listResult.error) }, { status: 400 });
@@ -416,6 +419,8 @@ export async function PATCH(request) {
       return NextResponse.json({ error: sanitizeError(updatedResult.error) }, { status: 400 });
     }
 
+    invalidateUsersCache();
+
     if (action === "update") {
       const profileResult = await supabase.from("profiles").upsert(
         {
@@ -489,6 +494,8 @@ export async function DELETE(request) {
     if (deleteUser.error) {
       return NextResponse.json({ error: sanitizeError(deleteUser.error) }, { status: 400 });
     }
+
+    invalidateUsersCache();
 
     await appendAuditLog({
       module: "employees",
