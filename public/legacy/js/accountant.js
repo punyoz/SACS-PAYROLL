@@ -442,7 +442,9 @@ function syncFormForEmployee() {
   if (!basicInput) return;
 
   if (!acctState.currentEntryId) {
-    basicInput.value = Number(employee.basic_salary || 0);
+    // Payroll runs twice a month (1-15 and 16-end), each covering half the
+    // employee's monthly rate, so the two runs together add up to one month's pay.
+    basicInput.value = toAmount(Number(employee.basic_salary || 0) / 2);
     autoFillDeductions(toAmount(basicInput.value));
     autoFillLeaveDays(employee.id);
   }
@@ -927,7 +929,9 @@ function loadBatchPayrollTable() {
 
   tbody.innerHTML = acctState.employees.map((employee) => {
     const id = escapeJsAttr(employee.id);
-    const basic = toAmount(employee.basic_salary);
+    // Payroll runs twice a month (1-15 and 16-end), each covering half the
+    // employee's monthly rate, so the two runs together add up to one month's pay.
+    const basic = toAmount(Number(employee.basic_salary || 0) / 2);
     const pct2 = toAmount(basic * 0.02);
     const attendance = acctState.attendanceRows.find((row) => row.employee_id === employee.id);
     const leave = acctState.leaveSummary.find((row) => row.employee_id === employee.id);
@@ -950,9 +954,9 @@ function loadBatchPayrollTable() {
       <tr data-employee-id="${escapeHtml(employee.id)}">
         <td class="nm">${escapeHtml(employee.full_name)}</td>
         <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}"></td>
-        <td class="mn"><span id="batch-sss-display-${id}">${formatMoney(pct2)}</span><input type="hidden" id="batch-sss-${id}" value="${pct2}"></td>
-        <td class="mn"><span id="batch-philhealth-display-${id}">${formatMoney(pct2)}</span><input type="hidden" id="batch-philhealth-${id}" value="${pct2}"></td>
-        <td class="mn"><span id="batch-pagibig-display-${id}">${formatMoney(pct2)}</span><input type="hidden" id="batch-pagibig-${id}" value="${pct2}"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-sss-${id}" value="${pct2}" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-philhealth-${id}" value="${pct2}" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-pagibig-${id}" value="${pct2}" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
         <td class="mn"><input class="fc" type="number" id="batch-tax-${id}" value="0" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
         <td class="mn"><input class="fc" type="number" id="batch-absent-${id}" value="${absentDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
         <td class="mn"><input class="fc" type="number" id="batch-late-${id}" value="${lateDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
@@ -1477,17 +1481,21 @@ function initAccountant() {
   const initialNav = getAccountantNavByPageId(initialPage);
   acctNav(initialPage, initialNav);
 
-  // Basic salary triggers auto-fill of 2% deductions then recalc
+  // Basic salary only triggers recalc — SSS/PhilHealth/Pag-IBIG are
+  // editable (actual contribution tables vary per employee/employer and
+  // aren't a flat 2%), so a basic-salary edit must not clobber whatever the
+  // accountant already typed into those fields. The 2% figure is only ever
+  // suggested as a starting point when a new employee is selected — see
+  // autoFillDeductions() in syncFormForEmployee().
   const basicEl = document.getElementById('pc-basic');
   if (basicEl) {
     basicEl.addEventListener('input', () => {
       clampSalaryInput(basicEl);
-      autoFillDeductions(toAmount(basicEl.value));
       recalc();
     });
   }
   // Manual deduction inputs only trigger recalc
-  ['pc-tax', 'pc-absences', 'pc-late'].forEach(id => {
+  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
   });

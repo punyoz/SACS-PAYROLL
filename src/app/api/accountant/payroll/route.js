@@ -30,13 +30,33 @@ function parseEmployeeIdNumber(employeeId) {
   return Number(match[1]);
 }
 
-function formatPeriodLabel(dateInput) {
+// Payroll runs twice a month — cutoff on the 15th and on the last day of the
+// month — so every date maps to one of two semi-monthly pay periods.
+function getPayPeriodRange(dateInput = new Date()) {
   const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
-  if (Number.isNaN(date.getTime())) {
-    return new Intl.DateTimeFormat("en-PH", { month: "long", year: "numeric" }).format(new Date());
-  }
+  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
 
-  return new Intl.DateTimeFormat("en-PH", { month: "long", year: "numeric" }).format(date);
+  const year = safeDate.getFullYear();
+  const month = safeDate.getMonth();
+  const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+  const isFirstHalf = safeDate.getDate() <= 15;
+
+  const startDay = isFirstHalf ? 1 : 16;
+  const endDay = isFirstHalf ? 15 : lastDayOfMonth;
+  const pad = (n) => String(n).padStart(2, "0");
+
+  const monthName = new Intl.DateTimeFormat("en-PH", { month: "long" }).format(safeDate);
+
+  return {
+    start_key: `${year}-${pad(month + 1)}-${pad(startDay)}`,
+    end_key: `${year}-${pad(month + 1)}-${pad(endDay)}`,
+    is_first_half: isFirstHalf,
+    label: `${monthName} ${startDay}-${endDay}, ${year}`,
+  };
+}
+
+function formatPeriodLabel(dateInput) {
+  return getPayPeriodRange(dateInput).label;
 }
 
 function toAmount(value) {
@@ -355,13 +375,6 @@ function resolveEntryStatus(entry) {
   return entry.status || "draft";
 }
 
-function getCurrentMonthPrefix() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  return `${year}-${month}`;
-}
-
 function normalizeAttendanceStatus(value) {
   const status = normalizeText(value, "Absent").toLowerCase();
   if (status === "present") return "present";
@@ -381,7 +394,7 @@ async function fetchAttendanceSummary(supabase, employees) {
   }
 
   const activeEmployeeIds = new Set(employees.map((employee) => employee.id));
-  const monthPrefix = getCurrentMonthPrefix();
+  const { start_key: periodStart, end_key: periodEnd } = getPayPeriodRange(new Date());
   const grouped = new Map();
 
   employees.forEach((employee) => {
@@ -401,7 +414,7 @@ async function fetchAttendanceSummary(supabase, employees) {
     if (!activeEmployeeIds.has(employeeId)) return;
 
     const key = normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
-    if (!key.startsWith(monthPrefix)) return;
+    if (key < periodStart || key > periodEnd) return;
 
     const summary = grouped.get(employeeId);
     if (!summary) return;
@@ -422,10 +435,11 @@ async function fetchAttendanceSummary(supabase, employees) {
 }
 
 // Sums each employee's approved Leave With Pay / Without Pay days that fall in
-// the current calendar month, matching fetchAttendanceSummary()'s same
-// current-month scoping (pay periods aren't otherwise date-ranged in this app).
+// the current semi-monthly pay period, matching fetchAttendanceSummary()'s
+// same period scoping. Days are clamped to the period window so a leave
+// request spanning a cutoff only counts toward the half it actually falls in.
 async function computeLeaveSummary(employees) {
-  const monthPrefix = getCurrentMonthPrefix();
+  const { start_key: periodStart, end_key: periodEnd } = getPayPeriodRange(new Date());
   const allLeaveRequests = await readAllLeaveRequests();
   const approved = allLeaveRequests.filter((r) => r.status === "approved");
 
@@ -440,10 +454,14 @@ async function computeLeaveSummary(employees) {
     let withoutPayDays = 0;
 
     requestsForEmployee.forEach((request) => {
-      if (!String(request.start_date || "").startsWith(monthPrefix) && !String(request.end_date || "").startsWith(monthPrefix)) {
-        return;
-      }
-      const days = countLeaveDays(request.start_date, request.end_date);
+      const requestStart = String(request.start_date || "");
+      const requestEnd = String(request.end_date || requestStart);
+      if (!requestStart || !requestEnd) return;
+      if (requestEnd < periodStart || requestStart > periodEnd) return;
+
+      const overlapStart = requestStart > periodStart ? requestStart : periodStart;
+      const overlapEnd = requestEnd < periodEnd ? requestEnd : periodEnd;
+      const days = countLeaveDays(overlapStart, overlapEnd);
       if (request.pay_status === "without_pay") withoutPayDays += days;
       else withPayDays += days;
     });
@@ -540,11 +558,17 @@ function buildPayslipDetails(entry) {
 function getPeriodOptions(entries) {
   const unique = new Set(entries.map((entry) => entry.pay_period).filter(Boolean));
   const periods = Array.from(unique.values());
-  const current = formatPeriodLabel(new Date());
 
-  if (!periods.includes(current)) {
-    periods.unshift(current);
-  }
+  // Always offer both semi-monthly periods of the current month, regardless
+  // of which half "today" falls in, so the second cutoff can be prepared
+  // ahead of time and the first stays reachable after it closes.
+  const now = new Date();
+  const secondHalfLabel = getPayPeriodRange(new Date(now.getFullYear(), now.getMonth(), 16)).label;
+  const firstHalfLabel = getPayPeriodRange(new Date(now.getFullYear(), now.getMonth(), 1)).label;
+
+  [secondHalfLabel, firstHalfLabel].forEach((label) => {
+    if (!periods.includes(label)) periods.unshift(label);
+  });
 
   return periods;
 }
