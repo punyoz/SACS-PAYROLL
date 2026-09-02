@@ -577,8 +577,11 @@ function renderHRLeaveList() {
 }
 
 async function hrLeaveAction(id, action) {
-  const label = action === 'approve' ? 'approve this leave request' : 'reject this leave request';
-  const confirmed = await confirmDestructiveAction(label, 'This decision cannot be undone.');
+  // Approving is a positive decision, so it uses the green approval dialog
+  // (same as the accountant's approve). Only rejecting gets the red warning.
+  const confirmed = action === 'approve'
+    ? await confirmApproveAction('approve this leave request', 'The employee will be notified of the approval.')
+    : await confirmDestructiveAction('reject this leave request', 'This decision cannot be undone.');
   if (!confirmed) return;
 
   try {

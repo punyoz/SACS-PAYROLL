@@ -1398,7 +1398,14 @@ async function toggleArchiveCurrentUser() {
     ? 'Archived users cannot log in and will be hidden from active lists.'
     : 'This user account will be restored to active status.';
 
-  if (window.confirmDestructiveAction && !(await window.confirmDestructiveAction(prompt, detail))) {
+  // Restoring is a positive action, so it uses the green confirm dialog;
+  // archiving keeps the red warning.
+  const confirmFn = action === 'restore'
+    ? (window.confirmApproveAction
+        && ((p, d) => window.confirmApproveAction(p, d, { title: 'Confirm Restore', confirmLabel: 'Restore' })))
+    : window.confirmDestructiveAction;
+
+  if (confirmFn && !(await confirmFn(prompt, detail))) {
     return;
   }
 

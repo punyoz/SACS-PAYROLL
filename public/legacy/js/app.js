@@ -326,17 +326,27 @@ function ensureApproveDialog() {
   return backdrop;
 }
 
-async function confirmApproveAction(actionLabel, detailText) {
+// options: { title, confirmLabel } — lets non-approval positive actions (e.g.
+// restoring a user) reuse this dialog without saying "Approve". The dialog
+// element is created once and reused, so both are always set, not just when
+// overridden, otherwise wording would leak from the previous call.
+async function confirmApproveAction(actionLabel, detailText, options = {}) {
   const action = String(actionLabel || 'this action').trim();
   const detail = String(detailText || '').trim();
+  const title = String(options.title || 'Confirm Approval').trim();
+  const confirmLabel = String(options.confirmLabel || 'Approve').trim();
   const backdrop = ensureApproveDialog();
   const body = backdrop.querySelector('#approve-body');
   const okButton = backdrop.querySelector('#approve-ok-btn');
   const cancelButton = backdrop.querySelector('#approve-cancel-btn');
+  const titleEl = backdrop.querySelector('#approve-title');
 
   if (!body || !okButton || !cancelButton) {
     return window.confirm(`Confirm: You are about to ${action}. Continue?`);
   }
+
+  if (titleEl) titleEl.textContent = title;
+  okButton.textContent = confirmLabel;
 
   body.innerHTML = `
     <p>You are about to <strong style="color:var(--t1);">${action}</strong>.</p>
