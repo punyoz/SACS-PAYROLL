@@ -282,7 +282,7 @@ function onSABranchRegionChange() {
   const cityEl = document.getElementById('sa-branch-city');
   const barangayEl = document.getElementById('sa-branch-barangay');
   if (!regionEl || !provinceEl) return;
-  const provinces = PH_PROVINCES[regionEl.value] || [];
+  const provinces = SA_PH_PROVINCES[regionEl.value] || [];
   provinceEl.innerHTML = '<option value="">Select Province / District</option>' +
     provinces.map((p) => `<option value="${p}">${p}</option>`).join('');
   if (cityEl) cityEl.innerHTML = '<option value="">Select City / Municipality</option>';
@@ -294,7 +294,7 @@ function onSABranchProvinceChange() {
   const cityEl = document.getElementById('sa-branch-city');
   const barangayEl = document.getElementById('sa-branch-barangay');
   if (!provinceEl || !cityEl) return;
-  const cities = PH_CITIES[provinceEl.value] || [];
+  const cities = SA_PH_CITIES[provinceEl.value] || [];
   cityEl.innerHTML = '<option value="">Select City / Municipality</option>' +
     cities.map((c) => `<option value="${c}">${c}</option>`).join('');
   if (barangayEl) barangayEl.innerHTML = '<option value="">Select Barangay</option>';
@@ -304,7 +304,7 @@ function onSABranchCityChange() {
   const cityEl = document.getElementById('sa-branch-city');
   const barangayEl = document.getElementById('sa-branch-barangay');
   if (!cityEl || !barangayEl) return;
-  const barangays = PH_BARANGAYS[cityEl.value] || [];
+  const barangays = SA_PH_BARANGAYS[cityEl.value] || [];
   barangayEl.innerHTML = '<option value="">Select Barangay</option>' +
     barangays.map((b) => `<option value="${b}">${b}</option>`).join('');
 }
@@ -317,25 +317,25 @@ function populateSABranchLocationSelects(locationStr) {
   if (!regionEl) return;
 
   const parts = locationStr.split(',').map((s) => s.trim()).filter(Boolean);
-  const region = PH_REGIONS.find((r) => parts.includes(r)) ||
-    PH_REGIONS.find((r) => locationStr.includes(r)) || '';
+  const region = SA_PH_REGIONS.find((r) => parts.includes(r)) ||
+    SA_PH_REGIONS.find((r) => locationStr.includes(r)) || '';
   regionEl.value = region;
   onSABranchRegionChange();
 
   if (region && provinceEl) {
-    const province = (PH_PROVINCES[region] || []).find((p) => parts.includes(p)) ||
-      (PH_PROVINCES[region] || []).find((p) => locationStr.includes(p)) || '';
+    const province = (SA_PH_PROVINCES[region] || []).find((p) => parts.includes(p)) ||
+      (SA_PH_PROVINCES[region] || []).find((p) => locationStr.includes(p)) || '';
     provinceEl.value = province;
     onSABranchProvinceChange();
 
     if (province && cityEl) {
-      const city = (PH_CITIES[province] || []).find((c) => parts.includes(c)) ||
-        (PH_CITIES[province] || []).find((c) => locationStr.includes(c)) || '';
+      const city = (SA_PH_CITIES[province] || []).find((c) => parts.includes(c)) ||
+        (SA_PH_CITIES[province] || []).find((c) => locationStr.includes(c)) || '';
       cityEl.value = city;
       onSABranchCityChange();
 
       if (city && barangayEl) {
-        const barangays = PH_BARANGAYS[city] || [];
+        const barangays = SA_PH_BARANGAYS[city] || [];
         const barangay = barangays.find((b) => parts.includes(b)) ||
           barangays.find((b) => locationStr.startsWith(b + ',')) || '';
         if (barangay) barangayEl.value = barangay;
@@ -874,7 +874,7 @@ window.addEventListener('sacs-auth-context-changed', (event) => {
 
 const SA_BRANCH_BADGE_COLORS = ['var(--amber)', 'var(--blue)', 'var(--teal)', 'var(--green)', 'var(--red)'];
 
-const PH_REGIONS = [
+const SA_PH_REGIONS = [
   'NCR','Region I','CAR','Region II','Region III',
   'Region IV-A (CALABARZON)','Region IV-B (MIMAROPA)',
   'Region V','Region VI','Region VII','Region VIII',
@@ -882,7 +882,7 @@ const PH_REGIONS = [
   'Region XIII (CARAGA)','BARMM',
 ];
 
-const PH_PROVINCES = {
+const SA_PH_PROVINCES = {
   'NCR':['Metro Manila'],
   'Region I':['Ilocos Norte','Ilocos Sur','La Union','Pangasinan'],
   'CAR':['Abra','Apayao','Benguet','Ifugao','Kalinga','Mountain Province'],
@@ -902,7 +902,7 @@ const PH_PROVINCES = {
   'BARMM':['Basilan','Lanao del Sur','Maguindanao del Norte','Maguindanao del Sur','Sulu','Tawi-Tawi'],
 };
 
-const PH_CITIES = {
+const SA_PH_CITIES = {
   'Metro Manila':['Caloocan','Las Piñas','Makati','Malabon','Mandaluyong','Manila','Marikina','Muntinlupa','Navotas','Parañaque','Pasay','Pasig','Pateros','Quezon City','San Juan','Taguig','Valenzuela'],
   'Ilocos Norte':['Adams','Bacarra','Badoc','Bangui','Banna','Burgos','Carasi','Currimao','Dingras','Dumalneg','Laoag City','Marcos','Nueva Era','Pagudpud','Paoay','Pasuquin','Piddig','Pinili','San Nicolas','Sarrat','Solsona','Vintar'],
   'Ilocos Sur':['Alilem','Banayoyo','Bantay','Burgos','Cabugao','Candon City','Caoayan','Cervantes','Galimuyod','Gregorio del Pilar','Lidlidda','Magsingal','Nagbukel','Narvacan','Quirino','Salcedo','San Emilio','San Esteban','San Ildefonso','San Juan','San Vicente','Santa','Santa Catalina','Santa Cruz','Santa Lucia','Santa Maria','Santiago','Sigay','Sinait','Sugpon','Suyo','Tagudin','Vigan City'],
@@ -988,7 +988,7 @@ const PH_CITIES = {
   'Tawi-Tawi':['Bongao','Languyan','Mapun','Panglima Sugala','Sibutu','Simunul','Sapa-Sapa','South Ubian','Tandubas','Turtle Islands'],
 };
 
-const PH_BARANGAYS = {
+const SA_PH_BARANGAYS = {
   'Caloocan':['Bagumbong','Baesa','Camarin','Culiat','Deparo','Bagong Silang','Grace Park East','Grace Park West','Llano','Maypajo','Parada','Sangandaan','Tala','Bagal','Boyon','Calachuchi','Karuhatan','Lourdes','Malaria','Paso de Blas','Sta. Quiteria','Tinajeros','University Hills'],
   'Las Piñas':['Almanza Uno','Almanza Dos','BF Resort','Daniel Fajardo','Elias Aldana','Ilaya','Manuyo Uno','Manuyo Dos','Pamplona Uno','Pamplona Dos','Pamplona Tres','Pilar','Pulang Lupa Uno','Pulang Lupa Dos','Talon Uno','Talon Dos','Talon Tres','Talon Kuatro','Talon Singko','Zapote'],
   'Makati':['Bel-Air','Carmona','Cembo','Comembo','Dasmarinas','East Rembo','Forbes Park','Guadalupe Nuevo','Guadalupe Viejo','Kasilawan','La Paz','Legazpi Village','Magallanes','Olympia','Palanan','Pembo','Pinagkaisahan','Pio del Pilar','Pitogo','Poblacion','Post Proper Northside','Post Proper Southside','Rizal','Rockwell','San Antonio','San Isidro','San Lorenzo','Santa Cruz','Singkamas','South Cembo','Tejeros','Urdaneta','Valenzuela','West Rembo'],
