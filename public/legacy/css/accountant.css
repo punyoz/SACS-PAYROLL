@@ -5,9 +5,10 @@
 
 /* ── SIDEBAR BRAND COLOR ── */
 #s-accountant .bi {
-  background: var(--teal);
-  color: #fff;
+  background: var(--amber);
+  color: #0D1B2A;
 }
+[data-theme="light"] #s-accountant .bi { color: #fff; }
 
 /* ── PENDING SUBMISSION BANNER ── */
 .pending-banner {

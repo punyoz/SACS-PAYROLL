@@ -68,7 +68,12 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 700;
   font-family: var(--mono);
+  /* Single system-wide brand colour — every portal (incl. HR, which has no
+     stylesheet of its own) inherits this so the logo always renders. */
+  background: var(--amber);
+  color: #0D1B2A;
 }
+[data-theme="light"] .bi { color: #fff; }
 .bt .bn { font-size: 12px; font-weight: 600; color: var(--t1); }
 .bt .bs { font-size: 10px; color: var(--t3); }
 
