@@ -20,6 +20,10 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity=".5"/></svg>
       SA Dashboard
     </div>
+    <div class="ni" onclick="saNav('sa-attendance',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 8l2 2 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Attendance
+    </div>
 
     <div class="sb-sec">Management</div>
     <div class="ni" onclick="saNav('sa-branches',this)">
@@ -142,8 +146,8 @@
             <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="sa-dash-absent">—</div></div>
           </div>
           <div style="margin-top:14px;">
-            <button class="btn btn-outline" style="margin-right:8px;" onclick="saNav('sa-audit', document.querySelectorAll('#s-super-admin .ni')[4])">View Audit Logs</button>
-            <button class="btn btn-outline" onclick="saNav('sa-roles', document.querySelectorAll('#s-super-admin .ni')[2])">Manage Users</button>
+            <button class="btn btn-outline" style="margin-right:8px;" onclick="saNav('sa-audit', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-audit&quot;]'))">View Audit Logs</button>
+            <button class="btn btn-outline" onclick="saNav('sa-roles', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-roles&quot;]'))">Manage Users</button>
           </div>
         </div>
       </div>
@@ -157,6 +161,34 @@
           <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:80%"></div></div></div>
         </div>
       </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Attendance
+    ────────────────────────────── -->
+    <div class="page" id="sa-attendance">
+      <div class="ph"><h2>Attendance Monitoring</h2><p>System-wide RFID attendance — read and export</p></div>
+
+      <div class="sg3">
+        <div class="card"><div class="ct">Present Today</div><div class="cv g" id="sa-att-present">0</div></div>
+        <div class="card"><div class="ct">Late Today</div><div class="cv a" id="sa-att-late">0</div></div>
+        <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="sa-att-absent">0</div></div>
+      </div>
+
+      <div class="sh"><span class="stitle" id="sa-attendance-title">Attendance Log — Today</span><span class="sp"></span><button class="btn btn-outline" onclick="exportSAAttendanceCsv()">Export CSV</button></div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>Type</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
+        <tbody id="sa-attendance-table-body">
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
+        </tbody>
+      </table></div>
+      <div class="pg-bar" id="sa-att-pg"></div>
+
+      <p style="font-size:12px;color:var(--t3);margin-top:12px;">Need to record a tap manually? Use the RFID Scan Input under <a href="#" onclick="saNav('sa-maintenance', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-maintenance&quot;]'));return false;" style="color:var(--amber);">System Maintenance</a>.</p>
     </div>
 
     <!-- ──────────────────────────────

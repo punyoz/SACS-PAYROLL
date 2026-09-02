@@ -9,6 +9,7 @@
 /* ── PAGE MAP ── */
 const SA_PAGES = {
   'sa-dashboard':    'SA Dashboard',
+  'sa-attendance':   'Attendance',
   'sa-branches':     'Branch Management',
   'sa-roles':        'Roles & Permissions',
   'sa-branch-assign':'Branch Assignment',
@@ -28,6 +29,8 @@ let saAuditAction = 'all';
 let saBranches = [];
 let saAssignBranches = [];
 let saReportData = [];
+let saAttendanceData = null;
+let saAttPaginator = null;
 
 let saUsersPaginator = null;
 let saAuditPaginator = null;
@@ -59,6 +62,7 @@ function saNav(pageId, navEl) {
   if (typeof persistRolePageState === 'function') persistRolePageState('super_admin', pageId);
 
   if (pageId === 'sa-dashboard')       loadSADashboard();
+  else if (pageId === 'sa-attendance') loadSAAttendanceData();
   else if (pageId === 'sa-branches')   loadSABranches();
   else if (pageId === 'sa-roles')      loadSAUsers();
   else if (pageId === 'sa-branch-assign') loadSABranchAssignment();
@@ -592,6 +596,88 @@ async function saveSAConfig(section) {
   } catch (err) {
     if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
   }
+}
+
+/* ── ATTENDANCE MONITORING ── */
+function renderSAAttendancePanels(payload = {}) {
+  const panels = payload?.panels || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = String(v || 0); };
+
+  set('sa-att-present', panels.present_today);
+  set('sa-att-late', panels.late_today);
+  set('sa-att-absent', panels.absent_today);
+
+  const titleEl = document.getElementById('sa-attendance-title');
+  if (titleEl) titleEl.textContent = `Attendance Log — ${payload?.date_label || 'Today'}`;
+}
+
+function renderSAAttendanceTable(rows = []) {
+  const tbody = document.getElementById('sa-attendance-table-body');
+  if (!tbody) return;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No attendance records found for today.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map((row) => {
+    const type = String(row.employee_type || 'Teaching');
+    const typeBadgeClass = type === 'Non-Teaching' ? 'ba' : 'bt2';
+
+    const status = String(row.status || 'Absent');
+    const normalized = status.toLowerCase();
+    const statusClass = normalized === 'late' ? 'ba' : (normalized === 'present' ? 'bg' : 'br');
+
+    return `
+      <tr>
+        <td class="nm">${escapeHtml(row.employee_name || 'Unknown Employee')}</td>
+        <td><span class="badge ${typeBadgeClass}">${escapeHtml(type)}</span></td>
+        <td class="mn">${formatTimeOnly(row.time_in)}</td>
+        <td class="mn">${formatTimeOnly(row.time_out)}</td>
+        <td class="mn">${formatHours(row.total_hours)}</td>
+        <td><span class="badge ${statusClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadSAAttendanceData() {
+  const tbody = document.getElementById('sa-attendance-table-body');
+  if (tbody) tbody.innerHTML = skeletonRows(6);
+
+  try {
+    const res = await fetch('/api/admin/attendance');
+    const payload = await res.json();
+    if (!res.ok) throw new Error(payload.error || 'Failed to load attendance data.');
+
+    saAttendanceData = payload;
+    renderSAAttendancePanels(payload);
+
+    if (!saAttPaginator) {
+      saAttPaginator = createPaginator({ id: 'sa-att', pageSize: 15, renderFn: renderSAAttendanceTable });
+    }
+    saAttPaginator.setData(payload.attendance_logs || []);
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function exportSAAttendanceCsv() {
+  const rows = saAttendanceData?.attendance_logs || [];
+  if (!rows.length) { alert('No attendance data available to export.'); return; }
+
+  const headers = ['Employee', 'Type', 'Time In', 'Time Out', 'Hours', 'Status'];
+  const body = rows.map((row) => [
+    row.employee_name || '',
+    row.employee_type || '',
+    formatTimeOnly(row.time_in),
+    formatTimeOnly(row.time_out),
+    formatHours(row.total_hours),
+    row.status || '',
+  ]);
+
+  const dateKey = String(saAttendanceData?.date_key || 'today').replaceAll('/', '-');
+  saDownloadCsv([headers, ...body], `sacs-attendance-${dateKey}.csv`);
 }
 
 /* ── AUDIT & MONITORING ── */
@@ -1662,6 +1748,9 @@ window.closeSARfidEditModal = closeSARfidEditModal;
 window.submitSARfidUpdate = submitSARfidUpdate;
 window.voidSARfidCard = voidSARfidCard;
 window.submitSARfidAttendanceScan = submitSARfidAttendanceScan;
+
+window.loadSAAttendanceData = loadSAAttendanceData;
+window.exportSAAttendanceCsv = exportSAAttendanceCsv;
 
 window.setSABranchFilter = setSABranchFilter;
 window.setSABranchSearch = setSABranchSearch;
