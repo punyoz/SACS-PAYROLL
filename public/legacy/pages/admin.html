@@ -35,10 +35,6 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Branch Assignment
     </div>
-    <div class="ni" onclick="adminNav('adm-branches',this)">
-      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M4 6V3.5A1.5 1.5 0 0 1 5.5 2h5A1.5 1.5 0 0 1 12 3.5V6" stroke="currentColor" stroke-width="1.2"/></svg>
-      Branch Management
-    </div>
 
     <div class="sb-sec">System</div>
     <div class="ni" onclick="adminNav('adm-maintenance',this)">
@@ -346,29 +342,6 @@
             <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
           </tbody>
         </table></div>
-      </div>
-    </div>
-
-    <!-- ──────────────────────────────
-         PAGE: Branch Management
-    ────────────────────────────── -->
-    <div class="page" id="adm-branches">
-      <div class="ph"><h2>Branch Management</h2><p>Manage branch information, configurations, and employee distribution across all branches</p></div>
-
-      <div class="sg3" style="margin-bottom:16px;">
-        <div class="card"><div class="ct">Total Branches</div><div class="cv b" id="adm-branch-total">—</div><div class="cch">Registered branches</div></div>
-        <div class="card"><div class="ct">Active Branches</div><div class="cv g" id="adm-branch-active">—</div><div class="cch">Currently operating</div></div>
-        <div class="card"><div class="ct">Total Staff</div><div class="cv" id="adm-branch-staff">—</div><div class="cch">Across all branches</div></div>
-      </div>
-
-      <div class="sh" style="margin-bottom:12px;">
-        <span class="stitle">Branch List</span>
-        <span class="sp"></span>
-        <button class="btn btn-primary" onclick="openAdmBranchModal()">+ Add Branch</button>
-      </div>
-
-      <div class="branch-grid" id="adm-branch-grid">
-        <!-- Rendered by JS -->
       </div>
     </div>
 
@@ -809,79 +782,6 @@
         <p id="rfid-edit-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Save RFID</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ── BRANCH MANAGEMENT MODAL ── -->
-  <div id="adm-branch-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:480px;">
-      <div class="adm-modal-head">
-        <h3 id="adm-branch-modal-title">Add Branch</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeAdmBranchModal()" title="Close">&#x2715;</button>
-      </div>
-      <form id="adm-branch-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitAdmBranch(event)">
-        <input type="hidden" name="id" />
-        <div class="fg" style="margin:0;">
-          <label>Branch Name</label>
-          <input class="fc" name="name" required placeholder="e.g. Main Campus" />
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Region</label>
-          <select class="fc" id="adm-branch-region" required onchange="onAdmBranchRegionChange()">
-            <option value="">Select Region</option>
-            <option value="NCR">NCR – National Capital Region</option>
-            <option value="Region I">Region I – Ilocos Region</option>
-            <option value="CAR">CAR – Cordillera Administrative Region</option>
-            <option value="Region II">Region II – Cagayan Valley</option>
-            <option value="Region III">Region III – Central Luzon</option>
-            <option value="Region IV-A (CALABARZON)">Region IV-A – CALABARZON</option>
-            <option value="Region IV-B (MIMAROPA)">Region IV-B – MIMAROPA</option>
-            <option value="Region V">Region V – Bicol Region</option>
-            <option value="Region VI">Region VI – Western Visayas</option>
-            <option value="Region VII">Region VII – Central Visayas</option>
-            <option value="Region VIII">Region VIII – Eastern Visayas</option>
-            <option value="Region IX">Region IX – Zamboanga Peninsula</option>
-            <option value="Region X">Region X – Northern Mindanao</option>
-            <option value="Region XI">Region XI – Davao Region</option>
-            <option value="Region XII">Region XII – SOCCSKSARGEN</option>
-            <option value="Region XIII (CARAGA)">Region XIII – CARAGA</option>
-            <option value="BARMM">BARMM – Bangsamoro Autonomous Region</option>
-          </select>
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Province / District</label>
-          <select class="fc" id="adm-branch-province" required onchange="onAdmBranchProvinceChange()">
-            <option value="">Select Province / District</option>
-          </select>
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>City / Municipality</label>
-          <select class="fc" id="adm-branch-city" required onchange="onAdmBranchCityChange()">
-            <option value="">Select City / Municipality</option>
-          </select>
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Barangay</label>
-          <select class="fc" id="adm-branch-barangay">
-            <option value="">Select Barangay</option>
-          </select>
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Branch Code</label>
-          <input class="fc" name="code" placeholder="e.g. MAIN-01" maxlength="20" />
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Status</label>
-          <select class="fc" name="status">
-            <option value="Active">Active</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-        <p id="adm-branch-feedback" class="adm-feedback"></p>
-        <div class="adm-modal-actions">
-          <button type="submit" class="btn btn-primary">Save Branch</button>
         </div>
       </form>
     </div>
