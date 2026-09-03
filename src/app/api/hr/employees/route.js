@@ -2,7 +2,7 @@ import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
-import { normalizeText } from "@/lib/auth/normalize";
+import { normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -14,6 +14,54 @@ function getAdminClient() {
   return createClient(projectUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+function toTitleCaseWords(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  if (!normalized) return "";
+
+  return normalized
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+const ALLOWED_NAME_SUFFIXES = ["Jr.", "Sr.", "II", "III", "IV", "V"];
+
+function normalizeSuffix(value) {
+  return normalizeText(value).slice(0, 16);
+}
+
+function stripAllowedSuffix(fullName) {
+  const tokens = String(fullName || "").trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return "";
+  const last = tokens[tokens.length - 1];
+  if (ALLOWED_NAME_SUFFIXES.includes(last)) {
+    return tokens.slice(0, -1).join(" ");
+  }
+  return tokens.join(" ");
+}
+
+// Composes full_name from split first/middle/last/suffix fields when
+// provided (the Edit Employee form's Name section); falls back to a plain
+// full_name string otherwise.
+function buildFullNameFromParts(body) {
+  const first = toTitleCaseWords(body?.first_name);
+  const middle = normalizeText(body?.middle_initial);
+  const last = toTitleCaseWords(body?.last_name);
+  const suffix = normalizeSuffix(body?.suffix);
+
+  if (first && last) {
+    return [first, middle, last, suffix].filter(Boolean).join(" ");
+  }
+
+  return normalizeText(body?.full_name);
+}
+
+function isValidEmployeeName(nameInput) {
+  const withoutSuffix = stripAllowedSuffix(normalizeText(nameInput));
+  return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
 }
 
 function shapeEmployee(user, profile) {
@@ -79,7 +127,9 @@ export async function GET(request) {
   }
 }
 
-// HR can update employee status and basic info (not salary)
+// HR can update employee identity/status/contact info, but never role or
+// basic_salary — those stay Accountant/Admin-only, so this handler never
+// reads body.role or body.basic_salary at all.
 export async function PATCH(request) {
   try {
     const supabase = getAdminClient();
@@ -97,6 +147,23 @@ export async function PATCH(request) {
 
     const currentMeta = userData.user.user_metadata || {};
     const updatedMeta = { ...currentMeta };
+
+    const hasNameParts = body.first_name !== undefined || body.last_name !== undefined;
+    if (hasNameParts || body.full_name !== undefined) {
+      const nextFullName = hasNameParts
+        ? buildFullNameFromParts(body)
+        : normalizeText(body.full_name, currentMeta.full_name);
+
+      if (!isValidEmployeeName(nextFullName)) {
+        return NextResponse.json(
+          { error: "Full name must contain letters and spaces only." },
+          { status: 400 },
+        );
+      }
+      updatedMeta.full_name = nextFullName;
+    }
+
+    if (body.date_of_birth !== undefined) updatedMeta.date_of_birth = normalizeText(body.date_of_birth, currentMeta.date_of_birth);
     if (employee_status !== undefined) updatedMeta.employee_status = normalizeText(employee_status, currentMeta.employee_status);
     if (position !== undefined) updatedMeta.position = normalizeText(position, currentMeta.position);
     if (employee_type !== undefined) updatedMeta.employee_type = normalizeText(employee_type, currentMeta.employee_type);
@@ -107,15 +174,22 @@ export async function PATCH(request) {
     if (body.bank_name !== undefined) updatedMeta.bank_name = normalizeText(body.bank_name, normalizeText(currentMeta.bank_name, ""));
     if (body.bank_account_number !== undefined) updatedMeta.bank_account_number = normalizeText(body.bank_account_number, normalizeText(currentMeta.bank_account_number, ""));
 
-    const { error: updateErr } = await supabase.auth.admin.updateUserById(id, {
-      user_metadata: updatedMeta,
-    });
+    const nextEmail = body.email !== undefined
+      ? normalizeRoleEmail(normalizeText(body.email, userData.user.email))
+      : undefined;
+
+    const updatePayload = { user_metadata: updatedMeta };
+    if (nextEmail) updatePayload.email = nextEmail;
+
+    const { error: updateErr } = await supabase.auth.admin.updateUserById(id, updatePayload);
     if (updateErr) throw new Error(updateErr.message);
 
     invalidateUsersCache();
 
     // Sync profile table
     const profilePatch = {};
+    if (updatedMeta.full_name !== undefined) profilePatch.full_name = updatedMeta.full_name;
+    if (nextEmail) profilePatch.email = nextEmail;
     if (employee_type !== undefined) profilePatch.employee_type = normalizeText(employee_type);
     if (position !== undefined) profilePatch.position = normalizeText(position);
     if (Object.keys(profilePatch).length) {

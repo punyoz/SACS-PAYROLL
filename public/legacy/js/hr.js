@@ -239,7 +239,7 @@ function renderHREmployeeTable() {
             <td>${e.position || '—'}</td>
             <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${e.employee_status || 'Active'}</span></td>
             <td style="font-size:12px;color:var(--t3);">${e.email || '—'}</td>
-            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal(${JSON.stringify(e).replace(/"/g, '&quot;')})">Edit Status</button></td>
+            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal(${JSON.stringify(e).replace(/"/g, '&quot;')})">Edit</button></td>
           </tr>`;
         }).join('');
       },
@@ -255,8 +255,20 @@ function openHrEditEmployeeModal(employee) {
   if (!form) return;
 
   form.querySelector('[name="id"]').value = employee.id || '';
-  form.querySelector('[name="full_name"]').value = employee.full_name || '';
   form.querySelector('[name="employee_id"]').value = employee.employee_id || '';
+
+  // Only a single composed full_name is stored — split it back into parts
+  // so the Name section starts pre-filled with something reasonable.
+  const nameParts = splitFullName(employee.full_name || '');
+  const midName = nameParts.middle_initial
+    || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
+  if (form.elements.first_name) form.elements.first_name.value = nameParts.first_name || '';
+  if (form.elements.middle_initial) form.elements.middle_initial.value = midName;
+  if (form.elements.last_name) form.elements.last_name.value = nameParts.last_name || '';
+  if (form.elements.suffix) form.elements.suffix.value = nameParts.suffix || '';
+
+  if (form.elements.email) form.elements.email.value = employee.email || '';
+  if (form.elements.date_of_birth) form.elements.date_of_birth.value = employee.date_of_birth || '';
 
   const typeEl = form.querySelector('[name="employee_type"]');
   if (typeEl) typeEl.value = employee.employee_type || 'Teaching';
@@ -316,8 +328,43 @@ async function submitHrEditEmployee(event) {
   const form = event.target;
   const fb = document.getElementById('hr-edit-employee-feedback');
 
+  const firstName = (form.elements.first_name?.value || '').trim();
+  const lastName = (form.elements.last_name?.value || '').trim();
+  const middleInitial = (form.elements.middle_initial?.value || '').trim();
+  const suffix = (form.elements.suffix?.value || '').trim();
+  const email = (form.elements.email?.value || '').trim();
+
+  if (!firstName || !lastName) {
+    if (fb) { fb.textContent = 'First and last name are required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (!/^[A-Za-z\s]+$/.test(firstName)) {
+    if (fb) { fb.textContent = 'First name must contain only letters.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (!/^[A-Za-z\s]+$/.test(lastName)) {
+    if (fb) { fb.textContent = 'Last name must contain only letters.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (middleInitial && !/^[A-Za-z\s]+$/.test(middleInitial)) {
+    if (fb) { fb.textContent = 'Middle name must contain only letters.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+  if (!email) {
+    if (fb) { fb.textContent = 'Email is required.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+
+  // Role and basic_salary are intentionally never sent — HR can't edit
+  // either, so those fields aren't in this form at all.
   const payload = {
     id: form.querySelector('[name="id"]').value,
+    first_name: firstName,
+    middle_initial: middleInitial,
+    last_name: lastName,
+    suffix,
+    email,
+    date_of_birth: (form.elements.date_of_birth?.value || '').trim(),
     employee_type: form.querySelector('[name="employee_type"]').value,
     position: form.querySelector('[name="position"]').value,
     employee_status: form.querySelector('[name="employee_status"]').value,

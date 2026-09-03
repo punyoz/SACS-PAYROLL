@@ -459,13 +459,48 @@
       </div>
       <form id="hr-edit-employee-form" class="adm-modal-form" onsubmit="submitHrEditEmployee(event)">
         <input type="hidden" name="id" />
+        <!-- Name -->
         <div class="fg">
-          <label>Full Name</label>
-          <input class="fc" name="full_name" readonly style="opacity:.6;" />
+          <label>First Name</label>
+          <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Middle Name</label>
+          <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Last Name</label>
+          <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label>Suffix</label>
+          <select class="fc" name="suffix">
+            <option value="">None</option>
+            <option value="Jr.">Jr.</option>
+            <option value="Sr.">Sr.</option>
+            <option value="II">II</option>
+            <option value="III">III</option>
+            <option value="IV">IV</option>
+            <option value="V">V</option>
+          </select>
+        </div>
+        <!-- Contact & identity -->
+        <div class="fg">
+          <label>Email</label>
+          <input class="fc" name="email" type="email" required placeholder="e.g. juan.employee@example.com" />
+          <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
           <label>Employee ID</label>
           <input class="fc" name="employee_id" readonly style="opacity:.6;" />
+        </div>
+        <!-- Employment info -->
+        <div class="fg">
+          <label>Date of Birth</label>
+          <input class="fc" name="date_of_birth" type="date" />
         </div>
         <div class="fg">
           <label>Type</label>
@@ -481,7 +516,7 @@
             <option value="Accountant">Accountant</option>
           </select>
         </div>
-        <div class="fg" style="grid-column:1/-1;">
+        <div class="fg">
           <label>Employment Status</label>
           <select class="fc" name="employee_status">
             <option value="Active">Active</option>
