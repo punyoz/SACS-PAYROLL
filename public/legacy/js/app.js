@@ -1342,21 +1342,41 @@ function initApp() {
   const role = new URLSearchParams(window.location.search).get('role');
   if (role) {
     const ctx = getAuthContext();
+    // The proxy already verified the signed session cookie owns this portal
+    // before this page could load, so localStorage (display-only) is not the
+    // authority here. Repair a stale mismatch instead of redirecting on it —
+    // redirecting from a value this same code is about to correct is how the
+    // browser used to bounce forever between two portals.
     if (!ctx || !ctx.role) {
       window.top.location.href = '/login';
       return;
     }
     if (ctx.role !== role) {
-      window.top.location.href = roleRouteMap[ctx.role] || '/login';
-      return;
+      localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify({ ...ctx, role }));
     }
     showRoleScreen(role);
   } else {
-    // On the login page — if already authenticated, send to their portal
+    // On the login page — if localStorage claims we're already signed in,
+    // confirm the server session is still valid before leaving this page.
+    // localStorage never expires on its own; trusting it alone would bounce
+    // the browser forever between here and the portal once the session
+    // cookie lapses, since the portal's proxy always sends an unauthenticated
+    // visitor straight back to /login — that endless bounce is what showed up
+    // as the site "flickering" and never finishing load.
     const ctx = getAuthContext();
     if (ctx && ctx.role && roleRouteMap[ctx.role]) {
-      window.top.location.href = roleRouteMap[ctx.role];
-      return;
+      fetch('/api/rbac/me')
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null)
+        .then((me) => {
+          if (me?.user?.role === ctx.role) {
+            window.top.location.href = roleRouteMap[ctx.role];
+          } else {
+            // Server disagrees (expired/missing/mismatched session): the
+            // stale localStorage context can no longer be trusted.
+            localStorage.removeItem(AUTH_CONTEXT_KEY);
+          }
+        });
     }
     showRoleScreen('');
   }
