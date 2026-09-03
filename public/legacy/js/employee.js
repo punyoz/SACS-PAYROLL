@@ -961,6 +961,9 @@ function loadProfilePage() {
   setTxt('ep-info-email',    ctx.email);
   setTxt('ep-info-address',  ctx.address);
   setTxt('ep-info-role',     ctx.role);
+  setTxt('ep-sss-number',         ctx.sss_number);
+  setTxt('ep-pagibig-number',     ctx.pagibig_number);
+  setTxt('ep-philhealth-number',  ctx.philhealth_number);
   setTxt('ep-bank-name',     ctx.bank_name);
   setTxt('ep-bank-account',  ctx.bank_account_number);
 }

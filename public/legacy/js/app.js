@@ -70,6 +70,9 @@ function saveAuthContext(result, role, identityInput) {
     employee_type: String(profile.employee_type || '').trim(),
     position: String(profile.position || '').trim(),
     address: String(profile.address || '').trim(),
+    sss_number: String(profile.sss_number || '').trim(),
+    pagibig_number: String(profile.pagibig_number || '').trim(),
+    philhealth_number: String(profile.philhealth_number || '').trim(),
     bank_name: String(profile.bank_name || '').trim(),
     bank_account_number: String(profile.bank_account_number || '').trim(),
   };
