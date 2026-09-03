@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 process.env.SESSION_SECRET ||= "test-signing-secret-for-rbac-suite";
 
-const { middleware } = await import("@/middleware");
+const { proxy: middleware } = await import("@/proxy");
 const { createSessionToken, SESSION_COOKIE, verifySessionToken } = await import("@/lib/rbac/session");
 const {
   can,

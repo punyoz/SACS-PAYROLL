@@ -1,5 +1,6 @@
 /**
- * RBAC middleware — the first thing every request passes through.
+ * RBAC proxy (Next.js 16's replacement for middleware.js) — the first thing
+ * every request passes through.
  *
  * Two jobs:
  *
@@ -16,7 +17,11 @@
  * request body or the rows involved, so they are enforced inside the handlers
  * via src/lib/rbac/guard.js. Both layers read the same matrix.
  *
- * Runs on the Node.js runtime because session verification uses node:crypto.
+ * Session verification uses node:crypto, which needs the Node.js runtime —
+ * that's the default for this file (Next.js's middleware/proxy layer runs on
+ * Node.js unless told otherwise), so nothing has to opt into it. Setting
+ * `runtime` explicitly in this config is invalid in Next.js 16 and throws on
+ * every request, which is worse than not setting it at all: don't add it back.
  */
 
 import { NextResponse } from "next/server";
@@ -24,7 +29,6 @@ import { readSession } from "@/lib/rbac/session";
 import { can, isKnownRole } from "@/lib/rbac/permissions";
 
 export const config = {
-  runtime: "nodejs",
   matcher: [
     "/api/:path*",
     "/super-admin/:path*",
@@ -165,7 +169,7 @@ function isBranchLabelRead(pathname, method) {
   return pathname.startsWith("/api/admin/branches") && METHOD_ACTIONS[method] === "read";
 }
 
-export function middleware(request) {
+export function proxy(request) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
