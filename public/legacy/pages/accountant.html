@@ -517,9 +517,31 @@
       <div class="settings-body">
         <div class="settings-section-label">Personal Information</div>
         <div style="display:grid;gap:12px;margin-bottom:14px;">
-          <div class="fg" style="margin:0;">
-            <label>Full Name</label>
-            <input id="ac-edit-fullname" class="fc" type="text" placeholder="Your full name" autocomplete="name" />
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="fg" style="margin:0;">
+              <label>First Name</label>
+              <input id="ac-edit-firstname" class="fc" type="text" placeholder="e.g. Juan" autocomplete="given-name" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label>Middle Name</label>
+              <input id="ac-edit-middlename" class="fc" type="text" placeholder="e.g. Santos" autocomplete="additional-name" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label>Last Name</label>
+              <input id="ac-edit-lastname" class="fc" type="text" placeholder="e.g. Dela Cruz" autocomplete="family-name" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label>Suffix</label>
+              <select id="ac-edit-suffix" class="fc">
+                <option value="">None</option>
+                <option value="Jr.">Jr.</option>
+                <option value="Sr.">Sr.</option>
+                <option value="II">II</option>
+                <option value="III">III</option>
+                <option value="IV">IV</option>
+                <option value="V">V</option>
+              </select>
+            </div>
           </div>
           <div class="fg" style="margin:0;">
             <label>Bank Name</label>

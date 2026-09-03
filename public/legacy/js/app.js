@@ -215,7 +215,18 @@ function populateSettingsModalProfile(prefix) {
   const ctx = getAuthContext();
   if (!ctx) return;
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-  setVal(`${prefix}-edit-fullname`,    ctx.full_name);
+
+  // Only a single composed full_name is stored — split it back into parts
+  // so Name starts pre-filled with something reasonable. splitFullName()
+  // is defined in admin.js, loaded before any of this runs.
+  const nameParts = typeof splitFullName === 'function' ? splitFullName(ctx.full_name || '') : {};
+  const midName = nameParts.middle_initial
+    || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
+  setVal(`${prefix}-edit-firstname`,  nameParts.first_name);
+  setVal(`${prefix}-edit-middlename`, midName);
+  setVal(`${prefix}-edit-lastname`,   nameParts.last_name);
+  setVal(`${prefix}-edit-suffix`,     nameParts.suffix);
+
   // Only the employee portal's settings modal has an address field — other
   // roles' own profiles don't display or edit Home Address.
   setVal(`${prefix}-edit-address`,     ctx.address);
@@ -233,7 +244,10 @@ async function saveProfileInfo(prefix) {
     return;
   }
 
-  const full_name        = String(document.getElementById(`${prefix}-edit-fullname`)?.value    || '').trim();
+  const first_name  = String(document.getElementById(`${prefix}-edit-firstname`)?.value  || '').trim();
+  const middle_name = String(document.getElementById(`${prefix}-edit-middlename`)?.value || '').trim();
+  const last_name   = String(document.getElementById(`${prefix}-edit-lastname`)?.value   || '').trim();
+  const suffix      = String(document.getElementById(`${prefix}-edit-suffix`)?.value     || '').trim();
   const bank_name        = String(document.getElementById(`${prefix}-edit-bankname`)?.value     || '').trim();
   const bank_account_number = String(document.getElementById(`${prefix}-edit-bankaccount`)?.value || '').trim();
   // Address is only present in the employee portal's modal — other roles
@@ -243,10 +257,26 @@ async function saveProfileInfo(prefix) {
   const addressEl = document.getElementById(`${prefix}-edit-address`);
   const address = addressEl ? String(addressEl.value || '').trim() : undefined;
 
-  if (!full_name) {
-    if (feedbackEl) { feedbackEl.textContent = 'Full name is required.'; feedbackEl.className = 'adm-feedback err'; }
+  if (!first_name || !last_name) {
+    if (feedbackEl) { feedbackEl.textContent = 'First and last name are required.'; feedbackEl.className = 'adm-feedback err'; }
     return;
   }
+  if (!/^[A-Za-z\s]+$/.test(first_name)) {
+    if (feedbackEl) { feedbackEl.textContent = 'First name must contain only letters.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+  if (!/^[A-Za-z\s]+$/.test(last_name)) {
+    if (feedbackEl) { feedbackEl.textContent = 'Last name must contain only letters.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+  if (middle_name && !/^[A-Za-z\s]+$/.test(middle_name)) {
+    if (feedbackEl) { feedbackEl.textContent = 'Middle name must contain only letters.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const full_name = typeof composeFullName === 'function'
+    ? composeFullName({ first_name, middle_initial: middle_name, last_name, suffix })
+    : [first_name, middle_name, last_name, suffix].filter(Boolean).join(' ');
 
   if (feedbackEl) { feedbackEl.textContent = 'Saving...'; feedbackEl.className = 'adm-feedback loading'; }
 
