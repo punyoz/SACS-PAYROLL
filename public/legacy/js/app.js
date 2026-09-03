@@ -213,6 +213,9 @@ function populateSettingsModalProfile(prefix) {
   if (!ctx) return;
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
   setVal(`${prefix}-edit-fullname`,    ctx.full_name);
+  // Only the employee portal's settings modal has an address field — other
+  // roles' own profiles don't display or edit Home Address.
+  setVal(`${prefix}-edit-address`,     ctx.address);
   setVal(`${prefix}-edit-bankname`,    ctx.bank_name);
   setVal(`${prefix}-edit-bankaccount`, ctx.bank_account_number);
 }
@@ -230,6 +233,12 @@ async function saveProfileInfo(prefix) {
   const full_name        = String(document.getElementById(`${prefix}-edit-fullname`)?.value    || '').trim();
   const bank_name        = String(document.getElementById(`${prefix}-edit-bankname`)?.value     || '').trim();
   const bank_account_number = String(document.getElementById(`${prefix}-edit-bankaccount`)?.value || '').trim();
+  // Address is only present in the employee portal's modal — other roles
+  // have no such field, so leave it out of their payload entirely rather
+  // than sending an empty string that would wipe out any address already
+  // on file for that account.
+  const addressEl = document.getElementById(`${prefix}-edit-address`);
+  const address = addressEl ? String(addressEl.value || '').trim() : undefined;
 
   if (!full_name) {
     if (feedbackEl) { feedbackEl.textContent = 'Full name is required.'; feedbackEl.className = 'adm-feedback err'; }
@@ -239,15 +248,19 @@ async function saveProfileInfo(prefix) {
   if (feedbackEl) { feedbackEl.textContent = 'Saving...'; feedbackEl.className = 'adm-feedback loading'; }
 
   try {
+    const payload = { email, full_name, bank_name, bank_account_number };
+    if (address !== undefined) payload.address = address;
+
     const response = await fetch('/api/legacy-auth/update-profile', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, full_name, bank_name, bank_account_number }),
+      body: JSON.stringify(payload),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Failed to update profile.');
 
     const updatedCtx = { ...ctx, full_name, bank_name, bank_account_number };
+    if (address !== undefined) updatedCtx.address = address;
     localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(updatedCtx));
     dispatchAuthContextChanged(updatedCtx);
 

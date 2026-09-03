@@ -51,6 +51,13 @@ export async function POST(request) {
     bank_account_number,
   };
 
+  // Only the employee portal sends address — other roles' settings modals
+  // have no such field, so an absent value must leave whatever's on file
+  // untouched rather than getting wiped by an implicit empty string.
+  if (body.address !== undefined) {
+    updatedMeta.address = normalizeText(body.address, "");
+  }
+
   const { error: updateError } = await supabase.auth.admin.updateUserById(user.id, {
     user_metadata: updatedMeta,
   });
@@ -67,6 +74,7 @@ export async function POST(request) {
     success: true,
     profile: {
       full_name: updatedMeta.full_name,
+      address: updatedMeta.address,
       bank_name: updatedMeta.bank_name,
       bank_account_number: updatedMeta.bank_account_number,
     },
