@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { readSession } from "@/lib/rbac/session";
+import { requirePermission } from "@/lib/rbac/guard";
+import { isBranchExempt } from "@/lib/rbac/permissions";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -28,7 +31,18 @@ function shapeBranch(row) {
   };
 }
 
-export async function GET() {
+export async function GET(request) {
+  // Reading the branch list is a label lookup, not Branch Management: Admin and
+  // HR both need their own branch's name on their Branch Assignment screens.
+  // Creating, editing and closing branches (below) stays Super Admin exclusive.
+  const session = readSession(request);
+  if (!session) {
+    return NextResponse.json(
+      { error: "Your session has expired. Please sign in again." },
+      { status: 401 },
+    );
+  }
+
   try {
     const supabase = getAdminClient();
     const result = await supabase
@@ -40,13 +54,23 @@ export async function GET() {
       return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
     }
 
-    return NextResponse.json({ branches: (result.data || []).map(shapeBranch) });
+    const rows = (result.data || []).map(shapeBranch);
+
+    // A branch-scoped role only ever sees the one branch it belongs to.
+    const visible = isBranchExempt(session.role)
+      ? rows
+      : rows.filter((b) => String(b.id) === String(session.branch_id || ""));
+
+    return NextResponse.json({ branches: visible });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
 export async function POST(request) {
+  const guard = await requirePermission(request, "branch_management", "create");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json();
     const name = normalizeText(body.name);
@@ -90,6 +114,9 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  const guard = await requirePermission(request, "branch_management", "update");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json();
     const id = normalizeText(body.id);
@@ -141,6 +168,9 @@ export async function PATCH(request) {
 }
 
 export async function DELETE(request) {
+  const guard = await requirePermission(request, "branch_management", "delete");
+  if (guard.denied) return guard.denied;
+
   try {
     const { searchParams } = new URL(request.url);
     const id = normalizeText(searchParams.get("id"));

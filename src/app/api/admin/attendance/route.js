@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -88,6 +89,7 @@ function shapeEmployee(user, profile, index) {
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
     rfid_uid: normalizeText(metadata.rfid_uid),
     archived: Boolean(metadata.archived),
+    branch_id: profile?.branch_id || metadata.branch_id || null,
   };
 }
 
@@ -108,7 +110,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name")
+      .select("id,email,full_name,branch_id")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -352,10 +354,20 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode)
   return mapAttendanceRow(insertResult.data);
 }
 
-export async function GET() {
+export async function GET(request) {
+  const guard = await requirePermission(request, "attendance", "read");
+  if (guard.denied) return guard.denied;
+
   try {
     const supabase = getAdminClient();
-    const activeEmployees = await fetchEmployees(supabase);
+    const allEmployees = await fetchEmployees(supabase);
+
+    // Attendance is reported per employee, so scoping the employee list is
+    // what scopes the attendance: a branch-scoped caller never sees a row for
+    // someone outside their branch.
+    const activeEmployees = guard.branchExempt
+      ? allEmployees
+      : allEmployees.filter((e) => String(e.branch_id || "") === String(guard.branchId || ""));
     const dateKey = getDateKey(new Date());
     const attendanceData = await fetchAttendanceRows(supabase, activeEmployees, dateKey);
     const payload = buildAttendancePayload(
@@ -387,6 +399,9 @@ export async function GET() {
 }
 
 export async function POST(request) {
+  const guard = await requirePermission(request, "attendance", "update");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json();
     const rfidCode = normalizeText(body.rfid_code || body.employee_id || body.employee_code);
@@ -402,6 +417,10 @@ export async function POST(request) {
     if (!employee) {
       return NextResponse.json({ error: "RFID not matched to an active employee." }, { status: 404 });
     }
+
+    // Correcting or recording a scan for someone in another branch is refused.
+    const foreignBranch = denyForeignBranch(guard, employee.branch_id);
+    if (foreignBranch) return foreignBranch;
 
     const nowIso = new Date().toISOString();
     const dateKey = getDateKey(new Date());

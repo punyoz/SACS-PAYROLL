@@ -4,6 +4,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
+import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -50,7 +51,10 @@ async function fetchAllBranchAssignments(supabase, branchMap) {
   return assignments;
 }
 
-export async function GET() {
+export async function GET(request) {
+  const guard = await requirePermission(request, "branch_assignment", "read");
+  if (guard.denied) return guard.denied;
+
   try {
     const supabase = getAdminClient();
 
@@ -87,25 +91,36 @@ export async function GET() {
       assigned_at: assignments[e.id]?.assigned_at || null,
     }));
 
-    const branches = Array.from(branchMap.values());
+    // A branch-scoped caller sees their own branch's staff plus anyone not yet
+    // assigned — those are the only people they may assign into their branch.
+    const visible = guard.branchExempt
+      ? enriched
+      : enriched.filter((e) => !e.branch || String(e.branch) === String(guard.branchId));
+
+    const branches = guard.branchExempt
+      ? Array.from(branchMap.values())
+      : Array.from(branchMap.values()).filter((b) => String(b.id) === String(guard.branchId));
     const summary = {
-      total: enriched.length,
-      unassigned: enriched.filter((e) => !e.branch).length,
+      total: visible.length,
+      unassigned: visible.filter((e) => !e.branch).length,
       by_branch: Object.fromEntries(
         branches.map((b) => [
           b.id,
-          { label: b.name, status: b.status, count: enriched.filter((e) => e.branch === b.id).length },
+          { label: b.name, status: b.status, count: visible.filter((e) => e.branch === b.id).length },
         ]),
       ),
     };
 
-    return NextResponse.json({ employees: enriched, summary });
+    return NextResponse.json({ employees: visible, summary });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
 export async function POST(request) {
+  const guard = await requirePermission(request, "branch_assignment", "update");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json();
     const userId = normalizeText(body.user_id);
@@ -115,6 +130,12 @@ export async function POST(request) {
     if (!userId || !branchId) {
       return NextResponse.json({ error: "user_id and branch_id are required." }, { status: 400 });
     }
+
+    // Assigning WITHIN your own branch is allowed; moving staff ACROSS
+    // branches is Super Admin's alone, so the destination has to be the
+    // caller's own branch.
+    const foreignDestination = denyForeignBranch(guard, branchId);
+    if (foreignDestination) return foreignDestination;
 
     const supabase = getAdminClient();
 
@@ -150,6 +171,15 @@ export async function POST(request) {
       return NextResponse.json({ error: upsertErr.message }, { status: 400 });
     }
 
+    // profiles.branch_id is what the session and the RLS policies read, so it
+    // has to move with the assignment. (The database trigger added in
+    // 20260903_rbac_branch_scoping.sql does this too — this keeps the row
+    // correct even on an install where that migration has not been applied.)
+    await supabase
+      .from("profiles")
+      .update({ branch_id: branchId, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+
     await appendAuditLog({
       module: "employees",
       action: "update",
@@ -168,6 +198,9 @@ export async function POST(request) {
 }
 
 export async function DELETE(request) {
+  const guard = await requirePermission(request, "branch_assignment", "update");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json().catch(() => ({}));
     const userId = normalizeText(body.user_id);
@@ -191,6 +224,10 @@ export async function DELETE(request) {
       );
     }
 
+    // You can only unassign someone who is currently in your own branch.
+    const foreignAssignment = denyForeignBranch(guard, existing.data.branch_id);
+    if (foreignAssignment) return foreignAssignment;
+
     const branchResult = await supabase
       .from("branches")
       .select("name")
@@ -205,6 +242,11 @@ export async function DELETE(request) {
     if (deleteResult.error) {
       return NextResponse.json({ error: deleteResult.error.message }, { status: 400 });
     }
+
+    await supabase
+      .from("profiles")
+      .update({ branch_id: null, updated_at: new Date().toISOString() })
+      .eq("id", userId);
 
     await appendAuditLog({
       module: "employees",

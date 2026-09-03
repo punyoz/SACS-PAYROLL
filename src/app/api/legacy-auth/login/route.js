@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
+import { attachSession } from "@/lib/rbac/session";
 
 const roleRoutes = {
   super_admin: "/super-admin",
@@ -155,7 +156,7 @@ export async function POST(request) {
 
     const profileResult = await adminClient
       .from("profiles")
-      .select("id,email,full_name,role,employee_id,employee_type,position")
+      .select("id,email,full_name,role,employee_id,employee_type,position,branch_id")
       .eq("id", data.user.id)
       .maybeSingle();
 
@@ -177,7 +178,15 @@ export async function POST(request) {
     normalizeText(metadata.position, normalizePositionForRole(metadata.position, resolvedRole)),
   );
 
-  return NextResponse.json({
+  // The branch this account is boxed inside. profiles.branch_id is the source
+  // of truth (see supabase/migrations/20260903_rbac_branch_scoping.sql); the
+  // auth metadata copy is only a fallback for accounts created before that
+  // column existed. Super Admin is deliberately left null — it is branch-exempt.
+  const resolvedBranchId = resolvedRole === "super_admin"
+    ? null
+    : normalizeText(profileRow?.branch_id, normalizeText(metadata.branch_id)) || null;
+
+  const response = NextResponse.json({
     redirectTo: roleRoutes[resolvedRole],
     role: resolvedRole,
     profile: {
@@ -187,6 +196,7 @@ export async function POST(request) {
       employee_id: resolvedEmployeeId,
       employee_type: resolvedEmployeeType,
       position: resolvedPosition,
+      branch_id: resolvedBranchId,
       address: normalizeText(metadata.address, ""),
       sss_number: normalizeText(metadata.sss_number, ""),
       pagibig_number: normalizeText(metadata.pagibig_number, ""),
@@ -194,5 +204,16 @@ export async function POST(request) {
       bank_name: normalizeText(metadata.bank_name, ""),
       bank_account_number: normalizeText(metadata.bank_account_number, ""),
     },
+  });
+
+  // Issue the signed HttpOnly session every API guard reads. The response body
+  // above still feeds localStorage for display, but authorization decisions are
+  // made from this cookie alone, which the browser cannot forge or edit.
+  return attachSession(response, {
+    user_id: data.user.id,
+    role: resolvedRole,
+    branch_id: resolvedBranchId,
+    email: resolvedEmailOutput,
+    full_name: resolvedFullName,
   });
 }

@@ -30,8 +30,32 @@ function shapeLogRow(row) {
     description: normalizeText(row.description, "No description provided."),
     status: normalizeText(row.status, "success"),
     source: normalizeText(row.source, "api"),
+    branch_id: row.branch_id || null,
+    is_system_event: Boolean(row.is_system_event),
     metadata,
   };
+}
+
+/**
+ * Modules whose events are system-level rather than branch activity: logins,
+ * configuration changes, backups. Admin's branch-scoped Audit Logs must never
+ * show these — they belong to Super Admin's Audit & Monitoring alone.
+ * See SACS-Payroll-Permission-Matrix.md row 16.
+ */
+const SYSTEM_EVENT_MODULES = new Set([
+  "system",
+  "system_config",
+  "config",
+  "maintenance",
+  "backup",
+  "auth",
+  "login",
+  "roles",
+  "branches",
+]);
+
+export function isSystemEventModule(moduleName) {
+  return SYSTEM_EVENT_MODULES.has(normalizeText(moduleName, "system").toLowerCase());
 }
 
 function applyFilters(logs, options = {}) {
@@ -98,6 +122,10 @@ export async function appendAuditLog(payload) {
     description: normalizeText(payload.description, "No description provided."),
     status: normalizeText(payload.status, "success"),
     source: normalizeText(payload.source, "api"),
+    branch_id: payload.branch_id || null,
+    is_system_event: typeof payload.is_system_event === "boolean"
+      ? payload.is_system_event
+      : isSystemEventModule(payload.module),
     metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
   };
 
@@ -121,11 +149,20 @@ export async function listAuditLogs(options = {}) {
   const limit = Math.max(1, Math.min(500, Number(options.limit || 150)));
   const supabase = getAdminClient();
 
-  const queryResult = await supabase
+  let query = supabase
     .from("audit_logs")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  // options.branch_id is set by the route from the caller's session when the
+  // caller is branch-scoped. Super Admin passes it as null and sees everything,
+  // system-level events included.
+  if (options.branch_id) {
+    query = query.eq("branch_id", options.branch_id).eq("is_system_event", false);
+  }
+
+  const queryResult = await query;
 
   if (queryResult.error) {
     throw new Error(queryResult.error.message);

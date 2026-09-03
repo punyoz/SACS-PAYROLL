@@ -9,6 +9,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "supabase:check": "node scripts/check-supabase-connection.mjs",
     "supabase:seed-users": "node scripts/seed-auth-users.mjs",
     "supabase:purge-archived": "node scripts/purge-archived-employees.mjs"
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "eslint": "^9.39.4",
-    "eslint-config-next": "^16.2.4"
+    "eslint-config-next": "^16.2.4",
+    "vitest": "^4.1.11"
   }
 }

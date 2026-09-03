@@ -14,6 +14,7 @@ const ADMIN_PAGES = {
   'adm-users':        'User Management',
   'adm-branch-assign':'Branch Assignment',
   'adm-maintenance':  'System Maintenance',
+  'adm-branch-reports':'Branch Reports',
   'adm-profile':      'Profile',
 };
 
@@ -100,6 +101,10 @@ function adminNav(pageId, navEl) {
     loadSystemData();
   }
 
+  if (pageId === 'adm-branch-reports') {
+    loadBranchReports();
+  }
+
   if (pageId === 'adm-profile') {
     loadAdminProfile();
   }
@@ -176,6 +181,65 @@ function getAvatarColor(seed) {
     hash |= 0;
   }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+/* ── BRANCH REPORTS ──
+   View-only branch summary: attendance, headcount and payroll status for the
+   Admin's own branch. Every figure comes from /api/admin/branch-reports, which
+   scopes itself to the caller's branch_id from their session — this screen has
+   no edit affordance because payroll figures belong to the Accountant. */
+async function loadBranchReports() {
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  const payrollBody = document.getElementById('adm-br-payroll-body');
+  if (payrollBody) payrollBody.innerHTML = skeletonRows(2, 3);
+
+  try {
+    const response = await fetch('/api/admin/branch-reports', { method: 'GET' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to load branch reports.');
+
+    setText('adm-br-branch', data.branch?.label || '—');
+    setText('adm-br-generated', data.branch?.all_branches
+      ? 'All branches — view-only summary'
+      : 'View-only summary');
+
+    setText('adm-br-headcount', data.headcount?.total ?? 0);
+    const byRole = data.headcount?.by_role || {};
+    const roleParts = Object.keys(byRole)
+      .sort()
+      .map((role) => `${byRole[role]} ${role.replace('_', ' ')}`);
+    setText('adm-br-headcount-breakdown', roleParts.length
+      ? roleParts.join(' · ')
+      : 'Staff assigned to this branch');
+
+    setText('adm-br-unassigned', data.unassigned_staff ?? 0);
+    setText('adm-br-present', data.attendance?.present ?? 0);
+    setText('adm-br-late', data.attendance?.late ?? 0);
+    setText('adm-br-absent', data.attendance?.absent ?? 0);
+    setText('adm-br-date', data.attendance?.date || '—');
+
+    if (payrollBody) {
+      const payroll = data.payroll || {};
+      const rows = [
+        ['Latest pay period', payroll.latest_period || 'None processed yet'],
+        ['Employees processed this period', payroll.processed_this_period ?? 0],
+        ['Awaiting processing', payroll.awaiting_processing ?? 0],
+        ['Pending payroll entries', payroll.pending_entries ?? 0],
+        ['Total net pay this period', formatMoney(payroll.total_net_pay_this_period)],
+      ];
+      payrollBody.innerHTML = rows
+        .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(String(value))}</td></tr>`)
+        .join('');
+    }
+  } catch (error) {
+    if (payrollBody) {
+      payrollBody.innerHTML = `<tr><td colspan="2">${escapeHtml(error.message || 'Unable to load branch reports.')}</td></tr>`;
+    }
+  }
 }
 
 function formatMoney(value) {

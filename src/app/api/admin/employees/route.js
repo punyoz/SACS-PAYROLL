@@ -4,6 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import {
+  requirePermission,
+  denyRoleEscalation,
+  denyForeignBranch,
+  scopeListToBranch,
+} from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -150,6 +156,7 @@ function shapeEmployee(user, profile, index) {
     email: normalizeText(profile?.email, user.email),
     full_name: fullName,
     employee_id: normalizeText(metadata.employee_id, buildEmployeeId(index)),
+    branch_id: profile?.branch_id || metadata.branch_id || null,
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
     position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),
@@ -165,6 +172,24 @@ function shapeEmployee(user, profile, index) {
     bank_name: normalizeText(metadata.bank_name, ""),
     bank_account_number: normalizeText(metadata.bank_account_number, ""),
   };
+}
+
+/**
+ * The branch an employee belongs to. profiles.branch_id is authoritative (see
+ * supabase/migrations/20260903_rbac_branch_scoping.sql); auth metadata is the
+ * fallback for accounts created before that column existed.
+ */
+async function fetchEmployeeBranch(supabase, userId, metadata) {
+  const profileResult = await supabase
+    .from("profiles")
+    .select("branch_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!profileResult.error && profileResult.data?.branch_id) {
+    return profileResult.data.branch_id;
+  }
+  return metadata?.branch_id || null;
 }
 
 async function fetchEmployees(supabase) {
@@ -184,7 +209,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,role")
+      .select("id,email,full_name,role,branch_id")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -201,20 +226,44 @@ async function fetchEmployees(supabase) {
     .sort((a, b) => a.full_name.localeCompare(b.full_name));
 }
 
-export async function GET() {
+export async function GET(request) {
+  const guard = await requirePermission(request, "employee_information", "read");
+  if (guard.denied) return guard.denied;
+
   try {
     const supabase = getAdminClient();
     const employees = await fetchEmployees(supabase);
-    return NextResponse.json({ employees });
+
+    // Super Admin sees every branch; everyone else only their own.
+    return NextResponse.json({
+      employees: scopeListToBranch(employees, guard, (e) => e.branch_id),
+    });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
 export async function POST(request) {
+  const guard = await requirePermission(request, "employee_information", "create");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json();
     const role = normalizeRole(body.role);
+
+    // The account being created must sit at or below the caller's ceiling —
+    // an Admin can add HR / Accountant / Employee staff, never another Admin.
+    const escalation = denyRoleEscalation(guard, role);
+    if (escalation) return escalation;
+
+    // New staff land in the caller's own branch. Only Super Admin may name a
+    // branch explicitly, since only Super Admin can reach more than one.
+    const branchId = guard.branchExempt
+      ? (normalizeText(body.branch_id) || null)
+      : guard.branchId;
+
+    const foreignBranch = denyForeignBranch(guard, normalizeText(body.branch_id));
+    if (foreignBranch) return foreignBranch;
     const email = normalizeRoleEmail(body.email);
     const defaultPassword = buildDefaultPassword(body.last_name, body.date_of_birth);
     const password = normalizeText(body.password, defaultPassword);
@@ -249,6 +298,7 @@ export async function POST(request) {
     const metadata = {
       role,
       full_name: fullName,
+      branch_id: branchId,
       employee_id: autoEmployeeId,
       employee_type: normalizeText(body.employee_type, "Teaching"),
       position: normalizePositionForRole(body.position, role),
@@ -286,6 +336,7 @@ export async function POST(request) {
         email,
         role,
         full_name: fullName,
+        branch_id: branchId,
       },
       {
         onConflict: "id",
@@ -325,10 +376,20 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  const body = await request.json().catch(() => ({}));
+  const requestedAction = normalizeText(body.action, "update").toLowerCase();
+
+  // "archive" is the matrix's delete; anything else here is an update.
+  const guard = await requirePermission(
+    request,
+    "employee_information",
+    requestedAction === "archive" ? "delete" : "update",
+  );
+  if (guard.denied) return guard.denied;
+
   try {
-    const body = await request.json();
     const id = normalizeText(body.id);
-    const action = normalizeText(body.action, "update").toLowerCase();
+    const action = requestedAction;
 
     if (!id) {
       return NextResponse.json({ error: "Employee id is required." }, { status: 400 });
@@ -351,6 +412,25 @@ export async function PATCH(request) {
     const nextRole = action === "update"
       ? normalizeRole(body.role || currentRole)
       : currentRole;
+
+    // Escalation can come from either end: editing an account that already
+    // outranks the caller, or promoting one into a rank the caller cannot hold.
+    const escalationOnTarget = denyRoleEscalation(guard, currentRole);
+    if (escalationOnTarget) return escalationOnTarget;
+
+    const escalationOnNewRole = denyRoleEscalation(guard, nextRole);
+    if (escalationOnNewRole) return escalationOnNewRole;
+
+    // ...and the record has to be in the caller's own branch.
+    const targetBranch = await fetchEmployeeBranch(supabase, id, currentMetadata);
+    if (!guard.branchExempt && !targetBranch) {
+      return NextResponse.json(
+        { error: "That employee is not assigned to your branch." },
+        { status: 403 },
+      );
+    }
+    const foreignBranch = denyForeignBranch(guard, targetBranch);
+    if (foreignBranch) return foreignBranch;
     const nextMetadata = {
       ...currentMetadata,
       role: nextRole,
@@ -476,6 +556,9 @@ export async function PATCH(request) {
 }
 
 export async function DELETE(request) {
+  const guard = await requirePermission(request, "employee_information", "delete");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json().catch(() => ({}));
     const id = normalizeText(body.id);
@@ -484,33 +567,67 @@ export async function DELETE(request) {
       return NextResponse.json({ error: "Employee id is required." }, { status: 400 });
     }
 
+    // ARCHIVE, NOT DELETE.
+    //
+    // This handler used to remove the profiles row and then call
+    // auth.admin.deleteUser(), destroying the account outright. Payroll
+    // records, payslips and attendance logs all reference the employee by id,
+    // so that silently orphaned history the school is required to keep.
+    //
+    // A DELETE request is now honoured as a soft delete: the account is
+    // flagged archived and its employee_status set to Inactive, which is what
+    // the portals already read to hide it from active lists. No role can
+    // trigger a physical removal from here — and the block_hard_delete trigger
+    // in supabase/migrations/20260903_rbac_branch_scoping.sql refuses it at the
+    // database level too, so a direct SQL DELETE fails the same way.
     const supabase = getAdminClient();
-    const deleteProfile = await supabase.from("profiles").delete().eq("id", id);
-    if (deleteProfile.error) {
-      return NextResponse.json({ error: sanitizeError(deleteProfile.error) }, { status: 400 });
+
+    const userResult = await supabase.auth.admin.getUserById(id);
+    if (userResult.error || !userResult.data?.user) {
+      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
 
-    const deleteUser = await supabase.auth.admin.deleteUser(id);
-    if (deleteUser.error) {
-      return NextResponse.json({ error: sanitizeError(deleteUser.error) }, { status: 400 });
+    const existingUser = userResult.data.user;
+    const nextMetadata = {
+      ...(existingUser.user_metadata || {}),
+      archived: true,
+      employee_status: "Inactive",
+      rfid_status: "Inactive",
+    };
+
+    const archiveResult = await supabase.auth.admin.updateUserById(id, {
+      user_metadata: nextMetadata,
+    });
+    if (archiveResult.error) {
+      return NextResponse.json({ error: sanitizeError(archiveResult.error) }, { status: 400 });
+    }
+
+    const profileResult = await supabase
+      .from("profiles")
+      .update({ archived: true, employee_status: "Inactive", updated_at: new Date().toISOString() })
+      .eq("id", id);
+    if (profileResult.error) {
+      return NextResponse.json({ error: sanitizeError(profileResult.error) }, { status: 400 });
     }
 
     invalidateUsersCache();
 
     await appendAuditLog({
       module: "employees",
-      action: "delete",
+      action: "archive",
       entity_type: "employee",
       entity_id: id,
-      description: "Employee account was deleted by admin.",
+      description: "Employee account was archived (soft-deleted) by admin.",
       status: "success",
       source: "api",
       metadata: {
         user_id: id,
+        archived: true,
+        hard_delete: false,
       },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, archived: true, hard_deleted: false });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
