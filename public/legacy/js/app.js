@@ -311,9 +311,27 @@ async function saveProfileInfo(prefix) {
   }
 }
 
-function openSettingsModal(prefix) {
+// `section` picks which view of the modal shows: 'password' (the gear-icon
+// Settings shortcut — just Change Password) or 'profile' (the Profile
+// page's Edit Account button — Personal Information/Bank only, no
+// password). Only portals with both `${prefix}-settings-profile-section`
+// and `${prefix}-settings-password-section` wrapper ids in their modal
+// markup actually split; portals without them (e.g. admin, which has only
+// one entry point) show the same combined content regardless of `section`.
+function openSettingsModal(prefix, section = 'password') {
   const modal = document.getElementById(`${prefix}-settings-modal`);
   if (!modal) return;
+
+  const profileSection = document.getElementById(`${prefix}-settings-profile-section`);
+  const passwordSection = document.getElementById(`${prefix}-settings-password-section`);
+  if (profileSection) profileSection.hidden = section !== 'profile';
+  if (passwordSection) passwordSection.hidden = section === 'profile';
+
+  const titleEl = document.getElementById(`${prefix}-settings-title`);
+  if (titleEl && profileSection && passwordSection) {
+    titleEl.textContent = section === 'profile' ? 'Edit Account' : 'Account Settings';
+  }
+
   populateSettingsModalProfile(prefix);
   modal.classList.add('active');
   modal.setAttribute('aria-hidden', 'false');

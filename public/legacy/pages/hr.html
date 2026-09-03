@@ -83,7 +83,7 @@
       <div class="tb-sp"></div>
       <span class="role-tag" style="background:rgba(29,184,160,.15);color:var(--teal);border:1px solid rgba(29,184,160,.3);">HR</span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
-      <button class="nb" onclick="openSettingsModal('hr')" title="Account Settings" type="button">
+      <button class="nb" onclick="openSettingsModal('hr', 'password')" title="Account Settings" type="button">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
       <button class="nb global-notification-trigger" title="Notifications" type="button">🔔<div class="nd"></div></button>
@@ -371,7 +371,7 @@
           <div class="ep-inst-name">Shepherd Angels Christian School</div>
           <div class="ep-inst-sys">SACS Payroll System</div>
         </div>
-        <button class="btn btn-outline ep-edit-btn" onclick="openSettingsModal('hr')">
+        <button class="btn btn-outline ep-edit-btn" onclick="openSettingsModal('hr', 'profile')">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Edit Account
         </button>
@@ -705,6 +705,7 @@
         </button>
       </div>
       <div class="settings-body">
+      <div id="hr-settings-profile-section" hidden>
         <div class="settings-section-label">Personal Information</div>
         <div style="display:grid;gap:12px;margin-bottom:14px;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -744,7 +745,8 @@
         </div>
         <button class="btn btn-primary" style="width:100%;padding:11px;margin-bottom:6px;" onclick="saveProfileInfo('hr')">Save Information</button>
         <p id="hr-profile-feedback" class="adm-feedback" style="margin-bottom:14px;"></p>
-        <div style="border-top:1px solid var(--border);margin:0 0 16px;"></div>
+      </div>
+      <div id="hr-settings-password-section">
         <div class="settings-section-label">Change Password</div>
         <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Enter your current password to verify your identity, then set a new password. Must be at least 8 characters.</p>
         <div style="display:grid;gap:12px;">
@@ -763,6 +765,7 @@
         </div>
         <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:11px;" onclick="submitHrChangePassword()">Update Password</button>
         <p id="hr-change-password-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+      </div>
       </div>
     </div>
   </div>
