@@ -521,10 +521,7 @@ function renderSAUsersTable() {
             : '—';
           const branch = saBranches.find((b) => String(b.id) === String(u.branch_id));
           const branchLabel = u.branch_id ? (branch?.name || 'Unknown') : '—';
-          const canManage = u.role === 'admin' || u.role === 'super_admin';
-          const actionsCell = canManage
-            ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>`
-            : '';
+          const actionsCell = `<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>`;
           return `<tr>
             <td>${u.full_name || '—'}</td>
             <td style="font-size:12px;color:var(--t3);">${u.email || '—'}</td>
@@ -572,12 +569,33 @@ async function openSAAdminUserModal(user) {
       saBranches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
   }
 
+  // Add is scoped to minting new Admin / Super Admin accounts (the
+  // Employee/HR/Accountant path needs the fuller employee-profile form on
+  // /api/admin/employees). Editing an existing account of any role, though,
+  // has to offer that account's own role or the <select> can't represent it.
+  const roleSelect = document.getElementById('sa-admin-user-role');
+  const roleOptions = saCurrentAdminUser
+    ? [
+        ['employee', 'Employee'],
+        ['accountant', 'Accountant'],
+        ['hr', 'HR'],
+        ['admin', 'Admin'],
+        ['super_admin', 'Super Admin'],
+      ]
+    : [
+        ['admin', 'Admin'],
+        ['super_admin', 'Super Admin'],
+      ];
+  if (roleSelect) {
+    roleSelect.innerHTML = roleOptions.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
+  }
+
   if (saCurrentAdminUser) {
-    if (title) title.textContent = 'Edit Admin User';
+    if (title) title.textContent = 'Edit User';
     form.querySelector('[name="id"]').value = saCurrentAdminUser.id;
     form.querySelector('[name="full_name"]').value = saCurrentAdminUser.full_name || '';
     form.querySelector('[name="email"]').value = saCurrentAdminUser.email || '';
-    form.querySelector('[name="role"]').value = saCurrentAdminUser.role || 'admin';
+    form.querySelector('[name="role"]').value = saCurrentAdminUser.role || 'employee';
     if (branchSelect) branchSelect.value = saCurrentAdminUser.branch_id || '';
     if (pwField) {
       const label = pwField.querySelector('label');
@@ -689,9 +707,9 @@ async function submitSAAdminUser(event) {
       }
     }
 
-    if (fb) { fb.textContent = id ? 'Admin user updated.' : 'Admin user created.'; fb.className = 'adm-feedback ok'; }
+    if (fb) { fb.textContent = id ? 'User updated.' : 'Admin user created.'; fb.className = 'adm-feedback ok'; }
     window.pushNotification?.(
-      id ? 'Admin Updated' : 'Admin Created',
+      id ? 'User Updated' : 'Admin Created',
       id ? `${fullName}'s account was updated.` : `New admin account created for ${fullName}.`,
       'success',
     );
@@ -740,7 +758,7 @@ async function toggleArchiveSAAdminUser() {
     if (fb) { fb.textContent = action === 'archive' ? 'User archived.' : 'User restored.'; fb.className = 'adm-feedback ok'; }
     window.pushNotification?.(
       action === 'archive' ? 'User Archived' : 'User Restored',
-      action === 'archive' ? 'The admin account has been archived.' : 'The admin account has been restored.',
+      action === 'archive' ? 'The account has been archived.' : 'The account has been restored.',
       'info',
     );
     await loadSAUsers();
