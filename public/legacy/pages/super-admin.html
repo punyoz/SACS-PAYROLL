@@ -286,16 +286,17 @@
       <div class="sh">
         <span class="stitle">All System Users</span>
         <span class="sp"></span>
+        <button class="btn btn-primary" onclick="openSAAdminUserModal()">+ Add Admin</button>
         <button class="btn btn-outline" onclick="loadSAUsers()">Refresh</button>
       </div>
       <div class="tw"><table>
-        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Employee ID</th><th>Type</th><th>Status</th><th>Last Login</th></tr></thead>
+        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Branch</th><th>Employee ID</th><th>Type</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
         <tbody id="sa-users-table-body">
-          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:60%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:60%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:60%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:60%"></div></td></tr>
+          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:60%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="sa-users-pg"></div>
@@ -731,6 +732,49 @@
         <p id="sa-ba-modal-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions">
           <button type="submit" class="btn btn-primary">Confirm Assignment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── ADMIN USER MODAL ── -->
+  <div id="sa-admin-user-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card" style="max-width:480px;">
+      <div class="adm-modal-head">
+        <h3 id="sa-admin-user-modal-title">Add Admin User</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeSAAdminUserModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="sa-admin-user-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSAAdminUser(event)">
+        <input type="hidden" name="id" />
+        <div class="fg" style="margin:0;">
+          <label>Full Name</label>
+          <input class="fc" name="full_name" required placeholder="e.g. Maria Santos" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Email</label>
+          <input class="fc" name="email" type="email" required placeholder="e.g. maria.admin@example.com" />
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Role</label>
+          <select class="fc" name="role">
+            <option value="admin">Admin</option>
+            <option value="super_admin">Super Admin</option>
+          </select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label>Branch (School)</label>
+          <select class="fc" name="branch_id" id="sa-admin-user-branch">
+            <option value="">No Branch</option>
+          </select>
+        </div>
+        <div class="fg" id="sa-admin-user-password-field" style="margin:0;">
+          <label>Password</label>
+          <input class="fc" name="password" type="password" placeholder="Minimum 6 characters" />
+        </div>
+        <p id="sa-admin-user-feedback" class="adm-feedback"></p>
+        <div class="adm-modal-actions" style="justify-content:space-between;">
+          <button type="button" id="sa-admin-user-archive-btn" class="btn btn-red" style="display:none;" onclick="toggleArchiveSAAdminUser()">Archive User</button>
+          <button type="submit" class="btn btn-primary">Save</button>
         </div>
       </form>
     </div>

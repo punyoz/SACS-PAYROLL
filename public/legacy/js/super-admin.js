@@ -22,6 +22,7 @@ const SA_PAGES = {
 let saAllUsers = [];
 let saRoleFilter = 'all';
 let saRolesSearch = '';
+let saCurrentAdminUser = null;
 let saAuditLogs = [];
 let saAuditSearch = '';
 let saAuditModule = 'all';
@@ -402,18 +403,30 @@ async function submitSABranch(event) {
 /* ── ROLES & PERMISSIONS ── */
 async function loadSAUsers() {
   const tbody = document.getElementById('sa-users-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(7);
+  if (tbody) tbody.innerHTML = skeletonRows(9);
 
   try {
-    const res = await fetch('/api/admin/users');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to load users.');
+    const [usersRes, branchesRes] = await Promise.allSettled([
+      fetch('/api/admin/users'),
+      fetch('/api/admin/branches'),
+    ]);
 
+    if (usersRes.status !== 'fulfilled' || !usersRes.value.ok) {
+      const errData = usersRes.status === 'fulfilled' ? await usersRes.value.json().catch(() => ({})) : {};
+      throw new Error(errData.error || 'Failed to load users.');
+    }
+    const data = await usersRes.value.json();
     saAllUsers = data.users || [];
+
+    if (branchesRes.status === 'fulfilled' && branchesRes.value.ok) {
+      const branchData = await branchesRes.value.json();
+      saBranches = branchData.branches || saBranches;
+    }
+
     updateSARoleChips();
     renderSAUsersTable();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${err.message}</td></tr>`;
   }
 }
 
@@ -481,7 +494,7 @@ function renderSAUsersTable() {
   }
 
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No users found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--t3);">No users found.</td></tr>';
     return;
   }
 
@@ -506,14 +519,22 @@ function renderSAUsersTable() {
           const lastLogin = u.last_sign_in_at
             ? new Date(u.last_sign_in_at).toLocaleDateString('en-PH')
             : '—';
+          const branch = saBranches.find((b) => String(b.id) === String(u.branch_id));
+          const branchLabel = u.branch_id ? (branch?.name || 'Unknown') : '—';
+          const canManage = u.role === 'admin' || u.role === 'super_admin';
+          const actionsCell = canManage
+            ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>`
+            : '';
           return `<tr>
             <td>${u.full_name || '—'}</td>
             <td style="font-size:12px;color:var(--t3);">${u.email || '—'}</td>
             <td><span class="badge" style="color:${roleColor};background:${roleColor}20;border:1px solid ${roleColor}40;">${roleLabel}</span></td>
+            <td style="font-size:12px;">${branchLabel}</td>
             <td><code style="font-size:11px;">${u.employee_id || '—'}</code></td>
             <td>${u.employee_type || '—'}</td>
             <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${statusLabel}</span></td>
             <td style="font-size:12px;">${lastLogin}</td>
+            <td>${actionsCell}</td>
           </tr>`;
         }).join('');
       },
@@ -521,6 +542,215 @@ function renderSAUsersTable() {
   }
 
   saUsersPaginator.setData(list);
+}
+
+/* ── ADMIN USER MANAGEMENT ── */
+async function openSAAdminUserModal(user) {
+  const modal = document.getElementById('sa-admin-user-modal');
+  const form = document.getElementById('sa-admin-user-form');
+  const title = document.getElementById('sa-admin-user-modal-title');
+  const archiveBtn = document.getElementById('sa-admin-user-archive-btn');
+  const pwField = document.getElementById('sa-admin-user-password-field');
+  const fb = document.getElementById('sa-admin-user-feedback');
+  if (!modal || !form) return;
+
+  saCurrentAdminUser = user && typeof user === 'object' ? user : null;
+  if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
+  form.reset();
+
+  try {
+    const res = await fetch('/api/admin/branches');
+    if (res.ok) {
+      const data = await res.json();
+      saBranches = data.branches || saBranches;
+    }
+  } catch {}
+
+  const branchSelect = document.getElementById('sa-admin-user-branch');
+  if (branchSelect) {
+    branchSelect.innerHTML = '<option value="">No Branch</option>' +
+      saBranches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+  }
+
+  if (saCurrentAdminUser) {
+    if (title) title.textContent = 'Edit Admin User';
+    form.querySelector('[name="id"]').value = saCurrentAdminUser.id;
+    form.querySelector('[name="full_name"]').value = saCurrentAdminUser.full_name || '';
+    form.querySelector('[name="email"]').value = saCurrentAdminUser.email || '';
+    form.querySelector('[name="role"]').value = saCurrentAdminUser.role || 'admin';
+    if (branchSelect) branchSelect.value = saCurrentAdminUser.branch_id || '';
+    if (pwField) {
+      const label = pwField.querySelector('label');
+      if (label) label.textContent = 'New Password (Optional)';
+      const input = pwField.querySelector('input');
+      if (input) input.placeholder = 'Leave blank to keep current';
+    }
+    if (archiveBtn) {
+      archiveBtn.style.display = '';
+      archiveBtn.className = saCurrentAdminUser.archived ? 'btn btn-green' : 'btn btn-red';
+      archiveBtn.textContent = saCurrentAdminUser.archived ? 'Restore User' : 'Archive User';
+    }
+  } else {
+    if (title) title.textContent = 'Add Admin User';
+    form.querySelector('[name="id"]').value = '';
+    form.querySelector('[name="role"]').value = 'admin';
+    if (branchSelect) branchSelect.value = '';
+    if (pwField) {
+      const label = pwField.querySelector('label');
+      if (label) label.textContent = 'Password';
+      const input = pwField.querySelector('input');
+      if (input) input.placeholder = 'Minimum 6 characters';
+    }
+    if (archiveBtn) archiveBtn.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeSAAdminUserModal() {
+  const modal = document.getElementById('sa-admin-user-modal');
+  if (modal) modal.style.display = 'none';
+  saCurrentAdminUser = null;
+}
+
+async function submitSAAdminUser(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const fb = document.getElementById('sa-admin-user-feedback');
+  const formData = new FormData(form);
+
+  const id = String(formData.get('id') || '').trim();
+  const fullName = String(formData.get('full_name') || '').trim();
+  const email = String(formData.get('email') || '').trim();
+  const role = String(formData.get('role') || 'admin').trim();
+  const branchId = String(formData.get('branch_id') || '').trim();
+  const password = String(formData.get('password') || '').trim();
+
+  if (!fullName || !email) {
+    if (fb) { fb.textContent = 'Full name and email are required.'; fb.className = 'adm-feedback err'; }
+    return;
+  }
+  if (!id && (!password || password.length < 6)) {
+    if (fb) { fb.textContent = 'Password must be at least 6 characters.'; fb.className = 'adm-feedback err'; }
+    return;
+  }
+  if (id && password && password.length < 6) {
+    if (fb) { fb.textContent = 'Password must be at least 6 characters.'; fb.className = 'adm-feedback err'; }
+    return;
+  }
+
+  try {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving...';
+
+    let response;
+    if (id) {
+      const payload = { id, action: 'update', full_name: fullName, email, role };
+      if (password) payload.password = password;
+      response = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } else {
+      response = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: fullName, email, role, password, branch_id: branchId || null }),
+      });
+    }
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to save user.');
+
+    const userId = id || result.user?.id;
+    const priorBranchId = String(saCurrentAdminUser?.branch_id || '');
+
+    // Creation already pins the branch via branch_id on POST /api/admin/users.
+    // Editing has to move it through branch-employees separately, since PATCH
+    // .../users only updates name/email/role/password — and that's also what
+    // keeps profiles.branch_id (what RLS and sessions read) in sync.
+    if (id && branchId !== priorBranchId) {
+      const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
+      const assignedBy = String(ctx?.full_name || ctx?.email || 'super_admin').trim();
+      if (branchId) {
+        await fetch('/api/admin/branch-employees', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, branch_id: branchId, assigned_by: assignedBy }),
+        });
+      } else {
+        await fetch('/api/admin/branch-employees', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId }),
+        });
+      }
+    }
+
+    if (fb) { fb.textContent = id ? 'Admin user updated.' : 'Admin user created.'; fb.className = 'adm-feedback ok'; }
+    window.pushNotification?.(
+      id ? 'Admin Updated' : 'Admin Created',
+      id ? `${fullName}'s account was updated.` : `New admin account created for ${fullName}.`,
+      'success',
+    );
+    await loadSAUsers();
+    setTimeout(() => closeSAAdminUserModal(), 500);
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Save';
+  }
+}
+
+async function toggleArchiveSAAdminUser() {
+  if (!saCurrentAdminUser) return;
+  const archiveBtn = document.getElementById('sa-admin-user-archive-btn');
+  const fb = document.getElementById('sa-admin-user-feedback');
+  if (!archiveBtn) return;
+
+  const action = saCurrentAdminUser.archived ? 'restore' : 'archive';
+  const prompt = action === 'archive' ? 'archive this user account' : 'restore this user account';
+  const detail = action === 'archive'
+    ? 'Archived users cannot log in and will be hidden from active lists.'
+    : 'This user account will be restored to active status.';
+
+  const confirmFn = action === 'restore'
+    ? (window.confirmApproveAction
+        && ((p, d) => window.confirmApproveAction(p, d, { title: 'Confirm Restore', confirmLabel: 'Restore' })))
+    : window.confirmDestructiveAction;
+
+  if (confirmFn && !(await confirmFn(prompt, detail))) return;
+
+  try {
+    archiveBtn.disabled = true;
+    archiveBtn.textContent = action === 'archive' ? 'Archiving...' : 'Restoring...';
+
+    const response = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: saCurrentAdminUser.id, action }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Failed to update user.');
+
+    if (fb) { fb.textContent = action === 'archive' ? 'User archived.' : 'User restored.'; fb.className = 'adm-feedback ok'; }
+    window.pushNotification?.(
+      action === 'archive' ? 'User Archived' : 'User Restored',
+      action === 'archive' ? 'The admin account has been archived.' : 'The admin account has been restored.',
+      'info',
+    );
+    await loadSAUsers();
+    closeSAAdminUserModal();
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  } finally {
+    archiveBtn.disabled = false;
+    archiveBtn.textContent = saCurrentAdminUser?.archived ? 'Restore User' : 'Archive User';
+  }
 }
 
 /* ── SYSTEM CONFIGURATION ── */
@@ -1751,6 +1981,11 @@ window.submitSARfidAttendanceScan = submitSARfidAttendanceScan;
 
 window.loadSAAttendanceData = loadSAAttendanceData;
 window.exportSAAttendanceCsv = exportSAAttendanceCsv;
+
+window.openSAAdminUserModal = openSAAdminUserModal;
+window.closeSAAdminUserModal = closeSAAdminUserModal;
+window.submitSAAdminUser = submitSAAdminUser;
+window.toggleArchiveSAAdminUser = toggleArchiveSAAdminUser;
 
 window.setSABranchFilter = setSABranchFilter;
 window.setSABranchSearch = setSABranchSearch;
