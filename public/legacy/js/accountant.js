@@ -95,15 +95,6 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 function normalizePortalPosition(positionValue, roleValue) {
   const role = String(roleValue || '').trim().toLowerCase();
   const position = String(positionValue || '').trim().toLowerCase();

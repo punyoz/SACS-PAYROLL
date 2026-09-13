@@ -252,15 +252,6 @@ function formatMoney(value) {
   return `₱ ${amount.toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 function escapeJsString(value) {
   return String(value || '').replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 }
@@ -280,7 +271,7 @@ function normalizePortalPosition(positionValue, roleValue) {
   return 'Employee';
 }
 
-const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
+/* ALLOWED_SUFFIXES and splitFullName now live in app.js — HR needs them too. */
 
 function isValidNamePart(nameValue) {
   const normalized = String(nameValue || '').trim();
@@ -395,58 +386,6 @@ function composeFullName({ first_name = '', middle_initial = '', last_name = '',
   return [parts.join(' '), resolvedSuffix].filter(Boolean).join(' ');
 }
 
-function splitFullName(fullName) {
-  const raw = String(fullName || '').trim();
-  if (!raw) {
-    return {
-      first_name: '',
-      second_name: '',
-      middle_initial: '',
-      last_name: '',
-      suffix: '',
-    };
-  }
-
-  const tokens = raw.split(/\s+/).filter(Boolean);
-  const result = {
-    first_name: '',
-    second_name: '',
-    middle_initial: '',
-    last_name: '',
-    suffix: '',
-  };
-
-  if (tokens.length === 1) {
-    result.first_name = tokens[0];
-    return result;
-  }
-
-  let nameTokens = [...tokens];
-  const maybeSuffix = nameTokens[nameTokens.length - 1];
-  if (ALLOWED_SUFFIXES.includes(maybeSuffix)) {
-    result.suffix = maybeSuffix;
-    nameTokens.pop();
-  }
-
-  if (!nameTokens.length) return result;
-
-  const maybeMiddle = nameTokens[nameTokens.length - 2] || '';
-  if (/^[A-Za-z]\.?$/.test(maybeMiddle)) {
-    result.middle_initial = maybeMiddle[0].toUpperCase();
-    nameTokens.splice(nameTokens.length - 2, 1);
-  }
-
-  result.first_name = nameTokens[0] || '';
-  result.last_name = nameTokens[nameTokens.length - 1] || '';
-  result.second_name = nameTokens.slice(1, -1).join(' ');
-
-  if (!result.second_name) {
-    result.second_name = result.last_name;
-  }
-
-  return result;
-}
-
 function syncPositionFieldWithRole(form) {
   if (!form?.elements) return;
 
@@ -470,26 +409,6 @@ function formatDateTime(value) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
-}
-
-function formatTimeOnly(value) {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-PH', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-  }).format(date);
-}
-
-function formatHours(value) {
-  const total = Number(value || 0);
-  if (!Number.isFinite(total) || total <= 0) return '—';
-
-  const wholeHours = Math.floor(total);
-  const minutes = Math.round((total - wholeHours) * 60);
-  return `${wholeHours}h ${String(minutes).padStart(2, '0')}m`;
 }
 
 function renderDashboardPanels(panels = {}) {

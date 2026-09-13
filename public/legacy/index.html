@@ -8,12 +8,55 @@
     (function() {
       var savedTheme = localStorage.getItem('sacs-theme') || 'dark';
       document.documentElement.setAttribute('data-theme', savedTheme);
-      // Cache-bust version: changes every 5 min so deploys take effect quickly.
-      window._bv = Math.floor(Date.now() / 300000);
+
+      // Cache-bust version. This used to be Math.floor(Date.now() / 300000),
+      // which minted a brand-new URL for every asset every 5 minutes — so the
+      // browser re-downloaded the entire portal several times an hour and the
+      // HTTP cache never got to do its job. It is now a fixed build stamp:
+      // bump ?v= here when shipping legacy asset changes.
+      window._bv = '20260913';
+
+      // Which portal this is. LegacyRoleFrame renders the iframe as
+      // /legacy/index.html?role=<role>, so the role is known before a single
+      // asset is requested — no need to load all five portals' assets and let
+      // the right one win.
+      var role = (new URLSearchParams(window.location.search).get('role') || '')
+        .trim().toLowerCase();
+      var KNOWN = { admin: 1, accountant: 1, employee: 1, hr: 1, 'super_admin': 1 };
+      if (!KNOWN[role]) role = '';
+      window._role = role;
+
+      // CSS is deliberately NOT split per role. All seven sheets together are
+      // ~75 KB, and the role sheets are not actually role-exclusive: every
+      // portal uses admin.css's .adm-modal-*/.adm-feedback and employee.css's
+      // .ep-* profile cards. Splitting would save a few KB and risk unstyled
+      // panels. With a stable ?v= these are cached after the first visit.
       var sheets = ['css/theme.css','css/base.css','css/layout.css','css/admin.css','css/accountant.css','css/employee.css','css/super-admin.css'];
+
       sheets.forEach(function(href) {
         var l = document.createElement('link');
         l.rel = 'stylesheet';
+        l.href = href + '?v=' + window._bv;
+        document.head.appendChild(l);
+      });
+
+      // The scripts must still EXECUTE in order (app.js -> portal -> rbac.js),
+      // but they can DOWNLOAD in parallel, starting now rather than after the
+      // page fragments land. By the time bootstrapApp() appends them they are
+      // already in the cache.
+      var ROLE_SCRIPT = {
+        admin: 'js/admin.js',
+        accountant: 'js/accountant.js',
+        employee: 'js/employee.js',
+        hr: 'js/hr.js',
+        'super_admin': 'js/super-admin.js'
+      };
+      var preload = ['js/app.js', 'js/rbac.js'];
+      if (role && ROLE_SCRIPT[role]) preload.push(ROLE_SCRIPT[role]);
+      preload.forEach(function(href) {
+        var l = document.createElement('link');
+        l.rel = 'preload';
+        l.as = 'script';
         l.href = href + '?v=' + window._bv;
         document.head.appendChild(l);
       });
@@ -121,16 +164,33 @@
       }
     }
 
+    // Only the signed-in role's portal is loaded. Previously all six page
+    // fragments and all six portal scripts were loaded for everyone — ~700 KB
+    // of HTML+JS to render one portal, five-sixths of it dead weight.
+    //
+    // It also fixed a real bug. Every portal script shared one global scope,
+    // so same-named functions silently overwrote each other in load order:
+    // accountant.js's renderDashboard()/renderAttendanceTable() replaced
+    // admin.js's, and admin.js's loadDashboard() then called the accountant
+    // version, which ignores its argument and writes to accountant DOM ids.
+    // That is why Admin's dashboard panels and Recent Payroll Activity never
+    // populated. Loading one portal at a time makes the collision impossible.
+    const ROLE_ASSETS = {
+      admin:         { page: 'pages/admin.html',       script: 'js/admin.js' },
+      accountant:    { page: 'pages/accountant.html',  script: 'js/accountant.js' },
+      employee:      { page: 'pages/employee.html',    script: 'js/employee.js' },
+      hr:            { page: 'pages/hr.html',          script: 'js/hr.js' },
+      'super_admin': { page: 'pages/super-admin.html', script: 'js/super-admin.js' }
+    };
+
     async function bootstrapApp() {
       const appRoot = document.getElementById('app-root');
-      const pageFiles = [
-        'pages/login.html',
-        'pages/admin.html',
-        'pages/accountant.html',
-        'pages/employee.html',
-        'pages/hr.html',
-        'pages/super-admin.html'
-      ];
+      const assets = ROLE_ASSETS[window._role];
+
+      // Login always ships: it is the fallback when no role is on the URL, and
+      // app.js's login() drives it.
+      const pageFiles = ['pages/login.html'];
+      if (assets) pageFiles.push(assets.page);
 
       try {
         const htmlChunks = await Promise.all(pageFiles.map(loadFragment));
@@ -139,15 +199,11 @@
         // Apply identity immediately so the UI doesn't flash placeholders.
         applyBootIdentityFromStorage();
 
+        // app.js first (every portal builds on its helpers), then this role's
+        // portal script, then rbac.js last — it rewrites the sidebar from
+        // /api/rbac/me and needs the portal's nav handlers already defined.
         await loadScript('js/app.js');
-        await loadScript('js/admin.js');
-        await loadScript('js/accountant.js');
-        await loadScript('js/employee.js');
-        await loadScript('js/hr.js');
-        await loadScript('js/super-admin.js');
-        // Last: rewrites the sidebar from the permission matrix served by
-        // /api/rbac/me, so it must run after every portal script has defined
-        // its nav handlers.
+        if (assets) await loadScript(assets.script);
         await loadScript('js/rbac.js');
       } catch (error) {
         appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';

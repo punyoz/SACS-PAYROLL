@@ -57,6 +57,97 @@ function inferNameFromIdentity(identity) {
   return toTitleCase(fromEmail.replace(/[._-]+/g, ' '));
 }
 
+/* ── Cross-portal utilities ───────────────────────────────────────────────
+   These live here because more than one portal needs them. They used to be
+   defined inside admin.js/accountant.js, which only worked because every
+   portal script was loaded into the same global scope — so hr.js and
+   super-admin.js were silently borrowing admin.js's copies. The loader now
+   loads only the signed-in role's script, so anything shared has to be in
+   this file, which every role loads.                                        */
+
+const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function formatTimeOnly(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-PH', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
+function formatHours(value) {
+  const total = Number(value || 0);
+  if (!Number.isFinite(total) || total <= 0) return '—';
+
+  const wholeHours = Math.floor(total);
+  const minutes = Math.round((total - wholeHours) * 60);
+  return `${wholeHours}h ${String(minutes).padStart(2, '0')}m`;
+}
+
+function splitFullName(fullName) {
+  const raw = String(fullName || '').trim();
+  if (!raw) {
+    return {
+      first_name: '',
+      second_name: '',
+      middle_initial: '',
+      last_name: '',
+      suffix: '',
+    };
+  }
+
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const result = {
+    first_name: '',
+    second_name: '',
+    middle_initial: '',
+    last_name: '',
+    suffix: '',
+  };
+
+  if (tokens.length === 1) {
+    result.first_name = tokens[0];
+    return result;
+  }
+
+  let nameTokens = [...tokens];
+  const maybeSuffix = nameTokens[nameTokens.length - 1];
+  if (ALLOWED_SUFFIXES.includes(maybeSuffix)) {
+    result.suffix = maybeSuffix;
+    nameTokens.pop();
+  }
+
+  if (!nameTokens.length) return result;
+
+  const maybeMiddle = nameTokens[nameTokens.length - 2] || '';
+  if (/^[A-Za-z]\.?$/.test(maybeMiddle)) {
+    result.middle_initial = maybeMiddle[0].toUpperCase();
+    nameTokens.splice(nameTokens.length - 2, 1);
+  }
+
+  result.first_name = nameTokens[0] || '';
+  result.last_name = nameTokens[nameTokens.length - 1] || '';
+  result.second_name = nameTokens.slice(1, -1).join(' ');
+
+  if (!result.second_name) {
+    result.second_name = result.last_name;
+  }
+
+  return result;
+}
+
 function saveAuthContext(result, role, identityInput) {
   const profile = result?.profile || {};
   const resolvedRole = String(profile.role || role || 'employee').toLowerCase();

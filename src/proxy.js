@@ -75,7 +75,6 @@ const API_MODULES = [
   ["/api/hr/dashboard", "dashboard"],
   ["/api/accountant/payroll", "process_payroll"],
   ["/api/accountant/leave-requests", "leave_approval"],
-  ["/api/accountant/approval-status", "payroll_records"],
   ["/api/employee/payslips", "payslips"],
   ["/api/employee/timesheet", "timesheet"],
   ["/api/employee/leave-requests", "leave_approval"],
