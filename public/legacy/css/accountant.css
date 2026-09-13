@@ -35,27 +35,7 @@
 }
 .submit-note strong { color: var(--amber); }
 
-@media print {
-  body * {
-    visibility: hidden !important;
-  }
-
-  #s-accountant.active #ac-payslips .card,
-  #s-accountant.active #ac-payslips .card * {
-    visibility: visible !important;
-  }
-
-  #s-accountant.active #ac-payslips .card {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    border-width: 0;
-    border-radius: 0;
-    margin: 0;
-    padding: 24px;
-    background: #ffffff;
-  }
-}
+/* Print rules for the pay record live in css/print.css. */
 
 /* ── PENDING SUBMISSION ITEM ── */
 .pending-item {

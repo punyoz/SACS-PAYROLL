@@ -377,6 +377,19 @@
     <div class="page" id="ac-reports">
       <div class="ph"><h2>Payroll Reports</h2><p>Generate and export payroll reports for documentation and audit purposes</p></div>
 
+      <!-- Letterhead for the printed copy only (css/print.css reveals it).
+           A report filed for audit has to say what it is and when it was run;
+           on screen that context is already in the page chrome. -->
+      <div class="print-doc-head" id="rpt-print-head" aria-hidden="true">
+        <div class="pdh-school">Shepherd Angels Christian School</div>
+        <div class="pdh-sys">SACS Payroll Management System</div>
+        <div class="pdh-title">Payroll Report</div>
+        <div class="pdh-meta">
+          <span id="rpt-print-period">All Periods</span>
+          <span id="rpt-print-generated"></span>
+        </div>
+      </div>
+
       <div class="sg2">
         <div class="card">
           <div class="stitle" style="margin-bottom:14px;">Report Settings</div>

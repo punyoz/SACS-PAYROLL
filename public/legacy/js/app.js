@@ -57,6 +57,39 @@ function inferNameFromIdentity(identity) {
   return toTitleCase(fromEmail.replace(/[._-]+/g, ' '));
 }
 
+/**
+ * Print one document out of a portal.
+ *
+ * css/print.css keys every rule off body[data-print="<kind>"], so the sheet
+ * that comes out contains that document alone — not whichever card happened
+ * to be on screen. The attribute is cleared on afterprint rather than on the
+ * line after window.print(): Safari and Firefox return from print() before
+ * the dialog is dismissed, and clearing it early strips the styling out of
+ * the preview. The timeout is the fallback for browsers that never fire
+ * afterprint, so the portal can't get stuck in print styling.
+ *
+ * @param {'payslip'|'report'|'timesheet'} kind
+ */
+function printDocument(kind) {
+  const body = document.body;
+  if (!body) return;
+
+  body.setAttribute('data-print', String(kind || '').trim());
+
+  let done = false;
+  const restore = () => {
+    if (done) return;
+    done = true;
+    body.removeAttribute('data-print');
+    window.removeEventListener('afterprint', restore);
+  };
+
+  window.addEventListener('afterprint', restore);
+  setTimeout(restore, 60000);
+
+  window.print();
+}
+
 /* ── Cross-portal utilities ───────────────────────────────────────────────
    These live here because more than one portal needs them. They used to be
    defined inside admin.js/accountant.js, which only worked because every
@@ -1726,6 +1759,7 @@ function initApp() {
   window.paginatorGoTo = paginatorGoTo;
   window.skeletonRows = skeletonRows;
   window.skeletonCards = skeletonCards;
+  window.printDocument = printDocument;
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {

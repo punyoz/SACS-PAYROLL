@@ -900,9 +900,7 @@ function tsExportExcel() {
 }
 
 function printTimesheet() {
-  document.body.classList.add('ts-printing');
-  window.print();
-  document.body.classList.remove('ts-printing');
+  printDocument('timesheet');
 }
 
 function loadTimesheet() {

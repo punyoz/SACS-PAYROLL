@@ -760,7 +760,22 @@ function exportReportCSV() {
 }
 
 function printReport() {
-  window.print();
+  // Stamp the printed letterhead with what was actually generated, so a
+  // filed copy is self-describing.
+  const periodSelect = document.getElementById('rpt-period');
+  const periodLabel = periodSelect?.selectedOptions?.[0]?.textContent?.trim();
+  const periodEl = document.getElementById('rpt-print-period');
+  if (periodEl) periodEl.textContent = periodLabel || 'All Periods';
+
+  const generatedEl = document.getElementById('rpt-print-generated');
+  if (generatedEl) {
+    generatedEl.textContent = `Generated ${new Intl.DateTimeFormat('en-PH', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date())}`;
+  }
+
+  printDocument('report');
 }
 
 function editDraftFromPending(entryId) {
@@ -1137,7 +1152,7 @@ async function generatePayslip() {
 }
 
 function printPayslip() {
-  window.print();
+  printDocument('payslip');
 }
 
 function openPayslipFromRecord(entryId) {

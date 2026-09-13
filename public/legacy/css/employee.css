@@ -337,27 +337,7 @@
   }
 }
 
-@media print {
-  body * {
-    visibility: hidden !important;
-  }
-
-  #s-emp.active .ps-card,
-  #s-emp.active .ps-card * {
-    visibility: visible !important;
-  }
-
-  #s-emp.active .ps-card {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    border-width: 0;
-    border-radius: 0;
-    margin: 0;
-    padding: 0;
-    background: #ffffff;
-  }
-}
+/* Print rules for the payslip card live in css/print.css. */
 
 /* ════════════════════════════════════════════
    TAB NAVIGATION
@@ -715,32 +695,7 @@
 /* ════════════════════════════════════════════
    TIMESHEET PRINT
 ════════════════════════════════════════════ */
-@media print {
-  body.ts-printing #s-emp.active .ps-card,
-  body.ts-printing #s-emp.active .ps-card * {
-    visibility: hidden !important;
-  }
-
-  body.ts-printing #ts-printable,
-  body.ts-printing #ts-printable * {
-    visibility: visible !important;
-  }
-
-  body.ts-printing #ts-printable {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    padding: 20px;
-    border: none;
-    border-radius: 0;
-    background: #ffffff;
-  }
-
-  body.ts-printing .ts-controls,
-  body.ts-printing .ts-table-footer {
-    display: none !important;
-  }
-}
+/* Print rules for the timesheet live in css/print.css. */
 
 /* ══════════════════════════════════════════════════
    PROFILE PAGE

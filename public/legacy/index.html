@@ -14,7 +14,7 @@
       // browser re-downloaded the entire portal several times an hour and the
       // HTTP cache never got to do its job. It is now a fixed build stamp:
       // bump ?v= here when shipping legacy asset changes.
-      window._bv = '20260913';
+      window._bv = '20260913b';
 
       // Which portal this is. LegacyRoleFrame renders the iframe as
       // /legacy/index.html?role=<role>, so the role is known before a single
@@ -31,7 +31,7 @@
       // portal uses admin.css's .adm-modal-*/.adm-feedback and employee.css's
       // .ep-* profile cards. Splitting would save a few KB and risk unstyled
       // panels. With a stable ?v= these are cached after the first visit.
-      var sheets = ['css/theme.css','css/base.css','css/layout.css','css/admin.css','css/accountant.css','css/employee.css','css/super-admin.css'];
+      var sheets = ['css/theme.css','css/base.css','css/layout.css','css/admin.css','css/accountant.css','css/employee.css','css/super-admin.css','css/print.css'];
 
       sheets.forEach(function(href) {
         var l = document.createElement('link');

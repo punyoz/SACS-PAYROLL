@@ -52,6 +52,9 @@ h3 { font-size: 15px; font-weight: 600; }
 .ph h2 { color: var(--t1); }
 .ph p  { font-size: 12px; color: var(--t3); margin-top: 3px; }
 
+/* Letterhead for printed documents only — css/print.css reveals it. */
+.print-doc-head { display: none; }
+
 /* ── CARD ── */
 .card {
   background: var(--bg2);
