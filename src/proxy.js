@@ -46,6 +46,7 @@ export const config = {
     "/hr/:path*",
     "/accountant/:path*",
     "/employee/:path*",
+    "/rfid-terminal/:path*",
   ],
 };
 
@@ -229,6 +230,23 @@ export async function proxy(request) {
   }
 
   const session = readSession(request);
+
+  // ── RFID Terminal (Admin-only kiosk page) ──
+  if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/")) {
+    if (!session || !isKnownRole(session.role)) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+    const rejection = await sessionRejection(session);
+    if (rejection) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("reason", rejection.reason);
+      return clearSession(NextResponse.redirect(loginUrl));
+    }
+    if (session.role !== "admin") {
+      return NextResponse.redirect(new URL(ROLE_HOME[session.role] || "/login", request.url));
+    }
+    return NextResponse.next();
+  }
 
   // ── Portal pages ──
   const portal = Object.keys(PORTAL_ROLES).find(

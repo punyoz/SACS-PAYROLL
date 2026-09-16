@@ -1773,9 +1773,68 @@ async function submitAccountPasswordChange(prefix, ids = {}) {
     const input = document.getElementById(id);
     if (input) input.value = '';
   });
+  [currentId, newId, confirmId].forEach((id) => {
+    document.getElementById(id)?.dispatchEvent(new Event('input', { bubbles: true }));
+  });
   show(result.message, 'ok');
   pushNotification('Password Changed', 'Your account password has been updated successfully.', 'success');
   setTimeout(() => closeSettingsModal(prefix), 1200);
+}
+
+/**
+ * Wires the same live rule checklist used by the mandatory first-sign-in
+ * screen onto a portal's Settings > Change Password fields, so every place a
+ * user changes their password shows the same requirements as they type.
+ * Idempotent per prefix (safe to call before the section is ever opened).
+ */
+function bindSettingsPasswordRulesUI(prefix, ids = {}) {
+  const currentId = ids.current || `${prefix}-current-password`;
+  const nextId = ids.next || `${prefix}-new-password`;
+  const confirmId = ids.confirm || `${prefix}-confirm-password`;
+  const current = document.getElementById(currentId);
+  const next = document.getElementById(nextId);
+  const confirm = document.getElementById(confirmId);
+  const rulesList = document.getElementById(`${prefix}-pw-rules`);
+  if (!current || !next || !confirm || !rulesList || rulesList.dataset.bound === '1') return;
+  rulesList.dataset.bound = '1';
+
+  const ruleItems = Array.from(rulesList.querySelectorAll('li[data-rule]'));
+  const refresh = () => {
+    const rules = evaluatePasswordRules(current.value.trim(), next.value.trim(), confirm.value.trim(), getAuthContext());
+    ruleItems.forEach((item) => item.classList.toggle('ok', Boolean(rules[item.dataset.rule])));
+  };
+  [current, next, confirm].forEach((input) => input.addEventListener('input', refresh));
+  refresh();
+}
+
+/** Binds the live rule checklist for every portal's Settings password section. */
+function initAllSettingsPasswordRulesUI() {
+  bindSettingsPasswordRulesUI('emp', { current: 'emp-cur-password', next: 'emp-new-password', confirm: 'emp-confirm-password' });
+  bindSettingsPasswordRulesUI('adm', { current: 'adm-cur-password', next: 'adm-new-password', confirm: 'adm-confirm-password' });
+  bindSettingsPasswordRulesUI('hr');
+  bindSettingsPasswordRulesUI('ac', { current: 'ac-cur-password', next: 'ac-new-password', confirm: 'ac-confirm-password' });
+  bindSettingsPasswordRulesUI('sa');
+}
+
+/**
+ * Show/hide toggle for any password field marked up with the `.cp-eye`
+ * button pattern (`data-target` pointing at the input's id). Delegated once
+ * on `document` so it works for the first-sign-in screen and every portal's
+ * Settings password section alike, regardless of when their markup appears.
+ */
+function attachPasswordEyeToggle() {
+  if (document.body.dataset.cpEyeDelegationBound === '1') return;
+  document.body.dataset.cpEyeDelegationBound = '1';
+  document.addEventListener('click', (event) => {
+    const btn = event.target.closest('.cp-eye');
+    if (!btn) return;
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
+    const reveal = input.type === 'password';
+    input.type = reveal ? 'text' : 'password';
+    btn.textContent = reveal ? 'Hide' : 'Show';
+    btn.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+  });
 }
 
 /* ── MANDATORY CHANGE-PASSWORD SCREEN ── */
@@ -1817,17 +1876,6 @@ function initPasswordChangeScreen() {
       feedback.className = 'cp-feedback';
     }
   }));
-
-  document.querySelectorAll('#s-change-password .cp-eye').forEach((button) => {
-    button.addEventListener('click', () => {
-      const input = document.getElementById(button.dataset.target);
-      if (!input) return;
-      const reveal = input.type === 'password';
-      input.type = reveal ? 'text' : 'password';
-      button.textContent = reveal ? 'Hide' : 'Show';
-      button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
-    });
-  });
 
   refreshRules();
 
@@ -2180,6 +2228,8 @@ function initApp() {
   attachGlobalSearchHandlers();
   attachNotificationHandlers();
   attachLoginPasswordToggle();
+  attachPasswordEyeToggle();
+  initAllSettingsPasswordRulesUI();
 }
 
 function attachLoginPasswordToggle() {

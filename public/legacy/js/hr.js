@@ -151,10 +151,15 @@ function renderHRRecentActivity(activity) {
   el.innerHTML = activity.map((row) => {
     const s = String(row.status || '').toLowerCase();
     const color = s === 'present' ? 'var(--green)' : s === 'late' ? 'var(--amber)' : 'var(--red)';
+    const dateLabel = row.date
+      ? new Date(row.date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
+      : '';
+    const timeIn = formatTimeOnly(row.time_in);
+    const timeOut = row.time_out ? formatTimeOnly(row.time_out) : 'Still clocked in';
     return `<div class="ai-item">
       <div class="ai2">
-        <div class="s">${row.employee_name || row.employee_id || 'Unknown'}</div>
-        <div class="ss">${row.date || ''} · Time in: ${row.time_in || '—'}</div>
+        <div class="s">${escapeHtml(row.employee_name || row.employee_id || 'Unknown')}</div>
+        <div class="ss">${dateLabel} · Time In ${timeIn} · Time Out ${timeOut}</div>
       </div>
       <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}50;">${row.status || '—'}</span>
     </div>`;

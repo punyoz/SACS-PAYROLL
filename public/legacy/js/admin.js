@@ -770,6 +770,16 @@ window.submitRfidUpdate = submitRfidUpdate;
 window.voidRfidCard = voidRfidCard;
 window.setRfidDeviceSearch = setRfidDeviceSearch;
 window.loadSystemData = loadSystemData;
+// A popup can be silently blocked by the browser (most reliably on origins
+// like http://localhost that have never been granted "always allow popups"),
+// which leaves window.open() returning null with no visible sign anything
+// happened. Navigating the tab itself always works. rfid-terminal.html's own
+// Exit Terminal flow (terminal.js) already returns to /admin afterwards.
+function openRfidTerminal() {
+  window.top.location.href = '/rfid-terminal';
+}
+
+window.openRfidTerminal = openRfidTerminal;
 window.submitRfidAttendanceScan = submitRfidAttendanceScan;
 window.exportAttendanceCsv = exportAttendanceCsv;
 window.setAuditSearch = setAuditSearch;

@@ -1085,7 +1085,8 @@ body {
   position: relative;
 }
 
-.cp-input-wrap .fi {
+.cp-input-wrap .fi,
+.cp-input-wrap .fc {
   padding-right: 66px;
 }
 

@@ -5,6 +5,11 @@ const nextConfig = {
   // Next 16 writes AGENTS.md and CLAUDE.md into the project root on every dev
   // run. Nothing here reads them, so keep the tree free of generated files.
   agentRules: false,
+  async rewrites() {
+    return [
+      { source: "/rfid-terminal", destination: "/legacy/rfid-terminal.html" },
+    ];
+  },
   async headers() {
     return [
       {

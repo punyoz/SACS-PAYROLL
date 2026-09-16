@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>RFID Terminal — SACS Payroll</title>
+<!-- css/js under /legacy get a 1-hour browser cache (next.config.mjs); bump
+     this version string whenever terminal.css/terminal.js change, or edits
+     here silently never reach a browser that already loaded the page once. -->
+<link rel="stylesheet" href="/legacy/css/theme.css?v=20260916b" />
+<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260916b" />
+</head>
+<body>
+<div class="rt-app">
+
+  <!-- LOCK SCREEN — required to open the terminal, and shown again on every
+       reload, so a kiosk left running near the RFID reader always needs the
+       Admin's own password before it will do anything. -->
+  <div class="rt-lock" id="rt-lock">
+    <div class="rt-lock-card">
+      <div class="rt-brand">
+        <div class="rt-icon">S</div>
+        <div class="rt-brand-text">
+          <span class="rt-school">Shepherd Angels Christian School</span>
+          <span class="rt-sub">RFID Attendance Terminal</span>
+        </div>
+      </div>
+      <h1 class="rt-lock-title">Unlock Terminal</h1>
+      <p class="rt-lock-sub" id="rt-lock-sub">Enter your Administration password to open the terminal.</p>
+
+      <form id="rt-lock-form" novalidate>
+        <div class="rt-input-wrap">
+          <input id="rt-lock-password" class="rt-input" type="password" placeholder="Password" autocomplete="current-password" />
+          <button type="button" class="rt-eye" data-target="rt-lock-password" aria-label="Show password">Show</button>
+        </div>
+        <p id="rt-lock-feedback" class="rt-feedback" role="alert" aria-live="assertive"></p>
+        <button class="rt-btn rt-btn-primary" type="submit" id="rt-lock-submit">Unlock Terminal</button>
+      </form>
+      <a class="rt-lock-back" href="/admin">&larr; Back to Administration</a>
+    </div>
+  </div>
+
+  <!-- MAIN KIOSK SCREEN -->
+  <div class="rt-main" id="rt-main" hidden>
+    <div class="rt-topbar">
+      <div class="rt-brand">
+        <div class="rt-icon">S</div>
+        <div class="rt-brand-text">
+          <span class="rt-school">Shepherd Angels Christian School</span>
+          <span class="rt-sub">RFID Attendance Terminal</span>
+        </div>
+      </div>
+      <div class="rt-topbar-right">
+        <div class="rt-branch-wrap">
+          <span class="rt-branch-label">Branch</span>
+          <span class="rt-branch" id="rt-branch">—</span>
+        </div>
+        <div class="rt-clock" id="rt-clock">--:--:--</div>
+        <button class="rt-btn rt-btn-outline" id="rt-exit-btn" type="button">Exit Terminal</button>
+      </div>
+    </div>
+
+    <div class="rt-stage">
+      <div class="rt-status" id="rt-status" data-state="idle">
+        <div class="rt-status-ring"><div class="rt-status-dot"></div></div>
+        <div class="rt-status-text" id="rt-status-text">Tap your RFID card</div>
+      </div>
+
+      <div class="rt-result" id="rt-result" hidden>
+        <div class="rt-result-name" id="rt-result-name">—</div>
+        <div class="rt-result-branch" id="rt-result-branch">—</div>
+        <div class="rt-result-grid">
+          <div class="rt-result-field">
+            <span class="rt-result-label">Time In</span>
+            <span class="rt-result-value" id="rt-result-timein">—</span>
+          </div>
+          <div class="rt-result-field">
+            <span class="rt-result-label">Time Out</span>
+            <span class="rt-result-value" id="rt-result-timeout">—</span>
+          </div>
+        </div>
+        <div class="rt-result-badge" id="rt-result-badge">—</div>
+      </div>
+
+      <div class="rt-scan-wrap">
+        <input id="rt-scan-input" class="rt-scan-input" type="text" placeholder="Tap RFID card or type employee ID" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </div>
+    </div>
+  </div>
+
+  <!-- EXIT CONFIRM MODAL -->
+  <div class="rt-modal-backdrop" id="rt-exit-modal" aria-hidden="true">
+    <div class="rt-modal-card">
+      <h3>Exit RFID Terminal</h3>
+      <p>Enter your Administration password to close the terminal.</p>
+      <div class="rt-input-wrap">
+        <input id="rt-exit-password" class="rt-input" type="password" placeholder="Password" autocomplete="current-password" />
+        <button type="button" class="rt-eye" data-target="rt-exit-password" aria-label="Show password">Show</button>
+      </div>
+      <p id="rt-exit-feedback" class="rt-feedback" role="alert" aria-live="assertive"></p>
+      <div class="rt-modal-actions">
+        <button class="rt-btn rt-btn-ghost" type="button" id="rt-exit-cancel">Cancel</button>
+        <button class="rt-btn rt-btn-primary" type="button" id="rt-exit-confirm">Exit</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/legacy/js/terminal.js?v=20260916b"></script>
+</body>
+</html>

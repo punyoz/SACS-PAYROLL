@@ -578,21 +578,38 @@
       </div>
       <div id="emp-settings-password-section">
         <div class="settings-section-label">Change Password</div>
-        <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password. New password must be at least 8 characters.</p>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password using the same steps as your first sign-in.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
             <label>Current Password</label>
-            <input id="emp-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+            <div class="cp-input-wrap">
+              <input id="emp-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+              <button type="button" class="cp-eye" data-target="emp-cur-password" aria-label="Show password">Show</button>
+            </div>
           </div>
           <div class="fg" style="margin:0;">
             <label>New Password</label>
-            <input id="emp-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+            <div class="cp-input-wrap">
+              <input id="emp-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" maxlength="72" />
+              <button type="button" class="cp-eye" data-target="emp-new-password" aria-label="Show password">Show</button>
+            </div>
           </div>
           <div class="fg" style="margin:0;">
             <label>Confirm New Password</label>
-            <input id="emp-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
+            <div class="cp-input-wrap">
+              <input id="emp-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" maxlength="72" />
+              <button type="button" class="cp-eye" data-target="emp-confirm-password" aria-label="Show password">Show</button>
+            </div>
           </div>
         </div>
+        <ul class="cp-rules" id="emp-pw-rules" aria-label="Password requirements">
+          <li data-rule="length">At least 8 characters</li>
+          <li data-rule="mix">Contains both letters and numbers</li>
+          <li data-rule="spaces">No spaces</li>
+          <li data-rule="different">Different from your current password</li>
+          <li data-rule="not-default">Not your last name + birth date</li>
+          <li data-rule="match">New passwords match</li>
+        </ul>
         <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:11px;" onclick="submitChangePassword()">Update Password</button>
         <p id="emp-change-password-feedback" class="adm-feedback" style="margin-top:10px;"></p>
       </div>

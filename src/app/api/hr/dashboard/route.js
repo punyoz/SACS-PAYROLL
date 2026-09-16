@@ -79,15 +79,31 @@ export async function GET() {
       ).length;
     } catch { /* ignore */ }
 
-    // Recent attendance logs (last 10)
+    // Recent attendance activity (last 10 employee-days). Fetches more raw
+    // rows than needed because multiple taps a day share one employee-day
+    // slot once collapsed — without this, a single employee's repeat taps
+    // could fill the whole "recent" list with duplicates of themselves.
     let recentActivity = [];
     try {
       const { data: recent } = await supabase
         .from("attendance_logs")
-        .select("employee_id, employee_name, log_date, time_in, time_out, status")
+        .select("employee_id, employee_name, log_date, time_in, time_out, status, created_at")
         .order("created_at", { ascending: false })
-        .limit(10);
-      recentActivity = (recent || []).map((row) => ({ ...row, date: row.log_date }));
+        .limit(40);
+      const collapsed = collapseDailyTaps(recent || []).sort((a, b) => {
+        const aTime = new Date(a.time_out || a.time_in || 0).getTime();
+        const bTime = new Date(b.time_out || b.time_in || 0).getTime();
+        return bTime - aTime;
+      });
+      recentActivity = collapsed.slice(0, 10).map((row) => ({
+        employee_id: row.employee_id,
+        employee_name: row.employee_name,
+        date: row.log_date,
+        time_in: row.time_in,
+        time_out: row.time_out,
+        total_hours: row.total_hours,
+        status: row.status,
+      }));
     } catch { /* ignore */ }
 
     // Employee type breakdown
