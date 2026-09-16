@@ -1,12 +1,13 @@
 /* ═══════════════════════════════════════
    layout.css — sidebar + topbar + main
-   shell used by admin and accountant views
+   shell used by the Super Admin, Admin, HR and Accountant portals
    ═══════════════════════════════════════ */
 
 /* ── APP SHELL ── */
 #s-admin,
 #s-accountant,
-#s-super-admin {
+#s-super-admin,
+#s-hr {
   flex-direction: row;
   min-height: 100vh;
   align-items: flex-start;
@@ -317,58 +318,130 @@
   animation: pg-in 0.22s ease both;
 }
 
-/* ── RESPONSIVE SHELL (mobile-first) ── */
+/* ── RESPONSIVE SHELL (mobile-first) ──
+   Phones and tablets get the content first, like the employee portal: the
+   sidebar leaves the page flow and becomes a slide-in drawer, opened from the
+   menu button js/app.js (setupMobileNav) puts at the start of the topbar.
+   From 1024px up it is the familiar fixed sidebar again. */
 #s-admin,
 #s-accountant,
-#s-super-admin {
+#s-super-admin,
+#s-hr {
   flex-direction: column;
   min-height: 100dvh;
 }
 
 .sidebar {
-  width: 100%;
-  min-height: auto;
-  height: auto;
-  border-right: 0;
-  border-bottom: 1px solid var(--border);
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(290px, 86vw);
+  height: 100dvh;
+  z-index: 1001;
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+  transform: translateX(-102%);
+  transition: transform .24s ease, box-shadow .24s ease;
+  overscroll-behavior: contain;
+}
+
+.screen.nav-open .sidebar {
+  transform: none;
+  box-shadow: 0 0 44px rgba(0, 0, 0, .38);
+}
+
+.sb-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(3, 10, 18, .5);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+
+.screen.nav-open .sb-backdrop {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.nav-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--t1);
+  cursor: pointer;
+}
+
+.nav-toggle:hover,
+.nav-toggle:focus-visible {
+  border-color: var(--amber);
+  color: var(--amber);
 }
 
 .sb-brand {
   padding: 14px;
 }
 
-.sidebar .ni,
-.sidebar .sb-sec,
-.sidebar .sb-foot {
-  margin-left: 10px;
-  margin-right: 10px;
-}
-
+/* Comfortable touch targets inside the drawer. */
 .sidebar .ni {
-  padding: 10px 12px;
+  padding: 11px 12px;
+  margin: 1px 8px;
 }
 
 .sb-foot {
-  margin-top: 10px;
-  border-top: 0;
-  padding: 0 0 12px;
+  margin-top: auto;
+  padding: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .main {
+  width: 100%;
+  min-width: 0;
   min-height: 0;
 }
 
 .topbar {
-  min-height: var(--topbar);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  min-height: 56px;
   height: auto;
-  padding: 10px 14px;
+  padding: 8px 12px;
+  gap: 8px;
+  flex-wrap: nowrap;
   align-items: center;
-  flex-wrap: wrap;
-  row-gap: 8px;
 }
 
+/* The title block shrinks and truncates instead of pushing buttons off-screen. */
+.topbar > div:not(.tb-sp):not(.tb-search) {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tb-title {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-sub,
+.topbar .role-tag,
 .tb-sp {
   display: none;
+}
+
+.topbar .nb,
+.topbar .theme-toggle {
+  flex-shrink: 0;
 }
 
 .tb-search {
@@ -376,69 +449,113 @@
   order: 3;
 }
 
-.role-tag {
-  font-size: 9px;
-}
-
 .page {
   padding: var(--content-pad, 14px);
 }
 
+/* Form grids written inline in the page markup collapse to one column on a
+   phone (auto-fill/auto-fit grids already wrap on their own). */
+@media (max-width: 639px) {
+  .page [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]),
+  .adm-modal-card [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]),
+  .settings-card [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]) {
+    grid-template-columns: 1fr !important;
+  }
+
+  .page [style*="max-width:"] {
+    max-width: 100% !important;
+  }
+
+  .page .sh .btn {
+    flex: 1 1 auto;
+  }
+
+  .page [style*="display:flex"][style*="gap"] {
+    flex-wrap: wrap;
+  }
+}
+
+@media (min-width: 520px) {
+  .topbar .role-tag {
+    display: inline-block;
+    font-size: 9px;
+  }
+}
+
 @media (min-width: 768px) {
   .topbar {
-    padding: 10px 18px;
+    padding: 8px 18px;
+    gap: 12px;
+  }
+
+  .tb-sub {
+    display: block;
   }
 
   .tb-sp {
     display: block;
+    flex: 1;
+  }
+
+  .topbar > div:not(.tb-sp):not(.tb-search) {
+    flex: 0 1 auto;
   }
 
   .tb-search {
     width: min(280px, 42vw);
     order: initial;
   }
-
-  .sidebar .ni,
-  .sidebar .sb-sec,
-  .sidebar .sb-foot {
-    margin-left: 12px;
-    margin-right: 12px;
-  }
 }
 
 @media (min-width: 1024px) {
   #s-admin,
   #s-accountant,
-  #s-super-admin {
+  #s-super-admin,
+  #s-hr {
     flex-direction: row;
     min-height: 100vh;
   }
 
   .sidebar {
+    position: sticky;
+    top: 0;
+    bottom: auto;
     width: var(--sidebar);
-    border-right: 1px solid var(--border);
-    border-bottom: 0;
+    height: 100vh;
     min-height: 100vh;
+    z-index: auto;
+    transform: none;
+    transition: none;
+    box-shadow: none;
   }
 
-  .sidebar .ni,
-  .sidebar .sb-sec,
-  .sidebar .sb-foot {
-    margin-left: 6px;
-    margin-right: 6px;
+  .screen.nav-open .sidebar {
+    box-shadow: none;
   }
 
-  .sb-foot {
-    margin-top: auto;
-    padding: 12px;
-    border-top: 1px solid var(--border);
+  .nav-toggle,
+  .sb-backdrop {
+    display: none;
+  }
+
+  .sidebar .ni {
+    padding: 9px 12px;
+    margin: 1px 6px;
   }
 
   .topbar {
+    position: static;
     padding: 0 22px;
     height: var(--topbar);
     min-height: var(--topbar);
-    flex-wrap: nowrap;
+  }
+
+  .tb-title {
+    font-size: 15px;
+  }
+
+  .topbar .role-tag {
+    font-size: 10px;
   }
 
   .tb-search {

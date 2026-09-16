@@ -1,14 +1,48 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
+import { requirePermission, denyForeignBranch, denyRoleEscalation } from "@/lib/rbac/guard";
+import { can } from "@/lib/rbac/permissions";
+import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import {
   readAllTransferRequests,
   insertTransferRequest,
   updateTransferRequestStatus,
   getEmployeeCurrentBranch,
 } from "@/lib/transfer-requests/store";
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
+  }
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+/**
+ * Put the employee in the destination branch. The approval trigger on
+ * transfer_requests already does this; writing it here as well keeps the move
+ * correct on a database where that trigger is missing, and keeps the auth
+ * metadata copy (still read as a fallback by older code paths) in step.
+ */
+async function applyBranchMove(supabase, employeeId, toBranchId) {
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ branch_id: toBranchId, updated_at: new Date().toISOString() })
+    .eq("id", employeeId);
+  if (profileError) throw new Error(profileError.message);
+
+  const { data } = await supabase.auth.admin.getUserById(employeeId);
+  if (data?.user) {
+    await supabase.auth.admin.updateUserById(employeeId, {
+      user_metadata: { ...(data.user.user_metadata || {}), branch_id: toBranchId },
+    });
+    invalidateUsersCache();
+  }
+}
 
 export async function GET(request) {
   const guard = await requirePermission(request, "transfer_requests", "read");
@@ -58,11 +92,36 @@ export async function POST(request) {
       );
     }
 
+    const supabase = getAdminClient();
+
+    const { data: employeeData, error: employeeError } = await supabase.auth.admin.getUserById(employeeId);
+    if (employeeError || !employeeData?.user) {
+      return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+    }
+    const employeeMeta = employeeData.user.user_metadata || {};
+    if (employeeMeta.archived === true) {
+      return NextResponse.json({ error: "Archived employees cannot be transferred." }, { status: 400 });
+    }
+    // Only accounts the caller manages can be moved (HR: Employee/Accountant).
+    const escalation = denyRoleEscalation(guard, normalizeText(employeeMeta.role, "employee"));
+    if (escalation) return escalation;
+
+    const { data: destination, error: destinationError } = await supabase
+      .from("branches")
+      .select("id,name,status")
+      .eq("id", toBranchId)
+      .maybeSingle();
+    if (destinationError || !destination) {
+      return NextResponse.json({ error: "Destination branch not found." }, { status: 404 });
+    }
+    if (String(destination.status || "Active").toLowerCase() !== "active") {
+      return NextResponse.json({ error: "Destination branch is inactive." }, { status: 400 });
+    }
+
     // from_branch_id is the employee's ACTUAL current branch, not whatever
     // the caller claims — looked up server-side so it's correct whether the
     // employee already belongs to a branch or has never been assigned one
-    // (null). Admin may only touch an employee currently in their own branch
-    // or not yet assigned to any; Super Admin (branch-exempt) may reach any.
+    // (null). A branch-scoped caller may only touch its own branch's staff.
     const fromBranchId = await getEmployeeCurrentBranch(employeeId);
 
     const foreignBranch = denyForeignBranch(guard, fromBranchId);
@@ -75,7 +134,7 @@ export async function POST(request) {
       );
     }
 
-    const request_ = await insertTransferRequest({
+    let request_ = await insertTransferRequest({
       employee_id: employeeId,
       from_branch_id: fromBranchId,
       to_branch_id: toBranchId,
@@ -85,18 +144,35 @@ export async function POST(request) {
       remarks,
     });
 
+    // A caller who may also decide transfers (HR) has nobody above it to wait
+    // for: the move is approved and applied at once, and stays on record in
+    // Transfer History.
+    const appliedImmediately = can(guard.role, "transfer_requests", "update");
+    if (appliedImmediately) {
+      const approved = await updateTransferRequestStatus(request_.id, "approved", {
+        reviewedBy: guard.userId,
+      });
+      request_ = approved.request || request_;
+      await applyBranchMove(supabase, employeeId, toBranchId);
+    }
+
     await appendAuditLog({
       module: "transfer_requests",
-      action: "create",
+      action: appliedImmediately ? "approved" : "create",
       entity_type: "transfer_request",
       entity_id: request_.id,
-      description: `Transfer request raised for employee ${employeeId} to another branch.`,
+      description: appliedImmediately
+        ? `Employee ${normalizeText(employeeMeta.full_name, employeeId)} was transferred to ${destination.name}.`
+        : `Transfer request raised for employee ${employeeId} to another branch.`,
       status: "success",
       source: "api",
       metadata: { employee_id: employeeId, from_branch_id: fromBranchId, to_branch_id: toBranchId },
     });
 
-    return NextResponse.json({ request: request_ }, { status: 201 });
+    return NextResponse.json(
+      { request: request_, applied: appliedImmediately, to_branch_name: destination.name },
+      { status: 201 },
+    );
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -129,10 +205,16 @@ export async function PATCH(request) {
       );
     }
 
+    const foreignBranch = denyForeignBranch(guard, current.from_branch_id);
+    if (foreignBranch) return foreignBranch;
+
     const nextStatus = action === "approve" ? "approved" : "rejected";
     const { request: updated } = await updateTransferRequestStatus(id, nextStatus, {
       reviewedBy: guard.userId,
     });
+    if (nextStatus === "approved") {
+      await applyBranchMove(getAdminClient(), current.employee_id, current.to_branch_id);
+    }
 
     await appendAuditLog({
       module: "transfer_requests",

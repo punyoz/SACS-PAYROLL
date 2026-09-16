@@ -14,7 +14,7 @@
       // browser re-downloaded the entire portal several times an hour and the
       // HTTP cache never got to do its job. It is now a fixed build stamp:
       // bump ?v= here when shipping legacy asset changes.
-      window._bv = '20260913b';
+      window._bv = '20260916a';
 
       // Which portal this is. LegacyRoleFrame renders the iframe as
       // /legacy/index.html?role=<role>, so the role is known before a single
@@ -25,6 +25,18 @@
       var KNOWN = { admin: 1, accountant: 1, employee: 1, hr: 1, 'super_admin': 1 };
       if (!KNOWN[role]) role = '';
       window._role = role;
+
+      // An account still on the password it was issued sees the mandatory
+      // change-password screen and nothing of its portal. The flag comes from
+      // the sign-in response; rbac.js re-checks it against the signed session
+      // and reloads if the two disagree, and the API refuses everything else
+      // until the password is changed regardless of what the browser shows.
+      var gate = false;
+      try {
+        var storedCtx = JSON.parse(localStorage.getItem('sacs-auth-context') || 'null');
+        gate = Boolean(role && storedCtx && storedCtx.must_change_password === true);
+      } catch (e) { gate = false; }
+      window._passwordGate = gate;
 
       // CSS is deliberately NOT split per role. All seven sheets together are
       // ~75 KB, and the role sheets are not actually role-exclusive: every
@@ -52,7 +64,7 @@
         'super_admin': 'js/super-admin.js'
       };
       var preload = ['js/app.js', 'js/rbac.js'];
-      if (role && ROLE_SCRIPT[role]) preload.push(ROLE_SCRIPT[role]);
+      if (role && ROLE_SCRIPT[role] && !gate) preload.push(ROLE_SCRIPT[role]);
       preload.forEach(function(href) {
         var l = document.createElement('link');
         l.rel = 'preload';
@@ -186,11 +198,13 @@
     async function bootstrapApp() {
       const appRoot = document.getElementById('app-root');
       const assets = ROLE_ASSETS[window._role];
+      const gate = Boolean(assets && window._passwordGate);
 
       // Login always ships: it is the fallback when no role is on the URL, and
       // app.js's login() drives it.
       const pageFiles = ['pages/login.html'];
-      if (assets) pageFiles.push(assets.page);
+      if (gate) pageFiles.push('pages/change-password.html');
+      else if (assets) pageFiles.push(assets.page);
 
       try {
         const htmlChunks = await Promise.all(pageFiles.map(loadFragment));
@@ -203,7 +217,7 @@
         // portal script, then rbac.js last — it rewrites the sidebar from
         // /api/rbac/me and needs the portal's nav handlers already defined.
         await loadScript('js/app.js');
-        if (assets) await loadScript(assets.script);
+        if (assets && !gate) await loadScript(assets.script);
         await loadScript('js/rbac.js');
       } catch (error) {
         appRoot.innerHTML = '<div style="padding:24px;font-family:DM Sans, sans-serif;color:#E85555;">Unable to load app resources. Please check file paths and run from a local server.<br><small>' + String(error.message || error) + '</small></div>';

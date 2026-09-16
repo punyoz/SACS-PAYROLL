@@ -8,7 +8,8 @@
  * Two independent dimensions, exactly as the matrix describes them:
  *
  *   SCOPE  — how much data a role may reach:
- *            'all'    every branch (super_admin only)
+ *            'all'    every branch (super_admin everywhere; HR on the
+ *                     employee-record, user-account and transfer modules)
  *            'branch' rows whose branch_id equals the caller's own branch
  *            'self'   rows belonging to the caller personally
  *            'none'   no access to the module at all
@@ -64,8 +65,12 @@ export const MODULES = {
     labelOverride: { hr: "Attendance Monitoring", accountant: "View Attendance" },
   },
   user_management: {
+    // HR owns every Employee and Accountant account, across all branches.
+    // Super Admin keeps only the Admin/HR login accounts — HR cannot create an
+    // account that outranks HR, and somebody has to create the first HR login.
     order: 3, label: "User Management", section: "Management",
-    page: { super_admin: "sa-roles", admin: "adm-users", hr: "hr-employees" },
+    page: { super_admin: "sa-accounts", hr: "hr-employees" },
+    labelOverride: { super_admin: "Admin & HR Accounts" },
   },
   employee_information: {
     order: 4, label: "Employee Information", section: "Management",
@@ -89,24 +94,21 @@ export const MODULES = {
   },
   branch_assignment: {
     order: 6.5, label: "Branch Assignment", section: "Management",
-    // Admin/Super Admin's branch-roster + transfer-request flow are now one
-    // merged page — pointing this module at the same page id as
-    // transfer_requests lets buildMenu()'s dedup collapse them into a single
-    // sidebar row (transfer_requests' lower order wins the label). HR keeps
-    // its own separate, unmerged Branch Assignment page and instant-write
-    // flow.
-    page: { super_admin: "sa-transfer-requests", admin: "adm-transfer-requests", hr: "hr-branch-assign" },
+    // The branch roster and the transfer flow are one page, owned by HR.
+    // Sharing transfer_requests' page id lets buildMenu()'s dedup collapse
+    // them into a single sidebar row (transfer_requests' lower order wins).
+    page: { hr: "hr-transfers" },
   },
   roles_permissions: {
     order: 7, label: "Roles & Permissions", section: "Management",
     page: { super_admin: "sa-roles" },
   },
-  // Admin requests a branch move for staff in their own branch; Super Admin
-  // reviews and approves/rejects (public.transfer_requests + its trigger
-  // moves profiles.branch_id automatically on approval).
+  // HR moves employees between branches. HR is the approver as well as the
+  // requester, so a move is recorded in public.transfer_requests and applied
+  // at once (its trigger moves profiles.branch_id on approval).
   transfer_requests: {
     order: 6, label: "Transfer Requests", section: "Management",
-    page: { admin: "adm-transfer-requests", super_admin: "sa-transfer-requests" },
+    page: { hr: "hr-transfers" },
   },
   leave_approval: {
     order: 8, label: "Leave Approval", section: "Leave",
@@ -133,8 +135,10 @@ export const MODULES = {
     page: { accountant: "ac-monitoring" },
   },
   system_maintenance: {
+    // RFID card registration (assign / update / void) and the RFID scan
+    // input. Admin runs the same screen as Super Admin, limited to its branch.
     order: 14, label: "System Maintenance", section: "System",
-    page: { super_admin: "sa-maintenance" },
+    page: { super_admin: "sa-maintenance", admin: "adm-maintenance" },
   },
   system_configuration: {
     order: 15, label: "System Configuration", section: "System",
@@ -214,30 +218,25 @@ export const ROLE_PERMISSIONS = {
 
   admin: {
     // Operational authority, boxed inside one branch. Never system config,
-    // role definitions, branch records, backups, or peer/superior accounts.
+    // role definitions, branch records, backups, or any account management —
+    // user accounts and branch transfers belong to HR.
     dashboard: view(SCOPE_BRANCH),
     attendance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    user_management: { scope: SCOPE_BRANCH, actions: CRUD },
-    // CRUD rather than the matrix's view/edit wording because creating and
-    // archiving an *employee* account is exactly what the matrix grants Admin
-    // under User Management, and both flows run through the same employees
-    // endpoint. The ceiling that matters is MANAGEABLE_ROLES below: Admin can
-    // reach hr / accountant / employee records only, inside its own branch.
-    employee_information: { scope: SCOPE_BRANCH, actions: CRUD },
+    user_management: none(),
+    employee_information: view(SCOPE_BRANCH),
     employee_info_readonly: view(SCOPE_BRANCH),
     branch_management: none(),
-    branch_assignment: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    branch_assignment: none(),
     roles_permissions: none(),
-    // Admin may raise a transfer request out of its own branch and read its
-    // own requests, but never decide one — approval is Super Admin's alone.
-    transfer_requests: { scope: SCOPE_BRANCH, actions: ["create", "read"] },
+    transfer_requests: none(),
     leave_approval: view(SCOPE_BRANCH),
-    rfid_devices: view(SCOPE_BRANCH),
+    // Registering, replacing and voiding RFID cards for the Admin's own branch.
+    rfid_devices: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     process_payroll: none(),
     payroll_records: view(SCOPE_BRANCH),
     payslips: view(SCOPE_BRANCH),
     payroll_monitoring: view(SCOPE_BRANCH),
-    system_maintenance: none(),
+    system_maintenance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     system_configuration: none(),
     audit_logs: view(SCOPE_BRANCH),
     backup_recovery: none(),
@@ -251,13 +250,17 @@ export const ROLE_PERMISSIONS = {
   hr: {
     dashboard: view(SCOPE_BRANCH),
     attendance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    user_management: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    // Primary owner of employee records / 201 files for their branch.
-    employee_information: full(SCOPE_BRANCH),
-    employee_info_readonly: view(SCOPE_BRANCH),
+    // HR handles the employees of EVERY branch: their accounts, their 201
+    // files, and moving them between branches. These are the only modules a
+    // branch-scoped role reaches with SCOPE_ALL; the account ceiling that
+    // keeps this safe is MANAGEABLE_ROLES (Employee and Accountant only).
+    user_management: full(SCOPE_ALL),
+    employee_information: full(SCOPE_ALL),
+    employee_info_readonly: view(SCOPE_ALL),
     branch_management: none(),
-    branch_assignment: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    branch_assignment: { scope: SCOPE_ALL, actions: READ_WRITE },
     roles_permissions: none(),
+    transfer_requests: full(SCOPE_ALL),
     leave_approval: full(SCOPE_BRANCH),
     rfid_devices: none(),
     process_payroll: none(),
@@ -335,8 +338,8 @@ export const ROLE_PERMISSIONS = {
  */
 export const MANAGEABLE_ROLES = {
   super_admin: ["super_admin", "admin", "hr", "accountant", "employee"],
-  admin: ["hr", "accountant", "employee"],
-  hr: ["employee"],
+  admin: [],
+  hr: ["accountant", "employee"],
   accountant: [],
   employee: [],
 };
@@ -346,7 +349,6 @@ export const SUPER_ADMIN_ONLY_MODULES = [
   "roles_permissions",
   "branch_management",
   "system_configuration",
-  "system_maintenance",
   "backup_recovery",
 ];
 
@@ -388,6 +390,15 @@ export function scopeFor(role, module) {
 /** True when the role sees every branch (super_admin bypasses branch checks). */
 export function isBranchExempt(role) {
   return String(role || "").toLowerCase() === "super_admin";
+}
+
+/**
+ * True when the role may reach every branch on this particular module — either
+ * because it is branch-exempt outright, or because the matrix grants it
+ * SCOPE_ALL there (HR on employee records, user accounts and transfers).
+ */
+export function isBranchExemptFor(role, module) {
+  return isBranchExempt(role) || scopeFor(role, module) === SCOPE_ALL;
 }
 
 /** True when the role's queries must carry a branch_id filter. */

@@ -54,8 +54,15 @@ function safeEqual(a, b) {
 
 /**
  * Build a signed session token.
+ *
+ * `session_id` ties the cookie to the one sign-in the account currently allows
+ * (src/lib/auth/active-session.js). `must_change_password` keeps the account
+ * boxed into the change-password screen until the issued password is replaced
+ * (enforced in src/proxy.js).
+ *
  * @param {{ user_id: string, role: string, branch_id?: string|null,
- *           email?: string, full_name?: string }} claims
+ *           email?: string, full_name?: string, session_id?: string,
+ *           must_change_password?: boolean }} claims
  */
 export function createSessionToken(claims) {
   const now = Math.floor(Date.now() / 1000);
@@ -65,6 +72,8 @@ export function createSessionToken(claims) {
     branch_id: claims.branch_id ? String(claims.branch_id) : null,
     email: String(claims.email || ""),
     full_name: String(claims.full_name || ""),
+    sid: String(claims.session_id || ""),
+    pwd: Boolean(claims.must_change_password),
     iat: now,
     exp: now + SESSION_MAX_AGE_SECONDS,
   };
@@ -123,6 +132,24 @@ export function sessionCookieOptions(maxAge = SESSION_MAX_AGE_SECONDS) {
 export function attachSession(response, claims) {
   response.cookies.set(SESSION_COOKIE, createSessionToken(claims), sessionCookieOptions());
   return response;
+}
+
+/**
+ * Re-issue the cookie for an already verified session with some claims
+ * changed — e.g. clearing `must_change_password` once the password is replaced,
+ * without starting a new sign-in (which would end the account's other session).
+ */
+export function reissueSession(response, session, overrides = {}) {
+  return attachSession(response, {
+    user_id: session.sub,
+    role: session.role,
+    branch_id: session.branch_id,
+    email: session.email,
+    full_name: session.full_name,
+    session_id: session.sid,
+    must_change_password: session.pwd,
+    ...overrides,
+  });
 }
 
 /** Expire the session cookie on a NextResponse. */

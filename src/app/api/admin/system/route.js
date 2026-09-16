@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog, listAuditLogs } from "@/lib/audit/store";
+import { requirePermission, denyForeignBranch, scopeListToBranch } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -60,7 +61,7 @@ async function fetchRfidDevices(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name")
+      .select("id,email,full_name,branch_id")
       .in("id", userIds);
     if (!profileResult.error) {
       (profileResult.data || []).forEach((p) => profileMap.set(p.id, p));
@@ -77,6 +78,8 @@ async function fetchRfidDevices(supabase) {
       employee_type: normalizeText(metadata.employee_type, "Teaching"),
       rfid_uid: normalizeText(metadata.rfid_uid, ""),
       archived: Boolean(metadata.archived),
+      // profiles.branch_id is authoritative; metadata is the pre-migration fallback.
+      branch_id: profile?.branch_id || metadata.branch_id || null,
     };
   }).sort((a, b) => a.full_name.localeCompare(b.full_name));
 }
@@ -86,13 +89,20 @@ async function checkTableExists(supabase, tableName) {
   return !result.error;
 }
 
-export async function GET() {
+export async function GET(request) {
+  const guard = await requirePermission(request, "system_maintenance", "read");
+  if (guard.denied) return guard.denied;
+
   try {
     const supabase = getAdminClient();
-    const [systemStats, rfidDevices] = await Promise.all([
+    const [systemStats, allRfidDevices] = await Promise.all([
       fetchSystemStats(supabase),
       fetchRfidDevices(supabase),
     ]);
+
+    // Super Admin registers cards for every branch; an Admin only for the
+    // staff of its own branch.
+    const rfidDevices = scopeListToBranch(allRfidDevices, guard, (d) => d.branch_id);
 
     const [attendanceOk, payrollOk, branchesOk, configOk, auditResult] = await Promise.all([
       checkTableExists(supabase, "attendance_logs"),
@@ -122,6 +132,9 @@ export async function GET() {
 }
 
 export async function PATCH(request) {
+  const guard = await requirePermission(request, "system_maintenance", "update");
+  if (guard.denied) return guard.denied;
+
   try {
     const body = await request.json();
     const id = normalizeText(body.id);
@@ -137,8 +150,24 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
 
+    const targetRole = String(userResult.data.user.user_metadata?.role || "employee").toLowerCase();
+    if (targetRole !== "employee" && targetRole !== "accountant") {
+      return NextResponse.json({ error: "RFID cards can only be assigned to employee accounts." }, { status: 400 });
+    }
+
+    const rfidDevices = await fetchRfidDevices(supabase);
+
+    // An Admin may assign, replace or void cards only for its own branch's staff.
+    if (!guard.branchExempt) {
+      const target = rfidDevices.find((device) => device.id === id);
+      if (!target?.branch_id) {
+        return NextResponse.json({ error: "That employee is not assigned to your branch." }, { status: 403 });
+      }
+      const foreign = denyForeignBranch(guard, target.branch_id);
+      if (foreign) return foreign;
+    }
+
     if (rfidUid) {
-      const rfidDevices = await fetchRfidDevices(supabase);
       const conflict = rfidDevices.find(
         (device) => device.id !== id && !device.archived && device.rfid_uid.toLowerCase() === rfidUid.toLowerCase(),
       );

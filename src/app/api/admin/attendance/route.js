@@ -5,6 +5,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
+import { collapseDailyTaps, hoursBetween, planTap } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -191,28 +192,11 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey) {
       return rowDate === dateKey;
     });
 
+  // First tap of the day = time in, last tap = time out, however many rows
+  // the day ended up with (see src/lib/attendance/taps.js).
   const byEmployee = new Map();
-
-  mapped.forEach((row) => {
-    if (!row.employee_id) return;
-    const existing = byEmployee.get(row.employee_id);
-
-    if (!existing) {
-      byEmployee.set(row.employee_id, row);
-      return;
-    }
-
-    const existingCreated = new Date(existing.created_at || existing.time_in || 0).getTime();
-    const nextCreated = new Date(row.created_at || row.time_in || 0).getTime();
-    if (nextCreated >= existingCreated) {
-      byEmployee.set(row.employee_id, {
-        ...existing,
-        ...row,
-        time_in: existing.time_in || row.time_in,
-        time_out: row.time_out || existing.time_out,
-        total_hours: Number(row.total_hours || existing.total_hours || 0),
-      });
-    }
+  collapseDailyTaps(mapped, { dateKey: () => dateKey }).forEach((row) => {
+    if (row.employee_id) byEmployee.set(row.employee_id, row);
   });
 
   activeEmployees.forEach((employee) => {
@@ -304,39 +288,51 @@ function isLateInManila(now = new Date()) {
   return false;
 }
 
+/**
+ * Record one RFID tap. Only the first and last tap of the day count: the first
+ * creates the day's row (Time In), every later tap moves that same row's Time
+ * Out, and a repeat tap within a minute of the previous one is ignored.
+ *
+ * @returns {{ record: object, tap: "time_in" | "time_out" | "duplicate" }}
+ */
 async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode) {
   const lookupResult = await supabase
     .from("attendance_logs")
-    .select("id,time_in,time_out,status")
+    .select("*")
     .eq("employee_id", employee.id)
     .eq("log_date", dateKey)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .order("created_at", { ascending: true })
+    .limit(50);
 
   if (lookupResult.error) {
     throw new Error(lookupResult.error.message);
   }
 
-  const existing = lookupResult.data;
+  const plan = planTap(lookupResult.data || [], nowIso);
 
-  if (existing && existing.time_in && !existing.time_out) {
-    const totalHours = calculateHours(existing.time_in, nowIso);
+  if (plan.action === "duplicate") {
+    return { record: mapAttendanceRow(plan.record), tap: "duplicate" };
+  }
+
+  if (plan.action === "time_out") {
     const updateResult = await supabase
       .from("attendance_logs")
       .update({
+        // Normalise the row to the day's first tap too, in case an older
+        // version split this day across several rows.
+        time_in: plan.time_in,
         time_out: nowIso,
-        total_hours: totalHours,
+        total_hours: hoursBetween(plan.time_in, nowIso),
       })
-      .eq("id", existing.id)
+      .eq("id", plan.target.id)
       .select("*")
       .maybeSingle();
 
     if (updateResult.error || !updateResult.data) {
-      throw new Error(updateResult.error?.message || "Failed to update attendance logout.");
+      throw new Error(updateResult.error?.message || "Failed to update attendance time out.");
     }
 
-    return mapAttendanceRow(updateResult.data);
+    return { record: mapAttendanceRow(updateResult.data), tap: "time_out" };
   }
 
   const insertPayload = {
@@ -361,7 +357,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode)
     throw new Error(insertResult.error?.message || "Failed to create attendance login.");
   }
 
-  return mapAttendanceRow(insertResult.data);
+  return { record: mapAttendanceRow(insertResult.data), tap: "time_in" };
 }
 
 export async function GET(request) {
@@ -435,29 +431,36 @@ export async function POST(request) {
     const nowIso = new Date().toISOString();
     const dateKey = getDateKey(new Date());
 
-    const record = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode);
+    const { record, tap } = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode);
 
-    await appendAuditLog({
-      module: "attendance",
-      action: record.time_out ? "rfid_timeout" : "rfid_timein",
-      entity_type: "employee",
-      entity_id: employee.employee_id,
-      description: `RFID scan processed for ${employee.full_name}.`,
-      status: "success",
-      source: "api",
-      metadata: {
-        employee_id: employee.id,
-        rfid_code: rfidCode,
-        date_key: dateKey,
-      },
-    });
+    if (tap !== "duplicate") {
+      await appendAuditLog({
+        module: "attendance",
+        action: tap === "time_out" ? "rfid_timeout" : "rfid_timein",
+        entity_type: "employee",
+        entity_id: employee.employee_id,
+        description: `RFID scan processed for ${employee.full_name}.`,
+        status: "success",
+        source: "api",
+        metadata: {
+          employee_id: employee.id,
+          rfid_code: rfidCode,
+          date_key: dateKey,
+        },
+      });
+    }
+
+    const messages = {
+      time_in: "RFID time-in recorded.",
+      time_out: "RFID time-out recorded. A later tap today will replace it.",
+      duplicate: "Repeated tap ignored — only the first and last tap of the day are counted.",
+    };
 
     return NextResponse.json({
       success: true,
-      persisted: true,
-      message: record.time_out
-        ? "RFID time-out recorded."
-        : "RFID time-in recorded.",
+      persisted: tap !== "duplicate",
+      tap,
+      message: messages[tap],
       record,
     });
   } catch (error) {

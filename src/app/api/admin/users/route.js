@@ -10,6 +10,10 @@ import {
   denyForeignBranch,
   scopeListToBranch,
 } from "@/lib/rbac/guard";
+import { hashTemporaryPassword, PASSWORD_MIN_LENGTH } from "@/lib/auth/password-policy";
+
+// Admin and HR accounts work inside one branch, so they cannot exist without one.
+const BRANCH_REQUIRED_ROLES = ["admin", "hr"];
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -146,19 +150,39 @@ export async function POST(request) {
 
     if (!email || !fullName || !password) {
       return NextResponse.json(
-        { error: "full_name, email, and password are required." },
+        { error: "Full name, email, and password are required." },
         { status: 400 },
       );
     }
 
-    if (password.length < 6) {
+    if (!/^[A-Za-z\s.]+$/.test(fullName)) {
+      return NextResponse.json({ error: "Full name must contain letters and spaces only." }, { status: 400 });
+    }
+
+    if (password.length < PASSWORD_MIN_LENGTH) {
       return NextResponse.json(
-        { error: "Password must be at least 6 characters." },
+        { error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` },
         { status: 400 },
       );
+    }
+
+    if (BRANCH_REQUIRED_ROLES.includes(role) && !branchId) {
+      return NextResponse.json({ error: "Select the branch this account belongs to." }, { status: 400 });
     }
 
     const supabase = getAdminClient();
+
+    if (branchId) {
+      const { data: branch, error: branchError } = await supabase
+        .from("branches")
+        .select("id")
+        .eq("id", branchId)
+        .maybeSingle();
+      if (branchError || !branch) {
+        return NextResponse.json({ error: "The selected branch does not exist." }, { status: 400 });
+      }
+    }
+
     const metadata = {
       role,
       full_name: fullName,
@@ -171,6 +195,9 @@ export async function POST(request) {
       password,
       email_confirm: true,
       user_metadata: metadata,
+      // The password Super Admin typed is a one-time password: the first
+      // sign-in with it must replace it (src/lib/auth/password-policy.js).
+      app_metadata: { temp_password_hash: hashTemporaryPassword(password) },
     });
 
     if (createResult.error) {
@@ -293,13 +320,15 @@ export async function PATCH(request) {
       if (email) updatePayload.email = email;
       const password = normalizeText(body.password);
       if (password) {
-        if (password.length < 6) {
+        if (password.length < PASSWORD_MIN_LENGTH) {
           return NextResponse.json(
-            { error: "Password must be at least 6 characters." },
+            { error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` },
             { status: 400 },
           );
         }
         updatePayload.password = password;
+        // A password reset by Super Admin is a one-time password too.
+        updatePayload.app_metadata = { temp_password_hash: hashTemporaryPassword(password) };
       }
     }
 

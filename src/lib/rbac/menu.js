@@ -97,6 +97,7 @@ const SECTION_OVERRIDE = {
     user_management: "Employees",
     employee_information: "Employees",
     branch_assignment: "Employees",
+    transfer_requests: "Employees",
   },
   accountant: {
     attendance: "Reference",

@@ -11,8 +11,8 @@ const SA_PAGES = {
   'sa-dashboard':    'SA Dashboard',
   'sa-attendance':   'Attendance',
   'sa-branches':     'Branch Management',
+  'sa-accounts':     'Admin & HR Accounts',
   'sa-roles':        'Roles & Permissions',
-  'sa-transfer-requests':'Transfer Requests',
   'sa-maintenance':  'System Maintenance',
   'sa-config':       'System Configuration',
   'sa-audit':        'Audit & Monitoring',
@@ -29,19 +29,12 @@ let saAuditSearch = '';
 let saAuditModule = 'all';
 let saAuditAction = 'all';
 let saBranches = [];
-let saAssignBranches = [];
-let saTransferPending = [];
-let saTransferHistory = [];
 let saReportData = [];
 let saAttendanceData = null;
 let saAttPaginator = null;
 
 let saUsersPaginator = null;
 let saAuditPaginator = null;
-let saBranchAllEmployees = [];
-let saBranchFilter = 'all';
-let saBranchSearch = '';
-let saBranchPaginator = null;
 
 let saAllRfidDevices = [];
 let saRfidDeviceSearch = '';
@@ -67,8 +60,7 @@ function saNav(pageId, navEl) {
   if (pageId === 'sa-dashboard')       loadSADashboard();
   else if (pageId === 'sa-attendance') loadSAAttendanceData();
   else if (pageId === 'sa-branches')   loadSABranches();
-  else if (pageId === 'sa-roles')      loadSAUsers();
-  else if (pageId === 'sa-transfer-requests') { loadSABranchAssignment(); loadSATransferRequests(); }
+  else if (pageId === 'sa-accounts')   loadSAUsers();
   else if (pageId === 'sa-maintenance') {
     loadSASystemData();
     // Auto-focus the scan field so a HID RFID reader's keystrokes land there
@@ -426,10 +418,16 @@ async function submitSABranch(event) {
   }
 }
 
-/* ── ROLES & PERMISSIONS ── */
+/* ── ADMIN & HR ACCOUNTS ──
+   Super Admin creates and maintains the login accounts of Admin and HR staff
+   only. Every Employee and Accountant account belongs to HR. */
+const SA_ACCOUNT_ROLES = ['admin', 'hr'];
+const SA_ROLE_LABELS = { admin: 'Admin', hr: 'HR' };
+const SA_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 async function loadSAUsers() {
   const tbody = document.getElementById('sa-users-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(11);
+  if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
     const [usersRes, branches] = await Promise.allSettled([
@@ -439,10 +437,10 @@ async function loadSAUsers() {
 
     if (usersRes.status !== 'fulfilled' || !usersRes.value.ok) {
       const errData = usersRes.status === 'fulfilled' ? await usersRes.value.json().catch(() => ({})) : {};
-      throw new Error(errData.error || 'Failed to load users.');
+      throw new Error(errData.error || 'Failed to load accounts.');
     }
     const data = await usersRes.value.json();
-    saAllUsers = data.users || [];
+    saAllUsers = (data.users || []).filter((u) => SA_ACCOUNT_ROLES.includes(u.role));
 
     if (branches.status === 'fulfilled') {
       saBranches = branches.value;
@@ -451,35 +449,33 @@ async function loadSAUsers() {
     updateSARoleChips();
     renderSAUsersTable();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="11" style="color:var(--red);">${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
+function saBranchLabel(branchId) {
+  if (!branchId) return '—';
+  const branch = saBranches.find((b) => String(b.id) === String(branchId));
+  return branch?.name || 'Unknown branch';
+}
+
 function updateSARoleChips() {
-  const chips = document.querySelectorAll('#sa-role-filter-chips .chip');
-  const roles = ['all', 'super_admin', 'admin', 'hr', 'accountant', 'employee', 'archived'];
   const counts = {
-    all: saAllUsers.length,
-    super_admin: saAllUsers.filter((u) => u.role === 'super_admin' && !u.archived).length,
+    all: saAllUsers.filter((u) => !u.archived).length,
     admin: saAllUsers.filter((u) => u.role === 'admin' && !u.archived).length,
     hr: saAllUsers.filter((u) => u.role === 'hr' && !u.archived).length,
-    accountant: saAllUsers.filter((u) => u.role === 'accountant' && !u.archived).length,
-    employee: saAllUsers.filter((u) => u.role === 'employee' && !u.archived).length,
     archived: saAllUsers.filter((u) => u.archived).length,
   };
-
-  const active = saAllUsers.filter((u) => !u.archived).length;
-  const archived = saAllUsers.filter((u) => u.archived).length;
+  const labels = { all: 'All', admin: 'Admin', hr: 'HR', archived: 'Archived' };
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   set('sa-role-total', saAllUsers.length);
-  set('sa-role-active', active);
-  set('sa-role-archived', archived);
+  set('sa-role-active', counts.all);
+  set('sa-role-archived', counts.archived);
 
-  const labels = ['All', 'Super Admin', 'Admin', 'HR', 'Accountant', 'Employee', 'Archived'];
-  chips.forEach((chip, i) => {
-    const key = roles[i];
-    if (key !== undefined) chip.textContent = `${labels[i]} (${counts[key] ?? 0})`;
+  document.querySelectorAll('#sa-role-filter-chips .chip').forEach((chip) => {
+    const key = chip.dataset.rf;
+    if (labels[key]) chip.textContent = `${labels[key]} (${counts[key] ?? 0})`;
   });
 }
 
@@ -512,58 +508,36 @@ function renderSAUsersTable() {
 
   if (saRolesSearch) {
     list = list.filter((u) =>
-      [u.full_name, u.email, u.role, u.employee_id].some((v) =>
+      [u.full_name, u.email, SA_ROLE_LABELS[u.role], saBranchLabel(u.branch_id)].some((v) =>
         String(v || '').toLowerCase().includes(saRolesSearch)
       )
     );
   }
 
-  if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="color:var(--t3);">No users found.</td></tr>';
-    return;
-  }
-
-  const roleColors = {
-    super_admin: 'var(--blue)',
-    admin: 'var(--amber)',
-    hr: 'var(--teal)',
-    accountant: 'var(--green)',
-    employee: 'var(--t2)',
-  };
-
   if (!saUsersPaginator) {
+    const roleColors = { admin: 'var(--amber)', hr: 'var(--teal)' };
     saUsersPaginator = createPaginator({
       id: 'sa-users',
       pageSize: 15,
       renderFn: (rows) => {
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No accounts found.</td></tr>';
+          return;
+        }
         tbody.innerHTML = rows.map((u) => {
           const roleColor = roleColors[u.role] || 'var(--t2)';
-          const roleLabel = u.role === 'super_admin' ? 'Super Admin' : (u.role || '—');
-          const statusColor = u.archived ? 'var(--red)' : u.employee_status?.toLowerCase() === 'active' ? 'var(--green)' : 'var(--amber)';
-          const statusLabel = u.archived ? 'Archived' : (u.employee_status || 'Active');
-          const lastLogin = u.last_sign_in_at
-            ? new Date(u.last_sign_in_at).toLocaleDateString('en-PH')
-            : '—';
-          const branch = saBranches.find((b) => String(b.id) === String(u.branch_id));
-          const branchLabel = u.branch_id ? (branch?.name || 'Unknown') : '—';
-          const cpNumberLabel = u.cp_number || '—';
-          const dateHiredLabel = u.date_hired || '—';
-          const actionsCell = `
-            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAViewEmployeeModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">View</button>
-            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal(${JSON.stringify(u).replace(/"/g, '&quot;')})">Edit</button>
-          `;
+          const statusColor = u.archived ? 'var(--red)' : 'var(--green)';
+          const statusLabel = u.archived ? 'Archived' : 'Active';
+          const signedIn = u.last_sign_in || u.last_sign_in_at;
+          const lastLogin = signedIn ? new Date(signedIn).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : 'Never';
           return `<tr>
-            <td>${u.full_name || '—'}</td>
-            <td style="font-size:12px;color:var(--t3);">${u.email || '—'}</td>
-            <td><span class="badge" style="color:${roleColor};background:${roleColor}20;border:1px solid ${roleColor}40;">${roleLabel}</span></td>
-            <td style="font-size:12px;">${branchLabel}</td>
-            <td><code style="font-size:11px;">${u.employee_id || '—'}</code></td>
-            <td>${u.employee_type || '—'}</td>
-            <td style="font-size:12px;">${cpNumberLabel}</td>
-            <td style="font-size:12px;">${dateHiredLabel}</td>
+            <td>${escapeHtml(u.full_name || '—')}</td>
+            <td style="font-size:12px;color:var(--t3);">${escapeHtml(u.email || '—')}</td>
+            <td><span class="badge" style="color:${roleColor};background:${roleColor}20;border:1px solid ${roleColor}40;">${SA_ROLE_LABELS[u.role] || '—'}</span></td>
+            <td style="font-size:12px;">${escapeHtml(saBranchLabel(u.branch_id))}</td>
             <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${statusLabel}</span></td>
-            <td style="font-size:12px;">${lastLogin}</td>
-            <td>${actionsCell}</td>
+            <td style="font-size:12px;">${escapeHtml(lastLogin)}</td>
+            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal('${escapeHtml(u.id)}')">Edit</button></td>
           </tr>`;
         }).join('');
       },
@@ -573,42 +547,7 @@ function renderSAUsersTable() {
   saUsersPaginator.setData(list);
 }
 
-/* ── ADMIN USER MANAGEMENT ── */
-// Read-only: Super Admin's own account editor (below) only ever covered
-// account fields (name/email/role/branch/password) — it was never extended
-// to the full HR record, so this is the one place Super Admin can actually
-// see what Admin/HR entered (contact, government IDs, bank details).
-function openSAViewEmployeeModal(user) {
-  const modal = document.getElementById('sa-view-employee-modal');
-  if (!modal) return;
-
-  const set = (id, value, groups) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = value ? (groups ? formatDigitGroups(digitsOnly(value), groups) : value) : '—';
-  };
-
-  const titleEl = document.getElementById('sa-view-employee-title');
-  if (titleEl) titleEl.textContent = `${user.full_name || 'Employee'} — Details`;
-
-  set('sa-view-cp-number', user.cp_number);
-  set('sa-view-date-hired', user.date_hired);
-  set('sa-view-address', user.address);
-  set('sa-view-sss', user.sss_number, DIGIT_FIELD_SPECS.sss_number.groups);
-  set('sa-view-pagibig', user.pagibig_number, DIGIT_FIELD_SPECS.pagibig_number.groups);
-  set('sa-view-philhealth', user.philhealth_number, DIGIT_FIELD_SPECS.philhealth_number.groups);
-  set('sa-view-bank-name', user.bank_name);
-  set('sa-view-bank-account', user.bank_account_number);
-
-  modal.style.display = 'flex';
-}
-
-function closeSAViewEmployeeModal() {
-  const modal = document.getElementById('sa-view-employee-modal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function openSAAdminUserModal(user) {
+async function openSAAdminUserModal(userId) {
   const modal = document.getElementById('sa-admin-user-modal');
   const form = document.getElementById('sa-admin-user-form');
   const title = document.getElementById('sa-admin-user-modal-title');
@@ -617,74 +556,53 @@ async function openSAAdminUserModal(user) {
   const fb = document.getElementById('sa-admin-user-feedback');
   if (!modal || !form) return;
 
-  saCurrentAdminUser = user && typeof user === 'object' ? user : null;
+  saCurrentAdminUser = userId ? saAllUsers.find((u) => u.id === userId) || null : null;
+  if (userId && !saCurrentAdminUser) {
+    window.alert('Account not found. Please refresh the list.');
+    return;
+  }
+
   if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
   form.reset();
+  form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
 
-  try {
-    const res = await fetch('/api/admin/branches');
-    if (res.ok) {
-      const data = await res.json();
-      saBranches = data.branches || saBranches;
-    }
-  } catch {}
+  saBranches = await fetchBranchesCached({ activeOnly: false }).catch(() => saBranches);
 
   const branchSelect = document.getElementById('sa-admin-user-branch');
   if (branchSelect) {
-    branchSelect.innerHTML = '<option value="">No Branch</option>' +
-      saBranches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+    // Active branches, plus the account's current one even if it was closed.
+    const options = saBranches.filter((b) => String(b.status || 'Active').toLowerCase() === 'active'
+      || String(b.id) === String(saCurrentAdminUser?.branch_id || ''));
+    branchSelect.innerHTML = '<option value="">Select branch</option>' +
+      options.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
   }
 
-  // Add is scoped to minting new Admin / Super Admin accounts (the
-  // Employee/HR/Accountant path needs the fuller employee-profile form on
-  // /api/admin/employees). Editing an existing account of any role, though,
-  // has to offer that account's own role or the <select> can't represent it.
-  const roleSelect = document.getElementById('sa-admin-user-role');
-  const roleOptions = saCurrentAdminUser
-    ? [
-        ['employee', 'Employee'],
-        ['accountant', 'Accountant'],
-        ['hr', 'HR'],
-        ['admin', 'Admin'],
-        ['super_admin', 'Super Admin'],
-      ]
-    : [
-        ['admin', 'Admin'],
-        ['super_admin', 'Super Admin'],
-      ];
-  if (roleSelect) {
-    roleSelect.innerHTML = roleOptions.map(([value, label]) => `<option value="${value}">${label}</option>`).join('');
-  }
+  const passwordLabel = pwField?.querySelector('label');
+  const passwordInput = pwField?.querySelector('input');
+  const passwordHint = document.getElementById('sa-admin-user-password-hint');
 
   if (saCurrentAdminUser) {
-    if (title) title.textContent = 'Edit User';
-    form.querySelector('[name="id"]').value = saCurrentAdminUser.id;
-    form.querySelector('[name="full_name"]').value = saCurrentAdminUser.full_name || '';
-    form.querySelector('[name="email"]').value = saCurrentAdminUser.email || '';
-    form.querySelector('[name="role"]').value = saCurrentAdminUser.role || 'employee';
+    if (title) title.textContent = `Edit ${SA_ROLE_LABELS[saCurrentAdminUser.role] || ''} Account`;
+    form.elements.id.value = saCurrentAdminUser.id;
+    form.elements.full_name.value = saCurrentAdminUser.full_name || '';
+    form.elements.email.value = saCurrentAdminUser.email || '';
+    form.elements.role.value = saCurrentAdminUser.role || 'admin';
     if (branchSelect) branchSelect.value = saCurrentAdminUser.branch_id || '';
-    if (pwField) {
-      const label = pwField.querySelector('label');
-      if (label) label.textContent = 'New Password (Optional)';
-      const input = pwField.querySelector('input');
-      if (input) input.placeholder = 'Leave blank to keep current';
-    }
+    if (passwordLabel) passwordLabel.textContent = 'Reset Password (optional)';
+    if (passwordInput) { passwordInput.placeholder = 'Leave blank to keep the current password'; passwordInput.required = false; }
+    if (passwordHint) passwordHint.textContent = 'If you set a new password here, the account must replace it on its next sign-in.';
     if (archiveBtn) {
       archiveBtn.style.display = '';
       archiveBtn.className = saCurrentAdminUser.archived ? 'btn btn-green' : 'btn btn-red';
-      archiveBtn.textContent = saCurrentAdminUser.archived ? 'Restore User' : 'Archive User';
+      archiveBtn.textContent = saCurrentAdminUser.archived ? 'Restore Account' : 'Archive Account';
     }
   } else {
-    if (title) title.textContent = 'Add Admin User';
-    form.querySelector('[name="id"]').value = '';
-    form.querySelector('[name="role"]').value = 'admin';
-    if (branchSelect) branchSelect.value = '';
-    if (pwField) {
-      const label = pwField.querySelector('label');
-      if (label) label.textContent = 'Password';
-      const input = pwField.querySelector('input');
-      if (input) input.placeholder = 'Minimum 6 characters';
-    }
+    if (title) title.textContent = 'Add Admin or HR Account';
+    form.elements.id.value = '';
+    form.elements.role.value = 'admin';
+    if (passwordLabel) passwordLabel.innerHTML = 'Temporary Password <span class="req" aria-hidden="true">*</span>';
+    if (passwordInput) { passwordInput.placeholder = 'At least 8 characters'; passwordInput.required = true; }
+    if (passwordHint) passwordHint.textContent = 'The account must replace this password the first time it signs in.';
     if (archiveBtn) archiveBtn.style.display = 'none';
   }
 
@@ -707,22 +625,25 @@ async function submitSAAdminUser(event) {
   const id = String(formData.get('id') || '').trim();
   const fullName = String(formData.get('full_name') || '').trim();
   const email = String(formData.get('email') || '').trim();
-  const role = String(formData.get('role') || 'admin').trim();
+  const role = String(formData.get('role') || '').trim();
   const branchId = String(formData.get('branch_id') || '').trim();
   const password = String(formData.get('password') || '').trim();
 
-  if (!fullName || !email) {
-    if (fb) { fb.textContent = 'Full name and email are required.'; fb.className = 'adm-feedback err'; }
-    return;
-  }
-  if (!id && (!password || password.length < 6)) {
-    if (fb) { fb.textContent = 'Password must be at least 6 characters.'; fb.className = 'adm-feedback err'; }
-    return;
-  }
-  if (id && password && password.length < 6) {
-    if (fb) { fb.textContent = 'Password must be at least 6 characters.'; fb.className = 'adm-feedback err'; }
-    return;
-  }
+  const fail = (message, fieldName) => {
+    if (fb) { fb.textContent = message; fb.className = 'adm-feedback err'; }
+    form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
+    const field = fieldName ? form.elements[fieldName] : null;
+    if (field) { field.classList.add('field-invalid'); field.focus(); }
+  };
+
+  if (!fullName) return fail('Full name is required.', 'full_name');
+  if (!/^[A-Za-z\s.]+$/.test(fullName)) return fail('Full name must contain letters and spaces only.', 'full_name');
+  if (!email) return fail('Email is required.', 'email');
+  if (!SA_EMAIL_PATTERN.test(email)) return fail('Enter a valid email address.', 'email');
+  if (!SA_ACCOUNT_ROLES.includes(role)) return fail('Choose Admin or HR.', 'role');
+  if (!branchId) return fail('Select the branch this account belongs to.', 'branch_id');
+  if (!id && !password) return fail('A temporary password is required.', 'password');
+  if (password && password.length < 8) return fail('Password must be at least 8 characters.', 'password');
 
   try {
     submitBtn.disabled = true;
@@ -741,48 +662,39 @@ async function submitSAAdminUser(event) {
       response = await fetch('/api/admin/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: fullName, email, role, password, branch_id: branchId || null }),
+        body: JSON.stringify({ full_name: fullName, email, role, password, branch_id: branchId }),
       });
     }
 
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Failed to save user.');
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Failed to save account.');
 
-    const userId = id || result.user?.id;
-    const priorBranchId = String(saCurrentAdminUser?.branch_id || '');
-
-    // Creation already pins the branch via branch_id on POST /api/admin/users.
-    // Editing has to move it through branch-employees separately, since PATCH
-    // .../users only updates name/email/role/password — and that's also what
-    // keeps profiles.branch_id (what RLS and sessions read) in sync.
-    if (id && branchId !== priorBranchId) {
+    // Creating pins the branch through POST. Editing moves it through
+    // branch-employees, which also keeps profiles.branch_id (what sessions
+    // and branch scoping read) in step.
+    if (id && branchId !== String(saCurrentAdminUser?.branch_id || '')) {
       const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
-      const assignedBy = String(ctx?.full_name || ctx?.email || 'super_admin').trim();
-      if (branchId) {
-        await fetch('/api/admin/branch-employees', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, branch_id: branchId, assigned_by: assignedBy }),
-        });
-      } else {
-        await fetch('/api/admin/branch-employees', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId }),
-        });
+      const branchResponse = await fetch('/api/admin/branch-employees', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: id, branch_id: branchId, assigned_by: String(ctx?.full_name || 'Super Admin') }),
+      });
+      if (!branchResponse.ok) {
+        const branchResult = await branchResponse.json().catch(() => ({}));
+        throw new Error(branchResult.error || 'Account saved, but the branch could not be changed.');
       }
     }
 
-    if (fb) { fb.textContent = id ? 'User updated.' : 'Admin user created.'; fb.className = 'adm-feedback ok'; }
+    if (fb) { fb.textContent = id ? 'Account updated.' : 'Account created.'; fb.className = 'adm-feedback ok'; }
     window.pushNotification?.(
-      id ? 'User Updated' : 'Admin Created',
-      id ? `${fullName}'s account was updated.` : `New admin account created for ${fullName}.`,
+      id ? 'Account Updated' : 'Account Created',
+      id ? `${fullName}'s account was updated.` : `${SA_ROLE_LABELS[role]} account created for ${fullName}. They must change the temporary password on first sign-in.`,
       'success',
     );
     await loadSAUsers();
     setTimeout(() => closeSAAdminUserModal(), 500);
   } catch (error) {
-    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+    fail(error.message);
   } finally {
     submitBtn.disabled = false;
     submitBtn.textContent = 'Save';
@@ -796,10 +708,10 @@ async function toggleArchiveSAAdminUser() {
   if (!archiveBtn) return;
 
   const action = saCurrentAdminUser.archived ? 'restore' : 'archive';
-  const prompt = action === 'archive' ? 'archive this user account' : 'restore this user account';
+  const prompt = action === 'archive' ? 'archive this account' : 'restore this account';
   const detail = action === 'archive'
-    ? 'Archived users cannot log in and will be hidden from active lists.'
-    : 'This user account will be restored to active status.';
+    ? 'Archived accounts cannot sign in and are signed out immediately.'
+    : 'This account will be able to sign in again.';
 
   const confirmFn = action === 'restore'
     ? (window.confirmApproveAction
@@ -818,12 +730,11 @@ async function toggleArchiveSAAdminUser() {
       body: JSON.stringify({ id: saCurrentAdminUser.id, action }),
     });
 
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Failed to update user.');
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Failed to update account.');
 
-    if (fb) { fb.textContent = action === 'archive' ? 'User archived.' : 'User restored.'; fb.className = 'adm-feedback ok'; }
     window.pushNotification?.(
-      action === 'archive' ? 'User Archived' : 'User Restored',
+      action === 'archive' ? 'Account Archived' : 'Account Restored',
       action === 'archive' ? 'The account has been archived.' : 'The account has been restored.',
       'info',
     );
@@ -833,7 +744,7 @@ async function toggleArchiveSAAdminUser() {
     if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
   } finally {
     archiveBtn.disabled = false;
-    archiveBtn.textContent = saCurrentAdminUser?.archived ? 'Restore User' : 'Archive User';
+    archiveBtn.textContent = saCurrentAdminUser?.archived ? 'Restore Account' : 'Archive Account';
   }
 }
 
@@ -1202,44 +1113,8 @@ function saDownloadCsv(rows, filename) {
 }
 
 /* ── CHANGE PASSWORD ── */
-async function submitSAChangePassword() {
-  const current = document.getElementById('sa-current-password')?.value?.trim();
-  const next = document.getElementById('sa-new-password')?.value?.trim();
-  const confirm = document.getElementById('sa-confirm-password')?.value?.trim();
-  const fb = document.getElementById('sa-change-password-feedback');
-
-  if (!current || !next || !confirm) {
-    if (fb) { fb.textContent = 'All fields are required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (next !== confirm) {
-    if (fb) { fb.textContent = 'Passwords do not match.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (next.length < 8) {
-    if (fb) { fb.textContent = 'New password must be at least 8 characters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-
-  if (fb) { fb.textContent = 'Updating...'; fb.style.color = 'var(--t3)'; }
-
-  try {
-    const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
-    const email = ctx?.email;
-    if (!email) throw new Error('Could not determine account email. Please re-login.');
-
-    const verifyRes = await fetch('/api/legacy-auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employeeId: email, password: current }),
-    });
-    if (!verifyRes.ok) throw new Error('Current password is incorrect.');
-
-    if (fb) { fb.textContent = 'Password updated successfully.'; fb.style.color = 'var(--green)'; }
-    setTimeout(() => closeSettingsModal('sa'), 1500);
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
-  }
+function submitSAChangePassword() {
+  return submitAccountPasswordChange('sa');
 }
 
 /* ── INIT ── */
@@ -1269,113 +1144,8 @@ window.addEventListener('sacs-auth-context-changed', (event) => {
 });
 
 /* ═══════════════════════════════════════
-   TRANSFER REQUESTS (Super Admin: review + decide)
+   PHILIPPINE LOCATIONS (Branch Management)
    ═══════════════════════════════════════ */
-
-async function loadSATransferRequests() {
-  const listEl = document.getElementById('sa-transfer-pending');
-  if (listEl) listEl.innerHTML = skeletonCards(3);
-
-  try {
-    saBranches = await fetchBranchesCached({ activeOnly: false }).catch(() => saBranches);
-
-    const response = await fetch('/api/admin/transfer-requests');
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to load transfer requests.');
-
-    saTransferPending = data.pending_requests || [];
-    saTransferHistory = data.history_requests || [];
-
-    renderSATransferPending();
-    renderSATransferHistory();
-  } catch (error) {
-    if (listEl) listEl.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:var(--red);">${escapeHtml(error.message)}</div></div></div>`;
-  }
-}
-
-function saBranchName(branchId) {
-  return saBranches.find((b) => b.id === branchId)?.name || branchId || '—';
-}
-
-function renderSATransferPending() {
-  const el = document.getElementById('sa-transfer-pending');
-  if (!el) return;
-
-  if (!saTransferPending.length) {
-    el.innerHTML = '<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:var(--t3);">No pending transfer requests.</div></div></div>';
-    return;
-  }
-
-  el.innerHTML = saTransferPending.map((req) => `
-    <div class="approval-card">
-      <div class="approval-card-body">
-        <div class="approval-card-name">${escapeHtml(req.employee_name || req.employee_id || 'Unknown')}</div>
-        <div class="approval-card-meta">
-          <strong>${escapeHtml(saBranchName(req.from_branch_id))}</strong> &rarr; <strong>${escapeHtml(saBranchName(req.to_branch_id))}</strong>
-        </div>
-        ${req.remarks ? `<div class="approval-card-meta" style="margin-top:4px;">${escapeHtml(req.remarks)}</div>` : ''}
-      </div>
-      <div class="approval-card-actions">
-        <button class="btn btn-primary" style="background:var(--green);border-color:var(--green);" onclick="saTransferAction('${req.id}','approve')">Approve</button>
-        <button class="btn btn-red" onclick="saTransferAction('${req.id}','reject')">Reject</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-async function saTransferAction(id, action) {
-  const confirmed = action === 'approve'
-    ? await confirmApproveAction('approve this transfer request', 'The employee will be moved to the destination branch immediately.')
-    : await confirmDestructiveAction('reject this transfer request', 'This decision cannot be undone.');
-  if (!confirmed) return;
-
-  try {
-    const res = await fetch('/api/admin/transfer-requests', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, action }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Action failed.');
-
-    pushNotification(
-      `Transfer ${action === 'approve' ? 'Approved' : 'Rejected'}`,
-      `Transfer request has been ${action === 'approve' ? 'approved' : 'rejected'}.`,
-      action === 'approve' ? 'success' : 'info',
-    );
-    loadSATransferRequests();
-  } catch (err) {
-    pushNotification('Error', err.message, 'error');
-  }
-}
-
-function renderSATransferHistory() {
-  const tbody = document.getElementById('sa-transfer-history-body');
-  if (!tbody) return;
-
-  if (!saTransferHistory.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No transfer history yet.</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = saTransferHistory.map((req) => `
-    <tr>
-      <td>${escapeHtml(req.employee_name || req.employee_id || 'Unknown')}</td>
-      <td>${escapeHtml(saBranchName(req.from_branch_id))}</td>
-      <td>${escapeHtml(saBranchName(req.to_branch_id))}</td>
-      <td>${req.status === 'approved' ? '<span class="badge bg"><span class="bd"></span>Approved</span>' : '<span class="badge br"><span class="bd"></span>Rejected</span>'}</td>
-      <td>${escapeHtml(req.remarks || '—')}</td>
-      <td>${req.created_at ? new Date(req.created_at).toLocaleDateString() : '—'}</td>
-      <td>${req.reviewed_at ? new Date(req.reviewed_at).toLocaleDateString() : '—'}</td>
-    </tr>
-  `).join('');
-}
-
-/* ═══════════════════════════════════════
-   SA BRANCH ASSIGNMENT
-   ═══════════════════════════════════════ */
-
-const SA_BRANCH_BADGE_COLORS = ['var(--amber)', 'var(--blue)', 'var(--teal)', 'var(--green)', 'var(--red)'];
 
 const SA_PH_REGIONS = [
   'NCR','Region I','CAR','Region II','Region III',
@@ -1652,205 +1422,6 @@ const SA_PH_BARANGAYS = {
   'Tacloban City':['Anibong','Bagacay','Balon Anito','Barangay 1','Barangay 2','Barangay 3','Barangay 4','Barangay 5','Barangay 6','Barangay 7','Barangay 8','Barangay 9','Barangay 10','Barangay 11','Barangay 12','Barangay 13','Barangay 14','Barangay 15','Barangay 16','Barangay 17','Barangay 18','Barangay 19','Barangay 20','Barangay 21','Barangay 22','Barangay 23','Barangay 24','Barangay 25','Barangay 26','Barangay 27','Barangay 28','Barangay 29','Barangay 30','Barangay 31','Barangay 32','Barangay 33','Barangay 34','Barangay 35','Barangay 36','Barangay 37','Barangay 38','Barangay 39','Barangay 40','Barangay 41','Barangay 42','Barangay 43','Barangay 44','Barangay 45','Barangay 46','Barangay 47','Barangay 48','Barangay 49','Barangay 50','Barangay 51','Barangay 52','Barangay 53','Barangay 54','Barangay 55','Barangay 56','Barangay 57','Barangay 58','Barangay 59','Barangay 60','Barangay 61','Barangay 62','Barangay 63','Barangay 64','Barangay 65','Barangay 66','Barangay 67','Barangay 68','Barangay 69','Barangay 70','Barangay 71','Barangay 72','Barangay 73','Barangay 74','Barangay 75','Barangay 76','Barangay 77','Barangay 78','Barangay 79','Barangay 80','Barangay 81','Barangay 82','Barangay 83','Barangay 84','Barangay 85','Barangay 86','Barangay 87','Barangay 88','Barangay 89','Barangay 90','Barangay 91','Barangay 92'],
 };
 
-function saUpdateBranchSummary() {
-  const total = saBranchAllEmployees.length;
-  const unassigned = saBranchAllEmployees.filter((e) => !e.branch).length;
-
-  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = String(val); };
-  set('sa-ba-count-total', total);
-  set('sa-ba-count-unassigned', unassigned);
-
-  rebuildSABranchFilterSelect(total, unassigned);
-}
-
-function rebuildSABranchFilterSelect(total, unassigned) {
-  const select = document.getElementById('sa-ba-branch-select');
-  if (!select) return;
-
-  if (saBranchFilter !== 'all' && saBranchFilter !== 'unassigned' && !saAssignBranches.some((b) => b.id === saBranchFilter)) {
-    saBranchFilter = 'all';
-  }
-
-  const currentVal = saBranchFilter || 'all';
-  let html = `<option value="all">All (${total})</option><option value="unassigned">Unassigned (${unassigned})</option>`;
-  saAssignBranches.forEach((b) => {
-    const count = saBranchAllEmployees.filter((e) => e.branch === b.id).length;
-    const name = String(b.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    html += `<option value="${b.id}">${name} (${count})</option>`;
-  });
-  select.innerHTML = html;
-  select.value = currentVal;
-  if (!select.value) select.value = 'all';
-}
-
-function saGetFilteredBranchEmployees() {
-  const search = saBranchSearch.toLowerCase();
-  return saBranchAllEmployees.filter((e) => {
-    if (saBranchFilter === 'unassigned') { if (e.branch) return false; }
-    else if (saBranchFilter !== 'all')   { if (e.branch !== saBranchFilter) return false; }
-    if (!search) return true;
-    const hay = [e.full_name, e.employee_id, e.email].map((v) => String(v || '').toLowerCase()).join(' ');
-    return hay.includes(search);
-  });
-}
-
-function saRenderBranchTable(employees) {
-  const tbody = document.getElementById('sa-ba-table-body');
-  if (!tbody) return;
-
-  if (!employees.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);">No employees found.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = employees.map((emp) => {
-    const branchIdx = emp.branch ? saAssignBranches.findIndex((b) => b.id === emp.branch) : -1;
-    const branchColor = branchIdx >= 0 ? SA_BRANCH_BADGE_COLORS[branchIdx % SA_BRANCH_BADGE_COLORS.length] : 'var(--t3)';
-    const inactiveTag = emp.branch && emp.branch_status && emp.branch_status !== 'Active' ? ' (Inactive)' : '';
-    const branchLabel = emp.branch ? String((emp.branch_label || 'Unknown branch') + inactiveTag).replace(/</g,'&lt;').replace(/>/g,'&gt;') : null;
-    const branchCell = branchLabel
-      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${branchLabel}</span>`
-      : `<span class="badge br"><span class="bd"></span>Unassigned</span>`;
-    const assignedAt = emp.assigned_at
-      ? new Date(emp.assigned_at).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
-      : '—';
-    const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
-
-    return `
-      <tr>
-        <td class="nm">${String(emp.full_name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
-        <td class="mn">${String(emp.employee_id || '—').replace(/&/g,'&amp;')}</td>
-        <td><span class="badge ${typeClass}">${emp.employee_type || 'Teaching'}</span></td>
-        <td class="mn">${emp.position || '—'}</td>
-        <td>${branchCell}</td>
-        <td class="mn" style="font-size:11px;">${assignedAt}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function saRenderFilteredBranch() {
-  saUpdateBranchSummary();
-  if (saBranchPaginator) {
-    saBranchPaginator.setData(saGetFilteredBranchEmployees());
-  } else {
-    saRenderBranchTable(saGetFilteredBranchEmployees());
-  }
-}
-
-function setSABranchFilter(filter) {
-  saBranchFilter = filter;
-  const select = document.getElementById('sa-ba-branch-select');
-  if (select && select.value !== filter) select.value = filter;
-  saRenderFilteredBranch();
-}
-
-function setSABranchSearch(value) {
-  saBranchSearch = String(value || '').trim();
-  saRenderFilteredBranch();
-}
-
-async function loadSABranchAssignment() {
-  const tbody = document.getElementById('sa-ba-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(6);
-
-  try {
-    saAssignBranches = await fetchBranchesCached().catch(() => saAssignBranches);
-
-    const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Failed to load branch assignments');
-
-    saBranchAllEmployees = payload.employees || [];
-    saRenderFilteredBranch();
-  } catch (error) {
-    if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${String(error.message || 'Error').replace(/</g,'&lt;')}</td></tr>`;
-    }
-  }
-}
-
-// The per-row "Reassign"/"Assign" button and its modal are retired — the
-// Employee Branch List above is now purely informational. Moving someone is
-// exclusively "New Transfer Request" below, which (for Super Admin) creates
-// a transfer_requests row and immediately approves it in the same step —
-// same table and trigger the Admin-initiated flow uses, just no waiting
-// since Super Admin has no one above them to approve to.
-function openSATransferRequestModal() {
-  const modal = document.getElementById('sa-branch-assign-modal');
-  const employeeSelect = document.getElementById('sa-transfer-request-employee');
-  const branchSelect = document.getElementById('sa-transfer-request-branch');
-  if (!modal || !employeeSelect || !branchSelect) return;
-
-  employeeSelect.innerHTML = saBranchAllEmployees
-    .map((e) => `<option value="${String(e.id).replace(/"/g,'&quot;')}">${String(e.full_name || e.employee_id || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`)
-    .join('');
-
-  branchSelect.innerHTML = saAssignBranches
-    .map((b) => `<option value="${String(b.id).replace(/"/g,'&quot;')}">${String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</option>`)
-    .join('');
-
-  const form = document.getElementById('sa-branch-assign-form');
-  form?.reset();
-  const feedbackEl = document.getElementById('sa-ba-modal-feedback');
-  if (feedbackEl) feedbackEl.textContent = '';
-
-  modal.style.display = 'flex';
-}
-
-function closeSATransferRequestModal() {
-  const modal = document.getElementById('sa-branch-assign-modal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function submitSATransferRequest(event) {
-  event.preventDefault();
-  const form = event.target;
-  const submitBtn = form.querySelector('button[type="submit"]');
-  const feedbackEl = document.getElementById('sa-ba-modal-feedback');
-  const formData = new FormData(form);
-
-  const userId = String(formData.get('employee_id') || '').trim();
-  const branchId = String(formData.get('to_branch_id') || '').trim();
-  const remarks = String(formData.get('remarks') || '').trim();
-
-  if (!userId || !branchId) {
-    if (feedbackEl) { feedbackEl.textContent = 'Missing required fields.'; feedbackEl.className = 'adm-feedback err'; }
-    return;
-  }
-
-  try {
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Assigning...';
-
-    const createRes = await fetch('/api/admin/transfer-requests', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: userId, to_branch_id: branchId, remarks: remarks || 'Branch assignment' }),
-    });
-    const created = await createRes.json();
-    if (!createRes.ok) throw new Error(created.error || 'Failed to submit transfer request');
-
-    const approveRes = await fetch('/api/admin/transfer-requests', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: created.request.id, action: 'approve' }),
-    });
-    const approved = await approveRes.json();
-    if (!approveRes.ok) throw new Error(approved.error || 'Failed to approve branch assignment');
-
-    if (feedbackEl) { feedbackEl.textContent = 'Employee assigned.'; feedbackEl.className = 'adm-feedback ok'; }
-    await loadSABranchAssignment();
-    await loadSATransferRequests();
-    setTimeout(() => closeSATransferRequestModal(), 600);
-  } catch (error) {
-    if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
-  } finally {
-    submitBtn.disabled = false;
-    submitBtn.textContent = 'Confirm Assignment';
-  }
-}
-
 /* ═══════════════════════════════════════
    SA SYSTEM MAINTENANCE — RFID
    ═══════════════════════════════════════ */
@@ -1866,11 +1437,14 @@ function saFormatTimeOnly(value) {
   }).format(date);
 }
 
-function formatSARfidScanFeedback(record) {
+function formatSARfidScanFeedback(record, tap) {
   if (!record) return '';
   const name = record.employee_name || 'Employee';
+  if (tap === 'duplicate') {
+    return `${name}: repeated tap ignored — only the first and last tap of the day count.`;
+  }
   if (record.time_out) {
-    return `${name}: Time Out recorded at ${saFormatTimeOnly(record.time_out)}.`;
+    return `${name}: Time Out recorded at ${saFormatTimeOnly(record.time_out)} (Time In ${saFormatTimeOnly(record.time_in)}).`;
   }
   return `${name}: Time In recorded at ${saFormatTimeOnly(record.time_in)} (${record.status || 'Present'}).`;
 }
@@ -2131,7 +1705,7 @@ async function submitSARfidAttendanceScan() {
     }
 
     input.value = '';
-    showSARfidFeedback(formatSARfidScanFeedback(payload.record) || payload.message || 'RFID scan recorded.', false);
+    showSARfidFeedback(formatSARfidScanFeedback(payload.record, payload.tap) || payload.message || 'RFID scan recorded.', false);
   } catch (error) {
     showSARfidFeedback(error.message, true);
   } finally {
@@ -2152,24 +1726,15 @@ window.submitSARfidAttendanceScan = submitSARfidAttendanceScan;
 window.loadSAAttendanceData = loadSAAttendanceData;
 window.exportSAAttendanceCsv = exportSAAttendanceCsv;
 
-window.openSAViewEmployeeModal = openSAViewEmployeeModal;
-window.closeSAViewEmployeeModal = closeSAViewEmployeeModal;
 window.openSAAdminUserModal = openSAAdminUserModal;
 window.closeSAAdminUserModal = closeSAAdminUserModal;
 window.submitSAAdminUser = submitSAAdminUser;
 window.toggleArchiveSAAdminUser = toggleArchiveSAAdminUser;
 
-window.setSABranchFilter = setSABranchFilter;
-window.setSABranchSearch = setSABranchSearch;
-window.loadSABranchAssignment = loadSABranchAssignment;
-window.openSATransferRequestModal = openSATransferRequestModal;
-window.closeSATransferRequestModal = closeSATransferRequestModal;
-window.submitSATransferRequest = submitSATransferRequest;
 window.onSABranchRegionChange = onSABranchRegionChange;
 window.onSABranchProvinceChange = onSABranchProvinceChange;
 window.onSABranchCityChange = onSABranchCityChange;
 window.populateSABranchLocationSelects = populateSABranchLocationSelects;
-window.rebuildSABranchFilterSelect = rebuildSABranchFilterSelect;
 
 const saScreen = document.getElementById('s-super-admin');
 if (saScreen?.classList.contains('active')) {

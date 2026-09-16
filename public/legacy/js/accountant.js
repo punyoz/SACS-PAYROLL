@@ -960,14 +960,14 @@ function loadBatchPayrollTable() {
       <tr data-employee-id="${escapeHtml(employee.id)}">
         <td class="nm">${escapeHtml(employee.full_name)}</td>
         <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-sss-${id}" value="${pct2}" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-philhealth-${id}" value="${pct2}" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-pagibig-${id}" value="${pct2}" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-tax-${id}" value="0" min="0" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-absent-${id}" value="${absentDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-late-${id}" value="${lateDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-sss-${id}" value="${pct2}" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-philhealth-${id}" value="${pct2}" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-pagibig-${id}" value="${pct2}" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-tax-${id}" value="0" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-absent-${id}" value="${absentDays}" min="0" step="1" inputmode="numeric" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-late-${id}" value="${lateDays}" min="0" step="1" inputmode="numeric" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
         <td class="mn"><span id="batch-lwp-display-${id}">${leaveWithPayDays}</span><input type="hidden" id="batch-lwp-${id}" value="${leaveWithPayDays}"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-lwop-${id}" value="${leaveWithoutPayDays}" min="0" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn"><input class="fc" type="number" id="batch-lwop-${id}" value="${leaveWithoutPayDays}" min="0" step="1" inputmode="numeric" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
         <td class="mn" style="font-family:var(--mono);font-weight:600;" id="batch-net-${id}">${formatMoney(netPay)}</td>
       </tr>
     `;
@@ -1470,6 +1470,11 @@ function initAccountant() {
 
   attachSidebarSpotlight(document.querySelector('#s-accountant .sidebar'));
 
+  // Every payroll computation box accepts numbers only — money fields digits
+  // and one decimal point, day counts whole numbers (inputmode on each input).
+  // Delegated, so the batch table's rows rendered later are covered as well.
+  window.enforceNumericInputs(document.getElementById('s-accountant'));
+
   acRecordsPaginator = window.createPaginator({ id: 'ac-rec', pageSize: 15, renderFn: renderPayrollRecordsTable });
   acAttPaginator = window.createPaginator({ id: 'ac-att', pageSize: 15, renderFn: renderAttendanceTable });
   monPaginator = window.createPaginator({ id: 'mon', pageSize: 15, renderFn: renderMonitoringTable });
@@ -1551,66 +1556,12 @@ function initAccountant() {
 }
 
 /* ── CHANGE PASSWORD ── */
-function showAcctChangePasswordFeedback(message, isError = false) {
-  const el = document.getElementById('ac-change-password-feedback');
-  if (!el) return;
-  el.textContent = message;
-  el.classList.toggle('err', isError);
-  el.classList.toggle('ok', !isError && Boolean(message));
-}
-
-async function submitAccountantChangePassword() {
-  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
-  const email = String(context?.email || '').trim();
-
-  const currentPassword = String(document.getElementById('ac-cur-password')?.value || '').trim();
-  const newPassword = String(document.getElementById('ac-new-password')?.value || '').trim();
-  const confirmPassword = String(document.getElementById('ac-confirm-password')?.value || '').trim();
-
-  if (!email) {
-    showAcctChangePasswordFeedback('Unable to identify account. Please sign in again.', true);
-    return;
-  }
-
-  if (!currentPassword || !newPassword || !confirmPassword) {
-    showAcctChangePasswordFeedback('All password fields are required.', true);
-    return;
-  }
-
-  if (newPassword !== confirmPassword) {
-    showAcctChangePasswordFeedback('New passwords do not match.', true);
-    return;
-  }
-
-  if (newPassword.length < 8) {
-    showAcctChangePasswordFeedback('New password must be at least 8 characters.', true);
-    return;
-  }
-
-  try {
-    showAcctChangePasswordFeedback('Updating password...', false);
-
-    const response = await fetch('/api/legacy-auth/change-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, current_password: currentPassword, new_password: newPassword }),
-    });
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to update password.');
-    }
-
-    document.getElementById('ac-cur-password').value = '';
-    document.getElementById('ac-new-password').value = '';
-    document.getElementById('ac-confirm-password').value = '';
-
-    showAcctChangePasswordFeedback('Password updated successfully.', false);
-    window.pushNotification?.('Password Changed', 'Your account password has been updated successfully.', 'success');
-    setTimeout(() => window.closeSettingsModal?.('ac'), 1200);
-  } catch (error) {
-    showAcctChangePasswordFeedback(error.message, true);
-  }
+function submitAccountantChangePassword() {
+  return submitAccountPasswordChange('ac', {
+    current: 'ac-cur-password',
+    next: 'ac-new-password',
+    confirm: 'ac-confirm-password',
+  });
 }
 
 window.acctNav = acctNav;

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -46,7 +47,9 @@ export async function GET(request) {
       const { data, error } = await query;
       if (error) throw new Error(error.message);
 
-      const logs = data || [];
+      // One record per employee per day (first tap in, last tap out), so a
+      // repeated tap never counts as an extra day or extra hours.
+      const logs = collapseDailyTaps(data || []);
 
       // Aggregate per employee
       const byEmployee = new Map();

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { attachSession } from "@/lib/rbac/session";
+import { mustChangePassword } from "@/lib/auth/password-policy";
+import { newSessionId, registerActiveSession } from "@/lib/auth/active-session";
 
 const roleRoutes = {
   super_admin: "/super-admin",
@@ -186,9 +188,26 @@ export async function POST(request) {
     ? null
     : normalizeText(profileRow?.branch_id, normalizeText(metadata.branch_id)) || null;
 
+  // Still on the password HR/Super Admin issued? Then this sign-in is boxed
+  // into the change-password screen until it is replaced (src/proxy.js).
+  const passwordChangeRequired = mustChangePassword(password, data.user, resolvedFullName);
+
+  // This sign-in becomes the account's only valid one: any other browser or
+  // device still holding an older cookie is signed out on its next request.
+  const sessionId = newSessionId();
+  try {
+    await registerActiveSession(data.user.id, sessionId);
+  } catch {
+    return NextResponse.json(
+      { error: "Unable to start your session right now. Please try again." },
+      { status: 503 },
+    );
+  }
+
   const response = NextResponse.json({
     redirectTo: roleRoutes[resolvedRole],
     role: resolvedRole,
+    must_change_password: passwordChangeRequired,
     profile: {
       role: resolvedRole,
       full_name: resolvedFullName,
@@ -210,6 +229,13 @@ export async function POST(request) {
       philhealth_number: normalizeText(profileRow?.philhealth_number, normalizeText(metadata.philhealth_number, "")),
       bank_name: normalizeText(profileRow?.bank_name, normalizeText(metadata.bank_name, "")),
       bank_account_number: normalizeText(profileRow?.bank_account_number, normalizeText(metadata.bank_account_number, "")),
+      tin_number: normalizeText(metadata.tin_number, ""),
+      sex: normalizeText(metadata.sex, ""),
+      civil_status: normalizeText(metadata.civil_status, ""),
+      employment_type: normalizeText(metadata.employment_type, ""),
+      employment_status: normalizeText(metadata.employment_status, ""),
+      date_of_birth: normalizeText(metadata.date_of_birth, ""),
+      must_change_password: passwordChangeRequired,
     },
   });
 
@@ -222,5 +248,7 @@ export async function POST(request) {
     branch_id: resolvedBranchId,
     email: resolvedEmailOutput,
     full_name: resolvedFullName,
+    session_id: sessionId,
+    must_change_password: passwordChangeRequired,
   });
 }

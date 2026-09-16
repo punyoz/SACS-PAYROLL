@@ -2,7 +2,10 @@ import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
-import { normalizeRoleEmail, normalizeText, normalizeDigits } from "@/lib/auth/normalize";
+import { normalizeText } from "@/lib/auth/normalize";
+import { appendAuditLog } from "@/lib/audit/store";
+import { requirePermission, denyRoleEscalation, denyForeignBranch, scopeListToBranch } from "@/lib/rbac/guard";
+import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -27,41 +30,13 @@ function toTitleCaseWords(value) {
     .join(" ");
 }
 
-const ALLOWED_NAME_SUFFIXES = ["Jr.", "Sr.", "II", "III", "IV", "V"];
-
-function normalizeSuffix(value) {
-  return normalizeText(value).slice(0, 16);
-}
-
-function stripAllowedSuffix(fullName) {
-  const tokens = String(fullName || "").trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return "";
-  const last = tokens[tokens.length - 1];
-  if (ALLOWED_NAME_SUFFIXES.includes(last)) {
-    return tokens.slice(0, -1).join(" ");
-  }
-  return tokens.join(" ");
-}
-
-// Composes full_name from split first/middle/last/suffix fields when
-// provided (the Edit Employee form's Name section); falls back to a plain
-// full_name string otherwise.
-function buildFullNameFromParts(body) {
-  const first = toTitleCaseWords(body?.first_name);
-  const middle = normalizeText(body?.middle_initial);
-  const last = toTitleCaseWords(body?.last_name);
-  const suffix = normalizeSuffix(body?.suffix);
-
-  if (first && last) {
-    return [first, middle, last, suffix].filter(Boolean).join(" ");
-  }
-
-  return normalizeText(body?.full_name);
-}
-
-function isValidEmployeeName(nameInput) {
-  const withoutSuffix = stripAllowedSuffix(normalizeText(nameInput));
-  return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
+function composeFullName(record) {
+  return [
+    toTitleCaseWords(record.first_name),
+    record.middle_initial,
+    toTitleCaseWords(record.last_name),
+    record.suffix,
+  ].filter(Boolean).join(" ");
 }
 
 function shapeEmployee(user, profile) {
@@ -75,25 +50,35 @@ function shapeEmployee(user, profile) {
     employee_type: normalizeText(meta.employee_type, "Teaching"),
     position: normalizeText(meta.position, "Employee"),
     employee_status: normalizeText(meta.employee_status, "Active"),
+    employment_type: normalizeText(meta.employment_type),
+    employment_status: normalizeText(meta.employment_status),
+    sex: normalizeText(meta.sex),
+    civil_status: normalizeText(meta.civil_status),
     date_of_birth: normalizeText(meta.date_of_birth),
     archived: Boolean(meta.archived),
     created_at: user.created_at,
-    // profiles is now authoritative for these (real, constrained columns —
+    // profiles is authoritative for these (real, constrained columns —
     // see supabase/migrations/20260914_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
     address: normalizeText(profile?.address, normalizeText(meta.address, "")),
     sss_number: normalizeText(profile?.sss_number, normalizeText(meta.sss_number, "")),
     pagibig_number: normalizeText(profile?.pagibig_number, normalizeText(meta.pagibig_number, "")),
     philhealth_number: normalizeText(profile?.philhealth_number, normalizeText(meta.philhealth_number, "")),
+    tin_number: normalizeText(meta.tin_number, ""),
     bank_name: normalizeText(profile?.bank_name, normalizeText(meta.bank_name, "")),
     bank_account_number: normalizeText(profile?.bank_account_number, normalizeText(meta.bank_account_number, "")),
-    cp_number: normalizeText(profile?.cp_number, ""),
-    date_hired: normalizeText(profile?.date_hired, ""),
+    cp_number: normalizeText(profile?.cp_number, normalizeText(meta.cp_number, "")),
+    date_hired: normalizeText(profile?.date_hired, normalizeText(meta.date_hired, "")),
     branch_id: profile?.branch_id || meta.branch_id || null,
   };
 }
 
+const MANAGED_ROLES = ["employee", "accountant"];
+
 export async function GET(request) {
+  const guard = await requirePermission(request, "employee_information", "read");
+  if (guard.denied) return guard.denied;
+
   try {
     const supabase = getAdminClient();
     const url = new URL(request.url);
@@ -102,11 +87,9 @@ export async function GET(request) {
     const usersResult = await listUsersCached(supabase);
     if (usersResult.error) throw new Error(usersResult.error.message);
 
-    const allUsers = usersResult.data.users || [];
-    const employeeUsers = allUsers.filter((u) => {
-      const role = String(u.user_metadata?.role || "employee").toLowerCase();
-      return role === "employee" || role === "accountant";
-    });
+    const employeeUsers = (usersResult.data.users || []).filter((u) =>
+      MANAGED_ROLES.includes(String(u.user_metadata?.role || "employee").toLowerCase()),
+    );
 
     const userIds = employeeUsers.map((u) => u.id);
     const profileMap = new Map();
@@ -114,7 +97,7 @@ export async function GET(request) {
     if (userIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id,email,full_name,employee_id,employee_type,position,employee_status,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+        .select("id,email,full_name,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
         .in("id", userIds);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
     }
@@ -125,6 +108,8 @@ export async function GET(request) {
       employees = employees.filter((e) => !e.archived);
     }
 
+    // HR reaches every branch here (SCOPE_ALL); anyone branch-scoped is filtered.
+    employees = scopeListToBranch(employees, guard, (e) => e.branch_id);
     employees.sort((a, b) => a.full_name.localeCompare(b.full_name));
 
     return NextResponse.json({ employees, total: employees.length });
@@ -133,14 +118,18 @@ export async function GET(request) {
   }
 }
 
-// HR can update employee identity/status/contact info, but never role or
-// basic_salary — those stay Accountant/Admin-only, so this handler never
-// reads body.role or body.basic_salary at all.
+// HR can update an employee's identity, personal, employment, contact,
+// government and bank details — but never role, basic salary or branch.
+// Salary stays with the Accountant/Super Admin; branch moves go through
+// Transfer Requests so every move is recorded.
 export async function PATCH(request) {
+  const guard = await requirePermission(request, "employee_information", "update");
+  if (guard.denied) return guard.denied;
+
   try {
     const supabase = getAdminClient();
-    const body = await request.json();
-    const { id, employee_status, position, employee_type } = body;
+    const body = await request.json().catch(() => ({}));
+    const id = normalizeText(body.id);
 
     if (!id) {
       return NextResponse.json({ error: "Employee id is required." }, { status: 400 });
@@ -152,68 +141,106 @@ export async function PATCH(request) {
     }
 
     const currentMeta = userData.user.user_metadata || {};
-    const updatedMeta = { ...currentMeta };
+    const currentRole = normalizeText(currentMeta.role, "employee").toLowerCase();
 
-    const hasNameParts = body.first_name !== undefined || body.last_name !== undefined;
-    if (hasNameParts || body.full_name !== undefined) {
-      const nextFullName = hasNameParts
-        ? buildFullNameFromParts(body)
-        : normalizeText(body.full_name, currentMeta.full_name);
+    const escalation = denyRoleEscalation(guard, currentRole);
+    if (escalation) return escalation;
 
-      if (!isValidEmployeeName(nextFullName)) {
-        return NextResponse.json(
-          { error: "Full name must contain letters and spaces only." },
-          { status: 400 },
-        );
+    const profileResult = await supabase
+      .from("profiles")
+      .select("branch_id")
+      .eq("id", id)
+      .maybeSingle();
+    const targetBranch = profileResult.data?.branch_id || currentMeta.branch_id || null;
+    if (!guard.branchExempt) {
+      if (!targetBranch) {
+        return NextResponse.json({ error: "That employee is not assigned to your branch." }, { status: 403 });
       }
-      updatedMeta.full_name = nextFullName;
+      const foreign = denyForeignBranch(guard, targetBranch);
+      if (foreign) return foreign;
     }
 
-    if (body.date_of_birth !== undefined) updatedMeta.date_of_birth = normalizeText(body.date_of_birth, currentMeta.date_of_birth);
-    if (employee_status !== undefined) updatedMeta.employee_status = normalizeText(employee_status, currentMeta.employee_status);
-    if (position !== undefined) updatedMeta.position = normalizeText(position, currentMeta.position);
-    if (employee_type !== undefined) updatedMeta.employee_type = normalizeText(employee_type, currentMeta.employee_type);
-    if (body.address !== undefined) updatedMeta.address = normalizeText(body.address, normalizeText(currentMeta.address, ""));
-    if (body.sss_number !== undefined) updatedMeta.sss_number = normalizeDigits(body.sss_number, 10);
-    if (body.pagibig_number !== undefined) updatedMeta.pagibig_number = normalizeDigits(body.pagibig_number, 12);
-    if (body.philhealth_number !== undefined) updatedMeta.philhealth_number = normalizeDigits(body.philhealth_number, 12);
-    if (body.bank_name !== undefined) updatedMeta.bank_name = normalizeText(body.bank_name, normalizeText(currentMeta.bank_name, ""));
-    if (body.bank_account_number !== undefined) updatedMeta.bank_account_number = normalizeDigits(body.bank_account_number, 20);
-    if (body.cp_number !== undefined) updatedMeta.cp_number = normalizeDigits(body.cp_number, 11);
-    if (body.date_hired !== undefined) updatedMeta.date_hired = normalizeText(body.date_hired, "");
+    const record = normalizeEmployeeFields(body);
+    const invalid = validateEmployeeRecord(record, { creating: false });
+    if (invalid) {
+      return NextResponse.json({ error: invalid }, { status: 400 });
+    }
 
-    const nextEmail = body.email !== undefined
-      ? normalizeRoleEmail(normalizeText(body.email, userData.user.email))
-      : undefined;
+    const fullName = composeFullName(record);
+
+    const updatedMeta = {
+      ...currentMeta,
+      full_name: fullName,
+      date_of_birth: record.date_of_birth,
+      sex: record.sex,
+      civil_status: record.civil_status,
+      employee_type: record.employee_type,
+      position: normalizeText(record.position, currentMeta.position || "Employee"),
+      employment_type: record.employment_type,
+      employment_status: record.employment_status,
+      employee_status: record.employee_status,
+      rfid_status: record.employee_status,
+      address: record.address,
+      cp_number: record.cp_number,
+      date_hired: record.date_hired,
+      sss_number: record.sss_number,
+      philhealth_number: record.philhealth_number,
+      pagibig_number: record.pagibig_number,
+      tin_number: record.tin_number,
+      bank_name: record.bank_name,
+      bank_account_number: record.bank_account_number,
+    };
 
     const updatePayload = { user_metadata: updatedMeta };
-    if (nextEmail) updatePayload.email = nextEmail;
+    if (record.email && record.email !== String(userData.user.email || "").toLowerCase()) {
+      updatePayload.email = record.email;
+    }
 
     const { error: updateErr } = await supabase.auth.admin.updateUserById(id, updatePayload);
-    if (updateErr) throw new Error(updateErr.message);
+    if (updateErr) {
+      return NextResponse.json({ error: sanitizeError(updateErr) }, { status: 400 });
+    }
 
     invalidateUsersCache();
 
-    // Sync profile table
-    const profilePatch = {};
-    if (updatedMeta.full_name !== undefined) profilePatch.full_name = updatedMeta.full_name;
-    if (nextEmail) profilePatch.email = nextEmail;
-    if (employee_type !== undefined) profilePatch.employee_type = normalizeText(employee_type);
-    if (position !== undefined) profilePatch.position = normalizeText(position);
-    // profiles is authoritative for these (every employee-listing route
-    // reads from profiles, not user_metadata) — only touch a field when the
-    // caller actually supplied it.
-    if (body.cp_number !== undefined) profilePatch.cp_number = normalizeDigits(body.cp_number, 11) || null;
-    if (body.date_hired !== undefined) profilePatch.date_hired = normalizeText(body.date_hired, "") || null;
-    if (body.address !== undefined) profilePatch.address = normalizeText(body.address, "") || null;
-    if (body.sss_number !== undefined) profilePatch.sss_number = normalizeDigits(body.sss_number, 10) || null;
-    if (body.pagibig_number !== undefined) profilePatch.pagibig_number = normalizeDigits(body.pagibig_number, 12) || null;
-    if (body.philhealth_number !== undefined) profilePatch.philhealth_number = normalizeDigits(body.philhealth_number, 12) || null;
-    if (body.bank_name !== undefined) profilePatch.bank_name = normalizeText(body.bank_name, "") || null;
-    if (body.bank_account_number !== undefined) profilePatch.bank_account_number = normalizeDigits(body.bank_account_number, 20) || null;
-    if (Object.keys(profilePatch).length) {
-      await supabase.from("profiles").update(profilePatch).eq("id", id);
+    // profiles is authoritative for these — every employee-listing route and
+    // employee_info_view read them from there, not from user_metadata.
+    const { error: profileErr } = await supabase
+      .from("profiles")
+      .update({
+        full_name: fullName,
+        email: record.email,
+        employee_type: record.employee_type,
+        position: updatedMeta.position,
+        employee_status: record.employee_status,
+        cp_number: record.cp_number,
+        date_hired: record.date_hired,
+        address: record.address,
+        sss_number: record.sss_number,
+        pagibig_number: record.pagibig_number,
+        philhealth_number: record.philhealth_number,
+        bank_name: record.bank_name,
+        bank_account_number: record.bank_account_number,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (profileErr) {
+      return NextResponse.json(
+        { error: `Account updated, but its profile record failed: ${sanitizeError(profileErr)}` },
+        { status: 500 },
+      );
     }
+
+    await appendAuditLog({
+      module: "employees",
+      action: "update",
+      entity_type: "employee",
+      entity_id: normalizeText(currentMeta.employee_id, id),
+      description: `Employee ${fullName} was updated by HR.`,
+      status: "success",
+      source: "api",
+      metadata: { user_id: id, role: currentRole },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -471,66 +471,12 @@ async function submitLeaveRequest() {
 }
 
 /* ── CHANGE PASSWORD ── */
-function showChangePasswordFeedback(message, isError = false) {
-  const el = document.getElementById('emp-change-password-feedback');
-  if (!el) return;
-  el.textContent = message;
-  el.classList.toggle('err', isError);
-  el.classList.toggle('ok', !isError && Boolean(message));
-}
-
-async function submitChangePassword() {
-  const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
-  const email = String(context?.email || '').trim();
-
-  const currentPassword = String(document.getElementById('emp-cur-password')?.value || '').trim();
-  const newPassword = String(document.getElementById('emp-new-password')?.value || '').trim();
-  const confirmPassword = String(document.getElementById('emp-confirm-password')?.value || '').trim();
-
-  if (!email) {
-    showChangePasswordFeedback('Unable to identify account. Please sign in again.', true);
-    return;
-  }
-
-  if (!currentPassword || !newPassword || !confirmPassword) {
-    showChangePasswordFeedback('All password fields are required.', true);
-    return;
-  }
-
-  if (newPassword !== confirmPassword) {
-    showChangePasswordFeedback('New passwords do not match.', true);
-    return;
-  }
-
-  if (newPassword.length < 8) {
-    showChangePasswordFeedback('New password must be at least 8 characters.', true);
-    return;
-  }
-
-  try {
-    showChangePasswordFeedback('Updating password...', false);
-
-    const response = await fetch('/api/legacy-auth/change-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, current_password: currentPassword, new_password: newPassword }),
-    });
-
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to update password.');
-    }
-
-    document.getElementById('emp-cur-password').value = '';
-    document.getElementById('emp-new-password').value = '';
-    document.getElementById('emp-confirm-password').value = '';
-
-    showChangePasswordFeedback('Password updated successfully.', false);
-    window.pushNotification?.('Password Changed', 'Your account password has been updated successfully.', 'success');
-    setTimeout(() => window.closeSettingsModal?.('emp'), 1200);
-  } catch (error) {
-    showChangePasswordFeedback(error.message, true);
-  }
+function submitChangePassword() {
+  return submitAccountPasswordChange('emp', {
+    current: 'emp-cur-password',
+    next: 'emp-new-password',
+    confirm: 'emp-confirm-password',
+  });
 }
 
 /* ── INIT ── */
@@ -957,12 +903,19 @@ function loadProfilePage() {
   setTxt('ep-info-cpnumber', ctx.cp_number ? formatDigitGroups(digitsOnly(ctx.cp_number), DIGIT_FIELD_SPECS.cp_number.groups, DIGIT_FIELD_SPECS.cp_number.separator) : '');
   setTxt('ep-info-pos',      ctx.position);
   setTxt('ep-info-type',     ctx.employee_type);
+  setTxt('ep-info-employment', [ctx.employment_type, ctx.employment_status].filter(Boolean).join(' · '));
+  setTxt('ep-info-date-hired', ctx.date_hired);
+  setTxt('ep-info-sex',      ctx.sex);
+  setTxt('ep-info-civil-status', ctx.civil_status);
   setTxt('ep-info-email',    ctx.email);
   setTxt('ep-info-address',  ctx.address);
   setTxt('ep-info-role',     ctx.role);
   setTxt('ep-sss-number',         ctx.sss_number);
   setTxt('ep-pagibig-number',     ctx.pagibig_number);
   setTxt('ep-philhealth-number',  ctx.philhealth_number);
+  setTxt('ep-tin-number',         ctx.tin_number
+    ? formatDigitGroups(digitsOnly(ctx.tin_number), DIGIT_FIELD_SPECS.tin_number.groups)
+    : '');
   setTxt('ep-bank-name',     ctx.bank_name);
   setTxt('ep-bank-account',  ctx.bank_account_number);
 }

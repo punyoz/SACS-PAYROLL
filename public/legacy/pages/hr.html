@@ -27,9 +27,9 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3" fill="currentColor"/><path d="M2 13c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       User Management
     </div>
-    <div class="ni" onclick="hrNav('hr-branch-assign',this)">
+    <div class="ni" onclick="hrNav('hr-transfers',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-      Branch Assignment
+      Transfer Requests
     </div>
 
     <div class="sb-sec">Attendance</div>
@@ -107,8 +107,8 @@
             <div class="card"><div class="ct">Late Today</div><div class="cv a" id="hr-panel-late">0</div></div>
           </div>
           <div style="margin-top:14px;">
-            <button class="btn btn-outline" style="margin-right:8px;" onclick="hrNav('hr-employees', document.querySelectorAll('#s-hr .ni')[1])">View Employees</button>
-            <button class="btn btn-outline" onclick="hrNav('hr-attendance', document.querySelectorAll('#s-hr .ni')[3])">View Attendance</button>
+            <button class="btn btn-outline" style="margin-right:8px;" onclick="hrGo('hr-employees')">View Employees</button>
+            <button class="btn btn-outline" onclick="hrGo('hr-attendance')">View Attendance</button>
           </div>
         </div>
 
@@ -117,7 +117,7 @@
           <div class="sh">
             <span class="stitle">Pending Leave Requests</span>
             <span class="sp"></span>
-            <button class="btn btn-outline" onclick="hrNav('hr-leaves', document.querySelectorAll('#s-hr .ni')[4])">View all</button>
+            <button class="btn btn-outline" onclick="hrGo('hr-leaves')">View all</button>
           </div>
           <div id="hr-dashboard-leave-list">
             <div class="approval-item">
@@ -145,15 +145,18 @@
          PAGE: Employee Records
     ────────────────────────────── -->
     <div class="page" id="hr-employees">
-      <div class="ph"><h2>Employee Information</h2><p>Manage employee profiles, contact details, branch, and employment information</p></div>
+      <div class="ph"><h2>User Management</h2><p>Create and maintain Employee and Accountant accounts and their 201 records for every branch</p></div>
       <div class="chips" id="hr-emp-filter-chips">
         <div class="chip active" data-filter="all" onclick="setHrEmployeeFilter('all')">All (0)</div>
         <div class="chip" data-filter="teaching" onclick="setHrEmployeeFilter('teaching')">Teaching (0)</div>
         <div class="chip" data-filter="non-teaching" onclick="setHrEmployeeFilter('non-teaching')">Non-Teaching (0)</div>
         <div class="chip" data-filter="archived" onclick="setHrEmployeeFilter('archived')">Archived (0)</div>
       </div>
-      <div class="adm-employee-controls">
+      <div class="adm-employee-controls hr-list-controls">
         <input id="hr-emp-search" class="fc" type="text" placeholder="Search employee name, ID, email, or position" oninput="setHrEmployeeSearch(this.value)" />
+        <select id="hr-emp-branch-filter" class="fc" onchange="setHrEmployeeBranchFilter(this.value)" aria-label="Filter by branch">
+          <option value="all">All branches</option>
+        </select>
       </div>
       <div class="sh"><span class="stitle">Staff List</span><span class="sp"></span><button class="btn btn-primary" onclick="openHrAddEmployeeModal()">+ Add Employee</button></div>
       <div class="tw"><table>
@@ -282,10 +285,12 @@
     </div>
 
     <!-- ──────────────────────────────
-         PAGE: Branch Assignment
+         PAGE: Transfer Requests
+         HR moves employees between branches. A move applies at once and is
+         recorded in public.transfer_requests (Transfer History below).
     ────────────────────────────── -->
-    <div class="page" id="hr-branch-assign">
-      <div class="ph"><h2>Branch Assignment</h2><p>Assign employees to their respective school branch campus</p></div>
+    <div class="page" id="hr-transfers">
+      <div class="ph"><h2>Transfer Requests</h2><p>See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.</p></div>
 
       <div id="hr-ba-branch-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
         <!-- Rendered dynamically by JS after branches load -->
@@ -293,7 +298,7 @@
         <div class="card"><div class="ct">Unassigned</div><div class="cv sk-bar" style="width:40%;height:22px;border-radius:4px;" id="hr-ba-count-unassigned"></div></div>
       </div>
 
-      <div style="background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div class="card" style="padding:12px 14px;margin-bottom:14px;">
         <div style="font-size:11px;color:var(--t3);font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">Filter by Branch</div>
         <div class="chips" id="hr-ba-filter-chips" style="margin:0;flex-wrap:wrap;gap:6px;">
           <!-- Rendered dynamically by JS -->
@@ -316,11 +321,20 @@
           <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
           <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
           <tr class="sk-row"><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
         </tbody>
       </table></div>
       <div class="pg-bar" id="hr-ba-pg"></div>
+
+      <div class="sh" style="margin-top:22px;">
+        <span class="stitle">Transfer History</span>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>Employee</th><th>From Branch</th><th>To Branch</th><th>Status</th><th>Remarks</th><th>Requested</th><th>Decided</th></tr></thead>
+        <tbody id="hr-transfer-history-body">
+          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
+        </tbody>
+      </table></div>
+      <div class="pg-bar" id="hr-transfer-hist-pg"></div>
     </div>
 
     <!-- ──────────────────────────────
@@ -394,26 +408,36 @@
 
   </div><!-- end .main -->
 
-  <!-- ── HR BRANCH ASSIGNMENT MODAL ── -->
+  <!-- ── HR TRANSFER MODAL ── -->
   <div id="hr-branch-assign-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="width:min(480px,100%);">
+    <div class="adm-modal-card" style="width:min(500px,100%);">
       <div class="adm-modal-head">
-        <h3 id="hr-ba-modal-title">Assign Branch</h3>
+        <h3 id="hr-ba-modal-title">Transfer Employee</h3>
         <button class="btn btn-close-x" type="button" onclick="closeHrBranchAssignModal()" title="Close">&#x2715;</button>
       </div>
-      <form id="hr-branch-assign-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitHrBranchAssign(event)">
+      <form id="hr-branch-assign-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitHrBranchAssign(event)" novalidate>
         <input type="hidden" name="user_id" />
         <div class="fg" style="margin:0;">
           <label>Employee</label>
-          <input class="fc" name="employee_display" readonly style="background:var(--bg3);cursor:default;" />
+          <input class="fc fc-readonly" name="employee_display" readonly tabindex="-1" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Assign to Branch</label>
-          <select class="fc" name="branch"></select>
+          <label>Current Branch</label>
+          <input class="fc fc-readonly" name="current_branch" readonly tabindex="-1" />
         </div>
-        <p id="hr-ba-modal-feedback" class="adm-feedback"></p>
+        <div class="fg" style="margin:0;">
+          <label for="hr-ba-destination">Transfer To <span class="req" aria-hidden="true">*</span></label>
+          <select class="fc" name="branch" id="hr-ba-destination" required></select>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label for="hr-ba-remarks">Remarks</label>
+          <textarea class="fc" name="remarks" id="hr-ba-remarks" rows="3" maxlength="300" placeholder="Reason for the transfer (optional)"></textarea>
+        </div>
+        <p class="form-required-note" style="margin:0;">The move takes effect immediately and is recorded in Transfer History.</p>
+        <p id="hr-ba-modal-feedback" class="adm-feedback" role="alert"></p>
         <div class="adm-modal-actions">
-          <button type="submit" class="btn btn-primary">Confirm Assignment</button>
+          <button type="button" class="btn btn-outline" onclick="closeHrBranchAssignModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Transfer Now</button>
         </div>
       </form>
     </div>
@@ -421,125 +445,150 @@
 
   <!-- ── EDIT EMPLOYEE MODAL ── -->
   <div id="hr-edit-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:700px;">
+    <div class="adm-modal-card" style="max-width:760px;">
       <div class="adm-modal-head">
         <h3>Edit Employee Information</h3>
         <button class="btn btn-close-x" type="button" onclick="closeHrEditEmployeeModal()" title="Close">&#x2715;</button>
       </div>
-      <form id="hr-edit-employee-form" class="adm-modal-form" onsubmit="submitHrEditEmployee(event)">
+      <form id="hr-edit-employee-form" class="adm-modal-form" onsubmit="submitHrEditEmployee(event)" novalidate>
         <input type="hidden" name="id" />
-        <!-- Name -->
+        <div class="form-section-title">Account</div>
         <div class="fg">
-          <label>First Name</label>
-          <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+          <label for="hr-emp-edit-first-name">First Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-first-name" class="fc name-input" type="text" name="first_name" required maxlength="30" placeholder="e.g. Juan" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Middle Name</label>
-          <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+          <label for="hr-emp-edit-middle-initial">Middle Name</label>
+          <input id="hr-emp-edit-middle-initial" class="fc name-input" type="text" name="middle_initial" maxlength="30" placeholder="e.g. Santos" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Last Name</label>
-          <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+          <label for="hr-emp-edit-last-name">Last Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-last-name" class="fc name-input" type="text" name="last_name" required maxlength="30" placeholder="e.g. Dela Cruz" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Suffix</label>
-          <select class="fc" name="suffix">
-            <option value="">None</option>
-            <option value="Jr.">Jr.</option>
-            <option value="Sr.">Sr.</option>
-            <option value="II">II</option>
-            <option value="III">III</option>
-            <option value="IV">IV</option>
-            <option value="V">V</option>
-          </select>
-        </div>
-        <!-- Contact & identity -->
-        <div class="fg">
-          <label>Email</label>
-          <input class="fc" name="email" type="email" required placeholder="e.g. juan.employee@example.com" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Employee ID</label>
-          <input class="fc" name="employee_id" readonly style="opacity:.6;" />
-        </div>
-        <!-- Employment info -->
-        <div class="fg">
-          <label>Date of Birth</label>
-          <input class="fc" name="date_of_birth" type="date" />
-        </div>
-        <div class="fg">
-          <label>Type</label>
-          <select class="fc" name="employee_type">
-            <option value="Teaching">Teaching</option>
-            <option value="Non-Teaching">Non-Teaching</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Position</label>
-          <select class="fc" name="position">
-            <option value="Employee">Employee</option>
-            <option value="Accountant">Accountant</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Employment Status</label>
-          <select class="fc" name="employee_status">
-            <option value="Active">Active</option>
-            <option value="Pending">Pending</option>
-            <option value="On Leave">On Leave</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-        <!-- Address -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">ADDRESS</div></div>
-        <div class="fg" style="grid-column:1/-1;">
-          <label>Home Address</label>
-          <textarea class="fc" name="address" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
-        </div>
-        <!-- Contact -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">CONTACT &amp; EMPLOYMENT</div></div>
-        <div class="fg">
-          <label>Contact Number</label>
-          <input class="fc" name="cp_number" type="tel" placeholder="e.g. 0917 123 4567" maxlength="20" />
-        </div>
-        <div class="fg">
-          <label>Date Hired</label>
-          <input class="fc" name="date_hired" type="date" />
-        </div>
-        <!-- Government IDs -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
-        <div class="fg">
-          <label>SSS Number</label>
-          <input class="fc" name="sss_number" placeholder="e.g. 12-3456789-0" maxlength="20" />
-          <span class="field-error" aria-live="polite"></span>
-        </div>
-        <div class="fg">
-          <label>Pag-IBIG Number</label>
-          <input class="fc" name="pagibig_number" placeholder="e.g. 1234-5678-9012" maxlength="20" />
+          <label for="hr-emp-edit-suffix">Suffix</label>
+          <select id="hr-emp-edit-suffix" class="fc" name="suffix"><option value="">None</option><option value="Jr.">Jr.</option><option value="Sr.">Sr.</option><option value="II">II</option><option value="III">III</option><option value="IV">IV</option><option value="V">V</option></select>
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" style="grid-column:1/-1;">
-          <label>PhilHealth Number</label>
-          <input class="fc" name="philhealth_number" placeholder="e.g. 12-345678901-2" maxlength="20" />
+          <label for="hr-emp-edit-email">Email <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-email" class="fc" type="email" name="email" required maxlength="100" placeholder="e.g. juan.delacruz@example.com" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
-        <!-- Bank Account -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">BANK ACCOUNT</div></div>
         <div class="fg">
-          <label>Bank Name</label>
-          <input class="fc" name="bank_name" placeholder="e.g. BDO, BPI, Metrobank" maxlength="50" />
-        </div>
-        <div class="fg">
-          <label>Bank Account Number</label>
-          <input class="fc" name="bank_account_number" placeholder="e.g. 1234567890" maxlength="30" />
+          <label for="hr-emp-edit-employee-id">Employee ID</label>
+          <input id="hr-emp-edit-employee-id" class="fc fc-readonly" type="text" name="employee_id" readonly tabindex="-1" />
           <span class="field-error" aria-live="polite"></span>
         </div>
-        <p id="hr-edit-employee-feedback" class="adm-feedback" style="grid-column:1/-1;"></p>
+        <div class="fg">
+          <label for="hr-emp-edit-role-label">Role</label>
+          <input id="hr-emp-edit-role-label" class="fc fc-readonly" type="text" name="role_label" readonly tabindex="-1" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-emp-edit-branch-label">Branch</label>
+          <input id="hr-emp-edit-branch-label" class="fc fc-readonly" type="text" name="branch_label" readonly tabindex="-1" />
+          <span class="field-hint">To move this employee, use Transfer Requests.</span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Personal Information</div>
+        <div class="fg">
+          <label for="hr-emp-edit-date-of-birth">Date of Birth <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-date-of-birth" class="fc" type="date" name="date_of_birth" required />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-sex">Sex <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-emp-edit-sex" class="fc" name="sex" required><option value="" disabled selected>Select sex</option><option value="Male">Male</option><option value="Female">Female</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-emp-edit-civil-status">Civil Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-emp-edit-civil-status" class="fc" name="civil_status" required><option value="" disabled selected>Select civil status</option><option value="Single">Single</option><option value="Married">Married</option><option value="Widowed">Widowed</option><option value="Legally Separated">Legally Separated</option><option value="Annulled">Annulled</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Employment</div>
+        <div class="fg">
+          <label for="hr-emp-edit-employee-type">Employee Type <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-emp-edit-employee-type" class="fc" name="employee_type" required><option value="" disabled selected>Select type</option><option value="Teaching">Teaching</option><option value="Non-Teaching">Non-Teaching</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-position">Position <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-position" class="fc fc-readonly" type="text" name="position" required readonly tabindex="-1" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-employment-type">Employment Type <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-emp-edit-employment-type" class="fc" name="employment_type" required><option value="" disabled selected>Select employment type</option><option value="Full-time">Full-time</option><option value="Part-time">Part-time</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-employment-status">Employment Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-emp-edit-employment-status" class="fc" name="employment_status" required><option value="" disabled selected>Select employment status</option><option value="Regular">Regular</option><option value="Probationary">Probationary</option><option value="Contractual">Contractual</option><option value="Substitute">Substitute</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-date-hired">Date Hired <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-date-hired" class="fc" type="date" name="date_hired" required />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-employee-status">Account Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-emp-edit-employee-status" class="fc" name="employee_status" required><option value="Active">Active</option><option value="Pending">Pending</option><option value="On Leave">On Leave</option><option value="Inactive">Inactive</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Address &amp; Contact</div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-emp-edit-address">Home Address <span class="req" aria-hidden="true">*</span></label>
+          <textarea id="hr-emp-edit-address" class="fc" name="address" required rows="2" maxlength="200" placeholder="House no., street, barangay, city/municipality, province"></textarea>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-emp-edit-cp-number">Contact Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-cp-number" class="fc" type="tel" name="cp_number" required maxlength="13" inputmode="numeric" placeholder="e.g. 0917 123 4567" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Government ID Numbers</div>
+        <div class="fg">
+          <label for="hr-emp-edit-sss-number">SSS Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-sss-number" class="fc" type="text" name="sss_number" required maxlength="12" inputmode="numeric" placeholder="e.g. 12-3456789-0" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-philhealth-number">PhilHealth Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-philhealth-number" class="fc" type="text" name="philhealth_number" required maxlength="14" inputmode="numeric" placeholder="e.g. 12-345678901-2" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-pagibig-number">Pag-IBIG Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-pagibig-number" class="fc" type="text" name="pagibig_number" required maxlength="14" inputmode="numeric" placeholder="e.g. 1234-5678-9012" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-tin-number">TIN <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-tin-number" class="fc" type="text" name="tin_number" required maxlength="15" inputmode="numeric" placeholder="e.g. 123-456-789-000" />
+          <span class="field-hint">9 digits, or 12 with the branch code.</span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Bank Account (Payroll)</div>
+        <div class="fg">
+          <label for="hr-emp-edit-bank-name">Bank Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-bank-name" class="fc" type="text" name="bank_name" required maxlength="50" placeholder="e.g. BDO, BPI, Landbank" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-bank-account-number">Bank Account Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-emp-edit-bank-account-number" class="fc" type="text" name="bank_account_number" required maxlength="20" inputmode="numeric" placeholder="e.g. 001234567890" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-required-note">Fields marked <span class="req">*</span> are required. Role and basic salary are not changed here, and branch moves go through Transfer Requests.</div>
+        <p id="hr-edit-employee-feedback" class="adm-feedback" style="grid-column:1/-1;" role="alert"></p>
         <div class="adm-modal-actions">
+          <button type="button" class="btn btn-outline" onclick="closeHrEditEmployeeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Changes</button>
         </div>
       </form>
@@ -548,128 +597,153 @@
 
   <!-- ── HR ADD EMPLOYEE MODAL ── -->
   <div id="hr-add-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:700px;">
+    <div class="adm-modal-card" style="max-width:760px;">
       <div class="adm-modal-head">
         <h3>Add Employee</h3>
         <button class="btn btn-close-x" type="button" onclick="closeHrAddEmployeeModal()" title="Close">&#x2715;</button>
       </div>
-      <form id="hr-add-employee-form" class="adm-modal-form" onsubmit="submitHrAddEmployee(event)">
-        <!-- Name -->
+      <form id="hr-add-employee-form" class="adm-modal-form" onsubmit="submitHrAddEmployee(event)" novalidate>
+        <div class="form-section-title">Account</div>
         <div class="fg">
-          <label>First Name</label>
-          <input class="fc name-input" name="first_name" required maxlength="16" placeholder="e.g. Juan" />
+          <label for="hr-add-first-name">First Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-first-name" class="fc name-input" type="text" name="first_name" required maxlength="30" placeholder="e.g. Juan" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Middle Name</label>
-          <input class="fc name-input" name="middle_initial" maxlength="16" placeholder="e.g. Santos" />
+          <label for="hr-add-middle-initial">Middle Name</label>
+          <input id="hr-add-middle-initial" class="fc name-input" type="text" name="middle_initial" maxlength="30" placeholder="e.g. Santos" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Last Name</label>
-          <input class="fc name-input" name="last_name" required maxlength="16" placeholder="e.g. Dela Cruz" />
+          <label for="hr-add-last-name">Last Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-last-name" class="fc name-input" type="text" name="last_name" required maxlength="30" placeholder="e.g. Dela Cruz" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
-          <label>Suffix</label>
-          <select class="fc" name="suffix">
-            <option value="">None</option>
-            <option value="Jr.">Jr.</option>
-            <option value="Sr.">Sr.</option>
-            <option value="II">II</option>
-            <option value="III">III</option>
-            <option value="IV">IV</option>
-            <option value="V">V</option>
-          </select>
-        </div>
-        <!-- Role & Email -->
-        <div class="fg">
-          <label>Role</label>
-          <select class="fc" name="role">
-            <option value="employee">Employee</option>
-            <option value="accountant">Accountant</option>
-            <option value="hr">HR</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Email</label>
-          <input class="fc" name="email" type="email" required placeholder="e.g. juan.employee@example.com" />
-        </div>
-        <!-- Employment Info -->
-        <div class="fg">
-          <label>Date of Birth</label>
-          <input class="fc" name="date_of_birth" type="date" required />
-        </div>
-        <div class="fg">
-          <label>Type</label>
-          <select class="fc" name="employee_type">
-            <option value="Teaching">Teaching</option>
-            <option value="Non-Teaching">Non-Teaching</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Position</label>
-          <select class="fc" name="position">
-            <option value="Employee">Employee</option>
-            <option value="Accountant">Accountant</option>
-          </select>
-        </div>
-        <div class="fg">
-          <label>Status</label>
-          <select class="fc" name="employee_status">
-            <option value="Active">Active</option>
-            <option value="Pending">Pending</option>
-          </select>
+          <label for="hr-add-suffix">Suffix</label>
+          <select id="hr-add-suffix" class="fc" name="suffix"><option value="">None</option><option value="Jr.">Jr.</option><option value="Sr.">Sr.</option><option value="II">II</option><option value="III">III</option><option value="IV">IV</option><option value="V">V</option></select>
+          <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" style="grid-column:1/-1;">
-          <label>Basic Salary (PHP)</label>
-          <input class="fc" name="basic_salary" type="number" min="0" step="0.01" placeholder="e.g. 18500" />
+          <label for="hr-add-email">Email <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-email" class="fc" type="email" name="email" required maxlength="100" placeholder="e.g. juan.delacruz@example.com" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
-        <!-- Address -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">ADDRESS</div></div>
-        <div class="fg" style="grid-column:1/-1;">
-          <label>Home Address</label>
-          <textarea class="fc" name="address" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
-        </div>
-        <!-- Contact -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">CONTACT &amp; EMPLOYMENT</div></div>
         <div class="fg">
-          <label>Contact Number</label>
-          <input class="fc" name="cp_number" type="tel" placeholder="e.g. 0917 123 4567" maxlength="20" />
-        </div>
-        <div class="fg">
-          <label>Date Hired</label>
-          <input class="fc" name="date_hired" type="date" />
-        </div>
-        <!-- Government IDs -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">GOVERNMENT ID NUMBERS</div></div>
-        <div class="fg">
-          <label>SSS Number</label>
-          <input class="fc" name="sss_number" placeholder="e.g. 12-3456789-0" maxlength="20" />
-        </div>
-        <div class="fg">
-          <label>Pag-IBIG Number</label>
-          <input class="fc" name="pagibig_number" placeholder="e.g. 1234-5678-9012" maxlength="20" />
-        </div>
-        <div class="fg" style="grid-column:1/-1;">
-          <label>PhilHealth Number</label>
-          <input class="fc" name="philhealth_number" placeholder="e.g. 12-345678901-2" maxlength="20" />
-        </div>
-        <!-- Bank Account -->
-        <div style="grid-column:1/-1;margin:8px 0 4px;"><div class="stitle" style="font-size:12px;color:var(--t3);font-weight:600;letter-spacing:.04em;">BANK ACCOUNT</div></div>
-        <div class="fg">
-          <label>Bank Name</label>
-          <input class="fc" name="bank_name" placeholder="e.g. BDO, BPI, Metrobank" maxlength="50" />
-        </div>
-        <div class="fg">
-          <label>Bank Account Number</label>
-          <input class="fc" name="bank_account_number" placeholder="e.g. 1234567890" maxlength="30" />
+          <label for="hr-add-role">Role <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-role" class="fc" name="role" required><option value="employee">Employee</option><option value="accountant">Accountant</option></select>
           <span class="field-error" aria-live="polite"></span>
         </div>
-        <p class="adm-feedback" style="grid-column:1/-1;font-size:11px;color:var(--t3);">Employee ID is auto-generated. Default password: LastNameMMDDYYYY (e.g. Refuerzo10082004).</p>
-        <p id="hr-add-employee-feedback" class="adm-feedback" style="grid-column:1/-1;"></p>
+        <div class="fg">
+          <label for="hr-add-employee-status">Account Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-employee-status" class="fc" name="employee_status" required><option value="Active">Active</option><option value="Pending">Pending</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-add-branch-id">Branch <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-branch-id" class="fc" name="branch_id" required><option value="" disabled selected>Loading branches...</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Personal Information</div>
+        <div class="fg">
+          <label for="hr-add-date-of-birth">Date of Birth <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-date-of-birth" class="fc" type="date" name="date_of_birth" required />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-sex">Sex <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-sex" class="fc" name="sex" required><option value="" disabled selected>Select sex</option><option value="Male">Male</option><option value="Female">Female</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-add-civil-status">Civil Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-civil-status" class="fc" name="civil_status" required><option value="" disabled selected>Select civil status</option><option value="Single">Single</option><option value="Married">Married</option><option value="Widowed">Widowed</option><option value="Legally Separated">Legally Separated</option><option value="Annulled">Annulled</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Employment</div>
+        <div class="fg">
+          <label for="hr-add-employee-type">Employee Type <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-employee-type" class="fc" name="employee_type" required><option value="" disabled selected>Select type</option><option value="Teaching">Teaching</option><option value="Non-Teaching">Non-Teaching</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-position">Position <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-position" class="fc fc-readonly" type="text" name="position" required readonly tabindex="-1" />
+          <span class="field-hint">Follows the selected role.</span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-employment-type">Employment Type <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-employment-type" class="fc" name="employment_type" required><option value="" disabled selected>Select employment type</option><option value="Full-time">Full-time</option><option value="Part-time">Part-time</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-employment-status">Employment Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-employment-status" class="fc" name="employment_status" required><option value="" disabled selected>Select employment status</option><option value="Regular">Regular</option><option value="Probationary">Probationary</option><option value="Contractual">Contractual</option><option value="Substitute">Substitute</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-date-hired">Date Hired <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-date-hired" class="fc" type="date" name="date_hired" required />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-basic-salary">Basic Salary (PHP, monthly) <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-basic-salary" class="fc salary-input" type="number" name="basic_salary" required min="0.01" max="9999999.99" step="0.01" inputmode="decimal" placeholder="e.g. 18500" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Address &amp; Contact</div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-add-address">Home Address <span class="req" aria-hidden="true">*</span></label>
+          <textarea id="hr-add-address" class="fc" name="address" required rows="2" maxlength="200" placeholder="House no., street, barangay, city/municipality, province"></textarea>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-add-cp-number">Contact Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-cp-number" class="fc" type="tel" name="cp_number" required maxlength="13" inputmode="numeric" placeholder="e.g. 0917 123 4567" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Government ID Numbers</div>
+        <div class="fg">
+          <label for="hr-add-sss-number">SSS Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-sss-number" class="fc" type="text" name="sss_number" required maxlength="12" inputmode="numeric" placeholder="e.g. 12-3456789-0" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-philhealth-number">PhilHealth Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-philhealth-number" class="fc" type="text" name="philhealth_number" required maxlength="14" inputmode="numeric" placeholder="e.g. 12-345678901-2" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-pagibig-number">Pag-IBIG Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-pagibig-number" class="fc" type="text" name="pagibig_number" required maxlength="14" inputmode="numeric" placeholder="e.g. 1234-5678-9012" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-tin-number">TIN <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-tin-number" class="fc" type="text" name="tin_number" required maxlength="15" inputmode="numeric" placeholder="e.g. 123-456-789-000" />
+          <span class="field-hint">9 digits, or 12 with the branch code.</span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Bank Account (Payroll)</div>
+        <div class="fg">
+          <label for="hr-add-bank-name">Bank Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-bank-name" class="fc" type="text" name="bank_name" required maxlength="50" placeholder="e.g. BDO, BPI, Landbank" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-bank-account-number">Bank Account Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-bank-account-number" class="fc" type="text" name="bank_account_number" required maxlength="20" inputmode="numeric" placeholder="e.g. 001234567890" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-required-note">
+          Fields marked <span class="req">*</span> are required — the account cannot be created until every one is filled in.
+          The Employee ID is generated automatically. The first password is the employee's last name and birth date
+          (e.g. <strong>DelaCruz03141995</strong>), and they must replace it the first time they sign in.
+        </div>
+        <p id="hr-add-employee-feedback" class="adm-feedback" style="grid-column:1/-1;" role="alert"></p>
         <div class="adm-modal-actions">
+          <button type="button" class="btn btn-outline" onclick="closeHrAddEmployeeModal()">Cancel</button>
           <button type="submit" class="btn btn-primary">Create Employee</button>
         </div>
       </form>

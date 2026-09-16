@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -97,7 +98,9 @@ export async function GET(request) {
         .order("log_date", { ascending: true });
 
       if (!attResult.error && Array.isArray(attResult.data)) {
-        for (const row of attResult.data) {
+        // One record per day (first tap in, last tap out) so a day with a
+        // repeated tap is never counted twice.
+        for (const row of collapseDailyTaps(attResult.data, { employeeKey: () => user.id })) {
           const status = String(row.status || "").toLowerCase();
           if (status === "present") present++;
           else if (status === "late") late++;

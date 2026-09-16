@@ -17,6 +17,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { requirePermission } from "@/lib/rbac/guard";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -91,12 +92,13 @@ export async function GET(request) {
     const dateKey = todayKeyManila();
     let attendanceQuery = supabase
       .from("attendance_logs")
-      .select("id,status,employee_id,branch_id,log_date")
+      .select("id,status,employee_id,branch_id,log_date,time_in,time_out")
       .eq("log_date", dateKey);
     if (branchId) attendanceQuery = attendanceQuery.eq("branch_id", branchId);
 
     const attendanceResult = await attendanceQuery;
-    const attendanceRows = attendanceResult.error ? [] : (attendanceResult.data || []);
+    // One record per employee for the day, whatever number of taps it took.
+    const attendanceRows = collapseDailyTaps(attendanceResult.error ? [] : (attendanceResult.data || []));
 
     const countStatus = (name) =>
       attendanceRows.filter(

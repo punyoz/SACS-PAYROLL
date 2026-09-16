@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,7 +59,8 @@ export async function GET(request) {
       if (!error) logs = data || [];
     }
 
-    logs = logs.map((row) => ({ ...row, date: row.log_date }));
+    // One record per employee per day: first tap in, last tap out.
+    logs = collapseDailyTaps(logs).map((row) => ({ ...row, date: row.log_date }));
 
     // Summary counts
     const present = logs.filter((r) => String(r.status || "").toLowerCase() === "present").length;

@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -51,12 +52,13 @@ export async function GET() {
     try {
       const { data: attRows } = await supabase
         .from("attendance_logs")
-        .select("employee_id, status")
+        .select("employee_id, status, time_in, time_out, log_date")
         .eq("log_date", today);
 
       if (Array.isArray(attRows)) {
         const seenEmployees = new Set();
-        attRows.forEach((row) => {
+        // One record per employee: status comes from the day's first tap.
+        collapseDailyTaps(attRows, { dateKey: () => today }).forEach((row) => {
           seenEmployees.add(row.employee_id);
           const s = String(row.status || "").toLowerCase();
           if (s === "present") presentToday++;

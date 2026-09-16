@@ -26,6 +26,10 @@
     </div>
 
     <div class="sb-sec">Management</div>
+    <div class="ni" onclick="saNav('sa-accounts',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><circle cx="5.5" cy="5" r="2.5" fill="currentColor"/><circle cx="10.5" cy="5" r="2.5" fill="currentColor" opacity=".5"/><path d="M1 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M11 9c1.5 0 3 .8 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".5"/></svg>
+      Admin &amp; HR Accounts
+    </div>
     <div class="ni" onclick="saNav('sa-branches',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="6" width="6" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/><rect x="9" y="1" width="6" height="14" rx="1.5" stroke="currentColor" stroke-width="1.4"/><path d="M7 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
       Branch Management
@@ -142,7 +146,7 @@
           </div>
           <div style="margin-top:14px;">
             <button class="btn btn-outline" style="margin-right:8px;" onclick="saNav('sa-audit', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-audit&quot;]'))">View Audit Logs</button>
-            <button class="btn btn-outline" onclick="saNav('sa-roles', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-roles&quot;]'))">Manage Users</button>
+            <button class="btn btn-outline" onclick="saNav('sa-accounts', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-accounts&quot;]'))">Admin &amp; HR Accounts</button>
           </div>
         </div>
       </div>
@@ -213,15 +217,8 @@
          PAGE: Roles & Permissions
     ────────────────────────────── -->
     <div class="page" id="sa-roles">
-      <div class="ph"><h2>User Roles &amp; Permissions</h2><p>Manage system-wide user accounts, assign roles, and control access privileges across all modules</p></div>
+      <div class="ph"><h2>Roles &amp; Permissions</h2><p>What each role can reach across the system. Employee and Accountant accounts are managed by HR; Admin and HR logins are created under Admin &amp; HR Accounts.</p></div>
 
-      <div class="sg3" style="margin-bottom:14px;">
-        <div class="card"><div class="ct">Total Accounts</div><div class="cv" id="sa-role-total">—</div><div class="cch">All registered users</div></div>
-        <div class="card"><div class="ct">Active Accounts</div><div class="cv g" id="sa-role-active">—</div><div class="cch">Non-archived</div></div>
-        <div class="card"><div class="ct">Archived</div><div class="cv r" id="sa-role-archived">—</div><div class="cch">Deactivated accounts</div></div>
-      </div>
-
-      <!-- Role permission summary -->
       <div class="card" style="margin-bottom:16px;">
         <div class="sh" style="margin-bottom:12px;"><span class="stitle">Role Access Matrix</span></div>
         <div class="tw"><table>
@@ -229,129 +226,78 @@
             <tr>
               <th>Role</th>
               <th>Dashboard</th>
-              <th>Employees</th>
+              <th>Employees &amp; Accounts</th>
+              <th>Transfers</th>
               <th>Attendance</th>
               <th>Payroll</th>
               <th>Leave</th>
               <th>Reports</th>
-              <th>Users</th>
               <th>System</th>
             </tr>
           </thead>
           <tbody id="sa-role-matrix-body">
             <tr>
               <td><strong style="color:var(--blue);">Super Admin</strong></td>
-              <td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td>
+              <td>✅ All branches</td><td>Admin &amp; HR logins</td><td>—</td><td>✅ All branches</td><td>View</td><td>✅</td><td>✅</td><td>✅ Full</td>
             </tr>
             <tr>
               <td><strong style="color:var(--amber);">Admin</strong></td>
-              <td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>—</td><td>✅</td><td>✅</td><td>✅</td>
+              <td>✅ Own branch</td><td>—</td><td>—</td><td>✅ Own branch</td><td>View</td><td>View</td><td>✅ Branch reports</td><td>RFID &amp; audit logs</td>
             </tr>
             <tr>
               <td><strong style="color:var(--teal);">HR</strong></td>
-              <td>✅</td><td>✅</td><td>✅</td><td>—</td><td>✅</td><td>✅</td><td>—</td><td>—</td>
+              <td>✅ Own branch</td><td>✅ All branches (Employee &amp; Accountant)</td><td>✅ All branches</td><td>✅ Own branch</td><td>—</td><td>✅ Approve</td><td>✅ HR reports</td><td>—</td>
             </tr>
             <tr>
               <td><strong style="color:var(--green);">Accountant</strong></td>
-              <td>✅</td><td>—</td><td>—</td><td>✅</td><td>—</td><td>—</td><td>—</td><td>—</td>
+              <td>✅ Own branch</td><td>—</td><td>—</td><td>View</td><td>✅ Process</td><td>—</td><td>✅ Payroll reports</td><td>—</td>
             </tr>
             <tr>
               <td><strong style="color:var(--t2);">Employee</strong></td>
-              <td>✅</td><td>—</td><td>View</td><td>View</td><td>✅</td><td>—</td><td>—</td><td>—</td>
+              <td>✅ Own</td><td>Own profile</td><td>—</td><td>View own</td><td>Own payslips</td><td>✅ Request</td><td>—</td><td>—</td>
             </tr>
           </tbody>
         </table></div>
       </div>
+    </div>
 
-      <!-- User accounts table -->
+    <!-- ──────────────────────────────
+         PAGE: Admin & HR Accounts
+         Login accounts for Admin and HR staff. Every Employee and Accountant
+         account is created and maintained by HR in the HR portal.
+    ────────────────────────────── -->
+    <div class="page" id="sa-accounts">
+      <div class="ph"><h2>Admin &amp; HR Accounts</h2><p>Create and maintain the login accounts of Admin and HR staff. Employee and Accountant accounts are managed by HR.</p></div>
+
+      <div class="sg3" style="margin-bottom:14px;">
+        <div class="card"><div class="ct">Admin &amp; HR Accounts</div><div class="cv" id="sa-role-total">—</div><div class="cch">Registered logins</div></div>
+        <div class="card"><div class="ct">Active</div><div class="cv g" id="sa-role-active">—</div><div class="cch">Can sign in</div></div>
+        <div class="card"><div class="ct">Archived</div><div class="cv r" id="sa-role-archived">—</div><div class="cch">Deactivated accounts</div></div>
+      </div>
+
       <div class="chips" id="sa-role-filter-chips">
         <div class="chip active" data-rf="all" onclick="setSARoleFilter('all')">All (0)</div>
-        <div class="chip" data-rf="super_admin" onclick="setSARoleFilter('super_admin')">Super Admin (0)</div>
         <div class="chip" data-rf="admin" onclick="setSARoleFilter('admin')">Admin (0)</div>
         <div class="chip" data-rf="hr" onclick="setSARoleFilter('hr')">HR (0)</div>
-        <div class="chip" data-rf="accountant" onclick="setSARoleFilter('accountant')">Accountant (0)</div>
-        <div class="chip" data-rf="employee" onclick="setSARoleFilter('employee')">Employee (0)</div>
         <div class="chip" data-rf="archived" onclick="setSARoleFilter('archived')">Archived (0)</div>
       </div>
 
       <div class="adm-employee-controls">
-        <input id="sa-roles-search" class="fc" type="text" placeholder="Search by name, email, or role" oninput="setSARolesSearch(this.value)" />
+        <input id="sa-roles-search" class="fc" type="text" placeholder="Search by name, email, or branch" oninput="setSARolesSearch(this.value)" />
       </div>
 
       <div class="sh">
-        <span class="stitle">All System Users</span>
+        <span class="stitle">Admin &amp; HR Logins</span>
         <span class="sp"></span>
-        <button class="btn btn-primary" onclick="openSAAdminUserModal()">+ Add Admin</button>
+        <button class="btn btn-primary" onclick="openSAAdminUserModal()">+ Add Account</button>
         <button class="btn btn-outline" onclick="loadSAUsers()">Refresh</button>
       </div>
       <div class="tw"><table>
-        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Branch</th><th>Employee ID</th><th>Type</th><th>Contact Number</th><th>Date Hired</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
+        <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Branch</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
         <tbody id="sa-users-table-body">
         </tbody>
       </table></div>
       <div class="pg-bar" id="sa-users-pg"></div>
-    </div>
-
-    <!-- ──────────────────────────────
-         PAGE: Transfer Requests
-    ────────────────────────────── -->
-    <div class="page" id="sa-transfer-requests">
-      <div class="ph"><h2>Transfer Requests</h2><p>View employees by branch, request a transfer, and decide requests raised by Admins</p></div>
-
-      <div class="sg3" style="margin-bottom:14px;">
-        <div class="card"><div class="ct">Total Employees</div><div class="cv" id="sa-ba-count-total">0</div><div class="cch">All active employees</div></div>
-        <div class="card"><div class="ct">Unassigned</div><div class="cv r" id="sa-ba-count-unassigned">0</div><div class="cch">Not yet in a branch</div></div>
-      </div>
-
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
-        <label style="font-size:12px;color:var(--t3);white-space:nowrap;flex-shrink:0;">Filter by Branch</label>
-        <select class="fc" id="sa-ba-branch-select" style="max-width:300px;" onchange="setSABranchFilter(this.value)">
-          <option value="all">All (0)</option>
-          <option value="unassigned">Unassigned (0)</option>
-        </select>
-      </div>
-
-      <div class="adm-employee-controls" style="margin-top:10px;">
-        <input id="sa-ba-search" class="fc" type="text" placeholder="Search by name or employee ID" oninput="setSABranchSearch(this.value)" />
-      </div>
-
-      <div class="sh">
-        <span class="stitle">Employee Branch List</span>
-        <span class="sp"></span>
-        <button class="btn btn-primary" onclick="openSATransferRequestModal()">New Transfer Request</button>
-      </div>
-
-      <div class="tw"><table>
-        <thead><tr><th>Employee</th><th>Employee ID</th><th>Type</th><th>Position</th><th>Branch</th><th>Assigned At</th></tr></thead>
-        <tbody id="sa-ba-table-body">
-          <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
-          <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
-        </tbody>
-      </table></div>
-      <div class="pg-bar" id="sa-ba-pg"></div>
-
-      <div class="ph" style="margin-top:22px;"><h2 style="font-size:16px;">Pending &amp; History</h2></div>
-      <div class="banner banner-blue">ℹ Approving a request immediately moves the employee to the destination branch. Rejected or approved requests move to History.</div>
-
-      <div class="card" style="margin-bottom:16px;">
-        <div id="sa-transfer-pending">
-          <div class="approval-card">
-            <div class="approval-card-body">
-              <div class="approval-card-meta"><div class="sk-bar" style="width:60%"></div></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="sh"><span class="stitle">Transfer History</span></div>
-        <div class="tw"><table>
-          <thead><tr><th>Employee</th><th>From Branch</th><th>To Branch</th><th>Decision</th><th>Remarks</th><th>Requested</th><th>Reviewed</th></tr></thead>
-          <tbody id="sa-transfer-history-body">
-            <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
-          </tbody>
-        </table></div>
-      </div>
     </div>
 
     <!-- ──────────────────────────────
@@ -387,11 +333,11 @@
 
       <div class="card">
         <div class="sh"><span class="stitle">RFID Scan Input</span></div>
-        <p style="font-size:12px;color:var(--t3);margin-bottom:14px;">Simulate an RFID card tap — the matching employee's attendance (time in / time out) is recorded immediately.</p>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:14px;">Tap an RFID card (or type the employee ID). Only the first and the last tap of the day are counted: the first tap is Time In, the last tap is Time Out, and a repeated tap within a minute is ignored.</p>
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-          <div class="fg" style="margin:0;min-width:260px;flex:1;">
+          <div class="fg" style="margin:0;min-width:220px;flex:1;">
             <label>RFID / Employee ID</label>
-            <input id="sa-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" maxlength="16" />
+            <input id="sa-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" maxlength="16" autocomplete="off" />
           </div>
           <button class="btn btn-primary" onclick="submitSARfidAttendanceScan()">Record Scan</button>
         </div>
@@ -759,95 +705,48 @@
     </div>
   </div>
 
-  <!-- ── SA BRANCH ASSIGNMENT MODAL ── -->
-  <div id="sa-branch-assign-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="width:min(480px,100%);">
-      <div class="adm-modal-head">
-        <h3>New Transfer Request</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeSATransferRequestModal()" title="Close">&#x2715;</button>
-      </div>
-      <form id="sa-branch-assign-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSATransferRequest(event)">
-        <div class="fg" style="margin:0;">
-          <label>Employee</label>
-          <select class="fc" name="employee_id" id="sa-transfer-request-employee"></select>
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Transfer To Branch</label>
-          <select class="fc" name="to_branch_id" id="sa-transfer-request-branch"></select>
-        </div>
-        <div class="fg" style="margin:0;">
-          <label>Remarks (Optional)</label>
-          <textarea class="fc" name="remarks" rows="3" maxlength="300" placeholder="Reason for the transfer"></textarea>
-        </div>
-        <p id="sa-ba-modal-feedback" class="adm-feedback"></p>
-        <div class="adm-modal-actions">
-          <button type="submit" class="btn btn-primary">Confirm Assignment</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ── ADMIN USER MODAL ── -->
+  <!-- ── ADMIN / HR ACCOUNT MODAL ── -->
   <div id="sa-admin-user-modal" class="adm-modal-backdrop" style="display:none;">
     <div class="adm-modal-card" style="max-width:480px;">
       <div class="adm-modal-head">
-        <h3 id="sa-admin-user-modal-title">Add Admin User</h3>
+        <h3 id="sa-admin-user-modal-title">Add Account</h3>
         <button class="btn btn-close-x" type="button" onclick="closeSAAdminUserModal()" title="Close">&#x2715;</button>
       </div>
-      <form id="sa-admin-user-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSAAdminUser(event)">
+      <form id="sa-admin-user-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSAAdminUser(event)" novalidate>
         <input type="hidden" name="id" />
         <div class="fg" style="margin:0;">
-          <label>Full Name</label>
-          <input class="fc" name="full_name" required placeholder="e.g. Maria Santos" />
+          <label>Full Name <span class="req" aria-hidden="true">*</span></label>
+          <input class="fc" name="full_name" required maxlength="60" placeholder="e.g. Maria Santos" autocomplete="off" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Email</label>
-          <input class="fc" name="email" type="email" required placeholder="e.g. maria.admin@example.com" />
+          <label>Email <span class="req" aria-hidden="true">*</span></label>
+          <input class="fc" name="email" type="email" required placeholder="e.g. maria.hr@example.com" autocomplete="off" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Role</label>
-          <select class="fc" name="role" id="sa-admin-user-role">
+          <label>Role <span class="req" aria-hidden="true">*</span></label>
+          <select class="fc" name="role" id="sa-admin-user-role" required>
             <option value="admin">Admin</option>
-            <option value="super_admin">Super Admin</option>
+            <option value="hr">HR</option>
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Branch (School)</label>
-          <select class="fc" name="branch_id" id="sa-admin-user-branch">
-            <option value="">No Branch</option>
+          <label>Branch <span class="req" aria-hidden="true">*</span></label>
+          <select class="fc" name="branch_id" id="sa-admin-user-branch" required>
+            <option value="">Select branch</option>
           </select>
         </div>
         <div class="fg" id="sa-admin-user-password-field" style="margin:0;">
-          <label>Password</label>
-          <input class="fc" name="password" type="password" placeholder="Minimum 6 characters" />
+          <label>Temporary Password <span class="req" aria-hidden="true">*</span></label>
+          <input class="fc" name="password" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password" />
+          <span class="field-hint" id="sa-admin-user-password-hint">The account must replace this password the first time it signs in.</span>
         </div>
+        <p class="form-required-note">Fields marked <span class="req">*</span> are required.</p>
         <p id="sa-admin-user-feedback" class="adm-feedback"></p>
         <div class="adm-modal-actions" style="justify-content:space-between;">
-          <button type="button" id="sa-admin-user-archive-btn" class="btn btn-red" style="display:none;" onclick="toggleArchiveSAAdminUser()">Archive User</button>
+          <button type="button" id="sa-admin-user-archive-btn" class="btn btn-red" style="display:none;" onclick="toggleArchiveSAAdminUser()">Archive Account</button>
           <button type="submit" class="btn btn-primary">Save</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <!-- ── VIEW EMPLOYEE DETAILS MODAL (read-only) ── -->
-  <div id="sa-view-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:520px;">
-      <div class="adm-modal-head">
-        <h3 id="sa-view-employee-title">Employee Details</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeSAViewEmployeeModal()" title="Close">&#x2715;</button>
-      </div>
-      <div class="adm-modal-form" style="grid-template-columns:1fr 1fr;">
-        <div class="fg" style="margin:0;"><label>Contact Number</label><div class="fc" style="background:var(--bg3);" id="sa-view-cp-number">—</div></div>
-        <div class="fg" style="margin:0;"><label>Date Hired</label><div class="fc" style="background:var(--bg3);" id="sa-view-date-hired">—</div></div>
-        <div class="fg" style="margin:0;grid-column:1/-1;"><label>Home Address</label><div class="fc" style="background:var(--bg3);" id="sa-view-address">—</div></div>
-        <div class="fg" style="margin:0;"><label>SSS Number</label><div class="fc" style="background:var(--bg3);" id="sa-view-sss">—</div></div>
-        <div class="fg" style="margin:0;"><label>Pag-IBIG Number</label><div class="fc" style="background:var(--bg3);" id="sa-view-pagibig">—</div></div>
-        <div class="fg" style="margin:0;grid-column:1/-1;"><label>PhilHealth Number</label><div class="fc" style="background:var(--bg3);" id="sa-view-philhealth">—</div></div>
-        <div class="fg" style="margin:0;"><label>Bank Name</label><div class="fc" style="background:var(--bg3);" id="sa-view-bank-name">—</div></div>
-        <div class="fg" style="margin:0;"><label>Bank Account Number</label><div class="fc" style="background:var(--bg3);" id="sa-view-bank-account">—</div></div>
-        <p style="grid-column:1/-1;font-size:11px;color:var(--t3);margin:4px 0 0;">Read-only — edited by Admin or HR in their own portal.</p>
-      </div>
     </div>
   </div>
 
@@ -925,27 +824,41 @@
   </div>
 
   <!-- ── SETTINGS MODAL ── -->
-  <div id="sa-settings-modal" class="adm-modal-backdrop" aria-hidden="true" style="display:none;">
-    <div class="adm-modal-card" style="max-width:400px;">
-      <div class="adm-modal-head">
-        <h3>Account Settings</h3>
-        <button class="btn btn-close-x" type="button" onclick="closeSettingsModal('sa')" title="Close">&#x2715;</button>
+  <div id="sa-settings-modal" class="settings-backdrop" aria-hidden="true">
+    <div class="settings-card card" role="dialog" aria-modal="true" aria-labelledby="sa-settings-title">
+      <div class="settings-header">
+        <div class="settings-header-left">
+          <div class="settings-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          </div>
+          <div>
+            <div class="settings-title" id="sa-settings-title">Account Settings</div>
+            <div class="settings-sub">Super Administrator</div>
+          </div>
+        </div>
+        <button class="settings-close" onclick="closeSettingsModal('sa')" aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
-      <div style="padding:0 0 4px;">
-        <div class="fg">
-          <label>Current Password</label>
-          <input id="sa-current-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+      <div class="settings-body">
+        <div class="settings-section-label">Change Password</div>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Enter your current password, then choose a new one with at least 8 characters, including letters and numbers.</p>
+        <div style="display:grid;gap:12px;">
+          <div class="fg" style="margin:0;">
+            <label>Current Password</label>
+            <input id="sa-current-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>New Password</label>
+            <input id="sa-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label>Confirm New Password</label>
+            <input id="sa-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
+          </div>
         </div>
-        <div class="fg">
-          <label>New Password</label>
-          <input id="sa-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" />
-        </div>
-        <div class="fg">
-          <label>Confirm New Password</label>
-          <input id="sa-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" />
-        </div>
-        <p id="sa-change-password-feedback" class="adm-feedback"></p>
-        <button class="lb" onclick="submitSAChangePassword()">Update Password</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:11px;" onclick="submitSAChangePassword()">Update Password</button>
+        <p id="sa-change-password-feedback" class="adm-feedback" style="margin-top:10px;"></p>
       </div>
     </div>
   </div>

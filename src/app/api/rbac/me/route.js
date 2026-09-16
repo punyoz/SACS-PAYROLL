@@ -41,6 +41,7 @@ export async function GET(request) {
       full_name: session.full_name || "",
       branch_id: session.branch_id || null,
       branch_exempt: isBranchExempt(role),
+      must_change_password: Boolean(session.pwd),
     },
     permissions: ROLE_PERMISSIONS[role] || {},
     manageable_roles: MANAGEABLE_ROLES[role] || [],

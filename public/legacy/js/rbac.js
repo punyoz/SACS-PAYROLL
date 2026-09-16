@@ -36,25 +36,108 @@
 
   var state = { me: null };
 
-  /* ── Session expiry ──────────────────────────────────────────────────────
-     Every API call now runs against a signed session cookie. When it lapses
-     the server answers 401, and the portal should return to login rather than
-     sit there rendering empty tables. Wrapping fetch keeps this in one place
-     instead of touching each of the ~40 call sites.                          */
+  /* ── Session expiry, replacement and the password gate ───────────────────
+     Every API call runs against a signed session cookie. The server answers:
+       401 "session_replaced"   the account signed in on another device or
+                                browser — this one is signed out at once
+       401 (anything else)      the session lapsed
+       403 "password_change_required"
+                                the account must replace its issued password
+     Wrapping fetch keeps this in one place instead of touching each of the
+     ~40 call sites.                                                          */
   var nativeFetch = window.fetch.bind(window);
   var redirecting = false;
+
+  // Endpoints whose 401 means "wrong credentials", not "session over".
+  var CREDENTIAL_ENDPOINTS = ['/api/legacy-auth/login', '/api/legacy-auth/reset-password'];
+
+  var REASON_BY_CODE = {
+    session_replaced: 'signed_in_elsewhere',
+    account_archived: 'account_archived'
+  };
+
+  function signOutLocally(reason) {
+    if (redirecting) return;
+    redirecting = true;
+    try {
+      localStorage.removeItem('sacs-auth-context');
+      ['super_admin', 'admin', 'accountant', 'employee', 'hr'].forEach(function (role) {
+        localStorage.removeItem('sacs-active-page-' + role);
+      });
+    } catch (e) { /* private mode */ }
+    (window.top || window).location.href = '/login' + (reason ? '?reason=' + encodeURIComponent(reason) : '');
+  }
+
+  function requirePasswordChange() {
+    if (window._passwordGate || redirecting) return;
+    redirecting = true;
+    try {
+      var ctx = JSON.parse(localStorage.getItem('sacs-auth-context') || 'null');
+      if (ctx) {
+        ctx.must_change_password = true;
+        localStorage.setItem('sacs-auth-context', JSON.stringify(ctx));
+      }
+    } catch (e) { /* private mode */ }
+    window.location.reload();
+  }
 
   window.fetch = function (input, init) {
     return nativeFetch(input, init).then(function (response) {
       var url = typeof input === 'string' ? input : (input && input.url) || '';
-      if (response.status === 401 && url.indexOf('/api/') !== -1 && !redirecting) {
-        redirecting = true;
-        try { localStorage.removeItem('sacs-auth-context'); } catch (e) { /* private mode */ }
-        (window.top || window).location.href = '/login';
+      if (url.indexOf('/api/') === -1) return response;
+
+      var isCredentialCall = CREDENTIAL_ENDPOINTS.some(function (path) { return url.indexOf(path) !== -1; });
+
+      if (response.status === 401 && !isCredentialCall && !redirecting) {
+        return response.clone().json().catch(function () { return {}; }).then(function (body) {
+          signOutLocally(REASON_BY_CODE[body && body.code] || 'session_expired');
+          return response;
+        });
       }
+
+      if (response.status === 403 && !redirecting) {
+        return response.clone().json().catch(function () { return {}; }).then(function (body) {
+          if (body && body.code === 'password_change_required') requirePasswordChange();
+          return response;
+        });
+      }
+
       return response;
     });
   };
+
+  /* ── One active sign-in: heartbeat ───────────────────────────────────────
+     A newer sign-in elsewhere invalidates this one server-side; the heartbeat
+     notices within a few seconds even when nobody is clicking, and whenever
+     the tab regains focus.                                                    */
+  var HEARTBEAT_MS = 10000;
+  var heartbeatTimer = null;
+  var heartbeatInFlight = false;
+
+  function checkSession() {
+    if (heartbeatInFlight || redirecting) return;
+    heartbeatInFlight = true;
+    window.fetch('/api/legacy-auth/session', { method: 'GET', cache: 'no-store', credentials: 'same-origin' })
+      .then(function (response) {
+        if (!response.ok) return null;
+        return response.json().catch(function () { return null; });
+      })
+      .then(function (body) {
+        if (!body || redirecting) return;
+        if (body.must_change_password && !window._passwordGate) requirePasswordChange();
+      })
+      .catch(function () { /* offline: try again on the next beat */ })
+      .then(function () { heartbeatInFlight = false; });
+  }
+
+  function startHeartbeat() {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(checkSession, HEARTBEAT_MS);
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') checkSession();
+    });
+    window.addEventListener('focus', checkSession);
+  }
 
   /* ── Sidebar rendering ─────────────────────────────────────────────────── */
 
@@ -169,19 +252,18 @@
     return String(params.get('role') || '').trim().toLowerCase();
   }
 
-  async function loadPermissions() {
-    var response = await nativeFetch('/api/rbac/me', { method: 'GET' });
-    if (!response.ok) return null;
-    return response.json();
-  }
-
   async function init() {
     var role = currentRoleFromUrl();
     if (!role) return;
 
+    startHeartbeat();
+
     var me;
     try {
-      me = await loadPermissions();
+      // Through the wrapped fetch, so a replaced or expired session on boot
+      // signs out immediately instead of waiting for the first heartbeat.
+      var response = await window.fetch('/api/rbac/me', { method: 'GET', cache: 'no-store' });
+      me = response.ok ? await response.json() : null;
     } catch (error) {
       // Network trouble: leave the portal exactly as the server rendered it
       // rather than blanking the sidebar. The API guards still hold.
@@ -197,6 +279,25 @@
       (window.top || window).location.href = ROLE_ROUTES[me.user.role] || '/login';
       return;
     }
+
+    // Same for the password gate: the local flag only decides what loads
+    // first. Reload into whichever screen the session actually allows.
+    if (me.user.must_change_password && !window._passwordGate) {
+      requirePasswordChange();
+      return;
+    }
+    if (!me.user.must_change_password && window._passwordGate) {
+      try {
+        var stored = JSON.parse(localStorage.getItem('sacs-auth-context') || 'null');
+        if (stored) {
+          stored.must_change_password = false;
+          localStorage.setItem('sacs-auth-context', JSON.stringify(stored));
+        }
+      } catch (e) { /* private mode */ }
+      window.location.reload();
+      return;
+    }
+    if (window._passwordGate) return;
 
     renderSidebar(me.user.role, me.menu);
     enforcePageAccess(me.user.role, me.allowed_pages);

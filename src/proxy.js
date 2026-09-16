@@ -17,6 +17,15 @@
  * request body or the rows involved, so they are enforced inside the handlers
  * via src/lib/rbac/guard.js. Both layers read the same matrix.
  *
+ * Two account-wide rules sit in front of both:
+ *
+ *   - One sign-in per account. A cookie whose session id is no longer the
+ *     account's active one (a newer login happened elsewhere) is rejected with
+ *     code "session_replaced", which the portals turn into an automatic
+ *     sign-out (src/lib/auth/active-session.js).
+ *   - A password still at its issued default can reach nothing but the
+ *     change-password flow (code "password_change_required").
+ *
  * Session verification uses node:crypto, which needs the Node.js runtime —
  * that's the default for this file (Next.js's middleware/proxy layer runs on
  * Node.js unless told otherwise), so nothing has to opt into it. Setting
@@ -25,8 +34,9 @@
  */
 
 import { NextResponse } from "next/server";
-import { readSession } from "@/lib/rbac/session";
+import { readSession, clearSession } from "@/lib/rbac/session";
 import { can, isKnownRole } from "@/lib/rbac/permissions";
+import { checkActiveSession } from "@/lib/auth/active-session";
 
 export const config = {
   matcher: [
@@ -52,6 +62,7 @@ const PUBLIC_PATHS = [
  */
 const API_MODULES = [
   ["/api/rbac/me", null],                                  // session-derived, self-guarding
+  ["/api/legacy-auth/session", null],                      // session heartbeat
   ["/api/legacy-auth/change-password", "profile"],
   ["/api/legacy-auth/update-profile", "profile"],
   ["/api/admin/users", "user_management"],
@@ -170,7 +181,47 @@ function isBranchLabelRead(pathname, method) {
   return pathname.startsWith("/api/admin/branches") && METHOD_ACTIONS[method] === "read";
 }
 
-export function proxy(request) {
+/**
+ * What an account that still has to replace its issued password may call:
+ * the change itself, the session/permission lookups the change-password screen
+ * makes, and nothing else. (Logout is public and never reaches this check.)
+ */
+const PASSWORD_CHANGE_ALLOWED = [
+  "/api/legacy-auth/change-password",
+  "/api/legacy-auth/session",
+  "/api/rbac/me",
+];
+
+const SESSION_REJECTIONS = {
+  expired: {
+    code: "session_expired",
+    reason: "session_expired",
+    message: "Your session has expired. Please sign in again.",
+  },
+  replaced: {
+    code: "session_replaced",
+    reason: "signed_in_elsewhere",
+    message: "You were signed out because your account signed in on another device or browser.",
+  },
+  archived: {
+    code: "account_archived",
+    reason: "account_archived",
+    message: "This account has been archived and can no longer sign in.",
+  },
+};
+
+/**
+ * A signed cookie is only half the story: it must also still be the account's
+ * active sign-in. Cookies minted before session ids existed carry none and are
+ * treated as expired, so every browser signs in once more under the new rules.
+ */
+async function sessionRejection(session) {
+  if (!session.sid) return SESSION_REJECTIONS.expired;
+  const state = await checkActiveSession(session.sub, session.sid);
+  return SESSION_REJECTIONS[state] || null;
+}
+
+export async function proxy(request) {
   const { pathname } = request.nextUrl;
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
@@ -188,6 +239,12 @@ export function proxy(request) {
     if (!session || !isKnownRole(session.role)) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
+    const rejection = await sessionRejection(session);
+    if (rejection) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("reason", rejection.reason);
+      return clearSession(NextResponse.redirect(loginUrl));
+    }
     if (session.role !== PORTAL_ROLES[portal]) {
       // Signed in, but this is not their portal — send them to their own.
       return NextResponse.redirect(new URL(ROLE_HOME[session.role] || "/login", request.url));
@@ -204,6 +261,23 @@ export function proxy(request) {
     return NextResponse.json(
       { error: "Your session has expired. Please sign in again." },
       { status: 401 },
+    );
+  }
+
+  const rejection = await sessionRejection(session);
+  if (rejection) {
+    return clearSession(
+      NextResponse.json({ error: rejection.message, code: rejection.code }, { status: 401 }),
+    );
+  }
+
+  if (session.pwd && !PASSWORD_CHANGE_ALLOWED.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return NextResponse.json(
+      {
+        error: "Change your default password before using the system.",
+        code: "password_change_required",
+      },
+      { status: 403 },
     );
   }
 

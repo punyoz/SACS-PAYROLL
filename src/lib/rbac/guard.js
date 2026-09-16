@@ -25,7 +25,7 @@ import { readSession } from "@/lib/rbac/session";
 import {
   can,
   canManageRole,
-  isBranchExempt,
+  isBranchExemptFor,
   isBranchScoped,
   isKnownRole,
   scopeFor,
@@ -82,7 +82,11 @@ export async function requirePermission(request, module, action = "read") {
     };
   }
 
-  const branchExempt = isBranchExempt(role);
+  // Branch exemption is decided per module: Super Admin everywhere, HR only on
+  // the modules the matrix gives it SCOPE_ALL (employee records, user accounts,
+  // transfers). Every helper below keys off guard.branchExempt, so a SCOPE_ALL
+  // grant lifts the branch filter for that module and no other.
+  const branchExempt = isBranchExemptFor(role, module);
   const branchId = branchExempt ? null : (session.branch_id || null);
   const scope = scopeFor(role, module);
 

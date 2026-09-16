@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -249,9 +250,10 @@ export async function GET(request) {
       .lte("log_date", endDate)
       .order("log_date", { ascending: true });
 
+    // One record per day: the first tap is Time In, the last tap Time Out.
     const attMap = {};
     if (!attResult.error && Array.isArray(attResult.data)) {
-      for (const row of attResult.data) {
+      for (const row of collapseDailyTaps(attResult.data, { employeeKey: () => user.id })) {
         attMap[row.log_date] = row;
       }
     }

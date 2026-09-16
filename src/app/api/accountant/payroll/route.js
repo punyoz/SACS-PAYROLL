@@ -6,6 +6,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
+import { collapseDailyTaps } from "@/lib/attendance/taps";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -409,11 +410,14 @@ async function fetchAttendanceSummary(supabase, employees) {
     });
   });
 
-  (result.data || []).forEach((row) => {
+  // One record per employee per day (the first tap decides the status), so a
+  // repeated RFID tap never counts as an extra present, late or absent day.
+  const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
+  collapseDailyTaps(result.data || [], { dateKey: dayKey }).forEach((row) => {
     const employeeId = normalizeText(row.employee_id);
     if (!activeEmployeeIds.has(employeeId)) return;
 
-    const key = normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
+    const key = dayKey(row);
     if (key < periodStart || key > periodEnd) return;
 
     const summary = grouped.get(employeeId);

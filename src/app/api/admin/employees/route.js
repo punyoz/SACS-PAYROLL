@@ -10,6 +10,8 @@ import {
   denyForeignBranch,
   scopeListToBranch,
 } from "@/lib/rbac/guard";
+import { hashTemporaryPassword } from "@/lib/auth/password-policy";
+import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -162,7 +164,11 @@ function shapeEmployee(user, profile, index) {
     basic_salary: Number(metadata.basic_salary || 0),
     rfid_status: normalizeText(metadata.rfid_status, "Active"),
     employee_status: employeeStatus,
-    employment_status: normalizeText(metadata.employment_status, "Regular"),
+    employment_status: normalizeText(metadata.employment_status, ""),
+    employment_type: normalizeText(metadata.employment_type, ""),
+    sex: normalizeText(metadata.sex, ""),
+    civil_status: normalizeText(metadata.civil_status, ""),
+    tin_number: normalizeText(metadata.tin_number, ""),
     archived: Boolean(metadata.archived),
     date_of_birth: normalizeText(metadata.date_of_birth, ""),
     // profiles is now authoritative for these (real, constrained columns —
@@ -264,32 +270,47 @@ export async function POST(request) {
     const role = normalizeRole(body.role);
 
     // The account being created must sit at or below the caller's ceiling —
-    // an Admin can add HR / Accountant / Employee staff, never another Admin.
+    // HR adds Employee / Accountant staff, never HR, Admin or Super Admin.
     const escalation = denyRoleEscalation(guard, role);
     if (escalation) return escalation;
 
-    // New staff land in the caller's own branch. Only Super Admin may name a
-    // branch explicitly, since only Super Admin can reach more than one.
-    const branchId = guard.branchExempt
-      ? (normalizeText(body.branch_id) || null)
-      : guard.branchId;
+    const record = normalizeEmployeeFields(body);
+    const supabase = getAdminClient();
 
-    const foreignBranch = denyForeignBranch(guard, normalizeText(body.branch_id));
-    if (foreignBranch) return foreignBranch;
-    const email = normalizeRoleEmail(body.email);
-    const defaultPassword = buildDefaultPassword(body.last_name, body.date_of_birth);
-    const password = normalizeText(body.password, defaultPassword);
-    const fullName = buildFullNameFromParts(body);
-    const dateOfBirth = normalizeText(body.date_of_birth);
+    // A caller that reaches every branch (HR, Super Admin) must say which
+    // branch the new employee belongs to; a branch-scoped caller can only
+    // place staff in its own.
+    const branchId = guard.branchExempt ? (record.branch_id || null) : guard.branchId;
+    if (!guard.branchExempt) {
+      const foreignBranch = denyForeignBranch(guard, record.branch_id);
+      if (foreignBranch) return foreignBranch;
+    }
+    record.branch_id = branchId || "";
 
-    if (!email || !password || !fullName || !dateOfBirth) {
-      return NextResponse.json(
-        { error: "full_name, email, and date_of_birth are required." },
-        { status: 400 },
-      );
+    const invalid = validateEmployeeRecord(record, { creating: true });
+    if (invalid) {
+      return NextResponse.json({ error: invalid }, { status: 400 });
     }
 
-    if (!defaultPassword) {
+    const branchResult = await supabase
+      .from("branches")
+      .select("id,status")
+      .eq("id", branchId)
+      .maybeSingle();
+    if (branchResult.error || !branchResult.data) {
+      return NextResponse.json({ error: "The selected branch does not exist." }, { status: 400 });
+    }
+    if (String(branchResult.data.status || "Active").toLowerCase() !== "active") {
+      return NextResponse.json({ error: "The selected branch is inactive." }, { status: 400 });
+    }
+
+    const email = record.email;
+    const defaultPassword = buildDefaultPassword(record.last_name, record.date_of_birth);
+    const password = normalizeText(body.password, defaultPassword);
+    const fullName = buildFullNameFromParts(body);
+    const dateOfBirth = record.date_of_birth;
+
+    if (!defaultPassword || !password) {
       return NextResponse.json(
         { error: "Default password could not be generated. Check last name and date of birth." },
         { status: 400 },
@@ -303,7 +324,6 @@ export async function POST(request) {
       );
     }
 
-    const supabase = getAdminClient();
     const employeesBefore = await fetchEmployees(supabase);
     const autoEmployeeId = generateUniqueEmployeeId(employeesBefore);
 
@@ -312,20 +332,26 @@ export async function POST(request) {
       full_name: fullName,
       branch_id: branchId,
       employee_id: autoEmployeeId,
-      employee_type: normalizeText(body.employee_type, "Teaching"),
-      position: normalizePositionForRole(body.position, role),
-      basic_salary: Number(body.basic_salary || 0),
+      employee_type: record.employee_type,
+      position: normalizePositionForRole(record.position, role),
+      basic_salary: record.basic_salary,
       date_of_birth: dateOfBirth,
-      rfid_status: normalizeText(body.employee_status, "Active"),
-      employee_status: normalizeText(body.employee_status, "Active"),
-      employment_status: "Regular",
+      sex: record.sex,
+      civil_status: record.civil_status,
+      employment_type: record.employment_type,
+      employment_status: record.employment_status,
+      rfid_status: record.employee_status,
+      employee_status: record.employee_status,
       archived: false,
-      address: normalizeText(body.address, ""),
-      sss_number: normalizeText(body.sss_number, ""),
-      pagibig_number: normalizeText(body.pagibig_number, ""),
-      philhealth_number: normalizeText(body.philhealth_number, ""),
-      bank_name: normalizeText(body.bank_name, ""),
-      bank_account_number: normalizeText(body.bank_account_number, ""),
+      address: record.address,
+      cp_number: record.cp_number,
+      date_hired: record.date_hired,
+      sss_number: record.sss_number,
+      pagibig_number: record.pagibig_number,
+      philhealth_number: record.philhealth_number,
+      tin_number: record.tin_number,
+      bank_name: record.bank_name,
+      bank_account_number: record.bank_account_number,
     };
 
     const createUserResult = await supabase.auth.admin.createUser({
@@ -333,6 +359,9 @@ export async function POST(request) {
       password,
       email_confirm: true,
       user_metadata: metadata,
+      // Marks the issued password: signing in with it lands on the mandatory
+      // change-password screen (src/lib/auth/password-policy.js).
+      app_metadata: { temp_password_hash: hashTemporaryPassword(password) },
     });
 
     if (createUserResult.error) {
@@ -521,6 +550,8 @@ export async function PATCH(request) {
       const password = normalizeText(body.password);
       if (password) {
         updatePayload.password = password;
+        // A password set by someone else is a one-time password too.
+        updatePayload.app_metadata = { temp_password_hash: hashTemporaryPassword(password) };
       }
     }
 

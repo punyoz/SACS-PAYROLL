@@ -9,8 +9,8 @@
 /* ── PAGE MAP ── */
 const HR_PAGES = {
   'hr-dashboard':     'HR Dashboard',
-  'hr-employees':     'Employee Information',
-  'hr-branch-assign': 'Branch Assignment',
+  'hr-employees':     'User Management',
+  'hr-transfers':     'Transfer Requests',
   'hr-attendance':    'Attendance Monitoring',
   'hr-leaves':        'Leave Approval',
   'hr-reports':       'HR Reports',
@@ -19,6 +19,7 @@ const HR_PAGES = {
 
 let hrAllEmployees = [];
 let hrEmployeeFilter = 'all';
+let hrEmployeeBranchFilter = 'all';
 let hrEmployeeSearch = '';
 let hrAttendanceLogs = [];
 let hrLeaveRequests = [];
@@ -32,6 +33,8 @@ let hrBranchFilter = 'all';
 let hrBranchSearch = '';
 let hrCurrentBranchEmployee = null;
 let hrBranchPaginator = null;
+let hrTransferHistory = [];
+let hrTransferHistoryPaginator = null;
 
 let hrBranches = [];
 
@@ -60,11 +63,19 @@ function hrNav(pageId, navEl) {
 
   if (pageId === 'hr-dashboard') loadHRDashboard();
   else if (pageId === 'hr-employees') loadHREmployees();
-  else if (pageId === 'hr-branch-assign') loadHrBranchAssignment();
+  else if (pageId === 'hr-transfers') loadHrBranchAssignment();
   else if (pageId === 'hr-attendance') loadHRAttendance();
   else if (pageId === 'hr-leaves') loadHRLeaves();
   else if (pageId === 'hr-reports') { /* user clicks Generate */ }
   else if (pageId === 'hr-profile') loadHRProfile();
+}
+
+/* Navigate by page id, highlighting the matching sidebar row whichever way
+   the sidebar was rendered. */
+function hrGo(pageId) {
+  const navEl = document.querySelector(`#s-hr .ni[data-page="${pageId}"]`)
+    || document.querySelector(`#s-hr .ni[onclick*="'${pageId}'"]`);
+  hrNav(pageId, navEl);
 }
 
 /* ── IDENTITY ── */
@@ -126,7 +137,7 @@ function renderHRDashboardLeaves(pendingCount) {
   }
   el.innerHTML = `<div class="approval-item">
     <div class="approval-info"><strong style="color:var(--amber);">${pendingCount}</strong> leave request${pendingCount > 1 ? 's' : ''} awaiting your decision.</div>
-    <button class="btn btn-outline" onclick="hrNav('hr-leaves', document.querySelectorAll('#s-hr .ni')[4])">Review Now</button>
+    <button class="btn btn-outline" onclick="hrGo('hr-leaves')">Review Now</button>
   </div>`;
 }
 
@@ -150,7 +161,7 @@ function renderHRRecentActivity(activity) {
   }).join('');
 }
 
-/* ── EMPLOYEE RECORDS ── */
+/* ── USER MANAGEMENT (employee records, every branch) ── */
 async function loadHREmployees() {
   const tbody = document.getElementById('hr-employee-table-body');
   if (tbody) tbody.innerHTML = skeletonRows(10);
@@ -166,22 +177,57 @@ async function loadHREmployees() {
     if (!res.ok) throw new Error(data.error || 'Failed to load employees.');
 
     hrAllEmployees = data.employees || [];
+    renderHrEmployeeBranchFilter();
     updateHrEmployeeChips();
     renderHREmployeeTable();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="color:var(--red);">${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
+function hrBranchName(branchId) {
+  if (!branchId) return '';
+  return hrBranches.find((b) => String(b.id) === String(branchId))?.name || 'Unknown branch';
+}
+
+function renderHrEmployeeBranchFilter() {
+  const select = document.getElementById('hr-emp-branch-filter');
+  if (!select) return;
+  const current = hrEmployeeBranchFilter;
+  select.innerHTML = '<option value="all">All branches</option><option value="unassigned">Unassigned</option>'
+    + hrBranches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+  select.value = [...select.options].some((o) => o.value === current) ? current : 'all';
+  hrEmployeeBranchFilter = select.value;
+}
+
+function setHrEmployeeBranchFilter(value) {
+  hrEmployeeBranchFilter = String(value || 'all');
+  updateHrEmployeeChips();
+  renderHREmployeeTable();
+}
+
+function hrEmployeesInBranchFilter(list) {
+  if (hrEmployeeBranchFilter === 'all') return list;
+  if (hrEmployeeBranchFilter === 'unassigned') return list.filter((e) => !e.branch_id);
+  return list.filter((e) => String(e.branch_id || '') === hrEmployeeBranchFilter);
+}
+
 function updateHrEmployeeChips() {
-  const all = hrAllEmployees;
-  const teaching = all.filter((e) => e.employee_type?.toLowerCase() === 'teaching').length;
-  const nonTeaching = all.filter((e) => e.employee_type?.toLowerCase() === 'non-teaching').length;
+  const all = hrEmployeesInBranchFilter(hrAllEmployees);
+  const active = all.filter((e) => !e.archived);
+  const teaching = active.filter((e) => e.employee_type?.toLowerCase() === 'teaching').length;
+  const nonTeaching = active.filter((e) => e.employee_type?.toLowerCase() === 'non-teaching').length;
   const archived = all.filter((e) => e.archived).length;
 
-  const chips = document.querySelectorAll('#hr-emp-filter-chips .chip');
-  const labels = [`All (${all.length})`, `Teaching (${teaching})`, `Non-Teaching (${nonTeaching})`, `Archived (${archived})`];
-  chips.forEach((chip, i) => { if (labels[i]) chip.textContent = labels[i]; });
+  const labels = {
+    all: `All (${active.length})`,
+    teaching: `Teaching (${teaching})`,
+    'non-teaching': `Non-Teaching (${nonTeaching})`,
+    archived: `Archived (${archived})`,
+  };
+  document.querySelectorAll('#hr-emp-filter-chips .chip').forEach((chip) => {
+    if (labels[chip.dataset.filter]) chip.textContent = labels[chip.dataset.filter];
+  });
 }
 
 function setHrEmployeeFilter(filter) {
@@ -205,7 +251,7 @@ function renderHREmployeeTable() {
   const tbody = document.getElementById('hr-employee-table-body');
   if (!tbody) return;
 
-  let list = hrAllEmployees;
+  let list = hrEmployeesInBranchFilter(hrAllEmployees);
 
   if (hrEmployeeFilter === 'teaching') list = list.filter((e) => e.employee_type?.toLowerCase() === 'teaching' && !e.archived);
   else if (hrEmployeeFilter === 'non-teaching') list = list.filter((e) => e.employee_type?.toLowerCase() === 'non-teaching' && !e.archived);
@@ -214,15 +260,10 @@ function renderHREmployeeTable() {
 
   if (hrEmployeeSearch) {
     list = list.filter((e) =>
-      [e.full_name, e.employee_id, e.email, e.position].some((v) =>
+      [e.full_name, e.employee_id, e.email, e.position, hrBranchName(e.branch_id)].some((v) =>
         String(v || '').toLowerCase().includes(hrEmployeeSearch)
       )
     );
-  }
-
-  if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="color:var(--t3);">No employees found.</td></tr>';
-    return;
   }
 
   if (!hrEmpPaginator) {
@@ -230,20 +271,26 @@ function renderHREmployeeTable() {
       id: 'hr-emp',
       pageSize: 15,
       renderFn: (rows) => {
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="10" style="color:var(--t3);">No employees found.</td></tr>';
+          return;
+        }
         tbody.innerHTML = rows.map((e) => {
           const statusColor = e.employee_status?.toLowerCase() === 'active' ? 'var(--green)' : 'var(--amber)';
-          const branchLabel = e.branch_id ? (hrBranches.find((b) => b.id === e.branch_id)?.name || e.branch_id) : '—';
+          const cpNumber = e.cp_number
+            ? formatDigitGroups(digitsOnly(e.cp_number), DIGIT_FIELD_SPECS.cp_number.groups, DIGIT_FIELD_SPECS.cp_number.separator)
+            : '—';
           return `<tr>
-            <td>${e.full_name || '—'}</td>
-            <td><code style="font-size:11px;">${e.employee_id || '—'}</code></td>
-            <td>${e.employee_type || '—'}</td>
-            <td>${e.position || '—'}</td>
-            <td>${e.cp_number || '—'}</td>
-            <td style="font-size:12px;">${branchLabel}</td>
-            <td style="font-size:12px;">${e.date_hired || '—'}</td>
-            <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${e.employee_status || 'Active'}</span></td>
-            <td style="font-size:12px;color:var(--t3);">${e.email || '—'}</td>
-            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal(${JSON.stringify(e).replace(/"/g, '&quot;')})">Edit</button></td>
+            <td>${escapeHtml(e.full_name || '—')}</td>
+            <td><code style="font-size:11px;">${escapeHtml(e.employee_id || '—')}</code></td>
+            <td>${escapeHtml(e.employee_type || '—')}</td>
+            <td>${escapeHtml(e.position || '—')}</td>
+            <td>${escapeHtml(cpNumber)}</td>
+            <td style="font-size:12px;">${escapeHtml(hrBranchName(e.branch_id) || '—')}</td>
+            <td style="font-size:12px;">${escapeHtml(e.date_hired || '—')}</td>
+            <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${escapeHtml(e.employee_status || 'Active')}</span></td>
+            <td style="font-size:12px;color:var(--t3);">${escapeHtml(e.email || '—')}</td>
+            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal('${escapeHtml(e.id)}')">Edit</button></td>
           </tr>`;
         }).join('');
       },
@@ -253,48 +300,220 @@ function renderHREmployeeTable() {
   hrEmpPaginator.setData(list);
 }
 
-function openHrEditEmployeeModal(employee) {
-  hrCurrentEditEmployee = employee;
-  const form = document.getElementById('hr-edit-employee-form');
-  if (!form) return;
+/* ── EMPLOYEE FORM: required fields + formats ──
+   Mirrors src/lib/employees/record.js so problems show before submitting;
+   the server applies the same rules and has the final say. */
+const HR_MIN_WORKING_AGE = 15;
+const HR_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  form.querySelector('[name="id"]').value = employee.id || '';
-  form.querySelector('[name="employee_id"]').value = employee.employee_id || '';
+function hrParseDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.toISOString().slice(0, 10) === value ? date : null;
+}
+
+function hrYearsBetween(earlier, later) {
+  let years = later.getUTCFullYear() - earlier.getUTCFullYear();
+  if (later.getUTCMonth() < earlier.getUTCMonth()
+    || (later.getUTCMonth() === earlier.getUTCMonth() && later.getUTCDate() < earlier.getUTCDate())) {
+    years -= 1;
+  }
+  return years;
+}
+
+function hrFieldLabel(control) {
+  const label = control.closest('.fg')?.querySelector('label');
+  return label ? label.textContent.replace('*', '').trim() : control.name;
+}
+
+function hrMarkInvalid(control, message) {
+  control.classList.add('field-invalid');
+  control.setAttribute('aria-invalid', 'true');
+  const error = control.closest('.fg')?.querySelector('.field-error');
+  if (error && message) error.textContent = message;
+}
+
+function hrClearFormErrors(form) {
+  form.querySelectorAll('.field-invalid').forEach((el) => {
+    el.classList.remove('field-invalid');
+    el.removeAttribute('aria-invalid');
+  });
+  form.querySelectorAll('.field-error').forEach((el) => { el.textContent = ''; });
+}
+
+/**
+ * Validate an employee form. Returns the payload to send, or null after
+ * marking every problem field and writing a summary into `feedbackEl`.
+ */
+function collectHrEmployeeForm(form, feedbackEl, { creating }) {
+  hrClearFormErrors(form);
+  const value = (name) => String(form.elements[name]?.value ?? '').trim();
+
+  const missing = [];
+  form.querySelectorAll('[required]').forEach((control) => {
+    if (!String(control.value ?? '').trim()) {
+      missing.push(control);
+      hrMarkInvalid(control, 'This field is required.');
+    }
+  });
+
+  const fail = (control, message) => {
+    if (control) {
+      hrMarkInvalid(control, message);
+      control.focus();
+    }
+    if (feedbackEl) { feedbackEl.textContent = message; feedbackEl.className = 'adm-feedback err'; }
+    return null;
+  };
+
+  if (missing.length) {
+    const labels = missing.map(hrFieldLabel);
+    missing[0].focus();
+    if (feedbackEl) {
+      feedbackEl.textContent = `Please complete the required field${labels.length > 1 ? 's' : ''}: ${labels.join(', ')}.`;
+      feedbackEl.className = 'adm-feedback err';
+    }
+    return null;
+  }
+
+  const el = (name) => form.elements[name];
+  const namePattern = /^[A-Za-z\s]+$/;
+  if (!namePattern.test(value('first_name'))) return fail(el('first_name'), 'First name must contain letters and spaces only.');
+  if (value('middle_initial') && !namePattern.test(value('middle_initial'))) return fail(el('middle_initial'), 'Middle name must contain letters and spaces only.');
+  if (!namePattern.test(value('last_name'))) return fail(el('last_name'), 'Last name must contain letters and spaces only.');
+  if (!HR_EMAIL_PATTERN.test(value('email'))) return fail(el('email'), 'Enter a valid email address.');
+
+  const today = new Date();
+  const todayUtc = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+  const birth = hrParseDate(value('date_of_birth'));
+  if (!birth) return fail(el('date_of_birth'), 'Date of birth is not a valid date.');
+  if (birth >= todayUtc) return fail(el('date_of_birth'), 'Date of birth must be in the past.');
+  if (hrYearsBetween(birth, todayUtc) < HR_MIN_WORKING_AGE) return fail(el('date_of_birth'), `The employee must be at least ${HR_MIN_WORKING_AGE} years old.`);
+
+  const hired = hrParseDate(value('date_hired'));
+  if (!hired) return fail(el('date_hired'), 'Date hired is not a valid date.');
+  if (hrYearsBetween(birth, hired) < HR_MIN_WORKING_AGE) return fail(el('date_hired'), `Date hired must be on or after the employee's ${HR_MIN_WORKING_AGE}th birthday.`);
+
+  let basicSalary;
+  if (creating) {
+    basicSalary = Number(value('basic_salary'));
+    if (!(basicSalary > 0) || basicSalary > 9999999.99) return fail(el('basic_salary'), 'Basic salary must be greater than 0 and at most ₱9,999,999.99.');
+  }
+
+  if (value('address').length < 5) return fail(el('address'), 'Enter the complete home address.');
+
+  const cp = digitsOnly(value('cp_number'));
+  if (!/^09\d{9}$/.test(cp)) return fail(el('cp_number'), 'Contact number must be an 11-digit PH mobile number starting with 09.');
+  const sss = digitsOnly(value('sss_number'));
+  if (sss.length !== 10) return fail(el('sss_number'), 'SSS number must be exactly 10 digits.');
+  const philhealth = digitsOnly(value('philhealth_number'));
+  if (philhealth.length !== 12) return fail(el('philhealth_number'), 'PhilHealth number must be exactly 12 digits.');
+  const pagibig = digitsOnly(value('pagibig_number'));
+  if (pagibig.length !== 12) return fail(el('pagibig_number'), 'Pag-IBIG number must be exactly 12 digits.');
+  const tin = digitsOnly(value('tin_number'));
+  if (tin.length !== 9 && tin.length !== 12) return fail(el('tin_number'), 'TIN must be 9 digits, or 12 digits including the branch code.');
+  const bankAccount = digitsOnly(value('bank_account_number'));
+  if (bankAccount.length < 6 || bankAccount.length > 20) return fail(el('bank_account_number'), 'Bank account number must be 6 to 20 digits.');
+
+  const payload = {
+    first_name: value('first_name'),
+    middle_initial: value('middle_initial'),
+    last_name: value('last_name'),
+    suffix: value('suffix'),
+    email: value('email'),
+    date_of_birth: value('date_of_birth'),
+    sex: value('sex'),
+    civil_status: value('civil_status'),
+    employee_type: value('employee_type'),
+    position: value('position'),
+    employment_type: value('employment_type'),
+    employment_status: value('employment_status'),
+    employee_status: value('employee_status'),
+    date_hired: value('date_hired'),
+    address: value('address'),
+    cp_number: cp,
+    sss_number: sss,
+    philhealth_number: philhealth,
+    pagibig_number: pagibig,
+    tin_number: tin,
+    bank_name: value('bank_name'),
+    bank_account_number: bankAccount,
+  };
+  if (creating) {
+    payload.role = value('role');
+    payload.branch_id = value('branch_id');
+    payload.basic_salary = basicSalary;
+  }
+  return payload;
+}
+
+function hrPositionForRole(role) {
+  return String(role || '').toLowerCase() === 'accountant' ? 'Accountant' : 'Employee';
+}
+
+function setHrSelectValue(select, value) {
+  if (!select) return;
+  const wanted = String(value || '');
+  const match = [...select.options].find((o) => o.value.toLowerCase() === wanted.toLowerCase() && o.value !== '');
+  select.value = match ? match.value : '';
+  // A blank value on a select whose placeholder is disabled shows nothing;
+  // select the placeholder explicitly so the field reads "Select ...".
+  if (!match && select.options[0]?.value === '') select.selectedIndex = 0;
+}
+
+function openHrEditEmployeeModal(employeeId) {
+  const employee = hrAllEmployees.find((e) => e.id === employeeId);
+  const form = document.getElementById('hr-edit-employee-form');
+  if (!employee || !form) {
+    window.alert('Employee not found. Please refresh the list.');
+    return;
+  }
+  hrCurrentEditEmployee = employee;
+  form.reset();
+  hrClearFormErrors(form);
+
+  const set = (name, val) => { if (form.elements[name]) form.elements[name].value = val ?? ''; };
+
+  set('id', employee.id);
+  set('employee_id', employee.employee_id || '—');
+  set('role_label', employee.role === 'accountant' ? 'Accountant' : 'Employee');
+  set('branch_label', hrBranchName(employee.branch_id) || 'Unassigned');
 
   // Only a single composed full_name is stored — split it back into parts
   // so the Name section starts pre-filled with something reasonable.
   const nameParts = splitFullName(employee.full_name || '');
   const midName = nameParts.middle_initial
     || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
-  if (form.elements.first_name) form.elements.first_name.value = nameParts.first_name || '';
-  if (form.elements.middle_initial) form.elements.middle_initial.value = midName;
-  if (form.elements.last_name) form.elements.last_name.value = nameParts.last_name || '';
-  if (form.elements.suffix) form.elements.suffix.value = nameParts.suffix || '';
+  set('first_name', nameParts.first_name || '');
+  set('middle_initial', midName);
+  set('last_name', nameParts.last_name || '');
+  setHrSelectValue(form.elements.suffix, nameParts.suffix);
 
-  if (form.elements.email) form.elements.email.value = employee.email || '';
-  if (form.elements.date_of_birth) form.elements.date_of_birth.value = employee.date_of_birth || '';
-
-  const typeEl = form.querySelector('[name="employee_type"]');
-  if (typeEl) typeEl.value = employee.employee_type || 'Teaching';
-
-  const posEl = form.querySelector('[name="position"]');
-  if (posEl) posEl.value = employee.position || 'Employee';
-
-  const statusEl = form.querySelector('[name="employee_status"]');
-  if (statusEl) statusEl.value = employee.employee_status || 'Active';
-
-  if (form.elements.address) form.elements.address.value = employee.address || '';
-  if (form.elements.cp_number) form.elements.cp_number.value = employee.cp_number || '';
-  if (form.elements.date_hired) form.elements.date_hired.value = employee.date_hired || '';
-  if (form.elements.bank_name) form.elements.bank_name.value = employee.bank_name || '';
-  populateDigitFieldsIn(form, employee);
-
-  form.querySelectorAll('.field-error').forEach((s) => { s.textContent = ''; });
+  set('email', employee.email);
+  set('date_of_birth', employee.date_of_birth);
+  setHrSelectValue(form.elements.sex, employee.sex);
+  setHrSelectValue(form.elements.civil_status, employee.civil_status);
+  setHrSelectValue(form.elements.employee_type, employee.employee_type);
+  set('position', employee.position || hrPositionForRole(employee.role));
+  setHrSelectValue(form.elements.employment_type, employee.employment_type);
+  setHrSelectValue(form.elements.employment_status, employee.employment_status);
+  setHrSelectValue(form.elements.employee_status, employee.employee_status || 'Active');
+  set('date_hired', employee.date_hired);
+  set('address', employee.address);
+  set('bank_name', employee.bank_name);
 
   bindDigitFieldsIn(form);
+  populateDigitFieldsIn(form, employee);
 
   const fb = document.getElementById('hr-edit-employee-feedback');
-  if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
+  const missing = [...form.querySelectorAll('[required]')].filter((c) => !String(c.value || '').trim());
+  if (fb) {
+    fb.textContent = missing.length
+      ? `This record is incomplete: ${missing.map(hrFieldLabel).join(', ')}. Fill these in to save.`
+      : '';
+    fb.className = missing.length ? 'adm-feedback loading' : 'adm-feedback';
+  }
 
   const modal = document.getElementById('hr-edit-employee-modal');
   if (modal) modal.style.display = 'flex';
@@ -310,73 +529,34 @@ async function submitHrEditEmployee(event) {
   event.preventDefault();
   const form = event.target;
   const fb = document.getElementById('hr-edit-employee-feedback');
+  const submitBtn = form.querySelector('button[type="submit"]');
 
-  const firstName = (form.elements.first_name?.value || '').trim();
-  const lastName = (form.elements.last_name?.value || '').trim();
-  const middleInitial = (form.elements.middle_initial?.value || '').trim();
-  const suffix = (form.elements.suffix?.value || '').trim();
-  const email = (form.elements.email?.value || '').trim();
-
-  if (!firstName || !lastName) {
-    if (fb) { fb.textContent = 'First and last name are required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!/^[A-Za-z\s]+$/.test(firstName)) {
-    if (fb) { fb.textContent = 'First name must contain only letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!/^[A-Za-z\s]+$/.test(lastName)) {
-    if (fb) { fb.textContent = 'Last name must contain only letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (middleInitial && !/^[A-Za-z\s]+$/.test(middleInitial)) {
-    if (fb) { fb.textContent = 'Middle name must contain only letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!email) {
-    if (fb) { fb.textContent = 'Email is required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-
-  // Role and basic_salary are intentionally never sent — HR can't edit
-  // either, so those fields aren't in this form at all.
-  const payload = {
-    id: form.querySelector('[name="id"]').value,
-    first_name: firstName,
-    middle_initial: middleInitial,
-    last_name: lastName,
-    suffix,
-    email,
-    date_of_birth: (form.elements.date_of_birth?.value || '').trim(),
-    employee_type: form.querySelector('[name="employee_type"]').value,
-    position: form.querySelector('[name="position"]').value,
-    employee_status: form.querySelector('[name="employee_status"]').value,
-    address: (form.elements.address?.value || '').trim(),
-    cp_number: digitsOnly(form.elements.cp_number?.value),
-    date_hired: (form.elements.date_hired?.value || '').trim(),
-    sss_number: digitsOnly(form.elements.sss_number?.value),
-    pagibig_number: digitsOnly(form.elements.pagibig_number?.value),
-    philhealth_number: digitsOnly(form.elements.philhealth_number?.value),
-    bank_name: (form.elements.bank_name?.value || '').trim(),
-    bank_account_number: digitsOnly(form.elements.bank_account_number?.value),
-  };
+  const payload = collectHrEmployeeForm(form, fb, { creating: false });
+  if (!payload) return;
+  payload.id = form.elements.id.value;
 
   try {
+    submitBtn.disabled = true;
+    if (fb) { fb.textContent = 'Saving...'; fb.className = 'adm-feedback loading'; }
+
     const res = await fetch('/api/hr/employees', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Update failed.');
 
-    if (fb) { fb.textContent = 'Employee updated successfully.'; fb.style.color = 'var(--green)'; }
+    if (fb) { fb.textContent = 'Employee updated successfully.'; fb.className = 'adm-feedback ok'; }
+    pushNotification('Employee Updated', `${payload.first_name} ${payload.last_name}'s record was saved.`, 'success');
     setTimeout(() => {
       closeHrEditEmployeeModal();
       loadHREmployees();
-    }, 800);
+    }, 700);
   } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
+    if (fb) { fb.textContent = err.message; fb.className = 'adm-feedback err'; }
+  } finally {
+    submitBtn.disabled = false;
   }
 }
 
@@ -454,12 +634,12 @@ function renderHRAttendanceTable(logs) {
           const s = String(row.status || '').toLowerCase();
           const color = s === 'present' ? 'var(--green)' : s === 'late' ? 'var(--amber)' : 'var(--red)';
           return `<tr>
-            <td>${row.employee_name || row.employee_id || '—'}</td>
-            <td>${row.employee_type || '—'}</td>
-            <td>${row.date || '—'}</td>
-            <td>${row.time_in || '—'}</td>
-            <td>${row.time_out || '—'}</td>
-            <td>${row.hours_worked != null ? Number(row.hours_worked).toFixed(1) + 'h' : '—'}</td>
+            <td>${escapeHtml(row.employee_name || row.employee_id || '—')}</td>
+            <td>${escapeHtml(row.employee_type || '—')}</td>
+            <td>${escapeHtml(row.date || '—')}</td>
+            <td>${row.time_in ? escapeHtml(formatTimeOnly(row.time_in)) : '—'}</td>
+            <td>${row.time_out ? escapeHtml(formatTimeOnly(row.time_out)) : '—'}</td>
+            <td>${row.time_out ? Number(row.total_hours || 0).toFixed(2) + 'h' : '—'}</td>
             <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${row.status || '—'}</span></td>
           </tr>`;
         }).join('');
@@ -478,9 +658,9 @@ function exportHRAttendanceCsv() {
     r.employee_name || r.employee_id || '',
     r.employee_type || '',
     r.date || '',
-    r.time_in || '',
-    r.time_out || '',
-    r.hours_worked != null ? Number(r.hours_worked).toFixed(2) : '',
+    r.time_in ? formatTimeOnly(r.time_in) : '',
+    r.time_out ? formatTimeOnly(r.time_out) : '',
+    r.time_out ? Number(r.total_hours || 0).toFixed(2) : '',
     r.status || '',
   ]);
 
@@ -764,113 +944,9 @@ function downloadCsv(rows, filename) {
 }
 
 /* ── CHANGE PASSWORD ── */
-async function submitHrChangePassword() {
-  const current = document.getElementById('hr-current-password')?.value?.trim();
-  const next = document.getElementById('hr-new-password')?.value?.trim();
-  const confirm = document.getElementById('hr-confirm-password')?.value?.trim();
-  const fb = document.getElementById('hr-change-password-feedback');
-
-  if (!current || !next || !confirm) {
-    if (fb) { fb.textContent = 'All fields are required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (next !== confirm) {
-    if (fb) { fb.textContent = 'Passwords do not match.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (next.length < 8) {
-    if (fb) { fb.textContent = 'New password must be at least 8 characters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-
-  if (fb) { fb.textContent = 'Updating...'; fb.style.color = 'var(--t3)'; }
-
-  try {
-    const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
-    const email = ctx?.email;
-    if (!email) throw new Error('Could not determine account email. Please re-login.');
-
-    // Verify current password by attempting sign-in
-    const verifyRes = await fetch('/api/legacy-auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employeeId: email, password: current }),
-    });
-    if (!verifyRes.ok) throw new Error('Current password is incorrect.');
-
-    // Use Supabase client to update password
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
-    const supabaseUrl = document.querySelector('meta[name="supabase-url"]')?.content || '';
-    const supabaseKey = document.querySelector('meta[name="supabase-anon-key"]')?.content || '';
-    if (!supabaseUrl || !supabaseKey) throw new Error('Cannot update password from this context. Use the /reset-password page.');
-
-    if (fb) { fb.textContent = 'Password updated successfully.'; fb.style.color = 'var(--green)'; }
-    setTimeout(() => closeSettingsModal('hr'), 1500);
-  } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
-  }
-}
-
-function setupHrAddEmployeeValidation() {
-  const form = document.getElementById('hr-add-employee-form');
-  if (!form) return;
-  const INVALID_NAME_CHARS = /[^A-Za-z\s]/g;
-  const INVALID_ID_CHARS = /[A-Za-z]/g;
-  form.querySelectorAll('.name-input').forEach((input) => {
-    const errorSpan = input.nextElementSibling;
-    if (input.dataset.hrNameBound === '1') return;
-    input.dataset.hrNameBound = '1';
-    input.addEventListener('input', () => {
-      const original = input.value;
-      const cleaned = original.replace(INVALID_NAME_CHARS, '');
-      if (cleaned !== original) {
-        const pos = input.selectionStart - (original.length - cleaned.length);
-        input.value = cleaned;
-        input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
-        if (errorSpan) errorSpan.textContent = 'Only letters and spaces are allowed.';
-      } else {
-        if (errorSpan) errorSpan.textContent = '';
-      }
-    });
-  });
-  ['sss_number', 'pagibig_number', 'philhealth_number', 'bank_account_number'].forEach((fieldName) => {
-    const input = form.elements[fieldName];
-    if (!input || input.dataset.hrGovIdBound === '1') return;
-    input.dataset.hrGovIdBound = '1';
-    const errorSpan = input.nextElementSibling;
-    input.addEventListener('input', () => {
-      const original = input.value;
-      const cleaned = original.replace(INVALID_ID_CHARS, '');
-      if (cleaned !== original) {
-        const pos = input.selectionStart - (original.length - cleaned.length);
-        input.value = cleaned;
-        input.setSelectionRange(Math.max(0, pos), Math.max(0, pos));
-        if (errorSpan && errorSpan.classList.contains('field-error')) {
-          errorSpan.textContent = 'Letters are not allowed in this field.';
-        }
-      } else {
-        if (errorSpan && errorSpan.classList.contains('field-error')) {
-          errorSpan.textContent = '';
-        }
-      }
-    });
-  });
-
-  const salaryInput = form.elements.basic_salary;
-  if (salaryInput && salaryInput.dataset.hrSalaryBound !== '1') {
-    salaryInput.dataset.hrSalaryBound = '1';
-    const salaryError = salaryInput.nextElementSibling;
-    salaryInput.addEventListener('keydown', (e) => {
-      if (e.key === 'e' || e.key === 'E' || e.key === '+') {
-        e.preventDefault();
-        if (salaryError) { salaryError.textContent = 'Only numbers are allowed.'; }
-        setTimeout(() => { if (salaryError) salaryError.textContent = ''; }, 2000);
-      }
-    });
-    salaryInput.addEventListener('input', () => {
-      if (salaryError) salaryError.textContent = '';
-    });
-  }
+// The previous version reported success without ever changing the password.
+function submitHrChangePassword() {
+  return submitAccountPasswordChange('hr');
 }
 
 /* ── PROFILE ── */
@@ -923,7 +999,7 @@ function initHRPortal() {
   const repTo = document.getElementById('hr-report-to');
   if (repTo && !repTo.value) repTo.value = new Date().toISOString().slice(0, 10);
 
-  setupHrAddEmployeeValidation();
+  setupHrEmployeeForms();
 }
 
 window.addEventListener('sacs-auth-context-changed', (event) => {
@@ -933,7 +1009,9 @@ window.addEventListener('sacs-auth-context-changed', (event) => {
 
 // Auto-init when HR screen becomes active
 /* ═══════════════════════════════════════
-   HR BRANCH ASSIGNMENT
+   HR TRANSFER REQUESTS
+   HR sees every branch's roster and moves employees between branches. A
+   transfer is recorded in public.transfer_requests and applied at once.
    ═══════════════════════════════════════ */
 
 const HR_BRANCH_COLORS = ['var(--amber)', 'var(--blue)', 'var(--teal)', 'var(--green)', 'var(--red)'];
@@ -946,7 +1024,6 @@ function hrRenderBranchFilterUI() {
     hrBranchFilter = 'all';
   }
 
-  // Render summary cards
   const cardsEl = document.getElementById('hr-ba-branch-cards');
   if (cardsEl) {
     let html = `
@@ -955,13 +1032,11 @@ function hrRenderBranchFilterUI() {
     `;
     hrBranches.forEach((b, i) => {
       const colorClass = CARD_COLORS[i % CARD_COLORS.length];
-      const safeName = String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      html += `<div class="card"><div class="ct">${safeName}</div><div class="cv ${colorClass}" id="hr-ba-count-${b.id}">0</div><div class="cch">Branch campus</div></div>`;
+      html += `<div class="card"><div class="ct">${escapeHtml(b.name)}</div><div class="cv ${colorClass}" id="hr-ba-count-${escapeHtml(b.id)}">0</div><div class="cch">Branch campus</div></div>`;
     });
     cardsEl.innerHTML = html;
   }
 
-  // Render filter chips — one per real branch, any count
   const chipsEl = document.getElementById('hr-ba-filter-chips');
   if (!chipsEl) return;
 
@@ -972,12 +1047,10 @@ function hrRenderBranchFilterUI() {
 
   if (hrBranches.length) {
     hrBranches.forEach((b) => {
-      const safeName = String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      const isActive = hrBranchFilter === b.id;
-      chipsHtml += `<div class="chip ${isActive ? 'active' : ''}" data-hbf="${b.id}" onclick="setHrBranchFilter('${b.id}')">${safeName} (0)</div>`;
+      chipsHtml += `<div class="chip ${hrBranchFilter === b.id ? 'active' : ''}" data-hbf="${escapeHtml(b.id)}" onclick="setHrBranchFilter('${escapeHtml(b.id)}')">${escapeHtml(b.name)} (0)</div>`;
     });
   } else {
-    chipsHtml += `<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No branches configured — ask an Administrator to add branches first.</span>`;
+    chipsHtml += '<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No branches configured — ask the Super Admin to add branches first.</span>';
   }
 
   chipsEl.innerHTML = chipsHtml;
@@ -999,7 +1072,7 @@ function hrUpdateBranchSummary() {
 
   document.querySelectorAll('#hr-ba-filter-chips .chip').forEach((chip) => {
     const bf = chip.getAttribute('data-hbf');
-    if (bf === 'all')             chip.textContent = `All (${total})`;
+    if (bf === 'all') chip.textContent = `All (${total})`;
     else if (bf === 'unassigned') chip.textContent = `Unassigned (${unassigned})`;
     else {
       const branch = hrBranches.find((b) => b.id === bf);
@@ -1012,7 +1085,7 @@ function hrGetFilteredBranchEmployees() {
   const search = hrBranchSearch.toLowerCase();
   return hrBranchAllEmployees.filter((e) => {
     if (hrBranchFilter === 'unassigned') { if (e.branch) return false; }
-    else if (hrBranchFilter !== 'all')   { if (e.branch !== hrBranchFilter) return false; }
+    else if (hrBranchFilter !== 'all') { if (e.branch !== hrBranchFilter) return false; }
     if (!search) return true;
     const hay = [e.full_name, e.employee_id, e.email].map((v) => String(v || '').toLowerCase()).join(' ');
     return hay.includes(search);
@@ -1024,7 +1097,7 @@ function hrRenderBranchTable(employees) {
   if (!tbody) return;
 
   if (!employees.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--t3);">No employees found.</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No employees found.</td></tr>';
     return;
   }
 
@@ -1032,25 +1105,24 @@ function hrRenderBranchTable(employees) {
     const branchIdx = emp.branch ? hrBranches.findIndex((b) => b.id === emp.branch) : -1;
     const branchColor = branchIdx >= 0 ? HR_BRANCH_COLORS[branchIdx % HR_BRANCH_COLORS.length] : 'var(--t3)';
     const inactiveTag = emp.branch && emp.branch_status && emp.branch_status !== 'Active' ? ' (Inactive)' : '';
-    const branchLabel = emp.branch ? String((emp.branch_label || 'Unknown branch') + inactiveTag).replace(/</g,'&lt;').replace(/>/g,'&gt;') : null;
+    const branchLabel = emp.branch ? `${emp.branch_label || 'Unknown branch'}${inactiveTag}` : null;
     const branchCell = branchLabel
-      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${branchLabel}</span>`
-      : `<span class="badge br"><span class="bd"></span>Unassigned</span>`;
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${escapeHtml(branchLabel)}</span>`
+      : '<span class="badge br"><span class="bd"></span>Unassigned</span>';
     const assignedAt = emp.assigned_at
-      ? new Date(emp.assigned_at).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' })
+      ? new Date(emp.assigned_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
       : '—';
     const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
-    const safeId = String(emp.id || '').replaceAll("'", "\\'");
     const actionBtn = emp.branch
-      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${safeId}')">Reassign</button>`
-      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${safeId}')">Assign</button>`;
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeHtml(emp.id)}')">Transfer</button>`
+      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeHtml(emp.id)}')">Assign</button>`;
 
     return `
       <tr>
-        <td class="nm">${String(emp.full_name || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
-        <td class="mn">${String(emp.employee_id || '—').replace(/&/g,'&amp;')}</td>
-        <td><span class="badge ${typeClass}">${emp.employee_type || 'Teaching'}</span></td>
-        <td class="mn">${emp.position || '—'}</td>
+        <td class="nm">${escapeHtml(emp.full_name || '')}</td>
+        <td class="mn">${escapeHtml(emp.employee_id || '—')}</td>
+        <td><span class="badge ${typeClass}">${escapeHtml(emp.employee_type || 'Teaching')}</span></td>
+        <td class="mn">${escapeHtml(emp.position || '—')}</td>
         <td>${branchCell}</td>
         <td class="mn" style="font-size:11px;">${assignedAt}</td>
         <td>${actionBtn}</td>
@@ -1086,20 +1158,72 @@ async function loadHrBranchAssignment() {
   if (tbody) tbody.innerHTML = skeletonRows(7);
 
   try {
-    hrBranches = await fetchBranchesCached().catch(() => hrBranches);
+    hrBranches = await fetchBranchesCached({ activeOnly: false }).catch(() => hrBranches);
     hrRenderBranchFilterUI();
 
-    const response = await fetch('/api/admin/branch-employees', { method: 'GET' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Failed to load branch assignments');
+    const [rosterRes] = await Promise.all([
+      fetch('/api/admin/branch-employees', { method: 'GET' }),
+      loadHrTransferHistory(),
+    ]);
+    const payload = await rosterRes.json().catch(() => ({}));
+    if (!rosterRes.ok) throw new Error(payload.error || 'Failed to load branch assignments');
 
-    hrBranchAllEmployees = payload.employees || [];
+    // HR manages Employee and Accountant accounts only.
+    hrBranchAllEmployees = (payload.employees || []).filter((e) => e.role === 'employee' || e.role === 'accountant');
+    if (!hrBranchPaginator) {
+      hrBranchPaginator = createPaginator({ id: 'hr-ba', pageSize: 20, renderFn: hrRenderBranchTable });
+    }
     hrRenderFilteredBranch();
   } catch (error) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${String(error.message || 'Error').replace(/</g,'&lt;')}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(error.message || 'Error')}</td></tr>`;
     }
   }
+}
+
+async function loadHrTransferHistory() {
+  const tbody = document.getElementById('hr-transfer-history-body');
+  if (tbody) tbody.innerHTML = skeletonRows(7, 3);
+
+  try {
+    const res = await fetch('/api/admin/transfer-requests');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Failed to load transfer history.');
+    hrTransferHistory = data.requests || [];
+
+    if (!hrTransferHistoryPaginator) {
+      hrTransferHistoryPaginator = createPaginator({ id: 'hr-transfer-hist', pageSize: 10, renderFn: renderHrTransferHistory });
+    }
+    hrTransferHistoryPaginator.setData(hrTransferHistory);
+  } catch (error) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+function renderHrTransferHistory(rows) {
+  const tbody = document.getElementById('hr-transfer-history-body');
+  if (!tbody) return;
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No transfers yet.</td></tr>';
+    return;
+  }
+
+  const fmt = (value) => (value ? new Date(value).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+  tbody.innerHTML = rows.map((r) => {
+    const status = String(r.status || '').toLowerCase();
+    const color = status === 'approved' ? 'var(--green)' : status === 'rejected' ? 'var(--red)' : 'var(--amber)';
+    const label = status === 'approved' ? 'Transferred' : status ? status.charAt(0).toUpperCase() + status.slice(1) : '—';
+    return `<tr>
+      <td>${escapeHtml(r.employee_name || '—')}</td>
+      <td style="font-size:12px;">${escapeHtml(r.from_branch_name || (r.from_branch_id ? 'Unknown branch' : 'Unassigned'))}</td>
+      <td style="font-size:12px;">${escapeHtml(r.to_branch_name || 'Unknown branch')}</td>
+      <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${escapeHtml(label)}</span></td>
+      <td style="font-size:12px;max-width:220px;white-space:normal;">${escapeHtml(r.remarks || '—')}</td>
+      <td style="font-size:12px;">${fmt(r.created_at)}</td>
+      <td style="font-size:12px;">${fmt(r.reviewed_at)}</td>
+    </tr>`;
+  }).join('');
 }
 
 function openHrBranchAssignModal(userId) {
@@ -1113,33 +1237,31 @@ function openHrBranchAssignModal(userId) {
     return;
   }
 
+  form.reset();
+  hrClearFormErrors(form);
+  const current = hrCurrentBranchEmployee;
+
   const titleEl = document.getElementById('hr-ba-modal-title');
-  if (titleEl) titleEl.textContent = hrCurrentBranchEmployee.branch ? 'Reassign Branch' : 'Assign Branch';
+  if (titleEl) titleEl.textContent = current.branch ? 'Transfer Employee' : 'Assign Branch';
 
-  form.elements.user_id.value = hrCurrentBranchEmployee.id;
-  form.elements.employee_display.value = `${hrCurrentBranchEmployee.full_name} (${hrCurrentBranchEmployee.employee_id || 'N/A'})`;
+  form.elements.user_id.value = current.id;
+  form.elements.employee_display.value = `${current.full_name} (${current.employee_id || 'N/A'})`;
+  form.elements.current_branch.value = current.branch ? (current.branch_label || 'Unknown branch') : 'Unassigned';
 
+  // Active branches other than the one the employee is already in.
+  const destinations = hrBranches.filter((b) =>
+    String(b.status || 'Active').toLowerCase() === 'active' && b.id !== current.branch);
   const branchSelect = form.elements.branch;
-  if (branchSelect) {
-    // Always offer active branches; also include the employee's current branch even if
-    // it has since gone inactive, so reassigning away from it stays possible.
-    const options = [...hrBranches];
-    if (hrCurrentBranchEmployee.branch && !options.some((b) => b.id === hrCurrentBranchEmployee.branch)) {
-      options.push({ id: hrCurrentBranchEmployee.branch, name: `${hrCurrentBranchEmployee.branch_label || 'Unknown branch'} (Inactive)` });
-    }
+  branchSelect.innerHTML = destinations.length
+    ? '<option value="" disabled selected>Select destination branch</option>'
+      + destinations.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('')
+    : '<option value="" disabled selected>No other active branch available</option>';
 
-    if (options.length) {
-      branchSelect.innerHTML = options.map((b) =>
-        `<option value="${b.id}">${String(b.name || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}</option>`
-      ).join('');
-    } else {
-      branchSelect.innerHTML = '<option value="" disabled>No branches configured yet.</option>';
-    }
-    if (hrCurrentBranchEmployee.branch) branchSelect.value = hrCurrentBranchEmployee.branch;
-  }
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.textContent = current.branch ? 'Transfer Now' : 'Assign Now';
 
   const feedbackEl = document.getElementById('hr-ba-modal-feedback');
-  if (feedbackEl) feedbackEl.textContent = '';
+  if (feedbackEl) { feedbackEl.textContent = ''; feedbackEl.className = 'adm-feedback'; }
 
   modal.style.display = 'flex';
 }
@@ -1154,41 +1276,55 @@ async function submitHrBranchAssign(event) {
   const form = event.target;
   const submitBtn = form.querySelector('button[type="submit"]');
   const feedbackEl = document.getElementById('hr-ba-modal-feedback');
-  const formData = new FormData(form);
 
-  const userId = String(formData.get('user_id') || '').trim();
-  const branchId = String(formData.get('branch') || '').trim();
+  const userId = String(form.elements.user_id.value || '').trim();
+  const branchId = String(form.elements.branch.value || '').trim();
+  const remarks = String(form.elements.remarks.value || '').trim();
 
-  if (!userId || !branchId) {
-    if (feedbackEl) { feedbackEl.textContent = 'Missing required fields.'; feedbackEl.className = 'adm-feedback err'; }
+  hrClearFormErrors(form);
+  if (!userId) {
+    if (feedbackEl) { feedbackEl.textContent = 'Employee is missing. Please close and try again.'; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+  if (!branchId) {
+    hrMarkInvalid(form.elements.branch, 'Choose the destination branch.');
+    if (feedbackEl) { feedbackEl.textContent = 'Choose the destination branch.'; feedbackEl.className = 'adm-feedback err'; }
     return;
   }
 
-  const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
-  const assignedBy = String(ctx?.full_name || ctx?.email || 'hr').trim();
+  const destination = hrBranches.find((b) => b.id === branchId);
+  const employee = hrCurrentBranchEmployee;
+  const confirmed = await confirmApproveAction(
+    `${employee?.branch ? 'transfer' : 'assign'} ${employee?.full_name || 'this employee'} to ${destination?.name || 'the selected branch'}`,
+    'The change applies immediately and is recorded in Transfer History.',
+    { title: 'Confirm Transfer', confirmLabel: employee?.branch ? 'Transfer' : 'Assign' },
+  );
+  if (!confirmed) return;
 
+  const originalLabel = submitBtn.textContent;
   try {
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Assigning...';
+    submitBtn.textContent = 'Saving...';
 
-    const response = await fetch('/api/admin/branch-employees', {
+    const response = await fetch('/api/admin/transfer-requests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: userId, branch_id: branchId, assigned_by: assignedBy }),
+      body: JSON.stringify({ employee_id: userId, to_branch_id: branchId, remarks }),
     });
 
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Failed to assign branch');
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Failed to transfer employee.');
 
-    if (feedbackEl) { feedbackEl.textContent = `Employee assigned to ${result.branch_label}.`; feedbackEl.className = 'adm-feedback ok'; }
-    if (typeof pushNotification === 'function') pushNotification('Branch Assigned', `Employee assigned to ${result.branch_label}.`, 'success');
+    const branchName = result.to_branch_name || destination?.name || 'the new branch';
+    if (feedbackEl) { feedbackEl.textContent = `Moved to ${branchName}.`; feedbackEl.className = 'adm-feedback ok'; }
+    pushNotification('Employee Transferred', `${employee?.full_name || 'Employee'} now belongs to ${branchName}.`, 'success');
     await loadHrBranchAssignment();
     setTimeout(() => closeHrBranchAssignModal(), 600);
   } catch (error) {
     if (feedbackEl) { feedbackEl.textContent = error.message; feedbackEl.className = 'adm-feedback err'; }
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Confirm Assignment';
+    submitBtn.textContent = originalLabel;
   }
 }
 
@@ -1199,20 +1335,48 @@ window.openHrBranchAssignModal = openHrBranchAssignModal;
 window.closeHrBranchAssignModal = closeHrBranchAssignModal;
 window.submitHrBranchAssign = submitHrBranchAssign;
 window.loadHRProfile = loadHRProfile;
+window.hrGo = hrGo;
+window.setHrEmployeeBranchFilter = setHrEmployeeBranchFilter;
+window.openHrEditEmployeeModal = openHrEditEmployeeModal;
+window.openHrAddEmployeeModal = openHrAddEmployeeModal;
+window.submitHrChangePassword = submitHrChangePassword;
 
 /* ═══════════════════════════════════════
    HR ADD EMPLOYEE
    ═══════════════════════════════════════ */
 
-function openHrAddEmployeeModal() {
+async function openHrAddEmployeeModal() {
   const modal = document.getElementById('hr-add-employee-modal');
   const form = document.getElementById('hr-add-employee-form');
   if (!modal || !form) return;
+
   form.reset();
+  hrClearFormErrors(form);
+  bindDigitFieldsIn(form);
+  form.elements.position.value = hrPositionForRole(form.elements.role.value);
+
   const fb = document.getElementById('hr-add-employee-feedback');
   if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
-  bindDigitFieldsIn(form);
+
   modal.style.display = 'flex';
+
+  // HR places new staff in any branch; only active branches accept new staff.
+  const branchSelect = form.elements.branch_id;
+  try {
+    hrBranches = await fetchBranchesCached({ activeOnly: false });
+  } catch {
+    // keep whatever list is already loaded
+  }
+  const active = hrBranches.filter((b) => String(b.status || 'Active').toLowerCase() === 'active');
+  branchSelect.innerHTML = active.length
+    ? '<option value="" disabled selected>Select branch</option>'
+      + active.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('')
+    : '<option value="" disabled selected>No active branches — ask the Super Admin to add one</option>';
+  if (hrEmployeeBranchFilter !== 'all' && active.some((b) => b.id === hrEmployeeBranchFilter)) {
+    branchSelect.value = hrEmployeeBranchFilter;
+  }
+
+  setTimeout(() => form.elements.first_name?.focus(), 0);
 }
 
 function closeHrAddEmployeeModal() {
@@ -1226,92 +1390,93 @@ async function submitHrAddEmployee(event) {
   const fb = document.getElementById('hr-add-employee-feedback');
   const submitBtn = form.querySelector('button[type="submit"]');
 
-  const payload = {
-    first_name: form.querySelector('[name="first_name"]').value.trim(),
-    middle_initial: form.querySelector('[name="middle_initial"]').value.trim(),
-    last_name: form.querySelector('[name="last_name"]').value.trim(),
-    suffix: form.querySelector('[name="suffix"]').value,
-    role: form.querySelector('[name="role"]').value,
-    email: form.querySelector('[name="email"]').value.trim(),
-    date_of_birth: form.querySelector('[name="date_of_birth"]').value,
-    employee_type: form.querySelector('[name="employee_type"]').value,
-    position: form.querySelector('[name="position"]').value,
-    employee_status: form.querySelector('[name="employee_status"]').value,
-    basic_salary: Number(form.querySelector('[name="basic_salary"]').value || 0),
-    address: form.querySelector('[name="address"]').value.trim(),
-    cp_number: digitsOnly(form.querySelector('[name="cp_number"]').value),
-    date_hired: form.querySelector('[name="date_hired"]').value.trim(),
-    sss_number: digitsOnly(form.querySelector('[name="sss_number"]').value),
-    pagibig_number: digitsOnly(form.querySelector('[name="pagibig_number"]').value),
-    philhealth_number: digitsOnly(form.querySelector('[name="philhealth_number"]').value),
-    bank_name: form.querySelector('[name="bank_name"]').value.trim(),
-    bank_account_number: digitsOnly(form.querySelector('[name="bank_account_number"]').value),
-  };
-
-  if (!payload.first_name || !payload.last_name) {
-    if (fb) { fb.textContent = 'First and last name are required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!/^[A-Za-z\s]+$/.test(payload.first_name)) {
-    if (fb) { fb.textContent = 'First name must contain only letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!/^[A-Za-z\s]+$/.test(payload.last_name)) {
-    if (fb) { fb.textContent = 'Last name must contain only letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (payload.middle_initial && !/^[A-Za-z\s]+$/.test(payload.middle_initial)) {
-    if (fb) { fb.textContent = 'Middle name must contain only letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!payload.email) {
-    if (fb) { fb.textContent = 'Email is required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (!payload.date_of_birth) {
-    if (fb) { fb.textContent = 'Date of birth is required.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (payload.sss_number && /[A-Za-z]/.test(payload.sss_number)) {
-    if (fb) { fb.textContent = 'SSS Number must not contain letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (payload.pagibig_number && /[A-Za-z]/.test(payload.pagibig_number)) {
-    if (fb) { fb.textContent = 'Pag-IBIG Number must not contain letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (payload.philhealth_number && /[A-Za-z]/.test(payload.philhealth_number)) {
-    if (fb) { fb.textContent = 'PhilHealth Number must not contain letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-  if (payload.bank_account_number && /[A-Za-z]/.test(payload.bank_account_number)) {
-    if (fb) { fb.textContent = 'Bank Account Number must not contain letters.'; fb.style.color = 'var(--red)'; }
-    return;
-  }
-
-  if (fb) { fb.textContent = 'Creating employee...'; fb.style.color = 'var(--t3)'; }
-  submitBtn.disabled = true;
+  form.elements.position.value = hrPositionForRole(form.elements.role.value);
+  const payload = collectHrEmployeeForm(form, fb, { creating: true });
+  if (!payload) return;
 
   try {
+    submitBtn.disabled = true;
+    if (fb) { fb.textContent = 'Creating employee...'; fb.className = 'adm-feedback loading'; }
+
     const res = await fetch('/api/admin/employees', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Failed to create employee.');
 
-    if (fb) { fb.textContent = `Employee ${data.employee?.full_name || ''} created successfully.`; fb.style.color = 'var(--green)'; }
-    if (typeof pushNotification === 'function') pushNotification('Employee Created', `${data.employee?.full_name || 'New employee'} has been added.`, 'success');
+    const created = data.employee || {};
+    if (fb) {
+      fb.textContent = `${created.full_name || 'Employee'} created (${created.employee_id || 'ID pending'}). They will be asked to change their default password on first sign-in.`;
+      fb.className = 'adm-feedback ok';
+    }
+    pushNotification('Employee Created', `${created.full_name || 'New employee'} has been added.`, 'success');
     setTimeout(() => {
       closeHrAddEmployeeModal();
       loadHREmployees();
-    }, 900);
+    }, 1200);
   } catch (err) {
-    if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
+    if (fb) { fb.textContent = err.message; fb.className = 'adm-feedback err'; }
   } finally {
     submitBtn.disabled = false;
   }
+}
+
+/* Letters-only name inputs and the salary ceiling, for both employee forms. */
+function setupHrEmployeeForms() {
+  const INVALID_NAME_CHARS = /[^A-Za-z\s]/g;
+
+  ['hr-add-employee-form', 'hr-edit-employee-form'].forEach((formId) => {
+    const form = document.getElementById(formId);
+    if (!form || form.dataset.hrBound === '1') return;
+    form.dataset.hrBound = '1';
+
+    form.querySelectorAll('.name-input').forEach((input) => {
+      input.addEventListener('input', () => {
+        const original = input.value;
+        const cleaned = original.replace(INVALID_NAME_CHARS, '');
+        const errorSpan = input.closest('.fg')?.querySelector('.field-error');
+        if (cleaned !== original) {
+          const pos = Math.max(0, (input.selectionStart || 0) - (original.length - cleaned.length));
+          input.value = cleaned;
+          input.setSelectionRange(pos, pos);
+          if (errorSpan) errorSpan.textContent = 'Only letters and spaces are allowed.';
+        } else if (errorSpan && !input.classList.contains('field-invalid')) {
+          errorSpan.textContent = '';
+        }
+      });
+    });
+
+    // Clear a field's error as soon as it is corrected.
+    form.addEventListener('input', (event) => {
+      const control = event.target;
+      if (!control.classList?.contains('field-invalid')) return;
+      if (String(control.value || '').trim()) {
+        control.classList.remove('field-invalid');
+        control.removeAttribute('aria-invalid');
+        const errorSpan = control.closest('.fg')?.querySelector('.field-error');
+        if (errorSpan) errorSpan.textContent = '';
+      }
+    });
+    form.addEventListener('change', (event) => {
+      const control = event.target;
+      if (control.tagName === 'SELECT' && control.classList.contains('field-invalid') && control.value) {
+        control.classList.remove('field-invalid');
+        control.removeAttribute('aria-invalid');
+        const errorSpan = control.closest('.fg')?.querySelector('.field-error');
+        if (errorSpan) errorSpan.textContent = '';
+      }
+    });
+
+    if (form.elements.role && form.elements.position) {
+      form.elements.role.addEventListener('change', () => {
+        form.elements.position.value = hrPositionForRole(form.elements.role.value);
+      });
+    }
+
+    enforceNumericInputs(form);
+  });
 }
 
 const hrScreen = document.getElementById('s-hr');

@@ -197,12 +197,31 @@ function saveAuthContext(result, role, identityInput) {
     sss_number: String(profile.sss_number || '').trim(),
     pagibig_number: String(profile.pagibig_number || '').trim(),
     philhealth_number: String(profile.philhealth_number || '').trim(),
+    tin_number: String(profile.tin_number || '').trim(),
     bank_name: String(profile.bank_name || '').trim(),
     bank_account_number: String(profile.bank_account_number || '').trim(),
+    cp_number: String(profile.cp_number || '').trim(),
+    date_hired: String(profile.date_hired || '').trim(),
+    date_of_birth: String(profile.date_of_birth || '').trim(),
+    sex: String(profile.sex || '').trim(),
+    civil_status: String(profile.civil_status || '').trim(),
+    employment_type: String(profile.employment_type || '').trim(),
+    employment_status: String(profile.employment_status || '').trim(),
+    branch_id: profile.branch_id || null,
+    // Display hint only: the signed session cookie is what actually boxes the
+    // account into the change-password screen (src/proxy.js).
+    must_change_password: result?.must_change_password === true || profile.must_change_password === true,
   };
 
   localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(context));
   dispatchAuthContextChanged(context);
+}
+
+function setMustChangePasswordFlag(value) {
+  const ctx = getAuthContext();
+  if (!ctx) return;
+  ctx.must_change_password = Boolean(value);
+  localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(ctx));
 }
 
 function getAuthContext() {
@@ -1521,6 +1540,8 @@ const DIGIT_FIELD_SPECS = {
   sss_number: { maxLength: 10, groups: [2, 7, 1] },
   pagibig_number: { maxLength: 12, groups: [4, 4, 4] },
   philhealth_number: { maxLength: 12, groups: [2, 9, 1] },
+  // BIR TIN: 9 digits, or 12 with the 3-digit branch code (123-456-789-000).
+  tin_number: { maxLength: 12, groups: [3, 3, 3, 3] },
   bank_account_number: { maxLength: 20, groups: null },
   // PH mobile numbers are 11 digits (e.g. 0917 123 4567) — space-separated
   // to match this field's placeholder everywhere it appears, not the dash
@@ -1643,6 +1664,373 @@ function paginatorGoTo(id, page) {
   _pgRegistry[id]?._goToPage(Number(page));
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   PASSWORDS
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const PASSWORD_MIN_LENGTH = 8;
+
+// Mirrors src/lib/auth/password-policy.js so problems show while typing; the
+// server applies the same rules and has the final say.
+function lastNameCandidates(fullName) {
+  const suffixes = new Set(['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv', 'v']);
+  const tokens = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+  while (tokens.length && suffixes.has(tokens[tokens.length - 1].toLowerCase())) tokens.pop();
+  const candidates = [];
+  for (let start = tokens.length - 1; start >= 1; start -= 1) {
+    candidates.push(tokens.slice(start).join('').toLowerCase());
+  }
+  return candidates;
+}
+
+function looksLikeDefaultPassword(password, ctx) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ctx?.date_of_birth || ''));
+  if (!match || !password) return false;
+  const dob = `${match[2]}${match[3]}${match[1]}`;
+  if (!password.endsWith(dob)) return false;
+  const prefix = password.slice(0, -dob.length).toLowerCase();
+  return Boolean(prefix) && lastNameCandidates(ctx?.full_name).includes(prefix);
+}
+
+function evaluatePasswordRules(current, next, confirm, ctx) {
+  return {
+    length: next.length >= PASSWORD_MIN_LENGTH,
+    mix: /[A-Za-z]/.test(next) && /\d/.test(next),
+    spaces: next.length > 0 && !/\s/.test(next),
+    different: next.length > 0 && next !== current,
+    'not-default': next.length > 0 && !looksLikeDefaultPassword(next, ctx),
+    match: next.length > 0 && next === confirm,
+  };
+}
+
+/**
+ * Change the signed-in account's password. Every portal's Account Settings
+ * and the mandatory first-sign-in screen go through this one call.
+ * @returns {Promise<{ ok: boolean, message: string }>}
+ */
+async function requestPasswordChange(currentPassword, newPassword, confirmPassword) {
+  const current = String(currentPassword || '').trim();
+  const next = String(newPassword || '').trim();
+  const confirm = String(confirmPassword || '').trim();
+
+  if (!current || !next || !confirm) return { ok: false, message: 'All password fields are required.' };
+  if (next !== confirm) return { ok: false, message: 'New passwords do not match.' };
+
+  const rules = evaluatePasswordRules(current, next, confirm, getAuthContext());
+  if (!rules.length) return { ok: false, message: `New password must be at least ${PASSWORD_MIN_LENGTH} characters.` };
+  if (!rules.spaces) return { ok: false, message: 'New password cannot contain spaces.' };
+  if (!rules.mix) return { ok: false, message: 'New password must contain both letters and numbers.' };
+  if (!rules.different) return { ok: false, message: 'New password must be different from your current password.' };
+  if (!rules['not-default']) return { ok: false, message: 'New password cannot be your default password (last name + birth date).' };
+
+  try {
+    const response = await fetch('/api/legacy-auth/change-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: current, new_password: next, confirm_password: confirm }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, message: result.error || 'Failed to update password.' };
+
+    setMustChangePasswordFlag(false);
+    return { ok: true, message: result.message || 'Password updated successfully.' };
+  } catch {
+    return { ok: false, message: 'Network error — your password was not changed. Please try again.' };
+  }
+}
+
+/**
+ * Account Settings "Update Password" for any portal. Reads
+ * `${prefix}-{current,new,confirm}-password` (or the given ids) and writes the
+ * result into `${prefix}-change-password-feedback`.
+ */
+async function submitAccountPasswordChange(prefix, ids = {}) {
+  const currentId = ids.current || `${prefix}-current-password`;
+  const newId = ids.next || `${prefix}-new-password`;
+  const confirmId = ids.confirm || `${prefix}-confirm-password`;
+  const feedback = document.getElementById(ids.feedback || `${prefix}-change-password-feedback`);
+
+  const show = (message, state) => {
+    if (!feedback) return;
+    feedback.textContent = message;
+    feedback.className = `adm-feedback${state ? ` ${state}` : ''}`;
+    feedback.style.color = '';
+  };
+
+  show('Updating password...', 'loading');
+  const result = await requestPasswordChange(
+    document.getElementById(currentId)?.value,
+    document.getElementById(newId)?.value,
+    document.getElementById(confirmId)?.value,
+  );
+
+  if (!result.ok) {
+    show(result.message, 'err');
+    return;
+  }
+
+  [currentId, newId, confirmId].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+  show(result.message, 'ok');
+  pushNotification('Password Changed', 'Your account password has been updated successfully.', 'success');
+  setTimeout(() => closeSettingsModal(prefix), 1200);
+}
+
+/* ── MANDATORY CHANGE-PASSWORD SCREEN ── */
+function initPasswordChangeScreen() {
+  const form = document.getElementById('cp-form');
+  if (!form || form.dataset.bound === '1') return;
+  form.dataset.bound = '1';
+
+  const ctx = getAuthContext() || {};
+  const firstName = String(ctx.full_name || '').trim().split(/\s+/)[0];
+  const greeting = document.getElementById('cp-greeting');
+  if (greeting && firstName) {
+    greeting.textContent = `Welcome, ${firstName}! Before you continue, set a new password for your account.`;
+  }
+  const account = document.getElementById('cp-account');
+  if (account) account.textContent = ctx.email ? `Signed in as ${ctx.email}` : '';
+
+  const current = document.getElementById('cp-current');
+  const next = document.getElementById('cp-new');
+  const confirm = document.getElementById('cp-confirm');
+  const feedback = document.getElementById('cp-feedback');
+  const submit = document.getElementById('cp-submit');
+  const ruleItems = Array.from(document.querySelectorAll('#cp-rules li'));
+
+  const refreshRules = () => {
+    const rules = evaluatePasswordRules(current.value.trim(), next.value.trim(), confirm.value.trim(), ctx);
+    ruleItems.forEach((item) => {
+      const passed = Boolean(rules[item.dataset.rule]);
+      item.classList.toggle('ok', passed);
+      item.classList.toggle('pending', !passed);
+    });
+    return Object.values(rules).every(Boolean);
+  };
+
+  [current, next, confirm].forEach((input) => input.addEventListener('input', () => {
+    refreshRules();
+    if (feedback.classList.contains('err')) {
+      feedback.textContent = '';
+      feedback.className = 'cp-feedback';
+    }
+  }));
+
+  document.querySelectorAll('#s-change-password .cp-eye').forEach((button) => {
+    button.addEventListener('click', () => {
+      const input = document.getElementById(button.dataset.target);
+      if (!input) return;
+      const reveal = input.type === 'password';
+      input.type = reveal ? 'text' : 'password';
+      button.textContent = reveal ? 'Hide' : 'Show';
+      button.setAttribute('aria-label', reveal ? 'Hide password' : 'Show password');
+    });
+  });
+
+  refreshRules();
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+
+    submit.disabled = true;
+    submit.textContent = 'Updating...';
+    feedback.textContent = '';
+    feedback.className = 'cp-feedback';
+
+    const result = await requestPasswordChange(current.value, next.value, confirm.value);
+    if (!result.ok) {
+      feedback.textContent = result.message;
+      feedback.className = 'cp-feedback err';
+      submit.disabled = false;
+      submit.textContent = 'Update password & continue';
+      refreshRules();
+      return;
+    }
+
+    feedback.textContent = 'Password updated. Opening your portal...';
+    feedback.className = 'cp-feedback ok';
+    submit.textContent = 'Done';
+    [current, next, confirm].forEach((input) => { input.value = ''; });
+    // Reload the portal frame: with the flag cleared, index.html now loads the
+    // real portal instead of this screen.
+    setTimeout(() => window.location.reload(), 900);
+  });
+
+  setTimeout(() => current.focus(), 0);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SIGN-IN NOTICES
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const LOGIN_REASON_MESSAGES = {
+  signed_in_elsewhere: 'You were signed out because your account signed in on another device or browser. Only one active sign-in is allowed per account.',
+  account_archived: 'This account has been archived and can no longer sign in.',
+  session_expired: 'Your session has expired. Please sign in again.',
+};
+
+function showLoginReasonNotice() {
+  let reason = '';
+  try {
+    reason = new URLSearchParams((window.top || window).location.search).get('reason') || '';
+  } catch {
+    reason = new URLSearchParams(window.location.search).get('reason') || '';
+  }
+
+  const message = LOGIN_REASON_MESSAGES[reason];
+  const notice = document.getElementById('login-notice');
+  if (!message || !notice) return false;
+
+  notice.textContent = message;
+  notice.hidden = false;
+  return true;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MOBILE NAVIGATION
+   Below 1024px the sidebar becomes a slide-in drawer opened from a menu
+   button in the topbar, the same way the employee portal keeps its content
+   first on a phone instead of a full-height stack of nav rows.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const MOBILE_NAV_BREAKPOINT = 1024;
+
+function closeMobileNav(screen) {
+  const target = screen || document.querySelector('.screen.nav-open');
+  if (!target) return;
+  target.classList.remove('nav-open');
+  target.querySelector('.nav-toggle')?.setAttribute('aria-expanded', 'false');
+}
+
+function setupMobileNav() {
+  document.querySelectorAll('.screen').forEach((screen) => {
+    const sidebar = screen.querySelector(':scope > .sidebar');
+    const topbar = screen.querySelector('.topbar');
+    if (!sidebar || !topbar || screen.dataset.mobileNav === '1') return;
+    screen.dataset.mobileNav = '1';
+
+    if (!sidebar.id) sidebar.id = `${screen.id}-sidebar`;
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'nav-toggle';
+    toggle.setAttribute('aria-label', 'Open menu');
+    toggle.setAttribute('aria-controls', sidebar.id);
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+    toggle.addEventListener('click', () => {
+      const open = !screen.classList.contains('nav-open');
+      screen.classList.toggle('nav-open', open);
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+    topbar.insertBefore(toggle, topbar.firstChild);
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sb-backdrop';
+    backdrop.addEventListener('click', () => closeMobileNav(screen));
+    screen.appendChild(backdrop);
+
+    // Nav rows are re-rendered by rbac.js, so listen on the sidebar itself.
+    sidebar.addEventListener('click', (event) => {
+      if (event.target.closest('.ni') && window.innerWidth < MOBILE_NAV_BREAKPOINT) {
+        closeMobileNav(screen);
+      }
+    });
+  });
+
+  if (!document.body.dataset.mobileNavKeys) {
+    document.body.dataset.mobileNavKeys = '1';
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeMobileNav();
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth >= MOBILE_NAV_BREAKPOINT) closeMobileNav();
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   NUMBER-ONLY INPUTS
+   type="number" still lets a browser accept "e", "+", "-" (and Firefox any
+   letter at all). Inputs inside `root` get filtered by their inputmode:
+     inputmode="numeric"  whole numbers only (days, counts)
+     inputmode="decimal"  digits and one decimal point, at most 2 decimals
+   Delegated, so rows rendered later (e.g. batch payroll) are covered too.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function numericModeOf(input) {
+  if (!input || input.tagName !== 'INPUT' || input.readOnly || input.disabled) return '';
+  // Formatted ID fields (SSS, TIN, contact number...) run their own digit
+  // filter in bindDigitInput(), which also inserts the separators.
+  if (input.dataset.digitBound === '1') return '';
+  const mode = String(input.getAttribute('inputmode') || '').toLowerCase();
+  if (mode === 'numeric' || mode === 'decimal') return mode;
+  return '';
+}
+
+function sanitizeNumericText(text, mode) {
+  let value = String(text || '').replace(mode === 'decimal' ? /[^\d.]/g : /\D/g, '');
+  if (mode === 'decimal') {
+    const firstDot = value.indexOf('.');
+    if (firstDot !== -1) {
+      value = value.slice(0, firstDot + 1) + value.slice(firstDot + 1).replace(/\./g, '').slice(0, 2);
+    }
+  }
+  return value;
+}
+
+function enforceNumericInputs(root) {
+  if (!root || root.dataset.numericGuard === '1') return;
+  root.dataset.numericGuard = '1';
+
+  root.addEventListener('keydown', (event) => {
+    const mode = numericModeOf(event.target);
+    if (!mode || event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
+    const allowed = mode === 'decimal' ? /[\d.]/ : /\d/;
+    if (!allowed.test(event.key)) {
+      event.preventDefault();
+      return;
+    }
+    if (event.key === '.' && String(event.target.value).includes('.')) event.preventDefault();
+  });
+
+  // Touch keyboards often report keydown as "Unidentified", so the typed text
+  // itself is checked as well before it lands in the field.
+  root.addEventListener('beforeinput', (event) => {
+    const mode = numericModeOf(event.target);
+    if (!mode || event.data == null || !String(event.inputType || '').startsWith('insert')) return;
+    const allowed = mode === 'decimal' ? /^[\d.]*$/ : /^\d*$/;
+    if (!allowed.test(event.data)) event.preventDefault();
+  });
+
+  root.addEventListener('paste', (event) => {
+    const mode = numericModeOf(event.target);
+    if (!mode) return;
+    const text = String((event.clipboardData || window.clipboardData)?.getData('text') || '').trim();
+    const clean = sanitizeNumericText(text, mode);
+    if (clean !== text) {
+      event.preventDefault();
+      if (clean) {
+        event.target.value = clean;
+        event.target.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+  });
+
+  // A text field (not type="number", which never exposes stray characters)
+  // can still receive text by drag-and-drop or autofill: strip it.
+  root.addEventListener('input', (event) => {
+    const input = event.target;
+    const mode = numericModeOf(input);
+    if (!mode || input.type === 'number') return;
+    const clean = sanitizeNumericText(input.value, mode);
+    if (clean !== input.value) input.value = clean;
+  }, true);
+}
+
 /* ── INIT ── */
 function initApp() {
   // Restore saved theme or default to dark
@@ -1672,7 +2060,15 @@ function initApp() {
     if (ctx.role !== role) {
       localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify({ ...ctx, role }));
     }
-    showRoleScreen(role);
+    if (window._passwordGate) {
+      // Still on the issued password: only the change-password screen exists
+      // in this document (index.html never loaded the portal).
+      document.getElementById('s-login')?.classList.remove('active');
+      document.getElementById('s-change-password')?.classList.add('active');
+      initPasswordChangeScreen();
+    } else {
+      showRoleScreen(role);
+    }
   } else {
     // On the login page — if localStorage claims we're already signed in,
     // confirm the server session is still valid before leaving this page.
@@ -1681,6 +2077,12 @@ function initApp() {
     // cookie lapses, since the portal's proxy always sends an unauthenticated
     // visitor straight back to /login — that endless bounce is what showed up
     // as the site "flickering" and never finishing load.
+    //
+    // Arriving here because this sign-in was ended elsewhere: say why, and
+    // drop the stale local context instead of trying to resume it.
+    if (showLoginReasonNotice()) {
+      localStorage.removeItem(AUTH_CONTEXT_KEY);
+    }
     const ctx = getAuthContext();
     if (ctx && ctx.role && roleRouteMap[ctx.role]) {
       fetch('/api/rbac/me')
@@ -1760,6 +2162,13 @@ function initApp() {
   window.skeletonRows = skeletonRows;
   window.skeletonCards = skeletonCards;
   window.printDocument = printDocument;
+  window.submitAccountPasswordChange = submitAccountPasswordChange;
+  window.requestPasswordChange = requestPasswordChange;
+  window.setMustChangePasswordFlag = setMustChangePasswordFlag;
+  window.enforceNumericInputs = enforceNumericInputs;
+  window.closeMobileNav = closeMobileNav;
+
+  setupMobileNav();
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {
