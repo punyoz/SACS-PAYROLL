@@ -75,6 +75,14 @@ html, body {
 .rt-btn-ghost { background: transparent; border-color: var(--border); color: var(--t2); }
 
 /* ── LOCK SCREEN ── */
+/* [hidden] must win over the unconditional `display: flex` below — same
+   specificity, and an author rule otherwise beats the UA's own [hidden]
+   rule, so toggling .hidden in JS would do nothing without this. */
+.rt-lock[hidden],
+.rt-main[hidden] {
+  display: none;
+}
+
 .rt-lock {
   position: absolute; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
