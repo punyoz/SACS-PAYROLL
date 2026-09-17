@@ -329,9 +329,9 @@ function renderLeaveRequests() {
 
     return `
       <div style="border:1px solid var(--border);border-radius:10px;padding:10px 11px;background:var(--bg3);">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
-          <div style="font-size:12px;font-weight:600;color:var(--t1);">${request.leave_type} · ${payStatusLabel}</div>
-          <span class="badge ${badgeClass}"><span class="bd"></span>${status}</span>
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 10px;">
+          <div style="font-size:12px;font-weight:600;color:var(--t1);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${request.leave_type} · ${payStatusLabel}</div>
+          <span class="badge ${badgeClass}" style="flex-shrink:0;"><span class="bd"></span>${status}</span>
         </div>
         <div style="margin-top:4px;font-size:11px;color:var(--t2);">${request.start_date} to ${request.end_date}</div>
         <div style="margin-top:6px;font-size:11px;color:var(--t3);line-height:1.45;">${request.reason}</div>
@@ -587,7 +587,7 @@ async function loadAttendanceRecords() {
   const labelEl = document.getElementById('emp-att-records-label');
   if (!container) return;
 
-  container.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Status</th></tr></thead><tbody>${skeletonRows(5, 5)}</tbody></table></div>`;
+  container.innerHTML = `<div class="tw"><table><thead><tr><th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Status</th></tr></thead><tbody>${skeletonRows(5, 5)}</tbody></table></div>`;
 
   if (!email) {
     container.innerHTML = '<div style="font-size:12px;color:var(--t3);">Unable to load records.</div>';
@@ -627,7 +627,7 @@ async function loadAttendanceRecords() {
       </tr>`;
     }).join('');
 
-    container.innerHTML = `<div style="overflow-x:auto;"><table>
+    container.innerHTML = `<div class="tw"><table>
       <thead><tr>
         <th>Date</th><th>Day</th><th>Time In</th><th>Time Out</th><th>Status</th>
       </tr></thead>

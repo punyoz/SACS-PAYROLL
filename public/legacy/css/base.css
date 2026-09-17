@@ -384,7 +384,7 @@ select.fc { cursor: pointer; }
   display: flex; align-items: center; justify-content: center;
   font-size: 16px; flex-shrink: 0;
 }
-.approval-info { flex: 1; }
+.approval-info { flex: 1; min-width: 0; }
 .approval-info .ai-name { font-size: 13px; font-weight: 600; color: var(--t1); }
 .approval-info .ai-sub  { font-size: 11px; color: var(--t3); margin-top: 2px; }
 .approval-change {
@@ -412,9 +412,9 @@ select.fc { cursor: pointer; }
 .ai-list { display: flex; flex-direction: column; }
 .ai-item { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
 .ai-item:last-child { border-bottom: none; }
-.ai2 { flex: 1; }
+.ai2 { flex: 1; min-width: 0; }
 .ai2 .n { font-size: 13px; font-weight: 500; color: var(--t1); }
-.ai2 .s { font-size: 11px; color: var(--t3); margin-top: 1px; }
+.ai2 .s { font-size: 11px; color: var(--t3); margin-top: 1px; overflow-wrap: anywhere; }
 .air { text-align: right; }
 .air .amt { font-family: var(--mono); font-size: 13px; color: var(--t1); }
 .air .st  { margin-top: 2px; }

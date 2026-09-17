@@ -292,7 +292,7 @@
     <div class="page" id="hr-transfers">
       <div class="ph"><h2>Transfer Requests</h2><p>See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.</p></div>
 
-      <div id="hr-ba-branch-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;">
+      <div id="hr-ba-branch-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:14px;">
         <!-- Rendered dynamically by JS after branches load -->
         <div class="card"><div class="ct">Total Employees</div><div class="cv sk-bar" style="width:40%;height:22px;border-radius:4px;" id="hr-ba-count-total"></div></div>
         <div class="card"><div class="ct">Unassigned</div><div class="cv sk-bar" style="width:40%;height:22px;border-radius:4px;" id="hr-ba-count-unassigned"></div></div>
@@ -445,7 +445,7 @@
 
   <!-- ── EDIT EMPLOYEE MODAL ── -->
   <div id="hr-edit-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:760px;">
+    <div class="adm-modal-card" style="width:min(760px,100%);">
       <div class="adm-modal-head">
         <h3>Edit Employee Information</h3>
         <button class="btn btn-close-x" type="button" onclick="closeHrEditEmployeeModal()" title="Close">&#x2715;</button>
@@ -597,7 +597,7 @@
 
   <!-- ── HR ADD EMPLOYEE MODAL ── -->
   <div id="hr-add-employee-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:760px;">
+    <div class="adm-modal-card" style="width:min(760px,100%);">
       <div class="adm-modal-head">
         <h3>Add Employee</h3>
         <button class="btn btn-close-x" type="button" onclick="closeHrAddEmployeeModal()" title="Close">&#x2715;</button>

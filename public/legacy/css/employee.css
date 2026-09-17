@@ -231,6 +231,10 @@
   width: 100%;
 }
 
+.emp-topbar .role-tag {
+  display: none;
+}
+
 .emp-body {
   padding: 14px;
   gap: 14px;
@@ -290,6 +294,10 @@
   .emp-topbar .tb-search {
     order: initial;
     width: 220px;
+  }
+
+  .emp-topbar .role-tag {
+    display: inline-block;
   }
 
   .emp-body {
@@ -687,8 +695,10 @@
 @media (max-width: 599px) {
   .ts-wizard     { flex-direction: column; gap: 14px; }
   .ts-step-sep   { display: none; }
+  .ts-step input[type="date"] { width: 100% !important; }
   .ts-controls   { flex-direction: column; align-items: flex-start; }
-  .ts-ctl-right  { margin-left: 0; }
+  .ts-ctl-right  { margin-left: 0; width: 100%; }
+  .ts-ctl-right input[type="text"] { width: 100% !important; }
   .ts-table-footer { flex-direction: column; align-items: flex-start; }
 }
 
