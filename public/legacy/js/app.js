@@ -2127,6 +2127,17 @@ function setupSitemapFab() {
         }
       });
       flush();
+
+      // The sidebar's own footer (signed-in user + Sign Out) is hidden
+      // along with the rest of it — clone it in rather than reimplement
+      // sign-out, so it stays whatever rbac.js last rendered there.
+      const sbFoot = sidebar.querySelector(':scope > .sb-foot');
+      if (sbFoot) {
+        const foot = document.createElement('div');
+        foot.className = 'sitemap-foot';
+        foot.appendChild(sbFoot.cloneNode(true));
+        panel.appendChild(foot);
+      }
     } else {
       const tabs = Array.from(screen.querySelectorAll('.emp-tabnav .emp-tab'));
       if (tabs.length) body.appendChild(buildGroup('Pages', tabs));
