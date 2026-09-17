@@ -97,7 +97,7 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; flex-shrink: 0;
 }
-.approval-card-body { flex: 1; }
+.approval-card-body { flex: 1; min-width: 0; }
 .approval-card-name { font-size: 15px; font-weight: 700; color: var(--t1); }
 .approval-card-meta { font-size: 12px; color: var(--t3); margin-top: 2px; }
 .approval-card-actions {
