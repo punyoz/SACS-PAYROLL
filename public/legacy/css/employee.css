@@ -492,6 +492,15 @@
   width: 100%;
 }
 
+/* Its 5 columns (date, day, two short times, a status badge) are light
+   enough to fit their column outright — the shared .tw table min-width
+   below is sized for denser tables elsewhere and was forcing a horizontal
+   scrollbar here even though nothing actually needed to scroll. Specific
+   enough to win over that rule at every breakpoint without touching it. */
+#emp-att-records .tw table {
+  min-width: 0;
+}
+
 /* ════════════════════════════════════════════
    TIMESHEET PAGE
 ════════════════════════════════════════════ */
