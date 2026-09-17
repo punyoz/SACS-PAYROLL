@@ -7,6 +7,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { requirePermission } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -108,7 +109,7 @@ function shapeEmployee(user, profile, index) {
   };
 }
 
-async function fetchEmployees(supabase) {
+async function fetchEmployees(supabase, guard = null) {
   const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
@@ -125,7 +126,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name")
+      .select("id,email,full_name,branch_id")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -140,6 +141,11 @@ async function fetchEmployees(supabase) {
   return employeeUsers
     .map((user, index) => shapeEmployee(user, profileMap.get(user.id), index))
     .filter((employee) => !employee.archived)
+    .filter((employee) => {
+      if (!guard || guard.branchExempt) return true;
+      const branchId = profileMap.get(employee.id)?.branch_id || null;
+      return String(branchId || "") === String(guard.branchId || "");
+    })
     .sort((a, b) => {
       const idA = parseEmployeeIdNumber(a.employee_id) ?? Number.MAX_SAFE_INTEGER;
       const idB = parseEmployeeIdNumber(b.employee_id) ?? Number.MAX_SAFE_INTEGER;
@@ -283,26 +289,20 @@ async function syncPayrollEntryToDb(supabase, entry) {
   };
 
   try {
-    // Step 1: Delete any rows that could conflict.
-    // The legacy payroll_entries table may have UNIQUE constraints on
-    // (employee_id, pay_period) in addition to the primary key, so a plain
-    // upsert with onConflict:"id" fails when another row already holds that
-    // employee+period combination. Deleting first makes the insert clean.
-    await supabase.from("payroll_entries").delete().eq("id", entry.id);
-
-    if (entry.employee_id && entry.pay_period) {
-      await supabase
-        .from("payroll_entries")
-        .delete()
-        .eq("employee_id", entry.employee_id)
-        .eq("pay_period", entry.pay_period);
-    }
-
-    // Step 2: Insert fresh — no conflicts possible after the deletes above.
-    const result = await supabase.from("payroll_entries").insert(payload);
+    // A single atomic upsert keyed on the real UNIQUE(employee_id, pay_period)
+    // constraint (see 20260917_payroll_entries_unique_period.sql). Two
+    // concurrent submits for the same employee+period now serialize on this
+    // one write instead of racing between a delete and an insert — the loser
+    // updates the row the winner just created rather than creating a second
+    // one. Callers are expected to have looked up any existing row for this
+    // employee+period first and reused its id (see POST/handleBatchSubmit),
+    // so this never tries to change an existing row's primary key.
+    const result = await supabase
+      .from("payroll_entries")
+      .upsert(payload, { onConflict: "employee_id,pay_period" });
 
     if (result.error) {
-      console.error("[payroll_entries] insert failed:", result.error.message);
+      console.error("[payroll_entries] upsert failed:", result.error.message);
       return { success: false, error: result.error.message, code: result.error.code };
     }
 
@@ -343,7 +343,13 @@ async function generatePayslipNo(supabase, processedAt) {
   return `${prefix}${String(seq).padStart(4, "0")}`;
 }
 
-async function appendPayrollRecord(supabase, entry) {
+// payroll_records.payslip_no carries a UNIQUE constraint (20260509_add_payslip_no.sql),
+// so a collision from generatePayslipNo()'s read-then-increment race surfaces
+// here as a 23505 error rather than a silently duplicated payslip number.
+// Retrying with a freshly-read next sequence number resolves it without
+// treating it as the unrelated "already processed" duplicate this function's
+// caller otherwise reports for a 23505 on employee_id/pay_period.
+async function appendPayrollRecord(supabase, entry, attemptsLeft = 5) {
   const processedAt = entry.submitted_at || new Date().toISOString();
   const payslipNo = await generatePayslipNo(supabase, processedAt);
 
@@ -366,6 +372,11 @@ async function appendPayrollRecord(supabase, entry) {
     .maybeSingle();
 
   if (result.error) {
+    const isPayslipNoCollision = isDuplicateKeyError(result.error)
+      && String(result.error.message || "").toLowerCase().includes("payslip_no");
+    if (isPayslipNoCollision && attemptsLeft > 1) {
+      return appendPayrollRecord(supabase, entry, attemptsLeft - 1);
+    }
     throw new Error(result.error.message);
   }
 
@@ -383,7 +394,69 @@ function normalizeAttendanceStatus(value) {
   return "absent";
 }
 
-async function fetchAttendanceSummary(supabase, employees) {
+// Every calendar-day key (YYYY-MM-DD) an approved leave request covers,
+// clamped to [periodStart, periodEnd]. Used to reconcile attendance against
+// leave so an approved-leave day is never also counted as an unexplained
+// absence — with-pay leave must not be deducted at all, and without-pay leave
+// must be deducted exactly once (via leave_without_pay_days), not twice by
+// also landing in the attendance "absent" bucket.
+function expandDateRange(startKey, endKey) {
+  const days = [];
+  let cursor = new Date(`${startKey}T00:00:00`);
+  const end = new Date(`${endKey}T00:00:00`);
+  while (cursor <= end) {
+    days.push(cursor.toISOString().slice(0, 10));
+    cursor = new Date(cursor.getTime() + 86400000);
+  }
+  return days;
+}
+
+// Sums each employee's approved Leave With Pay / Without Pay days that fall in
+// the given semi-monthly pay period, and separately indexes every individual
+// day an approved leave covers so fetchAttendanceSummary() can reconcile
+// against it. Days are clamped to the period window so a leave request
+// spanning a cutoff only counts toward the half it actually falls in.
+async function buildLeaveContext(employees, periodStart, periodEnd) {
+  const allLeaveRequests = await readAllLeaveRequests();
+  const approved = allLeaveRequests.filter((r) => r.status === "approved");
+
+  const summaries = [];
+  const leaveDaysByEmployee = new Map();
+
+  employees.forEach((employee) => {
+    // leave_requests.employee_id stores the human-readable SACS-XXX code
+    // (see submitLeaveRequest() in employee.js), not the auth user UUID that
+    // `employee.id` is — match on employee.employee_id, but key the returned
+    // summary by employee.id (UUID) to match attendance_rows' convention.
+    const requestsForEmployee = approved.filter((r) => r.employee_id === employee.employee_id);
+
+    let withPayDays = 0;
+    let withoutPayDays = 0;
+    const coveredDays = new Set();
+
+    requestsForEmployee.forEach((request) => {
+      const requestStart = String(request.start_date || "");
+      const requestEnd = String(request.end_date || requestStart);
+      if (!requestStart || !requestEnd) return;
+      if (requestEnd < periodStart || requestStart > periodEnd) return;
+
+      const overlapStart = requestStart > periodStart ? requestStart : periodStart;
+      const overlapEnd = requestEnd < periodEnd ? requestEnd : periodEnd;
+      const days = countLeaveDays(overlapStart, overlapEnd);
+      if (request.pay_status === "without_pay") withoutPayDays += days;
+      else withPayDays += days;
+
+      expandDateRange(overlapStart, overlapEnd).forEach((day) => coveredDays.add(day));
+    });
+
+    summaries.push({ employee_id: employee.id, with_pay_days: withPayDays, without_pay_days: withoutPayDays });
+    leaveDaysByEmployee.set(employee.id, coveredDays);
+  });
+
+  return { summaries, leaveDaysByEmployee };
+}
+
+async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee) {
   const result = await supabase
     .from("attendance_logs")
     .select("employee_id,status,log_date,time_in,created_at")
@@ -395,7 +468,6 @@ async function fetchAttendanceSummary(supabase, employees) {
   }
 
   const activeEmployeeIds = new Set(employees.map((employee) => employee.id));
-  const { start_key: periodStart, end_key: periodEnd } = getPayPeriodRange(new Date());
   const grouped = new Map();
 
   employees.forEach((employee) => {
@@ -430,52 +502,17 @@ async function fetchAttendanceSummary(supabase, employees) {
       summary.present_days += 1;
     }
     if (status === "absent") {
+      // An approved leave request (with or without pay) already accounts for
+      // this day in leave_summary — counting it here too would let the
+      // accountant double-deduct a Leave Without Pay day, or deduct a Leave
+      // With Pay day that should cost the employee nothing.
+      if (leaveDaysByEmployee?.get(employeeId)?.has(key)) return;
       summary.absent_days += 1;
       summary.deduction_days += 1;
     }
   });
 
   return Array.from(grouped.values()).sort((a, b) => a.employee_name.localeCompare(b.employee_name));
-}
-
-// Sums each employee's approved Leave With Pay / Without Pay days that fall in
-// the current semi-monthly pay period, matching fetchAttendanceSummary()'s
-// same period scoping. Days are clamped to the period window so a leave
-// request spanning a cutoff only counts toward the half it actually falls in.
-async function computeLeaveSummary(employees) {
-  const { start_key: periodStart, end_key: periodEnd } = getPayPeriodRange(new Date());
-  const allLeaveRequests = await readAllLeaveRequests();
-  const approved = allLeaveRequests.filter((r) => r.status === "approved");
-
-  return employees.map((employee) => {
-    // leave_requests.employee_id stores the human-readable SACS-XXX code
-    // (see submitLeaveRequest() in employee.js), not the auth user UUID that
-    // `employee.id` is — match on employee.employee_id, but key the returned
-    // summary by employee.id (UUID) to match attendance_rows' convention.
-    const requestsForEmployee = approved.filter((r) => r.employee_id === employee.employee_id);
-
-    let withPayDays = 0;
-    let withoutPayDays = 0;
-
-    requestsForEmployee.forEach((request) => {
-      const requestStart = String(request.start_date || "");
-      const requestEnd = String(request.end_date || requestStart);
-      if (!requestStart || !requestEnd) return;
-      if (requestEnd < periodStart || requestStart > periodEnd) return;
-
-      const overlapStart = requestStart > periodStart ? requestStart : periodStart;
-      const overlapEnd = requestEnd < periodEnd ? requestEnd : periodEnd;
-      const days = countLeaveDays(overlapStart, overlapEnd);
-      if (request.pay_status === "without_pay") withoutPayDays += days;
-      else withPayDays += days;
-    });
-
-    return {
-      employee_id: employee.id,
-      with_pay_days: withPayDays,
-      without_pay_days: withoutPayDays,
-    };
-  });
 }
 
 function mapEntryToRecord(entry) {
@@ -559,6 +596,24 @@ function buildPayslipDetails(entry) {
   };
 }
 
+// Recovers the {start_key, end_key} a period label (e.g. "January 1-15, 2026")
+// refers to, by regenerating labels for nearby months' first/second halves and
+// matching. Falls back to null (caller uses "today"'s period) when the label
+// doesn't match anything in that window — e.g. it's blank, or far outside the
+// range anyone would realistically be preparing or reviewing.
+function findPeriodRangeByLabel(label) {
+  if (!label) return null;
+  const now = new Date();
+  for (let offset = -3; offset <= 3; offset += 1) {
+    const monthDate = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const firstHalf = getPayPeriodRange(new Date(monthDate.getFullYear(), monthDate.getMonth(), 1));
+    if (firstHalf.label === label) return firstHalf;
+    const secondHalf = getPayPeriodRange(new Date(monthDate.getFullYear(), monthDate.getMonth(), 16));
+    if (secondHalf.label === label) return secondHalf;
+  }
+  return null;
+}
+
 function getPeriodOptions(entries) {
   const unique = new Set(entries.map((entry) => entry.pay_period).filter(Boolean));
   const periods = Array.from(unique.values());
@@ -579,19 +634,28 @@ function getPeriodOptions(entries) {
 
 export async function GET(request) {
   try {
+    const guard = await requirePermission(request, "process_payroll", "read");
+    if (guard.denied) return guard.denied;
+
     const url = new URL(request.url);
     const requestedEntryId = normalizeText(url.searchParams.get("entry_id"));
     const selectedPeriod = normalizeText(url.searchParams.get("period"));
 
     const supabase = getAdminClient();
     const [employees, entriesResult] = await Promise.all([
-      fetchEmployees(supabase),
+      fetchEmployees(supabase, guard),
       readPayrollEntries(supabase),
     ]);
 
-    const entries = entriesResult.entries;
+    // Branch-scoped callers only ever see entries for employees in their own
+    // branch — payroll_entries carries no branch_id of its own, but every
+    // entry's employee_id ties back to an employee already filtered above.
+    const visibleEmployeeIds = new Set(employees.map((e) => e.id));
+    const branchEntries = guard.branchExempt
+      ? entriesResult.entries
+      : entriesResult.entries.filter((entry) => visibleEmployeeIds.has(entry.employee_id));
 
-    const sortedEntries = entries
+    const sortedEntries = branchEntries
       .map((entry) => ({
         ...entry,
         status: resolveEntryStatus(entry),
@@ -616,8 +680,23 @@ export async function GET(request) {
           ? sortedEntries.find((entry) => entry.id === payrollRecords[0].id)
           : null);
 
-    const attendanceRows = await fetchAttendanceSummary(supabase, employees);
-    const leaveSummary = await computeLeaveSummary(employees);
+    // Attendance and leave figures must reflect the period actually being
+    // viewed/prepared, not always "today" — otherwise preparing the next
+    // cutoff ahead of time (see getPeriodOptions()) shows the wrong half's
+    // numbers.
+    const activePeriod = findPeriodRangeByLabel(selectedPeriod) || getPayPeriodRange(new Date());
+    const { summaries: leaveSummary, leaveDaysByEmployee } = await buildLeaveContext(
+      employees,
+      activePeriod.start_key,
+      activePeriod.end_key,
+    );
+    const attendanceRows = await fetchAttendanceSummary(
+      supabase,
+      employees,
+      activePeriod.start_key,
+      activePeriod.end_key,
+      leaveDaysByEmployee,
+    );
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -640,7 +719,7 @@ export async function GET(request) {
 // All" batch table. Does not touch the existing single-employee save_draft/
 // submit path below; reuses the same computeTotals()/appendPayrollRecord()/
 // syncPayrollEntryToDb() building blocks that path already relies on.
-async function handleBatchSubmit(supabase, body) {
+async function handleBatchSubmit(supabase, body, guard) {
   const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(new Date()));
   const requestedEntries = Array.isArray(body.entries) ? body.entries : [];
 
@@ -648,7 +727,7 @@ async function handleBatchSubmit(supabase, body) {
     return NextResponse.json({ error: "At least one employee entry is required." }, { status: 400 });
   }
 
-  const employees = await fetchEmployees(supabase);
+  const employees = await fetchEmployees(supabase, guard);
   const entriesResult = await readPayrollEntries(supabase);
   const entries = entriesResult.entries;
   const nowIso = new Date().toISOString();
@@ -665,11 +744,11 @@ async function handleBatchSubmit(supabase, body) {
       continue;
     }
 
-    const hasAlreadyPaid = entries.some(
-      (entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod && entry.status === "paid",
+    const existingForPeriod = entries.find(
+      (entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod,
     );
 
-    if (hasAlreadyPaid) {
+    if (existingForPeriod?.status === "paid") {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: DUPLICATE_SUBMISSION_MESSAGE });
       continue;
     }
@@ -695,7 +774,11 @@ async function handleBatchSubmit(supabase, body) {
       });
 
       const baseEntry = {
-        id: crypto.randomUUID(),
+        // Reuse an existing draft's id for this employee+period (there can be
+        // at most one, per the UNIQUE(employee_id, pay_period) constraint) so
+        // syncPayrollEntryToDb()'s upsert updates that row instead of
+        // colliding with it under a freshly-minted id.
+        id: existingForPeriod?.id || crypto.randomUUID(),
         employee_id: employee.id,
         employee_name: employee.full_name,
         employee_code: employee.employee_id,
@@ -704,7 +787,7 @@ async function handleBatchSubmit(supabase, body) {
         pay_period: payPeriod,
         status: "paid",
         submitted_at: nowIso,
-        created_at: nowIso,
+        created_at: existingForPeriod?.created_at || nowIso,
         updated_at: nowIso,
         payroll: computedPayroll,
       };
@@ -753,6 +836,9 @@ async function handleBatchSubmit(supabase, body) {
 
 export async function POST(request) {
   try {
+    const guard = await requirePermission(request, "process_payroll", "create");
+    if (guard.denied) return guard.denied;
+
     const body = await request.json();
     const action = normalizeText(body.action, "save_draft").toLowerCase();
 
@@ -763,10 +849,10 @@ export async function POST(request) {
     const supabase = getAdminClient();
 
     if (action === "batch_submit") {
-      return await handleBatchSubmit(supabase, body);
+      return await handleBatchSubmit(supabase, body, guard);
     }
 
-    const employees = await fetchEmployees(supabase);
+    const employees = await fetchEmployees(supabase, guard);
 
     const employeeId = normalizeText(body.employee_id);
     const employee = employees.find((row) => row.id === employeeId);
@@ -794,15 +880,20 @@ export async function POST(request) {
     const entriesResult = await readPayrollEntries(supabase);
     const entries = entriesResult.entries;
     const existingId = normalizeText(body.entry_id);
+    // payroll_entries now carries a real UNIQUE(employee_id, pay_period)
+    // constraint — reusing whatever id already holds that combination (rather
+    // than minting a new one) is what lets syncPayrollEntryToDb()'s upsert
+    // update that row instead of colliding with it under a different id.
     const existingIndex = existingId
       ? entries.findIndex((entry) => entry.id === existingId)
-      : -1;
+      : entries.findIndex((entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod);
+    const resolvedExistingId = existingIndex >= 0 ? entries[existingIndex].id : "";
 
     if (action === "submit") {
       const hasAlreadyPaid = entries.some((entry) => {
         if (entry.employee_id !== employee.id) return false;
         if (entry.pay_period !== payPeriod) return false;
-        if (existingId && entry.id === existingId) return false;
+        if (resolvedExistingId && entry.id === resolvedExistingId) return false;
         return entry.status === "paid";
       });
 
@@ -816,7 +907,7 @@ export async function POST(request) {
         if (entry.employee_id !== employee.id) return false;
         if (entry.pay_period !== payPeriod) return false;
         if (entry.status !== "draft") return false;
-        if (existingId && entry.id === existingId) return false;
+        if (resolvedExistingId && entry.id === resolvedExistingId) return false;
         return true;
       });
 
@@ -910,6 +1001,9 @@ export async function POST(request) {
 
 export async function PATCH(request) {
   try {
+    const guard = await requirePermission(request, "process_payroll", "update");
+    if (guard.denied) return guard.denied;
+
     const body = await request.json();
     const action = normalizeText(body.action).toLowerCase();
 
@@ -933,6 +1027,13 @@ export async function PATCH(request) {
     }
 
     const entry = entries[index];
+
+    if (!guard.branchExempt) {
+      const branchEmployees = await fetchEmployees(supabase, guard);
+      if (!branchEmployees.some((e) => e.id === entry.employee_id)) {
+        return NextResponse.json({ error: "That record belongs to another branch." }, { status: 403 });
+      }
+    }
 
     if (entry.status !== "draft") {
       return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });

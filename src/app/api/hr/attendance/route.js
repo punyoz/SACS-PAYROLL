@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { requirePermission } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -35,6 +36,9 @@ function getDateLabel(date = new Date()) {
 
 export async function GET(request) {
   try {
+    const guard = await requirePermission(request, "attendance", "read");
+    if (guard.denied) return guard.denied;
+
     const supabase = getAdminClient();
     const url = new URL(request.url);
     const dateParam = url.searchParams.get("date") || getDateKey();
@@ -43,19 +47,23 @@ export async function GET(request) {
     let logs = [];
 
     if (viewAll) {
-      const { data, error } = await supabase
+      let query = supabase
         .from("attendance_logs")
         .select("*")
         .order("log_date", { ascending: false })
         .order("time_in", { ascending: false })
         .limit(500);
+      if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId);
+      const { data, error } = await query;
       if (!error) logs = data || [];
     } else {
-      const { data, error } = await supabase
+      let query = supabase
         .from("attendance_logs")
         .select("*")
         .eq("log_date", dateParam)
         .order("time_in", { ascending: true });
+      if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId);
+      const { data, error } = await query;
       if (!error) logs = data || [];
     }
 

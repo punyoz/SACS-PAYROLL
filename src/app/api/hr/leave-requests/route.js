@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
-import { readAllLeaveRequests, updateLeaveRequestStatus } from "@/lib/leave-requests/store";
+import {
+  readAllLeaveRequests,
+  updateLeaveRequestStatus,
+  findOverlappingApprovedLeave,
+} from "@/lib/leave-requests/store";
 import { sanitizeError } from "@/lib/api-error";
+import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 
 export async function GET(request) {
   try {
+    const guard = await requirePermission(request, "leave_approval", "read");
+    if (guard.denied) return guard.denied;
+
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "pending").trim().toLowerCase();
 
-    const allRequests = await readAllLeaveRequests();
+    const allRequests = (await readAllLeaveRequests()).filter(
+      (r) => guard.branchExempt || String(r.branch_id || "") === String(guard.branchId || ""),
+    );
     // pending_accountant is a legacy status from before Leave Approval moved to HR —
     // treat it the same as pending_admin so any request stuck in that state (submitted
     // before this fix) still surfaces here instead of being invisible.
@@ -42,6 +52,9 @@ export async function GET(request) {
 
 export async function PATCH(request) {
   try {
+    const guard = await requirePermission(request, "leave_approval", "update");
+    if (guard.denied) return guard.denied;
+
     const body = await request.json();
     const id = String(body.id || "").trim();
     const action = String(body.action || "").trim().toLowerCase();
@@ -58,11 +71,32 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     }
 
+    const foreignBranch = denyForeignBranch(guard, current.branch_id);
+    if (foreignBranch) return foreignBranch;
+
     if (current.status !== "pending_admin" && current.status !== "pending_accountant") {
       return NextResponse.json(
         { error: `Cannot ${action} a leave request with status: ${current.status}.` },
         { status: 409 },
       );
+    }
+
+    if (action === "approve") {
+      const overlap = findOverlappingApprovedLeave(
+        allRequests,
+        current.employee_id,
+        current.start_date,
+        current.end_date,
+        current.id,
+      );
+      if (overlap) {
+        return NextResponse.json(
+          {
+            error: `This request overlaps an already-approved leave request (${overlap.start_date} to ${overlap.end_date}). Reject or resolve that one first.`,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const newStatus = action === "approve" ? "approved" : "rejected";

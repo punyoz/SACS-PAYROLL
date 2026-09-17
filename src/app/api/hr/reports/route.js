@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { requirePermission } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -28,6 +29,9 @@ function getDateKey(date = new Date()) {
 
 export async function GET(request) {
   try {
+    const guard = await requirePermission(request, "hr_reports", "read");
+    if (guard.denied) return guard.denied;
+
     const supabase = getAdminClient();
     const url = new URL(request.url);
     const type = url.searchParams.get("type") || "attendance";
@@ -41,6 +45,7 @@ export async function GET(request) {
         .order("log_date", { ascending: false })
         .limit(1000);
 
+      if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId);
       if (from) query = query.gte("log_date", from);
       if (to) query = query.lte("log_date", to);
 
@@ -87,10 +92,25 @@ export async function GET(request) {
       const usersResult = await listUsersCached(supabase);
       if (usersResult.error) throw new Error(usersResult.error.message);
 
+      let branchMap = new Map();
+      if (!guard.branchExempt) {
+        const candidateIds = (usersResult.data.users || []).map((u) => u.id);
+        if (candidateIds.length) {
+          const { data: profileRows } = await supabase
+            .from("profiles")
+            .select("id,branch_id")
+            .in("id", candidateIds);
+          (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
+        }
+      }
+
       const employees = (usersResult.data.users || [])
         .filter((u) => {
           const role = String(u.user_metadata?.role || "employee").toLowerCase();
-          return role === "employee" || role === "accountant";
+          if (role !== "employee" && role !== "accountant") return false;
+          if (guard.branchExempt) return true;
+          const branchId = branchMap.get(u.id) || u.user_metadata?.branch_id || "";
+          return String(branchId) === String(guard.branchId || "");
         })
         .map((u) => {
           const meta = u.user_metadata || {};

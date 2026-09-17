@@ -119,7 +119,7 @@ export function planTap(dayRows, nowIso) {
   const lastTap = Math.max(...rows.flatMap(tapTimes));
   const now = toTime(nowIso);
 
-  if (now !== null && now - lastTap < DUPLICATE_TAP_WINDOW_MS) {
+  if (now !== null && now - lastTap <= DUPLICATE_TAP_WINDOW_MS) {
     return { action: "duplicate", record: day };
   }
 

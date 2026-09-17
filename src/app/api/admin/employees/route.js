@@ -371,29 +371,64 @@ export async function POST(request) {
     invalidateUsersCache();
 
     const newUser = createUserResult.data.user;
-    const profileResult = await supabase.from("profiles").upsert(
-      {
-        id: newUser.id,
-        email,
-        role,
-        full_name: fullName,
-        branch_id: branchId,
-        cp_number: normalizeDigits(body.cp_number, 11) || null,
-        date_hired: normalizeText(body.date_hired, "") || null,
-        address: normalizeText(body.address, "") || null,
-        sss_number: normalizeDigits(body.sss_number, 10) || null,
-        pagibig_number: normalizeDigits(body.pagibig_number, 12) || null,
-        philhealth_number: normalizeDigits(body.philhealth_number, 12) || null,
-        bank_name: normalizeText(body.bank_name, "") || null,
-        bank_account_number: normalizeDigits(body.bank_account_number, 20) || null,
-      },
-      {
-        onConflict: "id",
-      },
-    );
+
+    // generateUniqueEmployeeId() above only checked a snapshot taken before
+    // createUser() — two near-simultaneous hires can compute the same id.
+    // profiles_employee_id_unique (20260917_profiles_employee_id_unique.sql)
+    // is the real guard: on a collision, recompute against a fresh read and
+    // retry a few times before giving up.
+    let finalEmployeeId = autoEmployeeId;
+    let profileResult;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      profileResult = await supabase.from("profiles").upsert(
+        {
+          id: newUser.id,
+          email,
+          role,
+          full_name: fullName,
+          branch_id: branchId,
+          employee_id: finalEmployeeId,
+          cp_number: normalizeDigits(body.cp_number, 11) || null,
+          date_hired: normalizeText(body.date_hired, "") || null,
+          address: normalizeText(body.address, "") || null,
+          sss_number: normalizeDigits(body.sss_number, 10) || null,
+          pagibig_number: normalizeDigits(body.pagibig_number, 12) || null,
+          philhealth_number: normalizeDigits(body.philhealth_number, 12) || null,
+          bank_name: normalizeText(body.bank_name, "") || null,
+          bank_account_number: normalizeDigits(body.bank_account_number, 20) || null,
+        },
+        {
+          onConflict: "id",
+        },
+      );
+
+      const isEmployeeIdCollision = profileResult.error
+        && String(profileResult.error.message || "").toLowerCase().includes("employee_id");
+
+      if (!profileResult.error || !isEmployeeIdCollision) break;
+
+      const latestEmployees = await fetchEmployees(supabase);
+      finalEmployeeId = generateUniqueEmployeeId(latestEmployees);
+    }
 
     if (profileResult.error) {
+      // No profile means this auth account is unusable. Hard-deleting it is
+      // off the table system-wide (see assertNoHardDelete /
+      // "Accounts are archived, never destroyed") — archive it instead so it
+      // drops out of every employee listing and can't collide with a retry.
+      await supabase.auth.admin.updateUserById(newUser.id, {
+        user_metadata: { ...newUser.user_metadata, archived: true },
+      }).catch(() => {});
+      invalidateUsersCache();
       return NextResponse.json({ error: sanitizeError(profileResult.error) }, { status: 400 });
+    }
+
+    if (finalEmployeeId !== autoEmployeeId) {
+      // Keep user_metadata.employee_id (what shapeEmployee() and every other
+      // route read) in sync with what actually got persisted to profiles.
+      newUser.user_metadata = { ...newUser.user_metadata, employee_id: finalEmployeeId };
+      await supabase.auth.admin.updateUserById(newUser.id, { user_metadata: newUser.user_metadata });
+      invalidateUsersCache();
     }
 
     const employee = shapeEmployee(newUser, {

@@ -5,6 +5,8 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { requirePermission } from "@/lib/rbac/guard";
+import { SCOPE_SELF } from "@/lib/rbac/permissions";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -27,8 +29,18 @@ function getDateKey(date = new Date()) {
   }).format(date);
 }
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const guard = await requirePermission(request, "dashboard", "read");
+    if (guard.denied) return guard.denied;
+
+    // This endpoint returns branch/company-wide aggregates, not one person's
+    // own records — a SCOPE_SELF caller (Employee) has "dashboard read" for
+    // their own portal's stats endpoint, but that grant does not extend here.
+    if (guard.scope === SCOPE_SELF) {
+      return NextResponse.json({ error: "You do not have permission to perform this action." }, { status: 403 });
+    }
+
     const supabase = getAdminClient();
 
     // Fetch all users
@@ -36,10 +48,26 @@ export async function GET() {
     if (usersResult.error) throw new Error(usersResult.error.message);
 
     const allUsers = usersResult.data.users || [];
-    const employees = allUsers.filter((u) => {
+    const candidateEmployees = allUsers.filter((u) => {
       const role = String(u.user_metadata?.role || "employee").toLowerCase();
       return (role === "employee" || role === "accountant") && !u.user_metadata?.archived;
     });
+
+    let employees = candidateEmployees;
+    if (!guard.branchExempt) {
+      const userIds = candidateEmployees.map((u) => u.id);
+      const branchMap = new Map();
+      if (userIds.length) {
+        const { data: profileRows } = await supabase
+          .from("profiles")
+          .select("id,branch_id")
+          .in("id", userIds);
+        (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
+      }
+      employees = candidateEmployees.filter(
+        (u) => String(branchMap.get(u.id) || u.user_metadata?.branch_id || "") === String(guard.branchId || ""),
+      );
+    }
 
     const totalEmployees = employees.length;
 
@@ -50,10 +78,12 @@ export async function GET() {
     let absentToday = 0;
 
     try {
-      const { data: attRows } = await supabase
+      let attQuery = supabase
         .from("attendance_logs")
         .select("employee_id, status, time_in, time_out, log_date")
         .eq("log_date", today);
+      if (!guard.branchExempt) attQuery = attQuery.eq("branch_id", guard.branchId);
+      const { data: attRows } = await attQuery;
 
       if (Array.isArray(attRows)) {
         const seenEmployees = new Set();
@@ -75,7 +105,8 @@ export async function GET() {
     try {
       const allLeaves = await readAllLeaveRequests();
       pendingLeaves = allLeaves.filter(
-        (r) => r.status === "pending_admin" || r.status === "pending_accountant",
+        (r) => (r.status === "pending_admin" || r.status === "pending_accountant")
+          && (guard.branchExempt || String(r.branch_id || "") === String(guard.branchId || "")),
       ).length;
     } catch { /* ignore */ }
 
@@ -85,11 +116,13 @@ export async function GET() {
     // could fill the whole "recent" list with duplicates of themselves.
     let recentActivity = [];
     try {
-      const { data: recent } = await supabase
+      let recentQuery = supabase
         .from("attendance_logs")
         .select("employee_id, employee_name, log_date, time_in, time_out, status, created_at")
         .order("created_at", { ascending: false })
         .limit(40);
+      if (!guard.branchExempt) recentQuery = recentQuery.eq("branch_id", guard.branchId);
+      const { data: recent } = await recentQuery;
       const collapsed = collapseDailyTaps(recent || []).sort((a, b) => {
         const aTime = new Date(a.time_out || a.time_in || 0).getTime();
         const bTime = new Date(b.time_out || b.time_in || 0).getTime();

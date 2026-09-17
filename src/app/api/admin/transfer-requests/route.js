@@ -27,21 +27,34 @@ function getAdminClient() {
  * transfer_requests already does this; writing it here as well keeps the move
  * correct on a database where that trigger is missing, and keeps the auth
  * metadata copy (still read as a fallback by older code paths) in step.
+ *
+ * The UPDATE is conditioned on the employee still being in `fromBranchId` —
+ * the branch this transfer was raised against. Without that, two concurrent
+ * transfer requests for the same employee (to two different destinations)
+ * could both apply: both transfer_requests rows would end up marked
+ * "approved", but the employee only actually lands in whichever one's UPDATE
+ * ran last, leaving a contradictory audit trail. Returns `moved: false` when
+ * the condition didn't match, so the caller can tell the race happened.
  */
-async function applyBranchMove(supabase, employeeId, toBranchId) {
-  const { error: profileError } = await supabase
+async function applyBranchMove(supabase, employeeId, fromBranchId, toBranchId) {
+  let query = supabase
     .from("profiles")
     .update({ branch_id: toBranchId, updated_at: new Date().toISOString() })
     .eq("id", employeeId);
-  if (profileError) throw new Error(profileError.message);
+  query = fromBranchId ? query.eq("branch_id", fromBranchId) : query.is("branch_id", null);
 
-  const { data } = await supabase.auth.admin.getUserById(employeeId);
-  if (data?.user) {
+  const { data, error } = await query.select("id");
+  if (error) throw new Error(error.message);
+  if (!data?.length) return { moved: false };
+
+  const { data: userData } = await supabase.auth.admin.getUserById(employeeId);
+  if (userData?.user) {
     await supabase.auth.admin.updateUserById(employeeId, {
-      user_metadata: { ...(data.user.user_metadata || {}), branch_id: toBranchId },
+      user_metadata: { ...(userData.user.user_metadata || {}), branch_id: toBranchId },
     });
     invalidateUsersCache();
   }
+  return { moved: true };
 }
 
 export async function GET(request) {
@@ -134,6 +147,16 @@ export async function POST(request) {
       );
     }
 
+    const existingPending = (await readAllTransferRequests()).find(
+      (r) => r.employee_id === employeeId && r.status === "pending",
+    );
+    if (existingPending) {
+      return NextResponse.json(
+        { error: "This employee already has a pending transfer request. Decide that one first." },
+        { status: 409 },
+      );
+    }
+
     let request_ = await insertTransferRequest({
       employee_id: employeeId,
       from_branch_id: fromBranchId,
@@ -149,11 +172,18 @@ export async function POST(request) {
     // Transfer History.
     const appliedImmediately = can(guard.role, "transfer_requests", "update");
     if (appliedImmediately) {
+      const moveResult = await applyBranchMove(supabase, employeeId, fromBranchId, toBranchId);
+      if (!moveResult.moved) {
+        await updateTransferRequestStatus(request_.id, "rejected", { reviewedBy: guard.userId });
+        return NextResponse.json(
+          { error: "This employee's branch just changed (likely another transfer). Please retry." },
+          { status: 409 },
+        );
+      }
       const approved = await updateTransferRequestStatus(request_.id, "approved", {
         reviewedBy: guard.userId,
       });
       request_ = approved.request || request_;
-      await applyBranchMove(supabase, employeeId, toBranchId);
     }
 
     await appendAuditLog({
@@ -208,12 +238,41 @@ export async function PATCH(request) {
     const foreignBranch = denyForeignBranch(guard, current.from_branch_id);
     if (foreignBranch) return foreignBranch;
 
+    if (action === "approve") {
+      // Re-check the employee is still in the branch this request was raised
+      // against — it may have moved via a different transfer that was
+      // approved between this request's creation and this decision.
+      const liveFromBranchId = await getEmployeeCurrentBranch(current.employee_id);
+      if (String(liveFromBranchId || "") !== String(current.from_branch_id || "")) {
+        return NextResponse.json(
+          {
+            error: "This employee's branch has changed since this request was raised. Reject it and raise a new one.",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const nextStatus = action === "approve" ? "approved" : "rejected";
     const { request: updated } = await updateTransferRequestStatus(id, nextStatus, {
       reviewedBy: guard.userId,
     });
     if (nextStatus === "approved") {
-      await applyBranchMove(getAdminClient(), current.employee_id, current.to_branch_id);
+      const moveResult = await applyBranchMove(
+        getAdminClient(),
+        current.employee_id,
+        current.from_branch_id,
+        current.to_branch_id,
+      );
+      if (!moveResult.moved) {
+        // The re-check above should have already caught this — this is a
+        // last-resort guard against a move that raced past it.
+        await updateTransferRequestStatus(id, "rejected", { reviewedBy: guard.userId });
+        return NextResponse.json(
+          { error: "This employee's branch changed just now. Please retry." },
+          { status: 409 },
+        );
+      }
     }
 
     await appendAuditLog({

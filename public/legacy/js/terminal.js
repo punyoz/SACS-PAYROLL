@@ -49,6 +49,7 @@
 
   let branchName = '—';
   let scanInFlight = false;
+  let queuedCode = null;
   let resultTimer = null;
 
   function formatTime(value) {
@@ -236,8 +237,23 @@
   }
 
   async function submitScan(code) {
-    if (scanInFlight || !code) return;
+    if (!code) return;
+
+    if (scanInFlight) {
+      // A tap that arrives while another is still being processed used to
+      // type its digits into the input on top of the first tap's leftover
+      // value (not cleared until the first request's `finally`), producing a
+      // mangled concatenated code that then got silently wiped — losing this
+      // tap entirely with no feedback. Queuing it instead runs it right after
+      // the in-flight one finishes.
+      queuedCode = code;
+      return;
+    }
+
     scanInFlight = true;
+    // Clear immediately, before awaiting the fetch, so a second tap's
+    // keystrokes land in an empty field instead of appending to this one's.
+    scanInput.value = '';
     setStatus('scanning', 'Reading card...');
 
     try {
@@ -264,6 +280,12 @@
       scanInFlight = false;
       scanInput.value = '';
       focusScanInput();
+
+      if (queuedCode) {
+        const next = queuedCode;
+        queuedCode = null;
+        submitScan(next);
+      }
     }
   }
 

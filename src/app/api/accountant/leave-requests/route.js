@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { readAllLeaveRequests, updateLeaveRequestStatus } from "@/lib/leave-requests/store";
+import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,14 +31,21 @@ async function getArchivedEmployeeIds(supabase) {
 
 export async function GET(request) {
   try {
+    const guard = await requirePermission(request, "leave_approval", "read");
+    if (guard.denied) return guard.denied;
+
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "pending_accountant").trim().toLowerCase();
 
     const supabase = getAdminClient();
-    const [allRequests, archivedIds] = await Promise.all([
+    const [rawRequests, archivedIds] = await Promise.all([
       readAllLeaveRequests(),
       getArchivedEmployeeIds(supabase),
     ]);
+
+    const allRequests = rawRequests.filter(
+      (r) => guard.branchExempt || String(r.branch_id || "") === String(guard.branchId || ""),
+    );
 
     const annotated = allRequests.map((r) => ({
       ...r,
@@ -69,6 +77,9 @@ export async function GET(request) {
 
 export async function PATCH(request) {
   try {
+    const guard = await requirePermission(request, "leave_approval", "update");
+    if (guard.denied) return guard.denied;
+
     const body = await request.json();
     const id = String(body.id || "").trim();
     const action = String(body.action || "").trim().toLowerCase();
@@ -88,6 +99,9 @@ export async function PATCH(request) {
     if (!current) {
       return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     }
+
+    const foreignBranch = denyForeignBranch(guard, current.branch_id);
+    if (foreignBranch) return foreignBranch;
 
     if (current.status !== "pending_accountant") {
       return NextResponse.json(

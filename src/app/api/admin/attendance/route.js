@@ -295,12 +295,22 @@ function isLateInManila(now = new Date()) {
  *
  * @returns {{ record: object, tap: "time_in" | "time_out" | "duplicate" }}
  */
-async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode) {
+function isDuplicateKeyError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  return code === "23505" || message.includes("duplicate key");
+}
+
+async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1) {
   const lookupResult = await supabase
     .from("attendance_logs")
     .select("*")
     .eq("employee_id", employee.id)
     .eq("log_date", dateKey)
+    // Rows folded into another row and flagged by
+    // 20260917_attendance_logs_unique_employee_day.sql carry no tap data of
+    // their own anymore — only the active row for this employee+day matters.
+    .eq("archived_duplicate", false)
     .order("created_at", { ascending: true })
     .limit(50);
 
@@ -354,6 +364,16 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode)
     .maybeSingle();
 
   if (insertResult.error || !insertResult.data) {
+    // Two concurrent first-taps for the same employee+day can both reach here
+    // having seen zero existing rows (the lookup above ran before either had
+    // written). attendance_logs_employee_day_unique (see
+    // 20260917_attendance_logs_unique_employee_day.sql) turns the loser's
+    // insert into a 23505 instead of a second silent row — re-planning once
+    // against the row the winner just committed resolves it as this tap's
+    // rightful time_out (or duplicate) instead of failing the scan outright.
+    if (isDuplicateKeyError(insertResult.error) && retriesLeft > 0) {
+      return persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft - 1);
+    }
     throw new Error(insertResult.error?.message || "Failed to create attendance login.");
   }
 
