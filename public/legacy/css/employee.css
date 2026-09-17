@@ -481,7 +481,13 @@
 ════════════════════════════════════════════ */
 .emp-att-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, 1fr), not bare 1fr: a grid track's implicit minimum is
+     "auto", which — like a flex item's min-width: auto — refuses to
+     shrink below its content's own min-content size. The records column
+     holds a .tw table with a min-width up to 1080px at wide viewports, so
+     without this it claimed far more than half the row and squeezed the
+     calendar column down, throwing the whole layout off-center. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 20px;
   width: 100%;
 }
