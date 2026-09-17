@@ -832,15 +832,13 @@ function getRoleNotifications() {
   }
 
   if (screenId === 's-admin') {
-    const pending = Number(document.getElementById('adm-panel-pending-approvals')?.textContent || 0);
+    const absentToday = Number(document.getElementById('adm-panel-absent-today')?.textContent || 0);
     const totalEmployees = Number(document.getElementById('adm-panel-total-employees')?.textContent || 0);
 
     return [
       {
-        title: pending > 0 ? `${pending} salary approvals are waiting` : 'No pending salary approvals',
-        desc: pending > 0
-          ? 'Open Salary Approvals to review pending salary changes.'
-          : 'All submitted salary changes have been processed.',
+        title: absentToday > 0 ? `${absentToday} employee${absentToday > 1 ? 's' : ''} absent today` : 'Full attendance today',
+        desc: 'Open Attendance to review today\'s records.',
       },
       {
         title: `${totalEmployees || 0} active employees loaded`,
@@ -1241,11 +1239,6 @@ function attachScrollListeners() {
 
 function handleActiveScreenWheelRelay() {
   // Scroll handler placeholder to keep a stable listener reference.
-}
-
-function handleGlobalMouseWheel(event) {
-  // Keep the handler for compatibility, but rely on native browser scrolling.
-  if (event.ctrlKey) return;
 }
 
 /* ── RESET PASSWORD (LOGIN PAGE) ── */

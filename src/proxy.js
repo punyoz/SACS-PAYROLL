@@ -77,8 +77,6 @@ const API_MODULES = [
   ["/api/admin/branches", "branch_management"],
   ["/api/admin/config", "system_configuration"],
   ["/api/admin/system", "system_maintenance"],
-  ["/api/admin/backup", "backup_recovery"],
-  ["/api/admin/roles", "roles_permissions"],
   ["/api/admin/dashboard", "dashboard"],
   ["/api/hr/employees", "employee_information"],
   ["/api/hr/attendance", "attendance"],

@@ -292,35 +292,6 @@ function renderDashboardPanels(panels = {}) {
 }
 
 
-function renderMonthlyPayrollChart(monthlyPayroll = []) {
-  const chartContainer = document.getElementById('adm-monthly-payroll-chart');
-  const avgEl = document.getElementById('adm-monthly-avg');
-  const ytdEl = document.getElementById('adm-ytd-total');
-  if (!chartContainer || !avgEl || !ytdEl) return;
-
-  if (!monthlyPayroll.length) {
-    chartContainer.innerHTML = '<div class="bc"><div class="bar active" style="height:42px;"></div><div class="bl">N/A</div></div>';
-    avgEl.textContent = '₱ 0';
-    ytdEl.textContent = '₱ 0';
-    return;
-  }
-
-  const maxValue = Math.max(...monthlyPayroll.map((entry) => Number(entry.amount || 0)), 1);
-  const total = monthlyPayroll.reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  const avg = total / monthlyPayroll.length;
-
-  chartContainer.innerHTML = monthlyPayroll.map((entry) => {
-    const amount = Number(entry.amount || 0);
-    const height = Math.max(24, Math.round((amount / maxValue) * 78));
-    const label = escapeHtml(entry.label || 'N/A');
-    const activeClass = entry.isCurrentMonth ? ' active' : '';
-    return `<div class="bc"><div class="bar${activeClass}" style="height:${height}px;"></div><div class="bl">${label}</div></div>`;
-  }).join('');
-
-  avgEl.textContent = formatMoney(avg);
-  ytdEl.textContent = formatMoney(total);
-}
-
 function renderRecentPayrollActivity(activity = []) {
   const list = document.getElementById('adm-recent-activity-list');
   if (!list) return;
@@ -533,6 +504,10 @@ async function submitRfidAttendanceScan() {
       source: 'ui',
       metadata: { persisted: Boolean(payload.persisted) },
     });
+    // A scan changes present/absent/late counts, which fetchDashboardCached()
+    // may still be serving from its 20s cache — invalidate so the next
+    // dashboard view reflects this scan immediately.
+    invalidateDashboardCache();
     if (document.getElementById('adm-attendance')?.classList.contains('active')) await loadAttendanceData();
   } catch (error) {
     showRfidFeedback(error.message, true);

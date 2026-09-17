@@ -408,6 +408,12 @@ async function submitSABranch(event) {
       saBranches.push(data.branch || { id: `branch-${Date.now()}`, ...payload });
     }
 
+    // Every portal's branch-assign, transfer-requests, and employee tables
+    // share fetchBranchesCached()'s 60s cache — without invalidating it here,
+    // a branch just renamed or closed keeps showing its old name/status
+    // elsewhere until that TTL expires.
+    invalidateBranchesCache();
+
     if (fb) { fb.textContent = 'Branch saved.'; fb.style.color = 'var(--green)'; }
     setTimeout(() => {
       closeSABranchModal();

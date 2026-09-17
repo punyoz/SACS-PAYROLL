@@ -80,56 +80,6 @@ function mapEntryToPayslip(row) {
   };
 }
 
-// Map a salary_approvals row — uses payroll_breakdown JSONB when present.
-function mapApprovalToPayslip(row) {
-  const bd =
-    (typeof row.payroll_breakdown === "string"
-      ? JSON.parse(row.payroll_breakdown)
-      : row.payroll_breakdown) || {};
-  const totals = bd.totals || {};
-  const allowances = bd.allowances || {};
-  const deductions = bd.deductions || {};
-  const hasBreakdown = Object.keys(bd).length > 0;
-
-  const grossPay = hasBreakdown
-    ? toAmount(totals.gross_pay ?? bd.basic_salary ?? 0)
-    : toAmount(row.proposed_salary || row.current_salary || 0);
-  const totalDeductions = hasBreakdown ? toAmount(totals.total_deductions ?? 0) : 0;
-  const netPay = hasBreakdown
-    ? toAmount(totals.net_pay ?? grossPay - totalDeductions)
-    : grossPay;
-
-  const periodLabel = new Intl.DateTimeFormat("en-PH", {
-    month: "long",
-    year: "numeric",
-  }).format(new Date(row.submitted_at || Date.now()));
-
-  return {
-    id: row.id,
-    payslip_no: null,
-    period_label: periodLabel,
-    processed_at: row.submitted_at,
-    gross_pay: grossPay,
-    total_deductions: totalDeductions,
-    net_pay: netPay,
-    has_breakdown: hasBreakdown,
-    basic_salary: toAmount(bd.basic_salary),
-    transportation: toAmount(allowances.transportation),
-    rice: toAmount(allowances.rice),
-    overtime: toAmount(allowances.overtime),
-    bonus: toAmount(allowances.bonus),
-    sss: toAmount(deductions.sss),
-    philhealth: toAmount(deductions.philhealth),
-    pagibig: toAmount(deductions.pagibig),
-    withholding_tax: toAmount(deductions.withholding_tax),
-    absences_days: toAmount(deductions.absences_days),
-    absence_deduction: toAmount(totals.absence_deduction),
-    leave_with_pay_days: toAmount(deductions.leave_with_pay_days),
-    leave_without_pay_days: toAmount(deductions.leave_without_pay_days),
-    leave_without_pay_deduction: toAmount(totals.leave_without_pay_deduction),
-  };
-}
-
 // Map a payroll_records row — totals only, no per-deduction breakdown.
 function mapRecordToPayslip(rec) {
   return {
@@ -174,38 +124,7 @@ async function fetchPayslipsForUser(supabase, userId) {
     // payroll_entries table may not exist — fall through
   }
 
-  // ── 2. salary_approvals (approved only) ───────────────────────────────────
-  try {
-    let { data, error } = await supabase
-      .from("salary_approvals")
-      .select(
-        "id,employee_id,current_salary,proposed_salary,submitted_at,status,payroll_breakdown",
-      )
-      .eq("employee_id", userId)
-      .eq("status", "approved")
-      .order("submitted_at", { ascending: false })
-      .limit(50);
-
-    if (error && colMissing(error, "payroll_breakdown")) {
-      const r2 = await supabase
-        .from("salary_approvals")
-        .select("id,employee_id,current_salary,proposed_salary,submitted_at,status")
-        .eq("employee_id", userId)
-        .eq("status", "approved")
-        .order("submitted_at", { ascending: false })
-        .limit(50);
-      data = r2.data;
-      error = r2.error;
-    }
-
-    if (!error && Array.isArray(data) && data.length > 0) {
-      return data.map(mapApprovalToPayslip);
-    }
-  } catch {
-    // fall through
-  }
-
-  // ── 3. payroll_records — legacy totals table ──────────────────────────────
+  // ── 2. payroll_records — legacy totals table ──────────────────────────────
   try {
     let { data, error } = await supabase
       .from("payroll_records")

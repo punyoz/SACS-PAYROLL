@@ -1,0 +1,11 @@
+-- Drop the salary_approvals table: the feature it backed (an accountant
+-- proposing a salary change, an admin/super admin approving or rejecting it)
+-- has no UI anywhere in the app — there was no screen to create a request and
+-- no screen to act on one. The only code that touched this table was the
+-- admin dashboard's approve/reject endpoint and a payslip-history fallback,
+-- both removed from the application in this same change. No other table has
+-- a foreign key into salary_approvals, so nothing else is affected.
+--
+-- CASCADE drops its indexes, RLS policies, and update trigger along with it
+-- (all intrinsic to the table itself); it does not touch any other table.
+DROP TABLE IF EXISTS public.salary_approvals CASCADE;

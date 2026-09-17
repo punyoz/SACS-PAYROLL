@@ -74,11 +74,13 @@ async function main() {
   console.log(`Keeping seed accounts: ${SEED_EMAILS.join(", ")}\n`);
 
   console.log("Clearing data tables...");
-  await clearTable("salary_approvals");
+  await clearTable("payroll_entries");
   await clearTable("payroll_records");
   await clearTable("attendance_logs");
   await clearTable("audit_logs");
   await clearTable("leave_requests");
+  await clearTable("transfer_requests");
+  await clearTable("employee_branch_assignments");
 
   console.log("\nCleaning profiles...");
   await cleanProfiles();

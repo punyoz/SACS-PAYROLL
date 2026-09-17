@@ -1327,16 +1327,6 @@ function updateLeavesBadge(count) {
   badge.style.display = count > 0 ? '' : 'none';
 }
 
-async function refreshLeavesBadge() {
-  try {
-    const res = await fetch('/api/accountant/leave-requests?status=pending_accountant');
-    const data = await res.json();
-    if (res.ok) updateLeavesBadge((data.requests || []).length);
-  } catch {
-    // silent — badge just won't update
-  }
-}
-
 async function loadAccountantLeaveHistory() {
   const tbody = document.getElementById('al-history-tbody');
   const emptyMsg = document.getElementById('al-history-empty');
