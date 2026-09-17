@@ -2023,7 +2023,12 @@ function setupSitemapFab() {
   panel.setAttribute('aria-modal', 'true');
   panel.setAttribute('aria-label', 'All pages');
 
-  document.body.append(fab, backdrop, panel);
+  // panel nests inside backdrop so the >=640px CSS (backdrop centers its
+  // flex child) actually applies — as siblings, "position: relative" at
+  // that breakpoint had no flex container to center within and the panel
+  // landed wherever document.body's normal flow put it.
+  backdrop.appendChild(panel);
+  document.body.append(fab, backdrop);
 
   function closeSitemap() {
     panel.classList.remove('active');
@@ -2141,7 +2146,12 @@ function setupSitemapFab() {
     if (panel.classList.contains('active')) closeSitemap();
     else openSitemap();
   });
-  backdrop.addEventListener('click', closeSitemap);
+  // Only a direct click on the backdrop itself closes it — panel is now a
+  // child of backdrop, so clicks inside the panel would otherwise bubble
+  // up and close it before a card's own click handler ever ran.
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop) closeSitemap();
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeSitemap();
   });

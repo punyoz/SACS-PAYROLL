@@ -318,12 +318,11 @@
   animation: pg-in 0.22s ease both;
 }
 
-/* ── RESPONSIVE SHELL (mobile-first) ──
-   Phones and tablets get the content first, like the employee portal: the
-   sidebar is hidden outright rather than becoming a drawer, and the
+/* ── RESPONSIVE SHELL ──
+   The sidebar is hidden outright at every width, desktop included — the
    sitemap FAB (js/app.js setupSitemapFab) is the only way to reach a
-   portal's other pages — one "see everything" menu instead of two.
-   From 1024px up it is the familiar fixed sidebar again. */
+   portal's other pages, one "see everything" menu instead of a permanent
+   sidebar plus a duplicate FAB. */
 #s-admin,
 #s-accountant,
 #s-super-admin,
@@ -442,30 +441,6 @@
 }
 
 @media (min-width: 1024px) {
-  #s-admin,
-  #s-accountant,
-  #s-super-admin,
-  #s-hr {
-    flex-direction: row;
-    min-height: 100vh;
-  }
-
-  .sidebar {
-    display: flex;
-    position: sticky;
-    top: 0;
-    bottom: auto;
-    width: var(--sidebar);
-    height: 100vh;
-    min-height: 100vh;
-    z-index: auto;
-  }
-
-  .sidebar .ni {
-    padding: 9px 12px;
-    margin: 1px 6px;
-  }
-
   .topbar {
     position: static;
     padding: 0 22px;
