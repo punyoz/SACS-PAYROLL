@@ -564,6 +564,15 @@
 #emp-timesheet.emp-page { max-width: 1060px; }
 
 /* ════════════════════════════════════════════
+   ATTENDANCE PAGE — wider than default 860px too:
+   the two-column calendar + records layout had a lot of unused margin on
+   wide screens. Both grid columns benefit — the calendar's day cells scale
+   with their column (repeat(7, 1fr)) so they get bigger, not just padding,
+   and the records table gets more room before its own horizontal scroll.
+════════════════════════════════════════════ */
+#emp-attendance.emp-page { max-width: 1200px; }
+
+/* ════════════════════════════════════════════
    STEP WIZARD
 ════════════════════════════════════════════ */
 .ts-wizard {
