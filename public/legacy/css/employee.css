@@ -352,6 +352,7 @@
 ════════════════════════════════════════════ */
 .emp-tabnav {
   display: flex;
+  justify-content: center;
   background: var(--bg2);
   border-bottom: 1px solid var(--border);
   padding: 0 14px;
@@ -360,6 +361,12 @@
   flex-shrink: 0;
   scrollbar-width: none;
   transition: background 0.25s, border-color 0.25s;
+}
+/* Centering an overflowing flex line clips its start rather than just
+   letting the end run off — left-align instead once the tabs actually
+   need to scroll (js/app.js setupTabScrollFade toggles this). */
+.emp-tabnav.scrollable {
+  justify-content: flex-start;
 }
 .emp-tabnav::-webkit-scrollbar { display: none; }
 

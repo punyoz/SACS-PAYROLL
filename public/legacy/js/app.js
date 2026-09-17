@@ -1967,6 +1967,11 @@ function setupTabScrollFade() {
 
     const update = () => {
       const scrollable = nav.scrollWidth > nav.clientWidth + 1;
+      // Centered (CSS default) only while every tab actually fits — centering
+      // an overflowing flex line clips its start, which hid the default
+      // active Dashboard tab off-screen on load rather than just the last
+      // tab needing a scroll.
+      nav.classList.toggle('scrollable', scrollable);
       nav.classList.toggle('fade-l', scrollable && nav.scrollLeft > 2);
       nav.classList.toggle('fade-r', scrollable && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
     };
@@ -1979,20 +1984,20 @@ function setupTabScrollFade() {
 
 /* ══════════════════════════════════════════════════════════════════════════
    SITEMAP FAB
-   A small, low-opacity "more" button fixed to the bottom-right corner of
-   every signed-in portal. It opens an overview of every page the current
-   portal's nav exposes (sidebar sections for Admin/Accountant/HR/Super
-   Admin, tabs for Employee) as one tap-away shortcuts, which matters most
-   on a phone where the full nav is a swipe or a drawer-open away. Built by
-   reading whatever the active screen's own nav already renders (rbac.js
-   adds/removes items per permission), so it never lists a page the signed-
-   in user cannot reach and never needs updating when a portal's pages do.
+   A "more" button in the sidebar-based portals (Admin, Accountant, HR,
+   Super Admin) that opens an overview of every page the current portal's
+   sidebar exposes, since that sidebar is otherwise hidden. Employee has no
+   equivalent button: its pages are already always visible as tabs, so a
+   second "see everything" menu would only duplicate it. Built by reading
+   whatever the active screen's own sidebar already renders (rbac.js adds/
+   removes items per permission), so it never lists a page the signed-in
+   user cannot reach and never needs updating when a portal's pages do.
    ══════════════════════════════════════════════════════════════════════════ */
 
 function activePortalScreen() {
   const screen = document.querySelector('.screen.active');
   if (!screen) return null;
-  const hasNav = screen.querySelector(':scope > .sidebar .ni, .emp-tabnav .emp-tab');
+  const hasNav = screen.querySelector(':scope > .sidebar .ni');
   return hasNav ? screen : null;
 }
 
@@ -2080,12 +2085,8 @@ function setupSitemapFab() {
   }
 
   function buildContent(screen) {
-    const brandName = screen.querySelector('.bn')?.textContent.trim()
-      || screen.querySelector('.et-brand')?.textContent.trim()
-      || 'SACS Payroll';
-    const brandSub = screen.querySelector('.bs')?.textContent.trim()
-      || screen.querySelector('#emp-top-role')?.textContent.trim()
-      || '';
+    const brandName = screen.querySelector('.bn')?.textContent.trim() || 'SACS Payroll';
+    const brandSub = screen.querySelector('.bs')?.textContent.trim() || '';
 
     panel.replaceChildren();
 
@@ -2110,37 +2111,34 @@ function setupSitemapFab() {
     body.className = 'sitemap-body';
     panel.appendChild(body);
 
+    // activePortalScreen() only returns screens with a sidebar, so this is
+    // always present here.
     const sidebar = screen.querySelector(':scope > .sidebar');
-    if (sidebar) {
-      let pendingLabel = null;
-      let items = [];
-      const flush = () => {
-        if (pendingLabel && items.length) body.appendChild(buildGroup(pendingLabel, items));
-        items = [];
-      };
-      Array.from(sidebar.children).forEach((el) => {
-        if (el.classList.contains('sb-sec')) {
-          flush();
-          pendingLabel = el.textContent.trim();
-        } else if (el.classList.contains('ni')) {
-          items.push(el);
-        }
-      });
-      flush();
-
-      // The sidebar's own footer (signed-in user + Sign Out) is hidden
-      // along with the rest of it — clone it in rather than reimplement
-      // sign-out, so it stays whatever rbac.js last rendered there.
-      const sbFoot = sidebar.querySelector(':scope > .sb-foot');
-      if (sbFoot) {
-        const foot = document.createElement('div');
-        foot.className = 'sitemap-foot';
-        foot.appendChild(sbFoot.cloneNode(true));
-        panel.appendChild(foot);
+    let pendingLabel = null;
+    let items = [];
+    const flush = () => {
+      if (pendingLabel && items.length) body.appendChild(buildGroup(pendingLabel, items));
+      items = [];
+    };
+    Array.from(sidebar.children).forEach((el) => {
+      if (el.classList.contains('sb-sec')) {
+        flush();
+        pendingLabel = el.textContent.trim();
+      } else if (el.classList.contains('ni')) {
+        items.push(el);
       }
-    } else {
-      const tabs = Array.from(screen.querySelectorAll('.emp-tabnav .emp-tab'));
-      if (tabs.length) body.appendChild(buildGroup('Pages', tabs));
+    });
+    flush();
+
+    // The sidebar's own footer (signed-in user + Sign Out) is hidden along
+    // with the rest of it — clone it in rather than reimplement sign-out,
+    // so it stays whatever rbac.js last rendered there.
+    const sbFoot = sidebar.querySelector(':scope > .sb-foot');
+    if (sbFoot) {
+      const foot = document.createElement('div');
+      foot.className = 'sitemap-foot';
+      foot.appendChild(sbFoot.cloneNode(true));
+      panel.appendChild(foot);
     }
   }
 
@@ -2175,7 +2173,7 @@ function setupSitemapFab() {
       // floating circle pinned to a corner — it stays put as part of the
       // page chrome, not as an overlay sitting on top of it. The top bar
       // is sticky, so it stays on screen while the page scrolls.
-      const topbar = screen.querySelector(':scope > .main .topbar, .emp-topbar');
+      const topbar = screen.querySelector(':scope > .main .topbar');
       if (topbar && fab.parentElement !== topbar) topbar.insertBefore(fab, topbar.firstChild);
     }
     fab.classList.toggle('visible', visible);
