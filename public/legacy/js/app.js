@@ -2008,6 +2008,213 @@ function setupMobileNav() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
+   SCROLLABLE TAB FADE
+   The employee portal's tab strip (.emp-tabnav) scrolls horizontally on
+   phones — it has more tabs than fit. Without a hint, a clipped tab at the
+   edge reads as a layout bug rather than "swipe for more". Mask-fade
+   whichever edge still has hidden content, cleared once fully scrolled.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function setupTabScrollFade() {
+  document.querySelectorAll('.emp-tabnav').forEach((nav) => {
+    if (nav.dataset.fadeBound === '1') return;
+    nav.dataset.fadeBound = '1';
+
+    const update = () => {
+      const scrollable = nav.scrollWidth > nav.clientWidth + 1;
+      nav.classList.toggle('fade-l', scrollable && nav.scrollLeft > 2);
+      nav.classList.toggle('fade-r', scrollable && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
+    };
+
+    nav.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SITEMAP FAB
+   A small, low-opacity "more" button fixed to the bottom-right corner of
+   every signed-in portal. It opens an overview of every page the current
+   portal's nav exposes (sidebar sections for Admin/Accountant/HR/Super
+   Admin, tabs for Employee) as one tap-away shortcuts, which matters most
+   on a phone where the full nav is a swipe or a drawer-open away. Built by
+   reading whatever the active screen's own nav already renders (rbac.js
+   adds/removes items per permission), so it never lists a page the signed-
+   in user cannot reach and never needs updating when a portal's pages do.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+function activePortalScreen() {
+  const screen = document.querySelector('.screen.active');
+  if (!screen) return null;
+  const hasNav = screen.querySelector(':scope > .sidebar .ni, .emp-tabnav .emp-tab');
+  return hasNav ? screen : null;
+}
+
+function navCardLabel(navEl) {
+  const clone = navEl.cloneNode(true);
+  clone.querySelectorAll('svg, .nib').forEach((el) => el.remove());
+  return clone.textContent.replace(/\s+/g, ' ').trim();
+}
+
+function setupSitemapFab() {
+  if (document.body.dataset.sitemapFabBound === '1') return;
+  document.body.dataset.sitemapFabBound = '1';
+
+  const fab = document.createElement('button');
+  fab.type = 'button';
+  fab.className = 'sitemap-fab';
+  fab.setAttribute('aria-label', 'Show all pages');
+  fab.setAttribute('aria-expanded', 'false');
+  fab.title = 'Show all pages';
+  fab.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="5" r="1.9" fill="currentColor"/><circle cx="12" cy="12" r="1.9" fill="currentColor"/><circle cx="12" cy="19" r="1.9" fill="currentColor"/></svg>';
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sitemap-backdrop';
+
+  const panel = document.createElement('div');
+  panel.className = 'sitemap-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-label', 'All pages');
+
+  document.body.append(fab, backdrop, panel);
+
+  function closeSitemap() {
+    panel.classList.remove('active');
+    backdrop.classList.remove('active');
+    fab.setAttribute('aria-expanded', 'false');
+  }
+
+  function buildCard(navEl) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'sitemap-card';
+    if (navEl.classList.contains('active')) card.classList.add('active');
+
+    const icon = navEl.querySelector('svg');
+    if (icon) {
+      const iconWrap = document.createElement('span');
+      iconWrap.className = 'sitemap-card-icon';
+      iconWrap.appendChild(icon.cloneNode(true));
+      card.appendChild(iconWrap);
+    }
+
+    const label = document.createElement('span');
+    label.className = 'sitemap-card-label';
+    label.textContent = navCardLabel(navEl);
+    card.appendChild(label);
+
+    card.addEventListener('click', () => {
+      closeSitemap();
+      navEl.click();
+    });
+    return card;
+  }
+
+  function buildGroup(labelText, navEls) {
+    const group = document.createElement('div');
+    group.className = 'sitemap-group';
+
+    const label = document.createElement('div');
+    label.className = 'sitemap-group-label';
+    label.textContent = labelText;
+    group.appendChild(label);
+
+    const grid = document.createElement('div');
+    grid.className = 'sitemap-grid';
+    navEls.forEach((navEl) => grid.appendChild(buildCard(navEl)));
+    group.appendChild(grid);
+
+    return group;
+  }
+
+  function buildContent(screen) {
+    const brandName = screen.querySelector('.bn')?.textContent.trim()
+      || screen.querySelector('.et-brand')?.textContent.trim()
+      || 'SACS Payroll';
+    const brandSub = screen.querySelector('.bs')?.textContent.trim()
+      || screen.querySelector('#emp-top-role')?.textContent.trim()
+      || '';
+
+    panel.replaceChildren();
+
+    const head = document.createElement('div');
+    head.className = 'sitemap-head';
+    const title = document.createElement('div');
+    title.className = 'sitemap-title';
+    title.textContent = brandName;
+    const sub = document.createElement('div');
+    sub.className = 'sitemap-sub';
+    sub.textContent = brandSub ? `${brandSub} — all pages` : 'All pages';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'sitemap-close';
+    close.setAttribute('aria-label', 'Close');
+    close.textContent = '✕';
+    close.addEventListener('click', closeSitemap);
+    head.append(title, sub, close);
+    panel.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'sitemap-body';
+    panel.appendChild(body);
+
+    const sidebar = screen.querySelector(':scope > .sidebar');
+    if (sidebar) {
+      let pendingLabel = null;
+      let items = [];
+      const flush = () => {
+        if (pendingLabel && items.length) body.appendChild(buildGroup(pendingLabel, items));
+        items = [];
+      };
+      Array.from(sidebar.children).forEach((el) => {
+        if (el.classList.contains('sb-sec')) {
+          flush();
+          pendingLabel = el.textContent.trim();
+        } else if (el.classList.contains('ni')) {
+          items.push(el);
+        }
+      });
+      flush();
+    } else {
+      const tabs = Array.from(screen.querySelectorAll('.emp-tabnav .emp-tab'));
+      if (tabs.length) body.appendChild(buildGroup('Pages', tabs));
+    }
+  }
+
+  function openSitemap() {
+    const screen = activePortalScreen();
+    if (!screen) return;
+    buildContent(screen);
+    panel.classList.add('active');
+    backdrop.classList.add('active');
+    fab.setAttribute('aria-expanded', 'true');
+  }
+
+  fab.addEventListener('click', () => {
+    if (panel.classList.contains('active')) closeSitemap();
+    else openSitemap();
+  });
+  backdrop.addEventListener('click', closeSitemap);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeSitemap();
+  });
+
+  const refreshVisibility = () => {
+    const visible = Boolean(activePortalScreen());
+    fab.classList.toggle('visible', visible);
+    if (!visible) closeSitemap();
+  };
+
+  document.querySelectorAll('.screen').forEach((screen) => {
+    new MutationObserver(refreshVisibility).observe(screen, { attributes: true, attributeFilter: ['class'] });
+  });
+
+  refreshVisibility();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
    NUMBER-ONLY INPUTS
    type="number" still lets a browser accept "e", "+", "-" (and Firefox any
    letter at all). Inputs inside `root` get filtered by their inputmode:
@@ -2224,6 +2431,8 @@ function initApp() {
   window.closeMobileNav = closeMobileNav;
 
   setupMobileNav();
+  setupTabScrollFade();
+  setupSitemapFab();
 
   // Sync auth context across tabs/windows without requiring refresh.
   window.addEventListener('storage', (event) => {

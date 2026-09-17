@@ -363,6 +363,22 @@
 }
 .emp-tabnav::-webkit-scrollbar { display: none; }
 
+/* Fade whichever edge still has tabs scrolled out of view (js/app.js
+   setupTabScrollFade toggles these based on scroll position), so a clipped
+   tab reads as "more to scroll" instead of a broken layout. */
+.emp-tabnav.fade-r {
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 28px), transparent 100%);
+}
+.emp-tabnav.fade-l {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 100%);
+}
+.emp-tabnav.fade-l.fade-r {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+}
+
 .emp-tab {
   display: flex;
   align-items: center;
