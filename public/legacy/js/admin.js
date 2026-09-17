@@ -626,9 +626,11 @@ function renderAuditTable(logs = []) {
   }).join('');
 }
 
+const debouncedLoadAuditLogs = debounce(loadAuditLogs, 300);
+
 function setAuditSearch(value) {
   auditSearch = String(value || '').trim();
-  loadAuditLogs();
+  debouncedLoadAuditLogs();
 }
 
 function setAuditModuleFilter(value) {

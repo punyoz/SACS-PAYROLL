@@ -100,6 +100,20 @@ function printDocument(kind) {
 
 const ALLOWED_SUFFIXES = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
 
+// Delays `fn` until `wait` ms after the last call — for a search box wired to
+// a server round trip (e.g. the audit log search, whose query already
+// combines a search term with a row limit server-side, so it can't just be
+// filtered client-side without changing which rows show up). Typing a
+// 10-character term used to fire 10 requests and 10 full-table re-renders;
+// this fires one, after typing pauses.
+function debounce(fn, wait = 250) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replaceAll('&', '&amp;')

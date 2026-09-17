@@ -322,7 +322,7 @@ async function deletePayrollEntryFromDb(supabase, entryId) {
   }
 }
 
-async function generatePayslipNo(supabase, processedAt) {
+async function nextPayslipSeqPrefix(supabase, processedAt) {
   const date = processedAt ? new Date(processedAt) : new Date();
   const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
   const prefix = `PS-${ym}-`;
@@ -340,7 +340,22 @@ async function generatePayslipNo(supabase, processedAt) {
     seq = (Number(last) || 0) + 1;
   }
 
+  return { prefix, seq };
+}
+
+async function generatePayslipNo(supabase, processedAt) {
+  const { prefix, seq } = await nextPayslipSeqPrefix(supabase, processedAt);
   return `${prefix}${String(seq).padStart(4, "0")}`;
+}
+
+// One query instead of one-per-employee: reads the current sequence once and
+// assigns `count` consecutive numbers in memory. Safe within this batch (every
+// number here is guaranteed distinct); a collision with a payslip_no minted by
+// a submission outside this batch still surfaces as a 23505 on insert, which
+// handleBatchSubmit's caller falls back to the slower per-employee path for.
+async function generatePayslipNumbers(supabase, processedAt, count) {
+  const { prefix, seq } = await nextPayslipSeqPrefix(supabase, processedAt);
+  return Array.from({ length: count }, (_, i) => `${prefix}${String(seq + i).padStart(4, "0")}`);
 }
 
 // payroll_records.payslip_no carries a UNIQUE constraint (20260509_add_payslip_no.sql),
@@ -417,8 +432,10 @@ function expandDateRange(startKey, endKey) {
 // against it. Days are clamped to the period window so a leave request
 // spanning a cutoff only counts toward the half it actually falls in.
 async function buildLeaveContext(employees, periodStart, periodEnd) {
-  const allLeaveRequests = await readAllLeaveRequests();
-  const approved = allLeaveRequests.filter((r) => r.status === "approved");
+  // Payroll only ever needs approved requests — filtering server-side avoids
+  // transferring every leave request ever filed (pending, rejected, from
+  // years ago) on every payroll page load.
+  const approved = await readAllLeaveRequests({ status: "approved" });
 
   const summaries = [];
   const leaveDaysByEmployee = new Map();
@@ -457,9 +474,16 @@ async function buildLeaveContext(employees, periodStart, periodEnd) {
 }
 
 async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee) {
+  // Filtering by log_date server-side (indexed — attendance_logs_log_date_idx)
+  // means the query only ever transfers rows this period could possibly use,
+  // instead of pulling the 5000 globally-most-recent rows and filtering them
+  // out in JS below — which, once daily volume grew past that cap, could
+  // silently return zero/partial rows for an older period being reviewed.
   const result = await supabase
     .from("attendance_logs")
     .select("employee_id,status,log_date,time_in,created_at")
+    .gte("log_date", periodStart)
+    .lte("log_date", periodEnd)
     .order("created_at", { ascending: false })
     .limit(5000);
 
@@ -719,6 +743,38 @@ export async function GET(request) {
 // All" batch table. Does not touch the existing single-employee save_draft/
 // submit path below; reuses the same computeTotals()/appendPayrollRecord()/
 // syncPayrollEntryToDb() building blocks that path already relies on.
+// Processes one employee the slow-but-fully-isolated way: a failure here
+// (e.g. a genuine duplicate-key conflict from stale data an earlier check
+// couldn't see) affects only this employee, never the rest of the batch.
+// This is handleBatchSubmit's fallback path, kept byte-for-byte equivalent to
+// how every employee used to be processed before batching was added below.
+async function submitOneBatchEntry(supabase, employee, baseEntry, processed, skipped) {
+  try {
+    const recordResult = await appendPayrollRecord(supabase, baseEntry);
+    if (recordResult.payslip_no) {
+      baseEntry.payslip_no = recordResult.payslip_no;
+    }
+
+    const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+    if (!dbSync.success) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: `Payroll was not saved: ${dbSync.error}` });
+      return;
+    }
+
+    processed.push({
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      entry_id: baseEntry.id,
+      payslip_no: baseEntry.payslip_no || null,
+    });
+  } catch (error) {
+    const reason = isDuplicateKeyError(error)
+      ? DUPLICATE_SUBMISSION_MESSAGE
+      : (error?.message || "Failed to process this employee.");
+    skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason });
+  }
+}
+
 async function handleBatchSubmit(supabase, body, guard) {
   const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(new Date()));
   const requestedEntries = Array.isArray(body.entries) ? body.entries : [];
@@ -734,7 +790,10 @@ async function handleBatchSubmit(supabase, body, guard) {
 
   const processed = [];
   const skipped = [];
+  const candidates = [];
 
+  // Pure in-memory work — no DB calls here, so this loop costs nothing extra
+  // regardless of how many employees are in the batch.
   for (const item of requestedEntries) {
     const employeeId = normalizeText(item.employee_id);
     const employee = employees.find((row) => row.id === employeeId);
@@ -753,70 +812,149 @@ async function handleBatchSubmit(supabase, body, guard) {
       continue;
     }
 
-    // Each employee's write is isolated: a failure here (e.g. a genuine
-    // duplicate-key conflict from stale data the in-memory check above
-    // couldn't see) must not abort the rest of the batch or get reported
-    // as a blanket "already processed" for employees who were never
-    // actually touched.
+    const computedPayroll = computeTotals({
+      basic_salary: item.basic_salary,
+      deductions: {
+        sss: item.deductions?.sss,
+        philhealth: item.deductions?.philhealth,
+        pagibig: item.deductions?.pagibig,
+        withholding_tax: item.deductions?.withholding_tax,
+        absences_days: item.deductions?.absences_days,
+        late_days: item.deductions?.late_days,
+        leave_with_pay_days: item.deductions?.leave_with_pay_days,
+        leave_without_pay_days: item.deductions?.leave_without_pay_days,
+      },
+    });
+
+    const baseEntry = {
+      // Reuse an existing draft's id for this employee+period (there can be
+      // at most one, per the UNIQUE(employee_id, pay_period) constraint) so
+      // the upsert below updates that row instead of colliding with it
+      // under a freshly-minted id.
+      id: existingForPeriod?.id || crypto.randomUUID(),
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      employee_code: employee.employee_id,
+      employee_type: employee.employee_type,
+      position: employee.position,
+      pay_period: payPeriod,
+      status: "paid",
+      submitted_at: nowIso,
+      created_at: existingForPeriod?.created_at || nowIso,
+      updated_at: nowIso,
+      payroll: computedPayroll,
+    };
+
+    candidates.push({ employee, baseEntry });
+  }
+
+  if (candidates.length) {
+    // Fast path: one payslip-number query, one bulk insert into
+    // payroll_records, one bulk upsert into payroll_entries — 3 round trips
+    // total instead of 3 per employee (a 150-employee batch used to mean
+    // 450+ sequential awaited Supabase calls). "Process Payroll for All" is
+    // expected to succeed for every row every time it's run, so this is the
+    // common case; if the bulk writes fail for any reason (most likely a
+    // payslip_no collision with a submission from outside this batch), fall
+    // through to submitOneBatchEntry()'s slower but fully isolated path so
+    // one bad row can never sink the whole batch.
     try {
-      const computedPayroll = computeTotals({
-        basic_salary: item.basic_salary,
-        deductions: {
-          sss: item.deductions?.sss,
-          philhealth: item.deductions?.philhealth,
-          pagibig: item.deductions?.pagibig,
-          withholding_tax: item.deductions?.withholding_tax,
-          absences_days: item.deductions?.absences_days,
-          late_days: item.deductions?.late_days,
-          leave_with_pay_days: item.deductions?.leave_with_pay_days,
-          leave_without_pay_days: item.deductions?.leave_without_pay_days,
-        },
-      });
+      const payslipNumbers = await generatePayslipNumbers(supabase, nowIso, candidates.length);
 
-      const baseEntry = {
-        // Reuse an existing draft's id for this employee+period (there can be
-        // at most one, per the UNIQUE(employee_id, pay_period) constraint) so
-        // syncPayrollEntryToDb()'s upsert updates that row instead of
-        // colliding with it under a freshly-minted id.
-        id: existingForPeriod?.id || crypto.randomUUID(),
-        employee_id: employee.id,
-        employee_name: employee.full_name,
-        employee_code: employee.employee_id,
-        employee_type: employee.employee_type,
-        position: employee.position,
-        pay_period: payPeriod,
-        status: "paid",
-        submitted_at: nowIso,
-        created_at: existingForPeriod?.created_at || nowIso,
-        updated_at: nowIso,
-        payroll: computedPayroll,
-      };
+      const recordsPayload = candidates.map(({ baseEntry }, index) => ({
+        employee_id: baseEntry.employee_id,
+        employee_name: baseEntry.employee_name,
+        employee_type: baseEntry.employee_type,
+        gross_pay: toAmount(baseEntry.payroll.totals.gross_pay),
+        total_deductions: toAmount(baseEntry.payroll.totals.total_deductions),
+        net_pay: toAmount(baseEntry.payroll.totals.net_pay),
+        period_label: baseEntry.pay_period,
+        processed_at: baseEntry.submitted_at,
+        payslip_no: payslipNumbers[index],
+      }));
 
-      const recordResult = await appendPayrollRecord(supabase, baseEntry);
-      if (recordResult.payslip_no) {
-        baseEntry.payslip_no = recordResult.payslip_no;
+      let recordsInserted = false;
+      let payslipByEmployee = new Map();
+
+      try {
+        const recordsResult = await supabase
+          .from("payroll_records")
+          .insert(recordsPayload)
+          .select("employee_id, payslip_no");
+
+        if (recordsResult.error) throw new Error(recordsResult.error.message);
+        recordsInserted = true;
+
+        payslipByEmployee = new Map(
+          (recordsResult.data || []).map((row) => [row.employee_id, row.payslip_no]),
+        );
+
+        const entriesPayload = candidates.map(({ baseEntry }) => ({
+          id: baseEntry.id,
+          employee_id: baseEntry.employee_id,
+          employee_name: baseEntry.employee_name,
+          employee_code: baseEntry.employee_code || null,
+          employee_type: baseEntry.employee_type || null,
+          position: baseEntry.position || null,
+          pay_period: baseEntry.pay_period,
+          status: baseEntry.status,
+          approval_id: baseEntry.approval_id || null,
+          payslip_no: payslipByEmployee.get(baseEntry.employee_id) || null,
+          payroll: baseEntry.payroll,
+          submitted_at: baseEntry.submitted_at,
+          created_at: baseEntry.created_at,
+          updated_at: baseEntry.updated_at,
+        }));
+
+        const upsertResult = await supabase
+          .from("payroll_entries")
+          .upsert(entriesPayload, { onConflict: "employee_id,pay_period" });
+
+        if (upsertResult.error) throw new Error(upsertResult.error.message);
+
+        candidates.forEach(({ employee, baseEntry }) => {
+          processed.push({
+            employee_id: employee.id,
+            employee_name: employee.full_name,
+            entry_id: baseEntry.id,
+            payslip_no: payslipByEmployee.get(baseEntry.employee_id) || null,
+          });
+        });
+      } catch (bulkError) {
+        if (!recordsInserted) {
+          // Nothing was written yet — safe to fall back to the fully
+          // isolated per-employee path (which mints its own payroll_records
+          // row per employee) without risking a duplicate.
+          for (const { employee, baseEntry } of candidates) {
+            await submitOneBatchEntry(supabase, employee, baseEntry, processed, skipped);
+          }
+        } else {
+          // payroll_records already got its row for every candidate — only
+          // payroll_entries failed to sync. Retrying via appendPayrollRecord()
+          // here would mint a second payroll_records row per employee, so
+          // this only retries the payroll_entries sync, one row at a time.
+          for (const { employee, baseEntry } of candidates) {
+            baseEntry.payslip_no = payslipByEmployee.get(baseEntry.employee_id) || baseEntry.payslip_no;
+            const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+            if (!dbSync.success) {
+              skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: `Payroll was not saved: ${dbSync.error}` });
+              continue;
+            }
+            processed.push({
+              employee_id: employee.id,
+              employee_name: employee.full_name,
+              entry_id: baseEntry.id,
+              payslip_no: baseEntry.payslip_no || null,
+            });
+          }
+        }
       }
-
-      // payroll_entries is the only place Payslips/Payroll Records/Payroll
-      // Monitoring read a processed entry from — a sync failure here must
-      // count as a skip, not a silent success with nothing to show for it.
-      const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
-      if (!dbSync.success) {
-        skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: `Payroll was not saved: ${dbSync.error}` });
-        continue;
+    } catch {
+      // generatePayslipNumbers() itself failed — nothing was written for
+      // any candidate, so the fully isolated per-employee path is safe.
+      for (const { employee, baseEntry } of candidates) {
+        await submitOneBatchEntry(supabase, employee, baseEntry, processed, skipped);
       }
-
-      processed.push({
-        employee_id: employee.id,
-        employee_name: employee.full_name,
-        entry_id: baseEntry.id,
-        payslip_no: baseEntry.payslip_no || null,
-      });
-    } catch (error) {
-      const reason = isDuplicateKeyError(error)
-        ? DUPLICATE_SUBMISSION_MESSAGE
-        : (error?.message || "Failed to process this employee.");
-      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason });
     }
   }
 

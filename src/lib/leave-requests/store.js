@@ -45,12 +45,22 @@ export function normalizeLeaveRequest(row) {
 
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
-export async function readAllLeaveRequests() {
+// `status` narrows the query server-side (leave_requests_status_idx already
+// exists) for callers that only ever need one status — e.g. payroll only
+// cares about approved requests — instead of transferring and re-filtering
+// every leave request ever filed, which grows unbounded with no archiving.
+export async function readAllLeaveRequests({ status } = {}) {
   const supabase = getAdminClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("leave_requests")
     .select("*")
     .order("submitted_at", { ascending: false });
+
+  if (status) {
+    query = query.eq("status", status);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
 
