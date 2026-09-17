@@ -2157,7 +2157,16 @@ function setupSitemapFab() {
   });
 
   const refreshVisibility = () => {
-    const visible = Boolean(activePortalScreen());
+    const screen = activePortalScreen();
+    const visible = Boolean(screen);
+    if (visible) {
+      // Lives in the top bar itself, left of the title, rather than a
+      // floating circle pinned to a corner — it stays put as part of the
+      // page chrome, not as an overlay sitting on top of it. The top bar
+      // is sticky, so it stays on screen while the page scrolls.
+      const topbar = screen.querySelector(':scope > .main .topbar, .emp-topbar');
+      if (topbar && fab.parentElement !== topbar) topbar.insertBefore(fab, topbar.firstChild);
+    }
     fab.classList.toggle('visible', visible);
     if (!visible) closeSitemap();
   };

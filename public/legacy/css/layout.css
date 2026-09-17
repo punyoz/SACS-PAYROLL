@@ -666,36 +666,33 @@
   }
 }
 
-/* ── SITEMAP FAB (js/app.js setupSitemapFab) ──
-   A quiet, low-opacity "more" button every signed-in portal gets, fixed to
-   the bottom-right corner on top of whatever page is scrolled. Opens an
-   overview of every page the current portal's nav exposes. */
+/* ── SITEMAP BUTTON (js/app.js setupSitemapFab) ──
+   A "more" button every signed-in portal gets, moved by app.js into that
+   portal's own top bar — left of the page title, like the icon buttons
+   (theme toggle, settings, notifications) already there — rather than a
+   circle floating on top of the page. The top bar is sticky, so it stays
+   on screen while the page scrolls without needing fixed positioning of
+   its own. Opens an overview of every page the current portal exposes. */
 .sitemap-fab {
   display: none;
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg2);
   color: var(--t2);
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0.4;
-  box-shadow: 0 6px 18px color-mix(in srgb, #000 22%, transparent);
-  z-index: 890;
-  transition: opacity .18s ease, transform .18s ease, background .18s ease, color .18s ease;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
 }
 .sitemap-fab.visible { display: flex; }
 .sitemap-fab:hover,
 .sitemap-fab:focus-visible {
-  opacity: 1;
+  border-color: var(--amber);
   background: var(--bg3);
   color: var(--amber);
-  transform: translateY(-2px);
 }
 .sitemap-fab svg { pointer-events: none; }
 
@@ -814,6 +811,3 @@
   }
 }
 
-@media (min-width: 1024px) {
-  .sitemap-fab { right: 26px; bottom: 26px; }
-}
