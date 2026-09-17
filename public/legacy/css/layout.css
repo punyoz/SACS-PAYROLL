@@ -320,8 +320,9 @@
 
 /* ── RESPONSIVE SHELL (mobile-first) ──
    Phones and tablets get the content first, like the employee portal: the
-   sidebar leaves the page flow and becomes a slide-in drawer, opened from the
-   menu button js/app.js (setupMobileNav) puts at the start of the topbar.
+   sidebar is hidden outright rather than becoming a drawer, and the
+   sitemap FAB (js/app.js setupSitemapFab) is the only way to reach a
+   portal's other pages — one "see everything" menu instead of two.
    From 1024px up it is the familiar fixed sidebar again. */
 #s-admin,
 #s-accountant,
@@ -332,74 +333,7 @@
 }
 
 .sidebar {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: min(290px, 86vw);
-  height: 100dvh;
-  z-index: 1001;
-  border-right: 1px solid var(--border);
-  border-bottom: 0;
-  transform: translateX(-102%);
-  transition: transform .24s ease, box-shadow .24s ease;
-  overscroll-behavior: contain;
-}
-
-.screen.nav-open .sidebar {
-  transform: none;
-  box-shadow: 0 0 44px rgba(0, 0, 0, .38);
-}
-
-.sb-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(3, 10, 18, .5);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s ease;
-}
-
-.screen.nav-open .sb-backdrop {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.nav-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  border-radius: 9px;
-  border: 1px solid var(--border);
-  background: var(--bg2);
-  color: var(--t1);
-  cursor: pointer;
-}
-
-.nav-toggle:hover,
-.nav-toggle:focus-visible {
-  border-color: var(--amber);
-  color: var(--amber);
-}
-
-.sb-brand {
-  padding: 14px;
-}
-
-/* Comfortable touch targets inside the drawer. */
-.sidebar .ni {
-  padding: 11px 12px;
-  margin: 1px 8px;
-}
-
-.sb-foot {
-  margin-top: auto;
-  padding: 12px;
-  border-top: 1px solid var(--border);
+  display: none;
 }
 
 .main {
@@ -517,6 +451,7 @@
   }
 
   .sidebar {
+    display: flex;
     position: sticky;
     top: 0;
     bottom: auto;
@@ -524,18 +459,6 @@
     height: 100vh;
     min-height: 100vh;
     z-index: auto;
-    transform: none;
-    transition: none;
-    box-shadow: none;
-  }
-
-  .screen.nav-open .sidebar {
-    box-shadow: none;
-  }
-
-  .nav-toggle,
-  .sb-backdrop {
-    display: none;
   }
 
   .sidebar .ni {

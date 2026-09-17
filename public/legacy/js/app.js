@@ -1946,66 +1946,11 @@ function showLoginReasonNotice() {
 
 /* ══════════════════════════════════════════════════════════════════════════
    MOBILE NAVIGATION
-   Below 1024px the sidebar becomes a slide-in drawer opened from a menu
-   button in the topbar, the same way the employee portal keeps its content
-   first on a phone instead of a full-height stack of nav rows.
+   Below 1024px the sidebar is hidden outright (see layout.css) rather than
+   becoming a slide-in drawer — the sitemap FAB (setupSitemapFab) is the
+   only way to reach other pages on a phone, so there is no second,
+   redundant "see everything" menu competing with it.
    ══════════════════════════════════════════════════════════════════════════ */
-
-const MOBILE_NAV_BREAKPOINT = 1024;
-
-function closeMobileNav(screen) {
-  const target = screen || document.querySelector('.screen.nav-open');
-  if (!target) return;
-  target.classList.remove('nav-open');
-  target.querySelector('.nav-toggle')?.setAttribute('aria-expanded', 'false');
-}
-
-function setupMobileNav() {
-  document.querySelectorAll('.screen').forEach((screen) => {
-    const sidebar = screen.querySelector(':scope > .sidebar');
-    const topbar = screen.querySelector('.topbar');
-    if (!sidebar || !topbar || screen.dataset.mobileNav === '1') return;
-    screen.dataset.mobileNav = '1';
-
-    if (!sidebar.id) sidebar.id = `${screen.id}-sidebar`;
-
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'nav-toggle';
-    toggle.setAttribute('aria-label', 'Open menu');
-    toggle.setAttribute('aria-controls', sidebar.id);
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
-    toggle.addEventListener('click', () => {
-      const open = !screen.classList.contains('nav-open');
-      screen.classList.toggle('nav-open', open);
-      toggle.setAttribute('aria-expanded', String(open));
-    });
-    topbar.insertBefore(toggle, topbar.firstChild);
-
-    const backdrop = document.createElement('div');
-    backdrop.className = 'sb-backdrop';
-    backdrop.addEventListener('click', () => closeMobileNav(screen));
-    screen.appendChild(backdrop);
-
-    // Nav rows are re-rendered by rbac.js, so listen on the sidebar itself.
-    sidebar.addEventListener('click', (event) => {
-      if (event.target.closest('.ni') && window.innerWidth < MOBILE_NAV_BREAKPOINT) {
-        closeMobileNav(screen);
-      }
-    });
-  });
-
-  if (!document.body.dataset.mobileNavKeys) {
-    document.body.dataset.mobileNavKeys = '1';
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') closeMobileNav();
-    });
-    window.addEventListener('resize', () => {
-      if (window.innerWidth >= MOBILE_NAV_BREAKPOINT) closeMobileNav();
-    });
-  }
-}
 
 /* ══════════════════════════════════════════════════════════════════════════
    SCROLLABLE TAB FADE
@@ -2428,9 +2373,7 @@ function initApp() {
   window.requestPasswordChange = requestPasswordChange;
   window.setMustChangePasswordFlag = setMustChangePasswordFlag;
   window.enforceNumericInputs = enforceNumericInputs;
-  window.closeMobileNav = closeMobileNav;
 
-  setupMobileNav();
   setupTabScrollFade();
   setupSitemapFab();
 
