@@ -451,6 +451,19 @@
             <label>Pag-IBIG Contribution (%)</label>
             <input id="cfg-pagibig" class="fc" type="number" value="2.0" min="0" max="100" step="0.01" />
           </div>
+          <div class="fg" style="margin:0; grid-column: 1 / -1;">
+            <label>Pay Calendar</label>
+            <div class="config-section-sub" style="margin:1px 0 8px;">Mark exact pay-out dates for the year — use this when management needs a specific schedule beyond the frequency above.</div>
+            <div class="pcal-wrap">
+              <div class="pcal-head">
+                <button type="button" class="btn btn-outline pcal-nav" onclick="saPayCalNav(-1)">&lsaquo;</button>
+                <div class="pcal-title" id="sa-paycal-title">&mdash;</div>
+                <button type="button" class="btn btn-outline pcal-nav" onclick="saPayCalNav(1)">&rsaquo;</button>
+              </div>
+              <div class="pcal-grid" id="sa-paycal-grid"></div>
+              <div class="pcal-selected" id="sa-paycal-chips"></div>
+            </div>
+          </div>
         </div>
       </div>
 

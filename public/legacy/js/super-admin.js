@@ -209,22 +209,16 @@ async function loadSABranches() {
   if (!grid) return;
 
   try {
-    const [branchRes, staffRes] = await Promise.allSettled([
-      fetch('/api/admin/branches'),
-      fetch('/api/admin/dashboard'),
+    const [branchesResult, dashboardResult] = await Promise.allSettled([
+      fetchBranchesCached({ activeOnly: false }),
+      fetchDashboardCached(),
     ]);
 
-    if (branchRes.status === 'fulfilled' && branchRes.value.ok) {
-      const d = await branchRes.value.json();
-      saBranches = d.branches || [];
-    } else {
-      saBranches = [];
-    }
+    saBranches = branchesResult.status === 'fulfilled' ? branchesResult.value : [];
 
     const staffCountEl = document.getElementById('sa-branch-staff');
-    if (staffRes.status === 'fulfilled' && staffRes.value.ok) {
-      const d = await staffRes.value.json();
-      if (staffCountEl) staffCountEl.textContent = d.total_employees ?? d.totalEmployees ?? '—';
+    if (staffCountEl && dashboardResult.status === 'fulfilled') {
+      staffCountEl.textContent = dashboardResult.value?.panels?.total_employees ?? '—';
     }
   } catch {}
 
@@ -755,7 +749,65 @@ async function toggleArchiveSAAdminUser() {
 }
 
 /* ── SYSTEM CONFIGURATION ── */
+const saPayCal = {
+  view: new Date(),
+  dates: new Set(), // ISO 'YYYY-MM-DD' strings picked as pay-out dates
+};
+
+function saPayCalKey(y, m, d) {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function saPayCalNav(delta) {
+  saPayCal.view.setMonth(saPayCal.view.getMonth() + delta);
+  renderSAPayCalendar();
+}
+
+function saTogglePayDate(dateKey) {
+  if (saPayCal.dates.has(dateKey)) saPayCal.dates.delete(dateKey);
+  else saPayCal.dates.add(dateKey);
+  renderSAPayCalendar();
+}
+
+function renderSAPayCalendar() {
+  const grid = document.getElementById('sa-paycal-grid');
+  const title = document.getElementById('sa-paycal-title');
+  const chips = document.getElementById('sa-paycal-chips');
+  if (!grid || !title || !chips) return;
+
+  const year = saPayCal.view.getFullYear();
+  const month = saPayCal.view.getMonth(); // 0-based
+  title.textContent = saPayCal.view.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const todayKey = saPayCalKey(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfWeek = new Date(year, month, 1).getDay();
+
+  let html = '<div class="pcal-dh">Su</div><div class="pcal-dh">Mo</div><div class="pcal-dh">Tu</div>' +
+             '<div class="pcal-dh">We</div><div class="pcal-dh">Th</div><div class="pcal-dh">Fr</div><div class="pcal-dh">Sa</div>';
+
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    html += '<div class="pcal-day em"></div>';
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateKey = saPayCalKey(year, month + 1, day);
+    let cls = 'pcal-day';
+    if (saPayCal.dates.has(dateKey)) cls += ' picked';
+    if (dateKey === todayKey) cls += ' today';
+    html += `<div class="${cls}" onclick="saTogglePayDate('${dateKey}')">${day}</div>`;
+  }
+
+  grid.innerHTML = html;
+
+  const sorted = Array.from(saPayCal.dates).sort();
+  chips.innerHTML = sorted.length
+    ? sorted.map((d) => `<span class="pcal-chip">${d}<button type="button" onclick="saTogglePayDate('${d}')" aria-label="Remove ${d}">&times;</button></span>`).join('')
+    : '<span class="pcal-empty">No pay dates selected — click a day above to add one.</span>';
+}
+
 async function loadSAConfig() {
+  renderSAPayCalendar();
   try {
     const res = await fetch('/api/admin/config');
     if (!res.ok) return;
@@ -782,6 +834,13 @@ async function loadSAConfig() {
     set('cfg-philhealth', p.philhealth);
     set('cfg-pagibig', p.pagibig);
 
+    saPayCal.dates.clear();
+    try {
+      const savedDates = p.pay_calendar ? JSON.parse(p.pay_calendar) : [];
+      if (Array.isArray(savedDates)) savedDates.forEach((d) => { if (typeof d === 'string') saPayCal.dates.add(d); });
+    } catch {}
+    renderSAPayCalendar();
+
     const s = cfg.security || {};
     set('cfg-session', s.session);
     set('cfg-login-attempts', s.login_attempts);
@@ -806,6 +865,10 @@ async function saveSAConfig(section) {
     const el = document.getElementById(id);
     if (el) values[key] = el.value;
   });
+
+  if (section === 'payroll') {
+    values.pay_calendar = JSON.stringify(Array.from(saPayCal.dates).sort());
+  }
 
   if (fb) { fb.textContent = 'Saving...'; fb.style.color = 'var(--t3)'; }
 
@@ -940,9 +1003,11 @@ async function loadSAAuditLogs() {
   }
 }
 
+const debouncedLoadSAAuditLogs = debounce(loadSAAuditLogs, 300);
+
 function setSAAuditSearch(val) {
   saAuditSearch = val;
-  loadSAAuditLogs();
+  debouncedLoadSAAuditLogs();
 }
 
 function setSAAuditModuleFilter(val) {
