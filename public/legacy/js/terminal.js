@@ -290,6 +290,20 @@
     }
   }
 
+  // #rt-scan-input starts `readonly` (see rfid-terminal.html) purely so
+  // Chrome's password manager never treats it as a candidate to autofill —
+  // it sits right below the password field the Admin just typed a real
+  // password into on the lock screen, and once that field becomes visible
+  // Chrome will otherwise fill it with the account's saved email as a
+  // "username" guess, racing (and beating) any value we clear in JS.
+  // Readonly fields are never autofill candidates, so dropping readonly on
+  // the very first real keystroke — before the browser applies it to
+  // .value — keeps that protection until actual use starts, with no effect
+  // on typing or on the RFID reader's own keystrokes.
+  scanInput.addEventListener('keydown', () => {
+    if (scanInput.readOnly) scanInput.readOnly = false;
+  });
+
   let idleTimer = null;
   scanInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
