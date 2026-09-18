@@ -120,6 +120,7 @@
   function unlockScreen() {
     lockScreen.hidden = true;
     mainScreen.hidden = false;
+    scanInput.value = '';
     focusScanInput();
   }
 

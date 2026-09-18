@@ -2039,6 +2039,15 @@ function setupSitemapFab() {
     panel.classList.remove('active');
     backdrop.classList.remove('active');
     fab.setAttribute('aria-expanded', 'false');
+    // Wait for the fade/slide-out transition to finish before dropping
+    // `open` (which switches display back to none) — otherwise closing
+    // snaps instantly instead of reversing the open animation.
+    window.setTimeout(() => {
+      if (!panel.classList.contains('active')) {
+        panel.classList.remove('open');
+        backdrop.classList.remove('open');
+      }
+    }, 160);
   }
 
   function buildCard(navEl) {
@@ -2146,13 +2155,26 @@ function setupSitemapFab() {
     const screen = activePortalScreen();
     if (!screen) return;
     buildContent(screen);
-    panel.classList.add('active');
-    backdrop.classList.add('active');
+    // Switch on `display` first and let the browser paint that (still
+    // invisible, opacity: 0) frame, then start the opacity/transform
+    // transition on the *next* frame. Adding `open` and `active` together
+    // right after buildContent()'s DOM rebuild let the two land in the same
+    // style/layout pass, so the transition either got skipped or played
+    // over dropped frames — the "slow/laggy" appearance reported for this
+    // and every other 3-dot sidebar that shares this component.
+    panel.classList.add('open');
+    backdrop.classList.add('open');
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        panel.classList.add('active');
+        backdrop.classList.add('active');
+      });
+    });
     fab.setAttribute('aria-expanded', 'true');
   }
 
   fab.addEventListener('click', () => {
-    if (panel.classList.contains('active')) closeSitemap();
+    if (panel.classList.contains('open')) closeSitemap();
     else openSitemap();
   });
   // Only a direct click on the backdrop itself closes it — panel is now a
