@@ -852,6 +852,19 @@ async function loadSAConfig() {
 async function saveSAConfig(section) {
   const fb = document.getElementById('sa-config-feedback');
 
+  const sectionLabels = {
+    general: 'General Settings',
+    attendance: 'Attendance Policy',
+    payroll: 'Payroll Configuration',
+    security: 'Security & Access',
+  };
+  const label = sectionLabels[section] || 'these settings';
+
+  const confirmed = window.confirmApproveAction
+    ? await window.confirmApproveAction(`save the ${label} changes`, 'This will apply system-wide immediately.', { title: 'Confirm Save', confirmLabel: 'Save' })
+    : window.confirm(`Save ${label} changes?`);
+  if (!confirmed) return;
+
   const fieldMap = {
     general:    { org_name: 'cfg-org-name', timezone: 'cfg-timezone', date_format: 'cfg-date-format', currency: 'cfg-currency' },
     attendance: { work_start: 'cfg-work-start', work_end: 'cfg-work-end', grace: 'cfg-grace', work_hours: 'cfg-work-hours' },
