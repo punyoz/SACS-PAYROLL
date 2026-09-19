@@ -4,6 +4,13 @@ import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/nor
 import { attachSession } from "@/lib/rbac/session";
 import { mustChangePassword } from "@/lib/auth/password-policy";
 import { newSessionId, registerActiveSession } from "@/lib/auth/active-session";
+import { sanitizeError } from "@/lib/api-error";
+import {
+  checkLoginAllowed,
+  clientAddressFrom,
+  recordFailedLogin,
+  recordSuccessfulLogin,
+} from "@/lib/auth/login-throttle";
 
 const roleRoutes = {
   super_admin: "/super-admin",
@@ -81,7 +88,7 @@ function resolveLoginEmail(identityInput) {
   return "";
 }
 
-export async function POST(request) {
+async function handleLogin(request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -102,6 +109,22 @@ export async function POST(request) {
     return NextResponse.json({ error: "Use a valid username or email to sign in." }, { status: 400 });
   }
 
+  // Brute-force brake. Keyed on the resolved email rather than the raw input so
+  // signing in as "sacsadmin" and as the admin's email address share one budget
+  // instead of giving an attacker two.
+  const clientAddress = clientAddressFrom(request);
+  const throttle = checkLoginAllowed(resolvedEmail, clientAddress);
+  if (throttle.blocked) {
+    const minutes = Math.max(1, Math.ceil(throttle.retryAfterSeconds / 60));
+    return NextResponse.json(
+      {
+        error: `Too many sign-in attempts. Please try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+        code: "too_many_attempts",
+      },
+      { status: 429, headers: { "Retry-After": String(throttle.retryAfterSeconds) } },
+    );
+  }
+
   const supabase = createClient(url, anonKey, {
     auth: {
       persistSession: false,
@@ -112,11 +135,13 @@ export async function POST(request) {
   const { data, error } = await supabase.auth.signInWithPassword({ email: resolvedEmail, password });
 
   if (error || !data?.user) {
+    recordFailedLogin(resolvedEmail, clientAddress);
     return NextResponse.json({ error: error?.message || "Invalid login credentials." }, { status: 401 });
   }
 
   if (data.user.user_metadata?.archived === true) {
     await supabase.auth.signOut();
+    recordFailedLogin(resolvedEmail, clientAddress);
     return NextResponse.json(
       { error: "This account has been archived and can no longer sign in." },
       { status: 403 },
@@ -135,6 +160,7 @@ export async function POST(request) {
 
   if (!actualRole || !Object.prototype.hasOwnProperty.call(roleRoutes, actualRole)) {
     await supabase.auth.signOut();
+    recordFailedLogin(resolvedEmail, clientAddress);
     return NextResponse.json(
       {
         error: `Could not determine valid role for account. Role is '${actualRole || "unknown"}'.`,
@@ -144,6 +170,10 @@ export async function POST(request) {
   }
 
   await supabase.auth.signOut();
+
+  // Credentials were genuine: clear this account's failed-attempt budget so a
+  // user who mistyped on the way in is not locked out later.
+  recordSuccessfulLogin(resolvedEmail);
 
   const metadata = data.user.user_metadata || {};
 
@@ -251,4 +281,20 @@ export async function POST(request) {
     session_id: sessionId,
     must_change_password: passwordChangeRequired,
   });
+}
+
+/**
+ * Sign-in never returns an unhandled rejection. Without this, a network fault
+ * reaching Supabase surfaced as a bare Next.js 500 and the login screen showed
+ * no usable message at all.
+ */
+export async function POST(request) {
+  try {
+    return await handleLogin(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: sanitizeError(error, "Unable to sign in right now. Please try again.") },
+      { status: 500 },
+    );
+  }
 }
