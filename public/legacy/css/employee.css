@@ -918,3 +918,30 @@
     justify-content: center;
   }
 }
+
+/* Timesheet paginator touch targets. The same rule as .pg-bar in base.css —
+   see the paginator note there for why the gap grows with the hit area — but
+   it has to live in this file: .ts-page-nums is declared here with gap:3px,
+   and this sheet loads after base.css, so an override there would lose.
+
+   28px buttons, so the 44px box overhangs 8px a side and the gap has to be
+   at least 16px for two neighbours hit areas to meet without overlapping. */
+@media (pointer: coarse) {
+  .ts-page-nums {
+    gap: 16px;
+  }
+
+  .ts-pg-num {
+    position: relative;
+  }
+
+  .ts-pg-num::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}

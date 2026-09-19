@@ -336,7 +336,7 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:14px;">Tap an RFID card (or type the employee ID). Only the first and the last tap of the day are counted: the first tap is Time In, the last tap is Time Out, and a repeated tap within a minute is ignored.</p>
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
           <div class="fg" style="margin:0;min-width:220px;flex:1;">
-            <label>RFID / Employee ID</label>
+            <label for="sa-rfid-input">RFID / Employee ID</label>
             <input id="sa-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" maxlength="16" autocomplete="off" />
           </div>
           <button class="btn btn-primary" onclick="submitSARfidAttendanceScan()">Record Scan</button>
@@ -364,18 +364,18 @@
         </div>
         <div class="config-section-body">
           <div class="fg" style="margin:0;">
-            <label>Organization Name</label>
+            <label for="cfg-org-name">Organization Name</label>
             <input id="cfg-org-name" class="fc" type="text" value="SACS" placeholder="e.g. SACS School" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Timezone</label>
+            <label for="cfg-timezone">Timezone</label>
             <select id="cfg-timezone" class="fc">
               <option value="Asia/Manila" selected>Asia/Manila (PHT, UTC+8)</option>
               <option value="UTC">UTC</option>
             </select>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Date Format</label>
+            <label for="cfg-date-format">Date Format</label>
             <select id="cfg-date-format" class="fc">
               <option value="MM/DD/YYYY" selected>MM/DD/YYYY</option>
               <option value="DD/MM/YYYY">DD/MM/YYYY</option>
@@ -383,7 +383,7 @@
             </select>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Currency</label>
+            <label for="cfg-currency">Currency</label>
             <select id="cfg-currency" class="fc">
               <option value="PHP" selected>PHP — Philippine Peso</option>
               <option value="USD">USD — US Dollar</option>
@@ -403,19 +403,19 @@
         </div>
         <div class="config-section-body">
           <div class="fg" style="margin:0;">
-            <label>Work Start Time</label>
+            <label for="cfg-work-start">Work Start Time</label>
             <input id="cfg-work-start" class="fc" type="time" value="08:00" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Work End Time</label>
+            <label for="cfg-work-end">Work End Time</label>
             <input id="cfg-work-end" class="fc" type="time" value="17:00" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Late Grace Period (minutes)</label>
+            <label for="cfg-grace">Late Grace Period (minutes)</label>
             <input id="cfg-grace" class="fc" type="number" value="15" min="0" max="60" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Required Work Hours / Day</label>
+            <label for="cfg-work-hours">Required Work Hours / Day</label>
             <input id="cfg-work-hours" class="fc" type="number" value="8" min="1" max="24" step="0.5" />
           </div>
         </div>
@@ -432,7 +432,7 @@
         </div>
         <div class="config-section-body">
           <div class="fg" style="margin:0;">
-            <label>Pay Frequency</label>
+            <label for="cfg-pay-freq">Pay Frequency</label>
             <select id="cfg-pay-freq" class="fc">
               <option value="semi-monthly" selected>Semi-Monthly (1st &amp; 15th)</option>
               <option value="monthly">Monthly</option>
@@ -440,21 +440,21 @@
             </select>
           </div>
           <div class="fg" style="margin:0;">
-            <label>SSS Contribution (%)</label>
+            <label for="cfg-sss">SSS Contribution (%)</label>
             <input id="cfg-sss" class="fc" type="number" value="4.5" min="0" max="100" step="0.01" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>PhilHealth Contribution (%)</label>
+            <label for="cfg-philhealth">PhilHealth Contribution (%)</label>
             <input id="cfg-philhealth" class="fc" type="number" value="2.0" min="0" max="100" step="0.01" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Pag-IBIG Contribution (%)</label>
+            <label for="cfg-pagibig">Pag-IBIG Contribution (%)</label>
             <input id="cfg-pagibig" class="fc" type="number" value="2.0" min="0" max="100" step="0.01" />
           </div>
           <div class="fg" style="margin:0; grid-column: 1 / -1;">
-            <label>Pay Calendar</label>
+            <label id="sa-paycal-cap">Pay Calendar</label>
             <div class="config-section-sub" style="margin:1px 0 8px;">Mark exact pay-out dates for the year — use this when management needs a specific schedule beyond the frequency above.</div>
-            <div class="pcal-wrap">
+            <div class="pcal-wrap" role="group" aria-labelledby="sa-paycal-cap">
               <div class="pcal-head">
                 <button type="button" class="btn btn-outline pcal-nav" onclick="saPayCalNav(-1)">&lsaquo;</button>
                 <div class="pcal-title" id="sa-paycal-title">&mdash;</div>
@@ -478,19 +478,19 @@
         </div>
         <div class="config-section-body">
           <div class="fg" style="margin:0;">
-            <label>Session Timeout (minutes)</label>
+            <label for="cfg-session">Session Timeout (minutes)</label>
             <input id="cfg-session" class="fc" type="number" value="60" min="5" max="480" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Max Login Attempts</label>
+            <label for="cfg-login-attempts">Max Login Attempts</label>
             <input id="cfg-login-attempts" class="fc" type="number" value="5" min="3" max="20" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Password Minimum Length</label>
+            <label for="cfg-pw-min">Password Minimum Length</label>
             <input id="cfg-pw-min" class="fc" type="number" value="8" min="6" max="32" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Force Password Expiry (days, 0 = never)</label>
+            <label for="cfg-pw-expiry">Force Password Expiry (days, 0 = never)</label>
             <input id="cfg-pw-expiry" class="fc" type="number" value="0" min="0" max="365" />
           </div>
         </div>
@@ -513,11 +513,11 @@
 
       <div class="adm-employee-controls" style="display:grid;grid-template-columns:1.4fr .9fr .9fr auto;gap:10px;align-items:end;margin-top:10px;">
         <div class="fg" style="margin:0;">
-          <label>Search Logs</label>
+          <label for="sa-audit-search">Search Logs</label>
           <input id="sa-audit-search" class="fc" type="text" placeholder="Search module, action, description, entity" oninput="setSAAuditSearch(this.value)" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Module</label>
+          <label for="sa-audit-module">Module</label>
           <select id="sa-audit-module" class="fc" onchange="setSAAuditModuleFilter(this.value)">
             <option value="all">All Modules</option>
             <option value="ui">UI</option>
@@ -527,7 +527,7 @@
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Action</label>
+          <label for="sa-audit-action">Action</label>
           <select id="sa-audit-action" class="fc" onchange="setSAAuditActionFilter(this.value)">
             <option value="all">All Actions</option>
             <option value="event">Event</option>
@@ -701,12 +701,12 @@
       <form id="sa-rfid-edit-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSARfidUpdate(event)">
         <input type="hidden" name="id" />
         <div class="fg" style="margin:0;">
-          <label>Employee</label>
-          <input class="fc" name="employee_display" readonly style="background:var(--bg3);cursor:default;" />
+          <label for="sa-f-employee-display">Employee</label>
+          <input id="sa-f-employee-display" class="fc" name="employee_display" readonly style="background:var(--bg3);cursor:default;" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>RFID UID</label>
-          <input class="fc" name="rfid_uid" placeholder="Tap RFID card or enter UID manually" maxlength="16" />
+          <label for="sa-f-rfid-uid">RFID UID</label>
+          <input id="sa-f-rfid-uid" class="fc" name="rfid_uid" placeholder="Tap RFID card or enter UID manually" maxlength="16" />
         </div>
         <p style="font-size:11px;color:var(--t3);">Leave blank to remove the current RFID assignment for this employee.</p>
         <p id="sa-rfid-edit-feedback" class="adm-feedback"></p>
@@ -727,29 +727,29 @@
       <form id="sa-admin-user-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSAAdminUser(event)" novalidate>
         <input type="hidden" name="id" />
         <div class="fg" style="margin:0;">
-          <label>Full Name <span class="req" aria-hidden="true">*</span></label>
-          <input class="fc" name="full_name" required maxlength="60" placeholder="e.g. Maria Santos" autocomplete="off" />
+          <label for="sa-f-full-name">Full Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-f-full-name" class="fc" name="full_name" required maxlength="60" placeholder="e.g. Maria Santos" autocomplete="off" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Email <span class="req" aria-hidden="true">*</span></label>
-          <input class="fc" name="email" type="email" required placeholder="e.g. maria.hr@example.com" autocomplete="off" />
+          <label for="sa-f-email">Email <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-f-email" class="fc" name="email" type="email" required placeholder="e.g. maria.hr@example.com" autocomplete="off" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Role <span class="req" aria-hidden="true">*</span></label>
+          <label for="sa-admin-user-role">Role <span class="req" aria-hidden="true">*</span></label>
           <select class="fc" name="role" id="sa-admin-user-role" required>
             <option value="admin">Admin</option>
             <option value="hr">HR</option>
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Branch <span class="req" aria-hidden="true">*</span></label>
+          <label for="sa-admin-user-branch">Branch <span class="req" aria-hidden="true">*</span></label>
           <select class="fc" name="branch_id" id="sa-admin-user-branch" required>
             <option value="">Select branch</option>
           </select>
         </div>
         <div class="fg" id="sa-admin-user-password-field" style="margin:0;">
-          <label>Temporary Password <span class="req" aria-hidden="true">*</span></label>
-          <input class="fc" name="password" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password" />
+          <label for="sa-f-password">Temporary Password <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-f-password" class="fc" name="password" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password" />
           <span class="field-hint" id="sa-admin-user-password-hint">The account must replace this password the first time it signs in.</span>
         </div>
         <p class="form-required-note">Fields marked <span class="req">*</span> are required.</p>
@@ -772,11 +772,11 @@
       <form id="sa-branch-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSABranch(event)">
         <input type="hidden" name="id" />
         <div class="fg" style="margin:0;">
-          <label>Branch Name</label>
-          <input class="fc" name="name" required placeholder="e.g. Main Campus" />
+          <label for="sa-f-name">Branch Name</label>
+          <input id="sa-f-name" class="fc" name="name" required placeholder="e.g. Main Campus" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Region</label>
+          <label for="sa-branch-region">Region</label>
           <select class="fc" id="sa-branch-region" required onchange="onSABranchRegionChange()">
             <option value="">Select Region</option>
             <option value="NCR">NCR – National Capital Region</option>
@@ -799,30 +799,30 @@
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Province / District</label>
+          <label for="sa-branch-province">Province / District</label>
           <select class="fc" id="sa-branch-province" required onchange="onSABranchProvinceChange()">
             <option value="">Select Province / District</option>
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>City / Municipality</label>
+          <label for="sa-branch-city">City / Municipality</label>
           <select class="fc" id="sa-branch-city" required onchange="onSABranchCityChange()">
             <option value="">Select City / Municipality</option>
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Barangay</label>
+          <label for="sa-branch-barangay">Barangay</label>
           <select class="fc" id="sa-branch-barangay">
             <option value="">Select Barangay</option>
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Branch Code</label>
-          <input class="fc" name="code" maxlength="20" readonly style="background:var(--bg3);cursor:default;" />
+          <label for="sa-f-code">Branch Code</label>
+          <input id="sa-f-code" class="fc" name="code" maxlength="20" readonly style="background:var(--bg3);cursor:default;" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Status</label>
-          <select class="fc" name="status">
+          <label for="sa-f-status">Status</label>
+          <select id="sa-f-status" class="fc" name="status">
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </select>
@@ -857,21 +857,21 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password using the same steps as your first sign-in.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
-            <label>Current Password</label>
+            <label for="sa-current-password">Current Password</label>
             <div class="cp-input-wrap">
               <input id="sa-current-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
               <button type="button" class="cp-eye" data-target="sa-current-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>New Password</label>
+            <label for="sa-new-password">New Password</label>
             <div class="cp-input-wrap">
               <input id="sa-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="sa-new-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Confirm New Password</label>
+            <label for="sa-confirm-password">Confirm New Password</label>
             <div class="cp-input-wrap">
               <input id="sa-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="sa-confirm-password" aria-label="Show password">Show</button>

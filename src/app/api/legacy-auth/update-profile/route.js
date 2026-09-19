@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeText, normalizeDigits } from "@/lib/auth/normalize";
 import { requirePermission, resolveTargetEmail } from "@/lib/rbac/guard";
+import { sanitizeError } from "@/lib/api-error";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -96,7 +97,27 @@ export async function POST(request) {
   if (body.cp_number !== undefined) {
     profilePatch.cp_number = updatedMeta.cp_number || null;
   }
-  await supabase.from("profiles").update(profilePatch).eq("id", user.id);
+  // This write was previously fire-and-forget. When it failed, user_metadata
+  // had already been updated but profiles had not — and the response still
+  // said success, so the edit appeared to save and then reappeared stale on
+  // the next load, because every employee-listing route reads these columns
+  // from profiles rather than from metadata.
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update(profilePatch)
+    .eq("id", user.id);
+
+  if (profileError) {
+    return NextResponse.json(
+      {
+        error: sanitizeError(
+          profileError,
+          "Your profile was only partly saved. Please try again.",
+        ),
+      },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({
     success: true,

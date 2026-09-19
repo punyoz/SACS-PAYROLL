@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="SACS Payroll">
+  <rect width="32" height="32" rx="8" fill="#0D1B2A"/>
+  <rect x="5" y="5" width="22" height="22" rx="6" fill="#F5A623"/>
+  <text x="16" y="17" text-anchor="middle" dominant-baseline="central"
+        font-family="DM Sans, Segoe UI, system-ui, sans-serif"
+        font-size="15" font-weight="700" fill="#0D1B2A">S</text>
+</svg>

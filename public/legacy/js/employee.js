@@ -265,7 +265,7 @@ function renderPrevPayslips(payslips, startIdx) {
     return `
       <div class="past-ps-item">
         <div>
-          <div class="ppi-name">${ps.period_label}</div>
+          <div class="ppi-name">${escapeHtml(ps.period_label)}</div>
           ${issuedDate ? `<div class="ppi-date">Issued ${issuedDate}</div>` : ''}
         </div>
         <div class="ppi-right">
@@ -330,11 +330,11 @@ function renderLeaveRequests() {
     return `
       <div style="border:1px solid var(--border);border-radius:10px;padding:10px 11px;background:var(--bg3);">
         <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 10px;">
-          <div style="font-size:12px;font-weight:600;color:var(--t1);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${request.leave_type} · ${payStatusLabel}</div>
-          <span class="badge ${badgeClass}" style="flex-shrink:0;"><span class="bd"></span>${status}</span>
+          <div style="font-size:12px;font-weight:600;color:var(--t1);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(request.leave_type)} · ${payStatusLabel}</div>
+          <span class="badge ${badgeClass}" style="flex-shrink:0;"><span class="bd"></span>${escapeHtml(status)}</span>
         </div>
-        <div style="margin-top:4px;font-size:11px;color:var(--t2);">${request.start_date} to ${request.end_date}</div>
-        <div style="margin-top:6px;font-size:11px;color:var(--t3);line-height:1.45;">${request.reason}</div>
+        <div style="margin-top:4px;font-size:11px;color:var(--t2);">${escapeHtml(request.start_date)} to ${escapeHtml(request.end_date)}</div>
+        <div style="margin-top:6px;font-size:11px;color:var(--t3);line-height:1.45;">${escapeHtml(request.reason)}</div>
         <div style="margin-top:7px;font-size:10px;color:var(--t3);">Submitted: ${submittedAt}</div>
       </div>
     `;
@@ -548,18 +548,10 @@ function empNav(pageId, tabEl) {
 }
 
 function _initTimesheetTab() {
-  const monthEl = document.getElementById('ts-month-picker');
-  if (monthEl && !monthEl.value) {
-    try {
-      const phDate = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Manila',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).format(new Date());
-      monthEl.value = phDate.slice(0, 7);
-    } catch { /* best-effort */ }
-  }
+  // This used to default a #ts-month-picker to the current Manila month. That
+  // control no longer exists — the timesheet moved to a start/end date range
+  // (#ts-start-date / #ts-end-date in pages/employee.html) — so the block was
+  // dead and has been removed. loadTimesheet() reads the range itself.
   loadTimesheet();
 }
 

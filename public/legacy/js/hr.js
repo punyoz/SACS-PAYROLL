@@ -711,18 +711,27 @@ function renderHRLeaveList() {
     const proof = req.proof_url || req.proof_data || '';
     const payStatusLabel = req.pay_status === 'without_pay' ? 'Without Pay' : 'With Pay';
 
+    // The proof URL is employee-supplied and may be a very long data: URL, so it
+    // is passed by lookup key rather than interpolated into the onclick — the
+    // same approach accountant.js already uses for this button. Interpolating it
+    // directly let a crafted proof_url close the JS string and run script in the
+    // HR reviewer's session.
+    const safeId = escapeHtml(String(req.id || ''));
+    if (!window._hrProofUrls) window._hrProofUrls = {};
+    window._hrProofUrls[String(req.id || '')] = proof;
+
     return `<div class="approval-card">
       <div class="approval-card-body">
-        <div class="approval-card-name">${req.employee_name || req.employee_id || 'Unknown'}</div>
+        <div class="approval-card-name">${escapeHtml(req.employee_name || req.employee_id || 'Unknown')}</div>
         <div class="approval-card-meta">
-          <strong>${req.leave_type || 'Leave'}</strong> · ${payStatusLabel} · ${days} day${days !== 1 ? 's' : ''} · ${from} to ${to}
+          <strong>${escapeHtml(req.leave_type || 'Leave')}</strong> · ${payStatusLabel} · ${escapeHtml(String(days))} day${days !== 1 ? 's' : ''} · ${escapeHtml(from)} to ${escapeHtml(to)}
         </div>
-        <div class="approval-card-meta" style="margin-top:4px;">${req.reason || '—'}</div>
-        ${proof ? `<button class="btn btn-outline" style="font-size:11px;padding:3px 9px;margin-top:6px;" onclick="openProofDocument('${proof}')">View Proof</button>` : ''}
+        <div class="approval-card-meta" style="margin-top:4px;">${escapeHtml(req.reason || '—')}</div>
+        ${proof ? `<button class="btn btn-outline" style="font-size:11px;padding:3px 9px;margin-top:6px;" onclick="openProofDocument(window._hrProofUrls['${safeId}'])">View Proof</button>` : ''}
       </div>
       <div class="approval-card-actions">
-        <button class="btn btn-primary" style="background:var(--green);border-color:var(--green);" onclick="hrLeaveAction('${req.id}','approve')">Approve</button>
-        <button class="btn btn-red" onclick="hrLeaveAction('${req.id}','reject')">Reject</button>
+        <button class="btn btn-primary" style="background:var(--green);border-color:var(--green);" onclick="hrLeaveAction('${safeId}','approve')">Approve</button>
+        <button class="btn btn-red" onclick="hrLeaveAction('${safeId}','reject')">Reject</button>
       </div>
     </div>`;
   }).join('');
@@ -773,18 +782,21 @@ function renderHRLeaveHistory() {
           const from = req.from_date || req.start_date || '—';
           const to = req.to_date || req.end_date || '—';
           const proof = req.proof_url || req.proof_data || '';
+          const safeId = escapeHtml(String(req.id || ''));
+          if (!window._hrProofUrls) window._hrProofUrls = {};
+          window._hrProofUrls[String(req.id || '')] = proof;
           const decided = req.decided_at ? new Date(req.decided_at).toLocaleDateString('en-PH') : '—';
           const submitted = req.submitted_at || req.created_at
             ? new Date(req.submitted_at || req.created_at).toLocaleDateString('en-PH')
             : '—';
 
           return `<tr>
-            <td>${req.employee_name || req.employee_id || '—'}</td>
-            <td>${req.leave_type || '—'}</td>
-            <td>${days}d · ${from} – ${to}</td>
-            <td style="font-size:12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${req.reason || '—'}</td>
-            <td>${proof ? `<button class="btn btn-outline" style="font-size:10px;padding:2px 8px;" onclick="openProofDocument('${proof}')">View</button>` : '—'}</td>
-            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${req.status || '—'}</span></td>
+            <td>${escapeHtml(req.employee_name || req.employee_id || '—')}</td>
+            <td>${escapeHtml(req.leave_type || '—')}</td>
+            <td>${escapeHtml(String(days))}d · ${escapeHtml(from)} – ${escapeHtml(to)}</td>
+            <td style="font-size:12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(req.reason || '—')}</td>
+            <td>${proof ? `<button class="btn btn-outline" style="font-size:10px;padding:2px 8px;" onclick="openProofDocument(window._hrProofUrls['${safeId}'])">View</button>` : '—'}</td>
+            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${escapeHtml(req.status || '—')}</span></td>
             <td style="font-size:12px;">${submitted}</td>
             <td style="font-size:12px;">${decided}</td>
           </tr>`;
@@ -860,8 +872,8 @@ async function loadHRReports() {
           renderFn: (rows) => {
             if (!tbody) return;
             tbody.innerHTML = rows.map((r) => `<tr>
-              <td>${r.employee_name || '—'}</td>
-              <td>${r.employee_type || '—'}</td>
+              <td>${escapeHtml(r.employee_name || '—')}</td>
+              <td>${escapeHtml(r.employee_type || '—')}</td>
               <td style="color:var(--green);">${r.present ?? 0}</td>
               <td style="color:var(--amber);">${r.late ?? 0}</td>
               <td style="color:var(--red);">${r.absent ?? 0}</td>
@@ -895,12 +907,12 @@ async function loadHRReports() {
             tbody.innerHTML = rows.map((r) => {
               const archived = r.archived ? '<span style="color:var(--red);font-size:10px;"> (Archived)</span>' : '';
               return `<tr>
-                <td>${r.full_name || '—'}${archived}</td>
-                <td><code style="font-size:11px;">${r.employee_id || '—'}</code></td>
-                <td>${r.employee_type || '—'}</td>
-                <td>${r.position || '—'}</td>
-                <td>${r.employee_status || 'Active'}</td>
-                <td style="font-size:12px;color:var(--t3);">${r.email || '—'}</td>
+                <td>${escapeHtml(r.full_name || '—')}${archived}</td>
+                <td><code style="font-size:11px;">${escapeHtml(r.employee_id || '—')}</code></td>
+                <td>${escapeHtml(r.employee_type || '—')}</td>
+                <td>${escapeHtml(r.position || '—')}</td>
+                <td>${escapeHtml(r.employee_status || 'Active')}</td>
+                <td style="font-size:12px;color:var(--t3);">${escapeHtml(r.email || '—')}</td>
               </tr>`;
             }).join('');
           },

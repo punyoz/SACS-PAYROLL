@@ -195,10 +195,10 @@ function renderSARecentActivity(activity) {
     const timeStr = time ? new Date(time).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
     return `<div class="ai-item">
       <div class="ai2">
-        <div class="s">${row.module ? `[${row.module}] ` : ''}${desc || label}</div>
-        ${timeStr ? `<div class="ss">${timeStr}</div>` : ''}
+        <div class="s">${row.module ? `[${escapeHtml(row.module)}] ` : ''}${escapeHtml(desc || label)}</div>
+        ${timeStr ? `<div class="ss">${escapeHtml(timeStr)}</div>` : ''}
       </div>
-      <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}50;">${label}</span>
+      <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}50;">${escapeHtml(label)}</span>
     </div>`;
   }).join('');
 }
@@ -242,10 +242,10 @@ function renderSABranchGrid() {
   grid.innerHTML = saBranches.map((b) => {
     const statusColor = b.status === 'Active' ? 'var(--green)' : 'var(--red)';
     return `<div class="branch-card">
-      <div class="branch-name">${b.name}</div>
-      <div class="branch-meta">${b.location}</div>
-      <div class="branch-meta">Code: <code style="font-size:11px;">${b.code || '—'}</code></div>
-      <div style="margin-top:4px;"><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${b.status}</span></div>
+      <div class="branch-name">${escapeHtml(b.name)}</div>
+      <div class="branch-meta">${escapeHtml(b.location)}</div>
+      <div class="branch-meta">Code: <code style="font-size:11px;">${escapeHtml(b.code || '—')}</code></div>
+      <div style="margin-top:4px;"><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${escapeHtml(b.status)}</span></div>
       <div class="branch-actions" style="margin-top:8px;">
         <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSABranchModal(${JSON.stringify(b).replace(/"/g,'&quot;')})">Edit</button>
       </div>
@@ -1055,12 +1055,12 @@ function renderSAAuditTable(logs) {
             : '—';
           return `<tr>
             <td style="font-size:11px;color:var(--t3);">${ts}</td>
-            <td>${log.module || '—'}</td>
-            <td>${log.action || '—'}</td>
-            <td style="font-size:12px;">${log.entity_type ? `${log.entity_type}${log.entity_id ? ': ' + log.entity_id : ''}` : '—'}</td>
-            <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${log.description || '—'}</td>
-            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${log.status || '—'}</span></td>
-            <td style="font-size:11px;color:var(--t3);">${log.source || '—'}</td>
+            <td>${escapeHtml(log.module || '—')}</td>
+            <td>${escapeHtml(log.action || '—')}</td>
+            <td style="font-size:12px;">${log.entity_type ? `${escapeHtml(log.entity_type)}${log.entity_id ? ': ' + escapeHtml(log.entity_id) : ''}` : '—'}</td>
+            <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(log.description || '—')}</td>
+            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${escapeHtml(log.status || '—')}</span></td>
+            <td style="font-size:11px;color:var(--t3);">${escapeHtml(log.source || '—')}</td>
           </tr>`;
         }).join('');
       },

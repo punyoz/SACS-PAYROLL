@@ -123,7 +123,12 @@
 .adm-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  /* Shared by every portal, not just Admin. At 60 it sat above the topbar (50)
+     but below the notification panel (900) and the settings modal (950), so
+     those could paint over an open dialog. 960 puts it above both and still
+     below .confirm-backdrop (1000), which must stay on top because a confirm
+     is raised from inside these modals. */
+  z-index: 960;
   display: flex;
   align-items: center;
   justify-content: center;

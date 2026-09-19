@@ -331,8 +331,8 @@ async function confirmDestructiveAction(actionLabel, detailText) {
   }
 
   body.innerHTML = `
-    <p>You are about to <strong style="color:var(--t1);">${action}</strong>.</p>
-    ${detail ? `<p>${detail}</p>` : ''}
+    <p>You are about to <strong style="color:var(--t1);">${escapeHtml(action)}</strong>.</p>
+    ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
   `;
 
   backdrop.classList.add('active');
@@ -591,8 +591,8 @@ async function confirmApproveAction(actionLabel, detailText, options = {}) {
   okButton.textContent = confirmLabel;
 
   body.innerHTML = `
-    <p>You are about to <strong style="color:var(--t1);">${action}</strong>.</p>
-    ${detail ? `<p>${detail}</p>` : ''}
+    <p>You are about to <strong style="color:var(--t1);">${escapeHtml(action)}</strong>.</p>
+    ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
   `;
 
   backdrop.classList.add('active');
@@ -2289,10 +2289,58 @@ function enforceNumericInputs(root) {
 }
 
 /* ── INIT ── */
+/* ── BODY SCROLL LOCK ──
+   Every overlay in the portals is position:fixed, so on a touch device the page
+   behind one keeps scrolling underneath it — you open a modal, flick, and the
+   list behind moves while the modal stays put.
+
+   Rather than adding paired lock/unlock calls to every open and close site
+   across five portal scripts, one observer watches the document and keeps
+   <body> locked for exactly as long as an overlay is actually visible. That
+   also covers the .adm-modal-backdrop dialogs, which live in the page markup
+   and are shown by toggling inline style.display rather than a class.
+
+   The check is coalesced into a single animation frame, so a table re-render
+   that fires hundreds of mutations still costs one DOM query. */
+const SCROLL_LOCK_CLASS_SELECTOR =
+  '.confirm-backdrop.active, .settings-backdrop.active, .sitemap-panel.open';
+
+function isAnyOverlayOpen() {
+  if (document.querySelector(SCROLL_LOCK_CLASS_SELECTOR)) return true;
+  const modals = document.querySelectorAll('.adm-modal-backdrop');
+  for (const modal of modals) {
+    if (modal.style.display !== 'none') return true;
+  }
+  return false;
+}
+
+let scrollLockFrame = 0;
+
+function syncBodyScrollLock() {
+  scrollLockFrame = 0;
+  document.body.classList.toggle('scroll-locked', isAnyOverlayOpen());
+}
+
+function startScrollLockWatcher() {
+  syncBodyScrollLock();
+  const observer = new MutationObserver(() => {
+    if (scrollLockFrame) return;
+    scrollLockFrame = requestAnimationFrame(syncBodyScrollLock);
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'style'],
+  });
+}
+
 function initApp() {
   // Restore saved theme or default to dark
   const saved = localStorage.getItem(THEME_KEY) || 'dark';
   applyTheme(saved);
+
+  startScrollLockWatcher();
 
   const roleRouteMap = {
     super_admin: '/super-admin',

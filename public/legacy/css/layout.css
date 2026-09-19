@@ -388,7 +388,7 @@
 
 /* Form grids written inline in the page markup collapse to one column on a
    phone (auto-fill/auto-fit grids already wrap on their own). */
-@media (max-width: 639px) {
+@media (max-width: 640px) {
   .page [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]),
   .adm-modal-card [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]),
   .settings-card [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]) {
@@ -811,3 +811,18 @@
   flex-shrink: 0;
 }
 
+
+/* Overlay height cap. base.css sets this for .confirm-card, but .settings-card
+   is declared in this file with overflow:hidden, and this sheet loads after
+   base.css — so the override has to live here or the shorthand wins and the
+   card ends up capped, clipped and unscrollable, which is worse than having
+   no cap at all. overflow-y overrides only the vertical axis, so horizontal
+   clipping and the rounded header are unchanged.
+
+   Needed because body.scroll-locked stops the page behind from scrolling, so
+   a settings modal taller than the viewport would otherwise have no way to
+   reach its lower half. */
+.settings-card {
+  max-height: 92dvh;
+  overflow-y: auto;
+}

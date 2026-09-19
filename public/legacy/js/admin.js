@@ -267,12 +267,15 @@ function formatDateTime(value) {
 
 function renderDashboardPanels(panels = {}) {
   const totalEmployeesEl = document.getElementById('adm-panel-total-employees');
-  const totalPayrollEl = document.getElementById('adm-panel-total-payroll');
   const absentTodayEl = document.getElementById('adm-panel-absent-today');
 
   if (totalEmployeesEl) totalEmployeesEl.textContent = String(panels.total_employees || 0);
-  if (totalPayrollEl) totalPayrollEl.textContent = formatMoney(panels.total_payroll_month || 0);
   if (absentTodayEl) absentTodayEl.textContent = String(panels.absent_today || 0);
+
+  // There is no #adm-panel-total-payroll card in pages/admin.html — the matrix
+  // gives Admin view-only access to payroll records, and no total-payroll tile
+  // was ever added to this dashboard. The line that wrote to it has been
+  // removed rather than left as a permanently-false null check.
 
   const presentTodayEl = document.getElementById('adm-panel-present-today');
   const lateTodayEl = document.getElementById('adm-panel-late-today');

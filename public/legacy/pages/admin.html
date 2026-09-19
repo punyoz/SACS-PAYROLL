@@ -149,11 +149,11 @@
 
       <div class="adm-employee-controls" style="display:grid;grid-template-columns:1.4fr .9fr .9fr auto;gap:10px;align-items:end;margin-top:10px;">
         <div class="fg" style="margin:0;">
-          <label>Search Logs</label>
+          <label for="adm-audit-search">Search Logs</label>
           <input id="adm-audit-search" class="fc" type="text" placeholder="Search module, action, description, entity" oninput="setAuditSearch(this.value)" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Module</label>
+          <label for="adm-audit-module">Module</label>
           <select id="adm-audit-module" class="fc" onchange="setAuditModuleFilter(this.value)">
             <option value="all">All Modules</option>
             <option value="ui">UI</option>
@@ -163,7 +163,7 @@
           </select>
         </div>
         <div class="fg" style="margin:0;">
-          <label>Action</label>
+          <label for="adm-audit-action">Action</label>
           <select id="adm-audit-action" class="fc" onchange="setAuditActionFilter(this.value)">
             <option value="all">All Actions</option>
             <option value="event">Event</option>
@@ -227,7 +227,7 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:14px;">Tap an RFID card (or type the employee ID). Only the first and the last tap of the day are counted: the first tap is Time In, the last tap is Time Out, and a repeated tap within a minute is ignored.</p>
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
           <div class="fg" style="margin:0;min-width:220px;flex:1;">
-            <label>RFID / Employee ID</label>
+            <label for="adm-rfid-input">RFID / Employee ID</label>
             <input id="adm-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" maxlength="16" autocomplete="off" />
           </div>
           <button class="btn btn-primary" onclick="submitRfidAttendanceScan()">Record Scan</button>
@@ -358,19 +358,19 @@
         <div style="display:grid;gap:12px;margin-bottom:14px;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="fg" style="margin:0;">
-              <label>First Name</label>
+              <label for="adm-edit-firstname">First Name</label>
               <input id="adm-edit-firstname" class="fc" type="text" placeholder="e.g. Juan" autocomplete="given-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Middle Name</label>
+              <label for="adm-edit-middlename">Middle Name</label>
               <input id="adm-edit-middlename" class="fc" type="text" placeholder="e.g. Santos" autocomplete="additional-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Last Name</label>
+              <label for="adm-edit-lastname">Last Name</label>
               <input id="adm-edit-lastname" class="fc" type="text" placeholder="e.g. Dela Cruz" autocomplete="family-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Suffix</label>
+              <label for="adm-edit-suffix">Suffix</label>
               <select id="adm-edit-suffix" class="fc">
                 <option value="">None</option>
                 <option value="Jr.">Jr.</option>
@@ -383,11 +383,11 @@
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Name</label>
+            <label for="adm-edit-bankname">Bank Name</label>
             <input id="adm-edit-bankname" class="fc" type="text" placeholder="e.g. BPI, BDO, Landbank" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Account Number</label>
+            <label for="adm-edit-bankaccount">Bank Account Number</label>
             <input id="adm-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" />
           </div>
         </div>
@@ -398,21 +398,21 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password using the same steps as your first sign-in.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
-            <label>Current Password</label>
+            <label for="adm-cur-password">Current Password</label>
             <div class="cp-input-wrap">
               <input id="adm-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
               <button type="button" class="cp-eye" data-target="adm-cur-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>New Password</label>
+            <label for="adm-new-password">New Password</label>
             <div class="cp-input-wrap">
               <input id="adm-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="adm-new-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Confirm New Password</label>
+            <label for="adm-confirm-password">Confirm New Password</label>
             <div class="cp-input-wrap">
               <input id="adm-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="adm-confirm-password" aria-label="Show password">Show</button>
@@ -443,12 +443,12 @@
       <form id="rfid-edit-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitRfidUpdate(event)">
         <input type="hidden" name="id" />
         <div class="fg" style="margin:0;">
-          <label>Employee</label>
-          <input class="fc" name="employee_display" readonly style="background:var(--bg3);cursor:default;" />
+          <label for="adm-f-employee-display">Employee</label>
+          <input id="adm-f-employee-display" class="fc" name="employee_display" readonly style="background:var(--bg3);cursor:default;" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>RFID UID</label>
-          <input class="fc" name="rfid_uid" placeholder="Tap RFID card or enter UID manually" maxlength="16" />
+          <label for="adm-f-rfid-uid">RFID UID</label>
+          <input id="adm-f-rfid-uid" class="fc" name="rfid_uid" placeholder="Tap RFID card or enter UID manually" maxlength="16" />
         </div>
         <p style="font-size:11px;color:var(--t3);">Leave blank to remove the current RFID assignment for this employee.</p>
         <p id="rfid-edit-feedback" class="adm-feedback"></p>

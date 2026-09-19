@@ -42,10 +42,18 @@ chat.
 
 1. Create a new project at [supabase.com](https://supabase.com). Save the
    database password somewhere safe.
-2. Open **SQL Editor** and run every file in `supabase/migrations/` **in
+2. Open **SQL Editor** and run **every** file in `supabase/migrations/` **in
    filename order**. The names sort chronologically, so alphabetical order is
-   the correct order — start with `20260401_backfill_core_schema.sql` and
-   finish with `20260903_rbac_branch_scoping.sql`.
+   the correct order — start with `20260401_backfill_core_schema.sql` and work
+   through to the last file in the directory.
+
+   > [!IMPORTANT]
+   > Run the whole directory, not up to some named file. This step used to say
+   > "finish with `20260903_rbac_branch_scoping.sql`", which is a third of the
+   > way through the list — following it literally produced a database missing
+   > the transfer-request tables, the RFID and payroll indexes, and every later
+   > constraint. There is no stopping point; the last file is whichever sorts
+   > last today.
 3. Go to **Settings → API** and copy these three values:
    - Project URL
    - `anon` / publishable key
@@ -57,12 +65,16 @@ Migrations are applied by hand through the dashboard. If you prefer
 
 ### Which tables the migrations create
 
-`profiles`, `attendance_logs`, `audit_logs`, `salary_approvals`,
-`payroll_records`, `payroll_entries`, `leave_requests`, `branches`,
-`employee_branch_assignments`, `system_config`.
+`profiles`, `attendance_logs`, `audit_logs`, `payroll_records`,
+`payroll_entries`, `leave_requests`, `branches`,
+`employee_branch_assignments`, `transfer_requests`, `system_config`,
+`role_permissions`, plus the read-only view `employee_info_view`.
 
 That covers every table the application queries. If a page errors with
 "relation does not exist", a migration was skipped.
+
+`salary_approvals` was listed here until it was dropped by
+`20260917_drop_salary_approvals.sql`; no code references it any more.
 
 ---
 
@@ -216,6 +228,22 @@ any client that talks to Postgres directly.
   bank account number.
 - "Delete" means **archive** everywhere in this system. Payroll and attendance
   history must stay referentially intact; no role gets a hard delete.
+- Anything that renders stored text into the legacy portals must pass it
+  through `escapeHtml()` (defined in `public/legacy/js/app.js`). Employee-typed
+  values — a leave reason, a name, a branch label — reach HR and Super Admin
+  screens, and interpolating them raw into `innerHTML` is how an employee ends
+  up running script in a privileged session. For a value going into an
+  `onclick`, escaping is **not** enough: HTML entity decoding happens before
+  the JS is parsed, so pass it by lookup key instead (see `window._hrProofUrls`
+  in `hr.js`).
+
+### Sign-in throttling
+
+`src/lib/auth/login-throttle.js` caps failed attempts two ways: 5 per account
+and 30 per client IP, each over a 15-minute window with a 15-minute lockout. A
+successful sign-in clears the account counter but not the IP one, so a valid
+login cannot reset the budget for an address working through a list of others.
+Blocked attempts get `429` with `Retry-After` and `code: "too_many_attempts"`.
 
 ---
 
@@ -223,21 +251,35 @@ any client that talks to Postgres directly.
 
 Honest list of what is not finished, for whoever picks this up:
 
-- **Most API routes rely on the proxy alone.** Only the `admin/*` routes and
-  the employee self-service routes call `requirePermission()`. The HR,
-  accountant, and dashboard routes are module-checked but **not branch-scoped
-  in the handler**, so a user could potentially reach another branch's rows
-  there. Applying the guard to those routes is the main outstanding task.
-- **No rate limiting on login.** `src/app/api/legacy-auth/login/route.js` will
-  accept unlimited password attempts.
-- **`role_permissions` table exists but is unused.** The live matrix is the
-  hardcoded one in `src/lib/rbac/permissions.js`. Making it data-driven, as
-  `SACS-Payroll-Permission-Matrix.md` describes, is not done.
+- **`role_permissions` table is not what the API reads.** The live matrix is
+  the hardcoded one in `src/lib/rbac/permissions.js`. The table is seeded and
+  used by the SQL-side RLS helper `has_permission()`, and
+  `tests/rbac-permissions.test.js` asserts the two stay in step — but making
+  the API data-driven from it, as `SACS-Payroll-Permission-Matrix.md`
+  describes, is still not done.
 - **`clean-reset.mjs` seed list is incomplete** — it omits the Super Admin and
   HR accounts, so those survive a reset while the others are removed.
-- **Tests cover the permission matrix only.** `tests/rbac-permissions.test.js`
-  tests pure functions; there is no integration test hitting an actual route,
-  which is why route-level bugs have slipped through before.
+- **No integration tests against live routes.** The suite covers the permission
+  matrix, the proxy, and login throttling as pure functions; nothing exercises
+  a handler against a real Supabase instance, which is why route-level bugs
+  have slipped through before.
+- **Login throttling is per server instance.** `src/lib/auth/login-throttle.js`
+  holds its counters in memory, so on a multi-instance deployment an attacker
+  spread across instances gets proportionally more attempts. Moving the
+  counters into Postgres would close that; the module's exports can stay as
+  they are.
+- **`listUsersCached` caps at 1000 auth users** (`src/lib/auth/users-cache.js`).
+  Past that the list silently truncates rather than erroring. Fine for one
+  school, wrong for a larger tenant — it needs pagination before then.
+
+### Closed since this list was written
+
+- ~~Most API routes rely on the proxy alone / HR, accountant and dashboard
+  routes are not branch-scoped in the handler.~~ No longer true: every route
+  under `hr/*`, `accountant/*` and the dashboards calls `requirePermission()`
+  and scopes its queries. Verified route by route.
+- ~~No rate limiting on login.~~ Added — see `src/lib/auth/login-throttle.js`
+  and §7 below.
 
 ---
 

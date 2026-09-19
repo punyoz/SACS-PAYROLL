@@ -42,8 +42,14 @@ The active migrations live in `supabase/migrations/`. Apply any new SQL files th
 Tables used by the APIs:
 
 - `profiles`
-- `salary_approvals`
 - `payroll_records`
+- `payroll_entries`
 - `attendance_logs`
 - `audit_logs`
 - `leave_requests`
+- `branches`
+- `employee_branch_assignments`
+- `transfer_requests`
+- `system_config`
+- `role_permissions`
+- `employee_info_view` (read-only view)

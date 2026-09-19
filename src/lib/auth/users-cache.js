@@ -20,10 +20,24 @@ const TTL_MS = 10_000;
 let cached = null;   // { users, expiresAt }
 let inFlight = null; // de-dupes concurrent callers
 
+/**
+ * Bumped by every invalidation. A listUsers() call records the generation it
+ * started in and refuses to populate the cache if that number has moved on
+ * while it was in flight.
+ *
+ * Without it, clearing `cached`/`inFlight` did not stop an already-running
+ * request from resolving afterwards and writing its pre-mutation result back
+ * into the cache — so creating a user could leave that user missing from every
+ * read for the next full TTL, which is exactly what invalidation exists to
+ * prevent.
+ */
+let generation = 0;
+
 /** Drop the cache — call after any auth user is created, updated, or deleted. */
 export function invalidateUsersCache() {
   cached = null;
   inFlight = null;
+  generation += 1;
 }
 
 /** Same contract as supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }). */
@@ -33,10 +47,14 @@ export async function listUsersCached(supabase) {
   }
 
   if (!inFlight) {
-    inFlight = supabase.auth.admin
+    const startedAt = generation;
+
+    const request = supabase.auth.admin
       .listUsers({ page: 1, perPage: 1000 })
       .then((result) => {
-        if (!result.error) {
+        // Only cache when nothing invalidated while this request was in flight;
+        // otherwise this result is already stale and must not be stored.
+        if (!result.error && startedAt === generation) {
           cached = {
             users: result.data?.users || [],
             expiresAt: Date.now() + TTL_MS,
@@ -45,8 +63,13 @@ export async function listUsersCached(supabase) {
         return result;
       })
       .finally(() => {
-        inFlight = null;
+        // Clear only if this is still the current request. An invalidation may
+        // have already nulled it and a newer request taken its place, which
+        // this one must not wipe out.
+        if (inFlight === request) inFlight = null;
       });
+
+    inFlight = request;
   }
 
   return inFlight;

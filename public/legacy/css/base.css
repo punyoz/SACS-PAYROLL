@@ -12,6 +12,24 @@
   padding: 0;
 }
 
+/* ── BREAKPOINTS ──
+   The scale actually in use across the seven stylesheets, recorded here
+   because it was not written down anywhere and new rules kept inventing
+   nearby values (639 vs 640, 599 vs 600).
+
+   Mobile-first ladder — use these for anything new:
+     768px   tablet / small laptop
+     1024px  desktop
+     1440px  wide desktop
+
+   Small-screen overrides (max-width) use 640px.
+
+   A handful of content-specific values remain deliberately: 520px and 560px
+   (layout.css, base.css), 540px and 599px/700px (employee.css), 760px and
+   820px (admin.css, base.css). Each is tuned to where a particular component
+   actually breaks rather than to a device class, so they are left alone —
+   they target different selectors and create no gaps. Prefer the ladder above
+   for new rules instead of adding more of them. */
 /* ── TOKENS ── */
 :root {
   --sans:    'DM Sans', sans-serif;
@@ -1204,5 +1222,121 @@ body {
 
   .cp-title {
     font-size: 2rem;
+  }
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITY & TOUCH ERGONOMICS
+   Appended by the UI/mobile audit. Nothing above is modified.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── BODY SCROLL LOCK ──
+   Set by startScrollLockWatcher() in js/app.js while any overlay is visible, so
+   the page behind a modal or the sitemap drawer cannot scroll under it.
+
+   overflow:hidden alone does the locking. An earlier version of this rule also
+   set touch-action:none, which blocked touch panning for everything inside the
+   overlay too — on a phone the Add/Edit Employee form could not be scrolled far
+   enough to reach its Save button. Scroll chaining is contained on the overlays
+   themselves below instead, which does not disable their inner scrolling. */
+body.scroll-locked {
+  overflow: hidden;
+}
+
+/* Keep a flick inside the overlay from travelling to the page behind it. */
+.confirm-backdrop,
+.settings-backdrop,
+.adm-modal-backdrop,
+.sitemap-panel {
+  overscroll-behavior: contain;
+}
+
+/* With the body locked, an overlay taller than the viewport had no way to be
+   reached: on a short viewport .confirm-card's lower half — including the
+   confirm/cancel buttons — was unreachable. .adm-modal-card already had this
+   pair (admin.css), and .settings-card gets it in layout.css, which owns that
+   selector and loads after this file. */
+.confirm-card {
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+
+/* ── TOUCH TARGETS ──
+   These controls are 28-34px, below the 44x44 minimum for a touch target. The
+   pseudo-element enlarges only the tappable area: the control's own painted
+   size, spacing and layout are unchanged, so the design is identical on screen.
+   Scoped to coarse pointers so mouse hit areas stay exactly as they are.
+
+   Only controls that stand alone are listed here. See the paginator note below
+   for why the page-number buttons need different handling. */
+@media (pointer: coarse) {
+  .settings-close,
+  .btn-close-x,
+  .nb,
+  .sitemap-fab,
+  .theme-toggle {
+    position: relative;
+  }
+
+  .settings-close::after,
+  .btn-close-x::after,
+  .nb::after,
+  .sitemap-fab::after,
+  .theme-toggle::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  /* The permission switch is 32x18. Its ::before is the sliding knob, so the
+     hit area goes on the track's ::after instead — the track is the element
+     that actually carries the click (super-admin.css:66-73). The switch keeps
+     its exact painted size. */
+  .perm-toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  /* ── PAGINATOR NUMBERS ──
+     These sit in a tight row: .pg-bar has gap:4px around 30px buttons. A
+     centred 44x44 box overhangs each button by 7px a side, which is wider than
+     the gap — so every button's invisible hit area reached into its neighbour
+     and swallowed taps meant for it. Tapping between "2" and "3" could load
+     either page. A target that steals its neighbour's taps is a worse failure
+     than a small one.
+
+     Reaching 44px in a row of controls means making room for it, so the gap
+     grows to exactly twice the overhang: the hit areas meet edge to edge and
+     never overlap. Touch only — mouse spacing is untouched.
+
+     The timesheet's .ts-page-nums needs the same treatment but lives in
+     employee.css, which loads after this file and would win the cascade, so
+     that copy sits there. */
+  .pg-bar {
+    gap: 14px;
+  }
+
+  .pg-bar button {
+    position: relative;
+  }
+
+  .pg-bar button::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
   }
 }
