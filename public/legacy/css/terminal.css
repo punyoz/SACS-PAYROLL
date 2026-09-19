@@ -242,3 +242,25 @@ html, body {
   .rt-status-ring { width: 96px; height: 96px; }
   .rt-status-dot { width: 42px; height: 42px; }
 }
+
+/* Screen-reader-only label text.
+   The three inputs on this page (unlock password, exit password, RFID scan
+   field) carried nothing but a placeholder, which assistive tech does not
+   treat as a name — so each was announced as an unlabelled edit field. The
+   labels are real and associated via for=, and this hides them visually so
+   the kiosk looks exactly as it did.
+
+   Not display:none or visibility:hidden — both remove the element from the
+   accessibility tree, which would defeat the point. */
+.rt-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
