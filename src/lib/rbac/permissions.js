@@ -286,8 +286,13 @@ export const ROLE_PERMISSIONS = {
     branch_management: none(),
     branch_assignment: none(),
     roles_permissions: none(),
-    // First-stage leave review before it reaches HR (status pending_accountant).
-    leave_approval: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    // No access: SACS-Payroll-Permission-Matrix.md row 8 gives Accountant "—".
+    // This was a first-stage review (status pending_accountant) from before
+    // Leave Approval moved to HR. New requests are now filed as pending_admin
+    // (src/app/api/employee/leave-requests/route.js) and src/app/api/hr/
+    // leave-requests/route.js absorbs any leftover pending_accountant rows, so
+    // nothing depends on the Accountant acting here any more.
+    leave_approval: none(),
     rfid_devices: none(),
     process_payroll: full(SCOPE_BRANCH),
     payroll_records: full(SCOPE_BRANCH),

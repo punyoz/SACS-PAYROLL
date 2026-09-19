@@ -140,6 +140,17 @@ describe("Admin is locked out of Super Admin-exclusive modules", () => {
     // Final approval stays with HR.
     expect(can("hr", "leave_approval", "update")).toBe(true);
   });
+
+  // Matrix row 8 gives Accountant "—" on Leave Approval. The code granted it
+  // read+update for a first-stage review that no longer exists, and nothing
+  // here asserted the Accountant column, which is why the drift went unnoticed.
+  it("gives Accountant no access to Leave Approval", () => {
+    expect(can("accountant", "leave_approval", "read")).toBe(false);
+    expect(can("accountant", "leave_approval", "update")).toBe(false);
+    expect(can("accountant", "leave_approval", "create")).toBe(false);
+    expect(can("accountant", "leave_approval", "delete")).toBe(false);
+    expect(allowedModules("accountant")).not.toContain("leave_approval");
+  });
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
