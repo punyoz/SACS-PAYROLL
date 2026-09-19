@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
+import { floorNetPay } from "@/lib/payroll/net-pay";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -46,7 +47,9 @@ function mapEntryToPayslip(row) {
 
   const grossPay = toAmount(totals.gross_pay ?? payroll.basic_salary ?? 0);
   const totalDeductions = toAmount(totals.total_deductions ?? 0);
-  const netPay = toAmount(totals.net_pay ?? grossPay - totalDeductions);
+  // Floored so entries stored before the rule existed also read 0.00 rather
+  // than negative (src/lib/payroll/net-pay.js).
+  const netPay = floorNetPay(totals.net_pay ?? grossPay - totalDeductions);
 
   const periodLabel =
     payPeriodToLabel(row.pay_period) ||
@@ -89,7 +92,7 @@ function mapRecordToPayslip(rec) {
     processed_at: rec.processed_at,
     gross_pay: toAmount(rec.gross_pay),
     total_deductions: toAmount(rec.total_deductions),
-    net_pay: toAmount(rec.net_pay),
+    net_pay: floorNetPay(rec.net_pay),
     has_breakdown: false,
   };
 }
