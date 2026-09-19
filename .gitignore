@@ -16,3 +16,18 @@ supabase/snippets/
 
 # Local runtime fallback storage
 .runtime/
+
+# Environment files. .env*.local above covers .env.local, but a bare .env (and
+# the per-mode variants) were committable — the fastest way to leak the
+# service-role key, which bypasses RLS entirely.
+.env
+.env.development
+.env.production
+.env.test
+
+# Vercel CLI link/state
+.vercel
+
+# Build info
+*.tsbuildinfo
+next-env.d.ts
