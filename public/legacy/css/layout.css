@@ -388,7 +388,7 @@
 
 /* Form grids written inline in the page markup collapse to one column on a
    phone (auto-fill/auto-fit grids already wrap on their own). */
-@media (max-width: 639px) {
+@media (max-width: 640px) {
   .page [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]),
   .adm-modal-card [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]),
   .settings-card [style*="grid-template-columns"]:not([style*="auto-fill"]):not([style*="auto-fit"]) {

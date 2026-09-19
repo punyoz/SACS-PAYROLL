@@ -183,29 +183,29 @@
           <div class="stitle" style="margin-bottom:18px;">Payroll Entry Form</div>
           <div class="form-grid">
             <div class="fg" style="grid-column:1/-1;">
-              <label>Select Employee</label>
+              <label for="pc-employee">Select Employee</label>
               <select class="fc" id="pc-employee">
                 <option value="">Loading employees...</option>
               </select>
             </div>
             <div class="fg">
-              <label>Pay Period</label>
+              <label for="pc-period">Pay Period</label>
               <select class="fc" id="pc-period"><option>Loading periods...</option></select>
             </div>
             <div class="fg">
-              <label>Basic Salary (₱)</label>
+              <label for="pc-basic">Basic Salary (₱)</label>
               <input class="fc salary-input" type="number" id="pc-basic" min="0" max="9999999.99" step="0.01" inputmode="decimal" value="18500">
             </div>
             <hr class="fd">
             <div class="fgl">Deductions</div>
-            <div class="fg"><label>SSS <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-sss" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label>PhilHealth <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-philhealth" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label>Pag-IBIG <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-pagibig" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label>Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label>Absent (days)</label><input class="fc" type="number" id="pc-absences" value="0" min="0" step="1" inputmode="numeric"></div>
-            <div class="fg"><label>Late (days) <span style="color:var(--t3);font-weight:400;">3 late = ₱550</span></label><input class="fc" type="number" id="pc-late" value="0" min="0" step="1" inputmode="numeric"></div>
-            <div class="fg"><label>Leave With Pay <span style="color:var(--t3);font-weight:400;">(days, no deduction)</span></label><input class="fc" type="number" id="pc-leave-with-pay-days" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
-            <div class="fg"><label>Leave Without Pay <span style="color:var(--t3);font-weight:400;">(days, ₱550/day)</span></label><input class="fc" type="number" id="pc-leave-without-pay-days" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-sss">SSS <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-sss" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-philhealth">PhilHealth <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-philhealth" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-pagibig">Pag-IBIG <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-pagibig" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-tax">Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-absences">Absent (days)</label><input class="fc" type="number" id="pc-absences" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-late">Late (days) <span style="color:var(--t3);font-weight:400;">3 late = ₱550</span></label><input class="fc" type="number" id="pc-late" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-leave-with-pay-days">Leave With Pay <span style="color:var(--t3);font-weight:400;">(days, no deduction)</span></label><input class="fc" type="number" id="pc-leave-with-pay-days" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
+            <div class="fg"><label for="pc-leave-without-pay-days">Leave Without Pay <span style="color:var(--t3);font-weight:400;">(days, ₱550/day)</span></label><input class="fc" type="number" id="pc-leave-without-pay-days" value="0" min="0" step="1" inputmode="numeric"></div>
           </div>
         </div>
 
@@ -284,10 +284,10 @@
           <div class="pf-period">Pay Period<br><strong id="ac-pf-period">N/A</strong><br><span style="font-size:11px;color:var(--t3);" id="ac-pf-issued">Issued: N/A</span></div>
         </div>
         <div class="pf-emp">
-          <div class="pf-f"><label>Employee Name</label><p id="ac-pf-name">N/A</p></div>
-          <div class="pf-f"><label>ID</label><p style="font-family:var(--mono);" id="ac-pf-id">N/A</p></div>
-          <div class="pf-f"><label>Position</label><p id="ac-pf-position">N/A</p></div>
-          <div class="pf-f"><label>Type</label><p id="ac-pf-type">N/A</p></div>
+          <div class="pf-f"><label id="ac-pf-name-cap">Employee Name</label><p id="ac-pf-name" aria-labelledby="ac-pf-name-cap">N/A</p></div>
+          <div class="pf-f"><label id="ac-pf-id-cap">ID</label><p style="font-family:var(--mono);" id="ac-pf-id" aria-labelledby="ac-pf-id-cap">N/A</p></div>
+          <div class="pf-f"><label id="ac-pf-position-cap">Position</label><p id="ac-pf-position" aria-labelledby="ac-pf-position-cap">N/A</p></div>
+          <div class="pf-f"><label id="ac-pf-type-cap">Type</label><p id="ac-pf-type" aria-labelledby="ac-pf-type-cap">N/A</p></div>
         </div>
         <div class="pf-breakdown">
           <div>
@@ -395,13 +395,13 @@
           <div class="stitle" style="margin-bottom:14px;">Report Settings</div>
           <div class="form-grid">
             <div class="fg">
-              <label>Pay Period</label>
+              <label for="rpt-period">Pay Period</label>
               <select class="fc" id="rpt-period">
                 <option value="all">All Periods</option>
               </select>
             </div>
             <div class="fg">
-              <label>Report Type</label>
+              <label for="rpt-type">Report Type</label>
               <select class="fc" id="rpt-type">
                 <option value="summary">Payroll Summary</option>
                 <option value="deductions">Deductions Report</option>
@@ -533,19 +533,19 @@
         <div style="display:grid;gap:12px;margin-bottom:14px;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="fg" style="margin:0;">
-              <label>First Name</label>
+              <label for="ac-edit-firstname">First Name</label>
               <input id="ac-edit-firstname" class="fc" type="text" placeholder="e.g. Juan" autocomplete="given-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Middle Name</label>
+              <label for="ac-edit-middlename">Middle Name</label>
               <input id="ac-edit-middlename" class="fc" type="text" placeholder="e.g. Santos" autocomplete="additional-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Last Name</label>
+              <label for="ac-edit-lastname">Last Name</label>
               <input id="ac-edit-lastname" class="fc" type="text" placeholder="e.g. Dela Cruz" autocomplete="family-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Suffix</label>
+              <label for="ac-edit-suffix">Suffix</label>
               <select id="ac-edit-suffix" class="fc">
                 <option value="">None</option>
                 <option value="Jr.">Jr.</option>
@@ -558,11 +558,11 @@
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Name</label>
+            <label for="ac-edit-bankname">Bank Name</label>
             <input id="ac-edit-bankname" class="fc" type="text" placeholder="e.g. BPI, BDO, Landbank" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Account Number</label>
+            <label for="ac-edit-bankaccount">Bank Account Number</label>
             <input id="ac-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" />
           </div>
         </div>
@@ -574,21 +574,21 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password using the same steps as your first sign-in.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
-            <label>Current Password</label>
+            <label for="ac-cur-password">Current Password</label>
             <div class="cp-input-wrap">
               <input id="ac-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
               <button type="button" class="cp-eye" data-target="ac-cur-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>New Password</label>
+            <label for="ac-new-password">New Password</label>
             <div class="cp-input-wrap">
               <input id="ac-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="ac-new-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Confirm New Password</label>
+            <label for="ac-confirm-password">Confirm New Password</label>
             <div class="cp-input-wrap">
               <input id="ac-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="ac-confirm-password" aria-label="Show password">Show</button>

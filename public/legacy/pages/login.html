@@ -22,11 +22,11 @@
 
     <!-- CREDENTIALS -->
     <div class="fl">
-      <label id="login-identity-label">Username or Email</label>
+      <label for="login-identity-input" id="login-identity-label">Username or Email</label>
       <input id="login-identity-input" class="fi" type="text" placeholder="Enter your username or email" autocomplete="username">
     </div>
     <div class="fl">
-      <label>Password</label>
+      <label for="login-password-input">Password</label>
       <div style="position:relative;">
         <input id="login-password-input" class="fi" type="password" placeholder="Enter your password" autocomplete="current-password" style="padding-right:64px;">
         <button id="login-password-toggle" type="button" data-action="toggle-login-password" title="Show password" aria-label="Show password" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--t3);padding:6px 14px;font-size:13px;font-weight:600;letter-spacing:.02em;z-index:5;pointer-events:auto;">Show</button>
@@ -63,7 +63,7 @@
           Only <strong style="color:var(--t2);">Employee</strong> and <strong style="color:var(--t2);">Accountant</strong> accounts can reset their password here. Contact the administrator for other issues.
         </div>
         <div class="fl">
-          <label style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">Employee ID or Email</label>
+          <label for="reset-identity-input" style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">Employee ID or Email</label>
           <input id="reset-identity-input" class="fi" type="text" placeholder="e.g. SACS-001 or your@email.com" autocomplete="off" />
         </div>
         <div id="reset-password-feedback" style="font-size:12px;margin-top:8px;min-height:16px;"></div>

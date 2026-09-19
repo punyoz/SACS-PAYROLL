@@ -182,7 +182,7 @@
         <div class="sh" style="margin-bottom:10px;"><span class="stitle">Filter by Date</span></div>
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
           <div class="fg" style="margin:0;min-width:200px;">
-            <label>Date</label>
+            <label for="hr-att-date">Date</label>
             <input id="hr-att-date" class="fc" type="date" onchange="loadHRAttendance()" />
           </div>
           <button class="btn btn-outline" onclick="loadHRAllAttendance()">View All Records</button>
@@ -251,18 +251,18 @@
         <div class="sh" style="margin-bottom:12px;"><span class="stitle">Report Options</span></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;flex-wrap:wrap;">
           <div class="fg" style="margin:0;">
-            <label>Report Type</label>
+            <label for="hr-report-type">Report Type</label>
             <select id="hr-report-type" class="fc" onchange="onHrReportTypeChange()">
               <option value="attendance">Attendance Report</option>
               <option value="employees">Employee Records</option>
             </select>
           </div>
           <div class="fg" style="margin:0;" id="hr-report-from-wrap">
-            <label>From Date</label>
+            <label for="hr-report-from">From Date</label>
             <input id="hr-report-from" class="fc" type="date" />
           </div>
           <div class="fg" style="margin:0;" id="hr-report-to-wrap">
-            <label>To Date</label>
+            <label for="hr-report-to">To Date</label>
             <input id="hr-report-to" class="fc" type="date" />
           </div>
           <button class="btn btn-primary" onclick="loadHRReports()">Generate</button>
@@ -418,12 +418,12 @@
       <form id="hr-branch-assign-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitHrBranchAssign(event)" novalidate>
         <input type="hidden" name="user_id" />
         <div class="fg" style="margin:0;">
-          <label>Employee</label>
-          <input class="fc fc-readonly" name="employee_display" readonly tabindex="-1" />
+          <label for="hr-f-employee-display">Employee</label>
+          <input id="hr-f-employee-display" class="fc fc-readonly" name="employee_display" readonly tabindex="-1" />
         </div>
         <div class="fg" style="margin:0;">
-          <label>Current Branch</label>
-          <input class="fc fc-readonly" name="current_branch" readonly tabindex="-1" />
+          <label for="hr-f-current-branch">Current Branch</label>
+          <input id="hr-f-current-branch" class="fc fc-readonly" name="current_branch" readonly tabindex="-1" />
         </div>
         <div class="fg" style="margin:0;">
           <label for="hr-ba-destination">Transfer To <span class="req" aria-hidden="true">*</span></label>
@@ -773,19 +773,19 @@
         <div style="display:grid;gap:12px;margin-bottom:14px;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="fg" style="margin:0;">
-              <label>First Name</label>
+              <label for="hr-edit-firstname">First Name</label>
               <input id="hr-edit-firstname" class="fc" type="text" placeholder="e.g. Juan" autocomplete="given-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Middle Name</label>
+              <label for="hr-edit-middlename">Middle Name</label>
               <input id="hr-edit-middlename" class="fc" type="text" placeholder="e.g. Santos" autocomplete="additional-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Last Name</label>
+              <label for="hr-edit-lastname">Last Name</label>
               <input id="hr-edit-lastname" class="fc" type="text" placeholder="e.g. Dela Cruz" autocomplete="family-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Suffix</label>
+              <label for="hr-edit-suffix">Suffix</label>
               <select id="hr-edit-suffix" class="fc">
                 <option value="">None</option>
                 <option value="Jr.">Jr.</option>
@@ -798,11 +798,11 @@
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Name</label>
+            <label for="hr-edit-bankname">Bank Name</label>
             <input id="hr-edit-bankname" class="fc" type="text" placeholder="e.g. BPI, BDO, Landbank" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Account Number</label>
+            <label for="hr-edit-bankaccount">Bank Account Number</label>
             <input id="hr-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" />
           </div>
         </div>
@@ -814,21 +814,21 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password using the same steps as your first sign-in.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
-            <label>Current Password</label>
+            <label for="hr-current-password">Current Password</label>
             <div class="cp-input-wrap">
               <input id="hr-current-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
               <button type="button" class="cp-eye" data-target="hr-current-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>New Password</label>
+            <label for="hr-new-password">New Password</label>
             <div class="cp-input-wrap">
               <input id="hr-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="hr-new-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Confirm New Password</label>
+            <label for="hr-confirm-password">Confirm New Password</label>
             <div class="cp-input-wrap">
               <input id="hr-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="hr-confirm-password" aria-label="Show password">Show</button>

@@ -166,16 +166,16 @@
             <div class="today-log-title">Today's log</div>
             <div class="today-log-row">
               <div class="tlc">
-                <label>Time In</label>
-                <div class="tl-val" id="emp-today-timein" style="color:var(--t3);">— : —</div>
+                <label id="emp-today-timein-cap">Time In</label>
+                <div class="tl-val" id="emp-today-timein" aria-labelledby="emp-today-timein-cap" style="color:var(--t3);">— : —</div>
               </div>
               <div class="tlc tlc-divider">
-                <label>Time Out</label>
-                <div class="tl-val" id="emp-today-timeout" style="color:var(--t3);">— : —</div>
+                <label id="emp-today-timeout-cap">Time Out</label>
+                <div class="tl-val" id="emp-today-timeout" aria-labelledby="emp-today-timeout-cap" style="color:var(--t3);">— : —</div>
               </div>
               <div class="tlc tlc-divider">
-                <label>Status</label>
-                <div id="emp-today-status-wrap" style="margin-top:5px;">
+                <label id="emp-today-status-cap">Status</label>
+                <div id="emp-today-status-wrap" aria-labelledby="emp-today-status-cap" style="margin-top:5px;">
                   <span class="badge ba"><span class="bd"></span>No data</span>
                 </div>
               </div>
@@ -248,7 +248,7 @@
             <button class="btn ts-btn-excel" onclick="tsExportExcel()">Excel</button>
           </div>
           <div class="ts-ctl-right">
-            <label style="font-size:12px;color:var(--t2);">Search:</label>
+            <label for="ts-search" style="font-size:12px;color:var(--t2);">Search:</label>
             <input type="text" id="ts-search" class="fc" style="width:150px;padding:6px 10px;font-size:12px;" oninput="tsOnSearch()" placeholder="">
           </div>
         </div>
@@ -332,7 +332,7 @@
         <div class="stitle" style="margin-bottom:10px;">Leave Request</div>
         <div class="form-grid">
           <div class="fg" style="margin:0;">
-            <label>Leave Type</label>
+            <label for="emp-leave-type">Leave Type</label>
             <select id="emp-leave-type" class="fc">
               <option value="">Select leave type</option>
               <option value="Sick Leave">Sick Leave</option>
@@ -343,26 +343,26 @@
             </select>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Pay Status</label>
+            <label for="emp-leave-pay-status">Pay Status</label>
             <select id="emp-leave-pay-status" class="fc">
               <option value="with_pay">With Pay</option>
               <option value="without_pay">Without Pay</option>
             </select>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Start Date</label>
+            <label for="emp-leave-start">Start Date</label>
             <input id="emp-leave-start" class="fc" type="date">
           </div>
           <div class="fg" style="margin:0;">
-            <label>End Date</label>
+            <label for="emp-leave-end">End Date</label>
             <input id="emp-leave-end" class="fc" type="date">
           </div>
           <div class="fg" style="margin:0;grid-column:1/-1;">
-            <label>Reason</label>
+            <label for="emp-leave-reason">Reason</label>
             <textarea id="emp-leave-reason" class="fc" rows="3" placeholder="State the reason for your leave request"></textarea>
           </div>
           <div class="fg" style="margin:0;grid-column:1/-1;">
-            <label>Proof Document (Optional)</label>
+            <label for="emp-leave-proof">Proof Document (Optional)</label>
             <input id="emp-leave-proof" class="fc" type="file" accept=".pdf,.png,.jpg,.jpeg">
           </div>
         </div>
@@ -531,19 +531,19 @@
         <div style="display:grid;gap:12px;margin-bottom:14px;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div class="fg" style="margin:0;">
-              <label>First Name</label>
+              <label for="emp-edit-firstname">First Name</label>
               <input id="emp-edit-firstname" class="fc" type="text" placeholder="e.g. Juan" autocomplete="given-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Middle Name</label>
+              <label for="emp-edit-middlename">Middle Name</label>
               <input id="emp-edit-middlename" class="fc" type="text" placeholder="e.g. Santos" autocomplete="additional-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Last Name</label>
+              <label for="emp-edit-lastname">Last Name</label>
               <input id="emp-edit-lastname" class="fc" type="text" placeholder="e.g. Dela Cruz" autocomplete="family-name" />
             </div>
             <div class="fg" style="margin:0;">
-              <label>Suffix</label>
+              <label for="emp-edit-suffix">Suffix</label>
               <select id="emp-edit-suffix" class="fc">
                 <option value="">None</option>
                 <option value="Jr.">Jr.</option>
@@ -556,19 +556,19 @@
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Contact Number</label>
+            <label for="emp-edit-cpnumber">Contact Number</label>
             <input id="emp-edit-cpnumber" class="fc" type="tel" placeholder="e.g. 0917 123 4567" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Home Address</label>
+            <label for="emp-edit-address">Home Address</label>
             <textarea id="emp-edit-address" class="fc" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Name</label>
+            <label for="emp-edit-bankname">Bank Name</label>
             <input id="emp-edit-bankname" class="fc" type="text" placeholder="e.g. BPI, BDO, Landbank" readonly style="background:var(--bg3);cursor:not-allowed;" />
           </div>
           <div class="fg" style="margin:0;">
-            <label>Bank Account Number</label>
+            <label for="emp-edit-bankaccount">Bank Account Number</label>
             <input id="emp-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" readonly style="background:var(--bg3);cursor:not-allowed;" />
           </div>
           <p style="font-size:11px;color:var(--t3);margin:-6px 0 0;">Bank details are set by HR or Admin and can't be changed here.</p>
@@ -581,21 +581,21 @@
         <p style="font-size:12px;color:var(--t3);margin-bottom:16px;line-height:1.6;">Update your account password using the same steps as your first sign-in.</p>
         <div style="display:grid;gap:12px;">
           <div class="fg" style="margin:0;">
-            <label>Current Password</label>
+            <label for="emp-cur-password">Current Password</label>
             <div class="cp-input-wrap">
               <input id="emp-cur-password" class="fc" type="password" placeholder="Enter current password" autocomplete="current-password" />
               <button type="button" class="cp-eye" data-target="emp-cur-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>New Password</label>
+            <label for="emp-new-password">New Password</label>
             <div class="cp-input-wrap">
               <input id="emp-new-password" class="fc" type="password" placeholder="At least 8 characters" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="emp-new-password" aria-label="Show password">Show</button>
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label>Confirm New Password</label>
+            <label for="emp-confirm-password">Confirm New Password</label>
             <div class="cp-input-wrap">
               <input id="emp-confirm-password" class="fc" type="password" placeholder="Re-enter new password" autocomplete="new-password" maxlength="72" />
               <button type="button" class="cp-eye" data-target="emp-confirm-password" aria-label="Show password">Show</button>
