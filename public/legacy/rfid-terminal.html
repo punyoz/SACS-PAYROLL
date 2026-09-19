@@ -7,8 +7,8 @@
 <!-- css/js under /legacy get a 1-hour browser cache (next.config.mjs); bump
      this version string whenever terminal.css/terminal.js change, or edits
      here silently never reach a browser that already loaded the page once. -->
-<link rel="stylesheet" href="/legacy/css/theme.css?v=20260916c" />
-<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260916c" />
+<link rel="stylesheet" href="/legacy/css/theme.css?v=20260919d" />
+<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260919d" />
 </head>
 <body>
 <div class="rt-app">
@@ -30,6 +30,7 @@
 
       <form id="rt-lock-form" novalidate>
         <div class="rt-input-wrap">
+          <label class="rt-sr-only" for="rt-lock-password">Administration password</label>
           <input id="rt-lock-password" class="rt-input" type="password" placeholder="Password" autocomplete="current-password" />
           <button type="button" class="rt-eye" data-target="rt-lock-password" aria-label="Show password">Show</button>
         </div>
@@ -83,6 +84,7 @@
       </div>
 
       <div class="rt-scan-wrap">
+        <label class="rt-sr-only" for="rt-scan-input">RFID card or employee ID</label>
         <input id="rt-scan-input" class="rt-scan-input" type="text" placeholder="Tap RFID card or type employee ID" autocomplete="off" autocapitalize="off" spellcheck="false" readonly />
       </div>
     </div>
@@ -94,6 +96,7 @@
       <h3>Exit RFID Terminal</h3>
       <p>Enter your Administration password to close the terminal.</p>
       <div class="rt-input-wrap">
+        <label class="rt-sr-only" for="rt-exit-password">Administration password</label>
         <input id="rt-exit-password" class="rt-input" type="password" placeholder="Password" autocomplete="current-password" />
         <button type="button" class="rt-eye" data-target="rt-exit-password" aria-label="Show password">Show</button>
       </div>
@@ -107,6 +110,6 @@
 
 </div>
 
-<script src="/legacy/js/terminal.js?v=20260918a"></script>
+<script src="/legacy/js/terminal.js?v=20260919d"></script>
 </body>
 </html>

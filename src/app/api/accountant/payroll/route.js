@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
+import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -197,7 +198,7 @@ function normalizePayrollEntry(row) {
         leave_without_pay_deduction: toAmount(payrollObj?.totals?.leave_without_pay_deduction),
         gross_pay: toAmount(payrollObj?.totals?.gross_pay ?? row.gross_pay),
         total_deductions: toAmount(payrollObj?.totals?.total_deductions ?? row.total_deductions),
-        net_pay: toAmount(payrollObj?.totals?.net_pay ?? row.net_pay),
+        net_pay: floorNetPay(payrollObj?.totals?.net_pay ?? row.net_pay),
       },
     },
   };
@@ -222,7 +223,11 @@ function computeTotals(payroll) {
 
   const grossPay = basicSalary; // No allowances; Gross Pay = Basic Salary
   const totalDeductions = toAmount(sss + philhealth + pagibig + withholdingTax + absenceDeduction + leaveWithoutPayDeduction);
-  const netPay = toAmount(grossPay - totalDeductions);
+  // Floored at zero: deductions can exceed the basic salary (absences, Leave
+  // Without Pay), and a negative net pay is not a payment. total_deductions
+  // stays truthful, so a clamped payslip shows gross - deductions != net by
+  // design - see src/lib/payroll/net-pay.js.
+  const netPay = floorNetPay(grossPay - totalDeductions);
 
   return {
     basic_salary: basicSalary,
@@ -374,7 +379,7 @@ async function appendPayrollRecord(supabase, entry, attemptsLeft = 5) {
     employee_type: entry.employee_type,
     gross_pay: toAmount(entry.payroll.totals.gross_pay),
     total_deductions: toAmount(entry.payroll.totals.total_deductions),
-    net_pay: toAmount(entry.payroll.totals.net_pay),
+    net_pay: floorNetPay(entry.payroll.totals.net_pay),
     period_label: entry.pay_period,
     processed_at: processedAt,
     payslip_no: payslipNo,
@@ -542,7 +547,7 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
 function mapEntryToRecord(entry) {
   const grossPay = Number(entry.payroll?.totals?.gross_pay || 0);
   const totalDeductions = Number(entry.payroll?.totals?.total_deductions || 0);
-  const netPay = Number(entry.payroll?.totals?.net_pay || 0);
+  const netPay = floorNetPay(entry.payroll?.totals?.net_pay);
 
   return {
     id: entry.id,
@@ -867,7 +872,10 @@ async function handleBatchSubmit(supabase, body, guard) {
         employee_type: baseEntry.employee_type,
         gross_pay: toAmount(baseEntry.payroll.totals.gross_pay),
         total_deductions: toAmount(baseEntry.payroll.totals.total_deductions),
-        net_pay: toAmount(baseEntry.payroll.totals.net_pay),
+        // Bulk "process payroll for everyone" writes payroll_records directly,
+        // and those rows feed the dashboards and branch reports — so the floor
+        // has to hold here too, not just on the single-entry path.
+        net_pay: floorNetPay(baseEntry.payroll.totals.net_pay),
         period_label: baseEntry.pay_period,
         processed_at: baseEntry.submitted_at,
         payslip_no: payslipNumbers[index],

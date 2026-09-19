@@ -183,6 +183,14 @@ missing in production.
 > point it at anything holding real payroll records. It is deliberately left
 > out of the npm scripts above.
 >
+> Its `SEED_EMAILS` list is what decides who survives: anything absent is
+> treated as an extra account and hard-deleted, profile and auth user both.
+> The list used to name only Admin, Accountant and Employee, so a reset also
+> destroyed the **Super Admin and HR** accounts — taking out the highest
+> privilege in the system along with the roles needed to recreate it. It now
+> lists all five accounts `scripts/seed-auth-users.mjs` creates. Keep the two
+> in step if you add a role.
+>
 > `npm run supabase:purge-archived` deletes archived employees' `profiles`
 > rows and then calls `auth.admin.deleteUser()` on each one. This is a genuine
 > hard delete, and it is the **one exception** to the archive-only rule the
@@ -257,8 +265,16 @@ Honest list of what is not finished, for whoever picks this up:
   `tests/rbac-permissions.test.js` asserts the two stay in step — but making
   the API data-driven from it, as `SACS-Payroll-Permission-Matrix.md`
   describes, is still not done.
-- **`clean-reset.mjs` seed list is incomplete** — it omits the Super Admin and
-  HR accounts, so those survive a reset while the others are removed.
+- **System Configuration is saved but not enforced.** Every field on the Super
+  Admin's System Configuration screen is written to `system_config` and read
+  back into its own form, and nothing else reads that table. The real values
+  are fixed in code: the session lasts 8 hours (`src/lib/rbac/session.js`),
+  sign-in allows 5 attempts per account (`src/lib/auth/login-throttle.js`),
+  dates render in Asia/Manila in each route, and payroll takes SSS/PhilHealth/
+  Pag-IBIG from the amounts entered on the payslip rather than the configured
+  rates (`src/app/api/accountant/payroll/route.js`). The absence rate of ₱550/day
+  and the 3-lates-equals-1-absence rule are hardcoded there too, with no config
+  field at all. The screen now says so per section; wiring it up is outstanding.
 - **No integration tests against live routes.** The suite covers the permission
   matrix, the proxy, and login throttling as pure functions; nothing exercises
   a handler against a real Supabase instance, which is why route-level bugs
