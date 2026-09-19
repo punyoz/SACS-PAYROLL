@@ -15,8 +15,17 @@ const supabase = createClient(projectUrl, serviceRoleKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+// Must list every account scripts/seed-auth-users.mjs creates. Anything absent
+// here is treated as "extra" and hard-deleted: its profiles row is removed in
+// cleanProfiles() and its auth user in deleteNonSeedAuthUsers().
+//
+// Super Admin and HR were missing, so a reset destroyed the highest-privilege
+// account in the system along with HR — locking the operator out of the roles
+// they would need to put it back. Keep this list in step with the seeder.
 const SEED_EMAILS = [
+  (process.env.SEED_SUPER_ADMIN_EMAIL || "superadmin@example.com").toLowerCase(),
   (process.env.SEED_ADMIN_EMAIL || "admin@example.com").toLowerCase(),
+  (process.env.SEED_HR_EMAIL || "hr@example.com").toLowerCase(),
   (process.env.SEED_ACCOUNTANT_EMAIL || "accountant@example.com").toLowerCase(),
   (process.env.SEED_EMPLOYEE_EMAIL || "employee@example.com").toLowerCase(),
 ];
