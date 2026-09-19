@@ -252,3 +252,21 @@
 .status-dot-red    { background: var(--red); }
 .status-dot-amber  { background: var(--amber); }
 .status-dot-blue   { background: var(--blue); }
+
+/* System Configuration honesty notice.
+   Every field on that screen is persisted to system_config and read back into
+   its own form, and nothing else consumes it: the timezone, work hours, grace
+   period, contribution rates, session timeout and attempt limit are all fixed
+   in code. A Super Admin setting "SSS 5%" or "Max Login Attempts 3" would
+   otherwise have no way to know it changed nothing. Styled as a quiet caution
+   rather than an error — the values are saved, just not yet wired up. */
+.config-not-enforced {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--amber);
+  background: var(--amber-s);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+}
