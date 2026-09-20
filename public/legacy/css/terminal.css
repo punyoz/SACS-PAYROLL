@@ -74,6 +74,51 @@ html, body {
 
 .rt-btn-ghost { background: transparent; border-color: var(--border); color: var(--t2); }
 
+/* ── THEME TOGGLE ──
+   Same 34px token-built square as the portal's .theme-toggle (css/base.css),
+   restated here because this kiosk page does not load base.css. */
+.rt-theme-toggle {
+  width: 34px; height: 34px;
+  border-radius: 8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--t2);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; line-height: 1;
+  flex-shrink: 0;
+  font-family: inherit;
+}
+.rt-theme-toggle:hover { border-color: var(--amber); color: var(--amber); }
+
+/* The lock card's toggle sits in its top-right corner, clear of the brand
+   block, so the card's own layout is untouched. */
+.rt-lock-card { position: relative; }
+.rt-lock-card .rt-theme-toggle { position: absolute; top: 16px; right: 16px; }
+
+/* The toggle is taken out of flow, so the brand block has to keep clear of it
+   itself — without this the school name's line box runs under the button on
+   narrow phones (the longer the name, the more of it disappears). 30px is the
+   button's 34px plus its 16px offset, less the card's own 28px padding, plus
+   a little breathing room. */
+.rt-lock-card .rt-brand { padding-right: 30px; }
+
+/* Cross-fade the surfaces on switch, matching body.theme-transitioning in
+   css/base.css. Scoped to the colour properties so the status-ring pulse and
+   the dot's own transitions are left alone. */
+.rt-app.rt-theme-transitioning,
+.rt-app.rt-theme-transitioning .rt-lock,
+.rt-app.rt-theme-transitioning .rt-lock-card,
+.rt-app.rt-theme-transitioning .rt-topbar,
+.rt-app.rt-theme-transitioning .rt-result,
+.rt-app.rt-theme-transitioning .rt-result-field,
+.rt-app.rt-theme-transitioning .rt-modal-card,
+.rt-app.rt-theme-transitioning .rt-input,
+.rt-app.rt-theme-transitioning .rt-scan-input,
+.rt-app.rt-theme-transitioning .rt-theme-toggle {
+  transition: background 0.25s, color 0.25s, border-color 0.25s;
+}
+
 /* ── LOCK SCREEN ── */
 /* [hidden] must win over the unconditional `display: flex` below — same
    specificity, and an author rule otherwise beats the UA's own [hidden]
@@ -87,9 +132,11 @@ html, body {
   position: absolute; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
+  /* Tinted from the theme's own accent tokens rather than fixed rgba, so the
+     corner glows stay visible against the light background too. */
   background:
-    radial-gradient(circle at 0% 100%, rgba(74, 158, 245, 0.10), rgba(74, 158, 245, 0) 32%),
-    radial-gradient(circle at 100% 0%, rgba(245, 166, 35, 0.10), rgba(245, 166, 35, 0) 32%),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--blue) 10%, transparent), transparent 32%),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--amber) 10%, transparent), transparent 32%),
     var(--bg);
 }
 
@@ -169,8 +216,8 @@ html, body {
 .rt-status[data-state="error"] .rt-status-dot { background: var(--red); box-shadow: 0 0 24px var(--red-s); }
 
 @keyframes rt-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 158, 245, 0.25); }
-  50% { box-shadow: 0 0 0 14px rgba(74, 158, 245, 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--blue) 25%, transparent); }
+  50% { box-shadow: 0 0 0 14px transparent; }
 }
 
 .rt-status-text { font-size: 18px; font-weight: 600; color: var(--t1); text-align: center; max-width: 480px; }
@@ -217,7 +264,10 @@ html, body {
 .rt-modal-backdrop {
   position: fixed; inset: 0; z-index: 40;
   display: none; align-items: center; justify-content: center;
-  background: rgba(13, 27, 42, 0.72);
+  /* Derived from the theme's own background so the scrim is a deep navy wash
+     in dark mode and a soft grey one in light, instead of a fixed near-black
+     sheet over the light palette. */
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
   padding: 20px;
 }
 .rt-modal-backdrop.active { display: flex; }

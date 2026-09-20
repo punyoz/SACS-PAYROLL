@@ -52,6 +52,51 @@
   let queuedCode = null;
   let resultTimer = null;
 
+  /* ── THEME ──
+     The kiosk reads and writes the same 'sacs-theme' key as the portal
+     (js/app.js) and is same-origin with it, so the mode carries across in
+     both directions: the terminal opens in whatever the Admin last chose,
+     and a switch made here is still in effect back in the portal.
+
+     rfid-terminal.html has already applied the stored theme before first
+     paint; this only keeps the buttons and later switches in sync. */
+  const THEME_KEY = 'sacs-theme';
+  const themeToggles = document.querySelectorAll('[data-rt-theme-toggle]');
+  const rtApp = document.querySelector('.rt-app');
+
+  function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  }
+
+  function paintThemeToggles(theme) {
+    themeToggles.forEach((btn) => {
+      // Matches the portal's own toggle: the button shows the mode it
+      // switches TO, not the one currently active.
+      btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+      btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+    });
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch (e) {
+      // Blocked storage — the kiosk still switches, it just won't be
+      // remembered across a reload.
+    }
+    paintThemeToggles(theme);
+  }
+
+  function toggleTheme() {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    if (rtApp) {
+      rtApp.classList.add('rt-theme-transitioning');
+      setTimeout(() => rtApp.classList.remove('rt-theme-transitioning'), 300);
+    }
+    applyTheme(next);
+  }
+
   function formatTime(value) {
     if (!value) return '—';
     const date = new Date(value);
@@ -324,10 +369,17 @@
     }, 400);
   });
 
+  themeToggles.forEach((btn) => {
+    btn.addEventListener('click', toggleTheme);
+  });
+
   document.addEventListener('click', (event) => {
     if (mainScreen.hidden) return;
     if (exitModal.classList.contains('active')) return;
     if (event.target.closest('#rt-exit-btn')) return;
+    // A theme-toggle click falls through to focusScanInput() on purpose: the
+    // reader is a keyboard, so the scan field must take focus straight back
+    // or the next tap would be typed into the button instead.
     focusScanInput();
   });
 
@@ -337,6 +389,7 @@
     if (document.activeElement !== scanInput) focusScanInput();
   }, 1500);
 
+  paintThemeToggles(currentTheme());
   tickClock();
   setInterval(tickClock, 1000);
   boot();
