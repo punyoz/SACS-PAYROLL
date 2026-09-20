@@ -404,12 +404,7 @@ async function loadAttendanceData() {
   }
 
   try {
-    const response = await fetch('/api/admin/attendance', { method: 'GET' });
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.error || 'Failed to load attendance data');
-    }
+    const payload = await fetchAttendanceCached();
 
     attendanceData = payload;
     renderAttendancePanels(payload);
@@ -511,6 +506,9 @@ async function submitRfidAttendanceScan() {
     // may still be serving from its 20s cache — invalidate so the next
     // dashboard view reflects this scan immediately.
     invalidateDashboardCache();
+    // Same for the attendance payload this scan just changed — drop it first so
+    // the reload below re-fetches instead of replaying the pre-scan rows.
+    invalidateAttendanceCache();
     if (document.getElementById('adm-attendance')?.classList.contains('active')) await loadAttendanceData();
   } catch (error) {
     showRfidFeedback(error.message, true);
@@ -853,9 +851,7 @@ async function loadSystemData() {
   if (rfidTbody) rfidTbody.innerHTML = skeletonRows(6);
 
   try {
-    const response = await fetch('/api/admin/system', { method: 'GET' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Failed to load system data');
+    const payload = await fetchSystemCached();
 
     systemData = payload;
     allRfidDevices = payload.rfid_devices || [];
@@ -929,6 +925,9 @@ async function submitRfidUpdate(event) {
 
     if (feedbackEl) { feedbackEl.textContent = payload.rfid_uid ? 'RFID assigned successfully.' : 'RFID removed.'; feedbackEl.className = 'adm-feedback ok'; }
     window.pushNotification?.('RFID Updated', payload.rfid_uid ? 'RFID UID has been assigned to the employee.' : 'RFID UID has been removed.', 'success');
+    // Drop the cached system payload first, or the reload below replays the
+    // device list from before this edit.
+    invalidateSystemCache();
     await loadSystemData();
     setTimeout(() => closeRfidEditModal(), 500);
   } catch (error) {
@@ -962,6 +961,7 @@ async function voidRfidCard(employeeId) {
     if (!response.ok) throw new Error(result.error || 'Failed to void RFID card.');
 
     window.pushNotification?.('RFID Voided', `RFID card for ${device.full_name} has been voided.`, 'success');
+    invalidateSystemCache();
     await loadSystemData();
   } catch (error) {
     window.pushNotification?.('Error', error.message, 'error');

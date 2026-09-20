@@ -788,8 +788,12 @@ async function handleBatchSubmit(supabase, body, guard) {
     return NextResponse.json({ error: "At least one employee entry is required." }, { status: 400 });
   }
 
-  const employees = await fetchEmployees(supabase, guard);
-  const entriesResult = await readPayrollEntries(supabase);
+  // Independent reads — neither takes the other's output — so they go out
+  // together, the same way GET() already issues this pair.
+  const [employees, entriesResult] = await Promise.all([
+    fetchEmployees(supabase, guard),
+    readPayrollEntries(supabase),
+  ]);
   const entries = entriesResult.entries;
   const nowIso = new Date().toISOString();
 
