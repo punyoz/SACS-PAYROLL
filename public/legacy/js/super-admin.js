@@ -117,13 +117,16 @@ function loadSAProfile() {
 /* ── DASHBOARD ── */
 async function loadSADashboard() {
   try {
+    // Both payloads come from the shared short-TTL caches, so returning to
+    // the dashboard from another page renders from memory instead of
+    // re-running the aggregation and the database probe.
     const [dashRes, sysRes] = await Promise.allSettled([
-      fetch('/api/admin/dashboard'),
-      fetch('/api/admin/system'),
+      fetchDashboardCached(),
+      fetchSystemCached(),
     ]);
 
-    if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
-      const d = await dashRes.value.json();
+    if (dashRes.status === 'fulfilled') {
+      const d = dashRes.value;
       const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; };
       set('sa-dash-employees', d.total_employees ?? d.totalEmployees);
       set('sa-dash-present', d.present_today ?? d.presentToday);
@@ -135,8 +138,8 @@ async function loadSADashboard() {
       renderSARecentActivity([]);
     }
 
-    if (sysRes.status === 'fulfilled' && sysRes.value.ok) {
-      const s = await sysRes.value.json();
+    if (sysRes.status === 'fulfilled') {
+      const s = sysRes.value;
       const dbStatus = s.database_status || {};
       const stats = s.system_stats || {};
       const totalUsers = stats.total_users || 0;
@@ -953,9 +956,7 @@ async function loadSAAttendanceData() {
   if (tbody) tbody.innerHTML = skeletonRows(6);
 
   try {
-    const res = await fetch('/api/admin/attendance');
-    const payload = await res.json();
-    if (!res.ok) throw new Error(payload.error || 'Failed to load attendance data.');
+    const payload = await fetchAttendanceCached();
 
     saAttendanceData = payload;
     renderSAAttendancePanels(payload);
@@ -1092,9 +1093,16 @@ async function loadSABackupStatus() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
 
   try {
-    const res = await fetch('/api/admin/system');
-    if (res.ok) {
-      const d = await res.json();
+    // fetchSystemCached() throws where this page used to read res.ok. Only a
+    // transport failure should reach the outer catch ('Offline'); a non-OK
+    // response keeps falling through to the else branch below, as before.
+    let d = null;
+    try {
+      d = await fetchSystemCached();
+    } catch (err) {
+      if (!err?.responseReceived) throw err;
+    }
+    if (d) {
       const dbStatus = d.database_status || {};
       const stats = d.system_stats || {};
       const dbOk = dbStatus.connection === 'ok';
@@ -1603,9 +1611,7 @@ async function loadSASystemData() {
   if (rfidTbody) rfidTbody.innerHTML = skeletonRows(6);
 
   try {
-    const response = await fetch('/api/admin/system', { method: 'GET' });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || 'Failed to load system data');
+    const payload = await fetchSystemCached();
 
     saAllRfidDevices = payload.rfid_devices || [];
 
@@ -1681,6 +1687,9 @@ async function submitSARfidUpdate(event) {
 
     if (feedbackEl) { feedbackEl.textContent = payload.rfid_uid ? 'RFID assigned successfully.' : 'RFID removed.'; feedbackEl.className = 'adm-feedback ok'; }
     if (typeof pushNotification === 'function') pushNotification('RFID Updated', payload.rfid_uid ? 'RFID UID has been assigned to the employee.' : 'RFID UID has been removed.', 'success');
+    // Drop the cached system payload first, or the reload below replays the
+    // device list from before this edit.
+    invalidateSystemCache();
     await loadSASystemData();
     setTimeout(() => closeSARfidEditModal(), 500);
   } catch (error) {
@@ -1714,6 +1723,7 @@ async function voidSARfidCard(employeeId) {
     if (!response.ok) throw new Error(result.error || 'Failed to void RFID card.');
 
     if (typeof pushNotification === 'function') pushNotification('RFID Voided', `RFID card for ${device.full_name} has been voided.`, 'success');
+    invalidateSystemCache();
     await loadSASystemData();
   } catch (error) {
     if (typeof pushNotification === 'function') pushNotification('Error', error.message, 'error');
@@ -1789,6 +1799,11 @@ async function submitSARfidAttendanceScan() {
     }
 
     input.value = '';
+    // A scan changes the attendance rows and the present/late counts, both of
+    // which the shared caches may still be serving — drop them so the next
+    // visit to either page reflects this scan.
+    invalidateAttendanceCache();
+    invalidateDashboardCache();
     showSARfidFeedback(formatSARfidScanFeedback(payload.record, payload.tap) || payload.message || 'RFID scan recorded.', false);
   } catch (error) {
     showSARfidFeedback(error.message, true);

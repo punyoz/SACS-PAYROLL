@@ -159,9 +159,7 @@ async function loadEmployeeStats() {
   if (!email) return;
 
   try {
-    const resp = await fetch(`/api/employee/stats?email=${encodeURIComponent(email)}`);
-    if (!resp.ok) return;
-    const data = await resp.json();
+    const data = await fetchEmployeeStatsCached(email);
 
     const presentEl = document.getElementById('emp-stat-present');
     if (presentEl) presentEl.textContent = data.present ?? '—';
@@ -587,9 +585,7 @@ async function loadAttendanceRecords() {
   }
 
   try {
-    const resp = await fetch(`/api/employee/stats?email=${encodeURIComponent(email)}`);
-    if (!resp.ok) throw new Error('Failed to load attendance data.');
-    const data = await resp.json();
+    const data = await fetchEmployeeStatsCached(email);
     const records = Array.isArray(data.records) ? data.records : [];
 
     if (labelEl && data.month_label) labelEl.textContent = data.month_label;

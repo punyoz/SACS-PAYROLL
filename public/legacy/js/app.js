@@ -1518,6 +1518,156 @@ async function fetchDashboardCached() {
 }
 
 /**
+ * Same short-stale-time cache shape as fetchDashboardCached(), for
+ * /api/employee/stats. Two separate callers want this exact payload:
+ * loadEmployeeStats() (dashboard tiles + calendar + today's log) and
+ * loadAttendanceRecords() (the Attendance tab's table), which reads
+ * `records`/`month_label` out of the very same response. Opening the
+ * Attendance tab therefore re-ran the whole stats aggregation a second
+ * time, and every trip back to that tab ran it again.
+ *
+ * Keyed by email because the URL varies per signed-in user; a different
+ * email simply misses and re-fetches. Concurrent callers share one
+ * in-flight request, and a failed fetch is never cached.
+ */
+let __empStatsCache = null;   // { email, payload, expiresAt }
+let __empStatsInFlight = null;
+let __empStatsInFlightEmail = '';
+const EMP_STATS_CACHE_TTL_MS = 20_000;
+
+function invalidateEmployeeStatsCache() {
+  __empStatsCache = null;
+  __empStatsInFlight = null;
+  __empStatsInFlightEmail = '';
+}
+
+async function fetchEmployeeStatsCached(email) {
+  const key = String(email || '').trim();
+  if (!key) throw new Error('Missing employee email.');
+
+  if (__empStatsCache && __empStatsCache.email === key && __empStatsCache.expiresAt > Date.now()) {
+    return __empStatsCache.payload;
+  }
+
+  if (!__empStatsInFlight || __empStatsInFlightEmail !== key) {
+    __empStatsInFlightEmail = key;
+    __empStatsInFlight = fetch(`/api/employee/stats?email=${encodeURIComponent(key)}`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Failed to load attendance data.');
+        const payload = await res.json();
+        __empStatsCache = { email: key, payload, expiresAt: Date.now() + EMP_STATS_CACHE_TTL_MS };
+        return payload;
+      })
+      .catch((err) => {
+        __empStatsCache = null;
+        throw err;
+      })
+      .finally(() => {
+        __empStatsInFlight = null;
+        __empStatsInFlightEmail = '';
+      });
+  }
+
+  return __empStatsInFlight;
+}
+
+/**
+ * Same short-stale-time cache shape as fetchDashboardCached(), for
+ * /api/admin/attendance — the one payload behind both Admin's and Super
+ * Admin's Attendance page (panels + the paginated log table). Leaving the
+ * page and coming back re-ran the full day's tap collapse every time, so
+ * the table sat on skeleton rows on every visit.
+ *
+ * Attendance is closer to live than the dashboard figures, so the window is
+ * shorter — and both RFID scan handlers call invalidateAttendanceCache()
+ * before reloading, so a scan is never masked by a cached response.
+ */
+let __attendanceCache = null;   // { payload, expiresAt }
+let __attendanceInFlight = null;
+const ATTENDANCE_CACHE_TTL_MS = 15_000;
+
+function invalidateAttendanceCache() {
+  __attendanceCache = null;
+  __attendanceInFlight = null;
+}
+
+async function fetchAttendanceCached() {
+  if (__attendanceCache && __attendanceCache.expiresAt > Date.now()) {
+    return __attendanceCache.payload;
+  }
+
+  if (!__attendanceInFlight) {
+    __attendanceInFlight = fetch('/api/admin/attendance')
+      .then(async (res) => {
+        const payload = await res.json();
+        if (!res.ok) throw new Error(payload.error || 'Failed to load attendance data.');
+        __attendanceCache = { payload, expiresAt: Date.now() + ATTENDANCE_CACHE_TTL_MS };
+        return payload;
+      })
+      .catch((err) => {
+        __attendanceCache = null;
+        throw err;
+      })
+      .finally(() => {
+        __attendanceInFlight = null;
+      });
+  }
+
+  return __attendanceInFlight;
+}
+
+/**
+ * Same short-stale-time cache shape as fetchDashboardCached(), for
+ * /api/admin/system. This one payload backs four separate views — Super
+ * Admin's Dashboard health rows, Backup page, and Maintenance RFID table,
+ * plus Admin's own RFID table — so moving between them re-ran the same
+ * database probe each time.
+ *
+ * Every RFID assign/void path calls invalidateSystemCache() before its
+ * reload, so an edit is never masked by a cached response.
+ */
+let __systemCache = null;   // { payload, expiresAt }
+let __systemInFlight = null;
+const SYSTEM_CACHE_TTL_MS = 20_000;
+
+function invalidateSystemCache() {
+  __systemCache = null;
+  __systemInFlight = null;
+}
+
+async function fetchSystemCached() {
+  if (__systemCache && __systemCache.expiresAt > Date.now()) {
+    return __systemCache.payload;
+  }
+
+  if (!__systemInFlight) {
+    __systemInFlight = fetch('/api/admin/system')
+      .then(async (res) => {
+        const payload = await res.json();
+        if (!res.ok) {
+          // Tagged so a caller can tell a non-OK response apart from an
+          // unreachable endpoint — loadSABackupStatus() reports them
+          // differently.
+          const err = new Error(payload.error || 'Failed to load system data');
+          err.responseReceived = true;
+          throw err;
+        }
+        __systemCache = { payload, expiresAt: Date.now() + SYSTEM_CACHE_TTL_MS };
+        return payload;
+      })
+      .catch((err) => {
+        __systemCache = null;
+        throw err;
+      })
+      .finally(() => {
+        __systemInFlight = null;
+      });
+  }
+
+  return __systemInFlight;
+}
+
+/**
  * Numeric-only input handling for the government-ID / bank-account fields
  * (SSS, Pag-IBIG, PhilHealth, Bank Account Number) shared across Admin's and
  * HR's Add/Edit Employee forms. Stored values are always digits-only — the
@@ -1977,7 +2127,20 @@ function setupTabScrollFade() {
     };
 
     nav.addEventListener('scroll', update, { passive: true });
-    window.addEventListener('resize', update);
+    // update() reads scrollWidth/clientWidth, which forces a synchronous
+    // layout. Resize fires in a burst on phones (orientation change, the
+    // on-screen keyboard opening over the tab strip), so coalesce the burst
+    // into one measurement per frame instead of one per event.
+    let rafPending = false;
+    const onResize = () => {
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        update();
+      });
+    };
+    window.addEventListener('resize', onResize, { passive: true });
     update();
   });
 }
