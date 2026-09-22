@@ -89,7 +89,10 @@ function buildProfile(account, userId, includeEmployeeId = false) {
   };
 
   if (includeEmployeeId) {
-    profile.employee_id = account.employee_id;
+    // NULL, never "": profiles.employee_id is UNIQUE, so two accounts without
+    // an ID (Super Admin and Admin) both writing "" collided and the second
+    // profile failed to save. A unique index allows any number of NULLs.
+    profile.employee_id = account.employee_id || null;
   }
 
   return profile;

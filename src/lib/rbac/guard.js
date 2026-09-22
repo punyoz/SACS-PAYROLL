@@ -154,15 +154,6 @@ export function denyRoleEscalation(guard, targetRole) {
 }
 
 /**
- * Apply the caller's branch filter to a Supabase query builder.
- * Super Admin passes through untouched; everyone else gets .eq(column, branch).
- */
-export function scopeQueryToBranch(query, guard, column = "branch_id") {
-  if (guard.branchExempt) return query;
-  return query.eq(column, guard.branchId);
-}
-
-/**
  * Filter an in-memory array down to the caller's branch. Used by the routes
  * that read users out of Supabase Auth (where user_metadata.branch_id lives)
  * rather than from a table.

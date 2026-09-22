@@ -114,6 +114,21 @@ function debounce(fn, wait = 250) {
   };
 }
 
+/**
+ * Today's date as YYYY-MM-DD in Asia/Manila — the same calendar the API uses
+ * (every route's getDateKey()). new Date().toISOString().slice(0, 10) is the
+ * UTC date, which in Manila is still *yesterday* until 8 AM: HR's attendance
+ * page opened at 7:30 showed the previous day, just as the morning taps came in.
+ */
+function localDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replaceAll('&', '&amp;')
@@ -979,11 +994,13 @@ function renderNotificationPanel() {
     html += '<div class="notif-section-label">Status</div>';
   }
 
+  // These are assembled from on-screen text (a pay period label, a status
+  // cell), so they are escaped like the history items above.
   const roleItems = getRoleNotifications();
   html += roleItems.map((item) => `
     <div class="notif-item">
-      <div class="notif-item-title">${item.title}</div>
-      <div class="notif-item-desc">${item.desc}</div>
+      <div class="notif-item-title">${notifEscape(item.title)}</div>
+      <div class="notif-item-desc">${notifEscape(item.desc)}</div>
     </div>
   `).join('');
 
@@ -1016,6 +1033,10 @@ function refreshCurrentPortal() {
         if (typeof applyEmployeeIdentity === 'function') applyEmployeeIdentity();
         if (typeof renderPayslipOptions === 'function') renderPayslipOptions();
         if (typeof loadMyLeaveRequests === 'function') loadMyLeaveRequests();
+        // renderPayslipOptions() is the accountant portal's — the employee
+        // portal's payslips and attendance tiles load through these two.
+        if (typeof loadPayslips === 'function') loadPayslips();
+        if (typeof loadEmployeeStats === 'function') loadEmployeeStats();
         return;
       }
       if (currentRole === 'hr' && typeof hrNav === 'function' && pageId) {
@@ -1188,8 +1209,6 @@ function showProofError(message) {
 }
 
 /* ── GLOBAL SCROLL HELPERS ── */
-let observedScrollTarget = null;
-
 function isScrollableElement(element) {
   if (!element) return false;
   const styles = window.getComputedStyle(element);
@@ -1237,22 +1256,6 @@ function scrollWebsiteTo(position = 'top') {
     top,
     behavior: 'smooth',
   });
-}
-
-function attachScrollListeners() {
-  const target = getActiveScrollContainer();
-  if (!target) return;
-
-  if (observedScrollTarget && observedScrollTarget !== target) {
-    observedScrollTarget.removeEventListener('scroll', handleActiveScreenWheelRelay);
-  }
-
-  observedScrollTarget = target;
-  target.addEventListener('scroll', handleActiveScreenWheelRelay, { passive: true });
-}
-
-function handleActiveScreenWheelRelay() {
-  // Scroll handler placeholder to keep a stable listener reference.
 }
 
 /* ── RESET PASSWORD (LOGIN PAGE) ── */
@@ -1337,7 +1340,15 @@ function toggleLoginPasswordVisibility() {
   }
 }
 
+// Set while a sign-in request is in flight. Enter on the page and a click on
+// Sign In both call login(), so without this one keypress-plus-click sent two
+// attempts — and a mistyped password then spent two of the account's five
+// throttled attempts (src/lib/auth/login-throttle.js) instead of one.
+let loginInFlight = false;
+
 async function login() {
+  if (loginInFlight) return;
+
   const usernameInput = document.getElementById('login-identity-input')?.value?.trim();
   const password = document.getElementById('login-password-input')?.value?.trim();
 
@@ -1346,23 +1357,41 @@ async function login() {
     return;
   }
 
-  const response = await fetch('/api/legacy-auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId: usernameInput, password }),
-  });
+  const button = document.querySelector('#s-login .lb');
+  const buttonLabel = button?.textContent;
+  loginInFlight = true;
+  if (button) { button.disabled = true; button.textContent = 'Signing in...'; }
 
-  const result = await response.json().catch(() => ({}));
+  let navigating = false;
+  try {
+    const response = await fetch('/api/legacy-auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employeeId: usernameInput, password }),
+    });
 
-  if (!response.ok || !result.redirectTo) {
-    window.alert(result.error || 'Unable to sign in.');
-    return;
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || !result.redirectTo) {
+      window.alert(result.error || 'Unable to sign in.');
+      return;
+    }
+
+    // result.role is sent from our updated API
+    saveAuthContext(result, result.role || 'employee', usernameInput);
+
+    navigating = true;
+    window.top.location.href = result.redirectTo;
+  } catch {
+    window.alert('Unable to reach the server. Check your connection and try again.');
+  } finally {
+    // Leave the button in its "Signing in..." state while the portal loads,
+    // so it cannot be pressed again between the redirect and the new page.
+    if (!navigating) {
+      loginInFlight = false;
+      if (button) { button.disabled = false; button.textContent = buttonLabel || 'Sign In'; }
+    }
   }
-
-  // result.role is sent from our updated API
-  saveAuthContext(result, result.role || 'employee', usernameInput);
-
-  window.top.location.href = result.redirectTo;
 }
 
 /* ── LOGOUT ── */
@@ -1400,11 +1429,6 @@ function showRoleScreen(role) {
   } else {
     document.getElementById('s-login')?.classList.add('active');
   }
-
-  // Wait for active screen transition then sync scroll controls.
-  setTimeout(() => {
-    attachScrollListeners();
-  }, 0);
 }
 
 /* ── SKELETON LOADING ── */
@@ -1534,12 +1558,6 @@ let __empStatsCache = null;   // { email, payload, expiresAt }
 let __empStatsInFlight = null;
 let __empStatsInFlightEmail = '';
 const EMP_STATS_CACHE_TTL_MS = 20_000;
-
-function invalidateEmployeeStatsCache() {
-  __empStatsCache = null;
-  __empStatsInFlight = null;
-  __empStatsInFlightEmail = '';
-}
 
 async function fetchEmployeeStatsCached(email) {
   const key = String(email || '').trim();
@@ -2569,27 +2587,17 @@ function initApp() {
     showRoleScreen('');
   }
 
-  // Rebind listeners whenever role/page classes change.
-  const appRoot = document.getElementById('app-root');
-  if (appRoot) {
-    const observer = new MutationObserver(() => {
-      attachScrollListeners();
-    });
-
-    observer.observe(appRoot, {
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-  }
-
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'PageDown') {
+    // A textarea (leave reason, remarks) or a select uses Page Up/Down itself —
+    // hijacking the key there scrolled the page instead of the field.
+    const pagingField = event.target?.closest?.('textarea, select, [contenteditable="true"]');
+
+    if (event.key === 'PageDown' && !pagingField) {
       event.preventDefault();
       scrollWebsite('down');
     }
 
-    if (event.key === 'PageUp') {
+    if (event.key === 'PageUp' && !pagingField) {
       event.preventDefault();
       scrollWebsite('up');
     }
@@ -2597,6 +2605,15 @@ function initApp() {
     if (event.key === 'Enter') {
       const loginScreen = document.getElementById('s-login');
       if (loginScreen && loginScreen.classList.contains('active')) {
+        // The Forgot Password dialog sits on top of the login screen, so Enter
+        // typed there used to fire login() behind it — an "enter your
+        // username" alert popped over the reset form. Enter there sends the
+        // reset link instead.
+        const resetModal = document.getElementById('reset-password-modal');
+        if (resetModal && resetModal.style.display !== 'none') {
+          if (event.target?.id === 'reset-identity-input') submitResetPassword();
+          return;
+        }
         login();
       }
     }

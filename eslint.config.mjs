@@ -99,6 +99,7 @@ const config = [
 
         // ── defined in app.js, used by every portal script ──
         escapeHtml: "readonly",
+        localDateKey: "readonly",
         formatHours: "readonly",
         formatDigitGroups: "readonly",
         digitsOnly: "readonly",
@@ -118,7 +119,6 @@ const config = [
         fetchDashboardCached: "readonly",
         invalidateDashboardCache: "readonly",
         fetchEmployeeStatsCached: "readonly",
-        invalidateEmployeeStatsCache: "readonly",
         fetchAttendanceCached: "readonly",
         invalidateAttendanceCache: "readonly",
         fetchSystemCached: "readonly",
@@ -162,6 +162,8 @@ const config = [
         composeFullName: "readonly",      // admin.js
         applyEmployeeIdentity: "readonly", // employee.js
         loadMyLeaveRequests: "readonly",   // employee.js
+        loadPayslips: "readonly",          // employee.js
+        loadEmployeeStats: "readonly",     // employee.js
         renderPayslipOptions: "readonly",  // accountant.js
       },
     },
