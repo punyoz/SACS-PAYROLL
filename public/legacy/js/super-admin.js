@@ -201,7 +201,7 @@ function renderSARecentActivity(activity) {
         <div class="s">${row.module ? `[${escapeHtml(row.module)}] ` : ''}${escapeHtml(desc || label)}</div>
         ${timeStr ? `<div class="ss">${escapeHtml(timeStr)}</div>` : ''}
       </div>
-      <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}50;">${escapeHtml(label)}</span>
+      <span class="badge" style="background:color-mix(in srgb, ${color} 12%, transparent);color:${color};border:1px solid color-mix(in srgb, ${color} 31%, transparent);">${escapeHtml(label)}</span>
     </div>`;
   }).join('');
 }
@@ -248,7 +248,7 @@ function renderSABranchGrid() {
       <div class="branch-name">${escapeHtml(b.name)}</div>
       <div class="branch-meta">${escapeHtml(b.location)}</div>
       <div class="branch-meta">Code: <code style="font-size:11px;">${escapeHtml(b.code || '—')}</code></div>
-      <div style="margin-top:4px;"><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${escapeHtml(b.status)}</span></div>
+      <div style="margin-top:4px;"><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${escapeHtml(b.status)}</span></div>
       <div class="branch-actions" style="margin-top:8px;">
         <button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSABranchModal(${JSON.stringify(b).replace(/"/g,'&quot;')})">Edit</button>
       </div>
@@ -368,6 +368,10 @@ async function submitSABranch(event) {
   event.preventDefault();
   const form = event.target;
   const fb = document.getElementById('sa-branch-feedback');
+  // Nothing stopped a second click while the first save was in flight, and for
+  // a new branch that meant two POSTs — two identical branches.
+  const submitBtn = form.querySelector('button[type="submit"]');
+  if (submitBtn?.disabled) return;
 
   const id = form.querySelector('[name="id"]').value;
   const region = (document.getElementById('sa-branch-region')?.value || '').trim();
@@ -388,6 +392,7 @@ async function submitSABranch(event) {
   }
 
   if (fb) { fb.textContent = 'Saving...'; fb.style.color = 'var(--t3)'; }
+  if (submitBtn) submitBtn.disabled = true;
 
   try {
     const res = await fetch('/api/admin/branches', {
@@ -412,12 +417,16 @@ async function submitSABranch(event) {
     invalidateBranchesCache();
 
     if (fb) { fb.textContent = 'Branch saved.'; fb.style.color = 'var(--green)'; }
+    // Stays disabled until the modal has closed, so the confirmation's
+    // 600 ms on screen is not a window for a second save.
     setTimeout(() => {
       closeSABranchModal();
       renderSABranchGrid();
+      if (submitBtn) submitBtn.disabled = false;
     }, 600);
   } catch (err) {
     if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -536,9 +545,9 @@ function renderSAUsersTable() {
           return `<tr>
             <td>${escapeHtml(u.full_name || '—')}</td>
             <td style="font-size:12px;color:var(--t3);">${escapeHtml(u.email || '—')}</td>
-            <td><span class="badge" style="color:${roleColor};background:${roleColor}20;border:1px solid ${roleColor}40;">${SA_ROLE_LABELS[u.role] || '—'}</span></td>
+            <td><span class="badge" style="color:${roleColor};background:color-mix(in srgb, ${roleColor} 12%, transparent);border:1px solid color-mix(in srgb, ${roleColor} 25%, transparent);">${SA_ROLE_LABELS[u.role] || '—'}</span></td>
             <td style="font-size:12px;">${escapeHtml(saBranchLabel(u.branch_id))}</td>
-            <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${statusLabel}</span></td>
+            <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${statusLabel}</span></td>
             <td style="font-size:12px;">${escapeHtml(lastLogin)}</td>
             <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal('${escapeHtml(u.id)}')">Edit</button></td>
           </tr>`;
@@ -989,7 +998,12 @@ function exportSAAttendanceCsv() {
 }
 
 /* ── AUDIT & MONITORING ── */
+// Same stale-response guard as Admin's audit page: only the latest filter's
+// response is rendered.
+let saAuditRequestSeq = 0;
+
 async function loadSAAuditLogs() {
+  const seq = ++saAuditRequestSeq;
   const tbody = document.getElementById('sa-audit-table-body');
   if (tbody) tbody.innerHTML = skeletonRows(7);
 
@@ -1001,6 +1015,7 @@ async function loadSAAuditLogs() {
 
     const res = await fetch(url);
     const data = await res.json();
+    if (seq !== saAuditRequestSeq) return;
     if (!res.ok) throw new Error(data.error || 'Failed to load audit logs.');
 
     saAuditLogs = data.logs || [];
@@ -1013,7 +1028,8 @@ async function loadSAAuditLogs() {
 
     renderSAAuditTable(saAuditLogs);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${err.message}</td></tr>`;
+    if (seq !== saAuditRequestSeq) return;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -1060,7 +1076,7 @@ function renderSAAuditTable(logs) {
             <td>${escapeHtml(log.action || '—')}</td>
             <td style="font-size:12px;">${log.entity_type ? `${escapeHtml(log.entity_type)}${log.entity_id ? ': ' + escapeHtml(log.entity_id) : ''}` : '—'}</td>
             <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(log.description || '—')}</td>
-            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${escapeHtml(log.status || '—')}</span></td>
+            <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(log.status || '—')}</span></td>
             <td style="font-size:11px;color:var(--t3);">${escapeHtml(log.source || '—')}</td>
           </tr>`;
         }).join('');
@@ -1084,7 +1100,7 @@ function exportSAAuditCsv() {
     l.status || '',
     l.source || '',
   ]);
-  saDownloadCsv([headers, ...rows], `sacs-sa-audit-${new Date().toISOString().slice(0, 10)}.csv`);
+  saDownloadCsv([headers, ...rows], `sacs-sa-audit-${localDateKey()}.csv`);
 }
 
 /* ── BACKUP & RECOVERY ── */
@@ -1145,16 +1161,16 @@ async function exportSAData(type) {
 
     if (type === 'employees') {
       url = '/api/hr/employees?archived=true';
-      filename = `sacs-employees-${new Date().toISOString().slice(0, 10)}.csv`;
+      filename = `sacs-employees-${localDateKey()}.csv`;
     } else if (type === 'attendance') {
       url = '/api/hr/attendance?view=all';
-      filename = `sacs-attendance-${new Date().toISOString().slice(0, 10)}.csv`;
+      filename = `sacs-attendance-${localDateKey()}.csv`;
     } else if (type === 'payroll') {
       if (fb) { fb.textContent = 'Payroll export requires accountant portal access.'; fb.style.color = 'var(--amber)'; }
       return;
     } else if (type === 'audit') {
       url = '/api/admin/audit-logs?limit=1000';
-      filename = `sacs-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+      filename = `sacs-audit-${localDateKey()}.csv`;
     }
 
     const res = await fetch(url);
@@ -1169,7 +1185,7 @@ async function exportSAData(type) {
     } else if (type === 'attendance') {
       const logs = data.logs || [];
       headers = ['Employee', 'Type', 'Date', 'Time In', 'Time Out', 'Hours', 'Status'];
-      rows = logs.map((l) => [l.employee_name || '', l.employee_type || '', l.date || '', l.time_in || '', l.time_out || '', l.hours_worked || '', l.status || '']);
+      rows = logs.map((l) => [l.employee_name || '', l.employee_type || '', l.date || '', l.time_in || '', l.time_out || '', l.total_hours ?? l.hours_worked ?? '', l.status || '']);
     } else if (type === 'audit') {
       const logs = data.logs || [];
       headers = ['Timestamp', 'Module', 'Action', 'Entity Type', 'Entity ID', 'Description', 'Status', 'Source'];

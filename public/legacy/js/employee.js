@@ -149,7 +149,7 @@ function updateTodayLog(today) {
   }
   if (statusWrap) {
     const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
-    statusWrap.innerHTML = `<span class="badge ${badgeCls}"><span class="bd"></span>${today.status || 'Absent'}</span>`;
+    statusWrap.innerHTML = `<span class="badge ${badgeCls}"><span class="bd"></span>${escapeHtml(today.status || 'Absent')}</span>`;
   }
 }
 
@@ -382,7 +382,13 @@ async function loadMyLeaveRequests() {
   }
 }
 
+// Set while a request is being submitted. Reading a proof file and uploading it
+// can take a few seconds, and a second click in that time filed the same leave
+// request twice.
+let leaveSubmitInFlight = false;
+
 async function submitLeaveRequest() {
+  if (leaveSubmitInFlight) return;
   const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
   const employeeId = String(context?.employee_id || '').trim();
   const employeeName = String(context?.full_name || '').trim();
@@ -410,6 +416,7 @@ async function submitLeaveRequest() {
     return;
   }
 
+  leaveSubmitInFlight = true;
   try {
     showLeaveFeedback('Submitting leave request...', false);
 
@@ -465,6 +472,8 @@ async function submitLeaveRequest() {
     await loadMyLeaveRequests();
   } catch (error) {
     showLeaveFeedback(error.message, true);
+  } finally {
+    leaveSubmitInFlight = false;
   }
 }
 
@@ -607,11 +616,11 @@ async function loadAttendanceRecords() {
       } catch { /* best-effort */ }
 
       return `<tr>
-        <td class="nm">${r.date}</td>
+        <td class="nm">${escapeHtml(r.date)}</td>
         <td style="color:var(--t3);">${dayName}</td>
         <td class="mn">${timeIn}</td>
         <td class="mn">${timeOut}</td>
-        <td><span class="badge ${badgeCls}"><span class="bd"></span>${r.status}</span></td>
+        <td><span class="badge ${badgeCls}"><span class="bd"></span>${escapeHtml(r.status)}</span></td>
       </tr>`;
     }).join('');
 
@@ -622,7 +631,7 @@ async function loadAttendanceRecords() {
       <tbody>${rows}</tbody>
     </table></div>`;
   } catch (err) {
-    container.innerHTML = `<div style="font-size:12px;color:var(--red);padding:8px 0;">${err.message}</div>`;
+    container.innerHTML = `<div style="font-size:12px;color:var(--red);padding:8px 0;">${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -780,7 +789,7 @@ async function generateTimesheet() {
 
     renderTsPage();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -908,10 +917,18 @@ function loadProfilePage() {
   setTxt('ep-bank-account',  ctx.bank_account_number);
 }
 
-document.addEventListener('sacs-auth-context-changed', function _onAuthForProfile() {
+// dispatchAuthContextChanged() fires on window; a listener on document never
+// heard it, so the Profile page kept showing the old values after an edit.
+window.addEventListener('sacs-auth-context-changed', function _onAuthForProfile() {
   if (document.getElementById('emp-profile')?.classList.contains('active')) {
     loadProfilePage();
   }
 });
 
 window.loadProfilePage = loadProfilePage;
+
+// The saved tab used to be restored only from the auth-context-changed event,
+// which a plain page load never fires — so a refresh always fell back to
+// Dashboard even with ?page=emp-attendance in the URL. Restore it now that
+// EMP_PAGES (including emp-profile, added just above) is complete.
+_restoreEmpTabs();

@@ -644,7 +644,12 @@ function setAuditActionFilter(value) {
   loadAuditLogs();
 }
 
+// Filters and the debounced search all call loadAuditLogs(); a slower, older
+// query landing after a newer one used to show the previous filter's rows.
+let auditRequestSeq = 0;
+
 async function loadAuditLogs() {
+  const seq = ++auditRequestSeq;
   const tbody = document.getElementById('adm-audit-table-body');
   if (tbody) {
     tbody.innerHTML = skeletonRows(7);
@@ -660,6 +665,7 @@ async function loadAuditLogs() {
 
     const response = await fetch(`/api/admin/audit-logs?${params.toString()}`, { method: 'GET' });
     const payload = await response.json();
+    if (seq !== auditRequestSeq) return;
 
     if (!response.ok) {
       throw new Error(payload.error || 'Failed to load audit logs');
@@ -674,6 +680,7 @@ async function loadAuditLogs() {
       renderAuditTable(auditLogsData);
     }
   } catch (error) {
+    if (seq !== auditRequestSeq) return;
     if (tbody) {
       tbody.innerHTML = `<tr><td colspan="7" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
     }

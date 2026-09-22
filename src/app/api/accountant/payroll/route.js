@@ -33,11 +33,26 @@ function parseEmployeeIdNumber(employeeId) {
   return Number(match[1]);
 }
 
+// Today's calendar date in Asia/Manila, as a local-midnight Date so the
+// getFullYear()/getMonth()/getDate() calls below read Manila's date whatever
+// timezone the server runs in. new Date() alone is the server's clock — UTC on
+// Vercel — so from midnight to 8 AM Manila on the 1st and the 16th, "today's"
+// pay period (and the period dropdown's current month) was the previous one.
+function manilaToday() {
+  const [year, month, day] = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date()).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 // Payroll runs twice a month — cutoff on the 15th and on the last day of the
 // month — so every date maps to one of two semi-monthly pay periods.
-function getPayPeriodRange(dateInput = new Date()) {
+function getPayPeriodRange(dateInput = manilaToday()) {
   const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
-  const safeDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const safeDate = Number.isNaN(date.getTime()) ? manilaToday() : date;
 
   const year = safeDate.getFullYear();
   const month = safeDate.getMonth();
@@ -168,7 +183,7 @@ function normalizePayrollEntry(row) {
     employee_code: normalizeText(row.employee_code),
     employee_type: normalizeText(row.employee_type, "Teaching"),
     position: normalizePositionForRole(row.position, row.role),
-    pay_period: normalizeText(row.pay_period, formatPeriodLabel(new Date())),
+    pay_period: normalizeText(row.pay_period, formatPeriodLabel(manilaToday())),
     status: normalizeText(row.status, "draft").toLowerCase(),
     approval_id: normalizeText(row.approval_id),
     payslip_no: normalizeText(row.payslip_no) || null,
@@ -329,7 +344,12 @@ async function deletePayrollEntryFromDb(supabase, entryId) {
 
 async function nextPayslipSeqPrefix(supabase, processedAt) {
   const date = processedAt ? new Date(processedAt) : new Date();
-  const ym = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
+  // The month the payslip was issued in Manila, not on the server's clock.
+  const ym = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+  }).format(date).replace("-", "");
   const prefix = `PS-${ym}-`;
 
   const { data } = await supabase
@@ -422,8 +442,11 @@ function normalizeAttendanceStatus(value) {
 // also landing in the attendance "absent" bucket.
 function expandDateRange(startKey, endKey) {
   const days = [];
-  let cursor = new Date(`${startKey}T00:00:00`);
-  const end = new Date(`${endKey}T00:00:00`);
+  // Parsed and read back in UTC. Parsing as local midnight and then reading
+  // toISOString() (UTC) shifted every key a day early on any server east of
+  // UTC — a Manila machine turned "2026-09-01" into "2026-08-31".
+  let cursor = new Date(`${startKey}T00:00:00Z`);
+  const end = new Date(`${endKey}T00:00:00Z`);
   while (cursor <= end) {
     days.push(cursor.toISOString().slice(0, 10));
     cursor = new Date(cursor.getTime() + 86400000);
@@ -446,11 +469,16 @@ async function buildLeaveContext(employees, periodStart, periodEnd) {
   const leaveDaysByEmployee = new Map();
 
   employees.forEach((employee) => {
-    // leave_requests.employee_id stores the human-readable SACS-XXX code
-    // (see submitLeaveRequest() in employee.js), not the auth user UUID that
-    // `employee.id` is — match on employee.employee_id, but key the returned
-    // summary by employee.id (UUID) to match attendance_rows' convention.
-    const requestsForEmployee = approved.filter((r) => r.employee_id === employee.employee_id);
+    // leave_requests.employee_id holds either form: requests filed before the
+    // 0904e12 self-scoping fix carry the SACS-XXX code the portal sent, and
+    // every request since carries the auth user UUID the session pins it to.
+    // Matching the code alone silently dropped all newer approved leave —
+    // no With/Without Pay days auto-filled, and those days were deducted as
+    // absences. The summary is keyed by employee.id (UUID) to match
+    // attendance_rows' convention.
+    const requestsForEmployee = approved.filter(
+      (r) => r.employee_id === employee.id || r.employee_id === employee.employee_id,
+    );
 
     let withPayDays = 0;
     let withoutPayDays = 0;
@@ -632,7 +660,7 @@ function buildPayslipDetails(entry) {
 // range anyone would realistically be preparing or reviewing.
 function findPeriodRangeByLabel(label) {
   if (!label) return null;
-  const now = new Date();
+  const now = manilaToday();
   for (let offset = -3; offset <= 3; offset += 1) {
     const monthDate = new Date(now.getFullYear(), now.getMonth() + offset, 1);
     const firstHalf = getPayPeriodRange(new Date(monthDate.getFullYear(), monthDate.getMonth(), 1));
@@ -650,7 +678,7 @@ function getPeriodOptions(entries) {
   // Always offer both semi-monthly periods of the current month, regardless
   // of which half "today" falls in, so the second cutoff can be prepared
   // ahead of time and the first stays reachable after it closes.
-  const now = new Date();
+  const now = manilaToday();
   const secondHalfLabel = getPayPeriodRange(new Date(now.getFullYear(), now.getMonth(), 16)).label;
   const firstHalfLabel = getPayPeriodRange(new Date(now.getFullYear(), now.getMonth(), 1)).label;
 
@@ -713,7 +741,7 @@ export async function GET(request) {
     // viewed/prepared, not always "today" — otherwise preparing the next
     // cutoff ahead of time (see getPeriodOptions()) shows the wrong half's
     // numbers.
-    const activePeriod = findPeriodRangeByLabel(selectedPeriod) || getPayPeriodRange(new Date());
+    const activePeriod = findPeriodRangeByLabel(selectedPeriod) || getPayPeriodRange(manilaToday());
     const { summaries: leaveSummary, leaveDaysByEmployee } = await buildLeaveContext(
       employees,
       activePeriod.start_key,
@@ -781,7 +809,7 @@ async function submitOneBatchEntry(supabase, employee, baseEntry, processed, ski
 }
 
 async function handleBatchSubmit(supabase, body, guard) {
-  const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(new Date()));
+  const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
   const requestedEntries = Array.isArray(body.entries) ? body.entries : [];
 
   if (!requestedEntries.length) {
@@ -1011,7 +1039,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
 
-    const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(new Date()));
+    const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
     const computedPayroll = computeTotals({
       basic_salary: body.basic_salary,
       deductions: {
@@ -1038,6 +1066,15 @@ export async function POST(request) {
       ? entries.findIndex((entry) => entry.id === existingId)
       : entries.findIndex((entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod);
     const resolvedExistingId = existingIndex >= 0 ? entries[existingIndex].id : "";
+
+    // The entry being written is itself already paid. The duplicate checks
+    // below skip the entry's own id, so without this a second Process click on
+    // the same form (the portal keeps the just-processed entry selected)
+    // minted a second payroll_records row and payslip number for one pay
+    // period, and Save Draft turned a paid entry back into a draft.
+    if (existingIndex >= 0 && entries[existingIndex].status === "paid") {
+      return NextResponse.json({ error: DUPLICATE_SUBMISSION_MESSAGE }, { status: 409 });
+    }
 
     if (action === "submit") {
       const hasAlreadyPaid = entries.some((entry) => {

@@ -1061,8 +1061,34 @@ async function processBatchPayroll() {
   }
 }
 
-async function loadAccountantData(options = {}) {
-  if (acctState.loading) return;
+// A load asked for while another is in flight used to be dropped outright:
+// switching the pay period during the initial load left every table on the
+// old period while the dropdown showed the new one. Now the latest such
+// request is remembered and run as soon as the current load finishes, and its
+// callers wait for that follow-up run rather than returning early.
+let acctQueuedLoad = null; // { options, promise, resolve }
+
+function loadAccountantData(options = {}) {
+  if (acctState.loading) {
+    if (acctQueuedLoad) {
+      acctQueuedLoad.options = options;
+    } else {
+      let resolve;
+      const promise = new Promise((r) => { resolve = r; });
+      acctQueuedLoad = { options, promise, resolve };
+    }
+    return acctQueuedLoad.promise;
+  }
+
+  return runAccountantLoad(options).finally(() => {
+    const queued = acctQueuedLoad;
+    if (!queued) return undefined;
+    acctQueuedLoad = null;
+    return loadAccountantData(queued.options).then(queued.resolve);
+  });
+}
+
+async function runAccountantLoad(options = {}) {
   acctState.loading = true;
 
   const recTbody = document.getElementById('ac-records-body');
@@ -1271,7 +1297,9 @@ function initAccountant() {
     });
   }
   // Manual deduction inputs only trigger recalc
-  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late'].forEach(id => {
+  // Leave Without Pay is editable too (₱550/day) — it was missing here, so
+  // changing it left the Net Pay summary showing the old figure.
+  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late', 'pc-leave-without-pay-days'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
   });

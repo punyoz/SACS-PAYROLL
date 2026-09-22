@@ -3,7 +3,9 @@
    components used across all role views
    ═══════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
+/* DM Sans / DM Mono are loaded by the <link> in index.html. This file used to
+   @import the same stylesheet as well — a second, render-blocking request
+   chained behind this one before the page could paint. */
 
 /* ── RESET ── */
 *, *::before, *::after {
@@ -573,7 +575,7 @@ select.fc { cursor: pointer; }
   align-items: center;
   gap: 5px;
   cursor: pointer;
-  transition: all .18s;
+  transition: border-color .18s, color .18s, box-shadow .18s, background .18s;
 }
 
 .rb:hover {
@@ -1338,5 +1340,18 @@ body.scroll-locked {
     width: 44px;
     height: 44px;
     transform: translate(-50%, -50%);
+  }
+}
+
+/* ── REDUCED MOTION ──
+   Honour the OS "reduce motion" setting: page slide-ins, modal pops, toasts,
+   the sitemap drawer and skeleton shimmer all settle instantly instead of
+   animating. Colours and layout are unchanged — only the movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

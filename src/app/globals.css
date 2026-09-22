@@ -51,3 +51,14 @@ a {
   color: #8ba5be;
   font-size: 14px;
 }
+
+/* Backdrop behind the portal iframe, shown for the instant before the portal
+   paints. Matches the portal's own --bg for the saved theme (set on <html> by
+   layout.js), so a light-theme sign-in no longer flashes dark. */
+.legacy-frame {
+  background: #0d1b2a;
+}
+
+html[data-theme="light"] .legacy-frame {
+  background: #f4f6f9;
+}

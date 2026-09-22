@@ -132,7 +132,13 @@
 
   function startHeartbeat() {
     if (heartbeatTimer) return;
-    heartbeatTimer = setInterval(checkSession, HEARTBEAT_MS);
+    // A background tab has nobody to warn, and visibilitychange below checks
+    // the moment it comes back — so skip the beat while hidden instead of
+    // polling the server every 10 seconds from every idle tab.
+    heartbeatTimer = setInterval(function () {
+      if (document.visibilityState === 'hidden') return;
+      checkSession();
+    }, HEARTBEAT_MS);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') checkSession();
     });
@@ -177,12 +183,21 @@
       .forEach(function (node) { node.remove(); });
 
     var fragment = document.createDocumentFragment();
+
+    // Highlight the page the portal script already opened (a refresh restores
+    // the last page), not simply the first row — otherwise the "all pages"
+    // menu marked Dashboard as current while another page was on screen.
+    var openPage = screen.querySelector('.page.active');
+    var openId = openPage ? openPage.id : '';
+    var hasOpenRow = menu.some(function (group) {
+      return group.items.some(function (item) { return item.page === openId; });
+    });
     var first = true;
 
     menu.forEach(function (group) {
       fragment.appendChild(sectionHeading(group.section));
       group.items.forEach(function (item) {
-        fragment.appendChild(navRow(item, first));
+        fragment.appendChild(navRow(item, hasOpenRow ? item.page === openId : first));
         first = false;
       });
     });

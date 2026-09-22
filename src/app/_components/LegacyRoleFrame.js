@@ -4,7 +4,7 @@ export default function LegacyRoleFrame({ role }) {
     : "/legacy/index.html";
 
   return (
-    <main style={{ width: "100%", minHeight: "100dvh", overflow: "auto" }}>
+    <main className="legacy-frame" style={{ width: "100%", minHeight: "100dvh", overflow: "auto" }}>
       <iframe
         src={src}
         title={role ? `${role} portal` : "SACS Payroll sign in"}

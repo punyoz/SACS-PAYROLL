@@ -161,7 +161,7 @@ function renderHRRecentActivity(activity) {
         <div class="s">${escapeHtml(row.employee_name || row.employee_id || 'Unknown')}</div>
         <div class="ss">${dateLabel} · Time In ${timeIn} · Time Out ${timeOut}</div>
       </div>
-      <span class="badge" style="background:${color}20;color:${color};border:1px solid ${color}50;">${row.status || '—'}</span>
+      <span class="badge" style="background:color-mix(in srgb, ${color} 12%, transparent);color:${color};border:1px solid color-mix(in srgb, ${color} 31%, transparent);">${escapeHtml(row.status || '—')}</span>
     </div>`;
   }).join('');
 }
@@ -293,7 +293,7 @@ function renderHREmployeeTable() {
             <td>${escapeHtml(cpNumber)}</td>
             <td style="font-size:12px;">${escapeHtml(hrBranchName(e.branch_id) || '—')}</td>
             <td style="font-size:12px;">${escapeHtml(e.date_hired || '—')}</td>
-            <td><span class="badge" style="color:${statusColor};background:${statusColor}20;border:1px solid ${statusColor}40;">${escapeHtml(e.employee_status || 'Active')}</span></td>
+            <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${escapeHtml(e.employee_status || 'Active')}</span></td>
             <td style="font-size:12px;color:var(--t3);">${escapeHtml(e.email || '—')}</td>
             <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal('${escapeHtml(e.id)}')">Edit</button></td>
           </tr>`;
@@ -566,9 +566,15 @@ async function submitHrEditEmployee(event) {
 }
 
 /* ── ATTENDANCE ── */
+// Both loaders below fill the same table. Changing the date (or switching to
+// All Records) while an earlier request is still out let the slower, older
+// response land last and overwrite the newer one; only the latest request's
+// response is rendered now.
+let hrAttendanceRequestSeq = 0;
+
 async function loadHRAttendance() {
   const dateInput = document.getElementById('hr-att-date');
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateKey();
   const date = dateInput?.value || today;
   if (dateInput && !dateInput.value) dateInput.value = today;
 
@@ -578,9 +584,11 @@ async function loadHRAttendance() {
   const tbody = document.getElementById('hr-att-table-body');
   if (tbody) tbody.innerHTML = skeletonRows(7);
 
+  const seq = ++hrAttendanceRequestSeq;
   try {
     const res = await fetch(`/api/hr/attendance?date=${date}`);
     const data = await res.json();
+    if (seq !== hrAttendanceRequestSeq) return;
     if (!res.ok) throw new Error(data.error || 'Failed to load attendance.');
 
     hrAttendanceLogs = data.logs || [];
@@ -592,7 +600,8 @@ async function loadHRAttendance() {
 
     renderHRAttendanceTable(hrAttendanceLogs);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${err.message}</td></tr>`;
+    if (seq !== hrAttendanceRequestSeq) return;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -603,9 +612,11 @@ async function loadHRAllAttendance() {
   const tbody = document.getElementById('hr-att-table-body');
   if (tbody) tbody.innerHTML = skeletonRows(7);
 
+  const seq = ++hrAttendanceRequestSeq;
   try {
     const res = await fetch('/api/hr/attendance?view=all');
     const data = await res.json();
+    if (seq !== hrAttendanceRequestSeq) return;
     if (!res.ok) throw new Error(data.error || 'Failed to load attendance.');
 
     hrAttendanceLogs = data.logs || [];
@@ -617,7 +628,8 @@ async function loadHRAllAttendance() {
 
     renderHRAttendanceTable(hrAttendanceLogs);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${err.message}</td></tr>`;
+    if (seq !== hrAttendanceRequestSeq) return;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -645,7 +657,7 @@ function renderHRAttendanceTable(logs) {
             <td>${row.time_in ? escapeHtml(formatTimeOnly(row.time_in)) : '—'}</td>
             <td>${row.time_out ? escapeHtml(formatTimeOnly(row.time_out)) : '—'}</td>
             <td>${row.time_out ? Number(row.total_hours || 0).toFixed(2) + 'h' : '—'}</td>
-            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${row.status || '—'}</span></td>
+            <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(row.status || '—')}</span></td>
           </tr>`;
         }).join('');
       },
@@ -669,7 +681,7 @@ function exportHRAttendanceCsv() {
     r.status || '',
   ]);
 
-  downloadCsv([headers, ...rows], `sacs-hr-attendance-${new Date().toISOString().slice(0, 10)}.csv`);
+  downloadCsv([headers, ...rows], `sacs-hr-attendance-${localDateKey()}.csv`);
 }
 
 /* ── LEAVE MANAGEMENT ── */
@@ -691,7 +703,7 @@ async function loadHRLeaves() {
     renderHRLeaveList();
     renderHRLeaveHistory();
   } catch (err) {
-    if (listEl) listEl.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:var(--red);">${err.message}</div></div></div>`;
+    if (listEl) listEl.innerHTML = `<div class="approval-card"><div class="approval-card-body"><div class="approval-card-meta" style="color:var(--red);">${escapeHtml(err.message)}</div></div></div>`;
   }
 }
 
@@ -796,7 +808,7 @@ function renderHRLeaveHistory() {
             <td>${escapeHtml(String(days))}d · ${escapeHtml(from)} – ${escapeHtml(to)}</td>
             <td style="font-size:12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(req.reason || '—')}</td>
             <td>${proof ? `<button class="btn btn-outline" style="font-size:10px;padding:2px 8px;" onclick="openProofDocument(window._hrProofUrls['${safeId}'])">View</button>` : '—'}</td>
-            <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${escapeHtml(req.status || '—')}</span></td>
+            <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(req.status || '—')}</span></td>
             <td style="font-size:12px;">${submitted}</td>
             <td style="font-size:12px;">${decided}</td>
           </tr>`;
@@ -823,7 +835,7 @@ async function loadHRReports() {
   hrReportType = type;
 
   const from = document.getElementById('hr-report-from')?.value || '';
-  const to = document.getElementById('hr-report-to')?.value || new Date().toISOString().slice(0, 10);
+  const to = document.getElementById('hr-report-to')?.value || localDateKey();
 
   const thead = document.getElementById('hr-rep-thead');
   const tbody = document.getElementById('hr-rep-table-body');
@@ -921,7 +933,7 @@ async function loadHRReports() {
       hrRepPaginator.setData(hrReportData);
     }
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -937,7 +949,7 @@ function exportHRReportCsv() {
     rows = hrReportData.map((r) => [r.full_name || '', r.employee_id || '', r.employee_type || '', r.position || '', r.employee_status || '', r.email || '']);
   }
 
-  downloadCsv([headers, ...rows], `sacs-hr-${hrReportType}-report-${new Date().toISOString().slice(0, 10)}.csv`);
+  downloadCsv([headers, ...rows], `sacs-hr-${hrReportType}-report-${localDateKey()}.csv`);
 }
 
 /* ── CSV HELPER ── */
@@ -1010,11 +1022,11 @@ function initHRPortal() {
 
   // Set today's date in attendance date picker
   const attDate = document.getElementById('hr-att-date');
-  if (attDate && !attDate.value) attDate.value = new Date().toISOString().slice(0, 10);
+  if (attDate && !attDate.value) attDate.value = localDateKey();
 
   // Set today's date in report to field
   const repTo = document.getElementById('hr-report-to');
-  if (repTo && !repTo.value) repTo.value = new Date().toISOString().slice(0, 10);
+  if (repTo && !repTo.value) repTo.value = localDateKey();
 
   setupHrEmployeeForms();
 }
@@ -1124,7 +1136,7 @@ function hrRenderBranchTable(employees) {
     const inactiveTag = emp.branch && emp.branch_status && emp.branch_status !== 'Active' ? ' (Inactive)' : '';
     const branchLabel = emp.branch ? `${emp.branch_label || 'Unknown branch'}${inactiveTag}` : null;
     const branchCell = branchLabel
-      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${branchColor}22;color:${branchColor};border:1px solid ${branchColor}55;">${escapeHtml(branchLabel)}</span>`
+      ? `<span style="display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:color-mix(in srgb, ${branchColor} 13%, transparent);color:${branchColor};border:1px solid color-mix(in srgb, ${branchColor} 33%, transparent);">${escapeHtml(branchLabel)}</span>`
       : '<span class="badge br"><span class="bd"></span>Unassigned</span>';
     const assignedAt = emp.assigned_at
       ? new Date(emp.assigned_at).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -1235,7 +1247,7 @@ function renderHrTransferHistory(rows) {
       <td>${escapeHtml(r.employee_name || '—')}</td>
       <td style="font-size:12px;">${escapeHtml(r.from_branch_name || (r.from_branch_id ? 'Unknown branch' : 'Unassigned'))}</td>
       <td style="font-size:12px;">${escapeHtml(r.to_branch_name || 'Unknown branch')}</td>
-      <td><span class="badge" style="color:${color};background:${color}20;border:1px solid ${color}40;">${escapeHtml(label)}</span></td>
+      <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(label)}</span></td>
       <td style="font-size:12px;max-width:220px;white-space:normal;">${escapeHtml(r.remarks || '—')}</td>
       <td style="font-size:12px;">${fmt(r.created_at)}</td>
       <td style="font-size:12px;">${fmt(r.reviewed_at)}</td>

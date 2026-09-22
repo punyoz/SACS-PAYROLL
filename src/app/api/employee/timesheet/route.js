@@ -144,16 +144,17 @@ function calcUndertime(timeOutIso) {
   }
 }
 
+// Walks the calendar in UTC, where a YYYY-MM-DD key and its Date agree on
+// every server. It used to parse Manila midnight (+08:00) and read it back
+// with local getters — on a UTC server (Vercel) that instant is still the
+// previous day, so a Sept 1–30 timesheet came out as Aug 31–Sept 29.
 function generateDateRange(startDate, endDate) {
   const dates = [];
-  const cur   = new Date(`${startDate}T00:00:00+08:00`);
-  const end   = new Date(`${endDate}T00:00:00+08:00`);
+  const cur   = new Date(`${startDate}T00:00:00Z`);
+  const end   = new Date(`${endDate}T00:00:00Z`);
   while (cur <= end) {
-    const y = cur.getFullYear();
-    const m = String(cur.getMonth() + 1).padStart(2, "0");
-    const d = String(cur.getDate()).padStart(2, "0");
-    dates.push(`${y}-${m}-${d}`);
-    cur.setDate(cur.getDate() + 1);
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return dates;
 }
@@ -265,23 +266,28 @@ export async function GET(request) {
       let leaveQuery = supabase
         .from("leave_requests")
         .select("start_date, end_date")
-        .eq("status", "Approved")
+        // Stored lowercase (HR writes "approved"); "Approved" matched no row,
+        // so the Leave w/ Pay column never showed a single leave day.
+        .eq("status", "approved")
+        // This column is Leave *with* Pay; unpaid leave is not counted in it.
+        .eq("pay_status", "with_pay")
         .lte("start_date", endDate)
         .gte("end_date", startDate);
 
-      if (user.id) leaveQuery = leaveQuery.eq("employee_id", user.id);
+      // Older requests carry the SACS-XXX code, newer ones the user UUID —
+      // see buildLeaveContext() in the accountant payroll route.
+      const leaveOwnerIds = [user.id, String(user.user_metadata?.employee_id || "").trim()].filter(Boolean);
+      if (leaveOwnerIds.length) leaveQuery = leaveQuery.in("employee_id", leaveOwnerIds);
 
       const leaveResult = await leaveQuery;
       if (!leaveResult.error && Array.isArray(leaveResult.data)) {
         for (const lv of leaveResult.data) {
-          const lc = new Date(`${lv.start_date}T00:00:00+08:00`);
-          const le = new Date(`${lv.end_date}T00:00:00+08:00`);
+          // UTC, for the same reason as generateDateRange().
+          const lc = new Date(`${lv.start_date}T00:00:00Z`);
+          const le = new Date(`${lv.end_date}T00:00:00Z`);
           while (lc <= le) {
-            const y = lc.getFullYear();
-            const m = String(lc.getMonth() + 1).padStart(2, "0");
-            const d = String(lc.getDate()).padStart(2, "0");
-            leaveDates.add(`${y}-${m}-${d}`);
-            lc.setDate(lc.getDate() + 1);
+            leaveDates.add(lc.toISOString().slice(0, 10));
+            lc.setUTCDate(lc.getUTCDate() + 1);
           }
         }
       }
