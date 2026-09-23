@@ -164,7 +164,7 @@ function mapAttendanceRow(row) {
   };
 }
 
-async function fetchAttendanceRows(supabase, activeEmployees, dateKey) {
+async function fetchAttendanceRows(supabase, activeEmployees, dateKey, branchScoped = false) {
   // Both callers of this function only ever ask for a single day (today) —
   // filtering by log_date in the query itself (instead of fetching up to
   // 3000 rows across every date ever logged and discarding everything that
@@ -192,10 +192,34 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey) {
       return rowDate === dateKey;
     });
 
+  // Scope the rows to the people this caller may see.
+  //
+  // The query above deliberately has no branch filter, because a row's
+  // branch_id records where the tap HAPPENED -- it is stamped at insert time
+  // by the attendance_logs_stamp_branch trigger and never moves afterwards.
+  // Filtering on it would hand an employee's history to whichever branch they
+  // used to be in. activeEmployees is derived from profiles.branch_id, which
+  // is current, so scoping by that set attributes every row to where the
+  // employee is NOW -- consistent with how the rest of the app scopes.
+  //
+  // Only applied for a branch-scoped caller. A branch-exempt one (Super
+  // Admin) is passed every employee anyway, and skipping the filter keeps a
+  // row whose employee no longer resolves visible to them rather than
+  // silently dropped.
+  //
+  // This is what was missing: activeEmployees was used ONLY to add the
+  // "Absent" placeholders below, so every other branch's taps came straight
+  // through. An Admin in a branch with no staff still saw every tap in the
+  // school.
+  const visibleIds = new Set(activeEmployees.map((employee) => String(employee.id)));
+  const scoped = branchScoped
+    ? mapped.filter((row) => visibleIds.has(String(row.employee_id || "")))
+    : mapped;
+
   // First tap of the day = time in, last tap = time out, however many rows
   // the day ended up with (see src/lib/attendance/taps.js).
   const byEmployee = new Map();
-  collapseDailyTaps(mapped, { dateKey: () => dateKey }).forEach((row) => {
+  collapseDailyTaps(scoped, { dateKey: () => dateKey }).forEach((row) => {
     if (row.employee_id) byEmployee.set(row.employee_id, row);
   });
 
@@ -247,9 +271,9 @@ function buildAttendancePayload(rows, dateKey, canPersist, sourceMode) {
   };
 }
 
-export async function getAttendancePanels(supabase, activeEmployees) {
+export async function getAttendancePanels(supabase, activeEmployees, branchScoped = false) {
   const dateKey = getDateKey(new Date());
-  const attendanceData = await fetchAttendanceRows(supabase, activeEmployees, dateKey);
+  const attendanceData = await fetchAttendanceRows(supabase, activeEmployees, dateKey, branchScoped);
   const payload = buildAttendancePayload(
     attendanceData.rows,
     dateKey,
@@ -388,14 +412,20 @@ export async function GET(request) {
     const supabase = getAdminClient();
     const allEmployees = await fetchEmployees(supabase);
 
-    // Attendance is reported per employee, so scoping the employee list is
-    // what scopes the attendance: a branch-scoped caller never sees a row for
-    // someone outside their branch.
+    // The scoped employee list does two jobs: it decides who gets an "Absent"
+    // row, and (via the branchScoped flag below) which taps are visible at
+    // all. It used to do only the first, which is how taps from other
+    // branches were reaching this view.
     const activeEmployees = guard.branchExempt
       ? allEmployees
       : allEmployees.filter((e) => String(e.branch_id || "") === String(guard.branchId || ""));
     const dateKey = getDateKey(new Date());
-    const attendanceData = await fetchAttendanceRows(supabase, activeEmployees, dateKey);
+    const attendanceData = await fetchAttendanceRows(
+      supabase,
+      activeEmployees,
+      dateKey,
+      !guard.branchExempt,
+    );
     const payload = buildAttendancePayload(
       attendanceData.rows,
       dateKey,

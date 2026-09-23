@@ -206,7 +206,7 @@ export async function GET(request) {
     // grew (see 20260915010000_payroll_records_processed_at_idx.sql), so it's
     // worth overlapping with the rest rather than tacking it on after.
     const [attendancePanels, recentActivity] = await Promise.all([
-      getAttendancePanels(supabase, activeEmployees),
+      getAttendancePanels(supabase, activeEmployees, !guard.branchExempt),
       buildRecentActivity(supabase, activeEmployees, guard),
     ]);
     const payload = buildDashboardPayload(activeEmployees, attendancePanels, recentActivity);
