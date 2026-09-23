@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { attachSession } from "@/lib/rbac/session";
 import { mustChangePassword } from "@/lib/auth/password-policy";
+import { friendlyLoginError, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/auth/login-errors";
 import { newSessionId, registerActiveSession } from "@/lib/auth/active-session";
 import { sanitizeError } from "@/lib/api-error";
 import {
@@ -136,7 +137,14 @@ async function handleLogin(request) {
 
   if (error || !data?.user) {
     recordFailedLogin(resolvedEmail, clientAddress);
-    return NextResponse.json({ error: error?.message || "Invalid login credentials." }, { status: 401 });
+    // Supabase's own wording is not shown to the user: a wrong address and a
+    // wrong password must read identically, or this route becomes a way to
+    // test which emails hold accounts (src/lib/auth/login-errors.js).
+    const friendly = friendlyLoginError(error);
+    return NextResponse.json(
+      { error: friendly },
+      { status: friendly === SERVICE_UNAVAILABLE_MESSAGE ? 503 : 401 },
+    );
   }
 
   if (data.user.user_metadata?.archived === true) {

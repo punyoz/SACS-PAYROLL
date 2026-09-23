@@ -31,3 +31,6 @@ supabase/snippets/
 # Build info
 *.tsbuildinfo
 next-env.d.ts
+
+# Claude Code MCP server config (token comes from $SUPABASE_ACCESS_TOKEN)
+.mcp.json

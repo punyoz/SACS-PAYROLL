@@ -1,0 +1,56 @@
+-- ════════════════════════════════════════════════════════════════════════════
+-- Remove the last three pre-RBAC policies that ignore branch_id
+--
+-- Same family as 20260923_drop_legacy_is_admin_user_policies.sql, but these
+-- inline the admin check rather than calling is_admin_user():
+--
+--   EXISTS (SELECT 1 FROM profiles p
+--           WHERE p.id = auth.uid()
+--             AND p.role IN ('admin','accountant')
+--             AND NOT archived)
+--
+-- which is exactly why a scan for is_admin_user() did not turn them up. The
+-- predicate mentions branch_id nowhere, so any Admin or Accountant could read
+-- every branch's payroll and attendance — and payroll_records_write_admin_accountant
+-- is FOR ALL, so it granted cross-branch INSERT and UPDATE as well.
+--
+-- HOW THIS WAS CAUGHT
+-- Not by reading the policies. payroll_records_select_branch is correct, and
+-- can_reach_branch() returns false for a foreign branch exactly as designed —
+-- a predicate-level check passes cleanly. The leak only became visible once
+-- rows actually existed in a second branch:
+--
+--   with 1 profile + 2 payroll rows temporarily moved to branch 2,
+--   the Admin account (branch 1) still read both branch-2 payroll rows,
+--   while correctly seeing none of branch 2's profiles.
+--
+-- Profiles isolated properly because no equivalent unscoped policy survived on
+-- that table; payroll_records and attendance_logs still carried one.
+--
+-- After the drop, the same probe returns:
+--
+--   role                 payroll branch 1   payroll branch 2
+--   employee (b1)        4 (own)            0
+--   hr (moved to b2)     0                  0
+--   accountant (b1)      6                  2  ← its OWN rows only
+--   admin (b1)           6                  0  ← was 2
+--   super_admin          6                  2
+--
+-- The Accountant's 2 come through the policy's first clause,
+-- employee_id = auth.uid(), which is self-access and deliberate. Proven
+-- separately by moving a row the Accountant does NOT own into branch 2: it
+-- stayed invisible to them (branch-2 rows belonging to other people: 0).
+--
+-- NOTHING LEGITIMATE IS LOST. 20260903_rbac_branch_scoping.sql already grants,
+-- within the caller's own branch:
+--   * Admin      — payroll_records read, attendance read
+--   * Accountant — payroll_records read/create/update, attendance read
+-- Admin loses payroll WRITE, which it should never have held:
+-- SACS-Payroll-Permission-Matrix.md row 11 gives Admin "V (own branch)".
+--
+-- Idempotent (DROP POLICY IF EXISTS). Safe to run more than once.
+-- ════════════════════════════════════════════════════════════════════════════
+
+DROP POLICY IF EXISTS payroll_records_select_admin_accountant  ON public.payroll_records;
+DROP POLICY IF EXISTS payroll_records_write_admin_accountant   ON public.payroll_records;
+DROP POLICY IF EXISTS attendance_logs_select_admin_accountant  ON public.attendance_logs;

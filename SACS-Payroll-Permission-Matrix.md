@@ -33,8 +33,8 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 9 | RFID Device Registration/Config | F | V | — | — | — |
 | **PAYROLL** |
 | 10 | Process Payroll | V (oversight/approval only) | — | — | F (own branch) | — |
-| 11 | Payroll Records | F (all branches) | V (own branch) | V (own branch) | F (own branch) | — |
-| 12 | Payslips | F (view/reissue, all branches) | V (own branch) | V (own branch) | F (generate, own branch) | V (own payslip only) |
+| 11 | Payroll Records | F (all branches) | V (own branch) | — | F (own branch) | — |
+| 12 | Payslips | F (view/reissue, all branches) | V (own branch) | — | F (generate, own branch) | V (own payslip only) |
 | 13 | Payroll Monitoring | F (all branches) | V (own branch) | — | F (own branch) | — |
 | **SYSTEM** |
 | 14 | System Maintenance (feature toggles, general settings) | F — exclusive | — | — | — | — |

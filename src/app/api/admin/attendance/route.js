@@ -23,7 +23,7 @@ function getAdminClient() {
   });
 }
 
-function getDateKey(date = new Date()) {
+export function getDateKey(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila",
     year: "numeric",
@@ -94,7 +94,7 @@ function shapeEmployee(user, profile, index) {
   };
 }
 
-async function fetchEmployees(supabase) {
+export async function fetchEmployees(supabase) {
   const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
@@ -260,7 +260,7 @@ export async function getAttendancePanels(supabase, activeEmployees) {
   return payload.panels;
 }
 
-function resolveEmployeeByRfid(code, activeEmployees) {
+export function resolveEmployeeByRfid(code, activeEmployees) {
   const normalized = normalizeText(code).toLowerCase();
   if (!normalized) return null;
 
@@ -301,7 +301,7 @@ function isDuplicateKeyError(error) {
   return code === "23505" || message.includes("duplicate key");
 }
 
-async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1) {
+export async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1) {
   const lookupResult = await supabase
     .from("attendance_logs")
     .select("*")

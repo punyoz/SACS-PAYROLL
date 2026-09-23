@@ -116,6 +116,24 @@ const S = {
     borderRadius: '8px',
     border: '1px solid rgba(232,85,85,0.3)',
   },
+  rules: {
+    listStyle: 'none',
+    padding: 0,
+    margin: '4px 0 14px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  ruleItem: {
+    fontSize: '12px',
+    color: '#5A7A9A',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  ruleItemOk: {
+    color: '#3EC97A',
+  },
   back: {
     display: 'block',
     textAlign: 'center',
@@ -126,6 +144,41 @@ const S = {
     cursor: 'pointer',
   },
 };
+
+// Same values as src/lib/auth/password-policy.js (server) and the
+// PASSWORD_MIN_LENGTH in public/legacy/js/app.js (Settings > Change Password,
+// the mandatory first-sign-in screen). Duplicated rather than imported: that
+// module pulls in node:crypto, which does not belong in a "use client" bundle.
+// Keep these two numbers and the checks below in step with both if either
+// changes.
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 72;
+
+/**
+ * The checks this page can make without server context. "Different from
+ * current password" and "not your default password" (both enforced by
+ * validateNewPassword() for the logged-in change flow) need a current
+ * password or a full_name/date_of_birth this page never has — someone here
+ * has only proven access to the account's email inbox, not typed a current
+ * password, so those two do not apply.
+ */
+function evaluateResetPasswordRules(next) {
+  return {
+    length: next.length >= PASSWORD_MIN_LENGTH && next.length <= PASSWORD_MAX_LENGTH,
+    mix: /[A-Za-z]/.test(next) && /\d/.test(next),
+    spaces: next.length > 0 && !/\s/.test(next),
+    match: next.length > 0,
+  };
+}
+
+function RuleItem({ ok, children }) {
+  return (
+    <li style={{ ...S.ruleItem, ...(ok ? S.ruleItemOk : {}) }}>
+      <span aria-hidden="true">{ok ? '✓' : '·'}</span>
+      {children}
+    </li>
+  );
+}
 
 function Brand() {
   return (
@@ -165,13 +218,24 @@ export default function ResetPasswordPage() {
     setMessage('');
     setIsError(false);
 
-    if (newPassword !== confirmPassword) {
-      setMessage('Passwords do not match.');
+    const rules = evaluateResetPasswordRules(newPassword);
+    if (!rules.length) {
+      setMessage(`Password must be ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} characters.`);
       setIsError(true);
       return;
     }
-    if (newPassword.length < 8) {
-      setMessage('Password must be at least 8 characters.');
+    if (!rules.spaces) {
+      setMessage('Password cannot contain spaces.');
+      setIsError(true);
+      return;
+    }
+    if (!rules.mix) {
+      setMessage('Password must contain both letters and numbers.');
+      setIsError(true);
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage('Passwords do not match.');
       setIsError(true);
       return;
     }
@@ -239,7 +303,7 @@ export default function ResetPasswordPage() {
       <div style={S.card}>
         <Brand />
         <div style={S.title}>Set New Password</div>
-        <div style={S.sub}>Enter your new password below. Must be at least 8 characters.</div>
+        <div style={S.sub}>Enter your new password below.</div>
         <form onSubmit={handleSubmit}>
           <div style={S.fg}>
             <label style={S.label}>New Password</label>
@@ -247,10 +311,11 @@ export default function ResetPasswordPage() {
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="At least 8 characters"
+              placeholder={`${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} characters, letters and numbers`}
               style={S.input}
               required
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
+              maxLength={PASSWORD_MAX_LENGTH}
               autoComplete="new-password"
             />
           </div>
@@ -266,6 +331,20 @@ export default function ResetPasswordPage() {
               autoComplete="new-password"
             />
           </div>
+          <ul style={S.rules} aria-label="Password requirements">
+            <RuleItem ok={evaluateResetPasswordRules(newPassword).length}>
+              {PASSWORD_MIN_LENGTH}-{PASSWORD_MAX_LENGTH} characters
+            </RuleItem>
+            <RuleItem ok={evaluateResetPasswordRules(newPassword).mix}>
+              Contains both letters and numbers
+            </RuleItem>
+            <RuleItem ok={evaluateResetPasswordRules(newPassword).spaces}>
+              No spaces
+            </RuleItem>
+            <RuleItem ok={newPassword.length > 0 && newPassword === confirmPassword}>
+              New passwords match
+            </RuleItem>
+          </ul>
           {message && (
             <div style={isError ? S.msgErr : S.msgOk}>{message}</div>
           )}
