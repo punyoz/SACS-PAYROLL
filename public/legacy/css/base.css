@@ -441,7 +441,12 @@ select.fc { cursor: pointer; }
 .theme-toggle:hover { border-color: var(--amber); color: var(--amber); }
 
 /* ── LOGIN SCREEN ── */
-#s-login {
+/* #s-verify-otp (the email-code screen login() shows after a correct
+   password) shares this treatment — same card, same centering, same
+   background — since it is visually a continuation of the login screen, not
+   a separate one. */
+#s-login,
+#s-verify-otp {
   align-items: center;
   justify-content: center;
   padding: 48px;
@@ -451,7 +456,8 @@ select.fc { cursor: pointer; }
     var(--bg);
 }
 
-[data-theme="light"] #s-login {
+[data-theme="light"] #s-login,
+[data-theme="light"] #s-verify-otp {
   /* Keep light mode clean and flat, no dark/vignette artifacts. */
   background: var(--bg);
 }
@@ -585,7 +591,8 @@ select.fc { cursor: pointer; }
 }
 
 @media (max-width: 820px) {
-  #s-login {
+  #s-login,
+  #s-verify-otp {
     padding: 24px;
   }
 
