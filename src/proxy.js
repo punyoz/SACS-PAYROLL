@@ -55,6 +55,13 @@ const PUBLIC_PATHS = [
   "/api/legacy-auth/login",
   "/api/legacy-auth/logout",
   "/api/legacy-auth/reset-password",
+  // Login's second factor. Neither route has a sacs-session cookie to check
+  // yet — they authenticate the caller from the signed pending-login cookie
+  // instead (src/lib/auth/pending-login.js), which is not this proxy's cookie
+  // to read. Reaching either without a valid pending-login cookie is refused
+  // inside the route itself, not here.
+  "/api/legacy-auth/verify-login-otp",
+  "/api/legacy-auth/resend-login-otp",
 ];
 
 /**

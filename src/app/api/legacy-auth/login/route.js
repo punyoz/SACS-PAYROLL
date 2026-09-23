@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
-import { attachSession } from "@/lib/rbac/session";
+import { normalizeText, normalizeRoleEmail } from "@/lib/auth/normalize";
+import { attachPendingLogin } from "@/lib/auth/pending-login";
 import { mustChangePassword } from "@/lib/auth/password-policy";
 import { friendlyLoginError, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/auth/login-errors";
-import { newSessionId, registerActiveSession } from "@/lib/auth/active-session";
+import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
+import { recordCodeSent } from "@/lib/auth/otp-throttle";
 import { sanitizeError } from "@/lib/api-error";
 import {
   checkLoginAllowed,
@@ -12,6 +13,25 @@ import {
   recordFailedLogin,
   recordSuccessfulLogin,
 } from "@/lib/auth/login-throttle";
+
+/**
+ * POST /api/legacy-auth/login — step 1 of 2 (password).
+ *
+ * Login is now two-factor: a correct password no longer issues the session
+ * cookie. It issues a short-lived, signed "pending login" cookie
+ * (src/lib/auth/pending-login.js) and emails a one-time code via Supabase's
+ * own Email OTP (supabase.auth.signInWithOtp) — the same default email
+ * sender already used for the password-reset flow. The browser is then sent
+ * to the verify-code screen; POST /api/legacy-auth/verify-login-otp is step 2,
+ * and is the only place attachSession() is ever called.
+ *
+ * Everything through "credentials are genuine" is unchanged from the
+ * single-factor version: same throttle, same friendly error mapping, same
+ * archived/role checks. What used to happen next — fetch the full profile,
+ * register the active session, issue the cookie, return the dashboard
+ * redirect — now happens in verify-login-otp/route.js instead, once the code
+ * is also verified.
+ */
 
 const roleRoutes = {
   super_admin: "/super-admin",
@@ -29,37 +49,6 @@ const SUPER_ADMIN_USERNAME = normalizeText(process.env.SEED_SUPER_ADMIN_USERNAME
 const SUPER_ADMIN_EMAIL = normalizeText(process.env.SEED_SUPER_ADMIN_EMAIL, "superadmin@example.com");
 
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function toTitleCaseWords(value) {
-  const normalized = normalizeText(value).toLowerCase();
-  if (!normalized) return "";
-
-  return normalized
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function inferNameFromEmail(email) {
-  const raw = normalizeText(email);
-  const localPart = raw.includes("@") ? raw.split("@")[0] : raw;
-  if (!localPart) return "";
-
-  const cleaned = localPart.replace(/[._-]+/g, " ");
-  return toTitleCaseWords(cleaned);
-}
-
-function normalizePositionForRole(positionInput, roleInput) {
-  const role = normalizeRole(roleInput);
-  const position = normalizeText(positionInput).toLowerCase();
-
-  if (role === "accountant" || position === "accountant" || position.includes("account")) {
-    return "Accountant";
-  }
-
-  return "Employee";
-}
 
 function resolveLoginEmail(identityInput) {
   const identity = normalizeText(identityInput);
@@ -87,6 +76,16 @@ function resolveLoginEmail(identityInput) {
   }
 
   return "";
+}
+
+/** "tessadelacruz@school.edu" -> "t***@school.edu" — enough for the verify
+ * screen to confirm which inbox to check without fully redisplaying an
+ * address the caller may have typed as a username, not an email. */
+function maskEmail(email) {
+  const value = normalizeText(email);
+  const at = value.indexOf("@");
+  if (at <= 0) return value;
+  return `${value[0]}***${value.slice(at)}`;
 }
 
 async function handleLogin(request) {
@@ -180,113 +179,72 @@ async function handleLogin(request) {
   await supabase.auth.signOut();
 
   // Credentials were genuine: clear this account's failed-attempt budget so a
-  // user who mistyped on the way in is not locked out later.
+  // user who mistyped on the way in is not locked out later. The OTP step has
+  // its own, separate throttle (src/lib/auth/otp-throttle.js) — a correct
+  // password never grants extra OTP guesses, and a wrong OTP never costs a
+  // password-throttle attempt.
   recordSuccessfulLogin(resolvedEmail);
 
-  const metadata = data.user.user_metadata || {};
+  // Only resolvedFullName is used here (mustChangePassword needs it — see
+  // below). Role, branch and the extended profile bundle are re-resolved
+  // fresh in verify-login-otp/route.js once the code is confirmed; nothing
+  // about *this* step depends on them, so nothing is returned to the browser
+  // before the second factor passes.
+  const resolved = await resolveLoginProfile({
+    url,
+    serviceRoleKey: SERVICE_ROLE_KEY,
+    user: data.user,
+    actualRole,
+  });
 
-  let profileRow = null;
-  if (SERVICE_ROLE_KEY) {
-    const adminClient = createClient(url, SERVICE_ROLE_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
+  // Still on the password HR/Super Admin issued? Computed here because it
+  // needs the plaintext password (src/lib/auth/password-policy.js), which is
+  // never carried into the pending-login cookie — only the resulting boolean
+  // is (see src/lib/auth/pending-login.js's header comment).
+  const passwordChangeRequired = mustChangePassword(password, data.user, resolved.resolvedFullName);
 
-    const profileResult = await adminClient
-      .from("profiles")
-      .select("id,email,full_name,role,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
-      .eq("id", data.user.id)
-      .maybeSingle();
+  // data.user.email, not resolvedEmail: this is Supabase's own canonical,
+  // stored casing for the address signInWithOtp/verifyOtp key off of.
+  const accountEmail = normalizeText(data.user.email);
 
-    if (!profileResult.error) {
-      profileRow = profileResult.data || null;
-    }
-  }
-
-  const resolvedEmailOutput = normalizeText(profileRow?.email, normalizeText(data.user.email));
-  const resolvedFullName = normalizeText(
-    profileRow?.full_name,
-    normalizeText(metadata.full_name, inferNameFromEmail(resolvedEmailOutput)),
-  );
-  const resolvedRole = normalizeRole(profileRow?.role || actualRole);
-  const resolvedEmployeeId = normalizeText(profileRow?.employee_id, normalizeText(metadata.employee_id));
-  const resolvedEmployeeType = normalizeText(profileRow?.employee_type, normalizeText(metadata.employee_type));
-  const resolvedPosition = normalizeText(
-    profileRow?.position,
-    normalizeText(metadata.position, normalizePositionForRole(metadata.position, resolvedRole)),
-  );
-
-  // The branch this account is boxed inside. profiles.branch_id is the source
-  // of truth (see supabase/migrations/20260903_rbac_branch_scoping.sql); the
-  // auth metadata copy is only a fallback for accounts created before that
-  // column existed. Super Admin is deliberately left null — it is branch-exempt.
-  const resolvedBranchId = resolvedRole === "super_admin"
-    ? null
-    : normalizeText(profileRow?.branch_id, normalizeText(metadata.branch_id)) || null;
-
-  // Still on the password HR/Super Admin issued? Then this sign-in is boxed
-  // into the change-password screen until it is replaced (src/proxy.js).
-  const passwordChangeRequired = mustChangePassword(password, data.user, resolvedFullName);
-
-  // This sign-in becomes the account's only valid one: any other browser or
-  // device still holding an older cookie is signed out on its next request.
-  const sessionId = newSessionId();
-  try {
-    await registerActiveSession(data.user.id, sessionId);
-  } catch {
-    return NextResponse.json(
-      { error: "Unable to start your session right now. Please try again." },
-      { status: 503 },
-    );
-  }
-
-  const response = NextResponse.json({
-    redirectTo: roleRoutes[resolvedRole],
-    role: resolvedRole,
-    must_change_password: passwordChangeRequired,
-    profile: {
-      role: resolvedRole,
-      full_name: resolvedFullName,
-      email: resolvedEmailOutput,
-      employee_id: resolvedEmployeeId,
-      employee_type: resolvedEmployeeType,
-      position: resolvedPosition,
-      branch_id: resolvedBranchId,
-      // profiles is authoritative for these (real, constrained columns —
-      // see supabase/migrations/20260914_profile_id_fields_and_perf.sql);
-      // metadata is only a fallback for a profile row not yet backfilled.
-      // This context feeds every role's own "Profile" self-view, so this is
-      // the one place all of them read from.
-      cp_number: normalizeText(profileRow?.cp_number, normalizeText(metadata.cp_number, "")),
-      date_hired: normalizeText(profileRow?.date_hired, normalizeText(metadata.date_hired, "")),
-      address: normalizeText(profileRow?.address, normalizeText(metadata.address, "")),
-      sss_number: normalizeText(profileRow?.sss_number, normalizeText(metadata.sss_number, "")),
-      pagibig_number: normalizeText(profileRow?.pagibig_number, normalizeText(metadata.pagibig_number, "")),
-      philhealth_number: normalizeText(profileRow?.philhealth_number, normalizeText(metadata.philhealth_number, "")),
-      bank_name: normalizeText(profileRow?.bank_name, normalizeText(metadata.bank_name, "")),
-      bank_account_number: normalizeText(profileRow?.bank_account_number, normalizeText(metadata.bank_account_number, "")),
-      tin_number: normalizeText(metadata.tin_number, ""),
-      sex: normalizeText(metadata.sex, ""),
-      civil_status: normalizeText(metadata.civil_status, ""),
-      employment_type: normalizeText(metadata.employment_type, ""),
-      employment_status: normalizeText(metadata.employment_status, ""),
-      date_of_birth: normalizeText(metadata.date_of_birth, ""),
-      must_change_password: passwordChangeRequired,
+  const { error: otpError } = await supabase.auth.signInWithOtp({
+    email: accountEmail,
+    options: {
+      // The account was just proven to exist and belong to this caller via a
+      // correct password — but signInWithOtp is a separate Supabase call that
+      // doesn't know that. Without this, an OTP request for an email with no
+      // account would silently create one; this app's accounts are always
+      // provisioned by HR/Admin, never self-signup.
+      shouldCreateUser: false,
     },
   });
 
-  // Issue the signed HttpOnly session every API guard reads. The response body
-  // above still feeds localStorage for display, but authorization decisions are
-  // made from this cookie alone, which the browser cannot forge or edit.
-  return attachSession(response, {
+  if (otpError) {
+    const rateLimited = Number(otpError.status) === 429
+      || String(otpError.code || "").toLowerCase().includes("rate_limit");
+    return NextResponse.json(
+      {
+        error: rateLimited
+          ? "Too many verification codes requested. Please wait a few minutes and try again."
+          : "Unable to send your verification code right now. Please try again.",
+      },
+      { status: rateLimited ? 429 : 503 },
+    );
+  }
+
+  recordCodeSent(data.user.id);
+
+  const response = NextResponse.json({
+    success: true,
+    otp_required: true,
+    masked_email: maskEmail(accountEmail),
+  });
+
+  // The ONLY cookie this route issues. No sacs-session cookie exists past
+  // this point until verify-login-otp/route.js confirms the code.
+  return attachPendingLogin(response, {
     user_id: data.user.id,
-    role: resolvedRole,
-    branch_id: resolvedBranchId,
-    email: resolvedEmailOutput,
-    full_name: resolvedFullName,
-    session_id: sessionId,
+    email: accountEmail,
     must_change_password: passwordChangeRequired,
   });
 }

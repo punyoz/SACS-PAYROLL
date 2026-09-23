@@ -13,6 +13,7 @@ const {
   hashTemporaryPassword,
   mustChangePassword,
   validateNewPassword,
+  DEFAULT_PASSWORD_SYMBOL,
 } = await import("@/lib/auth/password-policy");
 const { normalizeEmployeeFields, validateEmployeeRecord } = await import("@/lib/employees/record");
 const { collapseDailyTaps, planTap, DUPLICATE_TAP_WINDOW_MS } = await import("@/lib/attendance/taps");
@@ -20,17 +21,27 @@ const { collapseDailyTaps, planTap, DUPLICATE_TAP_WINDOW_MS } = await import("@/
 describe("Default password detection", () => {
   const person = { full_name: "Juan Santos Dela Cruz Jr.", date_of_birth: "2004-10-08" };
 
-  it("builds LastName + MMDDYYYY", () => {
-    expect(buildDefaultPassword("dela cruz", "2004-10-08")).toBe("DelaCruz10082004");
-    expect(buildDefaultPassword("Refuerzo", "2004-10-08")).toBe("Refuerzo10082004");
+  it("builds LastName + MMDDYYYY + the required symbol", () => {
+    // The trailing symbol is required because Supabase Auth's own password
+    // policy demands at least one symbol character — plain LastName+MMDDYYYY
+    // fails account creation with a 422 without it (see DEFAULT_PASSWORD_SYMBOL
+    // in src/lib/auth/password-policy.js).
+    expect(buildDefaultPassword("dela cruz", "2004-10-08")).toBe(`DelaCruz10082004${DEFAULT_PASSWORD_SYMBOL}`);
+    expect(buildDefaultPassword("Refuerzo", "2004-10-08")).toBe(`Refuerzo10082004${DEFAULT_PASSWORD_SYMBOL}`);
     expect(buildDefaultPassword("", "2004-10-08")).toBe("");
     expect(buildDefaultPassword("Cruz", "10/08/2004")).toBe("");
   });
 
   it("recognises the default for a multi-word last name and a suffix", () => {
-    expect(isDefaultPassword("DelaCruz10082004", person)).toBe(true);
-    expect(isDefaultPassword("delacruz10082004", person)).toBe(true);
-    expect(isDefaultPassword("Cruz10082004", person)).toBe(true);
+    expect(isDefaultPassword(`DelaCruz10082004${DEFAULT_PASSWORD_SYMBOL}`, person)).toBe(true);
+    expect(isDefaultPassword(`delacruz10082004${DEFAULT_PASSWORD_SYMBOL}`, person)).toBe(true);
+    expect(isDefaultPassword(`Cruz10082004${DEFAULT_PASSWORD_SYMBOL}`, person)).toBe(true);
+  });
+
+  it("no longer recognises the pre-symbol shape as the default", () => {
+    // Locks in the new contract: without the required symbol, this is not
+    // (and never was issued as) the account's default password.
+    expect(isDefaultPassword("DelaCruz10082004", person)).toBe(false);
   });
 
   it("does not flag a password the person chose", () => {
@@ -51,8 +62,9 @@ describe("Default password detection", () => {
 
   it("forces a change for an older account still on its default password", () => {
     const user = { app_metadata: {}, user_metadata: { full_name: "Cody Emerson", date_of_birth: "1999-01-15" } };
-    expect(mustChangePassword("Emerson01151999", user)).toBe(true);
-    expect(mustChangePassword("Emerson01151999", user, "Cody Emerson")).toBe(true);
+    const defaultPassword = `Emerson01151999${DEFAULT_PASSWORD_SYMBOL}`;
+    expect(mustChangePassword(defaultPassword, user)).toBe(true);
+    expect(mustChangePassword(defaultPassword, user, "Cody Emerson")).toBe(true);
     expect(mustChangePassword("NotDefault99", user)).toBe(false);
   });
 });
@@ -75,7 +87,7 @@ describe("New password rules", () => {
   });
 
   it("rejects re-using the default pattern even when it is not the current password", () => {
-    expect(validateNewPassword("refuerzo10082004", { ...person, currentPassword: "Something123" }))
+    expect(validateNewPassword(`refuerzo10082004${DEFAULT_PASSWORD_SYMBOL}`, { ...person, currentPassword: "Something123" }))
       .toMatch(/default password/);
   });
 });

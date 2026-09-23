@@ -24,7 +24,12 @@ export const SESSION_COOKIE = "sacs-session";
 /** 8 hours — a payroll shift plus overtime, re-issued on each login. */
 export const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 
-function signingKey() {
+// Exported for src/lib/auth/pending-login.js, which signs a second, shorter-
+// lived cookie (the password-verified-but-OTP-pending state) with the exact
+// same HMAC scheme. Reusing these rather than a second implementation means
+// there is one signing/verification code path to audit, not two that can
+// drift apart.
+export function signingKey() {
   const key = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error("Missing SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY for session signing.");
@@ -32,20 +37,20 @@ function signingKey() {
   return key;
 }
 
-function base64UrlEncode(input) {
+export function base64UrlEncode(input) {
   return Buffer.from(input, "utf8").toString("base64url");
 }
 
-function base64UrlDecode(input) {
+export function base64UrlDecode(input) {
   return Buffer.from(String(input), "base64url").toString("utf8");
 }
 
-function sign(payloadPart) {
+export function sign(payloadPart) {
   return crypto.createHmac("sha256", signingKey()).update(payloadPart).digest("base64url");
 }
 
 /** Timing-safe compare that tolerates unequal lengths. */
-function safeEqual(a, b) {
+export function safeEqual(a, b) {
   const bufA = Buffer.from(String(a));
   const bufB = Buffer.from(String(b));
   if (bufA.length !== bufB.length) return false;

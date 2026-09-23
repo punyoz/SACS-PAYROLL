@@ -1387,16 +1387,16 @@ async function login() {
 
     const result = await response.json().catch(() => ({}));
 
-    if (!response.ok || !result.redirectTo) {
+    if (!response.ok || !result.otp_required) {
       window.alert(result.error || 'Unable to sign in.');
       return;
     }
 
-    // result.role is sent from our updated API
-    saveAuthContext(result, result.role || 'employee', usernameInput);
-
+    // Password confirmed. No session exists yet — a code was emailed and
+    // must be verified before saveAuthContext()/navigation ever happen (see
+    // verifyLoginOtp() below).
     navigating = true;
-    window.top.location.href = result.redirectTo;
+    showVerifyOtpScreen(result.masked_email);
   } catch {
     window.alert('Unable to reach the server. Check your connection and try again.');
   } finally {
@@ -1407,6 +1407,152 @@ async function login() {
       if (button) { button.disabled = false; button.textContent = buttonLabel || 'Sign In'; }
     }
   }
+}
+
+/* ── LOGIN, STEP 2: EMAIL OTP ── */
+let otpVerifyInFlight = false;
+let otpResendCooldownTimer = null;
+
+function showVerifyOtpScreen(maskedEmail) {
+  document.getElementById('s-login')?.classList.remove('active');
+  document.getElementById('s-verify-otp')?.classList.add('active');
+
+  const sub = document.getElementById('votp-sub');
+  if (sub) {
+    sub.textContent = maskedEmail
+      ? `Enter the code we emailed to ${maskedEmail}.`
+      : 'Enter the code we emailed you.';
+  }
+
+  const feedback = document.getElementById('votp-feedback');
+  if (feedback) { feedback.textContent = ''; feedback.style.color = ''; }
+
+  const codeInput = document.getElementById('votp-code-input');
+  if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+}
+
+function showVotpFeedback(message, ok) {
+  const feedback = document.getElementById('votp-feedback');
+  if (!feedback) return;
+  feedback.textContent = message;
+  feedback.style.color = ok ? '#3EC97A' : '#E85555';
+}
+
+async function verifyLoginOtp() {
+  if (otpVerifyInFlight) return;
+
+  const code = document.getElementById('votp-code-input')?.value?.trim();
+  if (!code) {
+    showVotpFeedback('Enter the code from your email.', false);
+    return;
+  }
+
+  const button = document.getElementById('votp-verify-btn');
+  const buttonLabel = button?.textContent;
+  otpVerifyInFlight = true;
+  if (button) { button.disabled = true; button.textContent = 'Verifying...'; }
+  showVotpFeedback('', true);
+
+  let navigating = false;
+  try {
+    const response = await fetch('/api/legacy-auth/verify-login-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || !result.redirectTo) {
+      showVotpFeedback(result.error || 'Unable to verify your code.', false);
+      // A lockout or an expired pending sign-in cannot be retried here —
+      // send them back to start over rather than let them keep pressing
+      // Verify against a state the server has already discarded.
+      if (result.code === 'otp_locked_out' || result.code === 'pending_login_expired') {
+        setTimeout(cancelLoginOtp, 1800);
+      }
+      return;
+    }
+
+    saveAuthContext(result, result.role || 'employee', result.profile?.email);
+    navigating = true;
+    window.top.location.href = result.redirectTo;
+  } catch {
+    showVotpFeedback('Unable to reach the server. Check your connection and try again.', false);
+  } finally {
+    if (!navigating) {
+      otpVerifyInFlight = false;
+      if (button) { button.disabled = false; button.textContent = buttonLabel || 'Verify & Sign In'; }
+    }
+  }
+}
+
+function startOtpResendCooldown(seconds) {
+  const btn = document.getElementById('votp-resend-btn');
+  if (!btn) return;
+
+  clearInterval(otpResendCooldownTimer);
+  let remaining = Math.max(1, Math.ceil(seconds));
+  btn.disabled = true;
+
+  const tick = () => {
+    btn.textContent = `Resend code (${remaining}s)`;
+    if (remaining <= 0) {
+      clearInterval(otpResendCooldownTimer);
+      btn.disabled = false;
+      btn.textContent = 'Resend code';
+      return;
+    }
+    remaining -= 1;
+  };
+  tick();
+  otpResendCooldownTimer = setInterval(tick, 1000);
+}
+
+async function resendLoginOtp() {
+  const btn = document.getElementById('votp-resend-btn');
+  if (btn?.disabled) return;
+
+  showVotpFeedback('', true);
+  if (btn) btn.disabled = true;
+
+  try {
+    const response = await fetch('/api/legacy-auth/resend-login-otp', { method: 'POST' });
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      showVotpFeedback(result.error || 'Unable to send a new code.', false);
+      if (response.status === 429) {
+        const retryAfter = Number(response.headers.get('Retry-After')) || 45;
+        startOtpResendCooldown(retryAfter);
+      } else if (btn) {
+        btn.disabled = false;
+      }
+      if (result.code === 'pending_login_expired') setTimeout(cancelLoginOtp, 1800);
+      return;
+    }
+
+    showVotpFeedback(result.message || 'A new code has been sent.', true);
+    const codeInput = document.getElementById('votp-code-input');
+    if (codeInput) { codeInput.value = ''; codeInput.focus(); }
+    startOtpResendCooldown(45);
+  } catch {
+    showVotpFeedback('Unable to reach the server. Check your connection and try again.', false);
+    if (btn) btn.disabled = false;
+  }
+}
+
+/** Abandon the pending sign-in and return to the password screen. The
+ * pending-login cookie is left to expire on its own (10 minutes) — it grants
+ * nothing without also supplying a code sent to that specific inbox, so there
+ * is no security reason to round-trip a dedicated "cancel" call for it. */
+function cancelLoginOtp() {
+  clearInterval(otpResendCooldownTimer);
+  otpVerifyInFlight = false;
+  document.getElementById('s-verify-otp')?.classList.remove('active');
+  document.getElementById('s-login')?.classList.add('active');
+  const passwordInput = document.getElementById('login-password-input');
+  if (passwordInput) { passwordInput.value = ''; passwordInput.focus(); }
 }
 
 /* ── LOGOUT ── */
@@ -2668,6 +2814,11 @@ function initApp() {
         }
         login();
       }
+
+      const verifyOtpScreen = document.getElementById('s-verify-otp');
+      if (verifyOtpScreen && verifyOtpScreen.classList.contains('active')) {
+        verifyLoginOtp();
+      }
     }
   });
 
@@ -2694,6 +2845,9 @@ function initApp() {
   window.toggleLoginPasswordVisibility = toggleLoginPasswordVisibility;
   window.login = login;
   window.logout = logout;
+  window.verifyLoginOtp = verifyLoginOtp;
+  window.resendLoginOtp = resendLoginOtp;
+  window.cancelLoginOtp = cancelLoginOtp;
   window.createPaginator = createPaginator;
   window.paginatorGoTo = paginatorGoTo;
   window.skeletonRows = skeletonRows;

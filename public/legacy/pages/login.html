@@ -72,3 +72,39 @@
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════
+     s-verify-otp — second sign-in factor
+     Shown by login() on a correct password, in place of a redirect. No
+     session cookie exists yet at this point — see js/app.js verifyLoginOtp().
+     ═══════════════════════════════════════ -->
+<div class="screen" id="s-verify-otp">
+  <div class="lc">
+
+    <div class="l-brand">
+      <div class="l-icon">S</div>
+      <div class="l-name">
+        <span class="school">Shepherd Angels Christian School</span>
+        <span class="sys">Payroll Management System</span>
+      </div>
+    </div>
+
+    <div class="l-title">Verify your sign-in</div>
+    <div class="l-sub" id="votp-sub">Enter the code we emailed you.</div>
+
+    <div class="fl">
+      <label for="votp-code-input">Verification code</label>
+      <input id="votp-code-input" class="fi" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" maxlength="8" style="letter-spacing:.2em;font-size:18px;text-align:center;" />
+    </div>
+
+    <p id="votp-feedback" style="font-size:12px;margin-top:2px;margin-bottom:10px;min-height:16px;" role="alert" aria-live="assertive"></p>
+
+    <button class="lb" id="votp-verify-btn" onclick="verifyLoginOtp()">Verify &amp; Sign In</button>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">
+      <button type="button" id="votp-resend-btn" onclick="resendLoginOtp()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;">Resend code</button>
+      <button type="button" onclick="cancelLoginOtp()" style="background:none;border:none;cursor:pointer;color:var(--t3);font-size:12px;padding:2px 0;">Use a different account</button>
+    </div>
+
+  </div>
+</div>
