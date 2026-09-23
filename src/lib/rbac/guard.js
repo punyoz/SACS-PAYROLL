@@ -22,6 +22,7 @@
 
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
+import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import {
   can,
   canManageRole,
@@ -87,7 +88,17 @@ export async function requirePermission(request, module, action = "read") {
   // transfers). Every helper below keys off guard.branchExempt, so a SCOPE_ALL
   // grant lifts the branch filter for that module and no other.
   const branchExempt = isBranchExemptFor(role, module);
-  const branchId = branchExempt ? null : (session.branch_id || null);
+
+  // Read from profiles, not from the cookie. The cookie's branch_id was
+  // stamped at sign-in and is up to eight hours old; these routes hold the
+  // service-role key so RLS (whose current_branch_id() does read profiles
+  // live) never runs to correct it. Without this, reassigning someone's
+  // branch changed nothing they could see until their next sign-in.
+  // src/lib/auth/live-branch.js caches the lookup for a few seconds, so a
+  // page load's burst of calls costs one round trip.
+  const branchId = branchExempt
+    ? null
+    : await resolveCurrentBranchId(session.sub, session.branch_id || null);
   const scope = scopeFor(role, module);
 
   // A branch-scoped role with no branch on file cannot be safely scoped:

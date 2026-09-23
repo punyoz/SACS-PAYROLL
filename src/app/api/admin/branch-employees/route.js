@@ -5,6 +5,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
+import { invalidateBranchCache } from "@/lib/auth/live-branch";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -197,6 +198,11 @@ export async function POST(request) {
       .update({ branch_id: branchId, updated_at: new Date().toISOString() })
       .eq("id", userId);
 
+    // Their branch just changed, so drop the cached lookup rather than
+    // letting the next few seconds of their requests keep the old one
+    // (src/lib/auth/live-branch.js).
+    invalidateBranchCache(userId);
+
     await appendAuditLog({
       module: "employees",
       action: "update",
@@ -264,6 +270,11 @@ export async function DELETE(request) {
       .from("profiles")
       .update({ branch_id: null, updated_at: new Date().toISOString() })
       .eq("id", userId);
+
+    // Their branch just changed, so drop the cached lookup rather than
+    // letting the next few seconds of their requests keep the old one
+    // (src/lib/auth/live-branch.js).
+    invalidateBranchCache(userId);
 
     await appendAuditLog({
       module: "employees",

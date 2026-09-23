@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
+import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { buildMenu, allowedPagesFor, defaultPageFor } from "@/lib/rbac/menu";
 import {
   ROLE_PERMISSIONS,
@@ -33,13 +34,21 @@ export async function GET(request) {
 
   const role = String(session.role).toLowerCase();
 
+  // Live from profiles, matching what src/lib/rbac/guard.js scopes the API by.
+  // Serving the cookie's stale copy here would leave the portal showing the
+  // old branch's name while every request it made returned the new branch's
+  // data.
+  const branchId = isBranchExempt(role)
+    ? null
+    : await resolveCurrentBranchId(session.sub, session.branch_id || null);
+
   return NextResponse.json({
     user: {
       id: session.sub,
       role,
       email: session.email || "",
       full_name: session.full_name || "",
-      branch_id: session.branch_id || null,
+      branch_id: branchId,
       branch_exempt: isBranchExempt(role),
       must_change_password: Boolean(session.pwd),
     },

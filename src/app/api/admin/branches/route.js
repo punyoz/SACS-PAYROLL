@@ -4,6 +4,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { readSession } from "@/lib/rbac/session";
+import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { requirePermission } from "@/lib/rbac/guard";
 import { can, isBranchExempt } from "@/lib/rbac/permissions";
 
@@ -66,9 +67,14 @@ export async function GET(request) {
     // Accountant, Employee) stays limited to its own branch, matching this
     // endpoint's original label-lookup purpose.
     const canSeeAllBranches = isBranchExempt(session.role) || can(session.role, "transfer_requests", "create");
+    // Live from profiles rather than the cookie, so a reassigned account sees
+    // its new branch's label here too (src/lib/auth/live-branch.js).
+    const currentBranchId = canSeeAllBranches
+      ? null
+      : await resolveCurrentBranchId(session.sub, session.branch_id || null);
     const visible = canSeeAllBranches
       ? rows
-      : rows.filter((b) => String(b.id) === String(session.branch_id || ""));
+      : rows.filter((b) => String(b.id) === String(currentBranchId || ""));
 
     return NextResponse.json({ branches: visible });
   } catch (error) {
