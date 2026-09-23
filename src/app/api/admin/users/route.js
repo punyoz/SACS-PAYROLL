@@ -286,6 +286,50 @@ export async function PATCH(request) {
       if (escalationOnNewRole) return escalationOnNewRole;
     }
 
+    // Archiving a Super Admin is the one action that can lock everybody out
+    // of the system permanently: Super Admin is the only role that can mint
+    // another one, so losing the last active one is unrecoverable from inside
+    // the app. Two refusals cover both ways it happens -- archiving yourself,
+    // and archiving the last one left. Both are checked here rather than in
+    // the browser because the browser is not a place a rule can be enforced.
+    //
+    // Necessary now that Super Admin accounts are listed and editable in the
+    // Super Admin portal; before that they were unreachable from this screen.
+    if (action === "archive" && !currentMetadata.archived) {
+      if (String(id) === String(guard.userId)) {
+        return NextResponse.json(
+          { error: "You cannot archive your own account." },
+          { status: 400 },
+        );
+      }
+
+      if (currentRole === "super_admin") {
+        const everyone = await listUsersCached(supabase);
+        if (everyone.error) {
+          // Refuse rather than guess. Letting the archive through because the
+          // count could not be read is exactly the case this guard exists for.
+          return NextResponse.json(
+            { error: "Unable to verify how many Super Admins remain. Try again." },
+            { status: 503 },
+          );
+        }
+        const activeSuperAdmins = (everyone.data.users || []).filter((candidate) => {
+          const metadata = candidate.user_metadata || {};
+          return normalizeRole(metadata.role) === "super_admin"
+            && metadata.archived !== true;
+        });
+
+        if (activeSuperAdmins.length <= 1) {
+          return NextResponse.json(
+            {
+              error: "This is the last active Super Admin. Create another one before archiving this account.",
+            },
+            { status: 400 },
+          );
+        }
+      }
+    }
+
     // ...and the target must live in the caller's own branch. An account with
     // no branch on file is refused rather than allowed through: a branch-scoped
     // caller has no claim on a record it cannot place.

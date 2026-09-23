@@ -76,6 +76,10 @@ const API_MODULES = [
   ["/api/admin/users", "user_management"],
   ["/api/admin/employees", "employee_information"],
   ["/api/admin/employee-info", "employee_info_readonly"],
+  // Creating a Super Admin / Admin / HR account. The module check here is
+  // the coarse gate; the route itself additionally requires the caller to
+  // BE a super_admin, because HR also holds user_management.
+  ["/api/admin/staff-accounts", "user_management"],
   ["/api/admin/transfer-requests", "transfer_requests"],
   ["/api/admin/attendance", "attendance"],
   ["/api/admin/audit-logs", "audit_logs"],

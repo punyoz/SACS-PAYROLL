@@ -2,33 +2,26 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeText } from "@/lib/auth/normalize";
 import { readPendingLogin, clearPendingLogin } from "@/lib/auth/pending-login";
-import { attachSession } from "@/lib/rbac/session";
-import { newSessionId, registerActiveSession } from "@/lib/auth/active-session";
-import { resolveLoginProfile, buildProfilePayload } from "@/lib/auth/resolve-profile-claims";
+import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
+import { completeLogin, ROLE_ROUTES as roleRoutes } from "@/lib/auth/complete-login";
 import { checkVerifyAllowed, recordVerifyFailure, resetVerifyAttempts } from "@/lib/auth/otp-throttle";
 import { sanitizeError } from "@/lib/api-error";
 
 /**
  * POST /api/legacy-auth/verify-login-otp — step 2 of 2 (code).
  *
- * Everything the pre-2FA login route used to do after "credentials are
- * genuine" happens here instead, gated on the emailed code also checking out:
- * register this as the account's one active session, fetch the full profile,
- * and issue the signed sacs-session cookie. This is the only route in the app
- * that calls attachSession() for a fresh sign-in.
+ * Reached only by the roles src/lib/auth/otp-policy.js still gates -- today
+ * Employee and Accountant. Everything the pre-2FA login route used to do
+ * after "credentials are genuine" happens here instead, gated on the emailed
+ * code also checking out: fetch the full profile, then hand off to
+ * completeLogin() to register the active session and issue the signed
+ * sacs-session cookie. The exempt roles reach that same helper straight from
+ * the login route, so both paths end identically.
  *
  * The caller is identified from the signed pending-login cookie
  * (src/lib/auth/pending-login.js) set by POST /api/legacy-auth/login — never
  * from anything in the request body, which the browser could edit.
  */
-
-const roleRoutes = {
-  super_admin: "/super-admin",
-  admin: "/admin",
-  accountant: "/accountant",
-  employee: "/employee",
-  hr: "/hr",
-};
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -136,40 +129,19 @@ async function handleVerify(request) {
     actualRole,
   });
 
-  // Both factors are now verified: this sign-in becomes the account's only
-  // valid one. Deliberately NOT done at the password step — registering it
+  // Both factors are now verified, so the sign-in finishes exactly as it does
+  // for a role that skipped the code (src/lib/auth/complete-login.js): this
+  // becomes the account's only valid session and the cookie is issued.
+  // Registering it is deliberately NOT done at the password step -- doing it
   // there would let anyone who merely knows the password (but not the code)
   // sign the real user out of their other browser, without ever getting in.
-  const sessionId = newSessionId();
-  try {
-    await registerActiveSession(data.user.id, sessionId);
-  } catch {
-    return NextResponse.json(
-      { error: "Unable to start your session right now. Please try again." },
-      { status: 503 },
-    );
-  }
-
-  const response = NextResponse.json({
-    success: true,
-    redirectTo: roleRoutes[resolved.resolvedRole],
-    role: resolved.resolvedRole,
-    must_change_password: pending.pwd,
-    profile: buildProfilePayload(resolved, pending.pwd),
-  });
-
-  clearPendingLogin(response);
-
-  // The signed HttpOnly session every API guard reads — issued here, and only
-  // here, for a fresh sign-in.
-  return attachSession(response, {
-    user_id: data.user.id,
-    role: resolved.resolvedRole,
-    branch_id: resolved.resolvedBranchId,
-    email: resolved.resolvedEmailOutput,
-    full_name: resolved.resolvedFullName,
-    session_id: sessionId,
-    must_change_password: pending.pwd,
+  return completeLogin({
+    userId: data.user.id,
+    resolved,
+    mustChangePassword: pending.pwd,
+    // Retires the pending-login cookie in the same response that sets the
+    // session cookie.
+    decorate: clearPendingLogin,
   });
 }
 

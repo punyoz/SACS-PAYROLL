@@ -289,7 +289,8 @@
       <div class="sh">
         <span class="stitle">Admin &amp; HR Logins</span>
         <span class="sp"></span>
-        <button class="btn btn-primary" onclick="openSAAdminUserModal()">+ Add Account</button>
+        <button class="btn btn-outline" onclick="openSAAdminUserModal()">+ Quick Add</button>
+        <button class="btn btn-primary" onclick="openSAStaffAccountModal()">+ Add Staff Account</button>
         <button class="btn btn-outline" onclick="loadSAUsers()">Refresh</button>
       </div>
       <div class="tw"><table>
@@ -741,6 +742,7 @@
         <div class="fg" style="margin:0;">
           <label for="sa-admin-user-role">Role <span class="req" aria-hidden="true">*</span></label>
           <select class="fc" name="role" id="sa-admin-user-role" required>
+            <option value="super_admin">Super Admin</option>
             <option value="admin">Admin</option>
             <option value="hr">HR</option>
           </select>
@@ -761,6 +763,114 @@
         <div class="adm-modal-actions" style="justify-content:space-between;">
           <button type="button" id="sa-admin-user-archive-btn" class="btn btn-red" style="display:none;" onclick="toggleArchiveSAAdminUser()">Archive Account</button>
           <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── STAFF ACCOUNT MODAL (Super Admin / Admin / HR) ──
+       Mirrors HR's Add Employee form, minus every payroll and statutory
+       field: no salary, SSS, PhilHealth, Pag-IBIG, TIN, bank name or bank
+       account number. These are operator logins, not payroll records. The
+       password is issued by the server (last name + birth date), never typed
+       here, and the holder must replace it on first sign-in. -->
+  <div id="sa-staff-account-modal" class="adm-modal-backdrop" style="display:none;">
+    <div class="adm-modal-card">
+      <div class="adm-modal-head">
+        <h3 id="sa-staff-account-modal-title">Add Staff Account</h3>
+        <button class="btn btn-close-x" type="button" onclick="closeSAStaffAccountModal()" title="Close">&#x2715;</button>
+      </div>
+      <form id="sa-staff-account-form" class="adm-modal-form" onsubmit="submitSAStaffAccount(event)" novalidate>
+        <div class="form-section-title">Account</div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="sa-staff-full-name">Full Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-full-name" class="fc name-input" type="text" name="full_name" required maxlength="60" placeholder="e.g. Juan Dela Cruz" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="sa-staff-email">Email <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-email" class="fc" type="email" name="email" required maxlength="100" placeholder="e.g. juan.delacruz@example.com" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-role">Role <span class="req" aria-hidden="true">*</span></label>
+          <select id="sa-staff-role" class="fc" name="role" required onchange="onSAStaffRoleChange()">
+            <option value="super_admin">Super Admin</option>
+            <option value="admin">Admin</option>
+            <option value="hr">HR</option>
+          </select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-status">Account Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="sa-staff-status" class="fc" name="employee_status" required>
+            <option value="Active">Active</option>
+            <option value="Pending">Pending</option>
+          </select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" id="sa-staff-branch-field">
+          <label for="sa-staff-branch">Branch <span class="req" aria-hidden="true">*</span></label>
+          <select id="sa-staff-branch" class="fc" name="branch_id">
+            <option value="">Select branch</option>
+          </select>
+          <span class="field-hint" id="sa-staff-branch-hint">Super Admin reaches every branch, so it is not assigned one.</span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-position">Position <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-position" class="fc" type="text" name="position" required maxlength="60" placeholder="e.g. HR Officer" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+
+        <div class="form-section-title">Personal</div>
+        <div class="fg">
+          <label for="sa-staff-dob">Date of Birth <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-dob" class="fc" type="date" name="date_of_birth" required />
+          <span class="field-hint">Used with the last name to build the first-time password.</span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-date-hired">Date Hired <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-date-hired" class="fc" type="date" name="date_hired" required />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-sex">Sex <span class="req" aria-hidden="true">*</span></label>
+          <select id="sa-staff-sex" class="fc" name="sex" required>
+            <option value="">Select</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-civil-status">Civil Status <span class="req" aria-hidden="true">*</span></label>
+          <select id="sa-staff-civil-status" class="fc" name="civil_status" required>
+            <option value="">Select</option>
+            <option value="Single">Single</option>
+            <option value="Married">Married</option>
+            <option value="Widowed">Widowed</option>
+            <option value="Legally Separated">Legally Separated</option>
+            <option value="Annulled">Annulled</option>
+          </select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-cp-number">Contact Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-cp-number" class="fc" type="text" name="cp_number" required maxlength="15" placeholder="e.g. 09171234567" autocomplete="off" inputmode="numeric" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="sa-staff-address">Home Address <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-address" class="fc" type="text" name="address" required maxlength="160" placeholder="e.g. 12 Mabini St, Quezon City" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+
+        <p class="form-required-note" style="grid-column:1/-1;">Fields marked <span class="req">*</span> are required. A first-time password is generated automatically and shown once after saving.</p>
+        <p id="sa-staff-account-feedback" class="adm-feedback" style="grid-column:1/-1;" role="alert"></p>
+        <div class="adm-modal-actions" style="grid-column:1/-1;">
+          <button type="submit" class="btn btn-primary">Create Account</button>
         </div>
       </form>
     </div>

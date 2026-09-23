@@ -6,6 +6,8 @@ import { mustChangePassword } from "@/lib/auth/password-policy";
 import { friendlyLoginError, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/auth/login-errors";
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
 import { recordCodeSent } from "@/lib/auth/otp-throttle";
+import { requiresLoginOtp } from "@/lib/auth/otp-policy";
+import { completeLogin } from "@/lib/auth/complete-login";
 import { sanitizeError } from "@/lib/api-error";
 import {
   checkLoginAllowed,
@@ -15,22 +17,32 @@ import {
 } from "@/lib/auth/login-throttle";
 
 /**
- * POST /api/legacy-auth/login — step 1 of 2 (password).
+ * POST /api/legacy-auth/login - step 1 of 2 (password), or the whole sign-in.
  *
- * Login is now two-factor: a correct password no longer issues the session
- * cookie. It issues a short-lived, signed "pending login" cookie
- * (src/lib/auth/pending-login.js) and emails a one-time code via Supabase's
- * own Email OTP (supabase.auth.signInWithOtp) — the same default email
- * sender already used for the password-reset flow. The browser is then sent
- * to the verify-code screen; POST /api/legacy-auth/verify-login-otp is step 2,
- * and is the only place attachSession() is ever called.
+ * How this ends depends on the account's role, and on nothing else. The
+ * password is checked the same way for everyone; then
+ * src/lib/auth/otp-policy.js decides:
+ *
+ *   Employee / Accountant  -> two-factor. A correct password does NOT issue
+ *       the session cookie. It issues a short-lived, signed "pending login"
+ *       cookie (src/lib/auth/pending-login.js) and emails a one-time code via
+ *       Supabase's own Email OTP (supabase.auth.signInWithOtp), the same
+ *       sender the password-reset flow uses. The browser goes to the
+ *       verify-code screen and POST /api/legacy-auth/verify-login-otp is
+ *       step 2.
+ *
+ *   Super Admin / Admin / HR -> single-factor, at the operator's request. No
+ *       code is emailed and no pending cookie is set; the sign-in finishes
+ *       here via completeLogin(). See otp-policy.js for why, and for the
+ *       one-line change that puts a role back behind the second factor.
+ *
+ * Either way the session cookie is minted in exactly one function,
+ * src/lib/auth/complete-login.js, so the two paths cannot drift apart. This
+ * route never calls attachSession() itself.
  *
  * Everything through "credentials are genuine" is unchanged from the
  * single-factor version: same throttle, same friendly error mapping, same
- * archived/role checks. What used to happen next — fetch the full profile,
- * register the active session, issue the cookie, return the dashboard
- * redirect — now happens in verify-login-otp/route.js instead, once the code
- * is also verified.
+ * archived/role checks.
  */
 
 const roleRoutes = {
@@ -202,6 +214,21 @@ async function handleLogin(request) {
   // never carried into the pending-login cookie — only the resulting boolean
   // is (see src/lib/auth/pending-login.js's header comment).
   const passwordChangeRequired = mustChangePassword(password, data.user, resolved.resolvedFullName);
+
+  // Roles outside OTP_REQUIRED_ROLES finish here: the password was the whole
+  // sign-in for them, so no code is emailed, no pending-login cookie is set,
+  // and the session is issued now. Everything after this block -- the OTP
+  // send, the pending cookie, the verify round trip -- applies only to the
+  // roles src/lib/auth/otp-policy.js still gates. Note this returns BEFORE
+  // signInWithOtp is called, so an exempt sign-in never asks Supabase to send
+  // anything.
+  if (!requiresLoginOtp(actualRole)) {
+    return completeLogin({
+      userId: data.user.id,
+      resolved,
+      mustChangePassword: passwordChangeRequired,
+    });
+  }
 
   // data.user.email, not resolvedEmail: this is Supabase's own canonical,
   // stored casing for the address signInWithOtp/verifyOtp key off of.

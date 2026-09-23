@@ -433,8 +433,12 @@ async function submitSABranch(event) {
 /* ── ADMIN & HR ACCOUNTS ──
    Super Admin creates and maintains the login accounts of Admin and HR staff
    only. Every Employee and Accountant account belongs to HR. */
-const SA_ACCOUNT_ROLES = ['admin', 'hr'];
-const SA_ROLE_LABELS = { admin: 'Admin', hr: 'HR' };
+// Super Admin is listed here too, so a Super Admin created through the staff
+// form is visible and editable rather than invisible to the portal that
+// made it. Archiving one is guarded server-side (src/app/api/admin/users/
+// route.js): you cannot archive yourself, nor the last active Super Admin.
+const SA_ACCOUNT_ROLES = ['super_admin', 'admin', 'hr'];
+const SA_ROLE_LABELS = { super_admin: 'Super Admin', admin: 'Admin', hr: 'HR' };
 const SA_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function loadSAUsers() {
@@ -609,7 +613,7 @@ async function openSAAdminUserModal(userId) {
       archiveBtn.textContent = saCurrentAdminUser.archived ? 'Restore Account' : 'Archive Account';
     }
   } else {
-    if (title) title.textContent = 'Add Admin or HR Account';
+    if (title) title.textContent = 'Add Super Admin, Admin or HR Account';
     form.elements.id.value = '';
     form.elements.role.value = 'admin';
     if (passwordLabel) passwordLabel.innerHTML = 'Temporary Password <span class="req" aria-hidden="true">*</span>';
@@ -652,7 +656,7 @@ async function submitSAAdminUser(event) {
   if (!/^[A-Za-z\s.]+$/.test(fullName)) return fail('Full name must contain letters and spaces only.', 'full_name');
   if (!email) return fail('Email is required.', 'email');
   if (!SA_EMAIL_PATTERN.test(email)) return fail('Enter a valid email address.', 'email');
-  if (!SA_ACCOUNT_ROLES.includes(role)) return fail('Choose Admin or HR.', 'role');
+  if (!SA_ACCOUNT_ROLES.includes(role)) return fail('Choose Super Admin, Admin or HR.', 'role');
   if (!branchId) return fail('Select the branch this account belongs to.', 'branch_id');
   if (!id && !password) return fail('A temporary password is required.', 'password');
   if (password && password.length < 8) return fail('Password must be at least 8 characters.', 'password');
@@ -1870,4 +1874,162 @@ if (saScreen?.classList.contains('active')) {
     }
   });
   saObserver.observe(saScreen, { attributes: true });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   STAFF ACCOUNT MODAL — Super Admin / Admin / HR
+   ──────────────────────────────────────────────────────────────────────────
+   The fuller counterpart to the quick "Add Account" modal above: it collects
+   the same identity and contact detail HR collects for an employee, and none
+   of the payroll or statutory fields (no salary, SSS, PhilHealth, Pag-IBIG,
+   TIN or bank details — see src/lib/employees/staff-record.js).
+
+   No password box: POST /api/admin/staff-accounts generates the first-time
+   password from the last name and date of birth and returns it once, so it is
+   never typed, stored in the form, or guessable from anything the browser
+   holds. The account is forced to replace it on first sign-in.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const SA_STAFF_API = '/api/admin/staff-accounts';
+
+/** Super Admin reaches every branch, so the Branch field only applies to the other two. */
+function onSAStaffRoleChange() {
+  const role = document.getElementById('sa-staff-role')?.value || '';
+  const field = document.getElementById('sa-staff-branch-field');
+  const select = document.getElementById('sa-staff-branch');
+  const hint = document.getElementById('sa-staff-branch-hint');
+  const isSuperAdmin = role === 'super_admin';
+
+  if (select) {
+    select.required = !isSuperAdmin;
+    select.disabled = isSuperAdmin;
+    if (isSuperAdmin) select.value = '';
+  }
+  if (hint) hint.style.display = isSuperAdmin ? '' : 'none';
+  if (field) field.style.opacity = isSuperAdmin ? '0.55' : '';
+}
+
+async function openSAStaffAccountModal() {
+  const modal = document.getElementById('sa-staff-account-modal');
+  const form = document.getElementById('sa-staff-account-form');
+  const fb = document.getElementById('sa-staff-account-feedback');
+  if (!modal || !form) return;
+
+  if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
+  form.reset();
+  form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
+
+  saBranches = await fetchBranchesCached({ activeOnly: false }).catch(() => saBranches);
+
+  const branchSelect = document.getElementById('sa-staff-branch');
+  if (branchSelect) {
+    // A new account can only be placed in a branch that is open.
+    const options = (saBranches || []).filter(
+      (b) => String(b.status || 'Active').toLowerCase() === 'active',
+    );
+    branchSelect.innerHTML = '<option value="">Select branch</option>' +
+      options.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+  }
+
+  onSAStaffRoleChange();
+  modal.style.display = 'flex';
+}
+
+function closeSAStaffAccountModal() {
+  const modal = document.getElementById('sa-staff-account-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitSAStaffAccount(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submitBtn = form.querySelector('button[type="submit"]');
+  const fb = document.getElementById('sa-staff-account-feedback');
+  const formData = new FormData(form);
+
+  const value = (name) => String(formData.get(name) || '').trim();
+  const role = value('role');
+
+  const fail = (message, fieldName) => {
+    if (fb) { fb.textContent = message; fb.className = 'adm-feedback err'; }
+    form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
+    const field = fieldName ? form.elements[fieldName] : null;
+    if (field) { field.classList.add('field-invalid'); field.focus(); }
+    return false;
+  };
+
+  // A first pass in the browser so the obvious mistakes are caught without a
+  // round trip. The server validates the same record again and is the only
+  // thing that decides — see validateStaffRecord().
+  const required = [
+    ['full_name', 'Full name is required.'],
+    ['email', 'Email is required.'],
+    ['role', 'Select a role.'],
+    ['employee_status', 'Select an account status.'],
+    ['position', 'Position is required.'],
+    ['date_of_birth', 'Date of birth is required.'],
+    ['date_hired', 'Date hired is required.'],
+    ['sex', 'Select a sex.'],
+    ['civil_status', 'Select a civil status.'],
+    ['cp_number', 'Contact number is required.'],
+    ['address', 'Home address is required.'],
+  ];
+  for (const [name, message] of required) {
+    if (!value(name)) return fail(message, name);
+  }
+  if (role !== 'super_admin' && !value('branch_id')) {
+    return fail('Select the branch this account belongs to.', 'branch_id');
+  }
+
+  const payload = {
+    full_name: value('full_name'),
+    email: value('email'),
+    role,
+    // Sent empty for Super Admin; the server stores null for that role either way.
+    branch_id: role === 'super_admin' ? '' : value('branch_id'),
+    employee_status: value('employee_status'),
+    position: value('position'),
+    date_of_birth: value('date_of_birth'),
+    date_hired: value('date_hired'),
+    sex: value('sex'),
+    civil_status: value('civil_status'),
+    cp_number: value('cp_number'),
+    address: value('address'),
+  };
+
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creating...'; }
+
+  try {
+    const response = await fetch(SA_STAFF_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || !result.success) {
+      return fail(result.error || 'Unable to create this account.');
+    }
+
+    // Shown once, and only here: the Super Admin has to pass it on, and it is
+    // not retrievable afterwards.
+    if (fb) {
+      fb.innerHTML = `Account created. First-time password: <strong>${escapeHtml(result.temporary_password || '')}</strong> — give this to the account holder. They must change it when they first sign in.`;
+      fb.className = 'adm-feedback ok';
+    }
+    if (typeof pushNotification === 'function') {
+      pushNotification('Staff Account Created', `${payload.full_name} can now sign in as ${SA_ROLE_LABELS[role] || role}.`, 'success');
+    }
+
+    form.reset();
+    onSAStaffRoleChange();
+    if (typeof loadSAUsers === 'function') loadSAUsers();
+  } catch {
+    return fail('Unable to reach the server. Check your connection and try again.');
+  } finally {
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create Account'; }
+  }
+
+  return true;
 }

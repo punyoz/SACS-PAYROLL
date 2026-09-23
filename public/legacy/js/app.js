@@ -1387,16 +1387,36 @@ async function login() {
 
     const result = await response.json().catch(() => ({}));
 
-    if (!response.ok || !result.otp_required) {
+    if (!response.ok) {
       window.alert(result.error || 'Unable to sign in.');
       return;
     }
 
-    // Password confirmed. No session exists yet — a code was emailed and
-    // must be verified before saveAuthContext()/navigation ever happen (see
-    // verifyLoginOtp() below).
+    // Two shapes come back, decided server-side by the account's role
+    // (src/lib/auth/otp-policy.js) — never by anything the browser sends.
+    //
+    //   { otp_required: true, masked_email }  Employee / Accountant. No
+    //       session exists yet: a code was emailed and has to be verified
+    //       before saveAuthContext()/navigation ever happen (verifyLoginOtp()
+    //       below finishes it).
+    //   { redirectTo, role, profile }         Super Admin / Admin / HR. The
+    //       session cookie is already set on this response, so this is the
+    //       same completion verifyLoginOtp() performs, reached one step
+    //       earlier.
+    if (result.otp_required) {
+      navigating = true;
+      showVerifyOtpScreen(result.masked_email);
+      return;
+    }
+
+    if (!result.redirectTo) {
+      window.alert(result.error || 'Unable to sign in.');
+      return;
+    }
+
+    saveAuthContext(result, result.role || 'employee', result.profile?.email);
     navigating = true;
-    showVerifyOtpScreen(result.masked_email);
+    window.top.location.href = result.redirectTo;
   } catch {
     window.alert('Unable to reach the server. Check your connection and try again.');
   } finally {

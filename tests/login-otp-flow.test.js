@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { OTP_REQUIRED_ROLES, requiresLoginOtp } from "@/lib/auth/otp-policy";
 
 /**
  * The five required verification scenarios for email-OTP login, checked two
@@ -29,6 +30,8 @@ const loginRoute = readFileSync("src/app/api/legacy-auth/login/route.js", "utf8"
 const verifyRoute = readFileSync("src/app/api/legacy-auth/verify-login-otp/route.js", "utf8");
 const resendRoute = readFileSync("src/app/api/legacy-auth/resend-login-otp/route.js", "utf8");
 const proxySource = readFileSync("src/proxy.js", "utf8");
+const completeLogin = readFileSync("src/lib/auth/complete-login.js", "utf8");
+const otpPolicy = readFileSync("src/lib/auth/otp-policy.js", "utf8");
 
 describe("Scenario: correct password + correct OTP -> normal login", () => {
   it("the password step never calls attachSession — no session on password alone", () => {
@@ -42,8 +45,20 @@ describe("Scenario: correct password + correct OTP -> normal login", () => {
     expect(loginRoute).toMatch(/attachPendingLogin/);
   });
 
-  it("the OTP step is the one place attachSession is called", () => {
-    expect(verifyRoute).toMatch(/attachSession/);
+  it("session issuance lives in exactly one place, reached via completeLogin", () => {
+    // attachSession() moved into src/lib/auth/complete-login.js when the
+    // OTP-exempt roles gained a second way to finish signing in. The guarantee
+    // is unchanged and now stronger: ONE function issues the cookie, and both
+    // routes must go through it rather than minting a session themselves.
+    // The "not called" checks match an INVOCATION (a call whose argument list
+    // starts with a response object), not the bare name, so that prose in a
+    // header comment explaining where the cookie is minted does not fail them.
+    const invocation = /attachSession\(\s*(response|NextResponse)/;
+    expect(completeLogin).toMatch(invocation);
+    expect(verifyRoute).toMatch(/completeLogin\(/);
+    expect(loginRoute).toMatch(/completeLogin\(/);
+    expect(verifyRoute).not.toMatch(invocation);
+    expect(loginRoute).not.toMatch(invocation);
   });
 
   it("the OTP step still honours must_change_password on success, from the pending token", () => {
@@ -51,7 +66,10 @@ describe("Scenario: correct password + correct OTP -> normal login", () => {
     // plaintext password) and must survive to the final response/session
     // untouched, not be silently dropped or recomputed as false.
     expect(verifyRoute).toMatch(/pending\.pwd/);
-    expect(verifyRoute).toMatch(/must_change_password:\s*pending\.pwd/);
+    // Handed to completeLogin(), which is what now sets must_change_password
+    // on both the JSON body and the session cookie.
+    expect(verifyRoute).toMatch(/mustChangePassword:\s*pending\.pwd/);
+    expect(completeLogin).toMatch(/must_change_password:\s*mustChangePassword/);
   });
 });
 
@@ -67,9 +85,13 @@ describe("Scenario: correct password + wrong OTP -> no access, generic error", (
     // the generic error is returned in source order, since this is a single
     // linear async function with no early success return.
     const errorIdx = verifyRoute.indexOf("GENERIC_CODE_ERROR }, { status: 400 }");
-    const registerIdx = verifyRoute.indexOf("registerActiveSession(data.user.id");
+    const completeIdx = verifyRoute.indexOf("return completeLogin(");
     expect(errorIdx).toBeGreaterThan(-1);
-    expect(registerIdx).toBeGreaterThan(errorIdx);
+    expect(completeIdx).toBeGreaterThan(errorIdx);
+    // And the session registration it guards is inside that helper, not
+    // duplicated somewhere the wrong-code branch could fall through to.
+    expect(completeLogin).toMatch(/registerActiveSession\(/);
+    expect(verifyRoute).not.toMatch(/registerActiveSession\(/);
   });
 });
 
@@ -126,5 +148,78 @@ describe("Scenario: no session cookie exists before OTP verification succeeds", 
     // server-side treats a still-pending cookie as a session on its own.
     expect(loginRoute).not.toMatch(/cancel|abandon/i);
     expect(verifyRoute).not.toMatch(/cancel|abandon/i);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   OTP is scoped to Employee and Accountant
+   ══════════════════════════════════════════════════════════════════════════ */
+
+describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
+  it("only Employee and Accountant are behind the second factor", () => {
+    expect(OTP_REQUIRED_ROLES).toEqual(["employee", "accountant"]);
+    for (const role of ["employee", "accountant"]) {
+      expect(requiresLoginOtp(role)).toBe(true);
+    }
+    for (const role of ["super_admin", "admin", "hr"]) {
+      expect(requiresLoginOtp(role)).toBe(false);
+    }
+  });
+
+  it("is decided on the role string alone, whatever its casing", () => {
+    expect(requiresLoginOtp("Employee")).toBe(true);
+    expect(requiresLoginOtp("SUPER_ADMIN")).toBe(false);
+    // An unknown or empty role is not in the set, but never reaches this
+    // question: both routes reject an unroutable role before asking.
+    expect(requiresLoginOtp("")).toBe(false);
+    expect(requiresLoginOtp(undefined)).toBe(false);
+  });
+
+  it("the exempt branch returns BEFORE any code is emailed", () => {
+    // The whole point: an exempt sign-in must never ask Supabase to send a
+    // code. Source order proves it for this single linear async function --
+    // the early return sits above signInWithOtp, so that call is unreachable
+    // for an exempt role.
+    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(actualRole))");
+    const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
+    const pendingIdx = loginRoute.indexOf("attachPendingLogin(response");
+    expect(branchIdx).toBeGreaterThan(-1);
+    expect(sendIdx).toBeGreaterThan(branchIdx);
+    expect(pendingIdx).toBeGreaterThan(branchIdx);
+  });
+
+  it("the exempt branch finishes the sign-in through the shared helper", () => {
+    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(actualRole))");
+    const completeIdx = loginRoute.indexOf("return completeLogin(", branchIdx);
+    const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
+    // completeLogin is called inside the branch, i.e. before the OTP send.
+    expect(completeIdx).toBeGreaterThan(branchIdx);
+    expect(completeIdx).toBeLessThan(sendIdx);
+  });
+
+  it("an exempt sign-in still carries must_change_password through", () => {
+    // A newly created Super Admin/Admin/HR account is on its issued default
+    // password and must be forced to the change-password screen on first
+    // sign-in, exactly like an employee. Skipping OTP must not skip that.
+    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(actualRole))");
+    const branch = loginRoute.slice(branchIdx, loginRoute.indexOf("}", loginRoute.indexOf("});", branchIdx)));
+    expect(branch).toMatch(/mustChangePassword:\s*passwordChangeRequired/);
+  });
+
+  it("the OTP infrastructure is kept, not deleted", () => {
+    // This was a routing change. The verify and resend routes, the throttle
+    // and the pending-login cookie all still have to work for the roles that
+    // remain gated.
+    expect(verifyRoute).toMatch(/verifyOtp/);
+    expect(resendRoute).toMatch(/signInWithOtp/);
+    expect(loginRoute).toMatch(/signInWithOtp/);
+    expect(loginRoute).toMatch(/attachPendingLogin/);
+  });
+
+  it("re-enabling a role is a one-line change in one file", () => {
+    // Guards the property the policy module promises: nothing outside
+    // otp-policy.js hard-codes which roles are exempt.
+    expect(loginRoute).not.toMatch(/"(super_admin|admin|hr)"/);
+    expect(otpPolicy).toMatch(/OTP_REQUIRED_ROLES/);
   });
 });
