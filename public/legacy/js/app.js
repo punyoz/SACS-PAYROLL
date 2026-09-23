@@ -1902,12 +1902,17 @@ function lastNameCandidates(fullName) {
   return candidates;
 }
 
+// Fixed symbol appended to the generated default password (see
+// DEFAULT_PASSWORD_SYMBOL in src/lib/auth/password-policy.js) so it satisfies
+// the Supabase project's "at least one symbol" requirement.
+const DEFAULT_PASSWORD_SYMBOL = '!';
+
 function looksLikeDefaultPassword(password, ctx) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ctx?.date_of_birth || ''));
   if (!match || !password) return false;
-  const dob = `${match[2]}${match[3]}${match[1]}`;
-  if (!password.endsWith(dob)) return false;
-  const prefix = password.slice(0, -dob.length).toLowerCase();
+  const suffix = `${match[2]}${match[3]}${match[1]}${DEFAULT_PASSWORD_SYMBOL}`;
+  if (!password.endsWith(suffix)) return false;
+  const prefix = password.slice(0, -suffix.length).toLowerCase();
   return Boolean(prefix) && lastNameCandidates(ctx?.full_name).includes(prefix);
 }
 

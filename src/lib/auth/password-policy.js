@@ -2,15 +2,19 @@
  * Password rules shared by account creation, sign-in and change-password.
  *
  * New accounts are issued a guessable default password — the last name plus
- * the date of birth (e.g. DelaCruz10082004) — so the holder must replace it
- * before the account can do anything else. Two independent signals decide
- * that at sign-in, and either one is enough:
+ * the date of birth plus a fixed symbol (e.g. DelaCruz10082004!) — so the
+ * holder must replace it before the account can do anything else. The fixed
+ * symbol is required because the Supabase Auth project's password policy
+ * demands at least one symbol character; the app's own rules (see
+ * validateNewPassword below) never required one. Two independent signals
+ * decide the "must change" check at sign-in, and either one is enough:
  *
  *   1. The password matches the one-time password the account was issued.
  *      Its keyed hash is kept in app_metadata (never user-editable), so this
  *      still holds after HR corrects the name or birth date on the record.
- *   2. The password has the default LastName+MMDDYYYY shape for the name and
- *      birth date on file. This also covers accounts created before (1) existed.
+ *   2. The password has the default LastName+MMDDYYYY+symbol shape for the
+ *      name and birth date on file. This also covers accounts created before
+ *      (1) existed.
  */
 
 import crypto from "node:crypto";
@@ -18,6 +22,9 @@ import crypto from "node:crypto";
 export const PASSWORD_MIN_LENGTH = 8;
 // GoTrue hashes with bcrypt, which silently ignores anything past 72 bytes.
 export const PASSWORD_MAX_LENGTH = 72;
+// Guarantees the generated default password satisfies the Supabase project's
+// "at least one symbol" requirement, which plain LastName+MMDDYYYY does not.
+export const DEFAULT_PASSWORD_SYMBOL = "!";
 
 const NAME_SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
 
@@ -43,7 +50,7 @@ export function buildDefaultPassword(lastName, dateOfBirth) {
   const last = toTitleCaseWords(lastName).replace(/\s+/g, "");
   const dob = formatDateForPassword(dateOfBirth);
   if (!last || !dob) return "";
-  return `${last}${dob}`;
+  return `${last}${dob}${DEFAULT_PASSWORD_SYMBOL}`;
 }
 
 /**
@@ -63,13 +70,14 @@ function lastNameCandidates(fullName) {
   return candidates;
 }
 
-/** True when `password` is the LastName+MMDDYYYY default for this person. */
+/** True when `password` is the LastName+MMDDYYYY+symbol default for this person. */
 export function isDefaultPassword(password, { full_name, date_of_birth } = {}) {
   const value = String(password ?? "");
   const dob = formatDateForPassword(date_of_birth);
-  if (!value || !dob || !value.endsWith(dob)) return false;
+  const suffix = dob ? `${dob}${DEFAULT_PASSWORD_SYMBOL}` : "";
+  if (!value || !suffix || !value.endsWith(suffix)) return false;
 
-  const prefix = value.slice(0, -dob.length).toLowerCase();
+  const prefix = value.slice(0, -suffix.length).toLowerCase();
   if (!prefix) return false;
   return lastNameCandidates(full_name).includes(prefix);
 }

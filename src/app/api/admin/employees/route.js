@@ -10,7 +10,7 @@ import {
   denyForeignBranch,
   scopeListToBranch,
 } from "@/lib/rbac/guard";
-import { hashTemporaryPassword } from "@/lib/auth/password-policy";
+import { hashTemporaryPassword, buildDefaultPassword } from "@/lib/auth/password-policy";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -124,23 +124,6 @@ function buildFullNameFromParts(body) {
 function isValidEmployeeName(nameInput) {
   const withoutSuffix = stripAllowedSuffix(normalizeText(nameInput));
   return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
-}
-
-function formatDateOfBirthForPassword(dateInput) {
-  const raw = normalizeText(dateInput);
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  if (!match) return "";
-
-  const [, year, month, day] = match;
-  return `${month}${day}${year}`;
-}
-
-function buildDefaultPassword(lastNameInput, dateOfBirthInput) {
-  const lastName = toTitleCaseWords(lastNameInput).replace(/\s+/g, "");
-  const dobDigits = formatDateOfBirthForPassword(dateOfBirthInput);
-  if (!lastName || !dobDigits) return "";
-
-  return `${lastName}${dobDigits}`;
 }
 
 function shapeEmployee(user, profile, index) {
