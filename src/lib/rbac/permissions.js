@@ -265,8 +265,8 @@ export const ROLE_PERMISSIONS = {
     rfid_devices: none(),
     process_payroll: none(),
     // Matrix rows 11-12: HR has no payroll or payslips access. Revoked in the
-    // database by supabase/migrations/20260924_revoke_hr_payroll_records.sql and
-    // 20260925_revoke_hr_payslips.sql; kept in step here because
+    // database by supabase/migrations/20260923051901_revoke_hr_payroll_records.sql and
+    // 20260923055345_revoke_hr_payslips.sql; kept in step here because
     // src/lib/rbac/guard.js answers from this table, not from role_permissions.
     payroll_records: none(),
     payslips: none(),

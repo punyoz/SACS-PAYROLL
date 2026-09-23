@@ -89,7 +89,7 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
   );
 
   // The branch this account is boxed inside. profiles.branch_id is the source
-  // of truth (see supabase/migrations/20260903_rbac_branch_scoping.sql); the
+  // of truth (see supabase/migrations/20260903010000_rbac_branch_scoping.sql); the
   // auth metadata copy is only a fallback for accounts created before that
   // column existed. Super Admin is deliberately left null — it is branch-exempt.
   const resolvedBranchId = resolvedRole === "super_admin"
@@ -125,7 +125,7 @@ export function buildProfilePayload(resolved, passwordChangeRequired) {
     position: resolved.resolvedPosition,
     branch_id: resolved.resolvedBranchId,
     // profiles is authoritative for these (real, constrained columns — see
-    // supabase/migrations/20260914_profile_id_fields_and_perf.sql); metadata
+    // supabase/migrations/20260914010000_profile_id_fields_and_perf.sql); metadata
     // is only a fallback for a profile row not yet backfilled. This context
     // feeds every role's own "Profile" self-view, so this is the one place
     // all of them read from.

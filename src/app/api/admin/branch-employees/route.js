@@ -30,7 +30,7 @@ async function fetchBranchMap(supabase) {
 
 /**
  * Current branch, sourced from profiles.branch_id — the single source of
- * truth every other route reads (see 20260903_rbac_branch_scoping.sql).
+ * truth every other route reads (see 20260903010000_rbac_branch_scoping.sql).
  * Admin/Super Admin branch moves now flow through transfer_requests, whose
  * approval trigger updates profiles.branch_id AND profiles.updated_at, so
  * that timestamp doubles as "when did this employee's branch last change"
@@ -190,7 +190,7 @@ export async function POST(request) {
 
     // profiles.branch_id is what the session and the RLS policies read, so it
     // has to move with the assignment. (The database trigger added in
-    // 20260903_rbac_branch_scoping.sql does this too — this keeps the row
+    // 20260903010000_rbac_branch_scoping.sql does this too — this keeps the row
     // correct even on an install where that migration has not been applied.)
     await supabase
       .from("profiles")

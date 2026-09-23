@@ -23,7 +23,7 @@ function getAdminClient() {
   });
 }
 
-export function getDateKey(date = new Date()) {
+function getDateKey(date = new Date()) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Manila",
     year: "numeric",
@@ -94,7 +94,7 @@ function shapeEmployee(user, profile, index) {
   };
 }
 
-export async function fetchEmployees(supabase) {
+async function fetchEmployees(supabase) {
   const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
     throw new Error(`Failed to list users: ${usersResult.error.message}`);
@@ -260,7 +260,7 @@ export async function getAttendancePanels(supabase, activeEmployees) {
   return payload.panels;
 }
 
-export function resolveEmployeeByRfid(code, activeEmployees) {
+function resolveEmployeeByRfid(code, activeEmployees) {
   const normalized = normalizeText(code).toLowerCase();
   if (!normalized) return null;
 
@@ -301,14 +301,14 @@ function isDuplicateKeyError(error) {
   return code === "23505" || message.includes("duplicate key");
 }
 
-export async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1) {
+async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1) {
   const lookupResult = await supabase
     .from("attendance_logs")
     .select("*")
     .eq("employee_id", employee.id)
     .eq("log_date", dateKey)
     // Rows folded into another row and flagged by
-    // 20260917_attendance_logs_unique_employee_day.sql carry no tap data of
+    // 20260917010000_attendance_logs_unique_employee_day.sql carry no tap data of
     // their own anymore — only the active row for this employee+day matters.
     .eq("archived_duplicate", false)
     .order("created_at", { ascending: true })
@@ -367,7 +367,7 @@ export async function persistScanToTable(supabase, employee, dateKey, nowIso, rf
     // Two concurrent first-taps for the same employee+day can both reach here
     // having seen zero existing rows (the lookup above ran before either had
     // written). attendance_logs_employee_day_unique (see
-    // 20260917_attendance_logs_unique_employee_day.sql) turns the loser's
+    // 20260917010000_attendance_logs_unique_employee_day.sql) turns the loser's
     // insert into a 23505 instead of a second silent row — re-planning once
     // against the row the winner just committed resolves it as this tap's
     // rightful time_out (or duplicate) instead of failing the scan outright.

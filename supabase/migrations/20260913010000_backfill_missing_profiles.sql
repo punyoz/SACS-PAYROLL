@@ -5,9 +5,9 @@
 -- Root cause of a live bug: profiles.role carries a CHECK constraint created
 -- directly in the Supabase dashboard (not tracked anywhere in this repo's
 -- migration history — same class of drift documented in
--- 20260401_backfill_core_schema.sql's header) that was never updated when
+-- 20260401010000_backfill_core_schema.sql's header) that was never updated when
 -- 'super_admin' was added to the user_role enum
--- (20260522_add_super_admin_role_enum.sql). Its allowed list only covers
+-- (20260522010000_add_super_admin_role_enum.sql). Its allowed list only covers
 -- 'admin' / 'accountant' / 'employee' / 'hr'.
 --
 -- Effect: EVERY super_admin account in this system has silently failed to
@@ -15,7 +15,7 @@
 -- without checking the result for an error, so account creation appeared to
 -- succeed while the profiles insert failed underneath. The visible symptom:
 -- transfer_requests.requested_by/employee_id/reviewed_by all have a hard
--- foreign key to profiles(id) (20260910_transfer_requests_and_employee_contact.sql),
+-- foreign key to profiles(id) (20260910010000_transfer_requests_and_employee_contact.sql),
 -- so a Super Admin without a profiles row gets "insert or update on table
 -- transfer_requests violates foreign key constraint
 -- transfer_requests_requested_by_fkey" — surfaced to the UI as "This action
@@ -37,7 +37,7 @@ ALTER TABLE public.profiles ADD CONSTRAINT profiles_role_check
 -- account created directly in the Supabase Auth dashboard rather than
 -- through this app's own account-creation routes).
 -- profiles.role is the user_role ENUM, not text (confirmed live — see
--- 20260401_backfill_core_schema.sql's own header comment on this same
+-- 20260401010000_backfill_core_schema.sql's own header comment on this same
 -- drift), so the extracted metadata value needs an explicit cast: Postgres
 -- does not implicitly cast a general text expression (as opposed to a bare
 -- string literal) to a custom enum type.

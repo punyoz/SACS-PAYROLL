@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
  * scripts/purge-archived-employees.mjs used to hard-delete the profiles row
  * and the auth.users row of every archived employee account. Both are now
  * rejected by the block_hard_delete trigger in
- * supabase/migrations/20260903_rbac_branch_scoping.sql — deleting the auth
+ * supabase/migrations/20260903010000_rbac_branch_scoping.sql — deleting the auth
  * user cascades (profiles_id_fkey ON DELETE CASCADE) into the same blocked
  * delete on profiles, so the old script fails outright.
  *

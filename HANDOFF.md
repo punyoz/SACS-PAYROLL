@@ -44,12 +44,12 @@ chat.
    database password somewhere safe.
 2. Open **SQL Editor** and run **every** file in `supabase/migrations/` **in
    filename order**. The names sort chronologically, so alphabetical order is
-   the correct order — start with `20260401_backfill_core_schema.sql` and work
+   the correct order — start with `20260401010000_backfill_core_schema.sql` and work
    through to the last file in the directory.
 
    > [!IMPORTANT]
    > Run the whole directory, not up to some named file. This step used to say
-   > "finish with `20260903_rbac_branch_scoping.sql`", which is a third of the
+   > "finish with `20260903010000_rbac_branch_scoping.sql`", which is a third of the
    > way through the list — following it literally produced a database missing
    > the transfer-request tables, the RFID and payroll indexes, and every later
    > constraint. There is no stopping point; the last file is whichever sorts
@@ -74,7 +74,7 @@ That covers every table the application queries. If a page errors with
 "relation does not exist", a migration was skipped.
 
 `salary_approvals` was listed here until it was dropped by
-`20260917_drop_salary_approvals.sql`; no code references it any more.
+`20260917020000_drop_salary_approvals.sql`; no code references it any more.
 
 ---
 
@@ -221,7 +221,7 @@ Access control has two layers, both reading the same matrix in
 
 Because the API routes hold the service-role key, they bypass RLS — so the
 guard, not RLS, is what actually enforces the permission matrix on them. The
-RLS policies in `20260903_rbac_branch_scoping.sql` are a second layer covering
+RLS policies in `20260903010000_rbac_branch_scoping.sql` are a second layer covering
 any client that talks to Postgres directly.
 
 ### Rules when adding a route

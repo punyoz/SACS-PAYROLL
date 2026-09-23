@@ -22,7 +22,7 @@
 --
 -- WITH CHECK (true) made them writable too, so the same caller could have run
 -- UPDATE public.profiles SET role = 'super_admin' -- which, since
--- 20260923_role_helper_reads_profiles.sql makes profiles authoritative for
+-- 20260923045144_role_helper_reads_profiles.sql makes profiles authoritative for
 -- role, would then have been believed by every policy in the database.
 --
 -- Measured after: 0 rows on all six.
@@ -31,7 +31,7 @@
 -- routes under src/app/api/** (which hold SUPABASE_SERVICE_ROLE_KEY) never
 -- consulted this policy. The only browser-side anon client is
 -- src/app/reset-password/page.js, which calls auth.updateUser() and queries no
--- table. The branch-scoped policies from 20260903_rbac_branch_scoping.sql take
+-- table. The branch-scoped policies from 20260903010000_rbac_branch_scoping.sql take
 -- over unchanged.
 --
 -- Idempotent (DROP POLICY IF EXISTS). Safe to run more than once.

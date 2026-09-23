@@ -2,7 +2,7 @@
 -- Role resolution for RLS reads profiles, never the JWT's user_metadata
 --
 -- THE HOLE THIS CLOSES
--- current_role_name() (supabase/migrations/20260903_rbac_branch_scoping.sql)
+-- current_role_name() (supabase/migrations/20260903010000_rbac_branch_scoping.sql)
 -- resolved the caller's role like this:
 --
 --   COALESCE(
@@ -42,7 +42,7 @@
 -- KNOWN BEHAVIOUR CHANGE
 -- An account whose role lived ONLY in user_metadata, with no profiles row,
 -- now resolves as 'employee' under RLS instead of that metadata role.
--- 20260913_backfill_missing_profiles.sql gave every existing account a row, and
+-- 20260913010000_backfill_missing_profiles.sql gave every existing account a row, and
 -- profiles is already the source of truth for the login route and the guard, so
 -- this aligns RLS with them. It also fails in the safe direction: a missing
 -- profile loses reach rather than gaining it.

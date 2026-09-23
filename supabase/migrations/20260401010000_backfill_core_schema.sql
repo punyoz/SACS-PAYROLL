@@ -1,13 +1,13 @@
 -- Backfills the schema for tables that were created out-of-band (directly in
 -- the Supabase dashboard) at some point before this repo's migration history
 -- began tracking them. Every later migration that ALTERs one of these tables
--- (20260509_add_payslip_no.sql, 20260513_add_payroll_breakdown_to_salary_approvals.sql,
--- 20260520_add_hr_role_enum.sql, 20260522_add_super_admin_role_enum.sql) depends
+-- (20260509010000_add_payslip_no.sql, 20260513010000_add_payroll_breakdown_to_salary_approvals.sql,
+-- 20260520010000_add_hr_role_enum.sql, 20260522010000_add_super_admin_role_enum.sql) depends
 -- on it existing first, which is why this file is dated earlier than all of them.
 --
 -- Entirely idempotent (CREATE TABLE IF NOT EXISTS + ALTER TABLE ADD COLUMN IF
 -- NOT EXISTS per column, matching the style already used in
--- 20260522_create_branches.sql) — safe to run whether these tables already
+-- 20260522020000_create_branches.sql) — safe to run whether these tables already
 -- exist live with a compatible schema, or don't exist at all yet.
 
 -- ─── user_role enum ─────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ CREATE INDEX IF NOT EXISTS audit_logs_created_at_idx ON public.audit_logs (creat
 -- ─── salary_approvals ────────────────────────────────────────────────────────
 -- Column set matched to src/lib/salary-approvals/store.js's FULL_SELECT. The
 -- payroll_breakdown column is added afterward by the existing
--- 20260513_add_payroll_breakdown_to_salary_approvals.sql migration.
+-- 20260513010000_add_payroll_breakdown_to_salary_approvals.sql migration.
 CREATE TABLE IF NOT EXISTS public.salary_approvals (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id       TEXT,
@@ -149,7 +149,7 @@ ALTER TABLE public.salary_approvals
 -- ─── payroll_records ─────────────────────────────────────────────────────────
 -- Column set matched to appendPayrollRecord()/fetchPayrollRecords() in
 -- src/app/api/accountant/payroll/route.js. The payslip_no column + unique
--- constraint are added afterward by the existing 20260509_add_payslip_no.sql
+-- constraint are added afterward by the existing 20260509010000_add_payslip_no.sql
 -- migration.
 CREATE TABLE IF NOT EXISTS public.payroll_records (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),

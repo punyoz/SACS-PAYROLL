@@ -1852,7 +1852,7 @@ async function fetchSystemCached() {
  * HR's Add/Edit Employee forms. Stored values are always digits-only — the
  * dashes here are a display/input-mask concern, matching each field's
  * placeholder format (e.g. 12-3456789-0) and the DB CHECK constraint added in
- * supabase/migrations/20260914_profile_id_fields_and_perf.sql, which also
+ * supabase/migrations/20260914010000_profile_id_fields_and_perf.sql, which also
  * strips non-digits server-side as a second line of defense.
  */
 function digitsOnly(value) {

@@ -180,7 +180,7 @@ async function runAdminSeed() {
       const isEnumError = String(error.message || "").toLowerCase().includes("invalid input value for enum");
       if (isEnumError) {
         // The user_role enum doesn't include this role yet.
-        // Run supabase/migrations/20260520_add_hr_role_enum.sql in Supabase SQL editor to fix.
+        // Run supabase/migrations/20260520010000_add_hr_role_enum.sql in Supabase SQL editor to fix.
         console.warn(`WARNING: profiles role enum missing '${account.role}'. Auth user created; run the HR migration to fix profiles. Login will still work via user_metadata.`);
       } else {
         throw new Error(`Failed to upsert profile for ${account.email}: ${error.message}`);

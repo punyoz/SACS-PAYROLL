@@ -4,7 +4,7 @@
  * ORIGINAL BEHAVIOUR (removed)
  * This script used to hard-delete the profiles row and the auth.users row of
  * every employee account marked archived, freeing the account entirely. That
- * is no longer possible: supabase/migrations/20260903_rbac_branch_scoping.sql
+ * is no longer possible: supabase/migrations/20260903010000_rbac_branch_scoping.sql
  * added a block_hard_delete trigger on profiles that raises on every DELETE,
  * including one arriving through the profiles_id_fkey ON DELETE CASCADE from
  * auth.users — so deleting the auth user would itself fail, cascading into the
@@ -19,7 +19,7 @@
  * pass for accounts that fell out of step with that: an employee whose
  * auth.users.user_metadata.archived is true but whose profiles row was never
  * updated to match, most likely because it predates that DELETE handler or
- * because profiles.archived (see 20260913_backfill_missing_profiles.sql) did
+ * because profiles.archived (see 20260913010000_backfill_missing_profiles.sql) did
  * not exist yet when the account was archived.
  *
  * user_metadata.archived is treated as authoritative here, the same way

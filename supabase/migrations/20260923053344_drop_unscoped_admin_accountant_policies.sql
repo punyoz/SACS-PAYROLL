@@ -1,7 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- Remove the last three pre-RBAC policies that ignore branch_id
 --
--- Same family as 20260923_drop_legacy_is_admin_user_policies.sql, but these
+-- Same family as 20260923050109_drop_legacy_is_admin_user_policies.sql, but these
 -- inline the admin check rather than calling is_admin_user():
 --
 --   EXISTS (SELECT 1 FROM profiles p
@@ -41,7 +41,7 @@
 -- separately by moving a row the Accountant does NOT own into branch 2: it
 -- stayed invisible to them (branch-2 rows belonging to other people: 0).
 --
--- NOTHING LEGITIMATE IS LOST. 20260903_rbac_branch_scoping.sql already grants,
+-- NOTHING LEGITIMATE IS LOST. 20260903010000_rbac_branch_scoping.sql already grants,
 -- within the caller's own branch:
 --   * Admin      — payroll_records read, attendance read
 --   * Accountant — payroll_records read/create/update, attendance read

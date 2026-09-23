@@ -180,7 +180,7 @@ INSERT INTO public.role_permissions (role, module, scope, can_create, can_read, 
 
   -- ─ employee_info_readonly / transfer_requests — added alongside
   -- public.transfer_requests / employee_info_view in
-  -- 20260910_transfer_requests_and_employee_contact.sql. Neither module is
+  -- 20260910010000_transfer_requests_and_employee_contact.sql. Neither module is
   -- consumed by has_permission() yet (that table/view use their own bespoke
   -- RLS — is_super_admin()/can_reach_branch() — added in that same
   -- migration), but every module is seeded for every role regardless, same
@@ -232,7 +232,7 @@ ALTER TABLE public.salary_approvals
 -- payroll_records and salary_approvals both carry a live UPDATE trigger
 -- (created directly in the Supabase dashboard, not tracked anywhere in this
 -- repo's migration history) that unconditionally sets NEW.updated_at — the
--- same trigger 20260901_add_updated_at_to_attendance_logs.sql found already
+-- same trigger 20260901010000_add_updated_at_to_attendance_logs.sql found already
 -- attached to attendance_logs without the column existing. Section 3 below
 -- UPDATEs both tables to backfill branch_id, which fires that trigger, so the
 -- column has to exist first or the backfill fails with "record 'new' has no
@@ -285,8 +285,8 @@ WHERE branch_id IS NULL
 -- tracked column type. profiles, attendance_logs, salary_approvals,
 -- payroll_records and leave_requests were all created out-of-band in the
 -- Supabase dashboard at some point before this repo's migration history
--- began (see the header comment in 20260401_backfill_core_schema.sql, and
--- 20260830_drop_payroll_entries_employee_fk.sql for a confirmed case of live
+-- began (see the header comment in 20260401010000_backfill_core_schema.sql, and
+-- 20260830010000_drop_payroll_entries_employee_fk.sql for a confirmed case of live
 -- schema drift from what's documented) — profiles.role turned out to already
 -- be the user_role ENUM rather than TEXT, and this same UPDATE originally
 -- broke on "operator does not exist: uuid = text" because employee_id columns
@@ -628,7 +628,7 @@ CREATE POLICY audit_logs_insert_any ON public.audit_logs
 -- leave_requests ------------------------------------------------------------
 -- employee_id is cast on both sides rather than trusted as TEXT — this table
 -- may also predate this repo's migration history (see the CREATE TABLE
--- comment in 20260827_add_pay_status_to_leave_requests.sql), so its type is
+-- comment in 20260827010000_add_pay_status_to_leave_requests.sql), so its type is
 -- not guaranteed either.
 DROP POLICY IF EXISTS leave_requests_select_branch ON public.leave_requests;
 CREATE POLICY leave_requests_select_branch ON public.leave_requests

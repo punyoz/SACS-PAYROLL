@@ -3,10 +3,10 @@
 --
 -- NOTE ON TABLE NAMES: this schema has no separate `employees` or `users`
 -- tables — public.profiles (1:1 with auth.users.id, see
--- 20260401_backfill_core_schema.sql) already IS the employee/user record,
+-- 20260401010000_backfill_core_schema.sql) already IS the employee/user record,
 -- carrying full_name, position, employee_status, branch_id, etc. Both
 -- features below are built against profiles rather than forking a parallel
--- table, and reuse the RBAC helpers from 20260903_rbac_branch_scoping.sql
+-- table, and reuse the RBAC helpers from 20260903010000_rbac_branch_scoping.sql
 -- (is_super_admin(), can_reach_branch(), current_role_name()) rather than
 -- re-deriving role checks.
 --
@@ -107,7 +107,7 @@ CREATE TRIGGER transfer_requests_02_apply_approval
   FOR EACH ROW EXECUTE FUNCTION public.apply_transfer_request_approval();
 
 -- ─── 1b. Row Level Security ─────────────────────────────────────────────────
--- Reminder (see 20260903_rbac_branch_scoping.sql header): API routes connect
+-- Reminder (see 20260903010000_rbac_branch_scoping.sql header): API routes connect
 -- with the Supabase SERVICE ROLE key, which bypasses RLS. These policies are
 -- the second layer, covering any client reaching Postgres directly with a
 -- user JWT.

@@ -7,7 +7,7 @@
 -- read path, but the extra un-reconciled row still persists in the raw table.
 --
 -- employee_id and log_date are both NOT NULL on this table (see
--- 20260401_backfill_core_schema.sql), so a duplicate row can't be "archived"
+-- 20260401010000_backfill_core_schema.sql), so a duplicate row can't be "archived"
 -- by blanking its identifying columns the way earlier drafts of this
 -- migration tried (that failed with a not-null violation on log_date).
 -- Instead this adds a boolean flag column and archives duplicates by setting

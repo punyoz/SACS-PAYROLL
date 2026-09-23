@@ -1,6 +1,6 @@
 /**
  * Persistent leave-request storage — backed solely by the Supabase
- * `leave_requests` table (see supabase/migrations/20260827_add_pay_status_to_leave_requests.sql).
+ * `leave_requests` table (see supabase/migrations/20260827010000_add_pay_status_to_leave_requests.sql).
  * No ephemeral fallback: a real database error is thrown, not swallowed into
  * temporary storage.
  */

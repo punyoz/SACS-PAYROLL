@@ -6,12 +6,12 @@
 -- identical id, which then silently doubles as the key payroll and RFID
 -- matching group records under.
 --
--- profiles.employee_id has existed since 20260401_backfill_core_schema.sql
+-- profiles.employee_id has existed since 20260401010000_backfill_core_schema.sql
 -- but was never written to (only auth.users.user_metadata.employee_id was);
 -- this backfills it from metadata and adds the uniqueness the app-level
 -- read-then-write check alone can't guarantee under concurrency.
 
--- 1. Backfill from Auth metadata, same pattern as 20260914_profile_id_fields_and_perf.sql.
+-- 1. Backfill from Auth metadata, same pattern as 20260914010000_profile_id_fields_and_perf.sql.
 UPDATE public.profiles p
 SET employee_id = COALESCE(p.employee_id, NULLIF(u.raw_user_meta_data->>'employee_id', ''))
 FROM auth.users u

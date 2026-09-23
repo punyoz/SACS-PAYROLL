@@ -394,7 +394,7 @@ describe("Accounts are archived, never destroyed", () => {
   it("blocks hard deletes at the database level too", async () => {
     const { readFileSync } = await import("node:fs");
     const sql = readFileSync(
-      "supabase/migrations/20260903_rbac_branch_scoping.sql",
+      "supabase/migrations/20260903010000_rbac_branch_scoping.sql",
       "utf8",
     );
 
@@ -541,7 +541,7 @@ describe("Matrix stays in step with the SQL seed", () => {
 
   beforeAll(async () => {
     const { readFileSync } = await import("node:fs");
-    sql = readFileSync("supabase/migrations/20260903_rbac_branch_scoping.sql", "utf8");
+    sql = readFileSync("supabase/migrations/20260903010000_rbac_branch_scoping.sql", "utf8");
   });
 
   const seedRow = (role, moduleName) => {

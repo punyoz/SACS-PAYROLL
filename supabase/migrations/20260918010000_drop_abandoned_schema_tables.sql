@@ -1,5 +1,5 @@
 -- Drop the remaining tables from the abandoned pre-Supabase-Auth schema design
--- that 20260830_drop_payroll_entries_employee_fk.sql already identified by name
+-- that 20260830010000_drop_payroll_entries_employee_fk.sql already identified by name
 -- as dead: "employees" (alongside payroll_periods, payslips, attendance,
 -- approval_logs, employees_branch_* -- none of which any code in this repo
 -- reads or writes). employees_branch_* and salary_approvals were already

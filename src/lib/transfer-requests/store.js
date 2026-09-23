@@ -1,7 +1,7 @@
 /**
  * Persistent transfer-request storage — backed solely by the Supabase
  * `transfer_requests` table (see
- * supabase/migrations/20260910_transfer_requests_and_employee_contact.sql).
+ * supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql).
  * No ephemeral fallback: a real database error is thrown, not swallowed into
  * temporary storage.
  *

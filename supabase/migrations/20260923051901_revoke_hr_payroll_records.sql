@@ -8,7 +8,7 @@
 -- src/lib/rbac/permissions.js.
 --
 -- HOW THIS REACHES THE POLICY
--- payroll_records_select_branch (20260903_rbac_branch_scoping.sql) names no
+-- payroll_records_select_branch (20260903010000_rbac_branch_scoping.sql) names no
 -- roles of its own:
 --
 --   employee_id::text = auth.uid()::text
@@ -18,7 +18,7 @@
 -- reads. Revoking the row IS the policy change -- the policy text needs no
 -- edit, and every other table keyed on payroll_records inherits the same
 -- revocation automatically. This follows the pattern established by
--- 20260919_revoke_accountant_leave_approval.sql.
+-- 20260919010000_revoke_accountant_leave_approval.sql.
 --
 -- WHAT REMAINS
 -- Accountant (full, own branch), Admin (view, own branch) and Super Admin

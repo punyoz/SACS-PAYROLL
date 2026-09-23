@@ -155,7 +155,7 @@ function shapeEmployee(user, profile, index) {
     archived: Boolean(metadata.archived),
     date_of_birth: normalizeText(metadata.date_of_birth, ""),
     // profiles is now authoritative for these (real, constrained columns —
-    // see supabase/migrations/20260914_profile_id_fields_and_perf.sql);
+    // see supabase/migrations/20260914010000_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
     address: normalizeText(profile?.address, normalizeText(metadata.address, "")),
     sss_number: normalizeText(profile?.sss_number, normalizeText(metadata.sss_number, "")),
@@ -164,7 +164,7 @@ function shapeEmployee(user, profile, index) {
     bank_name: normalizeText(profile?.bank_name, normalizeText(metadata.bank_name, "")),
     bank_account_number: normalizeText(profile?.bank_account_number, normalizeText(metadata.bank_account_number, "")),
     // Live on profiles, not user_metadata (see
-    // supabase/migrations/20260910_transfer_requests_and_employee_contact.sql).
+    // supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql).
     cp_number: normalizeText(profile?.cp_number, ""),
     date_hired: normalizeText(profile?.date_hired, ""),
   };
@@ -172,7 +172,7 @@ function shapeEmployee(user, profile, index) {
 
 /**
  * The branch an employee belongs to. profiles.branch_id is authoritative (see
- * supabase/migrations/20260903_rbac_branch_scoping.sql); auth metadata is the
+ * supabase/migrations/20260903010000_rbac_branch_scoping.sql); auth metadata is the
  * fallback for accounts created before that column existed.
  */
 async function fetchEmployeeBranch(supabase, userId, metadata) {
@@ -211,7 +211,7 @@ async function fetchEmployees(supabase) {
     // Degrade to auth-metadata-only (matching /api/admin/users and
     // /api/hr/employees) instead of failing the whole list — this keeps
     // Admin's employee table working even mid-deploy, before
-    // 20260914_profile_id_fields_and_perf.sql has been run against a given
+    // 20260914010000_profile_id_fields_and_perf.sql has been run against a given
     // environment, rather than a missing column taking the page down.
     if (profileResult.error) {
       console.error("Failed to fetch profiles:", profileResult.error.message);
@@ -357,7 +357,7 @@ export async function POST(request) {
 
     // generateUniqueEmployeeId() above only checked a snapshot taken before
     // createUser() — two near-simultaneous hires can compute the same id.
-    // profiles_employee_id_unique (20260917_profiles_employee_id_unique.sql)
+    // profiles_employee_id_unique (20260917050000_profiles_employee_id_unique.sql)
     // is the real guard: on a collision, recompute against a fresh read and
     // retry a few times before giving up.
     let finalEmployeeId = autoEmployeeId;
@@ -675,7 +675,7 @@ export async function DELETE(request) {
     // flagged archived and its employee_status set to Inactive, which is what
     // the portals already read to hide it from active lists. No role can
     // trigger a physical removal from here — and the block_hard_delete trigger
-    // in supabase/migrations/20260903_rbac_branch_scoping.sql refuses it at the
+    // in supabase/migrations/20260903010000_rbac_branch_scoping.sql refuses it at the
     // database level too, so a direct SQL DELETE fails the same way.
     const supabase = getAdminClient();
 

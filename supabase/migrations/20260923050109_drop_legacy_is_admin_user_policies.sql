@@ -2,7 +2,7 @@
 -- Remove the pre-RBAC "admin_only" / "self_or_admin" policies
 --
 -- These six predate SACS-Payroll-Permission-Matrix.md and duplicate, less
--- correctly, what 20260903_rbac_branch_scoping.sql already does. Two problems.
+-- correctly, what 20260903010000_rbac_branch_scoping.sql already does. Two problems.
 --
 -- 1. INFINITE RECURSION.
 --    is_admin_user() is LANGUAGE sql STABLE with no SECURITY DEFINER, unlike
@@ -16,7 +16,7 @@
 --
 --    This never surfaced because the blanket "Service role full access" policy
 --    (USING (true)) short-circuited the OR before is_admin_user() was reached.
---    Removing that policy in 20260923_drop_blanket_service_role_policies.sql
+--    Removing that policy in 20260923045702_drop_blanket_service_role_policies.sql
 --    exposed it: every read of profiles or audit_logs by an `authenticated`
 --    caller began failing. (The API routes were unaffected throughout -- the
 --    service role skips RLS.)

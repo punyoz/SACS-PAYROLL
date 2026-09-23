@@ -1,5 +1,5 @@
 -- payroll_records has grown a full row per employee per pay run since
--- 20260401_backfill_core_schema.sql created it, but never got an index to
+-- 20260401010000_backfill_core_schema.sql created it, but never got an index to
 -- match the query patterns that hit it on every load:
 --   * admin/dashboard recent activity -> .order("processed_at", desc).limit(5)
 --   * admin/branch-reports            -> .order("processed_at", desc).limit(500)

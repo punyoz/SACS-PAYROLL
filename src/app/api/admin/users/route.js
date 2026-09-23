@@ -41,8 +41,8 @@ function shapeUser(user, profile) {
     last_sign_in: user.last_sign_in_at || null,
     created_at: user.created_at || null,
     // Live on profiles, not user_metadata (see
-    // supabase/migrations/20260910_transfer_requests_and_employee_contact.sql
-    // and 20260914_profile_id_fields_and_perf.sql). Displayed read-only on
+    // supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql
+    // and 20260914010000_profile_id_fields_and_perf.sql). Displayed read-only on
     // the merged employee table's "View Details" — not editable from this
     // route's own modal (sa-admin-user-modal covers account fields only).
     cp_number: normalizeText(profile?.cp_number, ""),
@@ -58,7 +58,7 @@ function shapeUser(user, profile) {
 
 /**
  * The branch a user belongs to, read from profiles first (the source of truth
- * since 20260903_rbac_branch_scoping.sql) and falling back to auth metadata for
+ * since 20260903010000_rbac_branch_scoping.sql) and falling back to auth metadata for
  * accounts created before that column existed.
  */
 async function fetchUserBranch(supabase, userId, metadata) {

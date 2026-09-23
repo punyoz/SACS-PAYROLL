@@ -10,8 +10,8 @@
 --    stop showing a raw branch_id UUID.
 --
 -- No new indexes: transfer_requests already has employee_id/from_branch_id/
--- to_branch_id/status indexes (20260910_transfer_requests_and_employee_contact.sql)
--- and profiles already has a branch_id index (20260903_rbac_branch_scoping.sql).
+-- to_branch_id/status indexes (20260910010000_transfer_requests_and_employee_contact.sql)
+-- and profiles already has a branch_id index (20260903010000_rbac_branch_scoping.sql).
 --
 -- Idempotent — safe to run more than once.
 -- ════════════════════════════════════════════════════════════════════════════

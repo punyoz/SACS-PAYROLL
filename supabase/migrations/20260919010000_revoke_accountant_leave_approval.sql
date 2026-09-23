@@ -15,7 +15,7 @@
 --     maps a page for `hr` only, and pages/accountant.html carries none of the
 --     markup public/legacy/js/accountant.js renders into.
 --
--- The seed row in 20260903_rbac_branch_scoping.sql is corrected to match, so a
+-- The seed row in 20260903010000_rbac_branch_scoping.sql is corrected to match, so a
 -- database built from scratch is already right. This file exists for databases
 -- where that migration has already been applied.
 --

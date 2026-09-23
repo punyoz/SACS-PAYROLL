@@ -10,7 +10,7 @@
 -- pay period by design (see the app's hasDraftDuplicate/hasAlreadyPaid
 -- checks); the durable, append-only paid record lives in payroll_records
 -- instead (its own payslip_no already carries a UNIQUE constraint — see
--- 20260509_add_payslip_no.sql), so collapsing any pre-existing duplicate
+-- 20260509010000_add_payslip_no.sql), so collapsing any pre-existing duplicate
 -- payroll_entries rows down to the most recently updated one loses no payroll
 -- history.
 

@@ -310,7 +310,7 @@ async function syncPayrollEntryToDb(supabase, entry) {
 
   try {
     // A single atomic upsert keyed on the real UNIQUE(employee_id, pay_period)
-    // constraint (see 20260917_payroll_entries_unique_period.sql). Two
+    // constraint (see 20260917030000_payroll_entries_unique_period.sql). Two
     // concurrent submits for the same employee+period now serialize on this
     // one write instead of racing between a delete and an insert — the loser
     // updates the row the winner just created rather than creating a second
@@ -383,7 +383,7 @@ async function generatePayslipNumbers(supabase, processedAt, count) {
   return Array.from({ length: count }, (_, i) => `${prefix}${String(seq + i).padStart(4, "0")}`);
 }
 
-// payroll_records.payslip_no carries a UNIQUE constraint (20260509_add_payslip_no.sql),
+// payroll_records.payslip_no carries a UNIQUE constraint (20260509010000_add_payslip_no.sql),
 // so a collision from generatePayslipNo()'s read-then-increment race surfaces
 // here as a 23505 error rather than a silently duplicated payslip number.
 // Retrying with a freshly-read next sequence number resolves it without

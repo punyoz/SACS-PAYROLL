@@ -16,7 +16,7 @@
  * The API routes hold the Supabase service-role key, which bypasses Row Level
  * Security entirely — so RLS alone can never protect them. This guard is the
  * layer that actually enforces the matrix on those routes; the RLS policies in
- * supabase/migrations/20260903_rbac_branch_scoping.sql are the second layer,
+ * supabase/migrations/20260903010000_rbac_branch_scoping.sql are the second layer,
  * covering any client that talks to Postgres directly with a user JWT.
  */
 

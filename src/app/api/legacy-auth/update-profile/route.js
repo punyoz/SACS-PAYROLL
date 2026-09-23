@@ -91,7 +91,7 @@ export async function POST(request) {
   invalidateUsersCache();
 
   // profiles is authoritative for cp_number (see
-  // supabase/migrations/20260910_transfer_requests_and_employee_contact.sql)
+  // supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql)
   // — every employee-listing route reads it from there, not user_metadata.
   const profilePatch = { full_name };
   if (body.cp_number !== undefined) {

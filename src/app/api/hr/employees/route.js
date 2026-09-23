@@ -58,7 +58,7 @@ function shapeEmployee(user, profile) {
     archived: Boolean(meta.archived),
     created_at: user.created_at,
     // profiles is authoritative for these (real, constrained columns —
-    // see supabase/migrations/20260914_profile_id_fields_and_perf.sql);
+    // see supabase/migrations/20260914010000_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
     address: normalizeText(profile?.address, normalizeText(meta.address, "")),
     sss_number: normalizeText(profile?.sss_number, normalizeText(meta.sss_number, "")),

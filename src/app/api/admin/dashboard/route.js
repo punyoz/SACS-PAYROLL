@@ -203,7 +203,7 @@ export async function GET(request) {
     // These two don't depend on each other's result — running them
     // sequentially was pure added latency on every dashboard load. Recent
     // activity's own query used to be the slowest part once payroll_records
-    // grew (see 20260915_payroll_records_processed_at_idx.sql), so it's
+    // grew (see 20260915010000_payroll_records_processed_at_idx.sql), so it's
     // worth overlapping with the rest rather than tacking it on after.
     const [attendancePanels, recentActivity] = await Promise.all([
       getAttendancePanels(supabase, activeEmployees),
