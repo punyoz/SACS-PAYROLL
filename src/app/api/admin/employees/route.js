@@ -110,7 +110,7 @@ function stripAllowedSuffix(fullName) {
 
 function buildFullNameFromParts(body) {
   const first = toTitleCaseWords(body?.first_name);
-  const middle = normalizeText(body?.middle_initial);
+  const middle = toTitleCaseWords(body?.middle_initial);
   const last = toTitleCaseWords(body?.last_name);
   const suffix = normalizeSuffix(body?.suffix);
 

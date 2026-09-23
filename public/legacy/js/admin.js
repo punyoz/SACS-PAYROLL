@@ -242,7 +242,7 @@ function toTitleCaseWords(value) {
 
 function composeFullName({ first_name = '', middle_initial = '', last_name = '', suffix = '' }) {
   const first = toTitleCaseWords(first_name);
-  const middle = String(middle_initial || '').trim();
+  const middle = toTitleCaseWords(middle_initial);
   const last = toTitleCaseWords(last_name);
   const resolvedSuffix = normalizeSuffix(suffix);
 
