@@ -10,8 +10,8 @@
  * because they answer different needs; nothing here changes /api/admin/users.
  *
  * WHAT IT DELIBERATELY DOES NOT COLLECT
- * basic_salary, SSS, PhilHealth, Pag-IBIG, TIN, bank name and bank account
- * number. See src/lib/employees/staff-record.js — these are operator logins,
+ * basic_salary, SSS, PhilHealth, Pag-IBIG, TIN, bank name, bank account
+ * number, and position. See src/lib/employees/staff-record.js — these are operator logins,
  * not payroll records.
  *
  * ACCESS
@@ -121,7 +121,6 @@ export async function POST(request) {
       date_of_birth: record.date_of_birth,
       sex: record.sex,
       civil_status: record.civil_status,
-      position: record.position,
       date_hired: record.date_hired,
       employee_status: record.employee_status,
       address: record.address,

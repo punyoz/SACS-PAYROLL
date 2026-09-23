@@ -1967,7 +1967,6 @@ async function submitSAStaffAccount(event) {
     ['email', 'Email is required.'],
     ['role', 'Select a role.'],
     ['employee_status', 'Select an account status.'],
-    ['position', 'Position is required.'],
     ['date_of_birth', 'Date of birth is required.'],
     ['date_hired', 'Date hired is required.'],
     ['sex', 'Select a sex.'],
@@ -1989,7 +1988,6 @@ async function submitSAStaffAccount(event) {
     // Sent empty for Super Admin; the server stores null for that role either way.
     branch_id: role === 'super_admin' ? '' : value('branch_id'),
     employee_status: value('employee_status'),
-    position: value('position'),
     date_of_birth: value('date_of_birth'),
     date_hired: value('date_hired'),
     sex: value('sex'),

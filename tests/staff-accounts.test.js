@@ -34,7 +34,6 @@ function validBody(overrides = {}) {
     date_of_birth: "1990-04-12",
     sex: "Female",
     civil_status: "Single",
-    position: "HR Officer",
     date_hired: "2020-06-01",
     employee_status: "Active",
     address: "12 Mabini St, Quezon City",
@@ -133,6 +132,17 @@ describe("Staff accounts carry no payroll or statutory fields", () => {
     for (const field of forbidden) {
       expect(staffRoute).not.toContain(field + ":");
     }
+  });
+
+  it("does not collect a position either", () => {
+    // Not a payroll field, so it gets its own check: the role IS the job for
+    // these accounts, and normalizePositionForRole() derives the displayed
+    // title from the role regardless of what was stored.
+    expect(normalizeStaffFields(validBody({ position: "HR Officer" }))).not.toHaveProperty("position");
+    expect(STAFF_REQUIRED_FIELDS).not.toContain("position");
+    const formStart = superAdminPage.indexOf('id="sa-staff-account-form"');
+    const form = superAdminPage.slice(formStart, superAdminPage.indexOf("</form>", formStart));
+    expect(form).not.toContain('name="position"');
   });
 
   it("the Super Admin form has no input for them", () => {

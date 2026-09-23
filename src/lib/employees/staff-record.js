@@ -8,7 +8,14 @@
  * payroll-specific:
  *
  *   excluded: basic_salary, sss_number, philhealth_number, pagibig_number,
- *             tin_number, bank_name, bank_account_number
+ *             tin_number, bank_name, bank_account_number, position
+ *
+ * Position is left out for a different reason than the rest. The role IS the
+ * job for these accounts, and normalizePositionForRole() derives the title
+ * that gets displayed from the role no matter what was typed -- so the box
+ * collected a value that was then overwritten. /api/admin/users has never
+ * asked for one either, so leaving it out keeps the two account-creation
+ * flows consistent.
  *
  * Those exist so payroll can pay and report on a person. A Super Admin, Admin
  * or HR account is an operator login; if such a person is also on payroll,
@@ -57,7 +64,6 @@ export function normalizeStaffFields(body = {}) {
     date_of_birth: normalizeText(body.date_of_birth),
     sex: pickOption(body.sex, SEX_OPTIONS),
     civil_status: pickOption(body.civil_status, CIVIL_STATUS_OPTIONS),
-    position: normalizeText(body.position),
     date_hired: normalizeText(body.date_hired),
     employee_status: pickOption(body.employee_status, ACCOUNT_STATUS_OPTIONS),
     address: normalizeText(body.address),
@@ -73,7 +79,6 @@ const FIELD_LABELS = {
   date_of_birth: "Date of birth",
   sex: "Sex",
   civil_status: "Civil status",
-  position: "Position",
   date_hired: "Date hired",
   employee_status: "Account status",
   address: "Home address",
@@ -83,7 +88,7 @@ const FIELD_LABELS = {
 /** Required on every staff account. Branch is conditional -- see below. */
 export const STAFF_REQUIRED_FIELDS = [
   "full_name", "email", "role", "date_of_birth", "sex", "civil_status",
-  "position", "date_hired", "employee_status", "address", "cp_number",
+  "date_hired", "employee_status", "address", "cp_number",
 ];
 
 function parseDate(value) {
