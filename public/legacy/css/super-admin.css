@@ -37,52 +37,6 @@
 .sa-pill-warning { background: var(--amber-s); color: var(--amber); border: 1px solid rgba(245,166,35,.3); }
 .sa-pill-info    { background: var(--blue-s);  color: var(--blue);  border: 1px solid rgba(74,158,245,.3); }
 
-/* ── PERMISSION TOGGLE ── */
-.perm-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px;
-  margin-top: 10px;
-}
-.perm-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--t2);
-}
-.perm-toggle {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  flex-shrink: 0;
-}
-.perm-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
-.perm-toggle-track {
-  position: absolute;
-  inset: 0;
-  border-radius: 9px;
-  background: var(--border);
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.perm-toggle input:checked + .perm-toggle-track { background: var(--amber); }
-.perm-toggle-track::before {
-  content: '';
-  position: absolute;
-  left: 2px; top: 2px;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: #fff;
-  transition: transform 0.2s;
-}
-.perm-toggle input:checked + .perm-toggle-track::before { transform: translateX(14px); }
-
 /* ── CONFIG SECTION ── */
 .config-section {
   border: 1px solid var(--border);
@@ -239,19 +193,6 @@
   gap: 12px;
   margin-top: 12px;
 }
-
-/* ── MONITORING TABLE QUICK BADGE ── */
-.status-dot {
-  display: inline-block;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  margin-right: 5px;
-  vertical-align: middle;
-}
-.status-dot-green  { background: var(--green); }
-.status-dot-red    { background: var(--red); }
-.status-dot-amber  { background: var(--amber); }
-.status-dot-blue   { background: var(--blue); }
 
 /* System Configuration honesty notice.
    Every field on that screen is persisted to system_config and read back into

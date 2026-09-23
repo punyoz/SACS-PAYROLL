@@ -129,13 +129,28 @@ function localDateKey(date = new Date()) {
   }).format(date);
 }
 
+const HTML_ESCAPES = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+/**
+ * Escapes the five HTML-significant characters in one pass.
+ *
+ * This runs for every cell of every table the portals render — a 15-row
+ * employee table is ~150 calls, and the search boxes re-render on each
+ * keystroke. The five chained replaceAll() calls this replaces walked the
+ * whole string five times each, four of those passes finding nothing:
+ * ordinary names and dates contain none of these characters.
+ *
+ * String(value || '') is kept exactly as it was, not switched to ??, because
+ * callers rely on escapeHtml(0) returning '' rather than '0'.
+ */
 function escapeHtml(value) {
-  return String(value || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
+  return String(value || '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
 }
 
 function formatTimeOnly(value) {
@@ -1775,15 +1790,44 @@ function populateDigitFieldsIn(form, source) {
 
 function attachSidebarSpotlight(sidebar) {
   if (!sidebar) return;
+
+  // mousemove fires once per frame at best and several times per frame on a
+  // 120Hz trackpad. Reading getBoundingClientRect() in that handler forced a
+  // synchronous layout every time — and because the previous event had just
+  // written --mx/--my, the layout it flushed was one this handler itself had
+  // dirtied. Two fixes, both invisible to the user:
+  //
+  //   1. The rect only moves when the sidebar does, which mousemove cannot
+  //      cause. Measure on enter and on resize, then reuse it.
+  //   2. Collapse a burst of moves into one style write on the frame that is
+  //      about to paint, instead of one write per event.
+  let rect = null;
+  let lastX = 0;
+  let lastY = 0;
+  let rafPending = false;
+
+  const measure = () => { rect = sidebar.getBoundingClientRect(); };
+
+  sidebar.addEventListener('mouseenter', measure, { passive: true });
+  window.addEventListener('resize', () => { rect = null; }, { passive: true });
+
   sidebar.addEventListener('mousemove', (e) => {
-    const rect = sidebar.getBoundingClientRect();
-    sidebar.style.setProperty('--mx', `${e.clientX - rect.left}px`);
-    sidebar.style.setProperty('--my', `${e.clientY - rect.top}px`);
-  });
+    lastX = e.clientX;
+    lastY = e.clientY;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      if (!rect) measure();
+      sidebar.style.setProperty('--mx', `${lastX - rect.left}px`);
+      sidebar.style.setProperty('--my', `${lastY - rect.top}px`);
+    });
+  }, { passive: true });
+
   sidebar.addEventListener('mouseleave', () => {
     sidebar.style.removeProperty('--mx');
     sidebar.style.removeProperty('--my');
-  });
+  }, { passive: true });
 }
 
 /* ── PAGINATION ── */
@@ -2144,13 +2188,14 @@ function setupTabScrollFade() {
       nav.classList.toggle('fade-r', scrollable && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2);
     };
 
-    nav.addEventListener('scroll', update, { passive: true });
-    // update() reads scrollWidth/clientWidth, which forces a synchronous
-    // layout. Resize fires in a burst on phones (orientation change, the
-    // on-screen keyboard opening over the tab strip), so coalesce the burst
-    // into one measurement per frame instead of one per event.
+    // update() reads scrollWidth/clientWidth and then writes classes, so
+    // calling it straight from an event handler forces a synchronous layout
+    // and dirties it again on the same tick. Scroll fires far more often than
+    // resize — once per frame or more while a finger drags the tab strip —
+    // so it needs this coalescing at least as much: one measurement per
+    // frame, on the frame that is about to paint anyway.
     let rafPending = false;
-    const onResize = () => {
+    const scheduleUpdate = () => {
       if (rafPending) return;
       rafPending = true;
       requestAnimationFrame(() => {
@@ -2158,7 +2203,9 @@ function setupTabScrollFade() {
         update();
       });
     };
-    window.addEventListener('resize', onResize, { passive: true });
+
+    nav.addEventListener('scroll', scheduleUpdate, { passive: true });
+    window.addEventListener('resize', scheduleUpdate, { passive: true });
     update();
   });
 }
