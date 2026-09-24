@@ -172,9 +172,10 @@ async function loadHREmployees() {
   if (tbody) tbody.innerHTML = skeletonRows(10);
 
   try {
-    const includeArchived = hrEmployeeFilter === 'archived';
+    // Archived rows are always loaded (the table filters them per chip) so the
+    // "Archived (n)" count is right before that chip is opened.
     const [res, branches] = await Promise.all([
-      fetch(`/api/hr/employees${includeArchived ? '?archived=true' : ''}`),
+      fetch('/api/hr/employees?archived=true'),
       fetchBranchesCached({ activeOnly: false }).catch(() => hrBranches),
     ]);
     hrBranches = branches;
@@ -240,11 +241,7 @@ function setHrEmployeeFilter(filter) {
   document.querySelectorAll('#hr-emp-filter-chips .chip').forEach((c) => {
     c.classList.toggle('active', c.dataset.filter === filter);
   });
-  if (filter === 'archived') {
-    loadHREmployees();
-  } else {
-    renderHREmployeeTable();
-  }
+  renderHREmployeeTable();
 }
 
 function setHrEmployeeSearch(val) {
@@ -281,7 +278,10 @@ function renderHREmployeeTable() {
           return;
         }
         tbody.innerHTML = rows.map((e) => {
-          const statusColor = e.employee_status?.toLowerCase() === 'active' ? 'var(--green)' : 'var(--amber)';
+          const statusColor = e.archived
+            ? 'var(--red)'
+            : e.employee_status?.toLowerCase() === 'active' ? 'var(--green)' : 'var(--amber)';
+          const statusLabel = e.archived ? 'Archived' : (e.employee_status || 'Active');
           const cpNumber = e.cp_number
             ? formatDigitGroups(digitsOnly(e.cp_number), DIGIT_FIELD_SPECS.cp_number.groups, DIGIT_FIELD_SPECS.cp_number.separator)
             : '—';
@@ -293,7 +293,7 @@ function renderHREmployeeTable() {
             <td>${escapeHtml(cpNumber)}</td>
             <td style="font-size:12px;">${escapeHtml(hrBranchName(e.branch_id) || '—')}</td>
             <td style="font-size:12px;">${escapeHtml(e.date_hired || '—')}</td>
-            <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${escapeHtml(e.employee_status || 'Active')}</span></td>
+            <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${escapeHtml(statusLabel)}</span></td>
             <td style="font-size:12px;color:var(--t3);">${escapeHtml(e.email || '—')}</td>
             <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal('${escapeHtml(e.id)}')">Edit</button></td>
           </tr>`;
@@ -518,6 +518,13 @@ function openHrEditEmployeeModal(employeeId) {
   bindDigitFieldsIn(form);
   populateDigitFieldsIn(form, employee);
 
+  const archiveBtn = document.getElementById('hr-edit-employee-archive-btn');
+  if (archiveBtn) {
+    archiveBtn.disabled = false;
+    archiveBtn.className = employee.archived ? 'btn btn-green' : 'btn btn-red';
+    archiveBtn.textContent = employee.archived ? 'Restore Employee' : 'Archive Employee';
+  }
+
   const fb = document.getElementById('hr-edit-employee-feedback');
   const missing = [...form.querySelectorAll('[required]')].filter((c) => !String(c.value || '').trim());
   if (fb) {
@@ -529,6 +536,53 @@ function openHrEditEmployeeModal(employeeId) {
 
   const modal = document.getElementById('hr-edit-employee-modal');
   if (modal) modal.style.display = 'flex';
+}
+
+// Archive is a soft delete: the account can no longer sign in or clock in by
+// RFID, drops out of the active lists, and keeps its payroll and attendance
+// history. Restore undoes it. The server (/api/admin/employees PATCH) writes
+// both the auth flag and profiles.archived.
+async function toggleArchiveHrEmployee() {
+  const employee = hrCurrentEditEmployee;
+  const archiveBtn = document.getElementById('hr-edit-employee-archive-btn');
+  const fb = document.getElementById('hr-edit-employee-feedback');
+  if (!employee || !archiveBtn) return;
+
+  const action = employee.archived ? 'restore' : 'archive';
+  const name = employee.full_name || 'this employee';
+  const detail = action === 'archive'
+    ? `${name} will be signed out, will not be able to sign in or tap RFID, and will move to the Archived list. Payroll and attendance history is kept.`
+    : `${name} will be able to sign in and tap RFID again.`;
+  const confirmFn = action === 'restore'
+    ? (window.confirmApproveAction
+        && ((p, d) => window.confirmApproveAction(p, d, { title: 'Confirm Restore', confirmLabel: 'Restore' })))
+    : window.confirmDestructiveAction;
+  if (confirmFn && !(await confirmFn(`${action} this employee`, detail))) return;
+
+  try {
+    archiveBtn.disabled = true;
+    archiveBtn.textContent = action === 'archive' ? 'Archiving...' : 'Restoring...';
+
+    const res = await fetch('/api/admin/employees', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: employee.id, action }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Failed to ${action} employee.`);
+
+    pushNotification(
+      action === 'archive' ? 'Employee Archived' : 'Employee Restored',
+      action === 'archive' ? `${name} was moved to Archived.` : `${name} is active again.`,
+      action === 'archive' ? 'info' : 'success',
+    );
+    closeHrEditEmployeeModal();
+    loadHREmployees();
+  } catch (err) {
+    if (fb) { fb.textContent = err.message; fb.className = 'adm-feedback err'; }
+    archiveBtn.disabled = false;
+    archiveBtn.textContent = employee.archived ? 'Restore Employee' : 'Archive Employee';
+  }
 }
 
 function closeHrEditEmployeeModal() {
@@ -1374,6 +1428,7 @@ window.loadHRProfile = loadHRProfile;
 window.hrGo = hrGo;
 window.setHrEmployeeBranchFilter = setHrEmployeeBranchFilter;
 window.openHrEditEmployeeModal = openHrEditEmployeeModal;
+window.toggleArchiveHrEmployee = toggleArchiveHrEmployee;
 window.openHrAddEmployeeModal = openHrAddEmployeeModal;
 window.submitHrChangePassword = submitHrChangePassword;
 

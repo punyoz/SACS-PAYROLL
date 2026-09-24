@@ -12,6 +12,7 @@ import {
 } from "@/lib/rbac/guard";
 import { hashTemporaryPassword, validateNewPassword } from "@/lib/auth/password-policy";
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
+import { syncProfileArchive } from "@/lib/employees/archive";
 import {
   normalizeNameParts,
   splitFullName,
@@ -318,6 +319,16 @@ export async function PATCH(request) {
     }
 
     invalidateUsersCache();
+
+    if (action === "archive" || action === "restore") {
+      const archiveError = await syncProfileArchive(supabase, id, action === "archive", guard.userId);
+      if (archiveError) {
+        return NextResponse.json(
+          { error: `Account ${action}d, but its profile record failed: ${sanitizeError(archiveError)}` },
+          { status: 500 },
+        );
+      }
+    }
 
     if (action === "update") {
       const email = updatePayload.email || existingUser.email;

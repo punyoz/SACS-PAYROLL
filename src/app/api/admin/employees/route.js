@@ -12,6 +12,7 @@ import {
 } from "@/lib/rbac/guard";
 import { hashTemporaryPassword, buildDefaultPassword } from "@/lib/auth/password-policy";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
+import { syncProfileArchive } from "@/lib/employees/archive";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -597,6 +598,16 @@ export async function PATCH(request) {
     }
 
     invalidateUsersCache();
+
+    if (action === "archive" || action === "restore") {
+      const archiveError = await syncProfileArchive(supabase, id, action === "archive", guard.userId);
+      if (archiveError) {
+        return NextResponse.json(
+          { error: `Account ${action}d, but its profile record failed: ${sanitizeError(archiveError)}` },
+          { status: 500 },
+        );
+      }
+    }
 
     if (action === "update") {
       const profilePatch = {
