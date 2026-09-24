@@ -112,6 +112,7 @@ function loadSAProfile() {
   setTxt('sa-ep-info-name', ctx.full_name);
   setTxt('sa-ep-info-role', ctx.role);
   setTxt('sa-ep-info-email', ctx.email);
+  if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('sa-ep-ec');
 }
 
 /* ── DASHBOARD ── */
@@ -613,6 +614,14 @@ async function openSAAdminUserModal(userId) {
   if (branchSelect) branchSelect.value = user.branch_id || '';
   onSAAdminUserRoleChange({ keepBranch: true });
 
+  form.elements.emergency_contact_name.value = user.emergency_contact_name || '';
+  form.elements.emergency_contact_relationship.value = SA_EMERGENCY_RELATIONSHIPS.includes(user.emergency_contact_relationship)
+    ? user.emergency_contact_relationship
+    : '';
+  form.elements.emergency_contact_address.value = user.emergency_contact_address || '';
+  const ecHint = document.getElementById('sa-admin-user-ec-hint');
+  if (ecHint) ecHint.style.display = user.emergency_contact_name ? 'none' : '';
+
   if (archiveBtn) {
     archiveBtn.style.display = '';
     archiveBtn.className = user.archived ? 'btn btn-green' : 'btn btn-red';
@@ -621,6 +630,8 @@ async function openSAAdminUserModal(userId) {
 
   const submitBtn = form.querySelector('button[type="submit"]');
   bindSAStaffFormRules(form, submitBtn);
+  const ecSpec = DIGIT_FIELD_SPECS.emergency_contact_number;
+  setFormattedDigitValue(form.elements.emergency_contact_number, user.emergency_contact_number, ecSpec.groups, ecSpec.separator);
   resetSAStaffFormRules(form, submitBtn);
 
   modal.style.display = 'flex';
@@ -680,6 +691,10 @@ async function submitSAAdminUser(event) {
     suffix: value('suffix'),
     email: value('email').toLowerCase(),
     role,
+    emergency_contact_name: value('emergency_contact_name'),
+    emergency_contact_relationship: value('emergency_contact_relationship'),
+    emergency_contact_address: value('emergency_contact_address'),
+    emergency_contact_number: digitsOnly(value('emergency_contact_number')),
   };
   if (password) payload.password = password;
   const displayName = [payload.first_name, payload.middle_name, payload.last_name, payload.suffix].filter(Boolean).join(' ');
@@ -853,6 +868,8 @@ async function loadSAConfig() {
     set('cfg-work-end', a.work_end);
     set('cfg-grace', a.grace);
     set('cfg-work-hours', a.work_hours);
+    saConfigCache = cfg;
+    await populateSAAttendanceBranches();
 
     const p = cfg.payroll || {};
     set('cfg-pay-freq', p.pay_freq);
@@ -875,6 +892,63 @@ async function loadSAConfig() {
   } catch {}
 }
 
+/* ── PER-BRANCH ATTENDANCE POLICY ──
+ * Default schedule lives in system_config section "attendance"; a branch's own
+ * schedule in "attendance:<branch id>" (see src/lib/attendance/policy.js).
+ * Keys a branch has not set fall back to the default. */
+let saConfigCache = {};
+const SA_ATT_DEFAULTS = { work_start: '08:00', work_end: '17:00', grace: '15', work_hours: '8' };
+
+function saAttendanceSection(branchId) {
+  return branchId ? `attendance:${branchId}` : 'attendance';
+}
+
+async function populateSAAttendanceBranches() {
+  const sel = document.getElementById('cfg-att-branch');
+  if (!sel) return;
+  const current = sel.value;
+  let branches = saBranches;
+  if (!branches.length && typeof fetchBranchesCached === 'function') {
+    branches = await fetchBranchesCached({ activeOnly: false }).catch(() => []);
+  }
+  sel.innerHTML = '<option value="">Default (all branches without their own schedule)</option>'
+    + branches.map((b) => {
+      const own = saConfigCache[saAttendanceSection(b.id)] ? ' — custom schedule' : '';
+      return `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}${own}</option>`;
+    }).join('');
+  if (current && branches.some((b) => String(b.id) === current)) sel.value = current;
+  applySAAttendanceBranch();
+}
+
+function applySAAttendanceBranch() {
+  const sel = document.getElementById('cfg-att-branch');
+  const hint = document.getElementById('cfg-att-branch-hint');
+  const branchId = sel ? sel.value : '';
+  const base = { ...SA_ATT_DEFAULTS, ...(saConfigCache.attendance || {}) };
+  const own = branchId ? (saConfigCache[saAttendanceSection(branchId)] || null) : null;
+  const ids = { work_start: 'cfg-work-start', work_end: 'cfg-work-end', grace: 'cfg-grace', work_hours: 'cfg-work-hours' };
+
+  Object.entries(ids).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const v = own && own[key] !== undefined && own[key] !== null && own[key] !== '' ? own[key] : base[key];
+    el.value = v ?? '';
+  });
+
+  if (hint) {
+    const name = sel && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text.replace(' — custom schedule', '') : '';
+    hint.textContent = !branchId
+      ? 'Editing the default schedule. Branches without their own schedule use these values.'
+      : own
+        ? `Editing ${name}'s own schedule.`
+        : `${name} has no schedule of its own yet — showing the default. Saving creates one for this branch.`;
+  }
+}
+
+function onSAAttendanceBranchChange() {
+  applySAAttendanceBranch();
+}
+
 async function saveSAConfig(section) {
   const fb = document.getElementById('sa-config-feedback');
 
@@ -884,7 +958,15 @@ async function saveSAConfig(section) {
     payroll: 'Payroll Configuration',
     security: 'Security & Access',
   };
-  const label = sectionLabels[section] || 'these settings';
+  let label = sectionLabels[section] || 'these settings';
+
+  // Attendance saves to the branch picked in the card (or the default section).
+  const attBranchSel = section === 'attendance' ? document.getElementById('cfg-att-branch') : null;
+  const attBranchId = attBranchSel ? attBranchSel.value : '';
+  if (attBranchId) {
+    const branchName = attBranchSel.options[attBranchSel.selectedIndex].text.replace(' — custom schedule', '');
+    label = `${label} for ${branchName}`;
+  }
 
   const confirmed = window.confirmApproveAction
     ? await window.confirmApproveAction(`save the ${label} changes`, 'This will apply system-wide immediately.', { title: 'Confirm Save', confirmLabel: 'Save' })
@@ -915,10 +997,14 @@ async function saveSAConfig(section) {
     const res = await fetch('/api/admin/config', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ section, fields: values }),
+      body: JSON.stringify({ section: section === 'attendance' ? saAttendanceSection(attBranchId) : section, fields: values }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to save configuration.');
+    if (data.config) {
+      saConfigCache = data.config;
+      if (section === 'attendance') populateSAAttendanceBranches();
+    }
 
     if (fb) {
       fb.textContent = `${section.charAt(0).toUpperCase() + section.slice(1)} settings saved.`;
@@ -1855,6 +1941,7 @@ window.voidSARfidCard = voidSARfidCard;
 window.submitSARfidAttendanceScan = submitSARfidAttendanceScan;
 
 window.loadSAAttendanceData = loadSAAttendanceData;
+window.onSAAttendanceBranchChange = onSAAttendanceBranchChange;
 window.exportSAAttendanceCsv = exportSAAttendanceCsv;
 
 window.openSAAdminUserModal = openSAAdminUserModal;
@@ -1918,6 +2005,9 @@ const SA_NAME_MAX = 50;
 const SA_EMAIL_MAX = 254;
 const SA_ADDRESS_MIN = 5;
 const SA_ADDRESS_MAX = 160;
+const SA_EMERGENCY_NAME_MAX = 100;
+const SA_EMERGENCY_ADDRESS_MAX = 200;
+const SA_EMERGENCY_RELATIONSHIPS = ['Spouse', 'Parent', 'Child', 'Sibling', 'Guardian', 'Relative', 'Partner', 'Friend', 'Other'];
 const SA_MIN_STAFF_AGE = 18;
 const SA_PASSWORD_MIN = 8;
 const SA_PASSWORD_MAX = 72;
@@ -1947,6 +2037,19 @@ function saYearsBetween(earlier, later) {
     years -= 1;
   }
   return years;
+}
+
+/**
+ * The Edit dialog may leave the emergency contact blank for an account that
+ * has none on file yet (created before it was collected). Once any of the
+ * four fields is filled, or one is already on file, all four are checked.
+ * Add Staff Account always checks them.
+ */
+function saEmergencyContactSkipped(form) {
+  if (form?.id !== 'sa-admin-user-form') return false;
+  if (saCurrentAdminUser?.emergency_contact_name) return false;
+  return ['emergency_contact_name', 'emergency_contact_relationship', 'emergency_contact_address', 'emergency_contact_number']
+    .every((name) => !String(form.elements[name]?.value || '').trim());
 }
 
 function saCheckNamePart(value, label, required) {
@@ -2053,6 +2156,45 @@ const SA_STAFF_RULES = {
       if (!v) return 'Home address is required.';
       if (v.length < SA_ADDRESS_MIN) return 'Enter the complete home address.';
       if (v.length > SA_ADDRESS_MAX) return `At most ${SA_ADDRESS_MAX} characters.`;
+      return SA_ADDRESS_PATTERN.test(v) ? '' : 'Letters, numbers, spaces and , . - # / only.';
+    },
+  },
+  // Emergency contact (Add Staff Account only). Server copy of these rules:
+  // src/lib/employees/emergency-contact.js.
+  emergency_contact_name: {
+    blocked: /[^A-Za-zÀ-ÖØ-öø-ÿ .'-]/,
+    clean: (v) => v.replace(SA_NAME_BLOCKED, '').replace(/^[\s.'-]+/, '').replace(/\s{2,}/g, ' '),
+    blockedNote: 'Letters, spaces, hyphens, apostrophes and periods only.',
+    check: (v, form) => {
+      if (saEmergencyContactSkipped(form)) return '';
+      if (!v) return 'Contact person is required.';
+      if (v.length > SA_EMERGENCY_NAME_MAX) return `At most ${SA_EMERGENCY_NAME_MAX} characters.`;
+      return SA_NAME_PATTERN.test(v) ? '' : "Must start with a letter; letters, spaces, - ' . only.";
+    },
+  },
+  emergency_contact_relationship: {
+    check: (v, form) => (saEmergencyContactSkipped(form) || SA_EMERGENCY_RELATIONSHIPS.includes(v) ? '' : 'Select a relationship.'),
+  },
+  emergency_contact_number: {
+    // Digits and grouping from bindDigitFieldsIn(), as for cp_number.
+    check: (v, form) => {
+      if (saEmergencyContactSkipped(form)) return '';
+      const digits = digitsOnly(v);
+      if (!digits) return 'Emergency contact number is required.';
+      if (!/^09\d{9}$/.test(digits)) return 'Must be an 11-digit mobile number starting with 09.';
+      if (digits === digitsOnly(form.elements.cp_number?.value || '')) return "Must differ from the account holder's own number.";
+      return '';
+    },
+  },
+  emergency_contact_address: {
+    blocked: /[^A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]/,
+    clean: (v) => v.replace(SA_ADDRESS_BLOCKED, '').replace(/^\s+/, '').replace(/\s{2,}/g, ' '),
+    blockedNote: 'Letters, numbers, spaces and , . - # / only.',
+    check: (v, form) => {
+      if (saEmergencyContactSkipped(form)) return '';
+      if (!v) return 'Emergency contact address is required.';
+      if (v.length < SA_ADDRESS_MIN) return 'Enter the complete address.';
+      if (v.length > SA_EMERGENCY_ADDRESS_MAX) return `At most ${SA_EMERGENCY_ADDRESS_MAX} characters.`;
       return SA_ADDRESS_PATTERN.test(v) ? '' : 'Letters, numbers, spaces and , . - # / only.';
     },
   },
@@ -2324,6 +2466,10 @@ async function submitSAStaffAccount(event) {
     civil_status: value('civil_status'),
     cp_number: digitsOnly(value('cp_number')),
     address: value('address'),
+    emergency_contact_name: value('emergency_contact_name'),
+    emergency_contact_relationship: value('emergency_contact_relationship'),
+    emergency_contact_address: value('emergency_contact_address'),
+    emergency_contact_number: digitsOnly(value('emergency_contact_number')),
   };
   const displayName = [payload.first_name, payload.middle_name, payload.last_name, payload.suffix].filter(Boolean).join(' ');
 

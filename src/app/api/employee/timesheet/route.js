@@ -4,6 +4,14 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
+import {
+  formatPolicyTime12,
+  loadAttendanceConfig,
+  resolveAttendancePolicy,
+  tardinessMinutes,
+  undertimeMinutes,
+} from "@/lib/attendance/policy";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -104,7 +112,10 @@ function getDayOfWeek(dateStr) {
   }
 }
 
-function calcTardiness(timeInIso) {
+// With a branch policy these follow that branch's work start / end (see
+// src/lib/attendance/policy.js); without one, the fixed SHIFT_IN_H / SHIFT_OUT_H.
+function calcTardiness(timeInIso, policy = null) {
+  if (policy) return tardinessMinutes(timeInIso, policy);
   if (!timeInIso) return 0;
   try {
     const timeIn = new Date(timeInIso);
@@ -124,7 +135,8 @@ function calcTardiness(timeInIso) {
   }
 }
 
-function calcUndertime(timeOutIso) {
+function calcUndertime(timeOutIso, policy = null) {
+  if (policy) return undertimeMinutes(timeOutIso, policy);
   if (!timeOutIso) return 0;
   try {
     const timeOut = new Date(timeOutIso);
@@ -159,7 +171,7 @@ function generateDateRange(startDate, endDate) {
   return dates;
 }
 
-function getShiftInfo(dateStr) {
+function getShiftInfo(dateStr, policy = null) {
   const dow = getDayOfWeek(dateStr);
 
   if (dow === 0 || dow === 6) {
@@ -180,6 +192,16 @@ function getShiftInfo(dateStr) {
       shift_in: null,
       shift_out: null,
       required_hours: 0,
+    };
+  }
+
+  if (policy) {
+    return {
+      row_type: "regular",
+      shift_type: "Regular",
+      shift_in: formatPolicyTime12(policy.work_start),
+      shift_out: formatPolicyTime12(policy.work_end),
+      required_hours: Number(policy.work_hours) || REQ_HOURS,
     };
   }
 
@@ -245,7 +267,7 @@ export async function GET(request) {
     /* Attendance logs for the date range */
     const attResult = await supabase
       .from("attendance_logs")
-      .select("status, log_date, time_in, time_out")
+      .select("status, log_date, time_in, time_out, branch_id")
       .eq("employee_id", user.id)
       .gte("log_date", startDate)
       .lte("log_date", endDate)
@@ -295,11 +317,27 @@ export async function GET(request) {
       /* leave table may not exist — silently skip */
     }
 
+    /* Branch schedules: a day with a tap uses the branch that tap was recorded
+       at (attendance_logs.branch_id, stamped at insert), so a transfer does not
+       rewrite past days; a day with no tap uses the employee's current branch. */
+    const currentBranchId = await resolveCurrentBranchId(user.id, user.user_metadata?.branch_id || null);
+    const attendanceConfig = await loadAttendanceConfig(supabase, [
+      currentBranchId,
+      ...Object.values(attMap).map((row) => row.branch_id),
+    ]);
+    const policyCache = new Map();
+    const policyFor = (branchId) => {
+      const key = String(branchId || "");
+      if (!policyCache.has(key)) policyCache.set(key, resolveAttendancePolicy(attendanceConfig, branchId || null));
+      return policyCache.get(key);
+    };
+
     /* Build a record for every calendar day in the range */
     const dates   = generateDateRange(startDate, endDate);
     const records = dates.map((dateStr) => {
-      const shift     = getShiftInfo(dateStr);
       const att       = attMap[dateStr] || null;
+      const policy    = policyFor(att?.branch_id || currentBranchId);
+      const shift     = getShiftInfo(dateStr, policy);
       const hasLeave  = leaveDates.has(dateStr) ? 1 : 0;
       const timeInIso = att?.time_in  || null;
       const timeOutIso= att?.time_out || null;
@@ -307,8 +345,8 @@ export async function GET(request) {
       let tardiness = 0;
       let undertime = 0;
       if (shift.row_type === "regular" && att?.time_in) {
-        tardiness = calcTardiness(att.time_in);
-        if (att.time_out) undertime = calcUndertime(att.time_out);
+        tardiness = calcTardiness(att.time_in, policy);
+        if (att.time_out) undertime = calcUndertime(att.time_out, policy);
       }
 
       return {

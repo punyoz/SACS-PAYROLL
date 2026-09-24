@@ -6,6 +6,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps, hoursBetween, planTap } from "@/lib/attendance/taps";
+import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/policy";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -295,7 +296,11 @@ function resolveEmployeeByRfid(code, activeEmployees) {
   }) || null;
 }
 
-function isLateInManila(now = new Date()) {
+// With a policy, Late follows that branch's work start + grace period (see
+// src/lib/attendance/policy.js). Without one, the original fixed 8:00 AM rule.
+function isLateInManila(now = new Date(), policy = null) {
+  if (policy) return isLateForPolicy(now, policy);
+
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Manila",
     hour12: false,
@@ -325,7 +330,7 @@ function isDuplicateKeyError(error) {
   return code === "23505" || message.includes("duplicate key");
 }
 
-async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1) {
+async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1, policy = null) {
   const lookupResult = await supabase
     .from("attendance_logs")
     .select("*")
@@ -377,7 +382,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     time_in: nowIso,
     time_out: null,
     total_hours: 0,
-    status: isLateInManila(new Date(nowIso)) ? "Late" : "Present",
+    status: isLateInManila(new Date(nowIso), policy) ? "Late" : "Present",
     log_date: dateKey,
   };
 
@@ -396,7 +401,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     // against the row the winner just committed resolves it as this tap's
     // rightful time_out (or duplicate) instead of failing the scan outright.
     if (isDuplicateKeyError(insertResult.error) && retriesLeft > 0) {
-      return persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft - 1);
+      return persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft - 1, policy);
     }
     throw new Error(insertResult.error?.message || "Failed to create attendance login.");
   }
@@ -481,7 +486,11 @@ export async function POST(request) {
     const nowIso = new Date().toISOString();
     const dateKey = getDateKey(new Date());
 
-    const { record, tap } = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode);
+    // The tap is judged against the schedule of the branch the employee is
+    // assigned to, so a 7:00 AM branch marks Late earlier than an 8:00 AM one.
+    const policy = await getBranchAttendancePolicy(supabase, employee.branch_id);
+
+    const { record, tap } = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, 1, policy);
 
     if (tap !== "duplicate") {
       await appendAuditLog({
@@ -496,6 +505,9 @@ export async function POST(request) {
           employee_id: employee.id,
           rfid_code: rfidCode,
           date_key: dateKey,
+          branch_id: employee.branch_id,
+          schedule: `${policy.work_start}-${policy.work_end}`,
+          grace: policy.grace,
         },
       });
     }

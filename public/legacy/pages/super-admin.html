@@ -398,12 +398,18 @@
         <div class="config-section-head">
           <div>
             <div class="config-section-title">Attendance Policy</div>
-            <div class="config-section-sub">Work hours, grace periods, and RFID tap settings</div>
-            <div class="config-not-enforced">Saved for reference only — not yet applied by the system. Attendance status is not yet computed from these values.</div>
+            <div class="config-section-sub">Work hours, grace periods, and RFID tap settings — set per branch. An RFID Time In is marked Late after the employee's branch start time plus the grace period; employee timesheets show that branch's shift, tardiness and undertime.</div>
           </div>
           <button class="btn btn-outline" onclick="saveSAConfig('attendance')">Save</button>
         </div>
         <div class="config-section-body">
+          <div class="fg" style="margin:0;grid-column:1 / -1;">
+            <label for="cfg-att-branch">Branch Schedule</label>
+            <select id="cfg-att-branch" class="fc" onchange="onSAAttendanceBranchChange()">
+              <option value="">Default (all branches without their own schedule)</option>
+            </select>
+            <div id="cfg-att-branch-hint" style="font-size:11px;color:var(--t3);margin-top:4px;">Editing the default schedule.</div>
+          </div>
           <div class="fg" style="margin:0;">
             <label for="cfg-work-start">Work Start Time</label>
             <input id="cfg-work-start" class="fc" type="time" value="08:00" />
@@ -691,6 +697,28 @@
         </div>
       </div>
 
+      <div class="card ep-info-card">
+        <div class="stitle" style="margin-bottom:14px;">Emergency Contact</div>
+        <div class="ep-info-grid">
+          <div class="ep-info-item">
+            <div class="ep-info-label">Contact Person</div>
+            <div class="ep-info-value" id="sa-ep-ec-name">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Relationship</div>
+            <div class="ep-info-value" id="sa-ep-ec-relationship">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Contact Number</div>
+            <div class="ep-info-value" id="sa-ep-ec-number">—</div>
+          </div>
+          <div class="ep-info-item" style="grid-column:1/-1;">
+            <div class="ep-info-label">Address</div>
+            <div class="ep-info-value" id="sa-ep-ec-address">—</div>
+          </div>
+        </div>
+      </div>
+
     </div><!-- end #sa-profile -->
 
   </div><!-- end .main -->
@@ -772,6 +800,28 @@
             <option value="">Select branch</option>
           </select>
           <span class="field-hint" id="sa-admin-user-branch-hint" style="display:none;"></span>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Emergency Contact</div>
+        <p class="field-hint" id="sa-admin-user-ec-hint" style="grid-column:1/-1;margin:-4px 0 4px;font-size:11px;color:var(--t3);">No emergency contact on file for this account yet. Fill in all four fields to add one.</p>
+        <div class="fg" style="margin:0;">
+          <label for="sa-admin-user-ec-name">Contact Person</label>
+          <input id="sa-admin-user-ec-name" class="fc name-input" type="text" name="emergency_contact_name" maxlength="100" placeholder="e.g. Maria Dela Cruz" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label for="sa-admin-user-ec-relationship">Relationship</label>
+          <select id="sa-admin-user-ec-relationship" class="fc" name="emergency_contact_relationship"><option value="">Select relationship</option><option value="Spouse">Spouse</option><option value="Parent">Parent</option><option value="Child">Child</option><option value="Sibling">Sibling</option><option value="Guardian">Guardian</option><option value="Relative">Relative</option><option value="Partner">Partner</option><option value="Friend">Friend</option><option value="Other">Other</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="margin:0;grid-column:1/-1;">
+          <label for="sa-admin-user-ec-number">Emergency Contact Number</label>
+          <input id="sa-admin-user-ec-number" class="fc" type="tel" name="emergency_contact_number" maxlength="13" placeholder="e.g. 0918 765 4321" autocomplete="off" inputmode="numeric" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="margin:0;grid-column:1/-1;">
+          <label for="sa-admin-user-ec-address">Emergency Contact Address</label>
+          <input id="sa-admin-user-ec-address" class="fc" type="text" name="emergency_contact_address" maxlength="200" placeholder="e.g. 45 Rizal Ave, Pasig City" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" id="sa-admin-user-password-field" style="margin:0;grid-column:1/-1;">
@@ -896,6 +946,28 @@
         <div class="fg" style="grid-column:1/-1;">
           <label for="sa-staff-address">Home Address <span class="req" aria-hidden="true">*</span></label>
           <input id="sa-staff-address" class="fc" type="text" name="address" required minlength="5" maxlength="160" pattern="[A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#\/\-]+" placeholder="e.g. 12 Mabini St, Quezon City" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+
+        <div class="form-section-title">Emergency Contact</div>
+        <div class="fg">
+          <label for="sa-staff-ec-name">Contact Person <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-ec-name" class="fc name-input" type="text" name="emergency_contact_name" required maxlength="100" placeholder="e.g. Maria Dela Cruz" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-ec-relationship">Relationship <span class="req" aria-hidden="true">*</span></label>
+          <select id="sa-staff-ec-relationship" class="fc" name="emergency_contact_relationship" required><option value="">Select relationship</option><option value="Spouse">Spouse</option><option value="Parent">Parent</option><option value="Child">Child</option><option value="Sibling">Sibling</option><option value="Guardian">Guardian</option><option value="Relative">Relative</option><option value="Partner">Partner</option><option value="Friend">Friend</option><option value="Other">Other</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="sa-staff-ec-number">Emergency Contact Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-ec-number" class="fc" type="tel" name="emergency_contact_number" required maxlength="13" placeholder="e.g. 0918 765 4321" autocomplete="off" inputmode="numeric" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="sa-staff-ec-address">Emergency Contact Address <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-ec-address" class="fc" type="text" name="emergency_contact_address" required minlength="5" maxlength="200" placeholder="e.g. 45 Rizal Ave, Pasig City" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
 
