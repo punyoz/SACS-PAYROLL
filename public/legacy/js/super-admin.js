@@ -112,6 +112,7 @@ function loadSAProfile() {
   setTxt('sa-ep-info-name', ctx.full_name);
   setTxt('sa-ep-info-role', ctx.role);
   setTxt('sa-ep-info-email', ctx.email);
+  if (typeof loadOwnStaffId === 'function') loadOwnStaffId('sa-ep-info-id');
   if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('sa-ep-ec');
 }
 
@@ -443,7 +444,7 @@ const SA_ROLE_LABELS = { super_admin: 'Super Admin', admin: 'Admin', hr: 'HR' };
 
 async function loadSAUsers() {
   const tbody = document.getElementById('sa-users-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(7);
+  if (tbody) tbody.innerHTML = skeletonRows(8);
 
   try {
     const [usersRes, branches] = await Promise.allSettled([
@@ -465,7 +466,7 @@ async function loadSAUsers() {
     updateSARoleChips();
     renderSAUsersTable();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -531,7 +532,7 @@ function renderSAUsersTable() {
 
   if (saRolesSearch) {
     list = list.filter((u) =>
-      [u.full_name, u.email, SA_ROLE_LABELS[u.role], saAccountBranchLabel(u)].some((v) =>
+      [u.full_name, u.staff_id, u.email, SA_ROLE_LABELS[u.role], saAccountBranchLabel(u)].some((v) =>
         String(v || '').toLowerCase().includes(saRolesSearch)
       )
     );
@@ -544,7 +545,7 @@ function renderSAUsersTable() {
       pageSize: 15,
       renderFn: (rows) => {
         if (!rows.length) {
-          tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No accounts found.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">No accounts found.</td></tr>';
           return;
         }
         tbody.innerHTML = rows.map((u) => {
@@ -555,6 +556,7 @@ function renderSAUsersTable() {
           const lastLogin = signedIn ? new Date(signedIn).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }) : 'Never';
           return `<tr>
             <td>${escapeHtml(u.full_name || '—')}</td>
+            <td><code style="font-size:11px;">${escapeHtml(u.staff_id || '—')}</code></td>
             <td style="font-size:12px;color:var(--t3);">${escapeHtml(u.email || '—')}</td>
             <td><span class="badge" style="color:${roleColor};background:color-mix(in srgb, ${roleColor} 12%, transparent);border:1px solid color-mix(in srgb, ${roleColor} 25%, transparent);">${SA_ROLE_LABELS[u.role] || '—'}</span></td>
             <td style="font-size:12px;">${escapeHtml(saAccountBranchLabel(u))}</td>
@@ -2494,7 +2496,7 @@ async function submitSAStaffAccount(event) {
     // Shown once, and only here: the Super Admin has to pass it on, and it is
     // not retrievable afterwards.
     if (fb) {
-      fb.innerHTML = `Account created. First-time password: <strong>${escapeHtml(result.temporary_password || '')}</strong> — give this to the account holder. They must change it when they first sign in.`;
+      fb.innerHTML = `Account created${result.staff_id ? ` with ID <strong>${escapeHtml(result.staff_id)}</strong>` : ''}. First-time password: <strong>${escapeHtml(result.temporary_password || '')}</strong> — give this to the account holder. They must change it when they first sign in.`;
       fb.className = 'adm-feedback ok';
     }
     if (typeof pushNotification === 'function') {

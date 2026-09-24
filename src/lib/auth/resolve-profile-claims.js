@@ -73,6 +73,20 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
     if (!profileResult.error) {
       profileRow = profileResult.data || null;
     }
+
+    // STAFF-### for Super Admin / Admin / HR. Read on its own so a database
+    // without the staff_id column yet (20260924150000_profiles_staff_id.sql)
+    // does not lose the whole profile row above.
+    if (profileRow && ["super_admin", "admin", "hr"].includes(normalizeRole(profileRow.role || actualRole))) {
+      const staffResult = await adminClient
+        .from("profiles")
+        .select("staff_id")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!staffResult.error && staffResult.data?.staff_id) {
+        profileRow.staff_id = staffResult.data.staff_id;
+      }
+    }
   }
 
   const resolvedEmailOutput = normalizeText(profileRow?.email, normalizeText(user.email));
@@ -133,6 +147,8 @@ export function buildProfilePayload(resolved, passwordChangeRequired) {
     emergency_contact_number: normalizeText(profileRow?.emergency_contact_number, ""),
     email: resolved.resolvedEmailOutput,
     employee_id: resolved.resolvedEmployeeId,
+    // Super Admin / Admin / HR only; see src/lib/employees/staff-id.js.
+    staff_id: normalizeText(profileRow?.staff_id, ""),
     employee_type: resolved.resolvedEmployeeType,
     position: resolved.resolvedPosition,
     branch_id: resolved.resolvedBranchId,

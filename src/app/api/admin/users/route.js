@@ -13,6 +13,7 @@ import {
 import { hashTemporaryPassword, validateNewPassword } from "@/lib/auth/password-policy";
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
 import { syncProfileArchive } from "@/lib/employees/archive";
+import { assignStaffId, fetchStaffIdMap, isStaffIdRole } from "@/lib/employees/staff-id";
 import {
   EMERGENCY_CONTACT_FIELDS,
   emergencyContactColumns,
@@ -79,6 +80,8 @@ function shapeUser(user, profile) {
     emergency_contact_number: normalizeText(profile?.emergency_contact_number),
     role,
     employee_id: normalizeText(metadata.employee_id, ""),
+    // STAFF-### for Super Admin / Admin / HR (src/lib/employees/staff-id.js).
+    staff_id: isStaffIdRole(role) ? normalizeText(profile?.staff_id, "") : "",
     // Super Admin and HR serve every branch; a stale branch left on one of
     // them is never shown.
     branch_id: BRANCHLESS_ROLES.includes(role) ? null : (profile?.branch_id || metadata.branch_id || null),
@@ -145,6 +148,14 @@ async function fetchAllUsers(supabase) {
     if (!profileResult.error) {
       (profileResult.data || []).forEach((p) => profileMap.set(p.id, p));
     }
+
+    // Read on its own so a database without the staff_id column yet still
+    // lists every account (just without an ID).
+    const staffIds = await fetchStaffIdMap(supabase, userIds);
+    staffIds.forEach((staffId, id) => {
+      const existing = profileMap.get(id);
+      if (existing) existing.staff_id = staffId;
+    });
   }
 
   return users
@@ -380,6 +391,12 @@ export async function PATCH(request) {
           { error: `Account updated, but its profile record failed: ${sanitizeError(profileResult.error)}` },
           { status: 500 },
         );
+      }
+
+      // An account moved into a staff role gets its STAFF-### now; one that
+      // already has an ID keeps it.
+      if (isStaffIdRole(nextMetadata.role)) {
+        await assignStaffId(supabase, id);
       }
 
       if (clearBranch) {

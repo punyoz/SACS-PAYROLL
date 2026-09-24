@@ -137,7 +137,7 @@ function loadAdminProfile() {
   setTxt('adm-ep-pos',       ctx.position     || 'Administrator');
   setTxt('adm-ep-role-tag',  ctx.role         || 'Administrator');
   setTxt('adm-ep-info-name',    ctx.full_name);
-  setTxt('adm-ep-info-id',     ctx.employee_id);
+  if (typeof loadOwnStaffId === 'function') loadOwnStaffId('adm-ep-info-id');
   setTxt('adm-ep-info-email',  ctx.email);
   setTxt('adm-ep-info-role',   ctx.role);
   setTxt('adm-ep-bank-name',   ctx.bank_name);

@@ -15,8 +15,8 @@ const BANK_LOCKED_ROLES = ["employee", "accountant"];
 
 /**
  * GET: the caller's own stored name parts (for the Edit Account dialog when
- * the sign-in context predates them) and emergency contact (the Profile
- * page's read-only card).
+ * the sign-in context predates them), emergency contact (the Profile
+ * page's read-only card) and, for staff accounts, the STAFF-### ID.
  */
 export async function GET(request) {
   const guard = await requirePermission(request, "profile", "read");
@@ -36,8 +36,17 @@ export async function GET(request) {
   if (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
+  // Staff ID read separately: before 20260924150000_profiles_staff_id.sql
+  // the column does not exist, and the profile above must still load.
+  const profile = data || {};
+  const { data: staffRow, error: staffError } = await supabase
+    .from("profiles")
+    .select("staff_id")
+    .eq("id", guard.userId)
+    .maybeSingle();
+  if (!staffError && staffRow?.staff_id) profile.staff_id = staffRow.staff_id;
   return NextResponse.json(
-    { profile: data || {} },
+    { profile },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

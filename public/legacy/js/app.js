@@ -243,6 +243,7 @@ function saveAuthContext(result, role, identityInput) {
     emergency_contact_number: String(profile.emergency_contact_number || '').trim(),
     email: String(profile.email || '').trim(),
     employee_id: String(profile.employee_id || '').trim(),
+    staff_id: String(profile.staff_id || '').trim(),
     employee_type: String(profile.employee_type || '').trim(),
     position: String(profile.position || '').trim(),
     address: String(profile.address || '').trim(),
@@ -442,6 +443,28 @@ function loadOwnEmergencyContact(prefix) {
       const next = { ...latest };
       EMERGENCY_CONTACT_KEYS.forEach((key) => { next[key] = stored[key] || ''; });
       localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(next));
+    })
+    .catch(() => {});
+}
+
+/* ── STAFF ID (Profile page, read-only) ── */
+// Super Admin / Admin / HR carry a STAFF-### ID instead of an employee ID.
+// Shown from the sign-in context, then refreshed from
+// GET /api/legacy-auth/update-profile so a session that started before the ID
+// was issued still shows it.
+function loadOwnStaffId(elementId) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const ctx = getAuthContext();
+  el.textContent = ctx?.staff_id || '—';
+  fetch('/api/legacy-auth/update-profile', { method: 'GET', cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      const staffId = data?.profile?.staff_id;
+      if (!staffId) return;
+      el.textContent = staffId;
+      const latest = getAuthContext();
+      if (latest) localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify({ ...latest, staff_id: staffId }));
     })
     .catch(() => {});
 }

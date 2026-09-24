@@ -1080,7 +1080,7 @@ function loadHRProfile() {
   setTxt('hr-ep-pos',       ctx.position     || ctx.employee_type || '');
   setTxt('hr-ep-role-tag',  ctx.role         || 'HR');
   setTxt('hr-ep-info-name',    ctx.full_name);
-  setTxt('hr-ep-info-id',     ctx.employee_id);
+  if (typeof loadOwnStaffId === 'function') loadOwnStaffId('hr-ep-info-id');
   setTxt('hr-ep-info-pos',    ctx.position);
   setTxt('hr-ep-info-type',   ctx.employee_type);
   setTxt('hr-ep-info-email',  ctx.email);

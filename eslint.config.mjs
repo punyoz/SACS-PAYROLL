@@ -132,6 +132,7 @@ const config = [
         getAvatarColor: "readonly",
         getAuthContext: "readonly",
         setAuthContext: "readonly",
+        loadOwnStaffId: "readonly",
         skeletonRows: "readonly",
         skeletonCards: "readonly",
         createPaginator: "readonly",

@@ -48,6 +48,7 @@ import {
   normalizeEmergencyContact,
   validateEmergencyContact,
 } from "@/lib/employees/emergency-contact";
+import { assignStaffId } from "@/lib/employees/staff-id";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -191,6 +192,10 @@ export async function POST(request) {
       );
     }
 
+    // STAFF-### (src/lib/employees/staff-id.js). Empty until the staff_id
+    // migration has been run; the account itself is fine either way.
+    const staffId = await assignStaffId(supabase, newUser.id);
+
     await appendAuditLog({
       module: "user_management",
       action: "create",
@@ -201,12 +206,13 @@ export async function POST(request) {
       source: "api",
       actor_id: guard.userId,
       // The password itself is never logged — only that one was issued.
-      metadata: { role: record.role, branch_id: branchId, email: record.email },
+      metadata: { role: record.role, branch_id: branchId, email: record.email, staff_id: staffId || null },
     });
 
     return NextResponse.json({
       success: true,
       id: newUser.id,
+      staff_id: staffId,
       role: record.role,
       // Shown once to the Super Admin so they can pass it on. The holder is
       // forced to replace it on first sign-in.
