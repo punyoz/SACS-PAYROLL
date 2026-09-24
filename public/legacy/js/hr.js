@@ -485,15 +485,22 @@ function openHrEditEmployeeModal(employeeId) {
   set('role_label', employee.role === 'accountant' ? 'Accountant' : 'Employee');
   set('branch_label', hrBranchName(employee.branch_id) || 'Unassigned');
 
-  // Only a single composed full_name is stored — split it back into parts
-  // so the Name section starts pre-filled with something reasonable.
-  const nameParts = splitFullName(employee.full_name || '');
-  const midName = nameParts.middle_initial
-    || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
-  set('first_name', nameParts.first_name || '');
-  set('middle_initial', midName);
-  set('last_name', nameParts.last_name || '');
-  setHrSelectValue(form.elements.suffix, nameParts.suffix);
+  // Use the name parts exactly as last saved. Only a record that predates
+  // them (just a composed full_name) falls back to a best-effort split.
+  if (employee.first_name || employee.last_name) {
+    set('first_name', employee.first_name || '');
+    set('middle_initial', employee.middle_name || '');
+    set('last_name', employee.last_name || '');
+    setHrSelectValue(form.elements.suffix, employee.suffix);
+  } else {
+    const nameParts = splitFullName(employee.full_name || '');
+    const midName = nameParts.middle_initial
+      || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
+    set('first_name', nameParts.first_name || '');
+    set('middle_initial', midName);
+    set('last_name', nameParts.last_name || '');
+    setHrSelectValue(form.elements.suffix, nameParts.suffix);
+  }
 
   set('email', employee.email);
   set('date_of_birth', employee.date_of_birth);

@@ -449,13 +449,15 @@ function attachRfidScannerInput() {
 
   // Some readers never send Enter/Tab after a tap — auto-submit once
   // keystrokes stop arriving for a beat so those readers still work.
-  // Restricted to purely numeric values (RFID UIDs) so a paused manual
-  // employee-ID entry (e.g. "SACS-001") never auto-fires mid-typing.
+  // Waits for at least 6 digits so a paused manual entry of a short
+  // number never auto-fires mid-typing.
   let idleTimer = null;
   input.addEventListener('input', () => {
     clearTimeout(idleTimer);
-    const value = input.value.trim();
-    if (!/^\d{6,}$/.test(value)) return;
+    // Numbers only: drop anything else typed or pasted.
+    const digits = input.value.replace(/\D/g, '');
+    if (digits !== input.value) input.value = digits;
+    if (!/^\d{6,}$/.test(digits)) return;
     idleTimer = setTimeout(() => {
       if (/^\d{6,}$/.test(input.value.trim()) && !rfidScanInFlight) submitRfidAttendanceScan();
     }, 400);

@@ -228,7 +228,7 @@
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
           <div class="fg" style="margin:0;min-width:220px;flex:1;">
             <label for="adm-rfid-input">RFID / Employee ID</label>
-            <input id="adm-rfid-input" class="fc" type="text" placeholder="Tap RFID card or enter employee ID" maxlength="16" autocomplete="off" />
+            <input id="adm-rfid-input" class="fc" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Tap RFID card or enter employee ID" maxlength="16" autocomplete="off" />
           </div>
           <button class="btn btn-primary" onclick="submitRfidAttendanceScan()">Record Scan</button>
         </div>

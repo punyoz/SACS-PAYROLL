@@ -121,6 +121,23 @@ function buildFullNameFromParts(body) {
   return normalizeText(body?.full_name);
 }
 
+// The same parts buildFullNameFromParts() joins, for profiles.first_name /
+// middle_name / last_name / suffix. Storing them keeps the split the caller
+// typed; otherwise the profiles trigger re-splits full_name by guesswork.
+// Empty when the caller sent only full_name.
+function buildNamePartsFromBody(body) {
+  const first = toTitleCaseWords(body?.first_name);
+  const last = toTitleCaseWords(body?.last_name);
+  if (!first || !last) return {};
+  const suffix = normalizeSuffix(body?.suffix);
+  return {
+    first_name: first,
+    middle_name: toTitleCaseWords(body?.middle_initial) || null,
+    last_name: last,
+    suffix: ALLOWED_NAME_SUFFIXES.includes(suffix) ? suffix : null,
+  };
+}
+
 function isValidEmployeeName(nameInput) {
   const withoutSuffix = stripAllowedSuffix(normalizeText(nameInput));
   return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
@@ -368,6 +385,7 @@ export async function POST(request) {
           id: newUser.id,
           email,
           role,
+          ...buildNamePartsFromBody(body),
           full_name: fullName,
           branch_id: branchId,
           employee_id: finalEmployeeId,

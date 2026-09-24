@@ -6,6 +6,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyRoleEscalation, denyForeignBranch, scopeListToBranch } from "@/lib/rbac/guard";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
+import { normalizeSuffix } from "@/lib/employees/staff-record";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,13 +31,21 @@ function toTitleCaseWords(value) {
     .join(" ");
 }
 
-function composeFullName(record) {
-  return [
-    toTitleCaseWords(record.first_name),
-    record.middle_initial,
-    toTitleCaseWords(record.last_name),
-    record.suffix,
-  ].filter(Boolean).join(" ");
+// The parts are stored on profiles as typed (first_name / middle_name /
+// last_name / suffix), so reopening the form shows them exactly as saved
+// instead of re-splitting full_name — which can't tell "Jane Marinel | Dela
+// Pena" from "Jane | Marinel Dela Pena".
+function nameParts(record) {
+  return {
+    first_name: toTitleCaseWords(record.first_name) || null,
+    middle_name: normalizeText(record.middle_initial).replace(/\s+/g, " ") || null,
+    last_name: toTitleCaseWords(record.last_name) || null,
+    suffix: normalizeSuffix(record.suffix) || null,
+  };
+}
+
+function composeFullName(parts) {
+  return [parts.first_name, parts.middle_name, parts.last_name, parts.suffix].filter(Boolean).join(" ");
 }
 
 function shapeEmployee(user, profile) {
@@ -45,6 +54,10 @@ function shapeEmployee(user, profile) {
     id: user.id,
     email: normalizeText(profile?.email, user.email),
     full_name: normalizeText(profile?.full_name, normalizeText(meta.full_name, user.email)),
+    first_name: normalizeText(profile?.first_name),
+    middle_name: normalizeText(profile?.middle_name),
+    last_name: normalizeText(profile?.last_name),
+    suffix: normalizeText(profile?.suffix),
     employee_id: normalizeText(meta.employee_id),
     role: normalizeText(meta.role, "employee"),
     employee_type: normalizeText(meta.employee_type, "Teaching"),
@@ -97,7 +110,7 @@ export async function GET(request) {
     if (userIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id,email,full_name,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+        .select("id,email,full_name,first_name,middle_name,last_name,suffix,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
         .in("id", userIds);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
     }
@@ -166,7 +179,8 @@ export async function PATCH(request) {
       return NextResponse.json({ error: invalid }, { status: 400 });
     }
 
-    const fullName = composeFullName(record);
+    const parts = nameParts(record);
+    const fullName = composeFullName(parts);
 
     const updatedMeta = {
       ...currentMeta,
@@ -208,6 +222,7 @@ export async function PATCH(request) {
     const { error: profileErr } = await supabase
       .from("profiles")
       .update({
+        ...parts,
         full_name: fullName,
         email: record.email,
         employee_type: record.employee_type,

@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const GOOD_CODE = "123456";
+const GOOD_CODE = "12345678";
 const OLD_PASSWORD = "OldPass1!";
 
 /* ── A fake Supabase ────────────────────────────────────────────────────── */
@@ -179,9 +179,9 @@ describe("Reset password by OTP", () => {
     const b = browser();
     await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
     for (let i = 1; i <= 4; i += 1) {
-      expect((await b.post(resetRoute, RESET, { action: "verify", code: "000000" })).status).toBe(400);
+      expect((await b.post(resetRoute, RESET, { action: "verify", code: "00000000" })).status).toBe(400);
     }
-    const fifth = await b.post(resetRoute, RESET, { action: "verify", code: "000000" });
+    const fifth = await b.post(resetRoute, RESET, { action: "verify", code: "00000000" });
     expect(fifth.status).toBe(429);
     expect(fifth.body.code).toBe("otp_locked_out");
     // Even the right code is refused now: the flow has to start again.
@@ -268,7 +268,7 @@ describe("Change password by OTP", () => {
     const b = signedIn("u-acct", "accountant", "acct@example.com");
     await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD });
     let last;
-    for (let i = 0; i < 5; i += 1) last = await b.post(otpRoute, OTP, { action: "verify", code: "000000" });
+    for (let i = 0; i < 5; i += 1) last = await b.post(otpRoute, OTP, { action: "verify", code: "00000000" });
     expect(last.body.code).toBe("otp_locked_out");
     expect((await b.post(otpRoute, OTP, { action: "verify", code: GOOD_CODE })).body.code).toBe("otp_expired");
   });
