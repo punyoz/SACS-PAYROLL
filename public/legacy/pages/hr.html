@@ -391,6 +391,28 @@
       </div>
 
       <div class="card ep-info-card">
+        <div class="stitle" style="margin-bottom:14px;">Emergency Contact</div>
+        <div class="ep-info-grid">
+          <div class="ep-info-item">
+            <div class="ep-info-label">Contact Person</div>
+            <div class="ep-info-value" id="hr-ep-ec-name">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Relationship</div>
+            <div class="ep-info-value" id="hr-ep-ec-relationship">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Contact Number</div>
+            <div class="ep-info-value" id="hr-ep-ec-number">—</div>
+          </div>
+          <div class="ep-info-item" style="grid-column:1/-1;">
+            <div class="ep-info-label">Address</div>
+            <div class="ep-info-value" id="hr-ep-ec-address">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card ep-info-card">
         <div class="stitle" style="margin-bottom:14px;">Bank Information</div>
         <div class="ep-info-grid">
           <div class="ep-info-item">
@@ -552,6 +574,28 @@
           <input id="hr-emp-edit-cp-number" class="fc" type="tel" name="cp_number" required maxlength="13" inputmode="numeric" placeholder="e.g. 0917 123 4567" />
           <span class="field-error" aria-live="polite"></span>
         </div>
+        <div class="form-section-title">Emergency Contact</div>
+        <p class="field-hint" id="hr-emp-edit-ec-hint" style="grid-column:1/-1;margin:-4px 0 4px;font-size:11px;color:var(--t3);">No emergency contact on file for this employee yet. Fill in all four fields to add one.</p>
+        <div class="fg">
+          <label for="hr-emp-edit-ec-name">Contact Person</label>
+          <input id="hr-emp-edit-ec-name" class="fc name-input" type="text" name="emergency_contact_name" maxlength="100" placeholder="e.g. Maria Dela Cruz" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-emp-edit-ec-relationship">Relationship</label>
+          <select id="hr-emp-edit-ec-relationship" class="fc" name="emergency_contact_relationship"><option value="">Select relationship</option><option value="Spouse">Spouse</option><option value="Parent">Parent</option><option value="Child">Child</option><option value="Sibling">Sibling</option><option value="Guardian">Guardian</option><option value="Relative">Relative</option><option value="Partner">Partner</option><option value="Friend">Friend</option><option value="Other">Other</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-emp-edit-ec-number">Emergency Contact Number</label>
+          <input id="hr-emp-edit-ec-number" class="fc" type="tel" name="emergency_contact_number" maxlength="13" inputmode="numeric" placeholder="e.g. 0918 765 4321" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-emp-edit-ec-address">Emergency Contact Address</label>
+          <textarea id="hr-emp-edit-ec-address" class="fc" name="emergency_contact_address" rows="2" maxlength="200" placeholder="House no., street, barangay, city/municipality, province"></textarea>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
         <div class="form-section-title">Government ID Numbers</div>
         <div class="fg">
           <label for="hr-emp-edit-sss-number">SSS Number <span class="req" aria-hidden="true">*</span></label>
@@ -702,6 +746,27 @@
         <div class="fg" style="grid-column:1/-1;">
           <label for="hr-add-cp-number">Contact Number <span class="req" aria-hidden="true">*</span></label>
           <input id="hr-add-cp-number" class="fc" type="tel" name="cp_number" required maxlength="13" inputmode="numeric" placeholder="e.g. 0917 123 4567" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="form-section-title">Emergency Contact</div>
+        <div class="fg">
+          <label for="hr-add-ec-name">Contact Person <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-ec-name" class="fc name-input" type="text" name="emergency_contact_name" required maxlength="100" placeholder="e.g. Maria Dela Cruz" autocomplete="off" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="hr-add-ec-relationship">Relationship <span class="req" aria-hidden="true">*</span></label>
+          <select id="hr-add-ec-relationship" class="fc" name="emergency_contact_relationship" required><option value="" disabled selected>Select relationship</option><option value="Spouse">Spouse</option><option value="Parent">Parent</option><option value="Child">Child</option><option value="Sibling">Sibling</option><option value="Guardian">Guardian</option><option value="Relative">Relative</option><option value="Partner">Partner</option><option value="Friend">Friend</option><option value="Other">Other</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-add-ec-number">Emergency Contact Number <span class="req" aria-hidden="true">*</span></label>
+          <input id="hr-add-ec-number" class="fc" type="tel" name="emergency_contact_number" required maxlength="13" inputmode="numeric" placeholder="e.g. 0918 765 4321" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="grid-column:1/-1;">
+          <label for="hr-add-ec-address">Emergency Contact Address <span class="req" aria-hidden="true">*</span></label>
+          <textarea id="hr-add-ec-address" class="fc" name="emergency_contact_address" required rows="2" maxlength="200" placeholder="House no., street, barangay, city/municipality, province"></textarea>
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="form-section-title">Government ID Numbers</div>

@@ -43,6 +43,11 @@ import {
   validateStaffRecord,
   STAFF_BRANCH_REQUIRED_ROLES,
 } from "@/lib/employees/staff-record";
+import {
+  emergencyContactColumns,
+  normalizeEmergencyContact,
+  validateEmergencyContact,
+} from "@/lib/employees/emergency-contact";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -78,6 +83,13 @@ export async function POST(request) {
     const invalid = validateStaffRecord(record);
     if (invalid) {
       return NextResponse.json({ error: invalid }, { status: 400 });
+    }
+
+    // Required on every new account; see src/lib/employees/emergency-contact.js.
+    const emergencyContact = normalizeEmergencyContact(body);
+    const emergencyInvalid = validateEmergencyContact(emergencyContact, record.cp_number);
+    if (emergencyInvalid) {
+      return NextResponse.json({ error: emergencyInvalid }, { status: 400 });
     }
 
     // Belt and braces over the super_admin check above: this consults
@@ -162,6 +174,7 @@ export async function POST(request) {
         suffix: record.suffix || null,
         full_name: record.full_name,
         branch_id: branchId,
+        ...emergencyContactColumns(emergencyContact),
       },
       { onConflict: "id" },
     );

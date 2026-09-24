@@ -233,6 +233,14 @@ function saveAuthContext(result, role, identityInput) {
   const context = {
     role: resolvedRole,
     full_name: fullName,
+    first_name: String(profile.first_name || '').trim(),
+    middle_name: String(profile.middle_name || '').trim(),
+    last_name: String(profile.last_name || '').trim(),
+    suffix: String(profile.suffix || '').trim(),
+    emergency_contact_name: String(profile.emergency_contact_name || '').trim(),
+    emergency_contact_relationship: String(profile.emergency_contact_relationship || '').trim(),
+    emergency_contact_address: String(profile.emergency_contact_address || '').trim(),
+    emergency_contact_number: String(profile.emergency_contact_number || '').trim(),
     email: String(profile.email || '').trim(),
     employee_id: String(profile.employee_id || '').trim(),
     employee_type: String(profile.employee_type || '').trim(),
@@ -397,22 +405,93 @@ async function confirmDestructiveAction(actionLabel, detailText) {
   });
 }
 
+/* ── EMERGENCY CONTACT (Profile page, read-only) ── */
+// Fills the Profile page's Emergency Contact card (`${prefix}-name`,
+// `-relationship`, `-number`, `-address`) from the sign-in context, then
+// refreshes it from GET /api/legacy-auth/update-profile so a contact HR or
+// Super Admin changed since sign-in shows without signing out.
+function renderEmergencyContactCard(prefix, source) {
+  const set = (suffix, value) => {
+    const el = document.getElementById(`${prefix}-${suffix}`);
+    if (el) el.textContent = value || '—';
+  };
+  const number = digitsOnly(source?.emergency_contact_number || '');
+  set('name', source?.emergency_contact_name);
+  set('relationship', source?.emergency_contact_relationship);
+  set('number', number
+    ? formatDigitGroups(number, DIGIT_FIELD_SPECS.cp_number.groups, DIGIT_FIELD_SPECS.cp_number.separator)
+    : '');
+  set('address', source?.emergency_contact_address);
+}
+
+const EMERGENCY_CONTACT_KEYS = [
+  'emergency_contact_name', 'emergency_contact_relationship',
+  'emergency_contact_address', 'emergency_contact_number',
+];
+
+function loadOwnEmergencyContact(prefix) {
+  renderEmergencyContactCard(prefix, getAuthContext());
+  fetch('/api/legacy-auth/update-profile', { method: 'GET', cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      const stored = data?.profile;
+      if (!stored) return;
+      renderEmergencyContactCard(prefix, stored);
+      const latest = getAuthContext();
+      if (!latest) return;
+      const next = { ...latest };
+      EMERGENCY_CONTACT_KEYS.forEach((key) => { next[key] = stored[key] || ''; });
+      localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(next));
+    })
+    .catch(() => {});
+}
+
 /* ── SETTINGS MODAL ── */
 function populateSettingsModalProfile(prefix) {
   const ctx = getAuthContext();
   if (!ctx) return;
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
 
-  // Only a single composed full_name is stored — split it back into parts
-  // so Name starts pre-filled with something reasonable. splitFullName()
-  // is defined in admin.js, loaded before any of this runs.
-  const nameParts = typeof splitFullName === 'function' ? splitFullName(ctx.full_name || '') : {};
-  const midName = nameParts.middle_initial
-    || (nameParts.second_name && nameParts.second_name !== nameParts.last_name ? nameParts.second_name : '');
-  setVal(`${prefix}-edit-firstname`,  nameParts.first_name);
-  setVal(`${prefix}-edit-middlename`, midName);
-  setVal(`${prefix}-edit-lastname`,   nameParts.last_name);
-  setVal(`${prefix}-edit-suffix`,     nameParts.suffix);
+  // Name parts exactly as last saved (profiles.first_name / middle_name /
+  // last_name / suffix, carried in the sign-in context).
+  const fillName = (parts) => {
+    setVal(`${prefix}-edit-firstname`,  parts.first_name);
+    setVal(`${prefix}-edit-middlename`, parts.middle_name);
+    setVal(`${prefix}-edit-lastname`,   parts.last_name);
+    setVal(`${prefix}-edit-suffix`,     ALLOWED_SUFFIXES.includes(parts.suffix) ? parts.suffix : '');
+  };
+  if (ctx.first_name || ctx.last_name) {
+    fillName(ctx);
+  } else {
+    // A context from before the parts were stored: start from a best-effort
+    // split, then replace it with the stored parts once they arrive.
+    const guess = splitFullName(ctx.full_name || '');
+    fillName({
+      first_name: guess.first_name,
+      middle_name: guess.middle_initial
+        || (guess.second_name && guess.second_name !== guess.last_name ? guess.second_name : ''),
+      last_name: guess.last_name,
+      suffix: guess.suffix,
+    });
+    fetch('/api/legacy-auth/update-profile', { method: 'GET', cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const stored = data?.profile || {};
+        if (!stored.first_name && !stored.last_name) return;
+        fillName(stored);
+        const latest = getAuthContext();
+        if (latest) {
+          localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify({
+            ...latest,
+            first_name: stored.first_name || '',
+            middle_name: stored.middle_name || '',
+            last_name: stored.last_name || '',
+            suffix: stored.suffix || '',
+          }));
+        }
+      })
+      .catch(() => {});
+  }
 
   // Only the employee portal's settings modal has an address/contact-number
   // field — other roles' own profiles don't display or edit these.
@@ -441,8 +520,12 @@ async function saveProfileInfo(prefix) {
   const middle_name = String(document.getElementById(`${prefix}-edit-middlename`)?.value || '').trim();
   const last_name   = String(document.getElementById(`${prefix}-edit-lastname`)?.value   || '').trim();
   const suffix      = String(document.getElementById(`${prefix}-edit-suffix`)?.value     || '').trim();
-  const bank_name        = String(document.getElementById(`${prefix}-edit-bankname`)?.value     || '').trim();
-  const bank_account_number = String(document.getElementById(`${prefix}-edit-bankaccount`)?.value || '').trim();
+  // Bank fields are only on some portals' forms (not Employee / Accountant);
+  // when absent they are left out of the payload so nothing on file is wiped.
+  const bankNameEl = document.getElementById(`${prefix}-edit-bankname`);
+  const bankAccountEl = document.getElementById(`${prefix}-edit-bankaccount`);
+  const bank_name = bankNameEl ? String(bankNameEl.value || '').trim() : undefined;
+  const bank_account_number = bankAccountEl ? String(bankAccountEl.value || '').trim() : undefined;
   // Address is only present in the employee portal's modal — other roles
   // have no such field, so leave it out of their payload entirely rather
   // than sending an empty string that would wipe out any address already
@@ -478,7 +561,9 @@ async function saveProfileInfo(prefix) {
   if (feedbackEl) { feedbackEl.textContent = 'Saving...'; feedbackEl.className = 'adm-feedback loading'; }
 
   try {
-    const payload = { email, full_name, bank_name, bank_account_number };
+    const payload = { email, full_name, first_name, middle_name, last_name, suffix };
+    if (bank_name !== undefined) payload.bank_name = bank_name;
+    if (bank_account_number !== undefined) payload.bank_account_number = bank_account_number;
     if (address !== undefined) payload.address = address;
     if (cp_number !== undefined) payload.cp_number = cp_number;
 
@@ -496,9 +581,13 @@ async function saveProfileInfo(prefix) {
     const savedProfile = result.profile || {};
     const updatedCtx = {
       ...ctx,
-      full_name,
-      bank_name: savedProfile.bank_name ?? bank_name,
-      bank_account_number: savedProfile.bank_account_number ?? bank_account_number,
+      full_name: savedProfile.full_name || full_name,
+      first_name: savedProfile.first_name ?? first_name,
+      middle_name: savedProfile.middle_name ?? middle_name,
+      last_name: savedProfile.last_name ?? last_name,
+      suffix: savedProfile.suffix ?? suffix,
+      bank_name: savedProfile.bank_name ?? bank_name ?? ctx.bank_name,
+      bank_account_number: savedProfile.bank_account_number ?? bank_account_number ?? ctx.bank_account_number,
     };
     if (address !== undefined) updatedCtx.address = savedProfile.address ?? address;
     if (cp_number !== undefined) updatedCtx.cp_number = savedProfile.cp_number ?? cp_number;
@@ -2079,6 +2168,7 @@ const DIGIT_FIELD_SPECS = {
   // to match this field's placeholder everywhere it appears, not the dash
   // style used by the government ID fields above.
   cp_number: { maxLength: 11, groups: [4, 3, 4], separator: ' ' },
+  emergency_contact_number: { maxLength: 11, groups: [4, 3, 4], separator: ' ' },
 };
 
 function setFormattedDigitValue(input, rawValue, groups, separator) {

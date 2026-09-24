@@ -421,6 +421,23 @@ function collectHrEmployeeForm(form, feedbackEl, { creating }) {
   const bankAccount = digitsOnly(value('bank_account_number'));
   if (bankAccount.length < 6 || bankAccount.length > 20) return fail(el('bank_account_number'), 'Bank account number must be 6 to 20 digits.');
 
+  // Emergency contact (server copy of these rules:
+  // src/lib/employees/emergency-contact.js). Required on Add Employee. On Edit,
+  // a record with none on file may stay blank, but once any field is filled,
+  // or one is already on file, all four must be valid.
+  const emergencyNumber = digitsOnly(value('emergency_contact_number'));
+  const emergencyTouched = ['emergency_contact_name', 'emergency_contact_relationship', 'emergency_contact_address']
+    .some((name) => value(name)) || Boolean(emergencyNumber);
+  const emergencyOnFile = !creating && Boolean(hrCurrentEditEmployee?.emergency_contact_name);
+  if (creating || emergencyTouched || emergencyOnFile) {
+    if (!value('emergency_contact_name')) return fail(el('emergency_contact_name'), 'Emergency contact person is required.');
+    if (!namePattern.test(value('emergency_contact_name'))) return fail(el('emergency_contact_name'), 'Emergency contact name must contain letters and spaces only.');
+    if (!value('emergency_contact_relationship')) return fail(el('emergency_contact_relationship'), "Select the emergency contact's relationship.");
+    if (value('emergency_contact_address').length < 5) return fail(el('emergency_contact_address'), "Enter the emergency contact's complete address.");
+    if (!/^09\d{9}$/.test(emergencyNumber)) return fail(el('emergency_contact_number'), 'Emergency contact number must be an 11-digit PH mobile number starting with 09.');
+    if (emergencyNumber === cp) return fail(el('emergency_contact_number'), "Emergency contact number must be different from the employee's own number.");
+  }
+
   const payload = {
     first_name: value('first_name'),
     middle_initial: value('middle_initial'),
@@ -450,6 +467,10 @@ function collectHrEmployeeForm(form, feedbackEl, { creating }) {
     payload.branch_id = value('branch_id');
     payload.basic_salary = basicSalary;
   }
+  payload.emergency_contact_name = value('emergency_contact_name');
+  payload.emergency_contact_relationship = value('emergency_contact_relationship');
+  payload.emergency_contact_address = value('emergency_contact_address');
+  payload.emergency_contact_number = emergencyNumber;
   return payload;
 }
 
@@ -514,6 +535,11 @@ function openHrEditEmployeeModal(employeeId) {
   set('date_hired', employee.date_hired);
   set('address', employee.address);
   set('bank_name', employee.bank_name);
+  set('emergency_contact_name', employee.emergency_contact_name);
+  setHrSelectValue(form.elements.emergency_contact_relationship, employee.emergency_contact_relationship);
+  set('emergency_contact_address', employee.emergency_contact_address);
+  const ecHint = document.getElementById('hr-emp-edit-ec-hint');
+  if (ecHint) ecHint.style.display = employee.emergency_contact_name ? 'none' : '';
 
   bindDigitFieldsIn(form);
   populateDigitFieldsIn(form, employee);
@@ -1061,6 +1087,7 @@ function loadHRProfile() {
   setTxt('hr-ep-info-role',   ctx.role);
   setTxt('hr-ep-bank-name',   ctx.bank_name);
   setTxt('hr-ep-bank-account',ctx.bank_account_number);
+  if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('hr-ep-ec');
 }
 
 /* ── INIT ── */

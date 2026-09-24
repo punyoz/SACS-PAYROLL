@@ -1250,9 +1250,9 @@ function loadAccountantProfile() {
   setTxt('ac-ep-info-pos',    ctx.position);
   setTxt('ac-ep-info-type',   ctx.employee_type);
   setTxt('ac-ep-info-email',  ctx.email);
-  setTxt('ac-ep-info-role',   ctx.role);
   setTxt('ac-ep-bank-name',   ctx.bank_name);
   setTxt('ac-ep-bank-account',ctx.bank_account_number);
+  if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('ac-ep-ec');
 }
 
 /* ── INIT ── */

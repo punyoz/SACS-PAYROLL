@@ -7,6 +7,11 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyRoleEscalation, denyForeignBranch, scopeListToBranch } from "@/lib/rbac/guard";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 import { normalizeSuffix } from "@/lib/employees/staff-record";
+import {
+  emergencyContactColumns,
+  normalizeEmergencyContact,
+  validateEmergencyContactUpdate,
+} from "@/lib/employees/emergency-contact";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,6 +63,10 @@ function shapeEmployee(user, profile) {
     middle_name: normalizeText(profile?.middle_name),
     last_name: normalizeText(profile?.last_name),
     suffix: normalizeText(profile?.suffix),
+    emergency_contact_name: normalizeText(profile?.emergency_contact_name),
+    emergency_contact_relationship: normalizeText(profile?.emergency_contact_relationship),
+    emergency_contact_address: normalizeText(profile?.emergency_contact_address),
+    emergency_contact_number: normalizeText(profile?.emergency_contact_number),
     employee_id: normalizeText(meta.employee_id),
     role: normalizeText(meta.role, "employee"),
     employee_type: normalizeText(meta.employee_type, "Teaching"),
@@ -110,7 +119,7 @@ export async function GET(request) {
     if (userIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id,email,full_name,first_name,middle_name,last_name,suffix,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
         .in("id", userIds);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
     }
@@ -161,7 +170,7 @@ export async function PATCH(request) {
 
     const profileResult = await supabase
       .from("profiles")
-      .select("branch_id")
+      .select("branch_id,emergency_contact_name")
       .eq("id", id)
       .maybeSingle();
     const targetBranch = profileResult.data?.branch_id || currentMeta.branch_id || null;
@@ -177,6 +186,18 @@ export async function PATCH(request) {
     const invalid = validateEmployeeRecord(record, { creating: false });
     if (invalid) {
       return NextResponse.json({ error: invalid }, { status: 400 });
+    }
+
+    // Older records may have no emergency contact yet; one on file may be
+    // changed but not removed (src/lib/employees/emergency-contact.js).
+    const emergencyContact = normalizeEmergencyContact(body);
+    const emergencyInvalid = validateEmergencyContactUpdate(
+      emergencyContact,
+      record.cp_number,
+      Boolean(profileResult.data?.emergency_contact_name),
+    );
+    if (emergencyInvalid) {
+      return NextResponse.json({ error: emergencyInvalid }, { status: 400 });
     }
 
     const parts = nameParts(record);
@@ -236,6 +257,7 @@ export async function PATCH(request) {
         philhealth_number: record.philhealth_number,
         bank_name: record.bank_name,
         bank_account_number: record.bank_account_number,
+        ...emergencyContactColumns(emergencyContact),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id);

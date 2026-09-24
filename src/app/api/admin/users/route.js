@@ -14,6 +14,12 @@ import { hashTemporaryPassword, validateNewPassword } from "@/lib/auth/password-
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
 import { syncProfileArchive } from "@/lib/employees/archive";
 import {
+  EMERGENCY_CONTACT_FIELDS,
+  emergencyContactColumns,
+  normalizeEmergencyContact,
+  validateEmergencyContactUpdate,
+} from "@/lib/employees/emergency-contact";
+import {
   normalizeNameParts,
   splitFullName,
   validateNameParts,
@@ -35,6 +41,8 @@ const BRANCHLESS_ROLES = ["super_admin", "hr"];
 const PROFILE_COLUMNS = "id,email,full_name,role,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number";
 // Added by 20260924010000_profiles_name_parts.sql.
 const NAME_PART_COLUMNS = "first_name,middle_name,last_name,suffix";
+// Added by 20260924134806_profiles_emergency_contact.sql.
+const EMERGENCY_COLUMNS = "emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -65,6 +73,10 @@ function shapeUser(user, profile) {
     middle_name: normalizeText(parts.middle_name),
     last_name: normalizeText(parts.last_name),
     suffix: normalizeText(parts.suffix),
+    emergency_contact_name: normalizeText(profile?.emergency_contact_name),
+    emergency_contact_relationship: normalizeText(profile?.emergency_contact_relationship),
+    emergency_contact_address: normalizeText(profile?.emergency_contact_address),
+    emergency_contact_number: normalizeText(profile?.emergency_contact_number),
     role,
     employee_id: normalizeText(metadata.employee_id, ""),
     // Super Admin and HR serve every branch; a stale branch left on one of
@@ -120,7 +132,7 @@ async function fetchAllUsers(supabase) {
   if (userIds.length) {
     let profileResult = await supabase
       .from("profiles")
-      .select(`${PROFILE_COLUMNS},${NAME_PART_COLUMNS}`)
+      .select(`${PROFILE_COLUMNS},${NAME_PART_COLUMNS},${EMERGENCY_COLUMNS}`)
       .in("id", userIds);
 
     // Before the name-parts migration runs, those columns do not exist and
@@ -261,6 +273,25 @@ export async function PATCH(request) {
     if (foreign) return foreign;
 
     const nextMetadata = { ...currentMetadata };
+
+    // Emergency contact, when the Edit dialog sent it (older callers do not).
+    // An account with none on file may leave it blank; one on file may be
+    // changed but not removed.
+    let emergencyContact = null;
+    if (action === "update" && EMERGENCY_CONTACT_FIELDS.some((key) => body[key] !== undefined)) {
+      emergencyContact = normalizeEmergencyContact(body);
+      const { data: existing } = await supabase
+        .from("profiles")
+        .select("emergency_contact_name")
+        .eq("id", id)
+        .maybeSingle();
+      const emergencyInvalid = validateEmergencyContactUpdate(
+        emergencyContact,
+        normalizeText(currentMetadata.cp_number),
+        Boolean(existing?.emergency_contact_name),
+      );
+      if (emergencyInvalid) return NextResponse.json({ error: emergencyInvalid }, { status: 400 });
+    }
     // Set when the caller sent First / Middle / Last / Suffix (the Super Admin
     // Edit dialog); older callers send full_name only.
     let nameParts = null;
@@ -333,6 +364,7 @@ export async function PATCH(request) {
     if (action === "update") {
       const email = updatePayload.email || existingUser.email;
       const profileRow = { id, email, role: nextMetadata.role, full_name: nextMetadata.full_name };
+      if (emergencyContact) Object.assign(profileRow, emergencyContactColumns(emergencyContact));
       if (nameParts) {
         profileRow.first_name = nameParts.first_name;
         profileRow.middle_name = nameParts.middle_name || null;

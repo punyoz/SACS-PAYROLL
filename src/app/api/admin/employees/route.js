@@ -13,6 +13,11 @@ import {
 import { hashTemporaryPassword, buildDefaultPassword } from "@/lib/auth/password-policy";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 import { syncProfileArchive } from "@/lib/employees/archive";
+import {
+  emergencyContactColumns,
+  normalizeEmergencyContact,
+  validateEmergencyContact,
+} from "@/lib/employees/emergency-contact";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -293,6 +298,13 @@ export async function POST(request) {
       return NextResponse.json({ error: invalid }, { status: 400 });
     }
 
+    // Required on every new account; see src/lib/employees/emergency-contact.js.
+    const emergencyContact = normalizeEmergencyContact(body);
+    const emergencyInvalid = validateEmergencyContact(emergencyContact, record.cp_number);
+    if (emergencyInvalid) {
+      return NextResponse.json({ error: emergencyInvalid }, { status: 400 });
+    }
+
     const branchResult = await supabase
       .from("branches")
       .select("id,status")
@@ -398,6 +410,7 @@ export async function POST(request) {
           philhealth_number: normalizeDigits(body.philhealth_number, 12) || null,
           bank_name: normalizeText(body.bank_name, "") || null,
           bank_account_number: normalizeDigits(body.bank_account_number, 20) || null,
+          ...emergencyContactColumns(emergencyContact),
         },
         {
           onConflict: "id",

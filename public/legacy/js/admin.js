@@ -142,6 +142,7 @@ function loadAdminProfile() {
   setTxt('adm-ep-info-role',   ctx.role);
   setTxt('adm-ep-bank-name',   ctx.bank_name);
   setTxt('adm-ep-bank-account',ctx.bank_account_number);
+  if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('adm-ep-ec');
 }
 
 function handleLegacyAuthContextChange() {

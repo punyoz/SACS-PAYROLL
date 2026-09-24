@@ -66,7 +66,7 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
 
     const profileResult = await adminClient
       .from("profiles")
-      .select("id,email,full_name,role,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+      .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,role,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -119,6 +119,18 @@ export function buildProfilePayload(resolved, passwordChangeRequired) {
   return {
     role: resolved.resolvedRole,
     full_name: resolved.resolvedFullName,
+    // Stored name parts (20260924010000_profiles_name_parts.sql), so the
+    // Edit Account dialog opens with the split the person saved rather than
+    // a guess from full_name. Empty for a profile that has none yet.
+    first_name: normalizeText(profileRow?.first_name, ""),
+    middle_name: normalizeText(profileRow?.middle_name, ""),
+    last_name: normalizeText(profileRow?.last_name, ""),
+    suffix: normalizeText(profileRow?.suffix, ""),
+    // Shown read-only on every Profile page; set by HR / Super Admin.
+    emergency_contact_name: normalizeText(profileRow?.emergency_contact_name, ""),
+    emergency_contact_relationship: normalizeText(profileRow?.emergency_contact_relationship, ""),
+    emergency_contact_address: normalizeText(profileRow?.emergency_contact_address, ""),
+    emergency_contact_number: normalizeText(profileRow?.emergency_contact_number, ""),
     email: resolved.resolvedEmailOutput,
     employee_id: resolved.resolvedEmployeeId,
     employee_type: resolved.resolvedEmployeeType,

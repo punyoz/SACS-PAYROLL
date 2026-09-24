@@ -906,7 +906,6 @@ function loadProfilePage() {
   setTxt('ep-info-civil-status', ctx.civil_status);
   setTxt('ep-info-email',    ctx.email);
   setTxt('ep-info-address',  ctx.address);
-  setTxt('ep-info-role',     ctx.role);
   setTxt('ep-sss-number',         ctx.sss_number);
   setTxt('ep-pagibig-number',     ctx.pagibig_number);
   setTxt('ep-philhealth-number',  ctx.philhealth_number);
@@ -915,6 +914,7 @@ function loadProfilePage() {
     : '');
   setTxt('ep-bank-name',     ctx.bank_name);
   setTxt('ep-bank-account',  ctx.bank_account_number);
+  if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('ep-ec');
 }
 
 // dispatchAuthContextChanged() fires on window; a listener on document never
