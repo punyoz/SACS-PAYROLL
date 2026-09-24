@@ -28,7 +28,7 @@ import {
  * POST /api/legacy-auth/reset-password: the login page's "Forgot Password?"
  * dialog, in three steps.
  *
- *   { action: "send",   identity }                  email a 6-digit OTP
+ *   { action: "send",   identity }                  email an 8-digit OTP
  *   { action: "verify", code }                      check it
  *   { action: "reset",  password, confirm_password } set the new password
  *
@@ -132,7 +132,7 @@ async function handleVerify(request, body) {
   }
 
   const code = normalizeText(body.code).replace(/\s+/g, "");
-  if (!/^\d{6}$/.test(code)) return fail("Enter the 6-digit OTP from your email.", 400, "otp_format");
+  if (!/^\d{8}$/.test(code)) return fail("Enter the 8-digit OTP from your email.", 400, "otp_format");
 
   const wrongCode = () => {
     if (!recordVerifyFailure(key).allowed) {

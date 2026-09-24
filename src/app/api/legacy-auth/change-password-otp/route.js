@@ -3,7 +3,7 @@
  * logged-in password change, for the roles src/lib/auth/otp-policy.js gates
  * (Employee, Accountant).
  *
- *   { action: "start",  current_password }  check it, then email a 6-digit OTP
+ *   { action: "start",  current_password }  check it, then email an 8-digit OTP
  *   { action: "resend" }                    another OTP (60 s apart)
  *   { action: "verify", code }              check the OTP
  *
@@ -166,7 +166,7 @@ export async function POST(request) {
       }
 
       const code = normalizeText(body.code).replace(/\s+/g, "");
-      if (!/^\d{6}$/.test(code)) return fail("Enter the 6-digit OTP from your email.", 400, "otp_format");
+      if (!/^\d{8}$/.test(code)) return fail("Enter the 8-digit OTP from your email.", 400, "otp_format");
 
       const verifier = createClient(projectUrl, anonKey, clientOptions);
       const { data, error } = await verifier.auth.verifyOtp({ email, token: code, type: "email" });

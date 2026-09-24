@@ -57,7 +57,7 @@
       </div>
       <div style="padding:0 0 4px;">
         <p style="font-size:13px;color:var(--t2);margin-bottom:14px;line-height:1.6;">
-          Enter your Employee ID (e.g. <strong>SACS-001</strong>) or your registered email address. A 6-digit OTP, valid for 5 minutes, will be sent to your email.
+          Enter your Employee ID (e.g. <strong>SACS-001</strong>) or your registered email address. An 8-digit OTP, valid for 5 minutes, will be sent to your email.
         </p>
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:16px;font-size:12px;color:var(--t3);line-height:1.5;">
           Only <strong style="color:var(--t2);">Employee</strong> and <strong style="color:var(--t2);">Accountant</strong> accounts can reset their password here. Contact the administrator for other issues.
@@ -70,7 +70,7 @@
         <div id="reset-otp-step" hidden>
           <div class="fl">
             <label for="reset-otp-input" style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">OTP Code</label>
-            <input id="reset-otp-input" class="fi" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="6-digit code" maxlength="6" style="letter-spacing:.2em;font-size:18px;text-align:center;" />
+            <input id="reset-otp-input" class="fi" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="8-digit code" maxlength="8" style="letter-spacing:.2em;font-size:18px;text-align:center;" />
           </div>
           <div style="text-align:right;margin:-4px 0 10px;">
             <button type="button" id="reset-resend-btn" onclick="resendResetOtp()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;">Resend OTP</button>
@@ -129,7 +129,7 @@
 
     <div class="fl">
       <label for="votp-code-input">Verification code</label>
-      <input id="votp-code-input" class="fi" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" maxlength="8" style="letter-spacing:.2em;font-size:18px;text-align:center;" />
+      <input id="votp-code-input" class="fi" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="8-digit code" maxlength="8" style="letter-spacing:.2em;font-size:18px;text-align:center;" />
     </div>
 
     <p id="votp-feedback" style="font-size:12px;margin-top:2px;margin-bottom:10px;min-height:16px;" role="alert" aria-live="assertive"></p>

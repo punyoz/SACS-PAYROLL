@@ -82,7 +82,7 @@ That covers every table the application queries. If a page errors with
 
 Sign-in (Employee / Accountant), **Forgot Password** and **Change Password**
 (Employee / Accountant) all use Supabase Auth's own email OTP
-(`signInWithOtp` / `verifyOtp`). Supabase generates the 6-digit code, stores
+(`signInWithOtp` / `verifyOtp`). Supabase generates the 8-digit code, stores
 only its hash, expires it and consumes it on first use; Brevo only delivers
 the email. The app adds the rest in `src/lib/auth/otp-throttle.js` and
 `src/lib/auth/password-otp.js`: 5 wrong codes lock the flow until a new OTP
@@ -182,7 +182,7 @@ Trap 1.
    are no longer read and can be left out.)
 3. In Supabase, go to **Authentication → URL Configuration** and set the
    **Site URL** to the production domain. Password reset no longer uses
-   redirect links (it is a 6-digit OTP, section 2a), so the old
+   redirect links (it is an 8-digit OTP, section 2a), so the old
    `/reset-password` redirect URL can be removed.
 
 `.env.local` is never deployed. Anything missing from the Vercel dashboard is
