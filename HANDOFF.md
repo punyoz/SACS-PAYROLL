@@ -78,6 +78,32 @@ That covers every table the application queries. If a page errors with
 
 ---
 
+## 2a. Email OTP: SMTP, template and expiry
+
+Sign-in (Employee / Accountant), **Forgot Password** and **Change Password**
+(Employee / Accountant) all use Supabase Auth's own email OTP
+(`signInWithOtp` / `verifyOtp`). Supabase generates the 6-digit code, stores
+only its hash, expires it and consumes it on first use; Brevo only delivers
+the email. The app adds the rest in `src/lib/auth/otp-throttle.js` and
+`src/lib/auth/password-otp.js`: 5 wrong codes lock the flow until a new OTP
+is requested, 60 seconds between sends, and a 5-minute window per code.
+There is no Edge Function to deploy.
+
+1. **Authentication → Emails → SMTP Settings**: turn on custom SMTP with the
+   Brevo SMTP relay (`smtp-relay.brevo.com`, port 587, your Brevo SMTP login
+   and SMTP key, a sender address verified in Brevo).
+2. **Authentication → Emails → Templates → Magic link or OTP**: the body must
+   show the code with `{{ .Token }}`. The default template sends a link
+   instead. Example body:
+   `<p>Your SACS Payroll code is <strong>{{ .Token }}</strong>. It expires in 5 minutes.</p>`
+3. **Authentication → Providers → Email**: set **Email OTP Length** to 6 and
+   **Email OTP Expiration** to 300 seconds (5 minutes). This also applies to
+   the sign-in code.
+4. **Authentication → Rate Limits**: raise **Emails sent per hour** to suit the
+   staff count. Supabase also allows one email per address every 60 seconds.
+
+---
+
 ## 3. Configure the environment
 
 Copy `.env.example` to `.env.local` and fill it in.
@@ -94,7 +120,7 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable key. Safe to expose to the browser. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret key. Server-only — never send to the browser. |
 | `SESSION_SECRET` | Signs the login session cookie. See below. |
-| `APP_URL` | Base URL for password-reset links, e.g. `https://payroll.example.com` |
+| `APP_URL` | No longer used. Password reset is OTP-based (see section 2a), so no reset links are built. |
 
 `SEED_*` variables set the default account credentials created in step 4.
 Change every seeded password before going anywhere near real data.
@@ -152,11 +178,12 @@ Trap 1.
 1. Push the repo to the new GitHub remote, then import it in Vercel. The
    framework preset auto-detects as Next.js — no `vercel.json` is needed.
 2. Add every variable from `.env.local` under
-   **Settings → Environment Variables**, with two changes:
-   - `APP_URL` → your real production domain, not `localhost`
-   - `APP_URL_ALLOWLIST` → any additional hostnames the app answers on
-3. In Supabase, go to **Authentication → URL Configuration** and add the
-   production domain to **Redirect URLs**, or password resets will be rejected.
+   **Settings → Environment Variables**. (`APP_URL` and `APP_URL_ALLOWLIST`
+   are no longer read and can be left out.)
+3. In Supabase, go to **Authentication → URL Configuration** and set the
+   **Site URL** to the production domain. Password reset no longer uses
+   redirect links (it is a 6-digit OTP, section 2a), so the old
+   `/reset-password` redirect URL can be removed.
 
 `.env.local` is never deployed. Anything missing from the Vercel dashboard is
 missing in production.

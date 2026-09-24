@@ -289,7 +289,6 @@
       <div class="sh">
         <span class="stitle">Admin &amp; HR Logins</span>
         <span class="sp"></span>
-        <button class="btn btn-outline" onclick="openSAAdminUserModal()">+ Quick Add</button>
         <button class="btn btn-primary" onclick="openSAStaffAccountModal()">+ Add Staff Account</button>
         <button class="btn btn-outline" onclick="loadSAUsers()">Refresh</button>
       </div>
@@ -722,45 +721,68 @@
     </div>
   </div>
 
-  <!-- ── ADMIN / HR ACCOUNT MODAL ── -->
+  <!-- ── EDIT ACCOUNT MODAL (Super Admin / Admin / HR) ──
+       Opened by each row's Edit button. New accounts are created only through
+       the Add Staff Account modal below. -->
   <div id="sa-admin-user-modal" class="adm-modal-backdrop" style="display:none;">
-    <div class="adm-modal-card" style="max-width:480px;">
+    <div class="adm-modal-card" style="max-width:560px;">
       <div class="adm-modal-head">
-        <h3 id="sa-admin-user-modal-title">Add Account</h3>
+        <h3 id="sa-admin-user-modal-title">Edit Account</h3>
         <button class="btn btn-close-x" type="button" onclick="closeSAAdminUserModal()" title="Close">&#x2715;</button>
       </div>
-      <form id="sa-admin-user-form" class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSAAdminUser(event)" novalidate>
+      <form id="sa-admin-user-form" class="adm-modal-form" onsubmit="submitSAAdminUser(event)" novalidate>
         <input type="hidden" name="id" />
         <div class="fg" style="margin:0;">
-          <label for="sa-f-full-name">Full Name <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-f-full-name" class="fc" name="full_name" required maxlength="60" placeholder="e.g. Maria Santos" autocomplete="off" />
+          <label for="sa-f-first-name">First Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-f-first-name" class="fc name-input" type="text" name="first_name" required maxlength="50" pattern="[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'\-]*" placeholder="e.g. Juan" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" style="margin:0;">
+          <label for="sa-f-middle-name">Middle Name</label>
+          <input id="sa-f-middle-name" class="fc name-input" type="text" name="middle_name" maxlength="50" pattern="[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'\-]*" placeholder="e.g. Santos (optional)" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label for="sa-f-last-name">Last Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-f-last-name" class="fc name-input" type="text" name="last_name" required maxlength="50" pattern="[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'\-]*" placeholder="e.g. Dela Cruz" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="margin:0;">
+          <label for="sa-f-suffix">Suffix</label>
+          <select id="sa-f-suffix" class="fc" name="suffix"><option value="">None</option><option value="Jr.">Jr.</option><option value="Sr.">Sr.</option><option value="II">II</option><option value="III">III</option><option value="IV">IV</option><option value="V">V</option></select>
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg" style="margin:0;grid-column:1/-1;">
           <label for="sa-f-email">Email <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-f-email" class="fc" name="email" type="email" required placeholder="e.g. maria.hr@example.com" autocomplete="off" />
+          <input id="sa-f-email" class="fc" name="email" type="email" inputmode="email" required maxlength="254" placeholder="e.g. maria.hr@example.com" autocomplete="off" autocapitalize="none" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" style="margin:0;">
           <label for="sa-admin-user-role">Role <span class="req" aria-hidden="true">*</span></label>
-          <select class="fc" name="role" id="sa-admin-user-role" required>
+          <select class="fc" name="role" id="sa-admin-user-role" required onchange="onSAAdminUserRoleChange()">
             <option value="super_admin">Super Admin</option>
             <option value="admin">Admin</option>
             <option value="hr">HR</option>
           </select>
+          <span class="field-error" aria-live="polite"></span>
         </div>
-        <div class="fg" style="margin:0;">
+        <div class="fg" id="sa-admin-user-branch-field" style="margin:0;">
           <label for="sa-admin-user-branch">Branch <span class="req" aria-hidden="true">*</span></label>
-          <select class="fc" name="branch_id" id="sa-admin-user-branch" required>
+          <select class="fc" name="branch_id" id="sa-admin-user-branch">
             <option value="">Select branch</option>
           </select>
+          <span class="field-hint" id="sa-admin-user-branch-hint" style="display:none;"></span>
+          <span class="field-error" aria-live="polite"></span>
         </div>
-        <div class="fg" id="sa-admin-user-password-field" style="margin:0;">
-          <label for="sa-f-password">Temporary Password <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-f-password" class="fc" name="password" type="password" minlength="8" maxlength="72" placeholder="At least 8 characters" autocomplete="new-password" />
-          <span class="field-hint" id="sa-admin-user-password-hint">The account must replace this password the first time it signs in.</span>
+        <div class="fg" id="sa-admin-user-password-field" style="margin:0;grid-column:1/-1;">
+          <label for="sa-f-password">Reset Password (optional)</label>
+          <input id="sa-f-password" class="fc" name="password" type="password" minlength="8" maxlength="72" placeholder="Leave blank to keep the current password" autocomplete="new-password" spellcheck="false" />
+          <span class="field-hint" id="sa-admin-user-password-hint">8-72 characters with an uppercase letter, a number and a symbol. If you set one, the account must replace it on its next sign-in.</span>
+          <span class="field-error" aria-live="polite"></span>
         </div>
-        <p class="form-required-note">Fields marked <span class="req">*</span> are required.</p>
-        <p id="sa-admin-user-feedback" class="adm-feedback"></p>
-        <div class="adm-modal-actions" style="justify-content:space-between;">
+        <p class="form-required-note" style="grid-column:1/-1;">Fields marked <span class="req">*</span> are required.</p>
+        <p id="sa-admin-user-feedback" class="adm-feedback" style="grid-column:1/-1;"></p>
+        <div class="adm-modal-actions" style="justify-content:space-between;grid-column:1/-1;">
           <button type="button" id="sa-admin-user-archive-btn" class="btn btn-red" style="display:none;" onclick="toggleArchiveSAAdminUser()">Archive Account</button>
           <button type="submit" class="btn btn-primary">Save</button>
         </div>
@@ -782,14 +804,29 @@
       </div>
       <form id="sa-staff-account-form" class="adm-modal-form" onsubmit="submitSAStaffAccount(event)" novalidate>
         <div class="form-section-title">Account</div>
-        <div class="fg" style="grid-column:1/-1;">
-          <label for="sa-staff-full-name">Full Name <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-staff-full-name" class="fc name-input" type="text" name="full_name" required maxlength="60" placeholder="e.g. Juan Dela Cruz" autocomplete="off" />
+        <div class="fg">
+          <label for="sa-staff-first-name">First Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-first-name" class="fc name-input" type="text" name="first_name" required maxlength="50" pattern="[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'\-]*" placeholder="e.g. Juan" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-middle-name">Middle Name</label>
+          <input id="sa-staff-middle-name" class="fc name-input" type="text" name="middle_name" maxlength="50" pattern="[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'\-]*" placeholder="e.g. Santos (optional)" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-last-name">Last Name <span class="req" aria-hidden="true">*</span></label>
+          <input id="sa-staff-last-name" class="fc name-input" type="text" name="last_name" required maxlength="50" pattern="[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'\-]*" placeholder="e.g. Dela Cruz" autocomplete="off" autocapitalize="words" spellcheck="false" />
+          <span class="field-error" aria-live="polite"></span>
+        </div>
+        <div class="fg">
+          <label for="sa-staff-suffix">Suffix</label>
+          <select id="sa-staff-suffix" class="fc" name="suffix"><option value="">None</option><option value="Jr.">Jr.</option><option value="Sr.">Sr.</option><option value="II">II</option><option value="III">III</option><option value="IV">IV</option><option value="V">V</option></select>
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" style="grid-column:1/-1;">
           <label for="sa-staff-email">Email <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-staff-email" class="fc" type="email" name="email" required maxlength="100" placeholder="e.g. juan.delacruz@example.com" autocomplete="off" />
+          <input id="sa-staff-email" class="fc" type="email" name="email" inputmode="email" required maxlength="254" placeholder="e.g. juan.delacruz@example.com" autocomplete="off" autocapitalize="none" spellcheck="false" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
@@ -814,20 +851,20 @@
           <select id="sa-staff-branch" class="fc" name="branch_id">
             <option value="">Select branch</option>
           </select>
-          <span class="field-hint" id="sa-staff-branch-hint">Super Admin reaches every branch, so it is not assigned one.</span>
+          <span class="field-hint" id="sa-staff-branch-hint" style="display:none;"></span>
           <span class="field-error" aria-live="polite"></span>
         </div>
 
         <div class="form-section-title">Personal</div>
         <div class="fg">
           <label for="sa-staff-dob">Date of Birth <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-staff-dob" class="fc" type="date" name="date_of_birth" required />
-          <span class="field-hint">Used with the last name to build the first-time password.</span>
+          <input id="sa-staff-dob" class="fc" type="date" name="date_of_birth" required min="1900-01-01" />
+          <span class="field-hint">Must be at least 18 years old. Used with the last name to build the first-time password.</span>
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
           <label for="sa-staff-date-hired">Date Hired <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-staff-date-hired" class="fc" type="date" name="date_hired" required />
+          <input id="sa-staff-date-hired" class="fc" type="date" name="date_hired" required min="1900-01-01" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg">
@@ -853,12 +890,12 @@
         </div>
         <div class="fg">
           <label for="sa-staff-cp-number">Contact Number <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-staff-cp-number" class="fc" type="text" name="cp_number" required maxlength="15" placeholder="e.g. 09171234567" autocomplete="off" inputmode="numeric" />
+          <input id="sa-staff-cp-number" class="fc" type="tel" name="cp_number" required maxlength="13" pattern="09[0-9]{2} [0-9]{3} [0-9]{4}" placeholder="e.g. 0917 123 4567" autocomplete="off" inputmode="numeric" />
           <span class="field-error" aria-live="polite"></span>
         </div>
         <div class="fg" style="grid-column:1/-1;">
           <label for="sa-staff-address">Home Address <span class="req" aria-hidden="true">*</span></label>
-          <input id="sa-staff-address" class="fc" type="text" name="address" required maxlength="160" placeholder="e.g. 12 Mabini St, Quezon City" autocomplete="off" />
+          <input id="sa-staff-address" class="fc" type="text" name="address" required minlength="5" maxlength="160" pattern="[A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#\/\-]+" placeholder="e.g. 12 Mabini St, Quezon City" autocomplete="off" />
           <span class="field-error" aria-live="polite"></span>
         </div>
 
@@ -990,6 +1027,8 @@
         <ul class="cp-rules" id="sa-pw-rules" aria-label="Password requirements">
           <li data-rule="length">At least 8 characters</li>
           <li data-rule="mix">Contains both letters and numbers</li>
+          <li data-rule="upper">At least one uppercase letter</li>
+          <li data-rule="symbol">At least one symbol (e.g. ! @ # $)</li>
           <li data-rule="spaces">No spaces</li>
           <li data-rule="different">Different from your current password</li>
           <li data-rule="not-default">Not your last name + birth date</li>

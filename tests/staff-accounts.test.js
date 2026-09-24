@@ -13,7 +13,8 @@ import { readFileSync } from "node:fs";
 import {
   normalizeStaffFields,
   validateStaffRecord,
-  lastNameFromFullName,
+  splitFullName,
+  composeFullName,
   STAFF_ROLES,
   STAFF_REQUIRED_FIELDS,
 } from "@/lib/employees/staff-record";
@@ -23,13 +24,18 @@ import { buildDefaultPassword, isDefaultPassword } from "@/lib/auth/password-pol
 const staffRoute = readFileSync("src/app/api/admin/staff-accounts/route.js", "utf8");
 const proxySource = readFileSync("src/proxy.js", "utf8");
 const superAdminPage = readFileSync("public/legacy/pages/super-admin.html", "utf8");
+const superAdminScript = readFileSync("public/legacy/js/super-admin.js", "utf8");
+const usersRoute = readFileSync("src/app/api/admin/users/route.js", "utf8");
 
 /** A complete, valid staff record, so each test can vary one field. */
 function validBody(overrides = {}) {
   return {
-    full_name: "Maria Santos",
+    first_name: "Maria",
+    middle_name: "Lopez",
+    last_name: "Santos",
+    suffix: "",
     email: "maria.santos@example.com",
-    role: "hr",
+    role: "admin",
     branch_id: "11111111-1111-1111-1111-111111111111",
     date_of_birth: "1990-04-12",
     sex: "Female",
@@ -53,8 +59,8 @@ describe("Super Admin can create Super Admin, Admin and HR accounts", () => {
 
   it("all three pass record validation", () => {
     for (const role of STAFF_ROLES) {
-      // Super Admin is branch-exempt, so it validates without a branch.
-      const body = validBody({ role, branch_id: role === "super_admin" ? "" : validBody().branch_id });
+      // Only Admin carries a branch.
+      const body = validBody({ role, branch_id: role === "admin" ? validBody().branch_id : "" });
       expect(validateStaffRecord(normalizeStaffFields(body))).toBeNull();
     }
   });
@@ -158,27 +164,19 @@ describe("Staff accounts carry no payroll or statutory fields", () => {
 /* ══ Issued default password + forced change ═══════════════════════════════ */
 
 describe("A new staff account is issued a default password it must replace", () => {
-  it("recovers the last name a single Full Name box hides", () => {
-    expect(lastNameFromFullName("Maria Santos")).toBe("Santos");
-    expect(lastNameFromFullName("Juan Dela Cruz")).toBe("Cruz");
-    expect(lastNameFromFullName("Jose Rizal Jr.")).toBe("Rizal");
-    expect(lastNameFromFullName("Cher")).toBe("Cher");
-    expect(lastNameFromFullName("")).toBe("");
-  });
-
   it("the generated password is recognised as the default at sign-in", () => {
     // The round trip that matters: what the route generates must be what
     // mustChangePassword() later identifies, or the holder is never forced to
-    // change it.
-    const fullName = "Juan Dela Cruz";
+    // change it. A two-word last name now reaches the password whole.
+    const record = normalizeStaffFields(validBody({ first_name: "Juan", middle_name: "", last_name: "Dela Cruz" }));
     const dob = "1990-04-12";
-    const password = buildDefaultPassword(lastNameFromFullName(fullName), dob);
-    expect(password).toBe("Cruz04121990!");
-    expect(isDefaultPassword(password, { full_name: fullName, date_of_birth: dob })).toBe(true);
+    const password = buildDefaultPassword(record.last_name, dob);
+    expect(password).toBe("DelaCruz04121990!");
+    expect(isDefaultPassword(password, { full_name: record.full_name, date_of_birth: dob })).toBe(true);
   });
 
   it("the route issues that password rather than accepting one", () => {
-    expect(staffRoute).toMatch(/buildDefaultPassword\(lastNameFromFullName\(record\.full_name\)/);
+    expect(staffRoute).toMatch(/buildDefaultPassword\(record\.last_name,\s*record\.date_of_birth\)/);
     // No password is read from the request body at all.
     expect(staffRoute).not.toMatch(/body\.password/);
   });
@@ -201,15 +199,16 @@ describe("Staff record validation", () => {
     expect(validateStaffRecord(normalizeStaffFields(validBody()))).toBeNull();
   });
 
-  it("requires a branch for Admin and HR but not for Super Admin", () => {
-    for (const role of ["admin", "hr"]) {
-      const error = validateStaffRecord(normalizeStaffFields(validBody({ role, branch_id: "" })));
-      expect(error).toMatch(/branch/i);
+  it("requires a branch for Admin only; HR and Super Admin serve every branch", () => {
+    const admin = validateStaffRecord(normalizeStaffFields(validBody({ role: "admin", branch_id: "" })));
+    expect(admin).toMatch(/branch/i);
+    for (const role of ["hr", "super_admin"]) {
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ role, branch_id: "" })))).toBeNull();
     }
-    const superAdmin = validateStaffRecord(
-      normalizeStaffFields(validBody({ role: "super_admin", branch_id: "" })),
-    );
-    expect(superAdmin).toBeNull();
+  });
+
+  it("the route stores HR and Super Admin with no branch", () => {
+    expect(staffRoute).toMatch(/STAFF_BRANCH_REQUIRED_ROLES\.includes\(record\.role\)[\s\S]*?:\s*null/);
   });
 
   it("names every missing required field", () => {
@@ -230,24 +229,120 @@ describe("Staff record validation", () => {
       date_of_birth: (year - 10) + "-01-01",
       date_hired: year + "-01-01",
     })));
-    expect(error).toMatch(/15 years old/);
+    expect(error).toMatch(/18 years old/);
   });
 
-  it("rejects a hire date before the holder could legally work", () => {
+  it("rejects a 17-year-old", () => {
+    const today = new Date();
+    const dob = new Date(Date.UTC(today.getUTCFullYear() - 17, 0, 1)).toISOString().slice(0, 10);
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ date_of_birth: dob })))).toMatch(/18 years old/);
+  });
+
+  it("rejects a future date of birth", () => {
+    const next = new Date().getUTCFullYear() + 1;
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ date_of_birth: next + "-01-01" })))).not.toBeNull();
+  });
+
+  it("rejects a hire date before the holder turned 18", () => {
     const error = validateStaffRecord(normalizeStaffFields(validBody({
       date_of_birth: "1990-04-12",
-      date_hired: "2000-06-01",
+      date_hired: "2005-06-01",
     })));
-    expect(error).toMatch(/15th birthday/);
+    expect(error).toMatch(/18th birthday/);
   });
 
-  it("rejects a malformed email and a non-letter name", () => {
-    expect(validateStaffRecord(normalizeStaffFields(validBody({ email: "not-an-email" })))).toMatch(/email/i);
-    expect(validateStaffRecord(normalizeStaffFields(validBody({ full_name: "Maria 123" })))).toMatch(/letters/i);
+  it("rejects a malformed email, and emails with spaces or over 254 characters", () => {
+    for (const email of ["not-an-email", "a b@example.com", "x@y", `${"a".repeat(250)}@example.com`]) {
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ email }))), email).toMatch(/email/i);
+    }
+    // Stored lowercase.
+    expect(normalizeStaffFields(validBody({ email: "Maria@Example.COM" })).email).toBe("maria@example.com");
   });
 
-  it("strips non-digits from the contact number and bounds its length", () => {
-    expect(normalizeStaffFields(validBody({ cp_number: "0917-123-4567" })).cp_number).toBe("09171234567");
-    expect(validateStaffRecord(normalizeStaffFields(validBody({ cp_number: "12" })))).toMatch(/contact number/i);
+  it("allows letters, spaces, hyphens, apostrophes and periods in names, and nothing else", () => {
+    for (const last_name of ["O'Brien", "Santos-Reyes", "Dela Cruz", "Peñaflor", "St. John"]) {
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ last_name }))), last_name).toBeNull();
+    }
+    for (const first_name of ["Maria2", "Maria_", "Maria@", "-Maria"]) {
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ first_name }))), first_name).not.toBeNull();
+    }
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ first_name: "A".repeat(51) })))).toMatch(/50/);
+  });
+
+  it("middle name and suffix are optional; an unknown suffix is refused", () => {
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ middle_name: "", suffix: "" })))).toBeNull();
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ suffix: "Esq." })))).toMatch(/suffix/i);
+    expect(normalizeStaffFields(validBody({ suffix: "jr" })).suffix).toBe("Jr.");
+  });
+
+  it("requires an 11-digit mobile number starting with 09", () => {
+    expect(normalizeStaffFields(validBody({ cp_number: "0917 123 4567" })).cp_number).toBe("09171234567");
+    for (const cp_number of ["12", "0917123456", "08171234567", "091712345678"]) {
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ cp_number }))), cp_number).toMatch(/contact number/i);
+    }
+  });
+
+  it("limits the address to letters, numbers, spaces and , . - # /", () => {
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ address: "Unit 4-B #12 Mabini St., Brgy. 5/6, QC" })))).toBeNull();
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ address: "12 Mabini St; <script>" })))).toMatch(/address/i);
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ address: "x".repeat(161) })))).toMatch(/160/);
+  });
+});
+
+/* ══ Split name fields ═════════════════════════════════════════════════════ */
+
+describe("Staff names are stored split, with a composed full name", () => {
+  it("composes First Middle Last Suffix, skipping blanks", () => {
+    expect(composeFullName({ first_name: "Juan", middle_name: "", last_name: "Dela Cruz", suffix: "Jr." }))
+      .toBe("Juan Dela Cruz Jr.");
+    expect(normalizeStaffFields(validBody()).full_name).toBe("Maria Lopez Santos");
+  });
+
+  it("splits an existing full name the same way the migration does", () => {
+    expect(splitFullName("Juan Santos Dela Cruz Jr.")).toEqual({
+      first_name: "Juan", middle_name: "Santos", last_name: "Dela Cruz", suffix: "Jr.",
+    });
+    expect(splitFullName("Maria Santos")).toEqual({
+      first_name: "Maria", middle_name: "", last_name: "Santos", suffix: "",
+    });
+    expect(splitFullName("Juan De Los Santos")).toMatchObject({ first_name: "Juan", last_name: "De Los Santos" });
+    expect(splitFullName("Cher")).toMatchObject({ first_name: "Cher", last_name: "" });
+  });
+
+  it("still accepts a caller that sends only full_name", () => {
+    const record = normalizeStaffFields({ ...validBody(), first_name: undefined, middle_name: undefined, last_name: undefined, suffix: undefined, full_name: "Ana Reyes" });
+    expect(record).toMatchObject({ first_name: "Ana", last_name: "Reyes", full_name: "Ana Reyes" });
+  });
+
+  it("the route writes the parts to profiles", () => {
+    for (const column of ["first_name:", "middle_name:", "last_name:", "suffix:"]) {
+      expect(staffRoute).toContain(column);
+    }
+  });
+
+  it("both Super Admin forms collect four name fields instead of one", () => {
+    for (const formId of ["sa-staff-account-form", "sa-admin-user-form"]) {
+      const start = superAdminPage.indexOf(`id="${formId}"`);
+      const form = superAdminPage.slice(start, superAdminPage.indexOf("</form>", start));
+      for (const name of ["first_name", "middle_name", "last_name", "suffix"]) {
+        expect(form, `${formId} ${name}`).toContain(`name="${name}"`);
+      }
+      expect(form, formId).not.toContain('name="full_name"');
+    }
+  });
+});
+
+/* ══ Quick Add is gone ═════════════════════════════════════════════════════ */
+
+describe("Quick Add has been removed", () => {
+  it("has no button, and the Edit dialog no longer creates accounts", () => {
+    expect(superAdminPage).not.toMatch(/Quick Add/i);
+    expect(superAdminPage).not.toContain("openSAAdminUserModal()");
+    expect(superAdminScript).not.toMatch(/method:\s*'POST',[^}]*\n[^}]*\/api\/admin\/users|fetch\('\/api\/admin\/users',\s*\{\s*method:\s*'POST'/);
+  });
+
+  it("/api/admin/users no longer has a POST handler", () => {
+    expect(usersRoute).not.toMatch(/export async function POST/);
+    expect(usersRoute).toMatch(/export async function PATCH/);
   });
 });

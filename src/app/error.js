@@ -9,7 +9,7 @@
  * a payroll user.
  *
  * Styling is inline and mirrors the portal palette (see public/legacy/css/
- * theme.css and src/app/reset-password/page.js), because globals.css is the
+ * theme.css), because globals.css is the
  * only stylesheet guaranteed to have loaded at this point.
  */
 

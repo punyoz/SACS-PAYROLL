@@ -165,7 +165,7 @@ describe("Employee management belongs to HR", () => {
       expect(scopeFor("admin", moduleName)).toBe("none");
     }
     expect(buildMenu("admin").map((section) => section.section)).not.toContain("Management");
-    expect(await statusOf(requestAs("admin", { path: "/api/admin/users", method: "POST" }))).toBe(403);
+    expect(await statusOf(requestAs("admin", { path: "/api/admin/users", method: "PATCH" }))).toBe(403);
     expect(await statusOf(requestAs("admin", { path: "/api/admin/employees", method: "POST" }))).toBe(403);
     expect(await statusOf(requestAs("admin", { path: "/api/admin/transfer-requests", method: "POST" }))).toBe(403);
   });
@@ -194,10 +194,18 @@ describe("Employee management belongs to HR", () => {
     expect(denyForeignBranch(guard, BRANCH_B)).toBeNull();
   });
 
-  it("keeps HR branch-scoped everywhere else", async () => {
-    const guard = await requirePermission(requestAs("hr"), "attendance", "read");
-    expect(guard.branchExempt).toBe(false);
-    expect(denyForeignBranch(guard, BRANCH_B)?.status).toBe(403);
+  it("gives HR every branch on its other modules too", async () => {
+    for (const moduleName of ["dashboard", "attendance", "leave_approval", "hr_reports", "timesheet"]) {
+      const guard = await requirePermission(requestAs("hr"), moduleName, "read");
+      expect(guard.denied, moduleName).toBeNull();
+      expect(guard.branchExempt, moduleName).toBe(true);
+      expect(denyForeignBranch(guard, BRANCH_B), moduleName).toBeNull();
+    }
+  });
+
+  it("lets an HR account with no branch reach its pages", async () => {
+    const guard = await requirePermission(requestAs("hr", { branchId: null }), "attendance", "read");
+    expect(guard.denied).toBeNull();
   });
 
   it("gives Admin the System Maintenance screen for its own branch", async () => {
@@ -217,27 +225,31 @@ describe("Employee management belongs to HR", () => {
    ══════════════════════════════════════════════════════════════════════════ */
 
 describe("Branch scoping", () => {
-  it("marks Super Admin branch-exempt and everyone else branch-scoped", () => {
+  it("marks Super Admin branch-exempt and Admin, Accountant, Employee branch-scoped", () => {
     expect(isBranchExempt("super_admin")).toBe(true);
-    for (const role of ["admin", "hr", "accountant", "employee"]) {
+    for (const role of ["admin", "accountant", "employee"]) {
       expect(isBranchExempt(role)).toBe(false);
       expect(isBranchScoped(role)).toBe(true);
     }
+    // HR serves every branch and carries none.
+    expect(isBranchScoped("hr")).toBe(false);
   });
 
-  it("gives 'all' scope to no branch-scoped role except HR on its employee modules", () => {
-    const HR_ALL_BRANCH_MODULES = [
-      "user_management",
-      "employee_information",
-      "employee_info_readonly",
-      "branch_assignment",
-      "transfer_requests",
-    ];
-    for (const role of ["admin", "hr", "accountant", "employee"]) {
+  it("gives 'all' scope to no branch-scoped role", () => {
+    for (const role of ["admin", "accountant", "employee"]) {
       for (const [module, entry] of Object.entries(ROLE_PERMISSIONS[role])) {
-        const allowed = role === "hr" && HR_ALL_BRANCH_MODULES.includes(module);
-        if (!allowed) expect(entry.scope, `${role}.${module}`).not.toBe("all");
+        expect(entry.scope, `${role}.${module}`).not.toBe("all");
       }
+    }
+  });
+
+  it("never gives HR a branch scope: its reach is every branch or nothing", () => {
+    for (const [module, entry] of Object.entries(ROLE_PERMISSIONS.hr)) {
+      expect(entry.scope, `hr.${module}`).not.toBe("branch");
+    }
+    // Payroll stays out of reach however far HR's other modules go.
+    for (const moduleName of ["process_payroll", "payroll_records", "payslips", "payroll_monitoring"]) {
+      expect(scopeFor("hr", moduleName), moduleName).toBe("none");
     }
   });
 
@@ -516,6 +528,7 @@ describe("Mandatory password change", () => {
   it("still allows the change itself and the session lookups the screen needs", async () => {
     for (const [path, method] of [
       ["/api/legacy-auth/change-password", "POST"],
+      ["/api/legacy-auth/change-password-otp", "POST"],
       ["/api/legacy-auth/session", "GET"],
       ["/api/rbac/me", "GET"],
     ]) {

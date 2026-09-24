@@ -10,10 +10,30 @@ import {
   denyForeignBranch,
   scopeListToBranch,
 } from "@/lib/rbac/guard";
-import { hashTemporaryPassword, PASSWORD_MIN_LENGTH } from "@/lib/auth/password-policy";
+import { hashTemporaryPassword, validateNewPassword } from "@/lib/auth/password-policy";
+import { invalidateBranchCache } from "@/lib/auth/live-branch";
+import {
+  normalizeNameParts,
+  splitFullName,
+  validateNameParts,
+  validateStaffEmail,
+} from "@/lib/employees/staff-record";
 
-// Admin and HR accounts work inside one branch, so they cannot exist without one.
-const BRANCH_REQUIRED_ROLES = ["admin", "hr"];
+/**
+ * GET lists accounts; PATCH edits, archives or restores one.
+ *
+ * Accounts are created elsewhere: Super Admin / Admin / HR through
+ * POST /api/admin/staff-accounts, Employee / Accountant through
+ * POST /api/admin/employees. The POST handler that used to live here served
+ * only the Super Admin "+ Quick Add" button, and was removed with it.
+ */
+
+// Roles that serve every branch and are stored with no branch.
+const BRANCHLESS_ROLES = ["super_admin", "hr"];
+
+const PROFILE_COLUMNS = "id,email,full_name,role,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number";
+// Added by 20260924010000_profiles_name_parts.sql.
+const NAME_PART_COLUMNS = "first_name,middle_name,last_name,suffix";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,13 +50,25 @@ function getAdminClient() {
 function shapeUser(user, profile) {
   const metadata = user.user_metadata || {};
   const role = normalizeRole(metadata.role);
+  const fullName = normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email));
+  // Stored parts when the account has them; otherwise split the full name so
+  // the Edit dialog still opens pre-filled.
+  const parts = profile?.first_name || profile?.last_name
+    ? profile
+    : splitFullName(fullName);
   return {
     id: user.id,
     email: normalizeText(profile?.email, user.email),
-    full_name: normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email)),
+    full_name: fullName,
+    first_name: normalizeText(parts.first_name),
+    middle_name: normalizeText(parts.middle_name),
+    last_name: normalizeText(parts.last_name),
+    suffix: normalizeText(parts.suffix),
     role,
     employee_id: normalizeText(metadata.employee_id, ""),
-    branch_id: profile?.branch_id || metadata.branch_id || null,
+    // Super Admin and HR serve every branch; a stale branch left on one of
+    // them is never shown.
+    branch_id: BRANCHLESS_ROLES.includes(role) ? null : (profile?.branch_id || metadata.branch_id || null),
     archived: Boolean(metadata.archived),
     last_sign_in: user.last_sign_in_at || null,
     created_at: user.created_at || null,
@@ -85,10 +117,17 @@ async function fetchAllUsers(supabase) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    const profileResult = await supabase
+    let profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,role,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+      .select(`${PROFILE_COLUMNS},${NAME_PART_COLUMNS}`)
       .in("id", userIds);
+
+    // Before the name-parts migration runs, those columns do not exist and
+    // the whole select fails. Fall back to the old column list rather than
+    // dropping every profile (and with it every branch) from the listing.
+    if (profileResult.error) {
+      profileResult = await supabase.from("profiles").select(PROFILE_COLUMNS).in("id", userIds);
+    }
 
     if (!profileResult.error) {
       (profileResult.data || []).forEach((p) => profileMap.set(p.id, p));
@@ -116,129 +155,6 @@ export async function GET(request) {
           .filter((u) => !["admin", "super_admin"].includes(u.role));
 
     return NextResponse.json({ users: visible });
-  } catch (error) {
-    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
-  }
-}
-
-export async function POST(request) {
-  const guard = await requirePermission(request, "user_management", "create");
-  if (guard.denied) return guard.denied;
-
-  try {
-    const body = await request.json();
-    const role = normalizeRole(body.role);
-    const email = normalizeRoleEmail(body.email);
-    const fullName = normalizeText(body.full_name);
-    const password = normalizeText(body.password);
-
-    // An Admin may create HR / Accountant / Employee accounts only. Minting an
-    // admin or super_admin — the privilege-escalation path — stops here.
-    const escalation = denyRoleEscalation(guard, role);
-    if (escalation) return escalation;
-
-    // The new account is pinned to the creator's own branch; a branch-scoped
-    // caller cannot plant a user in someone else's branch.
-    const branchId = guard.branchExempt
-      ? (normalizeText(body.branch_id) || null)
-      : guard.branchId;
-
-    if (!guard.branchExempt) {
-      const foreign = denyForeignBranch(guard, normalizeText(body.branch_id));
-      if (foreign) return foreign;
-    }
-
-    if (!email || !fullName || !password) {
-      return NextResponse.json(
-        { error: "Full name, email, and password are required." },
-        { status: 400 },
-      );
-    }
-
-    if (!/^[A-Za-z\s.]+$/.test(fullName)) {
-      return NextResponse.json({ error: "Full name must contain letters and spaces only." }, { status: 400 });
-    }
-
-    if (password.length < PASSWORD_MIN_LENGTH) {
-      return NextResponse.json(
-        { error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` },
-        { status: 400 },
-      );
-    }
-
-    if (BRANCH_REQUIRED_ROLES.includes(role) && !branchId) {
-      return NextResponse.json({ error: "Select the branch this account belongs to." }, { status: 400 });
-    }
-
-    const supabase = getAdminClient();
-
-    if (branchId) {
-      const { data: branch, error: branchError } = await supabase
-        .from("branches")
-        .select("id")
-        .eq("id", branchId)
-        .maybeSingle();
-      if (branchError || !branch) {
-        return NextResponse.json({ error: "The selected branch does not exist." }, { status: 400 });
-      }
-    }
-
-    const metadata = {
-      role,
-      full_name: fullName,
-      archived: false,
-      branch_id: branchId,
-    };
-
-    const createResult = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: metadata,
-      // The password Super Admin typed is a one-time password: the first
-      // sign-in with it must replace it (src/lib/auth/password-policy.js).
-      app_metadata: { temp_password_hash: hashTemporaryPassword(password) },
-    });
-
-    if (createResult.error) {
-      return NextResponse.json({ error: sanitizeError(createResult.error) }, { status: 400 });
-    }
-
-    invalidateUsersCache();
-
-    const newUser = createResult.data.user;
-    const profileResult = await supabase.from("profiles").upsert(
-      { id: newUser.id, email, role, full_name: fullName, branch_id: branchId },
-      { onConflict: "id" },
-    );
-
-    // The auth account already exists at this point either way — surfacing
-    // this loudly (instead of the previous silent failure) is what actually
-    // matters: a profiles-less account can't be the subject or actor of
-    // anything that references profiles by foreign key (e.g. transfer
-    // requests), and that failure mode is much harder to diagnose later.
-    if (profileResult.error) {
-      return NextResponse.json(
-        { error: `Account created, but its profile record failed: ${sanitizeError(profileResult.error)}` },
-        { status: 500 },
-      );
-    }
-
-    await appendAuditLog({
-      module: "users",
-      action: "create",
-      entity_type: "user",
-      entity_id: newUser.id,
-      description: `User ${fullName} (${role}) was created by admin.`,
-      status: "success",
-      source: "api",
-      metadata: { user_id: newUser.id, role, email },
-    });
-
-    return NextResponse.json(
-      { user: shapeUser(newUser, { email, full_name: fullName, role }) },
-      { status: 201 },
-    );
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -344,6 +260,9 @@ export async function PATCH(request) {
     if (foreign) return foreign;
 
     const nextMetadata = { ...currentMetadata };
+    // Set when the caller sent First / Middle / Last / Suffix (the Super Admin
+    // Edit dialog); older callers send full_name only.
+    let nameParts = null;
 
     if (action === "archive") {
       nextMetadata.archived = true;
@@ -351,24 +270,41 @@ export async function PATCH(request) {
       nextMetadata.archived = false;
     } else {
       nextMetadata.role = normalizeRole(body.role || currentMetadata.role);
-      nextMetadata.full_name = normalizeText(
-        body.full_name,
-        normalizeText(currentMetadata.full_name, existingUser.email),
-      );
+      const sentParts = ["first_name", "middle_name", "last_name", "suffix"]
+        .some((key) => Object.prototype.hasOwnProperty.call(body, key));
+      if (sentParts) {
+        nameParts = normalizeNameParts(body);
+        const nameError = validateNameParts(nameParts, body.suffix);
+        if (nameError) return NextResponse.json({ error: nameError }, { status: 400 });
+        nextMetadata.full_name = nameParts.full_name;
+      } else {
+        nextMetadata.full_name = normalizeText(
+          body.full_name,
+          normalizeText(currentMetadata.full_name, existingUser.email),
+        );
+      }
+      // Super Admin and HR serve every branch and carry none.
+      if (BRANCHLESS_ROLES.includes(nextMetadata.role)) {
+        nextMetadata.branch_id = null;
+      }
     }
 
     const updatePayload = { user_metadata: nextMetadata };
 
     if (action === "update") {
+      if (normalizeText(body.email)) {
+        const emailError = validateStaffEmail(normalizeText(body.email).toLowerCase());
+        if (emailError) return NextResponse.json({ error: emailError }, { status: 400 });
+      }
       const email = normalizeRoleEmail(normalizeText(body.email, existingUser.email));
       if (email) updatePayload.email = email;
       const password = normalizeText(body.password);
       if (password) {
-        if (password.length < PASSWORD_MIN_LENGTH) {
-          return NextResponse.json(
-            { error: `Password must be at least ${PASSWORD_MIN_LENGTH} characters.` },
-            { status: 400 },
-          );
+        // Same rules as every other password a person sets (Task 2):
+        // 8-72 characters, letters and numbers, an uppercase letter, a symbol.
+        const passwordError = validateNewPassword(password);
+        if (passwordError) {
+          return NextResponse.json({ error: passwordError.replace(/^New password/, "Password") }, { status: 400 });
         }
         updatePayload.password = password;
         // A password reset by Super Admin is a one-time password too.
@@ -385,15 +321,29 @@ export async function PATCH(request) {
 
     if (action === "update") {
       const email = updatePayload.email || existingUser.email;
-      const profileResult = await supabase.from("profiles").upsert(
-        { id, email, role: nextMetadata.role, full_name: nextMetadata.full_name },
-        { onConflict: "id" },
-      );
+      const profileRow = { id, email, role: nextMetadata.role, full_name: nextMetadata.full_name };
+      if (nameParts) {
+        profileRow.first_name = nameParts.first_name;
+        profileRow.middle_name = nameParts.middle_name || null;
+        profileRow.last_name = nameParts.last_name;
+        profileRow.suffix = nameParts.suffix || null;
+      }
+      const clearBranch = BRANCHLESS_ROLES.includes(nextMetadata.role);
+      if (clearBranch) profileRow.branch_id = null;
+
+      const profileResult = await supabase.from("profiles").upsert(profileRow, { onConflict: "id" });
       if (profileResult.error) {
         return NextResponse.json(
           { error: `Account updated, but its profile record failed: ${sanitizeError(profileResult.error)}` },
           { status: 500 },
         );
+      }
+
+      if (clearBranch) {
+        // The assignment row would otherwise keep a branch alive for this
+        // account (its trigger writes profiles.branch_id back).
+        await supabase.from("employee_branch_assignments").delete().eq("user_id", id);
+        invalidateBranchCache(id);
       }
     }
 

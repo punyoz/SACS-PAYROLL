@@ -20,15 +20,15 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | # | Module | Super Admin | Admin | HR | Accountant | Employee |
 |---|---|---|---|---|---|---|
 | **OVERVIEW** |
-| 1 | Dashboard (role-specific view) | F (all branches) | P (own branch) | P (own branch) | P (own branch) | P (own record) |
-| 2 | Attendance | F (all branches, edit/override) | P (own branch, edit/correct) | P (own branch, monitor + correct) | V (reference only, no edit) | V (own record only) |
+| 1 | Dashboard (role-specific view) | F (all branches) | P (own branch) | P (all branches) | P (own branch) | P (own record) |
+| 2 | Attendance | F (all branches, edit/override) | P (own branch, edit/correct) | P (all branches, monitor + correct) | V (reference only, no edit) | V (own record only) |
 | **MANAGEMENT** |
 | 3 | User/Account Management | F — can create/archive Admin, HR, Accountant, Employee accounts, any branch (no permanent delete) | P — can create/edit/archive HR, Accountant, Employee accounts, own branch only. Cannot create Admin/Super Admin | P — can view/edit Employee accounts in own branch | — | — |
 | 4 | Employee Information (records, 201 files) | F (all branches) | P (own branch) | F (own branch — primary owner of this module) | V (for payroll reference) | V (own profile only) |
 | 5 | Branch Management (create/edit/close branches) | F | — | — | — | — |
 | 6 | Branch Assignment (assign staff to a branch) | F (any staff, any branch) | P (within own branch only) | P (within own branch only) | — | — |
 | 7 | Roles & Permissions (define what each role can do) | F — exclusive | — | — | — | — |
-| 8 | Leave Approval | F (override any decision) | V | F (own branch) | — | Submit only (own requests) |
+| 8 | Leave Approval | F (override any decision) | V | F (all branches) | — | Submit only (own requests) |
 | **ATTENDANCE / RFID** |
 | 9 | RFID Device Registration/Config | F | V | — | — | — |
 | **PAYROLL** |
@@ -42,11 +42,11 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 16 | Audit Logs / Audit & Monitoring | F (all branches + system events) | V (own branch activity only) | — | — | — |
 | 17 | Backup & Recovery | F — exclusive | — | — | — | — |
 | **REPORTS** |
-| 18 | HR Reports | F (all branches) | V (own branch) | F (own branch) | — | — |
+| 18 | HR Reports | F (all branches) | V (own branch) | F (all branches) | — | — |
 | 19 | Payroll Reports | F (all branches) | V (own branch) | — | F (own branch) | — |
 | **ACCOUNT** |
 | 20 | Profile | F (own) | F (own) | F (own) | F (own) | F (own) |
-| 21 | Timesheet | F (all, view/adjust) | V (own branch) | V (own branch) | V (reference) | F (own — view/print) |
+| 21 | Timesheet | F (all, view/adjust) | V (own branch) | V (all branches) | V (reference) | F (own — view/print) |
 
 ---
 
@@ -81,7 +81,9 @@ GOAL: Enforce the following permission rules across the backend
    - Super Admin: access to ALL branches' data, no branch restriction.
    - Admin: restricted to their assigned branch only (add a branch_id
      check on every query/action Admin performs).
-   - HR, Accountant, Employee: same branch-level restriction as Admin.
+   - Accountant, Employee: same branch-level restriction as Admin.
+   - HR: serves every branch. HR accounts carry no branch ("All Branches");
+     its reach is limited by module, not by branch.
 
 2. MODULE-LEVEL PERMISSIONS TO IMPLEMENT
 

@@ -57,7 +57,7 @@
       </div>
       <div style="padding:0 0 4px;">
         <p style="font-size:13px;color:var(--t2);margin-bottom:14px;line-height:1.6;">
-          Enter your Employee ID (e.g. <strong>SACS-001</strong>) or your registered email address. A password reset link will be sent to your email.
+          Enter your Employee ID (e.g. <strong>SACS-001</strong>) or your registered email address. A 6-digit OTP, valid for 5 minutes, will be sent to your email.
         </p>
         <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 13px;margin-bottom:16px;font-size:12px;color:var(--t3);line-height:1.5;">
           Only <strong style="color:var(--t2);">Employee</strong> and <strong style="color:var(--t2);">Accountant</strong> accounts can reset their password here. Contact the administrator for other issues.
@@ -66,8 +66,43 @@
           <label for="reset-identity-input" style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">Employee ID or Email</label>
           <input id="reset-identity-input" class="fi" type="text" placeholder="e.g. SACS-001 or your@email.com" autocomplete="off" />
         </div>
-        <div id="reset-password-feedback" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
-        <button class="lb" id="reset-submit-btn" onclick="submitResetPassword()" style="margin-top:12px;">Send Reset Link</button>
+        <!-- Step 2, shown once an OTP has been requested (js/app.js). -->
+        <div id="reset-otp-step" hidden>
+          <div class="fl">
+            <label for="reset-otp-input" style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">OTP Code</label>
+            <input id="reset-otp-input" class="fi" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="6-digit code" maxlength="6" style="letter-spacing:.2em;font-size:18px;text-align:center;" />
+          </div>
+          <div style="text-align:right;margin:-4px 0 10px;">
+            <button type="button" id="reset-resend-btn" onclick="resendResetOtp()" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;">Resend OTP</button>
+          </div>
+        </div>
+        <!-- Step 3, shown only after the OTP has been verified. -->
+        <div id="reset-password-step" hidden>
+          <div class="fl">
+            <label for="reset-new-password" style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">New Password</label>
+            <div class="cp-input-wrap">
+              <input id="reset-new-password" class="fi" type="password" autocomplete="new-password" placeholder="At least 8 characters" maxlength="72" />
+              <button type="button" class="cp-eye" data-target="reset-new-password" aria-label="Show password">Show</button>
+            </div>
+          </div>
+          <div class="fl">
+            <label for="reset-confirm-password" style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em;">Confirm Password</label>
+            <div class="cp-input-wrap">
+              <input id="reset-confirm-password" class="fi" type="password" autocomplete="new-password" placeholder="Re-enter new password" maxlength="72" />
+              <button type="button" class="cp-eye" data-target="reset-confirm-password" aria-label="Show password">Show</button>
+            </div>
+          </div>
+          <ul class="cp-rules" id="reset-pw-rules" aria-label="Password requirements">
+            <li data-rule="length">At least 8 characters</li>
+            <li data-rule="mix">Contains both letters and numbers</li>
+            <li data-rule="upper">At least one uppercase letter</li>
+            <li data-rule="symbol">At least one symbol (e.g. ! @ # $)</li>
+            <li data-rule="spaces">No spaces</li>
+            <li data-rule="match">Passwords match</li>
+          </ul>
+        </div>
+        <div id="reset-password-feedback" style="font-size:12px;margin-top:8px;min-height:16px;" role="alert" aria-live="polite"></div>
+        <button class="lb" id="reset-submit-btn" onclick="submitResetPassword()" style="margin-top:12px;">Send OTP</button>
       </div>
     </div>
   </div>

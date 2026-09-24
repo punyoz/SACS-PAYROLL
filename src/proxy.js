@@ -72,6 +72,8 @@ const API_MODULES = [
   ["/api/rbac/me", null],                                  // session-derived, self-guarding
   ["/api/legacy-auth/session", null],                      // session heartbeat
   ["/api/legacy-auth/change-password", "profile"],
+  // Emails the OTP the change above now needs (Employee / Accountant).
+  ["/api/legacy-auth/change-password-otp", "profile"],
   ["/api/legacy-auth/update-profile", "profile"],
   ["/api/admin/users", "user_management"],
   ["/api/admin/employees", "employee_information"],
@@ -197,6 +199,7 @@ function isBranchLabelRead(pathname, method) {
  */
 const PASSWORD_CHANGE_ALLOWED = [
   "/api/legacy-auth/change-password",
+  "/api/legacy-auth/change-password-otp",
   "/api/legacy-auth/session",
   "/api/rbac/me",
 ];

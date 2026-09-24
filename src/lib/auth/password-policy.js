@@ -5,8 +5,10 @@
  * the date of birth plus a fixed symbol (e.g. DelaCruz10082004!) — so the
  * holder must replace it before the account can do anything else. The fixed
  * symbol is required because the Supabase Auth project's password policy
- * demands at least one symbol character; the app's own rules (see
- * validateNewPassword below) never required one. Two independent signals
+ * demands at least one symbol character. The app's own rules (see
+ * validateNewPassword below) now require one too, along with an uppercase
+ * letter, for every password a user chooses: change-password, the OTP reset
+ * and a Super Admin's password reset on an account. Two independent signals
  * decide the "must change" check at sign-in, and either one is enough:
  *
  *   1. The password matches the one-time password the account was issued.
@@ -25,6 +27,13 @@ export const PASSWORD_MAX_LENGTH = 72;
 // Guarantees the generated default password satisfies the Supabase project's
 // "at least one symbol" requirement, which plain LastName+MMDDYYYY does not.
 export const DEFAULT_PASSWORD_SYMBOL = "!";
+
+/**
+ * A "symbol" is anything that is not a letter, a digit or whitespace. The
+ * browser checklists (public/legacy/js/app.js, the reset-password dialog and
+ * the Super Admin staff forms) use this same definition.
+ */
+export const PASSWORD_SYMBOL_PATTERN = /[^A-Za-z0-9\s]/;
 
 const NAME_SUFFIXES = new Set(["jr", "jr.", "sr", "sr.", "ii", "iii", "iv", "v"]);
 
@@ -143,6 +152,12 @@ export function validateNewPassword(newPassword, { currentPassword, full_name, d
   }
   if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) {
     return "New password must contain both letters and numbers.";
+  }
+  if (!/[A-Z]/.test(value)) {
+    return "New password must contain at least one uppercase letter.";
+  }
+  if (!PASSWORD_SYMBOL_PATTERN.test(value)) {
+    return "New password must contain at least one symbol (e.g. ! @ # $).";
   }
   if (currentPassword !== undefined && value === String(currentPassword)) {
     return "New password must be different from your current password.";

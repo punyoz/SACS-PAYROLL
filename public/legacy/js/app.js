@@ -563,6 +563,7 @@ function closeSettingsModal(prefix) {
 
   const feedback = document.getElementById(`${prefix}-change-password-feedback`);
   if (feedback) { feedback.textContent = ''; feedback.className = 'adm-feedback'; }
+  resetPasswordChangeFlow(prefix);
 
   const profileFeedback = document.getElementById(`${prefix}-profile-feedback`);
   if (profileFeedback) { profileFeedback.textContent = ''; profileFeedback.className = 'adm-feedback'; }
@@ -1274,70 +1275,245 @@ function scrollWebsiteTo(position = 'top') {
 }
 
 /* ── RESET PASSWORD (LOGIN PAGE) ── */
+// Three steps in one dialog, all through POST /api/legacy-auth/reset-password:
+//   1. "send"    Employee ID or email -> a 6-digit OTP (valid 5 minutes)
+//   2. "verify"  the OTP; only when it checks out does step 3 appear
+//   3. "reset"   new password + confirmation
+// The server keeps which step you are on in a signed cookie, so the email
+// address never reaches the browser and step 3 cannot be reached without
+// step 2.
+const RESET_OTP_RESEND_SECONDS = 60;
+let resetOtpCountdownTimer = null;
+let resetRequestInFlight = false;
+let resetStage = 'identity';
+
+const RESET_STAGE_LABELS = { identity: 'Send OTP', otp: 'Verify OTP', password: 'Reset Password' };
+
+function resetDialogElements() {
+  return {
+    modal: document.getElementById('reset-password-modal'),
+    identity: document.getElementById('reset-identity-input'),
+    otpStep: document.getElementById('reset-otp-step'),
+    passwordStep: document.getElementById('reset-password-step'),
+    otp: document.getElementById('reset-otp-input'),
+    next: document.getElementById('reset-new-password'),
+    confirm: document.getElementById('reset-confirm-password'),
+    rules: document.getElementById('reset-pw-rules'),
+    feedback: document.getElementById('reset-password-feedback'),
+    submit: document.getElementById('reset-submit-btn'),
+    resend: document.getElementById('reset-resend-btn'),
+  };
+}
+
+function showResetFeedback(message, ok) {
+  const { feedback } = resetDialogElements();
+  if (!feedback) return;
+  feedback.textContent = message || '';
+  feedback.style.color = message ? (ok ? '#3EC97A' : '#E85555') : '';
+}
+
+/** Show the controls for `stage` and label the main button to match. */
+function setResetStage(stage) {
+  const els = resetDialogElements();
+  resetStage = stage;
+  if (els.identity) els.identity.readOnly = stage !== 'identity';
+  if (els.otpStep) els.otpStep.hidden = stage !== 'otp';
+  if (els.passwordStep) els.passwordStep.hidden = stage !== 'password';
+  if (els.submit) { els.submit.disabled = false; els.submit.textContent = RESET_STAGE_LABELS[stage]; }
+  if (stage !== 'otp') clearInterval(resetOtpCountdownTimer);
+  if (stage === 'identity') {
+    [els.otp, els.next, els.confirm].forEach((input) => { if (input) input.value = ''; });
+    refreshResetRules();
+  }
+  const focusTarget = { identity: els.identity, otp: els.otp, password: els.next }[stage];
+  setTimeout(() => focusTarget?.focus(), 0);
+}
+
+function refreshResetRules() {
+  const { next, confirm, rules } = resetDialogElements();
+  if (!next || !rules) return {};
+  const value = next.value.trim();
+  const result = {
+    ...evaluatePasswordShape(value),
+    match: value.length > 0 && value === String(confirm?.value || '').trim(),
+  };
+  rules.querySelectorAll('li[data-rule]').forEach((item) => {
+    item.classList.toggle('ok', Boolean(result[item.dataset.rule]));
+  });
+  return result;
+}
+
+function bindResetDialogInputs() {
+  const { otp, next, confirm, rules } = resetDialogElements();
+  if (!rules || rules.dataset.bound === '1') return;
+  rules.dataset.bound = '1';
+  if (otp) bindNumericOtpInput(otp);
+  [next, confirm].forEach((input) => input?.addEventListener('input', refreshResetRules));
+}
+
+function startResetResendCountdown(seconds) {
+  const { resend } = resetDialogElements();
+  clearInterval(resetOtpCountdownTimer);
+  resetOtpCountdownTimer = startOtpButtonCountdown(resend, seconds, 'Resend OTP');
+}
+
 function openResetPasswordModal() {
-  const modal = document.getElementById('reset-password-modal');
-  const input = document.getElementById('reset-identity-input');
-  const feedback = document.getElementById('reset-password-feedback');
-  const btn = document.getElementById('reset-submit-btn');
+  const els = resetDialogElements();
+  if (!els.modal) return;
 
-  if (!modal) return;
+  bindResetDialogInputs();
+  resetRequestInFlight = false;
+  if (els.identity) els.identity.value = '';
+  if (els.resend) { els.resend.disabled = false; els.resend.textContent = 'Resend OTP'; }
+  showResetFeedback('', true);
+  setResetStage('identity');
 
-  if (input) input.value = '';
-  if (feedback) { feedback.textContent = ''; feedback.style.color = ''; }
-  if (btn) { btn.textContent = 'Send Reset Link'; btn.disabled = false; }
-
-  modal.style.display = 'flex';
+  els.modal.style.display = 'flex';
 }
 
 function closeResetPasswordModal() {
-  const modal = document.getElementById('reset-password-modal');
+  const { modal } = resetDialogElements();
+  clearInterval(resetOtpCountdownTimer);
   if (modal) modal.style.display = 'none';
 }
 
-async function submitResetPassword() {
-  const input = document.getElementById('reset-identity-input');
-  const feedback = document.getElementById('reset-password-feedback');
-  const btn = document.getElementById('reset-submit-btn');
-
-  const identity = String(input?.value || '').trim();
-
-  if (!identity) {
-    if (feedback) {
-      feedback.textContent = 'Enter your Employee ID or email address.';
-      feedback.style.color = '#E85555';
-    }
-    return;
-  }
-
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
-  if (feedback) { feedback.textContent = ''; feedback.style.color = ''; }
-
+/** POST one step. Returns { response, result } or null on a network failure. */
+async function postResetStep(payload) {
   try {
     const response = await fetch('/api/legacy-auth/reset-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity }),
+      body: JSON.stringify(payload),
     });
-
-    const result = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(result.error || 'Failed to send reset link.');
-    }
-
-    if (feedback) {
-      feedback.textContent = result.message || 'Reset link sent. Check your registered email address.';
-      feedback.style.color = '#3EC97A';
-    }
-    if (btn) { btn.textContent = 'Sent'; }
-    if (input) input.value = '';
-  } catch (error) {
-    if (feedback) {
-      feedback.textContent = error.message;
-      feedback.style.color = '#E85555';
-    }
-    if (btn) { btn.disabled = false; btn.textContent = 'Send Reset Link'; }
+    return { response, result: await response.json().catch(() => ({})) };
+  } catch {
+    showResetFeedback('Unable to reach the server. Check your connection and try again.', false);
+    return null;
   }
+}
+
+/** Codes after which the OTP step cannot continue: back to step 1. */
+const RESET_RESTART_CODES = ['otp_expired', 'otp_locked_out', 'grant_expired', 'grant_used'];
+
+/** Step 1, and "Resend OTP". */
+async function sendResetOtp() {
+  if (resetRequestInFlight) return;
+  const els = resetDialogElements();
+  const identity = String(els.identity?.value || '').trim();
+  if (!identity) {
+    showResetFeedback('Enter your Employee ID or email address.', false);
+    return;
+  }
+
+  resetRequestInFlight = true;
+  if (els.submit) els.submit.disabled = true;
+  if (els.resend) els.resend.disabled = true;
+  if (resetStage === 'identity' && els.submit) els.submit.textContent = 'Sending...';
+  showResetFeedback('', true);
+
+  let cooldown = 0;
+  const reply = await postResetStep({ action: 'send', identity });
+  resetRequestInFlight = false;
+  if (els.submit) { els.submit.disabled = false; els.submit.textContent = RESET_STAGE_LABELS[resetStage]; }
+
+  if (reply) {
+    const { response, result } = reply;
+    if (!response.ok) {
+      showResetFeedback(result.error || 'Unable to send the OTP. Please try again.', false);
+      if (response.status === 429) cooldown = Number(response.headers.get('Retry-After')) || RESET_OTP_RESEND_SECONDS;
+    } else {
+      if (resetStage !== 'otp') setResetStage('otp');
+      if (els.otp) { els.otp.value = ''; els.otp.focus(); }
+      showResetFeedback(result.message || 'If the account exists, an OTP has been sent.', true);
+      cooldown = Number(result.resend_after) || RESET_OTP_RESEND_SECONDS;
+    }
+  }
+
+  if (cooldown > 0 && resetStage === 'otp') startResetResendCountdown(cooldown);
+  else if (els.resend) els.resend.disabled = false;
+}
+
+function resendResetOtp() {
+  const { resend } = resetDialogElements();
+  if (resend?.disabled) return;
+  sendResetOtp();
+}
+
+/** Step 2. */
+async function verifyResetOtp() {
+  if (resetRequestInFlight) return;
+  const els = resetDialogElements();
+  const code = String(els.otp?.value || '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    showResetFeedback('Enter the 6-digit OTP from your email.', false);
+    return;
+  }
+
+  resetRequestInFlight = true;
+  if (els.submit) { els.submit.disabled = true; els.submit.textContent = 'Verifying...'; }
+  showResetFeedback('', true);
+
+  const reply = await postResetStep({ action: 'verify', code });
+  resetRequestInFlight = false;
+  if (els.submit) { els.submit.disabled = false; els.submit.textContent = RESET_STAGE_LABELS[resetStage]; }
+  if (!reply) return;
+
+  const { response, result } = reply;
+  if (!response.ok) {
+    showResetFeedback(result.error || 'Unable to verify the OTP. Please try again.', false);
+    if (RESET_RESTART_CODES.includes(result.code)) setResetStage('identity');
+    else if (els.otp) { els.otp.value = ''; els.otp.focus(); }
+    return;
+  }
+
+  showResetFeedback(result.message || 'OTP verified. Choose your new password.', true);
+  setResetStage('password');
+}
+
+/** Step 3. */
+async function completeResetPassword() {
+  if (resetRequestInFlight) return;
+  const els = resetDialogElements();
+  const password = String(els.next?.value || '').trim();
+  const confirm = String(els.confirm?.value || '').trim();
+  const rules = refreshResetRules();
+
+  if (!rules.length) { showResetFeedback(`New password must be ${PASSWORD_MIN_LENGTH}-72 characters.`, false); return; }
+  if (!rules.spaces) { showResetFeedback('New password cannot contain spaces.', false); return; }
+  if (!rules.mix) { showResetFeedback('New password must contain both letters and numbers.', false); return; }
+  if (!rules.upper) { showResetFeedback('New password must contain at least one uppercase letter.', false); return; }
+  if (!rules.symbol) { showResetFeedback('New password must contain at least one symbol (e.g. ! @ # $).', false); return; }
+  if (!rules.match) { showResetFeedback('Passwords do not match.', false); return; }
+
+  resetRequestInFlight = true;
+  if (els.submit) { els.submit.disabled = true; els.submit.textContent = 'Resetting...'; }
+  showResetFeedback('', true);
+
+  const reply = await postResetStep({ action: 'reset', password, confirm_password: confirm });
+  if (!reply || !reply.response.ok) {
+    resetRequestInFlight = false;
+    if (els.submit) { els.submit.disabled = false; els.submit.textContent = RESET_STAGE_LABELS[resetStage]; }
+    if (reply) {
+      showResetFeedback(reply.result.error || 'Unable to reset your password. Please try again.', false);
+      if (RESET_RESTART_CODES.includes(reply.result.code)) setResetStage('identity');
+    }
+    return;
+  }
+
+  showResetFeedback(reply.result.message || 'Your password has been reset.', true);
+  if (els.submit) els.submit.textContent = 'Done';
+  [els.otp, els.next, els.confirm].forEach((input) => { if (input) input.value = ''; });
+  // Back to a fresh login screen, which shows the success notice.
+  setTimeout(() => {
+    (window.top || window).location.href = '/login?reason=password_reset';
+  }, 1200);
+}
+
+/** The dialog's main button runs whichever step is showing. */
+function submitResetPassword() {
+  if (resetStage === 'otp') return verifyResetOtp();
+  if (resetStage === 'password') return completeResetPassword();
+  return sendResetOtp();
 }
 
 /* ── LOGIN ── */
@@ -2082,10 +2258,295 @@ function looksLikeDefaultPassword(password, ctx) {
   return Boolean(prefix) && lastNameCandidates(ctx?.full_name).includes(prefix);
 }
 
+/**
+ * The shape rules every new password must meet: the same checks as
+ * validateNewPassword() in src/lib/auth/password-policy.js. Used by the
+ * change-password checklists and the reset dialog.
+ */
+function evaluatePasswordShape(next) {
+  return {
+    length: next.length >= PASSWORD_MIN_LENGTH && next.length <= 72,
+    mix: /[A-Za-z]/.test(next) && /\d/.test(next),
+    upper: /[A-Z]/.test(next),
+    symbol: /[^A-Za-z0-9\s]/.test(next),
+    spaces: next.length > 0 && !/\s/.test(next),
+  };
+}
+
+/** Digits only, at most six, for every OTP field. */
+function bindNumericOtpInput(input) {
+  if (!input || input.dataset.otpBound === '1') return;
+  input.dataset.otpBound = '1';
+  input.addEventListener('input', () => {
+    const digits = input.value.replace(/\D/g, '').slice(0, 6);
+    if (digits !== input.value) input.value = digits;
+  });
+}
+
+/**
+ * Disable `button` and count down on its label ("Resend OTP (42s)"), then
+ * restore `idleLabel`. Returns the interval id so the caller can cancel it.
+ */
+function startOtpButtonCountdown(button, seconds, idleLabel) {
+  if (!button) return null;
+  let remaining = Math.max(1, Math.ceil(seconds));
+  button.disabled = true;
+
+  let timer = null;
+  const tick = () => {
+    if (remaining <= 0) {
+      clearInterval(timer);
+      button.disabled = false;
+      button.textContent = idleLabel;
+      return;
+    }
+    const left = remaining > 120 ? `${Math.ceil(remaining / 60)} min` : `${remaining}s`;
+    button.textContent = `${idleLabel} (${left})`;
+    remaining -= 1;
+  };
+  tick();
+  timer = setInterval(tick, 1000);
+  return timer;
+}
+
+/* ── CHANGE PASSWORD: EMAIL OTP STEPS ── */
+// Employee and Accountant accounts change their password in three steps, on
+// the same form, through POST /api/legacy-auth/change-password-otp:
+//   1. current password  -> "Send OTP" (the server checks it, then emails a
+//                            6-digit code valid for 5 minutes)
+//   2. the OTP           -> "Verify OTP"
+//   3. new + confirm     -> the form's own Update button
+// The new-password fields stay hidden until step 2 passes, and the server
+// refuses step 3 without it. Same roles as sign-in's second factor
+// (src/lib/auth/otp-policy.js); other roles keep the one-step form.
+const PASSWORD_CHANGE_OTP_ROLES = ['employee', 'accountant'];
+const PASSWORD_CHANGE_RESTART_CODES = ['otp_expired', 'otp_locked_out', 'otp_not_verified'];
+const passwordChangeFlows = new Map();
+
+function passwordChangeNeedsOtp() {
+  const role = String(getAuthContext()?.role || '').toLowerCase();
+  return PASSWORD_CHANGE_OTP_ROLES.includes(role);
+}
+
+/**
+ * Turn a change-password form into the three-step flow. `key` names it
+ * (a portal prefix, or 'cp' for the first-sign-in screen). Uses each screen's
+ * own field classes so the OTP field matches its neighbours. Returns the flow,
+ * or null for roles that change their password in one step.
+ */
+function mountPasswordChangeSteps({ key, current, next, confirm, rules, submit, finalLabel, wrapperClass, inputClass, report }) {
+  if (!passwordChangeNeedsOtp() || !current || !next || !confirm || !submit) return null;
+  if (passwordChangeFlows.has(key)) return passwordChangeFlows.get(key);
+
+  const nextWrap = next.closest('.fg, .fl');
+  const confirmWrap = confirm.closest('.fg, .fl');
+  const otpId = `${key}-pw-otp`;
+
+  const otpWrap = document.createElement('div');
+  otpWrap.className = wrapperClass;
+  if (wrapperClass === 'fg') otpWrap.style.margin = '0';
+  otpWrap.innerHTML = `
+    <label for="${otpId}">Email OTP</label>
+    <input id="${otpId}" class="${inputClass}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" style="letter-spacing:.2em;text-align:center;" />
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
+      <span style="font-size:12px;color:var(--t3);line-height:1.5;">Sent to your registered email. It expires in 5 minutes.</span>
+      <button type="button" id="${otpId}-resend" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;white-space:nowrap;">Resend OTP</button>
+    </div>
+  `;
+  nextWrap.parentElement.insertBefore(otpWrap, nextWrap);
+
+  const flow = {
+    key,
+    stage: 'current',
+    busy: false,
+    timer: null,
+    current,
+    next,
+    confirm,
+    rules,
+    submit,
+    finalLabel,
+    report: typeof report === 'function' ? report : () => {},
+    nextWrap,
+    confirmWrap,
+    otpWrap,
+    otp: document.getElementById(otpId),
+    resend: document.getElementById(`${otpId}-resend`),
+  };
+  bindNumericOtpInput(flow.otp);
+  flow.resend.addEventListener('click', () => resendPasswordChangeOtp(flow));
+
+  passwordChangeFlows.set(key, flow);
+  setPasswordChangeStage(flow, 'current', { focus: false });
+  return flow;
+}
+
+function passwordChangeStageLabel(flow) {
+  if (flow.stage === 'current') return 'Send OTP';
+  if (flow.stage === 'otp') return 'Verify OTP';
+  return flow.finalLabel;
+}
+
+function setPasswordChangeStage(flow, stage, { focus = true } = {}) {
+  flow.stage = stage;
+  const show = (el, on) => { if (el) el.style.display = on ? '' : 'none'; };
+  show(flow.otpWrap, stage === 'otp');
+  show(flow.nextWrap, stage === 'verified');
+  show(flow.confirmWrap, stage === 'verified');
+  show(flow.rules, stage === 'verified');
+  flow.current.readOnly = stage !== 'current';
+  flow.submit.disabled = false;
+  flow.submit.textContent = passwordChangeStageLabel(flow);
+
+  if (stage !== 'otp') {
+    clearInterval(flow.timer);
+    flow.otp.value = '';
+  }
+  if (stage === 'current') {
+    flow.next.value = '';
+    flow.confirm.value = '';
+    flow.next.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  if (focus) {
+    const target = { current: flow.current, otp: flow.otp, verified: flow.next }[stage];
+    setTimeout(() => target?.focus(), 0);
+  }
+}
+
+function startPasswordChangeCountdown(flow, seconds) {
+  clearInterval(flow.timer);
+  flow.timer = startOtpButtonCountdown(flow.resend, seconds, 'Resend OTP');
+}
+
+async function postPasswordChangeStep(flow, payload) {
+  try {
+    const response = await fetch('/api/legacy-auth/change-password-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return { response, result: await response.json().catch(() => ({})) };
+  } catch {
+    flow.report('Unable to reach the server. Check your connection and try again.', 'err');
+    return null;
+  }
+}
+
+/** Run the step the form is on (steps 1 and 2; step 3 is the normal submit). */
+async function advancePasswordChangeFlow(flow) {
+  if (flow.busy) return;
+
+  if (flow.stage === 'current') {
+    const currentPassword = flow.current.value.trim();
+    if (!currentPassword) {
+      flow.report('Enter your current password.', 'err');
+      flow.current.focus();
+      return;
+    }
+    flow.busy = true;
+    flow.submit.disabled = true;
+    flow.submit.textContent = 'Sending...';
+    flow.report('Checking your password and sending the OTP...', 'loading');
+
+    const reply = await postPasswordChangeStep(flow, { action: 'start', current_password: currentPassword });
+    flow.busy = false;
+    flow.submit.disabled = false;
+    flow.submit.textContent = passwordChangeStageLabel(flow);
+    if (!reply) return;
+
+    const { response, result } = reply;
+    if (!response.ok) {
+      flow.report(result.error || 'Unable to send the OTP. Please try again.', 'err');
+      return;
+    }
+    if (result.otp_required === false) {
+      // The server says this account changes its password in one step.
+      removePasswordChangeSteps(flow);
+      flow.report('Enter and confirm your new password.', 'ok');
+      return;
+    }
+    setPasswordChangeStage(flow, 'otp');
+    flow.report(result.message || 'An OTP has been sent to your email.', 'ok');
+    startPasswordChangeCountdown(flow, Number(result.resend_after) || 60);
+    return;
+  }
+
+  if (flow.stage === 'otp') {
+    const code = flow.otp.value.trim();
+    if (!/^\d{6}$/.test(code)) {
+      flow.report('Enter the 6-digit OTP from your email.', 'err');
+      flow.otp.focus();
+      return;
+    }
+    flow.busy = true;
+    flow.submit.disabled = true;
+    flow.submit.textContent = 'Verifying...';
+    flow.report('', '');
+
+    const reply = await postPasswordChangeStep(flow, { action: 'verify', code });
+    flow.busy = false;
+    flow.submit.disabled = false;
+    flow.submit.textContent = passwordChangeStageLabel(flow);
+    if (!reply) return;
+
+    const { response, result } = reply;
+    if (!response.ok) {
+      flow.report(result.error || 'Unable to verify the OTP. Please try again.', 'err');
+      if (PASSWORD_CHANGE_RESTART_CODES.includes(result.code)) setPasswordChangeStage(flow, 'current');
+      else { flow.otp.value = ''; flow.otp.focus(); }
+      return;
+    }
+    setPasswordChangeStage(flow, 'verified');
+    flow.report(result.message || 'OTP verified. Enter your new password.', 'ok');
+  }
+}
+
+async function resendPasswordChangeOtp(flow) {
+  if (flow.busy || flow.resend.disabled || flow.stage !== 'otp') return;
+  flow.resend.disabled = true;
+  const reply = await postPasswordChangeStep(flow, { action: 'resend' });
+  if (!reply) { flow.resend.disabled = false; return; }
+
+  const { response, result } = reply;
+  if (!response.ok) {
+    flow.report(result.error || 'Unable to send a new OTP.', 'err');
+    if (PASSWORD_CHANGE_RESTART_CODES.includes(result.code)) {
+      setPasswordChangeStage(flow, 'current');
+    } else if (response.status === 429) {
+      startPasswordChangeCountdown(flow, Number(response.headers.get('Retry-After')) || 60);
+    } else {
+      flow.resend.disabled = false;
+    }
+    return;
+  }
+  flow.report(result.message || 'A new OTP has been sent.', 'ok');
+  flow.otp.value = '';
+  flow.otp.focus();
+  startPasswordChangeCountdown(flow, Number(result.resend_after) || 60);
+}
+
+/** Back to step 1 (after a change, or when the form is closed). */
+function resetPasswordChangeFlow(key) {
+  const flow = passwordChangeFlows.get(key);
+  if (flow && !flow.busy) setPasswordChangeStage(flow, 'current', { focus: false });
+}
+
+/** For an account the server exempts: show the plain one-step form again. */
+function removePasswordChangeSteps(flow) {
+  clearInterval(flow.timer);
+  flow.otpWrap.remove();
+  [flow.nextWrap, flow.confirmWrap, flow.rules].forEach((el) => { if (el) el.style.display = ''; });
+  flow.current.readOnly = false;
+  flow.submit.textContent = flow.finalLabel;
+  passwordChangeFlows.delete(flow.key);
+}
+
 function evaluatePasswordRules(current, next, confirm, ctx) {
   return {
     length: next.length >= PASSWORD_MIN_LENGTH,
     mix: /[A-Za-z]/.test(next) && /\d/.test(next),
+    upper: /[A-Z]/.test(next),
+    symbol: /[^A-Za-z0-9\s]/.test(next),
     spaces: next.length > 0 && !/\s/.test(next),
     different: next.length > 0 && next !== current,
     'not-default': next.length > 0 && !looksLikeDefaultPassword(next, ctx),
@@ -2110,6 +2571,8 @@ async function requestPasswordChange(currentPassword, newPassword, confirmPasswo
   if (!rules.length) return { ok: false, message: `New password must be at least ${PASSWORD_MIN_LENGTH} characters.` };
   if (!rules.spaces) return { ok: false, message: 'New password cannot contain spaces.' };
   if (!rules.mix) return { ok: false, message: 'New password must contain both letters and numbers.' };
+  if (!rules.upper) return { ok: false, message: 'New password must contain at least one uppercase letter.' };
+  if (!rules.symbol) return { ok: false, message: 'New password must contain at least one symbol (e.g. ! @ # $).' };
   if (!rules.different) return { ok: false, message: 'New password must be different from your current password.' };
   if (!rules['not-default']) return { ok: false, message: 'New password cannot be your default password (last name + birth date).' };
 
@@ -2120,7 +2583,7 @@ async function requestPasswordChange(currentPassword, newPassword, confirmPasswo
       body: JSON.stringify({ current_password: current, new_password: next, confirm_password: confirm }),
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) return { ok: false, message: result.error || 'Failed to update password.' };
+    if (!response.ok) return { ok: false, message: result.error || 'Failed to update password.', code: result.code };
 
     setMustChangePasswordFlag(false);
     return { ok: true, message: result.message || 'Password updated successfully.' };
@@ -2139,6 +2602,16 @@ async function submitAccountPasswordChange(prefix, ids = {}) {
   const newId = ids.next || `${prefix}-new-password`;
   const confirmId = ids.confirm || `${prefix}-confirm-password`;
   const feedback = document.getElementById(ids.feedback || `${prefix}-change-password-feedback`);
+  // The section's "Update Password" button, disabled while the request runs.
+  const submitButton = document.getElementById(`${prefix}-pw-rules`)?.parentElement?.querySelector('button.btn-primary');
+  if (submitButton?.disabled) return;
+
+  // Employee / Accountant: steps 1 and 2 (current password, OTP) first.
+  const flow = passwordChangeFlows.get(prefix);
+  if (flow && flow.stage !== 'verified') {
+    advancePasswordChangeFlow(flow);
+    return;
+  }
 
   const show = (message, state) => {
     if (!feedback) return;
@@ -2148,16 +2621,24 @@ async function submitAccountPasswordChange(prefix, ids = {}) {
   };
 
   show('Updating password...', 'loading');
-  const result = await requestPasswordChange(
-    document.getElementById(currentId)?.value,
-    document.getElementById(newId)?.value,
-    document.getElementById(confirmId)?.value,
-  );
+  if (submitButton) submitButton.disabled = true;
+  let result;
+  try {
+    result = await requestPasswordChange(
+      document.getElementById(currentId)?.value,
+      document.getElementById(newId)?.value,
+      document.getElementById(confirmId)?.value,
+    );
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
 
   if (!result.ok) {
     show(result.message, 'err');
+    if (flow && PASSWORD_CHANGE_RESTART_CODES.includes(result.code)) setPasswordChangeStage(flow, 'current');
     return;
   }
+  resetPasswordChangeFlow(prefix);
 
   [currentId, newId, confirmId].forEach((id) => {
     const input = document.getElementById(id);
@@ -2187,6 +2668,25 @@ function bindSettingsPasswordRulesUI(prefix, ids = {}) {
   const rulesList = document.getElementById(`${prefix}-pw-rules`);
   if (!current || !next || !confirm || !rulesList || rulesList.dataset.bound === '1') return;
   rulesList.dataset.bound = '1';
+
+  const feedback = document.getElementById(ids.feedback || `${prefix}-change-password-feedback`);
+  mountPasswordChangeSteps({
+    key: prefix,
+    current,
+    next,
+    confirm,
+    rules: rulesList,
+    submit: rulesList.parentElement?.querySelector('button.btn-primary'),
+    finalLabel: 'Update Password',
+    wrapperClass: 'fg',
+    inputClass: 'fc',
+    report: (message, state) => {
+      if (!feedback) return;
+      feedback.textContent = message;
+      feedback.className = `adm-feedback${state ? ` ${state}` : ''}`;
+      feedback.style.color = '';
+    },
+  });
 
   const ruleItems = Array.from(rulesList.querySelectorAll('li[data-rule]'));
   const refresh = () => {
@@ -2248,6 +2748,21 @@ function initPasswordChangeScreen() {
   const feedback = document.getElementById('cp-feedback');
   const submit = document.getElementById('cp-submit');
   const ruleItems = Array.from(document.querySelectorAll('#cp-rules li'));
+  const flow = mountPasswordChangeSteps({
+    key: 'cp',
+    current,
+    next,
+    confirm,
+    rules: document.getElementById('cp-rules'),
+    submit,
+    finalLabel: 'Update password & continue',
+    wrapperClass: 'fl',
+    inputClass: 'fi',
+    report: (message, state) => {
+      feedback.textContent = message;
+      feedback.className = `cp-feedback${state === 'ok' || state === 'err' ? ` ${state}` : ''}`;
+    },
+  });
 
   const refreshRules = () => {
     const rules = evaluatePasswordRules(current.value.trim(), next.value.trim(), confirm.value.trim(), ctx);
@@ -2273,6 +2788,12 @@ function initPasswordChangeScreen() {
     event.preventDefault();
     if (submit.disabled) return;
 
+    // Employee / Accountant: current password, then the OTP, first.
+    if (flow && flow.stage !== 'verified') {
+      advancePasswordChangeFlow(flow);
+      return;
+    }
+
     submit.disabled = true;
     submit.textContent = 'Updating...';
     feedback.textContent = '';
@@ -2284,6 +2805,7 @@ function initPasswordChangeScreen() {
       feedback.className = 'cp-feedback err';
       submit.disabled = false;
       submit.textContent = 'Update password & continue';
+      if (flow && PASSWORD_CHANGE_RESTART_CODES.includes(result.code)) setPasswordChangeStage(flow, 'current');
       refreshRules();
       return;
     }
@@ -2308,6 +2830,7 @@ const LOGIN_REASON_MESSAGES = {
   signed_in_elsewhere: 'You were signed out because your account signed in on another device or browser. Only one active sign-in is allowed per account.',
   account_archived: 'This account has been archived and can no longer sign in.',
   session_expired: 'Your session has expired. Please sign in again.',
+  password_reset: 'Your password has been reset. Sign in with your new password.',
 };
 
 function showLoginReasonNotice() {
@@ -2829,7 +3352,7 @@ function initApp() {
         // reset link instead.
         const resetModal = document.getElementById('reset-password-modal');
         if (resetModal && resetModal.style.display !== 'none') {
-          if (event.target?.id === 'reset-identity-input') submitResetPassword();
+          if (event.target?.tagName === 'INPUT' && resetModal.contains(event.target)) submitResetPassword();
           return;
         }
         login();
@@ -2862,6 +3385,7 @@ function initApp() {
   window.openResetPasswordModal = openResetPasswordModal;
   window.closeResetPasswordModal = closeResetPasswordModal;
   window.submitResetPassword = submitResetPassword;
+  window.resendResetOtp = resendResetOtp;
   window.toggleLoginPasswordVisibility = toggleLoginPasswordVisibility;
   window.login = login;
   window.logout = logout;

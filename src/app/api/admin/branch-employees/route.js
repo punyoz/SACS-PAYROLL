@@ -82,7 +82,8 @@ export async function GET(request) {
     const employees = (usersResult.data.users || [])
       .filter((u) => {
         const role = String(u.user_metadata?.role || "employee").toLowerCase();
-        return role === "employee" || role === "accountant" || role === "hr";
+        // HR serves every branch and is never assigned to one.
+        return role === "employee" || role === "accountant";
       })
       .filter((u) => !u.user_metadata?.archived)
       .map((u) => ({
@@ -174,6 +175,16 @@ export async function POST(request) {
 
     const user = userData.user;
     const meta = user.user_metadata || {};
+
+    // Super Admin and HR serve every branch and are stored with none;
+    // assigning one would box it into a single branch.
+    const targetRole = String(meta.role || "").toLowerCase();
+    if (targetRole === "hr" || targetRole === "super_admin") {
+      return NextResponse.json(
+        { error: "HR and Super Admin accounts serve all branches and are not assigned to one." },
+        { status: 400 },
+      );
+    }
 
     const { error: upsertErr } = await supabase.from("employee_branch_assignments").upsert(
       {

@@ -9,6 +9,13 @@
  * took an email from the request body and refused Admin accounts outright —
  * which would have left an Admin created with a default password unable to
  * ever get past the mandatory change.
+ *
+ * Employee and Accountant accounts (src/lib/auth/otp-policy.js) must first
+ * clear the emailed-code steps at POST /api/legacy-auth/change-password-otp
+ * (current password, then the 6-digit OTP). This route checks the signed
+ * "verified" cookie those steps leave (src/lib/auth/password-otp.js) and
+ * refuses without it. The grant is tied to the account's password_changed_at,
+ * which this route updates, so one verification changes the password once.
  */
 
 import { NextResponse } from "next/server";
@@ -18,6 +25,12 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { reissueSession } from "@/lib/rbac/session";
 import { validateNewPassword } from "@/lib/auth/password-policy";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
+import { requiresLoginOtp } from "@/lib/auth/otp-policy";
+import {
+  clearPasswordOtpState,
+  passwordChangedMarker,
+  readPasswordOtpState,
+} from "@/lib/auth/password-otp";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -91,6 +104,22 @@ export async function POST(request) {
       return NextResponse.json({ error: policyError }, { status: 400 });
     }
 
+    if (requiresLoginOtp(guard.role)) {
+      const grant = readPasswordOtpState(request, "change");
+      const verified = grant?.stage === "verified"
+        && grant.sub === user.id
+        && grant.pca === passwordChangedMarker(user);
+      if (!verified) {
+        return clearPasswordOtpState(
+          NextResponse.json(
+            { error: "Verify the OTP sent to your email before setting a new password.", code: "otp_not_verified" },
+            { status: 400 },
+          ),
+          "change",
+        );
+      }
+    }
+
     // temp_password_hash: null removes the one-time-password marker, so this
     // account is never forced back to the change-password screen by it again.
     const { error: updateError } = await adminClient.auth.admin.updateUserById(user.id, {
@@ -104,10 +133,14 @@ export async function POST(request) {
 
     // Same sign-in, same session id — only the "must change password" claim is
     // lifted, so the account is not signed out of the browser it is using.
-    return reissueSession(
-      NextResponse.json({ success: true, must_change_password: false, message: "Password updated successfully." }),
-      guard.session,
-      { must_change_password: false },
+    // The OTP grant (if any) is spent: clear it along with the reissue.
+    return clearPasswordOtpState(
+      reissueSession(
+        NextResponse.json({ success: true, must_change_password: false, message: "Password updated successfully." }),
+        guard.session,
+        { must_change_password: false },
+      ),
+      "change",
     );
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });

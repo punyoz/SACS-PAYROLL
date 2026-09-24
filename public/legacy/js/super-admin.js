@@ -439,7 +439,6 @@ async function submitSABranch(event) {
 // route.js): you cannot archive yourself, nor the last active Super Admin.
 const SA_ACCOUNT_ROLES = ['super_admin', 'admin', 'hr'];
 const SA_ROLE_LABELS = { super_admin: 'Super Admin', admin: 'Admin', hr: 'HR' };
-const SA_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function loadSAUsers() {
   const tbody = document.getElementById('sa-users-table-body');
@@ -473,6 +472,13 @@ function saBranchLabel(branchId) {
   if (!branchId) return '—';
   const branch = saBranches.find((b) => String(b.id) === String(branchId));
   return branch?.name || 'Unknown branch';
+}
+
+/** Branch column on Admin & HR Logins: HR serves every branch, Super Admin has none. */
+function saAccountBranchLabel(user) {
+  if (user?.role === 'hr') return 'All Branches';
+  if (user?.role === 'super_admin') return '—';
+  return saBranchLabel(user?.branch_id);
 }
 
 function updateSARoleChips() {
@@ -524,7 +530,7 @@ function renderSAUsersTable() {
 
   if (saRolesSearch) {
     list = list.filter((u) =>
-      [u.full_name, u.email, SA_ROLE_LABELS[u.role], saBranchLabel(u.branch_id)].some((v) =>
+      [u.full_name, u.email, SA_ROLE_LABELS[u.role], saAccountBranchLabel(u)].some((v) =>
         String(v || '').toLowerCase().includes(saRolesSearch)
       )
     );
@@ -550,7 +556,7 @@ function renderSAUsersTable() {
             <td>${escapeHtml(u.full_name || '—')}</td>
             <td style="font-size:12px;color:var(--t3);">${escapeHtml(u.email || '—')}</td>
             <td><span class="badge" style="color:${roleColor};background:color-mix(in srgb, ${roleColor} 12%, transparent);border:1px solid color-mix(in srgb, ${roleColor} 25%, transparent);">${SA_ROLE_LABELS[u.role] || '—'}</span></td>
-            <td style="font-size:12px;">${escapeHtml(saBranchLabel(u.branch_id))}</td>
+            <td style="font-size:12px;">${escapeHtml(saAccountBranchLabel(u))}</td>
             <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${statusLabel}</span></td>
             <td style="font-size:12px;">${escapeHtml(lastLogin)}</td>
             <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal('${escapeHtml(u.id)}')">Edit</button></td>
@@ -563,24 +569,26 @@ function renderSAUsersTable() {
   saUsersPaginator.setData(list);
 }
 
+/**
+ * Edit an existing Super Admin / Admin / HR account (each row's Edit button).
+ * New accounts are created only through the Add Staff Account modal.
+ */
 async function openSAAdminUserModal(userId) {
   const modal = document.getElementById('sa-admin-user-modal');
   const form = document.getElementById('sa-admin-user-form');
   const title = document.getElementById('sa-admin-user-modal-title');
   const archiveBtn = document.getElementById('sa-admin-user-archive-btn');
-  const pwField = document.getElementById('sa-admin-user-password-field');
   const fb = document.getElementById('sa-admin-user-feedback');
   if (!modal || !form) return;
 
-  saCurrentAdminUser = userId ? saAllUsers.find((u) => u.id === userId) || null : null;
-  if (userId && !saCurrentAdminUser) {
+  saCurrentAdminUser = saAllUsers.find((u) => u.id === userId) || null;
+  if (!saCurrentAdminUser) {
     window.alert('Account not found. Please refresh the list.');
     return;
   }
 
   if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
   form.reset();
-  form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
 
   saBranches = await fetchBranchesCached({ activeOnly: false }).catch(() => saBranches);
 
@@ -593,34 +601,27 @@ async function openSAAdminUserModal(userId) {
       options.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
   }
 
-  const passwordLabel = pwField?.querySelector('label');
-  const passwordInput = pwField?.querySelector('input');
-  const passwordHint = document.getElementById('sa-admin-user-password-hint');
+  const user = saCurrentAdminUser;
+  if (title) title.textContent = `Edit ${SA_ROLE_LABELS[user.role] || ''} Account`;
+  form.elements.id.value = user.id;
+  form.elements.first_name.value = user.first_name || '';
+  form.elements.middle_name.value = user.middle_name || '';
+  form.elements.last_name.value = user.last_name || '';
+  form.elements.suffix.value = SA_NAME_SUFFIXES.includes(user.suffix) ? user.suffix : '';
+  form.elements.email.value = user.email || '';
+  form.elements.role.value = user.role || 'admin';
+  if (branchSelect) branchSelect.value = user.branch_id || '';
+  onSAAdminUserRoleChange({ keepBranch: true });
 
-  if (saCurrentAdminUser) {
-    if (title) title.textContent = `Edit ${SA_ROLE_LABELS[saCurrentAdminUser.role] || ''} Account`;
-    form.elements.id.value = saCurrentAdminUser.id;
-    form.elements.full_name.value = saCurrentAdminUser.full_name || '';
-    form.elements.email.value = saCurrentAdminUser.email || '';
-    form.elements.role.value = saCurrentAdminUser.role || 'admin';
-    if (branchSelect) branchSelect.value = saCurrentAdminUser.branch_id || '';
-    if (passwordLabel) passwordLabel.textContent = 'Reset Password (optional)';
-    if (passwordInput) { passwordInput.placeholder = 'Leave blank to keep the current password'; passwordInput.required = false; }
-    if (passwordHint) passwordHint.textContent = 'If you set a new password here, the account must replace it on its next sign-in.';
-    if (archiveBtn) {
-      archiveBtn.style.display = '';
-      archiveBtn.className = saCurrentAdminUser.archived ? 'btn btn-green' : 'btn btn-red';
-      archiveBtn.textContent = saCurrentAdminUser.archived ? 'Restore Account' : 'Archive Account';
-    }
-  } else {
-    if (title) title.textContent = 'Add Super Admin, Admin or HR Account';
-    form.elements.id.value = '';
-    form.elements.role.value = 'admin';
-    if (passwordLabel) passwordLabel.innerHTML = 'Temporary Password <span class="req" aria-hidden="true">*</span>';
-    if (passwordInput) { passwordInput.placeholder = 'At least 8 characters'; passwordInput.required = true; }
-    if (passwordHint) passwordHint.textContent = 'The account must replace this password the first time it signs in.';
-    if (archiveBtn) archiveBtn.style.display = 'none';
+  if (archiveBtn) {
+    archiveBtn.style.display = '';
+    archiveBtn.className = user.archived ? 'btn btn-green' : 'btn btn-red';
+    archiveBtn.textContent = user.archived ? 'Restore Account' : 'Archive Account';
   }
+
+  const submitBtn = form.querySelector('button[type="submit"]');
+  bindSAStaffFormRules(form, submitBtn);
+  resetSAStaffFormRules(form, submitBtn);
 
   modal.style.display = 'flex';
 }
@@ -631,64 +632,76 @@ function closeSAAdminUserModal() {
   saCurrentAdminUser = null;
 }
 
+/** Edit dialog's Role select: HR and Super Admin carry no branch. */
+function onSAAdminUserRoleChange({ keepBranch = false } = {}) {
+  const form = document.getElementById('sa-admin-user-form');
+  saApplyStaffBranchRule({
+    role: document.getElementById('sa-admin-user-role')?.value || '',
+    select: document.getElementById('sa-admin-user-branch'),
+    field: document.getElementById('sa-admin-user-branch-field'),
+    hint: document.getElementById('sa-admin-user-branch-hint'),
+    keepBranch,
+  });
+  if (form) refreshSAStaffFormRules(form, form.querySelector('button[type="submit"]'));
+}
+
 async function submitSAAdminUser(event) {
   event.preventDefault();
   const form = event.target;
   const submitBtn = form.querySelector('button[type="submit"]');
   const fb = document.getElementById('sa-admin-user-feedback');
-  const formData = new FormData(form);
+  if (submitBtn?.dataset.busy === '1') return;
 
-  const id = String(formData.get('id') || '').trim();
-  const fullName = String(formData.get('full_name') || '').trim();
-  const email = String(formData.get('email') || '').trim();
-  const role = String(formData.get('role') || '').trim();
-  const branchId = String(formData.get('branch_id') || '').trim();
-  const password = String(formData.get('password') || '').trim();
-
-  const fail = (message, fieldName) => {
+  const fail = (message) => {
     if (fb) { fb.textContent = message; fb.className = 'adm-feedback err'; }
-    form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
-    const field = fieldName ? form.elements[fieldName] : null;
-    if (field) { field.classList.add('field-invalid'); field.focus(); }
   };
 
-  if (!fullName) return fail('Full name is required.', 'full_name');
-  if (!/^[A-Za-z\s.]+$/.test(fullName)) return fail('Full name must contain letters and spaces only.', 'full_name');
-  if (!email) return fail('Email is required.', 'email');
-  if (!SA_EMAIL_PATTERN.test(email)) return fail('Enter a valid email address.', 'email');
-  if (!SA_ACCOUNT_ROLES.includes(role)) return fail('Choose Super Admin, Admin or HR.', 'role');
-  if (!branchId) return fail('Select the branch this account belongs to.', 'branch_id');
-  if (!id && !password) return fail('A temporary password is required.', 'password');
-  if (password && password.length < 8) return fail('Password must be at least 8 characters.', 'password');
+  // Every rule is checked again here; the button is only enabled when they
+  // pass, but Enter in a field can still submit.
+  form.dataset.submitted = '1';
+  if (!refreshSAStaffFormRules(form, submitBtn)) {
+    form.querySelector('.field-invalid')?.focus();
+    return fail('Please correct the highlighted fields.');
+  }
+
+  const value = (name) => String(form.elements[name]?.value || '').trim();
+  const id = value('id');
+  const role = value('role');
+  const branchId = role === 'admin' ? value('branch_id') : '';
+  const password = value('password');
+  if (!id) return fail('Account not found. Please refresh the list.');
+
+  const payload = {
+    id,
+    action: 'update',
+    first_name: value('first_name'),
+    middle_name: value('middle_name'),
+    last_name: value('last_name'),
+    suffix: value('suffix'),
+    email: value('email').toLowerCase(),
+    role,
+  };
+  if (password) payload.password = password;
+  const displayName = [payload.first_name, payload.middle_name, payload.last_name, payload.suffix].filter(Boolean).join(' ');
 
   try {
+    submitBtn.dataset.busy = '1';
     submitBtn.disabled = true;
     submitBtn.textContent = 'Saving...';
 
-    let response;
-    if (id) {
-      const payload = { id, action: 'update', full_name: fullName, email, role };
-      if (password) payload.password = password;
-      response = await fetch('/api/admin/users', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } else {
-      response = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: fullName, email, role, password, branch_id: branchId }),
-      });
-    }
+    const response = await fetch('/api/admin/users', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Failed to save account.');
 
-    // Creating pins the branch through POST. Editing moves it through
-    // branch-employees, which also keeps profiles.branch_id (what sessions
-    // and branch scoping read) in step.
-    if (id && branchId !== String(saCurrentAdminUser?.branch_id || '')) {
+    // Only Admin has a branch. Moving one goes through branch-employees, which
+    // keeps profiles.branch_id (what sessions and branch scoping read) in
+    // step. Becoming HR or Super Admin clears the branch server-side.
+    if (role === 'admin' && branchId !== String(saCurrentAdminUser?.branch_id || '')) {
       const ctx = typeof getLegacyAuthContext === 'function' ? getLegacyAuthContext() : null;
       const branchResponse = await fetch('/api/admin/branch-employees', {
         method: 'POST',
@@ -701,19 +714,16 @@ async function submitSAAdminUser(event) {
       }
     }
 
-    if (fb) { fb.textContent = id ? 'Account updated.' : 'Account created.'; fb.className = 'adm-feedback ok'; }
-    window.pushNotification?.(
-      id ? 'Account Updated' : 'Account Created',
-      id ? `${fullName}'s account was updated.` : `${SA_ROLE_LABELS[role]} account created for ${fullName}. They must change the temporary password on first sign-in.`,
-      'success',
-    );
+    if (fb) { fb.textContent = 'Account updated.'; fb.className = 'adm-feedback ok'; }
+    window.pushNotification?.('Account Updated', `${displayName}'s account was updated.`, 'success');
     await loadSAUsers();
     setTimeout(() => closeSAAdminUserModal(), 500);
   } catch (error) {
     fail(error.message);
   } finally {
-    submitBtn.disabled = false;
+    delete submitBtn.dataset.busy;
     submitBtn.textContent = 'Save';
+    refreshSAStaffFormRules(form, submitBtn);
   }
 }
 
@@ -1847,6 +1857,7 @@ window.exportSAAttendanceCsv = exportSAAttendanceCsv;
 
 window.openSAAdminUserModal = openSAAdminUserModal;
 window.closeSAAdminUserModal = closeSAAdminUserModal;
+window.onSAAdminUserRoleChange = onSAAdminUserRoleChange;
 window.submitSAAdminUser = submitSAAdminUser;
 window.toggleArchiveSAAdminUser = toggleArchiveSAAdminUser;
 
@@ -1880,10 +1891,10 @@ if (saScreen?.classList.contains('active')) {
 /* ══════════════════════════════════════════════════════════════════════════
    STAFF ACCOUNT MODAL — Super Admin / Admin / HR
    ──────────────────────────────────────────────────────────────────────────
-   The fuller counterpart to the quick "Add Account" modal above: it collects
-   the same identity and contact detail HR collects for an employee, and none
-   of the payroll or statutory fields (no salary, SSS, PhilHealth, Pag-IBIG,
-   TIN or bank details — see src/lib/employees/staff-record.js).
+   The only way to create these accounts. It collects the same identity and
+   contact detail HR collects for an employee, and none of the payroll or
+   statutory fields (no salary, SSS, PhilHealth, Pag-IBIG, TIN or bank
+   details — see src/lib/employees/staff-record.js).
 
    No password box: POST /api/admin/staff-accounts generates the first-time
    password from the last name and date of birth and returns it once, so it is
@@ -1893,21 +1904,348 @@ if (saScreen?.classList.contains('active')) {
 
 const SA_STAFF_API = '/api/admin/staff-accounts';
 
-/** Super Admin reaches every branch, so the Branch field only applies to the other two. */
-function onSAStaffRoleChange() {
-  const role = document.getElementById('sa-staff-role')?.value || '';
-  const field = document.getElementById('sa-staff-branch-field');
-  const select = document.getElementById('sa-staff-branch');
-  const hint = document.getElementById('sa-staff-branch-hint');
-  const isSuperAdmin = role === 'super_admin';
+/* ── STAFF FORM RULES (Add Staff Account + Edit Account) ──
+   Modelled on HR's Add Employee form. Every textbox is filtered as it is typed
+   or pasted, checked on the spot with a short message under the field, and
+   the submit button stays disabled until the whole form is valid. The server
+   repeats every rule (validateStaffRecord / validateNameParts in
+   src/lib/employees/staff-record.js, plus the profiles CHECK constraints), so
+   none of this is the real gate. */
+const SA_NAME_SUFFIXES = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
+const SA_NAME_MAX = 50;
+const SA_EMAIL_MAX = 254;
+const SA_ADDRESS_MIN = 5;
+const SA_ADDRESS_MAX = 160;
+const SA_MIN_STAFF_AGE = 18;
+const SA_PASSWORD_MIN = 8;
+const SA_PASSWORD_MAX = 72;
+const SA_NAME_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'-]*$/;
+const SA_NAME_BLOCKED = /[^A-Za-zÀ-ÖØ-öø-ÿ .'-]/g;
+const SA_ADDRESS_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]+$/;
+const SA_ADDRESS_BLOCKED = /[^A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]/g;
+const SA_EMAIL_PATTERN = /^[a-z0-9._%+-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\.[a-z]{2,}$/;
+const SA_ALL_BRANCHES = '__all__';
 
-  if (select) {
-    select.required = !isSuperAdmin;
-    select.disabled = isSuperAdmin;
-    if (isSuperAdmin) select.value = '';
+function saParseIsoDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.toISOString().slice(0, 10) === value ? date : null;
+}
+
+function saTodayUtc() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+function saYearsBetween(earlier, later) {
+  let years = later.getUTCFullYear() - earlier.getUTCFullYear();
+  if (later.getUTCMonth() < earlier.getUTCMonth()
+    || (later.getUTCMonth() === earlier.getUTCMonth() && later.getUTCDate() < earlier.getUTCDate())) {
+    years -= 1;
   }
-  if (hint) hint.style.display = isSuperAdmin ? '' : 'none';
-  if (field) field.style.opacity = isSuperAdmin ? '0.55' : '';
+  return years;
+}
+
+function saCheckNamePart(value, label, required) {
+  if (!value) return required ? `${label} is required.` : '';
+  if (value.length > SA_NAME_MAX) return `At most ${SA_NAME_MAX} characters.`;
+  if (!SA_NAME_PATTERN.test(value)) return 'Must start with a letter; letters, spaces, - \' . only.';
+  return '';
+}
+
+/**
+ * Per-field rules, keyed by input name.
+ *   blocked        characters refused as they are typed
+ *   clean(value)   what the field may hold; anything else is removed from a
+ *                  paste, drop or autofill (blockedNote explains why)
+ *   check(v, form) '' when valid, otherwise the message shown under the field
+ */
+const SA_STAFF_RULES = {
+  first_name: {
+    blocked: /[^A-Za-zÀ-ÖØ-öø-ÿ .'-]/,
+    clean: (v) => v.replace(SA_NAME_BLOCKED, '').replace(/^[\s.'-]+/, '').replace(/\s{2,}/g, ' '),
+    blockedNote: 'Letters, spaces, hyphens, apostrophes and periods only.',
+    check: (v) => saCheckNamePart(v, 'First name', true),
+  },
+  middle_name: {
+    blocked: /[^A-Za-zÀ-ÖØ-öø-ÿ .'-]/,
+    clean: (v) => v.replace(SA_NAME_BLOCKED, '').replace(/^[\s.'-]+/, '').replace(/\s{2,}/g, ' '),
+    blockedNote: 'Letters, spaces, hyphens, apostrophes and periods only.',
+    check: (v) => saCheckNamePart(v, 'Middle name', false),
+  },
+  last_name: {
+    blocked: /[^A-Za-zÀ-ÖØ-öø-ÿ .'-]/,
+    clean: (v) => v.replace(SA_NAME_BLOCKED, '').replace(/^[\s.'-]+/, '').replace(/\s{2,}/g, ' '),
+    blockedNote: 'Letters, spaces, hyphens, apostrophes and periods only.',
+    check: (v) => saCheckNamePart(v, 'Last name', true),
+  },
+  suffix: {
+    check: (v) => (!v || SA_NAME_SUFFIXES.includes(v) ? '' : 'Choose a suffix from the list.'),
+  },
+  email: {
+    blocked: /\s/,
+    clean: (v) => v.replace(/\s+/g, '').toLowerCase(),
+    blockedNote: 'Spaces are not allowed; email is saved in lowercase.',
+    check: (v) => {
+      if (!v) return 'Email is required.';
+      if (v.length > SA_EMAIL_MAX) return `At most ${SA_EMAIL_MAX} characters.`;
+      return SA_EMAIL_PATTERN.test(v) ? '' : 'Enter a valid email address, e.g. name@example.com.';
+    },
+  },
+  role: {
+    check: (v) => (SA_ACCOUNT_ROLES.includes(v) ? '' : 'Select a role.'),
+  },
+  employee_status: {
+    check: (v) => (v ? '' : 'Select an account status.'),
+  },
+  branch_id: {
+    // Only Admin carries a branch; HR and Super Admin serve every branch.
+    check: (v, form) => (form.elements.role?.value !== 'admin' || (v && v !== SA_ALL_BRANCHES)
+      ? ''
+      : 'Select the branch this account belongs to.'),
+  },
+  date_of_birth: {
+    check: (v) => {
+      if (!v) return 'Date of birth is required.';
+      const birth = saParseIsoDate(v);
+      if (!birth) return 'Enter a valid date.';
+      const today = saTodayUtc();
+      if (birth > today) return 'Date of birth cannot be in the future.';
+      if (saYearsBetween(birth, today) < SA_MIN_STAFF_AGE) return `Must be at least ${SA_MIN_STAFF_AGE} years old.`;
+      return '';
+    },
+  },
+  date_hired: {
+    check: (v, form) => {
+      if (!v) return 'Date hired is required.';
+      const hired = saParseIsoDate(v);
+      if (!hired) return 'Enter a valid date.';
+      const birth = saParseIsoDate(form.elements.date_of_birth?.value);
+      if (birth && saYearsBetween(birth, hired) < SA_MIN_STAFF_AGE) {
+        return `Must be on or after the ${SA_MIN_STAFF_AGE}th birthday.`;
+      }
+      return '';
+    },
+  },
+  sex: {
+    check: (v) => (v ? '' : 'Select a sex.'),
+  },
+  civil_status: {
+    check: (v) => (v ? '' : 'Select a civil status.'),
+  },
+  cp_number: {
+    // Filtering and the 0917 123 4567 grouping come from bindDigitFieldsIn()
+    // (js/app.js), the same binding HR's employee form uses.
+    check: (v) => {
+      const digits = digitsOnly(v);
+      if (!digits) return 'Contact number is required.';
+      return /^09\d{9}$/.test(digits) ? '' : 'Must be an 11-digit mobile number starting with 09.';
+    },
+  },
+  address: {
+    blocked: /[^A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]/,
+    clean: (v) => v.replace(SA_ADDRESS_BLOCKED, '').replace(/^\s+/, '').replace(/\s{2,}/g, ' '),
+    blockedNote: 'Letters, numbers, spaces and , . - # / only.',
+    check: (v) => {
+      if (!v) return 'Home address is required.';
+      if (v.length < SA_ADDRESS_MIN) return 'Enter the complete home address.';
+      if (v.length > SA_ADDRESS_MAX) return `At most ${SA_ADDRESS_MAX} characters.`;
+      return SA_ADDRESS_PATTERN.test(v) ? '' : 'Letters, numbers, spaces and , . - # / only.';
+    },
+  },
+  password: {
+    // Optional on the Edit dialog: blank keeps the current password.
+    blocked: /\s/,
+    clean: (v) => v.replace(/\s+/g, ''),
+    blockedNote: 'Spaces are not allowed.',
+    check: (v) => {
+      if (!v) return '';
+      if (v.length < SA_PASSWORD_MIN || v.length > SA_PASSWORD_MAX) return `${SA_PASSWORD_MIN}-${SA_PASSWORD_MAX} characters.`;
+      if (!/[A-Za-z]/.test(v) || !/\d/.test(v)) return 'Needs both letters and numbers.';
+      if (!/[A-Z]/.test(v)) return 'Needs at least one uppercase letter.';
+      if (!/[^A-Za-z0-9\s]/.test(v)) return 'Needs at least one symbol (e.g. ! @ # $).';
+      return '';
+    },
+  },
+};
+
+function saFieldError(control) {
+  return control.closest('.fg')?.querySelector('.field-error') || null;
+}
+
+/**
+ * Re-check every ruled field in `form`. Messages show once a field has been
+ * touched (or after a submit attempt); the submit button is enabled only when
+ * everything passes. Returns true when the form is valid.
+ */
+function refreshSAStaffFormRules(form, submitBtn) {
+  if (!form) return false;
+  let valid = true;
+
+  Array.from(form.elements).forEach((control) => {
+    const rule = SA_STAFF_RULES[control.name];
+    if (!rule) return;
+    const error = saFieldError(control);
+
+    if (control.disabled) {
+      control.classList.remove('field-invalid');
+      control.removeAttribute('aria-invalid');
+      if (error) error.textContent = '';
+      return;
+    }
+
+    const message = rule.check(String(control.value || '').trim(), form);
+    if (message) valid = false;
+    const show = Boolean(message) && (control.dataset.touched === '1' || form.dataset.submitted === '1');
+
+    control.classList.toggle('field-invalid', show);
+    if (show) control.setAttribute('aria-invalid', 'true');
+    else control.removeAttribute('aria-invalid');
+    if (error) error.textContent = show ? message : (control.dataset.blockedNote || '');
+  });
+
+  if (submitBtn && submitBtn.dataset.busy !== '1') submitBtn.disabled = !valid;
+  return valid;
+}
+
+/** Clear touched state and messages when a modal opens. */
+function resetSAStaffFormRules(form, submitBtn) {
+  delete form.dataset.submitted;
+  Array.from(form.elements).forEach((control) => {
+    delete control.dataset.touched;
+    delete control.dataset.blockedNote;
+  });
+
+  // The date picker itself refuses a birth date under 18 or in the future.
+  const dob = form.elements.date_of_birth;
+  if (dob) {
+    const today = saTodayUtc();
+    const latest = new Date(Date.UTC(today.getUTCFullYear() - SA_MIN_STAFF_AGE, today.getUTCMonth(), today.getUTCDate()));
+    dob.max = latest.toISOString().slice(0, 10);
+  }
+
+  refreshSAStaffFormRules(form, submitBtn);
+}
+
+/**
+ * Filter keystrokes, pastes, drops and autofill for every ruled textbox in
+ * `form`, and keep the inline messages and submit button current. Safe to
+ * call more than once per form.
+ */
+function bindSAStaffFormRules(form, submitBtn) {
+  if (!form || form.dataset.saRulesBound === '1') return;
+  form.dataset.saRulesBound = '1';
+
+  // Digits only, 11 max, grouped 0917 123 4567 -- the contact-number binding
+  // HR's employee form uses (js/app.js).
+  bindDigitFieldsIn(form);
+
+  // Stop a disallowed character before it lands (no flicker). Pastes, drops
+  // and autofill are cleaned by the 'input' handler below instead.
+  form.addEventListener('beforeinput', (event) => {
+    const control = event.target;
+    const rule = SA_STAFF_RULES[control?.name];
+    if (!rule?.blocked || event.data == null || event.inputType !== 'insertText') return;
+    if (rule.blocked.test(event.data)) {
+      event.preventDefault();
+      control.dataset.blockedNote = rule.blockedNote || '';
+      refreshSAStaffFormRules(form, submitBtn);
+    }
+  });
+
+  form.addEventListener('input', (event) => {
+    const control = event.target;
+    const rule = SA_STAFF_RULES[control?.name];
+    if (!rule) return;
+
+    if (rule.clean) {
+      const before = control.value;
+      let after = rule.clean(before);
+      const max = Number(control.getAttribute('maxlength')) || 0;
+      if (max && after.length > max) after = after.slice(0, max);
+      if (after !== before) {
+        const caret = Math.max(0, (control.selectionStart || 0) - (before.length - after.length));
+        control.value = after;
+        try { control.setSelectionRange(caret, caret); } catch { /* email/date inputs */ }
+        control.dataset.blockedNote = rule.blockedNote || '';
+      } else {
+        delete control.dataset.blockedNote;
+      }
+    }
+    control.dataset.touched = '1';
+    refreshSAStaffFormRules(form, submitBtn);
+  });
+
+  form.addEventListener('change', (event) => {
+    if (SA_STAFF_RULES[event.target?.name]) event.target.dataset.touched = '1';
+    refreshSAStaffFormRules(form, submitBtn);
+  });
+
+  form.addEventListener('focusout', (event) => {
+    const control = event.target;
+    if (!SA_STAFF_RULES[control?.name]) return;
+    control.value = typeof control.value === 'string' && control.type !== 'password'
+      ? control.value.trim().replace(/\s{2,}/g, ' ')
+      : control.value;
+    control.dataset.touched = '1';
+    refreshSAStaffFormRules(form, submitBtn);
+  });
+
+  // bindDigitInput() handles a paste into the contact number itself and
+  // fires no 'input' event, so re-check once it has.
+  form.addEventListener('paste', () => setTimeout(() => refreshSAStaffFormRules(form, submitBtn), 0));
+}
+
+/**
+ * The Branch field for a staff role:
+ *   HR          disabled, showing "All Branches" -- HR serves every branch
+ *   Super Admin disabled and empty -- stored with no branch, as before
+ *   Admin       enabled and required; leaving HR / Super Admin resets it to
+ *               "Select branch"
+ */
+function saApplyStaffBranchRule({ role, select, field, hint, keepBranch = false }) {
+  if (!select) return;
+  const allOption = select.querySelector(`option[value="${SA_ALL_BRANCHES}"]`);
+
+  if (role === 'hr' || role === 'super_admin') {
+    if (role === 'hr') {
+      if (!allOption) select.insertBefore(new Option('All Branches', SA_ALL_BRANCHES), select.firstChild);
+      select.value = SA_ALL_BRANCHES;
+    } else {
+      allOption?.remove();
+      select.value = '';
+    }
+    select.disabled = true;
+    select.required = false;
+    if (hint) {
+      hint.textContent = role === 'hr'
+        ? 'HR serves every branch, so it is not assigned one.'
+        : 'Super Admin reaches every branch, so it is not assigned one.';
+      hint.style.display = '';
+    }
+    if (field) field.style.opacity = '0.55';
+    return;
+  }
+
+  allOption?.remove();
+  if (select.disabled && !keepBranch) select.value = '';
+  select.disabled = false;
+  select.required = true;
+  if (hint) { hint.textContent = ''; hint.style.display = 'none'; }
+  if (field) field.style.opacity = '';
+}
+
+/** Add Staff Account's Role select. */
+function onSAStaffRoleChange() {
+  const form = document.getElementById('sa-staff-account-form');
+  saApplyStaffBranchRule({
+    role: document.getElementById('sa-staff-role')?.value || '',
+    select: document.getElementById('sa-staff-branch'),
+    field: document.getElementById('sa-staff-branch-field'),
+    hint: document.getElementById('sa-staff-branch-hint'),
+  });
+  if (form) refreshSAStaffFormRules(form, form.querySelector('button[type="submit"]'));
 }
 
 async function openSAStaffAccountModal() {
@@ -1918,7 +2256,6 @@ async function openSAStaffAccountModal() {
 
   if (fb) { fb.textContent = ''; fb.className = 'adm-feedback'; }
   form.reset();
-  form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
 
   saBranches = await fetchBranchesCached({ activeOnly: false }).catch(() => saBranches);
 
@@ -1932,8 +2269,12 @@ async function openSAStaffAccountModal() {
       options.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
   }
 
+  const submitBtn = form.querySelector('button[type="submit"]');
+  bindSAStaffFormRules(form, submitBtn);
   onSAStaffRoleChange();
+  resetSAStaffFormRules(form, submitBtn);
   modal.style.display = 'flex';
+  setTimeout(() => form.elements.first_name?.focus(), 0);
 }
 
 function closeSAStaffAccountModal() {
@@ -1946,57 +2287,49 @@ async function submitSAStaffAccount(event) {
   const form = event.target;
   const submitBtn = form.querySelector('button[type="submit"]');
   const fb = document.getElementById('sa-staff-account-feedback');
-  const formData = new FormData(form);
+  if (submitBtn?.dataset.busy === '1') return false;
 
-  const value = (name) => String(formData.get(name) || '').trim();
-  const role = value('role');
-
-  const fail = (message, fieldName) => {
+  const fail = (message) => {
     if (fb) { fb.textContent = message; fb.className = 'adm-feedback err'; }
-    form.querySelectorAll('.field-invalid').forEach((el) => el.classList.remove('field-invalid'));
-    const field = fieldName ? form.elements[fieldName] : null;
-    if (field) { field.classList.add('field-invalid'); field.focus(); }
     return false;
   };
 
-  // A first pass in the browser so the obvious mistakes are caught without a
-  // round trip. The server validates the same record again and is the only
-  // thing that decides — see validateStaffRecord().
-  const required = [
-    ['full_name', 'Full name is required.'],
-    ['email', 'Email is required.'],
-    ['role', 'Select a role.'],
-    ['employee_status', 'Select an account status.'],
-    ['date_of_birth', 'Date of birth is required.'],
-    ['date_hired', 'Date hired is required.'],
-    ['sex', 'Select a sex.'],
-    ['civil_status', 'Select a civil status.'],
-    ['cp_number', 'Contact number is required.'],
-    ['address', 'Home address is required.'],
-  ];
-  for (const [name, message] of required) {
-    if (!value(name)) return fail(message, name);
-  }
-  if (role !== 'super_admin' && !value('branch_id')) {
-    return fail('Select the branch this account belongs to.', 'branch_id');
+  // The button is only enabled when every rule passes, but Enter in a field
+  // can still submit, so the rules run again. The server validates the same
+  // record once more and is the only thing that decides.
+  form.dataset.submitted = '1';
+  if (!refreshSAStaffFormRules(form, submitBtn)) {
+    form.querySelector('.field-invalid')?.focus();
+    return fail('Please correct the highlighted fields.');
   }
 
+  const value = (name) => String(form.elements[name]?.value || '').trim();
+  const role = value('role');
+
   const payload = {
-    full_name: value('full_name'),
-    email: value('email'),
+    first_name: value('first_name'),
+    middle_name: value('middle_name'),
+    last_name: value('last_name'),
+    suffix: value('suffix'),
+    email: value('email').toLowerCase(),
     role,
-    // Sent empty for Super Admin; the server stores null for that role either way.
-    branch_id: role === 'super_admin' ? '' : value('branch_id'),
+    // Only Admin carries a branch; the server stores null for HR and Super Admin.
+    branch_id: role === 'admin' ? value('branch_id') : '',
     employee_status: value('employee_status'),
     date_of_birth: value('date_of_birth'),
     date_hired: value('date_hired'),
     sex: value('sex'),
     civil_status: value('civil_status'),
-    cp_number: value('cp_number'),
+    cp_number: digitsOnly(value('cp_number')),
     address: value('address'),
   };
+  const displayName = [payload.first_name, payload.middle_name, payload.last_name, payload.suffix].filter(Boolean).join(' ');
 
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Creating...'; }
+  if (submitBtn) {
+    submitBtn.dataset.busy = '1';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating...';
+  }
 
   try {
     const response = await fetch(SA_STAFF_API, {
@@ -2017,16 +2350,21 @@ async function submitSAStaffAccount(event) {
       fb.className = 'adm-feedback ok';
     }
     if (typeof pushNotification === 'function') {
-      pushNotification('Staff Account Created', `${payload.full_name} can now sign in as ${SA_ROLE_LABELS[role] || role}.`, 'success');
+      pushNotification('Staff Account Created', `${displayName} can now sign in as ${SA_ROLE_LABELS[role] || role}.`, 'success');
     }
 
     form.reset();
     onSAStaffRoleChange();
+    resetSAStaffFormRules(form, submitBtn);
     if (typeof loadSAUsers === 'function') loadSAUsers();
   } catch {
     return fail('Unable to reach the server. Check your connection and try again.');
   } finally {
-    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create Account'; }
+    if (submitBtn) {
+      delete submitBtn.dataset.busy;
+      submitBtn.textContent = 'Create Account';
+      refreshSAStaffFormRules(form, submitBtn);
+    }
   }
 
   return true;

@@ -1,13 +1,17 @@
 /**
  * POST /api/admin/staff-accounts — create a Super Admin, Admin or HR account.
  *
- * WHY THIS IS SEPARATE FROM /api/admin/users
- * That route creates an account from the bare minimum: name, email, role,
- * branch, and a password the creator types. This one follows the shape of HR's
- * employee-creation flow instead — a full identity/contact record, and an
- * ISSUED default password the holder must replace on first sign-in, rather
- * than one the Super Admin invents and has to communicate. Both still exist
- * because they answer different needs; nothing here changes /api/admin/users.
+ * This is the only way to create these accounts. The old "+ Quick Add"
+ * shortcut (a bare name/email/role/password form that POSTed to
+ * /api/admin/users) has been removed; /api/admin/users now only lists and
+ * edits accounts. This flow follows the shape of HR's employee-creation flow
+ * -- a full identity/contact record, and an ISSUED default password the holder
+ * must replace on first sign-in, rather than one the Super Admin invents and
+ * has to communicate.
+ *
+ * BRANCH
+ * Only Admin is stored with a branch. Super Admin and HR serve every branch
+ * and are stored with none (shown as "—" and "All Branches").
  *
  * WHAT IT DELIBERATELY DOES NOT COLLECT
  * basic_salary, SSS, PhilHealth, Pag-IBIG, TIN, bank name, bank account
@@ -37,7 +41,6 @@ import { buildDefaultPassword, hashTemporaryPassword } from "@/lib/auth/password
 import {
   normalizeStaffFields,
   validateStaffRecord,
-  lastNameFromFullName,
   STAFF_BRANCH_REQUIRED_ROLES,
 } from "@/lib/employees/staff-record";
 
@@ -82,7 +85,7 @@ export async function POST(request) {
     const escalation = denyRoleEscalation(guard, record.role);
     if (escalation) return escalation;
 
-    // Super Admin reaches every branch, so it is stored without one.
+    // Super Admin and HR reach every branch, so they are stored without one.
     const branchId = STAFF_BRANCH_REQUIRED_ROLES.includes(record.role)
       ? record.branch_id
       : null;
@@ -106,10 +109,10 @@ export async function POST(request) {
     // Same issued password the employee flow uses: LastName + MMDDYYYY + "!".
     // Never chosen by the creator, and never sent anywhere except back to the
     // Super Admin who created the account so they can hand it over.
-    const password = buildDefaultPassword(lastNameFromFullName(record.full_name), record.date_of_birth);
+    const password = buildDefaultPassword(record.last_name, record.date_of_birth);
     if (!password) {
       return NextResponse.json(
-        { error: "Default password could not be generated. Check the full name and date of birth." },
+        { error: "Default password could not be generated. Check the last name and date of birth." },
         { status: 400 },
       );
     }
@@ -151,6 +154,12 @@ export async function POST(request) {
         id: newUser.id,
         email: record.email,
         role: record.role,
+        // Stored split; full_name is the composed "First Middle Last Suffix"
+        // (the profiles trigger recomputes it from these parts as well).
+        first_name: record.first_name,
+        middle_name: record.middle_name || null,
+        last_name: record.last_name,
+        suffix: record.suffix || null,
         full_name: record.full_name,
         branch_id: branchId,
       },

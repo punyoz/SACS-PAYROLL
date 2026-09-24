@@ -70,10 +70,10 @@ describe("Default password detection", () => {
 });
 
 describe("New password rules", () => {
-  const person = { full_name: "Ehd Refuerzo", date_of_birth: "2004-10-08", currentPassword: "Refuerzo10082004" };
+  const person = { full_name: "Ehd Refuerzo", date_of_birth: "2004-10-08", currentPassword: "Refuerzo10082004#" };
 
   it("accepts a sound password", () => {
-    expect(validateNewPassword("Payroll2026x", person)).toBeNull();
+    expect(validateNewPassword("Payroll2026x!", person)).toBeNull();
   });
 
   it.each([
@@ -81,13 +81,15 @@ describe("New password rules", () => {
     ["onlyletters", /letters and numbers/],
     ["1234567890", /letters and numbers/],
     ["has space 123", /spaces/],
-    ["Refuerzo10082004", /different from your current/],
+    ["payroll2026!", /uppercase/],
+    ["Payroll2026", /symbol/],
+    ["Refuerzo10082004#", /different from your current/],
   ])("rejects %s", (password, message) => {
     expect(validateNewPassword(password, person)).toMatch(message);
   });
 
   it("rejects re-using the default pattern even when it is not the current password", () => {
-    expect(validateNewPassword(`refuerzo10082004${DEFAULT_PASSWORD_SYMBOL}`, { ...person, currentPassword: "Something123" }))
+    expect(validateNewPassword(`Refuerzo10082004${DEFAULT_PASSWORD_SYMBOL}`, { ...person, currentPassword: "Something123!" }))
       .toMatch(/default password/);
   });
 });

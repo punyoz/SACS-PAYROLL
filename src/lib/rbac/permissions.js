@@ -8,8 +8,8 @@
  * Two independent dimensions, exactly as the matrix describes them:
  *
  *   SCOPE  — how much data a role may reach:
- *            'all'    every branch (super_admin everywhere; HR on the
- *                     employee-record, user-account and transfer modules)
+ *            'all'    every branch (super_admin everywhere; HR on every
+ *                     module it can reach -- HR accounts carry no branch)
  *            'branch' rows whose branch_id equals the caller's own branch
  *            'self'   rows belonging to the caller personally
  *            'none'   no access to the module at all
@@ -30,8 +30,13 @@ export const SCOPE_BRANCH = "branch";
 export const SCOPE_SELF = "self";
 export const SCOPE_NONE = "none";
 
-/** Roles whose every query must be filtered down to their own branch_id. */
-export const BRANCH_SCOPED_ROLES = ["admin", "hr", "accountant", "employee"];
+/**
+ * Roles whose every query must be filtered down to their own branch_id.
+ * HR is not one of them: it serves every branch and its accounts are stored
+ * with no branch, like Super Admin (see
+ * supabase/migrations/20260924020000_hr_all_branches.sql).
+ */
+export const BRANCH_SCOPED_ROLES = ["admin", "accountant", "employee"];
 
 const CRUD = ["create", "read", "update", "delete"];
 const READ = ["read"];
@@ -248,12 +253,12 @@ export const ROLE_PERMISSIONS = {
   },
 
   hr: {
-    dashboard: view(SCOPE_BRANCH),
-    attendance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    // HR handles the employees of EVERY branch: their accounts, their 201
-    // files, and moving them between branches. These are the only modules a
-    // branch-scoped role reaches with SCOPE_ALL; the account ceiling that
-    // keeps this safe is MANAGEABLE_ROLES (Employee and Accountant only).
+    // HR serves EVERY branch, so every module it can reach is SCOPE_ALL and
+    // HR accounts are stored with no branch ("All Branches"). The account
+    // ceiling that keeps this safe is MANAGEABLE_ROLES (Employee and
+    // Accountant only); payroll and system modules stay none().
+    dashboard: view(SCOPE_ALL),
+    attendance: { scope: SCOPE_ALL, actions: READ_WRITE },
     user_management: full(SCOPE_ALL),
     employee_information: full(SCOPE_ALL),
     employee_info_readonly: view(SCOPE_ALL),
@@ -261,7 +266,7 @@ export const ROLE_PERMISSIONS = {
     branch_assignment: { scope: SCOPE_ALL, actions: READ_WRITE },
     roles_permissions: none(),
     transfer_requests: full(SCOPE_ALL),
-    leave_approval: full(SCOPE_BRANCH),
+    leave_approval: full(SCOPE_ALL),
     rfid_devices: none(),
     process_payroll: none(),
     // Matrix rows 11-12: HR has no payroll or payslips access. Revoked in the
@@ -275,11 +280,11 @@ export const ROLE_PERMISSIONS = {
     system_configuration: none(),
     audit_logs: none(),
     backup_recovery: none(),
-    hr_reports: full(SCOPE_BRANCH),
+    hr_reports: full(SCOPE_ALL),
     payroll_reports: none(),
     branch_reports: none(),
     profile: full(SCOPE_SELF),
-    timesheet: view(SCOPE_BRANCH),
+    timesheet: view(SCOPE_ALL),
   },
 
   accountant: {

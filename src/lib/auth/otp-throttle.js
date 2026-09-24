@@ -82,17 +82,18 @@ export function resetVerifyAttempts(userId) {
 }
 
 /**
- * Ask whether "Resend code" may fire right now.
+ * Ask whether "Resend code" may fire right now. `cooldownMs` defaults to the
+ * sign-in cooldown; the password reset/change flows pass their own 60 s.
  * @returns {{ allowed: boolean, retryAfterSeconds: number }}
  */
-export function checkResendAllowed(userId, now = Date.now()) {
+export function checkResendAllowed(userId, now = Date.now(), cooldownMs = RESEND_COOLDOWN_MS) {
   const key = normalizeKey(userId);
   const last = lastResendAt.get(key);
   if (!last) return { allowed: true, retryAfterSeconds: 0 };
 
   const elapsed = now - last;
-  if (elapsed >= RESEND_COOLDOWN_MS) return { allowed: true, retryAfterSeconds: 0 };
-  return { allowed: false, retryAfterSeconds: Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000) };
+  if (elapsed >= cooldownMs) return { allowed: true, retryAfterSeconds: 0 };
+  return { allowed: false, retryAfterSeconds: Math.ceil((cooldownMs - elapsed) / 1000) };
 }
 
 /**
@@ -105,6 +106,15 @@ export function recordCodeSent(userId, now = Date.now()) {
   lastResendAt.set(key, now);
   verifyAttempts.delete(key);
   sweep(lastResendAt, (ts) => now - ts > RESEND_COOLDOWN_MS * 10);
+}
+
+/**
+ * Key for the change-password OTP's counters, kept apart from the pending
+ * sign-in's (which key on the bare user id) so a wrong code in one flow never
+ * costs an attempt in the other.
+ */
+export function passwordChangeThrottleKey(userId) {
+  return `pwchange:${String(userId || "").trim()}`;
 }
 
 /** Test seam — drops all counters. */
