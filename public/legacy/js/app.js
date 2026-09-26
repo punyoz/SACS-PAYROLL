@@ -3743,10 +3743,13 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
         <button class="st-tab" type="button" data-att-tab="overtime">Overtime <span id="${id}-overtime-count"></span></button>
       </div>
       <div id="${id}-legend">${attendanceStatusLegend()}</div>
-      <div id="${id}-filter-wrap" style="margin-bottom:12px;">
+      <div id="${id}-filter-wrap" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px;">
         <select class="fc" id="${id}-status" style="max-width:240px;" aria-label="Status">
           <option value="all">All statuses</option>
           ${ATTENDANCE_STATUS_LIST.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
+        </select>
+        <select class="fc" id="${id}-date" style="max-width:260px;" aria-label="Day">
+          <option value="all">All days</option>
         </select>
       </div>
       <p id="${id}-note" style="font-size:12px;color:var(--t3);margin-bottom:12px;"></p>
@@ -3763,6 +3766,8 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
     tab: 'all',
     period: periods[0],
     status: 'all',
+    // One day of the period, or every day ('all') grouped under day headings.
+    date: 'all',
     branch: '',
     logs: [],
     corrections: [],
@@ -3786,10 +3791,15 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
   });
   document.getElementById(`${rootId}-period`)?.addEventListener('change', (event) => {
     board.period = event.target.value;
+    board.date = 'all';
     refreshAttendanceBoard(rootId);
   });
   document.getElementById(`${rootId}-status`)?.addEventListener('change', (event) => {
     board.status = event.target.value;
+    renderAttendanceBoard(board);
+  });
+  document.getElementById(`${rootId}-date`)?.addEventListener('change', (event) => {
+    board.date = event.target.value;
     renderAttendanceBoard(board);
   });
 
@@ -3870,15 +3880,17 @@ function renderAttendanceBoard(board) {
   if (filterWrap) filterWrap.style.display = board.tab === 'all' ? '' : 'none';
   if (legend) legend.style.display = board.tab === 'corrections' || board.tab === 'overtime' ? 'none' : '';
 
+  renderAttendanceDateOptions(board);
+
   let rows;
   if (board.tab === 'incomplete') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = 'Days with a time in but no time out after the shift ended. They are left out of payroll until resolved — by the employee\'s correction request, or by recording the time out (or Absent / Half Day) here.';
-    rows = incomplete;
+    rows = attSortByDay(incomplete);
   } else if (board.tab === 'overtime') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time Out</th><th>Past Schedule</th><th>Decision</th>${board.overtimeCanReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = `Days whose time out is at least ${board.overtimeMinMinutes} minutes after the branch's end of shift. Payroll pays overtime only for the minutes approved here (hourly rate plus the overtime premium in Payroll Rates). Decisions lock once that pay period is processed.`;
-    rows = board.overtime;
+    rows = attSortByDay(board.overtime);
   } else if (board.tab === 'corrections') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Recorded</th><th>Requested Time Out</th><th>Reason</th><th>Requested</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day.';
@@ -3890,9 +3902,12 @@ function renderAttendanceBoard(board) {
         ? 'Automatic statuses are not active yet: apply the attendance database migration (20260926010000_attendance_status_engine.sql).'
         : `Statuses are computed automatically from each branch's schedule. Today's list includes everyone who has not tapped yet.${board.canReview ? ' If someone worked but did not tap, use Correct on their Absent day.' : ''}`;
     }
-    rows = board.status === 'all' ? board.logs : board.logs.filter((row) => row.status === board.status);
+    rows = attSortByDay(board.logs.filter((row) => (board.status === 'all' || row.status === board.status)
+      && (board.date === 'all' || row.log_date === board.date)));
   }
 
+  // Day headings count the whole day, not just the rows on the current page.
+  board.dayCounts = attDayCounts(rows);
   board.paginator.setData(rows);
   if (!rows.length) {
     const body = document.getElementById(`${id}-body`);
@@ -3902,7 +3917,8 @@ function renderAttendanceBoard(board) {
     const empty = board.tab === 'corrections' ? 'No correction requests waiting.'
       : board.tab === 'incomplete' ? 'Nothing to resolve.'
         : board.tab === 'overtime' ? 'No overtime in this period.'
-          : 'No attendance records for this period.';
+          : board.date !== 'all' ? 'No attendance records for this day.'
+            : 'No attendance records for this period.';
     if (body) body.innerHTML = `<tr><td colspan="${cols}" style="color:var(--t3);">${empty}</td></tr>`;
   }
 }
@@ -3913,7 +3929,7 @@ function renderAttendanceBoardRows(board, rows) {
   const key = escapeHtml(board.rootId);
 
   if (board.tab === 'overtime') {
-    body.innerHTML = rows.map((row) => {
+    const overtimeRows = rows.map((row) => {
       const approval = row.approval;
       const decision = approval
         ? (approval.status === 'approved'
@@ -3932,7 +3948,8 @@ function renderAttendanceBoardRows(board, rows) {
         <td>${decision}${approval?.decided_by_name ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;">by ${escapeHtml(approval.decided_by_name)}</div>` : ''}</td>
         ${board.overtimeCanReview ? `<td>${action}</td>` : ''}
       </tr>`;
-    }).join('');
+    });
+    body.innerHTML = attWithDayHeadings(board, rows, overtimeRows, 5 + (board.overtimeCanReview ? 1 : 0));
     return;
   }
 
@@ -3951,7 +3968,7 @@ function renderAttendanceBoardRows(board, rows) {
   }
 
   if (board.tab === 'incomplete') {
-    body.innerHTML = rows.map((row) => `
+    const incompleteRows = rows.map((row) => `
       <tr>
         <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
         <td>${escapeHtml(attFormatDate(row.log_date))}</td>
@@ -3961,11 +3978,12 @@ function renderAttendanceBoardRows(board, rows) {
         ${board.canReview ? `<td>${row.status === 'Incomplete'
           ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceResolve('${key}','${escapeHtml(row.id)}')">Resolve</button>`
           : '<span style="font-size:12px;color:var(--t3);">See Correction Requests</span>'}</td>` : ''}
-      </tr>`).join('');
+      </tr>`);
+    body.innerHTML = attWithDayHeadings(board, rows, incompleteRows, 5 + (board.canReview ? 1 : 0));
     return;
   }
 
-  body.innerHTML = rows.map((row) => `
+  const recordRows = rows.map((row) => `
     <tr>
       <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
       <td>${escapeHtml(attFormatDate(row.log_date))}</td>
@@ -3978,7 +3996,82 @@ function renderAttendanceBoardRows(board, rows) {
       ${board.canReview ? `<td>${row.status === 'Absent'
         ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceAbsenceCorrection('${key}','${escapeHtml(row.employee_id)}','${escapeHtml(row.log_date)}')">Correct</button>`
         : ''}</td>` : ''}
-    </tr>`).join('');
+    </tr>`);
+  body.innerHTML = attWithDayHeadings(board, rows, recordRows, 8 + (board.canReview ? 1 : 0));
+}
+
+/* ── Day grouping (status board) ──
+   Records are listed newest day first, each day under its own heading, so a
+   Thursday never runs into a Friday. The heading repeats at the top of every
+   page, and its counts cover the whole day, not just that page. */
+
+/** Today's date in Manila as "YYYY-MM-DD". */
+function attTodayKey() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+/** "Friday, September 25, 2026". */
+function attFormatDayHeading(key) {
+  const date = new Date(`${key}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return key || '—';
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(date);
+}
+
+/** Newest day first; within a day, by employee name. */
+function attSortByDay(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const byDay = String(b.log_date || '').localeCompare(String(a.log_date || ''));
+    return byDay || String(a.employee_name || '').localeCompare(String(b.employee_name || ''));
+  });
+}
+
+/** Per day: how many rows, and how many of each status. */
+function attDayCounts(rows) {
+  const counts = new Map();
+  (rows || []).forEach((row) => {
+    const key = String(row.log_date || '');
+    if (!counts.has(key)) counts.set(key, { total: 0, statuses: new Map() });
+    const day = counts.get(key);
+    day.total += 1;
+    if (row.status) day.statuses.set(row.status, (day.statuses.get(row.status) || 0) + 1);
+  });
+  return counts;
+}
+
+function attDayHeadingRow(board, key, colspan) {
+  const day = board.dayCounts?.get(key) || { total: 0, statuses: new Map() };
+  const breakdown = board.tab === 'all'
+    ? ATTENDANCE_STATUS_LIST.filter((s) => day.statuses.get(s)).map((s) => `${day.statuses.get(s)} ${s}`)
+    : [];
+  const summary = [`${day.total} record${day.total === 1 ? '' : 's'}`, ...breakdown].join(' · ');
+  const today = key === attTodayKey() ? ' <span class="badge bt2" style="margin-left:6px;">Today</span>' : '';
+  return `<tr class="att-day-row"><td colspan="${colspan}"><strong>${escapeHtml(attFormatDayHeading(key))}</strong>${today}<span class="att-day-summary">${escapeHtml(summary)}</span></td></tr>`;
+}
+
+/** The page's rows with a heading before each new day. */
+function attWithDayHeadings(board, rows, rowHtml, colspan) {
+  let lastDay = null;
+  return rows.map((row, index) => {
+    const key = String(row.log_date || '');
+    const heading = key !== lastDay ? attDayHeadingRow(board, key, colspan) : '';
+    lastDay = key;
+    return heading + rowHtml[index];
+  }).join('');
+}
+
+/** The Day filter: every day of the loaded period, newest first, with its count. */
+function renderAttendanceDateOptions(board) {
+  const select = document.getElementById(`${board.rootId}-date`);
+  if (!select) return;
+  const counts = attDayCounts(board.logs);
+  const days = [...counts.keys()].filter(Boolean).sort().reverse();
+  if (board.date !== 'all' && !counts.has(board.date)) board.date = 'all';
+  select.innerHTML = '<option value="all">All days</option>'
+    + days.map((key) => {
+      const n = counts.get(key).total;
+      return `<option value="${escapeHtml(key)}">${escapeHtml(attFormatDate(key))} (${n})</option>`;
+    }).join('');
+  select.value = board.date;
 }
 
 /* ── Review / resolve / request dialog (one, shared) ── */
