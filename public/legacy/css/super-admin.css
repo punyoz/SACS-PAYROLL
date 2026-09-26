@@ -211,3 +211,19 @@
   background: var(--amber-s);
   border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
 }
+
+/* Payroll Configuration: the values ARE applied, from the date chosen. Same
+   shape as .config-not-enforced, in the informational colour. */
+.config-applies {
+  margin-top: 6px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--teal);
+  background: var(--teal-s);
+  border: 1px solid color-mix(in srgb, var(--teal) 35%, transparent);
+}
+
+.rate-history { font-size: 11px; color: var(--t3); line-height: 1.6; white-space: normal; min-width: 200px; }
+.rate-history .rh-now { color: var(--t1); font-weight: 600; }

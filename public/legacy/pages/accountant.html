@@ -151,6 +151,7 @@
     <div class="page" id="ac-process">
       <div class="ph"><h2>Process Payroll</h2><p>Compute employee salaries including deductions. Processed payrolls generate payslips automatically.</p></div>
       <div id="ac-pending-banner" class="pending-banner" style="display:none;"></div>
+      <div id="pc-not-ready" class="banner" style="display:none;background:var(--amber-s);border:1px solid var(--amber);color:var(--amber);"></div>
 
       <!-- BATCH PROCESSING -->
       <div class="card" style="margin-bottom:14px;">
@@ -160,18 +161,23 @@
           <select class="fc" id="pc-batch-period" style="max-width:220px;"><option>Loading periods...</option></select>
           <button class="btn btn-outline" onclick="loadBatchPayrollTable()">Refresh</button>
         </div>
-        <p style="font-size:12px;color:var(--t3);margin-bottom:12px;">Review every employee's computed values below — auto-filled from attendance logs and approved leave requests — then process payroll for everyone in one go.</p>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:12px;">Review every employee's computed values below — auto-filled from attendance logs and approved leave requests — then process payroll for everyone in one go. Absent, Late, Undertime, Half Day and incentives come from the attendance logs and the rates in force on the period's first day; they cannot be typed in here.</p>
         <div class="tw"><table>
           <thead>
             <tr>
               <th>Employee</th><th>Basic Salary</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th>
-              <th>Tax</th><th>Absent</th><th>Late</th><th>Leave w/ Pay</th><th>Leave w/o Pay</th><th>Net Pay</th>
+              <th>Tax</th><th>Absent</th><th>Late</th><th>Undertime</th><th>Half Day</th><th>Early Bird / Incentive</th>
+              <th>Leave w/ Pay</th><th>Leave w/o Pay</th><th>Net Pay</th>
             </tr>
           </thead>
           <tbody id="pc-batch-table-body">
-            <tr><td colspan="11" style="color:var(--t3);">Loading employees...</td></tr>
+            <tr><td colspan="14" style="color:var(--t3);">Loading employees...</td></tr>
           </tbody>
         </table></div>
+        <div class="fg" id="pc-batch-reason-wrap" style="margin:14px 0 0;display:none;">
+          <label for="pc-batch-reason">Reason for manual changes <span style="color:var(--t3);font-weight:400;">(required — SSS, PhilHealth, Pag-IBIG or Leave w/o Pay was changed from the computed value; logged with your name)</span></label>
+          <input class="fc" type="text" id="pc-batch-reason" maxlength="300" placeholder="e.g. Contribution table update for this employee">
+        </div>
         <button id="pc-batch-submit-btn" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;margin-top:14px;" onclick="processBatchPayroll()">Process Payroll for All →</button>
         <p id="pc-batch-feedback" class="adm-feedback" style="margin-top:10px;"></p>
       </div>
@@ -182,6 +188,7 @@
         <div class="card">
           <div class="stitle" style="margin-bottom:18px;">Payroll Entry Form</div>
           <div class="form-grid">
+            <div id="pc-blocking" style="grid-column:1/-1;display:none;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.5;background:var(--amber-s);border:1px solid var(--amber);color:var(--amber);"></div>
             <div class="fg" style="grid-column:1/-1;">
               <label for="pc-employee">Select Employee</label>
               <select class="fc" id="pc-employee">
@@ -198,14 +205,28 @@
             </div>
             <hr class="fd">
             <div class="fgl">Deductions</div>
-            <div class="fg"><label for="pc-sss">SSS <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-sss" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label for="pc-philhealth">PhilHealth <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-philhealth" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label for="pc-pagibig">Pag-IBIG <span style="color:var(--t3);font-weight:400;">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-pagibig" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-sss">SSS <span style="color:var(--t3);font-weight:400;" id="pc-sss-hint">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-sss" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-philhealth">PhilHealth <span style="color:var(--t3);font-weight:400;" id="pc-philhealth-hint">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-philhealth" value="0" min="0" step="0.01" inputmode="decimal"></div>
+            <div class="fg"><label for="pc-pagibig">Pag-IBIG <span style="color:var(--t3);font-weight:400;" id="pc-pagibig-hint">(default 2% of Basic, editable)</span></label><input class="fc" type="number" id="pc-pagibig" value="0" min="0" step="0.01" inputmode="decimal"></div>
             <div class="fg"><label for="pc-tax">Withholding Tax (₱)</label><input class="fc" type="number" id="pc-tax" value="0" min="0" step="0.01" inputmode="decimal"></div>
-            <div class="fg"><label for="pc-absences">Absent (days)</label><input class="fc" type="number" id="pc-absences" value="0" min="0" step="1" inputmode="numeric"></div>
-            <div class="fg"><label for="pc-late">Late (days) <span style="color:var(--t3);font-weight:400;">3 late = ₱550</span></label><input class="fc" type="number" id="pc-late" value="0" min="0" step="1" inputmode="numeric"></div>
+            <p style="grid-column:1/-1;font-size:11px;color:var(--t3);margin:0;">Absent, Late, Undertime, Half Day and incentives are filled in from the attendance logs. Changing one is an override: it needs a reason and is logged.</p>
+            <div class="fg"><label for="pc-absences">Absent (days) <span style="color:var(--t3);font-weight:400;" id="pc-absent-hint"></span></label><input class="fc" type="number" id="pc-absences" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-late">Late (days) <span style="color:var(--t3);font-weight:400;" id="pc-late-hint"></span></label><input class="fc" type="number" id="pc-late" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-undertime">Undertime (minutes) <span style="color:var(--t3);font-weight:400;" id="pc-undertime-hint"></span></label><input class="fc" type="number" id="pc-undertime" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-half-days">Half Day (days) <span style="color:var(--t3);font-weight:400;" id="pc-half-day-hint"></span></label><input class="fc" type="number" id="pc-half-days" value="0" min="0" step="1" inputmode="numeric"></div>
             <div class="fg"><label for="pc-leave-with-pay-days">Leave With Pay <span style="color:var(--t3);font-weight:400;">(days, no deduction)</span></label><input class="fc" type="number" id="pc-leave-with-pay-days" value="0" readonly style="background:var(--bg3);cursor:default;"></div>
-            <div class="fg"><label for="pc-leave-without-pay-days">Leave Without Pay <span style="color:var(--t3);font-weight:400;">(days, ₱550/day)</span></label><input class="fc" type="number" id="pc-leave-without-pay-days" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-leave-without-pay-days">Leave Without Pay <span style="color:var(--t3);font-weight:400;" id="pc-lwop-hint">(days, ₱550/day)</span></label><input class="fc" type="number" id="pc-leave-without-pay-days" value="0" min="0" step="1" inputmode="numeric"></div>
+            <hr class="fd">
+            <div class="fgl">Incentives</div>
+            <div class="fg"><label for="pc-early-bird">Early Bird (days) <span style="color:var(--t3);font-weight:400;" id="pc-early-bird-hint"></span></label><input class="fc" type="number" id="pc-early-bird" value="0" min="0" step="1" inputmode="numeric"></div>
+            <div class="fg"><label for="pc-perfect">Perfect Attendance <span style="color:var(--t3);font-weight:400;" id="pc-perfect-hint"></span></label>
+              <select class="fc" id="pc-perfect"><option value="no">No</option><option value="yes">Yes</option></select>
+            </div>
+            <div class="fg" id="pc-override-wrap" style="grid-column:1/-1;display:none;">
+              <label for="pc-override-reason">Reason for override <span style="color:var(--t3);font-weight:400;">(required to process; logged with your name)</span></label>
+              <textarea class="fc" id="pc-override-reason" rows="2" maxlength="300" placeholder="Why the computed value was changed"></textarea>
+              <div id="pc-override-list" style="font-size:11px;color:var(--amber);margin-top:4px;"></div>
+            </div>
           </div>
         </div>
 
@@ -220,9 +241,13 @@
               <div class="sr" style="color:var(--red);"><span>PhilHealth</span><span style="font-family:var(--mono);" id="sum-philhealth">- ₱ 0.00</span></div>
               <div class="sr" style="color:var(--red);"><span>Pag-IBIG</span><span style="font-family:var(--mono);" id="sum-pagibig">- ₱ 0.00</span></div>
               <div class="sr" style="color:var(--red);"><span>Withholding Tax</span><span style="font-family:var(--mono);" id="sum-tax">- ₱ 0.00</span></div>
-              <div class="sr" style="color:var(--red);"><span>Absences &amp; Late</span><span style="font-family:var(--mono);" id="sum-absences">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Absences</span><span style="font-family:var(--mono);" id="sum-absences">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Late</span><span style="font-family:var(--mono);" id="sum-late">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Undertime</span><span style="font-family:var(--mono);" id="sum-undertime">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);"><span>Half Day</span><span style="font-family:var(--mono);" id="sum-half-day">- ₱ 0.00</span></div>
               <div class="sr"><span>Leave With Pay</span><span style="font-family:var(--mono);" id="sum-leave-with-pay">0 days</span></div>
               <div class="sr" style="color:var(--red);"><span>Leave Without Pay</span><span style="font-family:var(--mono);" id="sum-leave-without-pay">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--green);"><span>Early Bird / Attendance Incentive</span><span style="font-family:var(--mono);" id="sum-incentives">+ ₱ 0.00</span></div>
               <div class="sr tot"><span>Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 0.00</span></div>
             </div>
           </div>
@@ -294,6 +319,9 @@
             <div class="pf-stitle">Earnings</div>
             <div class="pf-row"><span>Basic Salary</span><span class="mn" id="ac-pf-basic">₱ 0.00</span></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Gross Pay</span><span class="mn" style="color:var(--teal);" id="ac-pf-gross">₱ 0.00</span></div>
+            <div class="pf-stitle" style="margin-top:12px;">Incentives</div>
+            <div class="pf-row"><span id="ac-pf-early-bird-label">Early Bird</span><span class="mn" style="color:var(--green);" id="ac-pf-early-bird">₱ 0.00</span></div>
+            <div class="pf-row"><span>Perfect Attendance</span><span class="mn" style="color:var(--green);" id="ac-pf-perfect">₱ 0.00</span></div>
           </div>
           <div>
             <div class="pf-stitle">Deductions</div>
@@ -301,7 +329,10 @@
             <div class="pf-row"><span>PhilHealth</span><span class="mn" id="ac-pf-philhealth">₱ 0.00</span></div>
             <div class="pf-row"><span>Pag-IBIG</span><span class="mn" id="ac-pf-pagibig">₱ 0.00</span></div>
             <div class="pf-row"><span>Withholding Tax</span><span class="mn" id="ac-pf-tax">₱ 0.00</span></div>
-            <div class="pf-row"><span>Absences &amp; Late</span><span class="mn" id="ac-pf-absence">₱ 0.00</span></div>
+            <div class="pf-row"><span>Absences</span><span class="mn" id="ac-pf-absence">₱ 0.00</span></div>
+            <div class="pf-row"><span id="ac-pf-late-label">Late</span><span class="mn" id="ac-pf-late">₱ 0.00</span></div>
+            <div class="pf-row"><span id="ac-pf-undertime-label">Undertime</span><span class="mn" id="ac-pf-undertime">₱ 0.00</span></div>
+            <div class="pf-row"><span id="ac-pf-half-day-label">Half Day</span><span class="mn" id="ac-pf-half-day">₱ 0.00</span></div>
             <div class="pf-row"><span>Leave With Pay</span><span class="mn" id="ac-pf-leave-with-pay">0 days</span></div>
             <div class="pf-row"><span>Leave Without Pay</span><span class="mn" id="ac-pf-leave-without-pay">₱ 0.00</span></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);" id="ac-pf-total-deductions">₱ 0.00</span></div>
@@ -328,6 +359,8 @@
         </tbody>
       </table></div>
       <div class="pg-bar" id="ac-att-pg"></div>
+
+      <div id="ac-att-board"></div>
     </div>
 
 

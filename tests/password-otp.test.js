@@ -198,7 +198,7 @@ describe("Reset password by OTP", () => {
     expect(late.body.code).toBe("otp_expired");
   });
 
-  it("verifies, then sets the password once, then redirects", async () => {
+  it("verifies, then sets the password once, then signs in to the portal", async () => {
     const b = browser();
     await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
     const verified = await b.post(resetRoute, RESET, { action: "verify", code: GOOD_CODE });
@@ -211,13 +211,20 @@ describe("Reset password by OTP", () => {
 
     const done = await b.post(resetRoute, RESET, { action: "reset", password: "NewPass9!", confirm_password: "NewPass9!" });
     expect(done.status).toBe(200);
-    expect(db.updates).toHaveLength(1);
-    expect(db.updates[0]).toMatchObject({ id: "u-emp", changes: { password: "NewPass9!" } });
+    const passwordUpdates = () => db.updates.filter((u) => u.changes.password);
+    expect(passwordUpdates()).toHaveLength(1);
+    expect(passwordUpdates()[0]).toMatchObject({ id: "u-emp", changes: { password: "NewPass9!" } });
+
+    // Straight into the account's own portal: a session cookie, not a trip
+    // back to the login form.
+    expect(done.body).toMatchObject({ success: true, redirectTo: "/employee", role: "employee", must_change_password: false });
+    const cookies = done.headers.getSetCookie().join("; ");
+    expect(cookies).toContain(`${SESSION_COOKIE}=`);
 
     // The grant is spent (and its cookie cleared): no second password.
     const again = await b.post(resetRoute, RESET, { action: "reset", password: "Another9!", confirm_password: "Another9!" });
     expect(again.status).toBe(400);
-    expect(db.updates).toHaveLength(1);
+    expect(passwordUpdates()).toHaveLength(1);
   });
 });
 
@@ -271,6 +278,19 @@ describe("Change password by OTP", () => {
     for (let i = 0; i < 5; i += 1) last = await b.post(otpRoute, OTP, { action: "verify", code: "00000000" });
     expect(last.body.code).toBe("otp_locked_out");
     expect((await b.post(otpRoute, OTP, { action: "verify", code: GOOD_CODE })).body.code).toBe("otp_expired");
+  });
+
+  it("asks for no second OTP on the first sign-in change (the sign-in OTP already passed)", async () => {
+    const b = browser(createSessionToken({
+      user_id: "u-emp", role: "employee", email: "emp@example.com", branch_id: "b-1", session_id: "s-1",
+      must_change_password: true,
+    }));
+    expect((await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD })).body.otp_required).toBe(false);
+    const done = await b.post(changeRoute, CHANGE, { current_password: OLD_PASSWORD, new_password: "NewPass9!", confirm_password: "NewPass9!" });
+    expect(done.status).toBe(200);
+    expect(done.body.must_change_password).toBe(false);
+    expect(db.sent).toHaveLength(0);
+    expect(db.updates).toHaveLength(1);
   });
 
   it("leaves Admin, HR and Super Admin on the one-step change", async () => {

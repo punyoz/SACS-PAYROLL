@@ -23,6 +23,8 @@ import {
   PASSWORD_OTP_RESEND_MS,
   PASSWORD_OTP_RESEND_SECONDS,
 } from "@/lib/auth/password-otp";
+import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
+import { completeLogin, isRoutableRole } from "@/lib/auth/complete-login";
 
 /**
  * POST /api/legacy-auth/reset-password: the login page's "Forgot Password?"
@@ -222,10 +224,39 @@ async function handleReset(request, body) {
   }
   invalidateUsersCache();
 
-  return clearPasswordOtpState(
+  // The user has just proven both that they own the inbox (the OTP) and what
+  // the new password is, which is everything a sign-in checks. So the reset
+  // ends in a session, exactly like a sign-in does (completeLogin), and the
+  // browser goes straight to the portal instead of back to the login form.
+  // Anything unusual (archived, unknown role) falls back to the old answer:
+  // the password is reset, sign in normally.
+  const signInAgain = () => clearPasswordOtpState(
     NextResponse.json({ success: true, message: "Your password has been reset. Sign in with your new password." }),
     "reset",
   );
+
+  const actualRole = normalizeText(user.user_metadata?.role).toLowerCase();
+  if (user.user_metadata?.archived === true || !isRoutableRole(actualRole)) return signInAgain();
+
+  try {
+    const resolved = await resolveLoginProfile({
+      url: projectUrl,
+      serviceRoleKey,
+      user,
+      actualRole,
+    });
+    const response = await completeLogin({
+      userId: user.id,
+      resolved,
+      // The password was just replaced, so it is no longer the issued default.
+      mustChangePassword: false,
+      decorate: (res) => clearPasswordOtpState(res, "reset"),
+    });
+    if (!response.ok) return signInAgain();
+    return response;
+  } catch {
+    return signInAgain();
+  }
 }
 
 export async function POST(request) {

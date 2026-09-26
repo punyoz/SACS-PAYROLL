@@ -68,7 +68,9 @@ Migrations are applied by hand through the dashboard. If you prefer
 `profiles`, `attendance_logs`, `audit_logs`, `payroll_records`,
 `payroll_entries`, `leave_requests`, `branches`,
 `employee_branch_assignments`, `transfer_requests`, `system_config`,
-`role_permissions`, plus the read-only view `employee_info_view`.
+`role_permissions`, `attendance_holidays`, `attendance_corrections`,
+`payroll_rate_configs`, `payroll_deductions`, `payroll_incentives`, plus the
+read-only view `employee_info_view`.
 
 That covers every table the application queries. If a page errors with
 "relation does not exist", a migration was skipped.
@@ -101,6 +103,35 @@ There is no Edge Function to deploy.
    the sign-in code.
 4. **Authentication → Rate Limits**: raise **Emails sent per hour** to suit the
    staff count. Supabase also allows one email per address every 60 seconds.
+
+---
+
+## 2b. Attendance status engine and the nightly job
+
+`20260926010000_attendance_status_engine.sql` makes the database compute every
+attendance status (On Time, Early Bird, Late, Undertime, Half Day, Absent,
+Incomplete, Pending Correction, Corrected) from each branch's schedule in
+System Configuration. `20260926020000_payroll_rate_configs.sql` adds the
+effective-dated payroll rates (Super Admin → System Configuration → Payroll
+Rates) and the per-line deduction/incentive tables. Payroll refuses to process
+until both are applied, and says so on the Process Payroll screen.
+
+The nightly job flags missed tap-outs as Incomplete and writes Absent records
+for working days with no tap and no approved leave:
+
+```bash
+supabase functions deploy attendance-nightly
+```
+
+Then in **Edge Functions → attendance-nightly → Schedules** add cron
+`5 16 * * *` (00:05 Asia/Manila), calling it with the service-role key as the
+Bearer token. The payroll and attendance screens run the same database step
+(`attendance_close_days`) for the days they show, so a missed night delays the
+Incomplete queue but never produces a wrong payroll.
+
+Absences are now recorded for every active Employee/Accountant who does not
+tap on a working day (weekends and the holidays in `attendance_holidays` are
+skipped). Add next year's holidays to that table before January.
 
 ---
 

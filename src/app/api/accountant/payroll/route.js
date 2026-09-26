@@ -9,6 +9,13 @@ import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { requirePermission } from "@/lib/rbac/guard";
+import {
+  isUnresolvedStatus,
+  normalizeAttendanceStatus as normalizeEngineStatus,
+} from "@/lib/attendance/status";
+import { computeAttendancePay, peso } from "@/lib/payroll/attendance-pay";
+import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRates } from "@/lib/payroll/rates";
+import { periodFromLabel } from "@/lib/payroll/periods";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -122,6 +129,9 @@ function shapeEmployee(user, profile, index) {
     position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),
     archived: Boolean(metadata.archived),
+    // For position- and branch-scoped payroll rates (src/lib/payroll/rates.js).
+    position_title: normalizeText(metadata.position),
+    branch_id: profile?.branch_id || metadata.branch_id || null,
   };
 }
 
@@ -205,22 +215,40 @@ function normalizePayrollEntry(row) {
         withholding_tax: toAmount(payrollObj?.deductions?.withholding_tax ?? row.withholding_tax),
         absences_days: toAmount(payrollObj?.deductions?.absences_days ?? row.absences_days),
         late_days: toAmount(payrollObj?.deductions?.late_days ?? 0),
+        late_minutes: toAmount(payrollObj?.deductions?.late_minutes ?? 0),
+        undertime_minutes: toAmount(payrollObj?.deductions?.undertime_minutes ?? 0),
+        half_days: toAmount(payrollObj?.deductions?.half_days ?? 0),
         leave_with_pay_days: toAmount(payrollObj?.deductions?.leave_with_pay_days),
         leave_without_pay_days: toAmount(payrollObj?.deductions?.leave_without_pay_days),
       },
+      incentives: {
+        early_bird_days: toAmount(payrollObj?.incentives?.early_bird_days ?? 0),
+        perfect_attendance: payrollObj?.incentives?.perfect_attendance === true,
+      },
       totals: {
         absence_deduction: toAmount(payrollObj?.totals?.absence_deduction ?? row.absence_deduction),
+        late_deduction: toAmount(payrollObj?.totals?.late_deduction ?? 0),
+        undertime_deduction: toAmount(payrollObj?.totals?.undertime_deduction ?? 0),
+        half_day_deduction: toAmount(payrollObj?.totals?.half_day_deduction ?? 0),
         leave_without_pay_deduction: toAmount(payrollObj?.totals?.leave_without_pay_deduction),
+        early_bird_incentive: toAmount(payrollObj?.totals?.early_bird_incentive ?? 0),
+        perfect_attendance_incentive: toAmount(payrollObj?.totals?.perfect_attendance_incentive ?? 0),
+        total_incentives: toAmount(payrollObj?.totals?.total_incentives ?? 0),
         gross_pay: toAmount(payrollObj?.totals?.gross_pay ?? row.gross_pay),
         total_deductions: toAmount(payrollObj?.totals?.total_deductions ?? row.total_deductions),
         net_pay: floorNetPay(payrollObj?.totals?.net_pay ?? row.net_pay),
       },
+      // Rates, attendance lines and manual deviations behind this entry.
+      audit: payrollObj?.audit && typeof payrollObj.audit === "object" ? payrollObj.audit : null,
     },
   };
 }
 
 function computeTotals(payroll) {
   const basicSalary = toAmount(payroll.basic_salary);
+  // The rate versions in force on the pay period's first day
+  // (src/lib/payroll/rates.js); the defaults only apply when none were given.
+  const rates = { ...DEFAULT_RATES, ...(payroll.rates || {}) };
 
   const sss = toAmount(payroll.deductions?.sss);
   const philhealth = toAmount(payroll.deductions?.philhealth);
@@ -228,21 +256,65 @@ function computeTotals(payroll) {
   const withholdingTax = toAmount(payroll.deductions?.withholding_tax);
   const absencesDays = Math.max(0, toAmount(payroll.deductions?.absences_days));
   const lateDays = Math.max(0, toAmount(payroll.deductions?.late_days));
+  const lateMinutes = Math.max(0, toAmount(payroll.deductions?.late_minutes));
+  const undertimeMinutes = Math.max(0, toAmount(payroll.deductions?.undertime_minutes));
+  const halfDays = Math.max(0, toAmount(payroll.deductions?.half_days));
   const leaveWithPayDays = Math.max(0, toAmount(payroll.deductions?.leave_with_pay_days));
   const leaveWithoutPayDays = Math.max(0, toAmount(payroll.deductions?.leave_without_pay_days));
+  const earlyBirdDays = Math.max(0, toAmount(payroll.incentives?.early_bird_days));
+  const perfectAttendance = payroll.incentives?.perfect_attendance === true;
 
-  // 1 absent = ₱550, 3 late = 1 absent = ₱550
-  const absenceDeduction = toAmount((absencesDays + Math.floor(lateDays / 3)) * 550);
-  // Leave Without Pay deducts at the same ₱550/day rate as an absence.
-  const leaveWithoutPayDeduction = toAmount(leaveWithoutPayDays * 550);
+  // When the attendance lines were computed (buildEmployeePayroll), their
+  // sums are used as they are, so a payslip's totals always equal the sum of
+  // its traceable lines. Otherwise the quantities are priced here.
+  const amounts = payroll.attendance_amounts || null;
+  const daily = Number(rates.daily) || 0;
+  const hourly = Number(rates.hourly) || 0;
+
+  // Absent: absent_pct of the (branch's) daily rate. Late: see below.
+  // Undertime: minutes ÷ 60 × hourly rate. Half Day: half_day_pct of the
+  // daily rate.
+  const absentDayAmount = peso(daily * (Number(rates.absent_pct) || 0) / 100);
+  const absenceDeduction = amounts
+    ? toAmount(amounts.absent)
+    : toAmount(absencesDays * absentDayAmount);
+  // Late: every late_days_per_absent days = 1 absence, plus the optional
+  // per-minute charge (both Super Admin settings).
+  const lateDaysPerAbsent = Math.max(0, Math.floor(Number(rates.late_days_per_absent) || 0));
+  const lateDeduction = amounts
+    ? toAmount(amounts.late)
+    : toAmount(
+      (lateDaysPerAbsent > 0 ? Math.floor(lateDays / lateDaysPerAbsent) * absentDayAmount : 0)
+      + (lateMinutes / 60) * hourly * (Number(rates.late_minute_charge_pct) || 0) / 100,
+    );
+  const undertimeDeduction = amounts ? toAmount(amounts.undertime) : toAmount((undertimeMinutes / 60) * hourly);
+  const halfDayDeduction = amounts
+    ? toAmount(amounts.half_day)
+    : toAmount(halfDays * peso(daily * (Number(rates.half_day_pct) || 0) / 100));
+  // Leave Without Pay deducts one daily rate per day.
+  const leaveWithoutPayDeduction = toAmount(leaveWithoutPayDays * daily);
+
+  const earlyBirdIncentive = amounts
+    ? toAmount(amounts.early_bird)
+    : toAmount(earlyBirdDays * (Number(rates.early_bird_bonus) || 0));
+  const perfectAttendanceIncentive = amounts
+    ? toAmount(amounts.perfect_attendance)
+    : (perfectAttendance ? toAmount(rates.perfect_attendance_bonus) : 0);
 
   const grossPay = basicSalary; // No allowances; Gross Pay = Basic Salary
-  const totalDeductions = toAmount(sss + philhealth + pagibig + withholdingTax + absenceDeduction + leaveWithoutPayDeduction);
+  const totalDeductions = toAmount(
+    sss + philhealth + pagibig + withholdingTax
+    + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
+    + leaveWithoutPayDeduction,
+  );
+  const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive);
+  // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
+  // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
   // Without Pay), and a negative net pay is not a payment. total_deductions
   // stays truthful, so a clamped payslip shows gross - deductions != net by
   // design - see src/lib/payroll/net-pay.js.
-  const netPay = floorNetPay(grossPay - totalDeductions);
+  const netPay = floorNetPay(grossPay - totalDeductions + totalIncentives);
 
   return {
     basic_salary: basicSalary,
@@ -259,12 +331,25 @@ function computeTotals(payroll) {
       withholding_tax: withholdingTax,
       absences_days: absencesDays,
       late_days: lateDays,
+      late_minutes: lateMinutes,
+      undertime_minutes: undertimeMinutes,
+      half_days: halfDays,
       leave_with_pay_days: leaveWithPayDays,
       leave_without_pay_days: leaveWithoutPayDays,
     },
+    incentives: {
+      early_bird_days: earlyBirdDays,
+      perfect_attendance: perfectAttendance,
+    },
     totals: {
       absence_deduction: absenceDeduction,
+      late_deduction: lateDeduction,
+      undertime_deduction: undertimeDeduction,
+      half_day_deduction: halfDayDeduction,
       leave_without_pay_deduction: leaveWithoutPayDeduction,
+      early_bird_incentive: earlyBirdIncentive,
+      perfect_attendance_incentive: perfectAttendanceIncentive,
+      total_incentives: totalIncentives,
       gross_pay: grossPay,
       total_deductions: totalDeductions,
       net_pay: netPay,
@@ -403,6 +488,7 @@ async function appendPayrollRecord(supabase, entry, attemptsLeft = 5) {
     period_label: entry.pay_period,
     processed_at: processedAt,
     payslip_no: payslipNo,
+    ...recordAuditColumns(entry),
   };
 
   const result = await supabase
@@ -420,6 +506,8 @@ async function appendPayrollRecord(supabase, entry, attemptsLeft = 5) {
     throw new Error(result.error.message);
   }
 
+  await writePayrollLines(supabase, result.data?.id, entry);
+
   return { persisted: true, id: result.data?.id, payslip_no: result.data?.payslip_no };
 }
 
@@ -427,11 +515,16 @@ function resolveEntryStatus(entry) {
   return entry.status || "draft";
 }
 
+// Buckets the engine's statuses (src/lib/attendance/status.js) for the
+// present / late / absent day counts: every attended status is "present",
+// Incomplete and Pending Correction are "unresolved" (neither worked nor
+// unworked until someone resolves them).
 function normalizeAttendanceStatus(value) {
-  const status = normalizeText(value, "Absent").toLowerCase();
-  if (status === "present") return "present";
-  if (status === "late") return "late";
-  return "absent";
+  const status = normalizeEngineStatus(value, "Absent");
+  if (status === "Late") return "late";
+  if (status === "Absent") return "absent";
+  if (isUnresolvedStatus(status)) return "unresolved";
+  return "present";
 }
 
 // Every calendar-day key (YYYY-MM-DD) an approved leave request covers,
@@ -506,23 +599,14 @@ async function buildLeaveContext(employees, periodStart, periodEnd) {
   return { summaries, leaveDaysByEmployee };
 }
 
-async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee) {
+async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee, prefetchedRows = null) {
   // Filtering by log_date server-side (indexed — attendance_logs_log_date_idx)
   // means the query only ever transfers rows this period could possibly use,
   // instead of pulling the 5000 globally-most-recent rows and filtering them
   // out in JS below — which, once daily volume grew past that cap, could
   // silently return zero/partial rows for an older period being reviewed.
-  const result = await supabase
-    .from("attendance_logs")
-    .select("employee_id,status,log_date,time_in,created_at")
-    .gte("log_date", periodStart)
-    .lte("log_date", periodEnd)
-    .order("created_at", { ascending: false })
-    .limit(5000);
-
-  if (result.error) {
-    throw new Error(`Failed to fetch attendance summary: ${result.error.message}`);
-  }
+  const rows = prefetchedRows
+    ?? (await readPeriodAttendance(supabase, periodStart, periodEnd)).rows;
 
   const activeEmployeeIds = new Set(employees.map((employee) => employee.id));
   const grouped = new Map();
@@ -536,13 +620,14 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
       late_days: 0,
       absent_days: 0,
       deduction_days: 0,
+      unresolved_days: 0,
     });
   });
 
   // One record per employee per day (the first tap decides the status), so a
   // repeated RFID tap never counts as an extra present, late or absent day.
   const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
-  collapseDailyTaps(result.data || [], { dateKey: dayKey }).forEach((row) => {
+  collapseDailyTaps(rows || [], { dateKey: dayKey }).forEach((row) => {
     const employeeId = normalizeText(row.employee_id);
     if (!activeEmployeeIds.has(employeeId)) return;
 
@@ -558,6 +643,9 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
       summary.late_days += 1;
       summary.present_days += 1;
     }
+    // Incomplete / Pending Correction: neither worked nor unworked until
+    // resolved, so counted apart and never as present or absent.
+    if (status === "unresolved") summary.unresolved_days += 1;
     if (status === "absent") {
       // An approved leave request (with or without pay) already accounts for
       // this day in leave_summary — counting it here too would let the
@@ -570,6 +658,429 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
   });
 
   return Array.from(grouped.values()).sort((a, b) => a.employee_name.localeCompare(b.employee_name));
+}
+
+const ENGINE_ATTENDANCE_COLUMNS = "id,employee_id,status,log_date,time_in,time_out,created_at,late_minutes,undertime_minutes,is_half_day,is_early_bird";
+
+/**
+ * The period's attendance rows. Closes the period's finished days first
+ * (public.attendance_close_days: Incomplete flags and Absent rows -- the same
+ * idempotent step the nightly job runs), so the figures never depend on
+ * whether the job ran.
+ *
+ * engineReady is false when the status-engine migration
+ * (20260926010000_attendance_status_engine.sql) has not been applied; the
+ * rows are then read the old way and payroll refuses to process.
+ */
+async function readPeriodAttendance(supabase, periodStart, periodEnd, employeeIds = null) {
+  const closed = await supabase.rpc("attendance_close_days", { p_from: periodStart, p_to: periodEnd });
+
+  let query = supabase
+    .from("attendance_logs")
+    .select(ENGINE_ATTENDANCE_COLUMNS)
+    .gte("log_date", periodStart)
+    .lte("log_date", periodEnd)
+    .eq("archived_duplicate", false);
+  if (employeeIds && employeeIds.length && employeeIds.length <= 200) query = query.in("employee_id", employeeIds);
+  const engine = await query.order("created_at", { ascending: false }).limit(20000);
+
+  if (!engine.error) return { rows: engine.data || [], engineReady: !closed?.error };
+
+  const legacy = await supabase
+    .from("attendance_logs")
+    .select("employee_id,status,log_date,time_in,created_at")
+    .gte("log_date", periodStart)
+    .lte("log_date", periodEnd)
+    .order("created_at", { ascending: false })
+    .limit(5000);
+  if (legacy.error) {
+    throw new Error(`Failed to fetch attendance summary: ${legacy.error.message}`);
+  }
+  return { rows: legacy.data || [], engineReady: false };
+}
+
+const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql and 20260926020000_payroll_rate_configs.sql) first.";
+
+/**
+ * Everything payroll needs for one period, per employee: the rate versions in
+ * force on the period's first day, the attendance lines computed from the
+ * logs, and the approved leave.
+ */
+async function loadPeriodPayContext(supabase, employees, period) {
+  const employeeIds = employees.map((employee) => employee.id);
+  const [leaveContext, attendance, rateResult] = await Promise.all([
+    buildLeaveContext(employees, period.start_key, period.end_key),
+    readPeriodAttendance(supabase, period.start_key, period.end_key, employeeIds),
+    loadRateConfigs(supabase),
+  ]);
+  const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
+
+  const attendanceRows = await fetchAttendanceSummary(
+    supabase,
+    employees,
+    period.start_key,
+    period.end_key,
+    leaveDaysByEmployee,
+    attendance.rows,
+  );
+
+  const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
+  const logsByEmployee = new Map();
+  collapseDailyTaps(attendance.rows, { dateKey: dayKey }).forEach((row) => {
+    const employeeId = normalizeText(row.employee_id);
+    if (!logsByEmployee.has(employeeId)) logsByEmployee.set(employeeId, []);
+    logsByEmployee.get(employeeId).push({ ...row, log_date: dayKey(row) });
+  });
+
+  const byEmployee = new Map();
+  employees.forEach((employee) => {
+    const resolved = resolveRates(
+      rateResult.configs,
+      { employeeId: employee.id, branchId: employee.branch_id, position: employee.position_title },
+      period.start_key,
+    );
+    const auto = computeAttendancePay({
+      logs: logsByEmployee.get(employee.id) || [],
+      leaveDays: leaveDaysByEmployee.get(employee.id),
+      rates: resolved,
+      periodStart: period.start_key,
+      periodEnd: period.end_key,
+    });
+    const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
+    byEmployee.set(employee.id, { resolved, auto, leave });
+  });
+
+  // What the batch table and the Single Entry form show and pre-fill.
+  const enrichedRows = attendanceRows.map((row) => {
+    const context = byEmployee.get(row.employee_id);
+    const employee = employees.find((e) => e.id === row.employee_id);
+    if (!context || !employee) return row;
+    const values = rateValues(context.resolved);
+    const basic = toAmount(Number(employee.basic_salary || 0) / 2);
+    return {
+      ...row,
+      late_days: context.auto.counts.late_days,
+      late_minutes: context.auto.counts.late_minutes,
+      undertime_minutes: context.auto.counts.undertime_minutes,
+      half_days: context.auto.counts.half_days,
+      early_bird_days: context.auto.counts.early_bird_days,
+      perfect_attendance: context.auto.perfect_attendance,
+      pay: {
+        counts: context.auto.counts,
+        amounts: context.auto.amounts,
+        unit_amounts: context.auto.unit_amounts,
+        perfect_attendance: context.auto.perfect_attendance,
+        blocking: context.auto.blocking,
+      },
+      rates: values,
+      rate_versions: Object.fromEntries(Object.entries(context.resolved).map(([type, rate]) => [
+        type,
+        { effective_date: rate.effective_date, scope: rate.scope, source: rate.source },
+      ])),
+      defaults: {
+        basic_salary: basic,
+        sss: peso(basic * values.sss_pct / 100),
+        philhealth: peso(basic * values.philhealth_pct / 100),
+        pagibig: peso(basic * values.pagibig_pct / 100),
+      },
+    };
+  });
+
+  return {
+    period,
+    engineReady: attendance.engineReady,
+    ratesReady: rateResult.available,
+    leaveSummary,
+    attendanceRows: enrichedRows,
+    byEmployee,
+  };
+}
+
+const DEVIATION_TOLERANCE = 0.005;
+
+function differs(a, b) {
+  return Math.abs(toAmount(a) - toAmount(b)) > DEVIATION_TOLERANCE;
+}
+
+function pickAmount(value, fallback) {
+  if (value === undefined || value === null || value === "") return toAmount(fallback);
+  return toAmount(value);
+}
+
+function rateSnapshot(resolved) {
+  return Object.fromEntries(Object.entries(resolved || {}).map(([type, rate]) => [type, {
+    value: Number(rate.value) || 0,
+    config_id: rate.config_id,
+    effective_date: rate.effective_date,
+    scope: rate.scope,
+    scope_ref: rate.scope_ref,
+    source: rate.source,
+  }]));
+}
+
+/**
+ * One employee's payroll for one period, computed on the server.
+ *
+ * Attendance figures always come from the logs (context.auto). The Single
+ * Entry form may override them (allowAttendanceOverrides), and anyone may
+ * change basic salary, SSS, PhilHealth, Pag-IBIG or Leave Without Pay days
+ * from their defaults -- every such change is a deviation, recorded with who
+ * made it and why, and kept as its own is_override line next to the computed
+ * lines rather than replacing them.
+ */
+function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOverrides = false, period, actor }) {
+  const { resolved, auto, leave } = context;
+  const rates = rateValues(resolved);
+  const deductionsIn = input.deductions || {};
+  const incentivesIn = input.incentives || {};
+  const reason = normalizeText(input.override_reason);
+  const deviations = [];
+  const note = (field, def, value) => {
+    if (differs(def, value)) deviations.push({ field, default: toAmount(def), value: toAmount(value) });
+  };
+
+  const defaultBasic = toAmount(Number(employee.basic_salary || 0) / 2);
+  const basic = pickAmount(input.basic_salary, defaultBasic);
+  note("basic_salary", defaultBasic, basic);
+
+  const contributionDefault = (type) => peso(basic * (rates[`${type}_pct`] || 0) / 100);
+  const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
+  const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
+  const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
+  note("sss", contributionDefault("sss"), sss);
+  note("philhealth", contributionDefault("philhealth"), philhealth);
+  note("pagibig", contributionDefault("pagibig"), pagibig);
+  const withholdingTax = pickAmount(deductionsIn.withholding_tax, 0);
+
+  // Leave comes from approved leave requests. With Pay is never editable.
+  const leaveWithPayDays = toAmount(leave?.with_pay_days || 0);
+  const defaultWithoutPay = toAmount(leave?.without_pay_days || 0);
+  const leaveWithoutPayDays = pickAmount(deductionsIn.leave_without_pay_days, defaultWithoutPay);
+  note("leave_without_pay_days", defaultWithoutPay, leaveWithoutPayDays);
+
+  const computed = {
+    absences_days: auto.counts.absent_days,
+    late_days: auto.counts.late_days,
+    undertime_minutes: auto.counts.undertime_minutes,
+    half_days: auto.counts.half_days,
+    early_bird_days: auto.counts.early_bird_days,
+  };
+  const used = { ...computed };
+  let perfectAttendance = auto.perfect_attendance;
+
+  if (allowAttendanceOverrides) {
+    used.absences_days = pickAmount(deductionsIn.absences_days, computed.absences_days);
+    used.late_days = pickAmount(deductionsIn.late_days, computed.late_days);
+    used.undertime_minutes = pickAmount(deductionsIn.undertime_minutes, computed.undertime_minutes);
+    used.half_days = pickAmount(deductionsIn.half_days, computed.half_days);
+    used.early_bird_days = pickAmount(incentivesIn.early_bird_days, computed.early_bird_days);
+    Object.keys(computed).forEach((field) => note(field, computed[field], used[field]));
+    if (typeof incentivesIn.perfect_attendance === "boolean" && incentivesIn.perfect_attendance !== auto.perfect_attendance) {
+      perfectAttendance = incentivesIn.perfect_attendance;
+      deviations.push({ field: "perfect_attendance", default: auto.perfect_attendance, value: perfectAttendance });
+    }
+  }
+
+  const unit = auto.unit_amounts;
+  const finalAmounts = {
+    absent: differs(used.absences_days, computed.absences_days) ? peso(used.absences_days * unit.absent) : auto.amounts.absent,
+    // N late days = 1 absence; an overridden count reprices only that rule,
+    // the per-minute part (if switched on) stays as computed from the logs.
+    late: differs(used.late_days, computed.late_days)
+      ? peso((unit.late_days_per_absent > 0 ? Math.floor(used.late_days / unit.late_days_per_absent) * unit.absent : 0)
+        + (auto.amounts.late_minutes_charge || 0))
+      : auto.amounts.late,
+    undertime: differs(used.undertime_minutes, computed.undertime_minutes) ? peso((used.undertime_minutes / 60) * unit.hourly) : auto.amounts.undertime,
+    half_day: differs(used.half_days, computed.half_days) ? peso(used.half_days * unit.half_day) : auto.amounts.half_day,
+    early_bird: differs(used.early_bird_days, computed.early_bird_days) ? peso(used.early_bird_days * unit.early_bird) : auto.amounts.early_bird,
+    perfect_attendance: perfectAttendance === auto.perfect_attendance
+      ? auto.amounts.perfect_attendance
+      : (perfectAttendance ? unit.perfect_attendance : 0),
+  };
+
+  const adjustment = (type, finalAmount, autoAmount, quantity, unitName) => {
+    const amount = peso(finalAmount - autoAmount);
+    if (Math.abs(amount) < DEVIATION_TOLERANCE && !quantity) return null;
+    return {
+      type, quantity, unit: unitName, rate: null, rate_config_id: null, amount,
+      source_log_id: null, is_override: true, note: reason || null, log_date: null,
+    };
+  };
+
+  const statutory = (type, amount, pct, isOverride) => (amount > 0 ? {
+    type, quantity: pct, unit: pct === null ? null : "percent", rate: basic,
+    rate_config_id: pct === null ? null : resolved[`${type}_pct`]?.config_id || null,
+    amount: toAmount(amount), source_log_id: null, is_override: isOverride, note: isOverride ? reason || null : null, log_date: null,
+  } : null);
+
+  const deductionLines = [
+    ...auto.deductions,
+    adjustment("absent", finalAmounts.absent, auto.amounts.absent, toAmount(used.absences_days - computed.absences_days), "day"),
+    adjustment("late", finalAmounts.late, auto.amounts.late, toAmount(used.late_days - computed.late_days), "late day"),
+    adjustment("undertime", finalAmounts.undertime, auto.amounts.undertime, toAmount(used.undertime_minutes - computed.undertime_minutes), "minute"),
+    adjustment("half_day", finalAmounts.half_day, auto.amounts.half_day, toAmount(used.half_days - computed.half_days), "day"),
+    statutory("sss", sss, rates.sss_pct, differs(sss, contributionDefault("sss"))),
+    statutory("philhealth", philhealth, rates.philhealth_pct, differs(philhealth, contributionDefault("philhealth"))),
+    statutory("pagibig", pagibig, rates.pagibig_pct, differs(pagibig, contributionDefault("pagibig"))),
+    statutory("withholding_tax", withholdingTax, null, false),
+    leaveWithoutPayDays > 0 ? {
+      type: "leave_without_pay", quantity: leaveWithoutPayDays, unit: "day", rate: rates.daily,
+      rate_config_id: resolved.daily?.config_id || null, amount: toAmount(leaveWithoutPayDays * rates.daily),
+      source_log_id: null, is_override: differs(leaveWithoutPayDays, defaultWithoutPay),
+      note: differs(leaveWithoutPayDays, defaultWithoutPay) ? reason || null : null, log_date: null,
+    } : null,
+  ].filter(Boolean);
+
+  const incentiveLines = [
+    ...auto.incentives,
+    adjustment("early_bird", finalAmounts.early_bird, auto.amounts.early_bird, toAmount(used.early_bird_days - computed.early_bird_days), "day"),
+    adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
+  ].filter(Boolean);
+
+  const payroll = computeTotals({
+    basic_salary: basic,
+    rates,
+    deductions: {
+      sss,
+      philhealth,
+      pagibig,
+      withholding_tax: withholdingTax,
+      absences_days: used.absences_days,
+      late_days: used.late_days,
+      late_minutes: auto.counts.late_minutes,
+      undertime_minutes: used.undertime_minutes,
+      half_days: used.half_days,
+      leave_with_pay_days: leaveWithPayDays,
+      leave_without_pay_days: leaveWithoutPayDays,
+    },
+    incentives: {
+      early_bird_days: used.early_bird_days,
+      perfect_attendance: perfectAttendance,
+    },
+    attendance_amounts: finalAmounts,
+  });
+
+  const nowIso = new Date().toISOString();
+  payroll.audit = {
+    period: { label: period.label, start_key: period.start_key, end_key: period.end_key },
+    rates: rateSnapshot(resolved),
+    attendance: {
+      counts: auto.counts,
+      perfect_attendance: auto.perfect_attendance,
+      source_log_ids: auto.source_log_ids,
+      blocking: auto.blocking,
+    },
+    lines: { deductions: deductionLines, incentives: incentiveLines },
+    deviations: deviations.length
+      ? { items: deviations, reason: reason || null, by: actor?.userId || null, by_name: actor?.name || null, at: nowIso }
+      : null,
+    computed_at: nowIso,
+    computed_by: actor?.userId || null,
+    computed_by_name: actor?.name || null,
+  };
+
+  return { payroll, deviations, reason, blocking: auto.blocking };
+}
+
+const DEVIATION_LABELS = {
+  basic_salary: "Basic Salary",
+  sss: "SSS",
+  philhealth: "PhilHealth",
+  pagibig: "Pag-IBIG",
+  leave_without_pay_days: "Leave Without Pay",
+  absences_days: "Absent",
+  late_days: "Late",
+  undertime_minutes: "Undertime",
+  half_days: "Half Day",
+  early_bird_days: "Early Bird",
+  perfect_attendance: "Perfect Attendance",
+};
+
+function describeBlocking(blocking) {
+  const days = blocking
+    .map((item) => `${item.log_date} (${item.status})`)
+    .join(", ");
+  return `Unresolved attendance: ${days}. Resolve these in Attendance before processing this employee.`;
+}
+
+function describeMissingReason(deviations) {
+  const fields = [...new Set(deviations.map((d) => DEVIATION_LABELS[d.field] || d.field))].join(", ");
+  return `Give a reason for changing ${fields} from the computed values.`;
+}
+
+/** Columns kept on the payslip row itself for auditability. */
+function recordAuditColumns(entry) {
+  const audit = entry.payroll?.audit || {};
+  return {
+    base_pay: toAmount(entry.payroll?.basic_salary),
+    total_incentives: toAmount(entry.payroll?.totals?.total_incentives),
+    period_start: audit.period?.start_key || null,
+    period_end: audit.period?.end_key || null,
+    rate_version_snapshot: audit.rates || null,
+    attendance_snapshot: audit.attendance ? { ...audit.attendance, lines: audit.lines || null } : null,
+    deviations: audit.deviations || null,
+    processed_by: entry.processed_by || null,
+    processed_by_name: entry.processed_by_name || null,
+  };
+}
+
+/**
+ * One row per deduction / incentive line in payroll_deductions /
+ * payroll_incentives. The same lines are already stored atomically on the
+ * payslip row (attendance_snapshot.lines), so a failure here is reported and
+ * audited but never loses the trace.
+ */
+async function writePayrollLines(supabase, recordId, entry) {
+  const audit = entry.payroll?.audit;
+  if (!recordId || !audit?.lines) return { success: true };
+
+  const base = {
+    payroll_record_id: recordId,
+    payroll_entry_id: entry.id,
+    employee_id: entry.employee_id,
+    pay_period: entry.pay_period,
+    period_start: audit.period?.start_key || null,
+    period_end: audit.period?.end_key || null,
+  };
+  const shape = (line) => ({
+    ...base,
+    type: line.type,
+    quantity: line.quantity ?? null,
+    unit: line.unit || null,
+    rate: line.rate ?? null,
+    rate_config_id: line.rate_config_id || null,
+    amount: toAmount(line.amount),
+    source_log_id: line.source_log_id || null,
+    source_log_ids: Array.isArray(line.source_log_ids) && line.source_log_ids.length ? line.source_log_ids : null,
+    is_override: line.is_override === true,
+    note: line.note || null,
+  });
+
+  try {
+    const deductions = (audit.lines.deductions || []).map(shape);
+    const incentives = (audit.lines.incentives || []).map(shape);
+    if (deductions.length) {
+      const result = await supabase.from("payroll_deductions").insert(deductions);
+      if (result.error) throw new Error(result.error.message);
+    }
+    if (incentives.length) {
+      const result = await supabase.from("payroll_incentives").insert(incentives);
+      if (result.error) throw new Error(result.error.message);
+    }
+    return { success: true };
+  } catch (error) {
+    await appendAuditLog({
+      module: "payroll",
+      action: "line_items",
+      entity_type: "payroll_record",
+      entity_id: recordId,
+      description: `Deduction/incentive lines for ${entry.employee_name} were not written: ${error.message}. The payslip keeps them in attendance_snapshot.`,
+      status: "failed",
+      source: "api",
+      metadata: { employee_id: entry.employee_id, pay_period: entry.pay_period },
+    });
+    return { success: false, error: error.message };
+  }
 }
 
 function mapEntryToRecord(entry) {
@@ -647,7 +1158,20 @@ function buildPayslipDetails(entry) {
       leave_with_pay_days: entry.payroll.deductions.leave_with_pay_days ?? 0,
       leave_without_pay_days: entry.payroll.deductions.leave_without_pay_days ?? 0,
       leave_without_pay_deduction: entry.payroll.totals.leave_without_pay_deduction ?? 0,
+      late_minutes: entry.payroll.deductions.late_minutes ?? 0,
+      late_deduction: entry.payroll.totals.late_deduction ?? 0,
+      undertime_minutes: entry.payroll.deductions.undertime_minutes ?? 0,
+      undertime_deduction: entry.payroll.totals.undertime_deduction ?? 0,
+      half_days: entry.payroll.deductions.half_days ?? 0,
+      half_day_deduction: entry.payroll.totals.half_day_deduction ?? 0,
       total_deductions: entry.payroll.totals.total_deductions,
+    },
+    incentives: {
+      early_bird_days: entry.payroll.incentives?.early_bird_days ?? 0,
+      early_bird_incentive: entry.payroll.totals.early_bird_incentive ?? 0,
+      perfect_attendance: entry.payroll.incentives?.perfect_attendance === true,
+      perfect_attendance_incentive: entry.payroll.totals.perfect_attendance_incentive ?? 0,
+      total_incentives: entry.payroll.totals.total_incentives ?? 0,
     },
     net_pay: entry.payroll.totals.net_pay,
   };
@@ -741,19 +1265,14 @@ export async function GET(request) {
     // viewed/prepared, not always "today" — otherwise preparing the next
     // cutoff ahead of time (see getPeriodOptions()) shows the wrong half's
     // numbers.
-    const activePeriod = findPeriodRangeByLabel(selectedPeriod) || getPayPeriodRange(manilaToday());
-    const { summaries: leaveSummary, leaveDaysByEmployee } = await buildLeaveContext(
-      employees,
-      activePeriod.start_key,
-      activePeriod.end_key,
-    );
-    const attendanceRows = await fetchAttendanceSummary(
-      supabase,
-      employees,
-      activePeriod.start_key,
-      activePeriod.end_key,
-      leaveDaysByEmployee,
-    );
+    const activePeriod = periodFromLabel(selectedPeriod)
+      || findPeriodRangeByLabel(selectedPeriod)
+      || getPayPeriodRange(manilaToday());
+    // Attendance lines, leave and the rate versions in force on the period's
+    // first day, per employee (loadPeriodPayContext above).
+    const payContext = await loadPeriodPayContext(supabase, employees, activePeriod);
+    const leaveSummary = payContext.leaveSummary;
+    const attendanceRows = payContext.attendanceRows;
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -763,6 +1282,11 @@ export async function GET(request) {
       panels: buildPayrollPanels(payrollRecords),
       attendance_rows: attendanceRows,
       leave_summary: leaveSummary,
+      active_period: { label: activePeriod.label, start_key: activePeriod.start_key, end_key: activePeriod.end_key },
+      // false until the attendance / rate migrations are applied; processing
+      // is refused meanwhile.
+      payroll_ready: payContext.engineReady && payContext.ratesReady,
+      payroll_not_ready_message: payContext.engineReady && payContext.ratesReady ? null : PAYROLL_NOT_READY_MESSAGE,
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
@@ -825,6 +1349,15 @@ async function handleBatchSubmit(supabase, body, guard) {
   const entries = entriesResult.entries;
   const nowIso = new Date().toISOString();
 
+  // Attendance, leave and rates for the period, computed here -- never taken
+  // from the browser. Attendance figures cannot be edited in the batch table.
+  const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
+  const payContext = await loadPeriodPayContext(supabase, employees, period);
+  if (!payContext.engineReady || !payContext.ratesReady) {
+    return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
+  }
+  const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+
   const processed = [];
   const skipped = [];
   const candidates = [];
@@ -849,19 +1382,46 @@ async function handleBatchSubmit(supabase, body, guard) {
       continue;
     }
 
-    const computedPayroll = computeTotals({
-      basic_salary: item.basic_salary,
-      deductions: {
-        sss: item.deductions?.sss,
-        philhealth: item.deductions?.philhealth,
-        pagibig: item.deductions?.pagibig,
-        withholding_tax: item.deductions?.withholding_tax,
-        absences_days: item.deductions?.absences_days,
-        late_days: item.deductions?.late_days,
-        leave_with_pay_days: item.deductions?.leave_with_pay_days,
-        leave_without_pay_days: item.deductions?.leave_without_pay_days,
+    const built = buildEmployeePayroll({
+      employee,
+      context: payContext.byEmployee.get(employee.id),
+      input: {
+        basic_salary: item.basic_salary,
+        deductions: {
+          sss: item.deductions?.sss,
+          philhealth: item.deductions?.philhealth,
+          pagibig: item.deductions?.pagibig,
+          withholding_tax: item.deductions?.withholding_tax,
+          leave_without_pay_days: item.deductions?.leave_without_pay_days,
+        },
+        override_reason: item.override_reason ?? body.override_reason,
       },
+      allowAttendanceOverrides: false,
+      period,
+      actor,
     });
+
+    // Only this employee waits; everyone else in the batch is processed.
+    if (built.blocking.length) {
+      skipped.push({
+        employee_id: employee.id,
+        employee_name: employee.full_name,
+        reason: describeBlocking(built.blocking),
+        code: "unresolved_attendance",
+        blocking: built.blocking,
+      });
+      continue;
+    }
+    if (built.deviations.length && !built.reason) {
+      skipped.push({
+        employee_id: employee.id,
+        employee_name: employee.full_name,
+        reason: describeMissingReason(built.deviations),
+        code: "override_reason_required",
+      });
+      continue;
+    }
+    const computedPayroll = built.payroll;
 
     const baseEntry = {
       // Reuse an existing draft's id for this employee+period (there can be
@@ -880,6 +1440,8 @@ async function handleBatchSubmit(supabase, body, guard) {
       created_at: existingForPeriod?.created_at || nowIso,
       updated_at: nowIso,
       payroll: computedPayroll,
+      processed_by: guard.userId || null,
+      processed_by_name: actor.name || null,
     };
 
     candidates.push({ employee, baseEntry });
@@ -911,6 +1473,7 @@ async function handleBatchSubmit(supabase, body, guard) {
         period_label: baseEntry.pay_period,
         processed_at: baseEntry.submitted_at,
         payslip_no: payslipNumbers[index],
+        ...recordAuditColumns(baseEntry),
       }));
 
       let recordsInserted = false;
@@ -920,7 +1483,7 @@ async function handleBatchSubmit(supabase, body, guard) {
         const recordsResult = await supabase
           .from("payroll_records")
           .insert(recordsPayload)
-          .select("employee_id, payslip_no");
+          .select("id, employee_id, payslip_no");
 
         if (recordsResult.error) throw new Error(recordsResult.error.message);
         recordsInserted = true;
@@ -928,6 +1491,13 @@ async function handleBatchSubmit(supabase, body, guard) {
         payslipByEmployee = new Map(
           (recordsResult.data || []).map((row) => [row.employee_id, row.payslip_no]),
         );
+
+        const recordIdByEmployee = new Map(
+          (recordsResult.data || []).map((row) => [row.employee_id, row.id]),
+        );
+        for (const { baseEntry } of candidates) {
+          await writePayrollLines(supabase, recordIdByEmployee.get(baseEntry.employee_id), baseEntry);
+        }
 
         const entriesPayload = candidates.map(({ baseEntry }) => ({
           id: baseEntry.id,
@@ -1040,19 +1610,39 @@ export async function POST(request) {
     }
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
-    const computedPayroll = computeTotals({
-      basic_salary: body.basic_salary,
-      deductions: {
-        sss: body.deductions?.sss,
-        philhealth: body.deductions?.philhealth,
-        pagibig: body.deductions?.pagibig,
-        withholding_tax: body.deductions?.withholding_tax,
-        absences_days: body.deductions?.absences_days,
-        late_days: body.deductions?.late_days,
-        leave_with_pay_days: body.deductions?.leave_with_pay_days,
-        leave_without_pay_days: body.deductions?.leave_without_pay_days,
-      },
+    const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
+    const payContext = await loadPeriodPayContext(supabase, [employee], period);
+    if (action === "submit" && (!payContext.engineReady || !payContext.ratesReady)) {
+      return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
+    }
+    const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+
+    // Computed here from the attendance logs and the rate versions in force
+    // on the period's first day. The form may override attendance figures and
+    // defaults, but every override is a logged deviation that needs a reason.
+    const built = buildEmployeePayroll({
+      employee,
+      context: payContext.byEmployee.get(employee.id),
+      input: body,
+      allowAttendanceOverrides: true,
+      period,
+      actor,
     });
+
+    if (action === "submit" && built.blocking.length) {
+      // 422, not 409: the portal reads 409 as "already processed".
+      return NextResponse.json(
+        { error: describeBlocking(built.blocking), code: "unresolved_attendance", blocking: built.blocking },
+        { status: 422 },
+      );
+    }
+    if (action === "submit" && built.deviations.length && !built.reason) {
+      return NextResponse.json(
+        { error: describeMissingReason(built.deviations), code: "override_reason_required", deviations: built.deviations },
+        { status: 400 },
+      );
+    }
+    const computedPayroll = built.payroll;
 
     const nowIso = new Date().toISOString();
     const entriesResult = await readPayrollEntries(supabase);
@@ -1119,6 +1709,8 @@ export async function POST(request) {
       created_at: existingIndex >= 0 ? entries[existingIndex].created_at : nowIso,
       updated_at: nowIso,
       payroll: computedPayroll,
+      processed_by: action === "submit" ? guard.userId || null : null,
+      processed_by_name: action === "submit" ? actor.name || null : null,
     };
 
     if (action === "submit") {
@@ -1168,6 +1760,8 @@ export async function POST(request) {
         payslip_no: baseEntry.payslip_no || null,
         db_synced: dbSync.success,
         db_error: dbSync.success ? null : dbSync.error,
+        deviations: built.deviations.length ? built.deviations : undefined,
+        override_reason: built.deviations.length ? built.reason || null : undefined,
       },
     });
 

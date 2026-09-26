@@ -25,7 +25,7 @@
      this version string whenever terminal.css/terminal.js change, or edits
      here silently never reach a browser that already loaded the page once. -->
 <link rel="stylesheet" href="/legacy/css/theme.css?v=20260920a" />
-<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260920a" />
+<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260926a" />
 </head>
 <body>
 <div class="rt-app">
@@ -83,7 +83,7 @@
     <div class="rt-stage">
       <div class="rt-status" id="rt-status" data-state="idle">
         <div class="rt-status-ring"><div class="rt-status-dot"></div></div>
-        <div class="rt-status-text" id="rt-status-text">Tap your RFID card</div>
+        <div class="rt-status-text" id="rt-status-text" aria-live="polite">Tap your RFID card</div>
       </div>
 
       <div class="rt-result" id="rt-result" hidden>
@@ -129,6 +129,6 @@
 
 </div>
 
-<script src="/legacy/js/terminal.js?v=20260920a"></script>
+<script src="/legacy/js/terminal.js?v=20260926a"></script>
 </body>
 </html>

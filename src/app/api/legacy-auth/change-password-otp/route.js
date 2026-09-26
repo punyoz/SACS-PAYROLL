@@ -93,7 +93,9 @@ export async function POST(request) {
   if (guard.denied) return guard.denied;
 
   try {
-    if (!requiresLoginOtp(guard.role)) {
+    // First-sign-in change: the sign-in OTP already proved the inbox, so no
+    // second code (see /api/legacy-auth/change-password).
+    if (!requiresLoginOtp(guard.role) || guard.session?.pwd === true) {
       return NextResponse.json({ success: true, otp_required: false });
     }
     if (!projectUrl || !anonKey || !serviceRoleKey) {

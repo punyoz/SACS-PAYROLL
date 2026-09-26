@@ -108,10 +108,11 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
     const isFuture = day > todayDay;
     const status = statusMap[dateKey];
 
+    // On Time / Early Bird / Corrected: present; Late / Undertime / Half
+    // Day: late; Absent: absent (attendanceCalendarClass in app.js).
+    const dayClass = status ? attendanceCalendarClass(status) : '';
     let cls = 'ad';
-    if (status === 'Present') cls += ' pr';
-    else if (status === 'Late') cls += ' lt';
-    else if (status === 'Absent') cls += ' ab';
+    if (dayClass) cls += ` ${dayClass}`;
     else if (isFuture) cls += ' future';  // upcoming — faded number
     else cls += ' no-rec';               // past with no record — muted number
 
@@ -137,7 +138,6 @@ function updateTodayLog(today) {
 
   const timeIn = formatPhTime(today.time_in);
   const timeOut = today.time_out ? formatPhTime(today.time_out) : null;
-  const statusLower = String(today.status || '').toLowerCase();
 
   if (timeInEl) {
     timeInEl.textContent = timeIn || '— : —';
@@ -148,8 +148,7 @@ function updateTodayLog(today) {
     timeOutEl.style.color = timeOut ? 'var(--teal)' : 'var(--t3)';
   }
   if (statusWrap) {
-    const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
-    statusWrap.innerHTML = `<span class="badge ${badgeCls}"><span class="bd"></span>${escapeHtml(today.status || 'Absent')}</span>`;
+    statusWrap.innerHTML = attendanceStatusBadge(today.status || 'Absent');
   }
 }
 
@@ -233,6 +232,11 @@ function renderPayslipCard(payslip) {
     if (payslip.pagibig) rows += `<div class="ps-row" style="color:var(--red);"><span>Pag-IBIG</span><span class="mn">- ${fmtPeso(payslip.pagibig)}</span></div>`;
     if (payslip.withholding_tax) rows += `<div class="ps-row" style="color:var(--red);"><span>Withholding Tax</span><span class="mn">- ${fmtPeso(payslip.withholding_tax)}</span></div>`;
     if (payslip.absence_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Absences (${payslip.absences_days}d)</span><span class="mn">- ${fmtPeso(payslip.absence_deduction)}</span></div>`;
+    if (payslip.late_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Late (${payslip.late_days}d)</span><span class="mn">- ${fmtPeso(payslip.late_deduction)}</span></div>`;
+    if (payslip.undertime_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Undertime (${payslip.undertime_minutes} min)</span><span class="mn">- ${fmtPeso(payslip.undertime_deduction)}</span></div>`;
+    if (payslip.half_day_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Half Day (${payslip.half_days}d)</span><span class="mn">- ${fmtPeso(payslip.half_day_deduction)}</span></div>`;
+    if (payslip.early_bird_incentive) rows += `<div class="ps-row" style="color:var(--green);"><span>Early Bird (${payslip.early_bird_days}d)</span><span class="mn">+ ${fmtPeso(payslip.early_bird_incentive)}</span></div>`;
+    if (payslip.perfect_attendance_incentive) rows += `<div class="ps-row" style="color:var(--green);"><span>Perfect Attendance</span><span class="mn">+ ${fmtPeso(payslip.perfect_attendance_incentive)}</span></div>`;
     if (payslip.leave_with_pay_days) rows += `<div class="ps-row"><span>Leave With Pay (${payslip.leave_with_pay_days}d)</span><span class="mn">—</span></div>`;
     if (payslip.leave_without_pay_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Leave Without Pay (${payslip.leave_without_pay_days}d)</span><span class="mn">- ${fmtPeso(payslip.leave_without_pay_deduction)}</span></div>`;
   } else {
@@ -549,7 +553,11 @@ function empNav(pageId, tabEl) {
 
   window.persistRolePageState?.('employee', pageId);
 
-  if (pageId === 'emp-attendance') loadAttendanceRecords();
+  if (pageId === 'emp-attendance') {
+    loadAttendanceRecords();
+    // This pay period's statuses, with Request Correction (app.js).
+    window.loadMyAttendancePeriod?.('emp-att-period');
+  }
   if (pageId === 'emp-timesheet')  _initTimesheetTab();
   if (pageId === 'emp-profile')    loadProfilePage?.();
 }
@@ -605,8 +613,6 @@ async function loadAttendanceRecords() {
     }
 
     const rows = records.map(r => {
-      const statusLower = String(r.status || '').toLowerCase();
-      const badgeCls = statusLower === 'present' ? 'bg' : statusLower === 'late' ? 'ba' : 'br';
       const timeIn  = formatPhTime(r.time_in)  || '—';
       const timeOut = formatPhTime(r.time_out) || '—';
       let dayName = '';
@@ -620,7 +626,7 @@ async function loadAttendanceRecords() {
         <td style="color:var(--t3);">${dayName}</td>
         <td class="mn">${timeIn}</td>
         <td class="mn">${timeOut}</td>
-        <td><span class="badge ${badgeCls}"><span class="bd"></span>${escapeHtml(r.status)}</span></td>
+        <td>${attendanceStatusBadge(r.status)}</td>
       </tr>`;
     }).join('');
 

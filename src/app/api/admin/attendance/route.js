@@ -7,6 +7,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps, hoursBetween, planTap } from "@/lib/attendance/taps";
 import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/policy";
+import { attendanceBucket, normalizeAttendanceStatus as normalizeEngineStatus } from "@/lib/attendance/status";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -73,11 +74,12 @@ function calculateHours(timeInIso, timeOutIso) {
   return Math.round((diffMs / 3600000) * 100) / 100;
 }
 
+// The database computes the status (On Time, Early Bird, Late, Undertime,
+// Half Day, Absent, Incomplete, Pending Correction, Corrected -- see
+// src/lib/attendance/status.js); this only canonicalises the spelling. A
+// pre-engine "Present" reads as On Time.
 function normalizeAttendanceStatus(value, fallback = "Absent") {
-  const status = normalizeText(value, fallback).toLowerCase();
-  if (status === "late") return "Late";
-  if (status === "present") return "Present";
-  return "Absent";
+  return normalizeEngineStatus(value, normalizeEngineStatus(fallback, "Absent"));
 }
 
 function shapeEmployee(user, profile, index) {
@@ -162,6 +164,8 @@ function mapAttendanceRow(row) {
     status,
     log_date: normalizeText(row.log_date || row.attendance_date || row.date),
     created_at: toIso(row.created_at),
+    late_minutes: Number(row.late_minutes || 0),
+    undertime_minutes: Number(row.undertime_minutes || 0),
   };
 }
 
@@ -254,9 +258,10 @@ function buildAttendancePayload(rows, dateKey, canPersist, sourceMode) {
   }));
 
   const panels = {
-    present_today: normalizedRows.filter((row) => row.status === "Present").length,
-    late_today: normalizedRows.filter((row) => row.status === "Late").length,
-    absent_today: normalizedRows.filter((row) => row.status === "Absent").length,
+    present_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "present").length,
+    late_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "late").length,
+    absent_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "absent").length,
+    incomplete_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "unresolved").length,
   };
 
   const attendance_logs = normalizedRows.sort((a, b) => a.employee_name.localeCompare(b.employee_name));
@@ -349,6 +354,34 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
 
   const plan = planTap(lookupResult.data || [], nowIso);
 
+  // The nightly close (public.attendance_close_days) may already have written
+  // an Absent row for this day, with no taps. The first real tap turns that
+  // row into the Time In instead of colliding with it on the one-row-per-day
+  // index; the database recomputes its status.
+  const placeholder = plan.action === "time_in"
+    ? (lookupResult.data || []).find((row) => !row.time_in && !row.time_out)
+    : null;
+  if (placeholder) {
+    const claimResult = await supabase
+      .from("attendance_logs")
+      .update({
+        employee_name: employee.full_name,
+        employee_type: employee.employee_type,
+        rfid_code: normalizeText(rfidCode),
+        time_in: nowIso,
+        time_out: null,
+        total_hours: 0,
+      })
+      .eq("id", placeholder.id)
+      .select("*")
+      .maybeSingle();
+
+    if (claimResult.error || !claimResult.data) {
+      throw new Error(claimResult.error?.message || "Failed to record attendance time in.");
+    }
+    return { record: mapAttendanceRow(claimResult.data), tap: "time_in" };
+  }
+
   if (plan.action === "duplicate") {
     return { record: mapAttendanceRow(plan.record), tap: "duplicate" };
   }
@@ -382,7 +415,9 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     time_in: nowIso,
     time_out: null,
     total_hours: 0,
-    status: isLateInManila(new Date(nowIso), policy) ? "Late" : "Present",
+    // Replaced by the database's status engine on insert; kept as a sensible
+    // value for a database the engine migration has not reached yet.
+    status: isLateInManila(new Date(nowIso), policy) ? "Late" : "On Time",
     log_date: dateKey,
   };
 

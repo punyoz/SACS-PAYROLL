@@ -58,7 +58,10 @@ function saNav(pageId, navEl) {
   if (typeof persistRolePageState === 'function') persistRolePageState('super_admin', pageId);
 
   if (pageId === 'sa-dashboard')       loadSADashboard();
-  else if (pageId === 'sa-attendance') loadSAAttendanceData();
+  else if (pageId === 'sa-attendance') {
+    loadSAAttendanceData();
+    window.mountAttendanceBoard?.('sa-att-board', { branchFilter: true });
+  }
   else if (pageId === 'sa-branches')   loadSABranches();
   else if (pageId === 'sa-accounts')   loadSAUsers();
   else if (pageId === 'sa-maintenance') {
@@ -851,6 +854,7 @@ function renderSAPayCalendar() {
 
 async function loadSAConfig() {
   renderSAPayCalendar();
+  loadSAPayrollRates();
   try {
     const res = await fetch('/api/admin/config');
     if (!res.ok) return;
@@ -893,6 +897,282 @@ async function loadSAConfig() {
     set('cfg-pw-expiry', s.pw_expiry);
   } catch {}
 }
+
+/* ── PAYROLL RATES (effective-dated) ──
+ * GET/POST /api/admin/payroll-rates. A change is never an overwrite: it adds
+ * a version with the date it starts, and payroll reads the version in force
+ * on each pay period's first day. A date inside a period that has already
+ * been processed is moved to the next period by the server, which says so. */
+let saRatesState = { rates: [], data: null, employees: null };
+
+function saRateDisplay(rate, value) {
+  const amount = Number(value || 0);
+  if (rate.unit === 'percent') return `${amount.toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`;
+  if (rate.unit === 'count') return amount > 0 ? `${amount} late = 1 absent` : 'Off';
+  return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function saRateDate(key) {
+  if (!key) return '';
+  const date = new Date(`${key}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return key;
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+}
+
+/** "₱100.00 (Jan 1, 2026 – Sep 25, 2026) → ₱110.00 (Sep 26, 2026 – present)" */
+function saRateHistoryHtml(rate) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+  const history = rate.history || [];
+  if (!history.length) return '<span>Not set — built-in default</span>';
+  return history.map((version) => {
+    const isNow = version.effective_date <= today && (!version.until || version.until >= today);
+    const range = `${saRateDate(version.effective_date)} – ${version.until ? saRateDate(version.until) : (version.effective_date > today ? 'onward' : 'present')}`;
+    const who = version.created_by_name ? ` · ${escapeHtml(version.created_by_name)}` : '';
+    return `<span class="${isNow ? 'rh-now' : ''}" title="${escapeHtml(version.note || '')}">${escapeHtml(saRateDisplay(rate, version.value))} (${escapeHtml(range)})</span>${who}`;
+  }).join(' → ');
+}
+
+async function loadSAPayrollRates() {
+  const body = document.getElementById('sa-rates-body');
+  if (!body) return;
+  try {
+    const res = await fetch('/api/admin/payroll-rates');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to load payroll rates.');
+    saRatesState.data = data;
+    saRatesState.rates = data.rates || [];
+
+    const finalizedEl = document.getElementById('sa-rates-finalized');
+    if (finalizedEl) {
+      finalizedEl.textContent = data.finalized_period
+        ? `${data.finalized_period.label} is already processed; new versions start ${saRateDate(data.earliest_effective_date)} or later.`
+        : '';
+    }
+
+    if (!data.available) {
+      body.innerHTML = `<tr><td colspan="5" style="color:var(--amber);">${escapeHtml(data.error || 'Payroll rates are not set up yet.')}</td></tr>`;
+      return;
+    }
+
+    renderSABranchDailyRates(data);
+
+    body.innerHTML = saRatesState.rates.map((rate) => {
+      const overrides = (rate.overrides || []).length
+        ? `<div style="margin-top:4px;">${rate.overrides.map((o) => `${escapeHtml(o.scope)}: ${escapeHtml(saRateDisplay(rate, o.value))} from ${escapeHtml(saRateDate(o.effective_date))}`).join(' · ')}</div>`
+        : '';
+      const changing = Number(rate.next_period?.value) !== Number(rate.current?.value);
+      return `
+        <tr>
+          <td><div class="nm">${escapeHtml(rate.label)}</div><div style="font-size:11px;color:var(--t3);">${escapeHtml(rate.hint || '')}</div></td>
+          <td class="mn">${escapeHtml(saRateDisplay(rate, rate.current?.value))}</td>
+          <td class="mn" style="${changing ? 'color:var(--amber);font-weight:600;' : ''}">${escapeHtml(saRateDisplay(rate, rate.next_period?.value))}</td>
+          <td class="rate-history">${saRateHistoryHtml(rate)}${overrides}</td>
+          <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSARateModal('${escapeHtml(rate.rate_type)}')">Edit</button></td>
+        </tr>`;
+    }).join('');
+  } catch (error) {
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+/** Daily rate per branch: its own version, or the default it falls back to. */
+function renderSABranchDailyRates(data) {
+  const body = document.getElementById('sa-branch-daily-body');
+  if (!body) return;
+  const dailyRate = saRatesState.rates.find((r) => r.rate_type === 'daily') || { unit: 'peso' };
+  const branches = data.branch_daily || [];
+  if (!branches.length) {
+    body.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No branches found.</td></tr>';
+    return;
+  }
+  const valueCell = (rate) => {
+    const own = rate?.scope === 'branch';
+    return `${escapeHtml(saRateDisplay(dailyRate, rate?.value))}${own ? '' : '<div style="font-size:11px;color:var(--t3);">Default</div>'}`;
+  };
+  body.innerHTML = branches.map((branch) => {
+    const changing = Number(branch.next_period?.value) !== Number(branch.current?.value);
+    const history = branch.history?.length
+      ? saRateHistoryHtml({ ...dailyRate, history: branch.history })
+      : '<span>No branch rate yet — uses the default</span>';
+    const inactive = branch.status && branch.status !== 'Active' ? ' <span style="font-size:11px;color:var(--t3);">(Inactive)</span>' : '';
+    return `
+      <tr>
+        <td class="nm">${escapeHtml(branch.name)}${inactive}</td>
+        <td class="mn">${valueCell(branch.current)}</td>
+        <td class="mn" style="${changing ? 'color:var(--amber);font-weight:600;' : ''}">${valueCell(branch.next_period)}</td>
+        <td class="rate-history">${history}</td>
+        <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSARateModal('daily', { scope: 'branch', ref: '${escapeHtml(branch.branch_id)}', name: '${escapeHtml(String(branch.name).replace(/'/g, ''))}' })">Edit</button></td>
+      </tr>`;
+  }).join('');
+}
+
+function saRateEffectiveHint() {
+  const input = document.getElementById('sa-rate-effective');
+  const hint = document.getElementById('sa-rate-effective-hint');
+  const data = saRatesState.data || {};
+  if (!input || !hint) return;
+  const value = input.value;
+  if (data.finalized_period && value && value <= data.finalized_period.end_key) {
+    hint.style.color = 'var(--amber)';
+    hint.textContent = `${data.finalized_period.label} has already been processed — this change will apply from the next pay period instead (${saRateDate(data.earliest_effective_date)}).`;
+    return;
+  }
+  hint.style.color = 'var(--t3)';
+  hint.textContent = 'Payroll uses the version in force on a pay period\'s first day, so a mid-period date takes effect from the following period. Past payslips are not affected.';
+}
+
+async function openSARateModal(rateType, preset = null) {
+  const rate = saRatesState.rates.find((r) => r.rate_type === rateType);
+  const modal = document.getElementById('sa-rate-modal');
+  if (!rate || !modal) return;
+
+  // A branch's own daily rate: the dialog is fixed to that branch.
+  const branchPreset = preset?.scope === 'branch'
+    ? (saRatesState.data?.branch_daily || []).find((b) => String(b.branch_id) === String(preset.ref))
+    : null;
+  const current = branchPreset ? branchPreset.current : rate.current;
+
+  document.getElementById('sa-rate-type').value = rateType;
+  document.getElementById('sa-rate-modal-title').textContent = branchPreset
+    ? `Edit Daily Rate — ${branchPreset.name}`
+    : `Edit ${rate.label}`;
+  document.getElementById('sa-rate-current').innerHTML = `Current value: <strong class="mn">${escapeHtml(saRateDisplay(rate, current?.value))}</strong>${current?.effective_date ? ` since ${escapeHtml(saRateDate(current.effective_date))}` : ' (built-in default)'}${branchPreset && current?.scope !== 'branch' ? ' — the default; this branch has no rate of its own yet' : ''}<div style="font-size:11px;color:var(--t3);">${escapeHtml(rate.hint || '')}</div>`;
+  document.getElementById('sa-rate-value-label').textContent = rate.unit === 'percent'
+    ? 'New value (%)'
+    : rate.unit === 'count' ? 'Late days per absence (0 = off)' : 'New value (₱)';
+  const valueInput = document.getElementById('sa-rate-value');
+  valueInput.value = '';
+  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' ? '31' : '';
+  valueInput.step = rate.unit === 'count' ? '1' : '0.01';
+  const effective = document.getElementById('sa-rate-effective');
+  effective.value = saRatesState.data?.default_effective_date || '';
+  effective.oninput = saRateEffectiveHint;
+  const scopeSelect = document.getElementById('sa-rate-scope');
+  scopeSelect.value = branchPreset ? 'branch' : 'global';
+  scopeSelect.disabled = Boolean(branchPreset);
+  document.getElementById('sa-rate-note').value = '';
+  const feedback = document.getElementById('sa-rate-feedback');
+  feedback.textContent = '';
+  feedback.className = 'adm-feedback';
+  await onSARateScopeChange();
+  const refSelect = document.getElementById('sa-rate-ref');
+  if (refSelect) {
+    refSelect.disabled = Boolean(branchPreset);
+    if (branchPreset) refSelect.value = branchPreset.branch_id;
+  }
+  saRateEffectiveHint();
+  modal.style.display = 'flex';
+  setTimeout(() => valueInput.focus(), 30);
+}
+
+function closeSARateModal() {
+  const modal = document.getElementById('sa-rate-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function onSARateScopeChange() {
+  const scope = document.getElementById('sa-rate-scope')?.value || 'global';
+  const wrap = document.getElementById('sa-rate-ref-wrap');
+  const label = document.getElementById('sa-rate-ref-label');
+  const select = document.getElementById('sa-rate-ref');
+  const text = document.getElementById('sa-rate-ref-text');
+  if (!wrap || !select || !text) return;
+
+  wrap.style.display = scope === 'global' ? 'none' : '';
+  select.style.display = scope === 'position' ? 'none' : '';
+  text.style.display = scope === 'position' ? '' : 'none';
+  if (label) label.textContent = scope === 'branch' ? 'Branch' : scope === 'employee' ? 'Employee' : 'Position';
+
+  if (scope === 'branch') {
+    select.innerHTML = '<option value="">Loading branches...</option>';
+    const branches = await fetchBranchesCached({ activeOnly: false }).catch(() => []);
+    select.innerHTML = branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('')
+      || '<option value="">No branches found</option>';
+  } else if (scope === 'employee') {
+    select.innerHTML = '<option value="">Loading employees...</option>';
+    if (!saRatesState.employees) {
+      try {
+        const res = await fetch('/api/hr/employees');
+        const data = await res.json().catch(() => ({}));
+        saRatesState.employees = (data.employees || []).filter((e) => !e.archived);
+      } catch {
+        saRatesState.employees = [];
+      }
+    }
+    select.innerHTML = saRatesState.employees
+      .map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.full_name)}${e.employee_id ? ` — ${escapeHtml(e.employee_id)}` : ''}</option>`)
+      .join('') || '<option value="">No employees found</option>';
+  }
+}
+
+async function submitSARate(event) {
+  event?.preventDefault?.();
+  const feedback = document.getElementById('sa-rate-feedback');
+  const submit = document.getElementById('sa-rate-submit');
+  const rateType = document.getElementById('sa-rate-type').value;
+  const rate = saRatesState.rates.find((r) => r.rate_type === rateType);
+  const scope = document.getElementById('sa-rate-scope').value;
+  const value = document.getElementById('sa-rate-value').value;
+  const effectiveDate = document.getElementById('sa-rate-effective').value;
+  const scopeRef = scope === 'position'
+    ? document.getElementById('sa-rate-ref-text').value.trim()
+    : (scope === 'global' ? '' : document.getElementById('sa-rate-ref').value);
+
+  const fail = (message) => { feedback.textContent = message; feedback.className = 'adm-feedback err'; };
+  if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return fail('Enter a value of 0 or more.');
+  if (rate?.unit === 'percent' && Number(value) > 100) return fail('A percentage cannot be more than 100.');
+  if (rate?.unit === 'count' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a whole number from 0 to 31.');
+  if (!effectiveDate) return fail('Choose the date the new value takes effect.');
+  if (scope !== 'global' && !scopeRef) return fail('Choose who this rate applies to.');
+
+  const confirmed = window.confirmApproveAction
+    ? await window.confirmApproveAction(
+      `set ${rate?.label || 'this rate'} to ${saRateDisplay(rate || {}, value)} from ${saRateDate(effectiveDate)}`,
+      'A new version is added; the current one stays in the history. Past payslips are not affected.',
+      { title: 'Confirm Rate Change', confirmLabel: 'Save' },
+    )
+    : window.confirm('Save this rate change?');
+  if (!confirmed) return;
+
+  submit.disabled = true;
+  feedback.textContent = 'Saving...';
+  feedback.className = 'adm-feedback';
+  try {
+    const res = await fetch('/api/admin/payroll-rates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rate_type: rateType,
+        scope,
+        scope_ref: scopeRef || null,
+        value: Number(value),
+        effective_date: effectiveDate,
+        note: document.getElementById('sa-rate-note').value.trim(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to save the rate.');
+    closeSARateModal();
+    if (typeof pushNotification === 'function') {
+      pushNotification(
+        data.warning ? 'Rate Scheduled for Next Period' : 'Rate Saved',
+        data.warning || `${rate?.label || 'Rate'} set to ${saRateDisplay(rate || {}, value)} from ${saRateDate(data.effective_date)}.`,
+        data.warning ? 'info' : 'success',
+      );
+    }
+    await loadSAPayrollRates();
+  } catch (error) {
+    fail(error.message);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+window.loadSAPayrollRates = loadSAPayrollRates;
+window.openSARateModal = openSARateModal;
+window.closeSARateModal = closeSARateModal;
+window.onSARateScopeChange = onSARateScopeChange;
+window.submitSARate = submitSARate;
 
 /* ── PER-BRANCH ATTENDANCE POLICY ──
  * Default schedule lives in system_config section "attendance"; a branch's own
@@ -1045,9 +1325,8 @@ function renderSAAttendanceTable(rows = []) {
     const type = String(row.employee_type || 'Teaching');
     const typeBadgeClass = type === 'Non-Teaching' ? 'ba' : 'bt2';
 
+    // Colour-coded by the attendance status engine's statuses (app.js).
     const status = String(row.status || 'Absent');
-    const normalized = status.toLowerCase();
-    const statusClass = normalized === 'late' ? 'ba' : (normalized === 'present' ? 'bg' : 'br');
 
     return `
       <tr>
@@ -1056,7 +1335,7 @@ function renderSAAttendanceTable(rows = []) {
         <td class="mn">${formatTimeOnly(row.time_in)}</td>
         <td class="mn">${formatTimeOnly(row.time_out)}</td>
         <td class="mn">${formatHours(row.total_hours)}</td>
-        <td><span class="badge ${statusClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
+        <td>${attendanceStatusBadge(status)}</td>
       </tr>
     `;
   }).join('');

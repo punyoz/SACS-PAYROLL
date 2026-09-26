@@ -80,6 +80,15 @@ function mapEntryToPayslip(row) {
     leave_with_pay_days: toAmount(deductions.leave_with_pay_days),
     leave_without_pay_days: toAmount(deductions.leave_without_pay_days),
     leave_without_pay_deduction: toAmount(totals.leave_without_pay_deduction),
+    late_days: toAmount(deductions.late_days),
+    late_deduction: toAmount(totals.late_deduction),
+    undertime_minutes: toAmount(deductions.undertime_minutes),
+    undertime_deduction: toAmount(totals.undertime_deduction),
+    half_days: toAmount(deductions.half_days),
+    half_day_deduction: toAmount(totals.half_day_deduction),
+    early_bird_days: toAmount(payroll.incentives?.early_bird_days),
+    early_bird_incentive: toAmount(totals.early_bird_incentive),
+    perfect_attendance_incentive: toAmount(totals.perfect_attendance_incentive),
   };
 }
 

@@ -29,6 +29,10 @@
   --blue:     #4A9EF5;
   --blue-s:   rgba(74, 158, 245, 0.12);
 
+  /* Attendance status badges: yellow = Late / Undertime, orange = Half Day */
+  --yellow:   #E8C547;
+  --orange:   #F08A4B;
+
   --t1:       #F0F4F8;
   --t2:       #8BA5BE;
   --t3:       #4D7899;
@@ -61,6 +65,9 @@
 
   --blue:     #2563EB;
   --blue-s:   rgba(37, 99, 235, 0.10);
+
+  --yellow:   #A16207;
+  --orange:   #EA580C;
 
   --t1:       #0F172A;
   --t2:       #475569;

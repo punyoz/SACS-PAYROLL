@@ -104,7 +104,13 @@ export async function POST(request) {
       return NextResponse.json({ error: policyError }, { status: 400 });
     }
 
-    if (requiresLoginOtp(guard.role)) {
+    // The mandatory first-sign-in change (session still flagged "must change
+    // password") needs no second OTP: that session was only issued after the
+    // sign-in OTP was verified (verify-login-otp), so the inbox is already
+    // proven. Only a voluntary change from Account Settings asks for a code.
+    const firstSignInChange = guard.session?.pwd === true;
+
+    if (requiresLoginOtp(guard.role) && !firstSignInChange) {
       const grant = readPasswordOtpState(request, "change");
       const verified = grant?.stage === "verified"
         && grant.sub === user.id

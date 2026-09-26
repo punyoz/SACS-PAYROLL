@@ -64,7 +64,10 @@ function hrNav(pageId, navEl) {
   if (pageId === 'hr-dashboard') loadHRDashboard();
   else if (pageId === 'hr-employees') loadHREmployees();
   else if (pageId === 'hr-transfers') loadHrBranchAssignment();
-  else if (pageId === 'hr-attendance') loadHRAttendance();
+  else if (pageId === 'hr-attendance') {
+    loadHRAttendance();
+    window.mountAttendanceBoard?.('hr-att-board');
+  }
   else if (pageId === 'hr-leaves') loadHRLeaves();
   else if (pageId === 'hr-reports') { /* user clicks Generate */ }
   else if (pageId === 'hr-profile') loadHRProfile();
@@ -149,8 +152,7 @@ function renderHRRecentActivity(activity) {
     return;
   }
   el.innerHTML = activity.map((row) => {
-    const s = String(row.status || '').toLowerCase();
-    const color = s === 'present' ? 'var(--green)' : s === 'late' ? 'var(--amber)' : 'var(--red)';
+    const color = attendanceStatusColor(row.status);
     const dateLabel = row.date
       ? new Date(row.date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })
       : '';
@@ -161,7 +163,7 @@ function renderHRRecentActivity(activity) {
         <div class="s">${escapeHtml(row.employee_name || row.employee_id || 'Unknown')}</div>
         <div class="ss">${dateLabel} · Time In ${timeIn} · Time Out ${timeOut}</div>
       </div>
-      <span class="badge" style="background:color-mix(in srgb, ${color} 12%, transparent);color:${color};border:1px solid color-mix(in srgb, ${color} 31%, transparent);">${escapeHtml(row.status || '—')}</span>
+      <span class="badge" style="background:color-mix(in srgb, ${color} 12%, transparent);color:${color};border:1px solid color-mix(in srgb, ${color} 31%, transparent);">${escapeHtml(normalizeAttendanceStatusLabel(row.status))}</span>
     </div>`;
   }).join('');
 }
@@ -735,8 +737,6 @@ function renderHRAttendanceTable(logs) {
       pageSize: 20,
       renderFn: (rows) => {
         tbody.innerHTML = rows.map((row) => {
-          const s = String(row.status || '').toLowerCase();
-          const color = s === 'present' ? 'var(--green)' : s === 'late' ? 'var(--amber)' : 'var(--red)';
           return `<tr>
             <td>${escapeHtml(row.employee_name || row.employee_id || '—')}</td>
             <td>${escapeHtml(row.employee_type || '—')}</td>
@@ -744,7 +744,7 @@ function renderHRAttendanceTable(logs) {
             <td>${row.time_in ? escapeHtml(formatTimeOnly(row.time_in)) : '—'}</td>
             <td>${row.time_out ? escapeHtml(formatTimeOnly(row.time_out)) : '—'}</td>
             <td>${row.time_out ? Number(row.total_hours || 0).toFixed(2) + 'h' : '—'}</td>
-            <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(row.status || '—')}</span></td>
+            <td>${attendanceStatusBadge(row.status)}</td>
           </tr>`;
         }).join('');
       },

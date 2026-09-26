@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { attendanceBucket } from "@/lib/attendance/status";
 import { requirePermission } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -72,7 +73,7 @@ export async function GET(request) {
           });
         }
         const rec = byEmployee.get(key);
-        const s = String(row.status || "").toLowerCase();
+        const s = attendanceBucket(row.status);
         if (s === "present") rec.present++;
         else if (s === "late") { rec.present++; rec.late++; }
         else if (s === "absent") rec.absent++;

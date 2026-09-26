@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { attendanceBucket } from "@/lib/attendance/status";
 import { requirePermission } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -71,13 +72,14 @@ export async function GET(request) {
     logs = collapseDailyTaps(logs).map((row) => ({ ...row, date: row.log_date }));
 
     // Summary counts
-    const present = logs.filter((r) => String(r.status || "").toLowerCase() === "present").length;
-    const late = logs.filter((r) => String(r.status || "").toLowerCase() === "late").length;
-    const absent = logs.filter((r) => String(r.status || "").toLowerCase() === "absent").length;
+    const present = logs.filter((r) => attendanceBucket(r.status) === "present").length;
+    const late = logs.filter((r) => attendanceBucket(r.status) === "late").length;
+    const absent = logs.filter((r) => attendanceBucket(r.status) === "absent").length;
+    const incomplete = logs.filter((r) => attendanceBucket(r.status) === "unresolved").length;
 
     return NextResponse.json({
       logs,
-      summary: { present, late, absent },
+      summary: { present, late, absent, incomplete },
       date: dateParam,
       date_label: getDateLabel(new Date(dateParam + "T00:00:00")),
       generated_at: new Date().toISOString(),

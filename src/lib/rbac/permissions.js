@@ -183,6 +183,13 @@ export const MODULES = {
     order: 22, label: "Timesheet", section: "Account",
     page: {},
   },
+  // Missed tap-out corrections: an employee asks for a corrected time out,
+  // HR or Admin approves or rejects it. No sidebar row of its own -- it lives
+  // on each role's Attendance page (and the employee's My Attendance tab).
+  attendance_corrections: {
+    order: 2.5, label: "Attendance Corrections", section: "Overview",
+    page: {},
+  },
 };
 
 /**
@@ -219,6 +226,7 @@ export const ROLE_PERMISSIONS = {
     branch_reports: view(SCOPE_ALL),
     profile: full(SCOPE_SELF),
     timesheet: full(SCOPE_ALL),
+    attendance_corrections: full(SCOPE_ALL),
   },
 
   admin: {
@@ -250,6 +258,8 @@ export const ROLE_PERMISSIONS = {
     branch_reports: view(SCOPE_BRANCH),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_BRANCH),
+    // Approves or rejects its own branch's correction requests.
+    attendance_corrections: { scope: SCOPE_BRANCH, actions: READ_WRITE },
   },
 
   hr: {
@@ -285,6 +295,7 @@ export const ROLE_PERMISSIONS = {
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_ALL),
+    attendance_corrections: { scope: SCOPE_ALL, actions: READ_WRITE },
   },
 
   accountant: {
@@ -316,6 +327,8 @@ export const ROLE_PERMISSIONS = {
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_BRANCH),
+    // Accountants tap in too: they may ask to correct their own records.
+    attendance_corrections: { scope: SCOPE_SELF, actions: ["create", "read"] },
   },
 
   employee: {
@@ -342,6 +355,8 @@ export const ROLE_PERMISSIONS = {
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_SELF),
+    // View own statuses; ask to correct an Incomplete / disputed record.
+    attendance_corrections: { scope: SCOPE_SELF, actions: ["create", "read"] },
   },
 };
 

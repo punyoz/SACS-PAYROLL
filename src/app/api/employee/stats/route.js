@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { attendanceBucket } from "@/lib/attendance/status";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -101,7 +102,9 @@ export async function GET(request) {
         // One record per day (first tap in, last tap out) so a day with a
         // repeated tap is never counted twice.
         for (const row of collapseDailyTaps(attResult.data, { employeeKey: () => user.id })) {
-          const status = String(row.status || "").toLowerCase();
+          // Engine statuses (On Time, Early Bird, Undertime, ...) bucketed
+          // into present / late / absent (src/lib/attendance/status.js).
+          const status = attendanceBucket(row.status);
           if (status === "present") present++;
           else if (status === "late") late++;
           else if (status === "absent") absent++;

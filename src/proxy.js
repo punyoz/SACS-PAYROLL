@@ -89,6 +89,11 @@ const API_MODULES = [
   ["/api/admin/branch-reports", "branch_reports"],
   ["/api/admin/branches", "branch_management"],
   ["/api/admin/config", "system_configuration"],
+  // Effective-dated payroll rates: Super Admin's System Configuration.
+  ["/api/admin/payroll-rates", "system_configuration"],
+  // Status board (every role that can see attendance; employees their own).
+  ["/api/attendance/logs", "attendance"],
+  ["/api/attendance/corrections", "attendance_corrections"],
   ["/api/admin/system", "system_maintenance"],
   ["/api/admin/dashboard", "dashboard"],
   ["/api/hr/employees", "employee_information"],

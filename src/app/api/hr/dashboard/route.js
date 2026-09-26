@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { attendanceBucket } from "@/lib/attendance/status";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 
@@ -89,7 +90,7 @@ export async function GET(request) {
         // One record per employee: status comes from the day's first tap.
         collapseDailyTaps(attRows, { dateKey: () => today }).forEach((row) => {
           seenEmployees.add(row.employee_id);
-          const s = String(row.status || "").toLowerCase();
+          const s = attendanceBucket(row.status);
           if (s === "present") presentToday++;
           else if (s === "late") lateToday++;
         });

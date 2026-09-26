@@ -31,6 +31,9 @@ const acctState = {
   payslip: null,
   periodOptions: [],
   currentEntryId: '',
+  // false until the attendance / payroll-rate migrations are applied.
+  payrollReady: true,
+  payrollNotReadyMessage: '',
 };
 
 let acRecordsPaginator = null;
@@ -197,6 +200,8 @@ function acctNav(pageId, navEl) {
   }
 
   if (pageId === 'ac-profile') loadAccountantProfile();
+  // Read-only status board (Incomplete records that hold payroll back).
+  if (pageId === 'ac-attendance') window.mountAttendanceBoard?.('ac-att-board');
 }
 
 function getAccountantNavByPageId(pageId) {
@@ -204,13 +209,164 @@ function getAccountantNavByPageId(pageId) {
   return navItems.find((item) => String(item.getAttribute('onclick') || '').includes(`'${pageId}'`)) || null;
 }
 
-/* ── PAYROLL COMPUTATION ── */
+/* ── PAYROLL COMPUTATION ──
+   Attendance figures, rates and defaults come from GET /api/accountant/payroll
+   (attendance_rows[].pay / .rates / .defaults), computed on the server from the
+   attendance logs and the rate versions in force on the period's first day.
+   The figures here are a preview; the server recomputes everything when the
+   payroll is saved or processed. */
+const ACCT_FALLBACK_RATES = {
+  hourly: 68.75, daily: 550, half_day_pct: 50, absent_pct: 100,
+  late_days_per_absent: 3, late_minute_charge_pct: 0,
+  early_bird_bonus: 0, perfect_attendance_bonus: 0, sss_pct: 2, philhealth_pct: 2, pagibig_pct: 2,
+};
+
+/** The attendance row, rates and unit amounts for one employee. */
+function employeePayInfo(employeeId) {
+  const row = (acctState.attendanceRows || []).find((r) => r.employee_id === employeeId) || null;
+  const rates = { ...ACCT_FALLBACK_RATES, ...(row?.rates || {}) };
+  const unit = row?.pay?.unit_amounts || {
+    hourly: rates.hourly,
+    daily: rates.daily,
+    half_day: toAmount(rates.daily * rates.half_day_pct / 100),
+    absent: toAmount(rates.daily * rates.absent_pct / 100),
+    early_bird: rates.early_bird_bonus,
+    perfect_attendance: rates.perfect_attendance_bonus,
+    late_days_per_absent: rates.late_days_per_absent,
+    late_minute_pct: rates.late_minute_charge_pct,
+  };
+  return { row, rates, unit, pay: row?.pay || null };
+}
+
+const acctSame = (a, b) => Math.abs(toAmount(a) - toAmount(b)) < 0.005;
+
+/**
+ * Attendance amounts for the quantities shown. Same rule as the server
+ * (buildEmployeePayroll): a quantity equal to the computed one uses the
+ * computed, per-log total; a changed quantity is priced at the unit rate.
+ */
+function computeAttendanceAmounts(info, q) {
+  const { unit, pay } = info;
+  const counts = pay?.counts || {};
+  const amounts = pay?.amounts || {};
+  const price = (quantity, computedQuantity, computedAmount, perUnit) => (
+    pay && acctSame(quantity, computedQuantity) ? toAmount(computedAmount) : toAmount(quantity * perUnit)
+  );
+  return {
+    absent: price(q.absences_days, counts.absent_days, amounts.absent, unit.absent),
+    // N late days = 1 absence (Super Admin setting), plus the per-minute
+    // charge from the logs when that is switched on.
+    late: pay && acctSame(q.late_days, counts.late_days)
+      ? toAmount(amounts.late)
+      : toAmount(
+        (unit.late_days_per_absent > 0 ? Math.floor(toAmount(q.late_days) / unit.late_days_per_absent) * unit.absent : 0)
+        + toAmount(amounts.late_minutes_charge),
+      ),
+    undertime: price(q.undertime_minutes, counts.undertime_minutes, amounts.undertime, unit.hourly / 60),
+    half_day: price(q.half_days, counts.half_days, amounts.half_day, unit.half_day),
+    early_bird: price(q.early_bird_days, counts.early_bird_days, amounts.early_bird, unit.early_bird),
+    perfect_attendance: pay && Boolean(q.perfect_attendance) === Boolean(pay.perfect_attendance)
+      ? toAmount(amounts.perfect_attendance)
+      : (q.perfect_attendance ? toAmount(unit.perfect_attendance) : 0),
+  };
+}
+
+function describeBlockingDays(blocking) {
+  return (blocking || []).map((b) => `${b.log_date} (${b.status})`).join(', ');
+}
+
 function autoFillDeductions(basic) {
-  const pct2 = toAmount(basic * 0.02);
+  // Contribution defaults are the % in force for the selected employee and
+  // period (Super Admin → Payroll Rates), not a fixed 2%.
+  const { rates } = employeePayInfo(getSelectedEmployee()?.id);
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  setVal('pc-sss', pct2);
-  setVal('pc-philhealth', pct2);
-  setVal('pc-pagibig', pct2);
+  setVal('pc-sss', toAmount(basic * rates.sss_pct / 100));
+  setVal('pc-philhealth', toAmount(basic * rates.philhealth_pct / 100));
+  setVal('pc-pagibig', toAmount(basic * rates.pagibig_pct / 100));
+}
+
+// Fills Absent / Late / Undertime / Half Day / incentives from the logs.
+function autoFillAttendance(employeeId) {
+  const { pay } = employeePayInfo(employeeId);
+  const counts = pay?.counts || {};
+  const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  setVal('pc-absences', counts.absent_days || 0);
+  setVal('pc-late', counts.late_days || 0);
+  setVal('pc-undertime', counts.undertime_minutes || 0);
+  setVal('pc-half-days', counts.half_days || 0);
+  setVal('pc-early-bird', counts.early_bird_days || 0);
+  setVal('pc-perfect', pay?.perfect_attendance ? 'yes' : 'no');
+}
+
+/** Rate hints next to each field, and the unresolved-attendance warning. */
+function renderEmployeeRateHints(employeeId) {
+  const { rates, unit, pay } = employeePayInfo(employeeId);
+  const setTxt = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  const peso = (v) => formatMoney(v).replace('₱ ', '₱');
+  setTxt('pc-sss-hint', `(default ${rates.sss_pct}% of Basic, editable)`);
+  setTxt('pc-philhealth-hint', `(default ${rates.philhealth_pct}% of Basic, editable)`);
+  setTxt('pc-pagibig-hint', `(default ${rates.pagibig_pct}% of Basic, editable)`);
+  setTxt('pc-absent-hint', `${peso(unit.absent)}/day`);
+  const lateRules = [
+    unit.late_days_per_absent > 0 ? `${unit.late_days_per_absent} late = 1 absent (${peso(unit.absent)})` : '',
+    unit.late_minute_pct > 0 ? `+ ${unit.late_minute_pct}% of hourly per minute` : '',
+  ].filter(Boolean).join(' ');
+  setTxt('pc-late-hint', lateRules || 'not charged');
+  setTxt('pc-undertime-hint', `${peso(unit.hourly)}/hour`);
+  setTxt('pc-half-day-hint', `${peso(unit.half_day)}/day`);
+  setTxt('pc-lwop-hint', `(days, ${peso(unit.daily)}/day)`);
+  setTxt('pc-early-bird-hint', `${peso(unit.early_bird)}/day`);
+  setTxt('pc-perfect-hint', `${peso(unit.perfect_attendance)}/period`);
+
+  const banner = document.getElementById('pc-blocking');
+  const blocking = pay?.blocking || [];
+  if (banner) {
+    banner.style.display = blocking.length ? '' : 'none';
+    banner.innerHTML = blocking.length
+      ? `⚠ Unresolved attendance: ${escapeHtml(describeBlockingDays(blocking))}. This employee cannot be processed until HR or the branch Administrator resolves ${blocking.length === 1 ? 'it' : 'them'}. <a href="#" onclick="openAcctIncompleteQueue();return false;" style="color:var(--amber);font-weight:600;">View in Attendance →</a>`
+      : '';
+  }
+  const submitButton = document.getElementById('ac-submit-btn');
+  if (submitButton) submitButton.disabled = Boolean(blocking.length) || !acctState.payrollReady;
+}
+
+/** Manual changes from the computed defaults, for the override reason. */
+function getFormDeviations() {
+  const employee = getSelectedEmployee();
+  if (!employee) return [];
+  const { pay, rates } = employeePayInfo(employee.id);
+  const counts = pay?.counts || {};
+  const leave = (acctState.leaveSummary || []).find((row) => row.employee_id === employee.id);
+  const get = (id) => toAmount(document.getElementById(id)?.value);
+  const basic = get('pc-basic');
+  const checks = [
+    ['Basic Salary', toAmount(Number(employee.basic_salary || 0) / 2), basic],
+    ['SSS', toAmount(basic * rates.sss_pct / 100), get('pc-sss')],
+    ['PhilHealth', toAmount(basic * rates.philhealth_pct / 100), get('pc-philhealth')],
+    ['Pag-IBIG', toAmount(basic * rates.pagibig_pct / 100), get('pc-pagibig')],
+    ['Leave Without Pay', leave?.without_pay_days || 0, get('pc-leave-without-pay-days')],
+    ['Absent', counts.absent_days || 0, get('pc-absences')],
+    ['Late', counts.late_days || 0, get('pc-late')],
+    ['Undertime', counts.undertime_minutes || 0, get('pc-undertime')],
+    ['Half Day', counts.half_days || 0, get('pc-half-days')],
+    ['Early Bird', counts.early_bird_days || 0, get('pc-early-bird')],
+  ];
+  const deviations = checks
+    .filter(([, def, value]) => !acctSame(def, value))
+    .map(([label, def, value]) => `${label}: ${def} → ${value}`);
+  const perfect = document.getElementById('pc-perfect')?.value === 'yes';
+  if (pay && perfect !== Boolean(pay.perfect_attendance)) {
+    deviations.push(`Perfect Attendance: ${pay.perfect_attendance ? 'Yes' : 'No'} → ${perfect ? 'Yes' : 'No'}`);
+  }
+  return deviations;
+}
+
+function renderOverrideState() {
+  const deviations = getFormDeviations();
+  const wrap = document.getElementById('pc-override-wrap');
+  const list = document.getElementById('pc-override-list');
+  if (wrap) wrap.style.display = deviations.length ? '' : 'none';
+  if (list) list.textContent = deviations.length ? `Changed from computed: ${deviations.join(' · ')}` : '';
 }
 
 // Auto-fills the current employee's Leave With Pay / Without Pay day counts for
@@ -230,18 +386,30 @@ function recalc() {
   const philhealth = get('pc-philhealth');
   const pagibig = get('pc-pagibig');
   const tax = get('pc-tax');
-  const absenceDays = get('pc-absences');
-  const lateDays = get('pc-late');
   const leaveWithPayDays = get('pc-leave-with-pay-days');
   const leaveWithoutPayDays = get('pc-leave-without-pay-days');
 
-  // 1 absent = ₱550, 3 late = 1 absent = ₱550
-  const absenceDeduct = toAmount((absenceDays + Math.floor(lateDays / 3)) * 550);
-  // Leave Without Pay deducts at the same ₱550/day rate as an absence.
-  const leaveWithoutPayDeduct = toAmount(leaveWithoutPayDays * 550);
+  // Absent: % of the daily rate; Late / Undertime: minutes ÷ 60 × hourly
+  // rate; Half Day: % of the daily rate; Leave Without Pay: the daily rate.
+  const info = employeePayInfo(getSelectedEmployee()?.id);
+  const amounts = computeAttendanceAmounts(info, {
+    absences_days: get('pc-absences'),
+    late_days: get('pc-late'),
+    undertime_minutes: get('pc-undertime'),
+    half_days: get('pc-half-days'),
+    early_bird_days: get('pc-early-bird'),
+    perfect_attendance: document.getElementById('pc-perfect')?.value === 'yes',
+  });
+  const leaveWithoutPayDeduct = toAmount(leaveWithoutPayDays * info.unit.daily);
+  const incentives = toAmount(amounts.early_bird + amounts.perfect_attendance);
   const grossPay = basic; // No allowances; Gross Pay = Basic Salary
-  const totalDeductions = toAmount(sss + philhealth + pagibig + tax + absenceDeduct + leaveWithoutPayDeduct);
-  const netPay = toAmount(grossPay - totalDeductions);
+  const totalDeductions = toAmount(
+    sss + philhealth + pagibig + tax
+    + amounts.absent + amounts.late + amounts.undertime + amounts.half_day
+    + leaveWithoutPayDeduct,
+  );
+  // Net Pay = Gross - deductions + incentives, floored at zero like the server.
+  const netPay = Math.max(0, toAmount(grossPay - totalDeductions + incentives));
 
   const updates = {
     'sum-basic': formatMoney(basic),
@@ -250,11 +418,16 @@ function recalc() {
     'sum-philhealth': `- ${formatMoney(philhealth)}`,
     'sum-pagibig': `- ${formatMoney(pagibig)}`,
     'sum-tax': `- ${formatMoney(tax)}`,
-    'sum-absences': `- ${formatMoney(absenceDeduct)}`,
+    'sum-absences': `- ${formatMoney(amounts.absent)}`,
+    'sum-late': `- ${formatMoney(amounts.late)}`,
+    'sum-undertime': `- ${formatMoney(amounts.undertime)}`,
+    'sum-half-day': `- ${formatMoney(amounts.half_day)}`,
     'sum-leave-with-pay': `${leaveWithPayDays} day${leaveWithPayDays === 1 ? '' : 's'}`,
     'sum-leave-without-pay': `- ${formatMoney(leaveWithoutPayDeduct)}`,
+    'sum-incentives': `+ ${formatMoney(incentives)}`,
     'sum-net': formatMoney(netPay),
   };
+  renderOverrideState();
 
   Object.entries(updates).forEach(([id, value]) => {
     const el = document.getElementById(id);
@@ -280,8 +453,14 @@ function getPayrollFormValues() {
       withholding_tax: get('pc-tax'),
       absences_days: get('pc-absences'),
       late_days: get('pc-late'),
+      undertime_minutes: get('pc-undertime'),
+      half_days: get('pc-half-days'),
       leave_with_pay_days: get('pc-leave-with-pay-days'),
       leave_without_pay_days: get('pc-leave-without-pay-days'),
+    },
+    incentives: {
+      early_bird_days: get('pc-early-bird'),
+      perfect_attendance: document.getElementById('pc-perfect')?.value === 'yes',
     },
   };
 }
@@ -313,6 +492,9 @@ function buildSubmissionPayload(action) {
     basic_salary: formValues.basic_salary,
     allowances: formValues.allowances,
     deductions: formValues.deductions,
+    incentives: formValues.incentives,
+    // Required by the server whenever a value differs from the computed one.
+    override_reason: String(document.getElementById('pc-override-reason')?.value || '').trim(),
     reason: 'Payroll processed by accountant.',
   };
 }
@@ -372,6 +554,7 @@ async function processPayroll() {
     }
   } finally {
     setActionButtonsDisabled(false);
+    renderEmployeeRateHints(getSelectedEmployee()?.id);
   }
 }
 
@@ -386,6 +569,7 @@ async function savePayrollDraft() {
     showProcessFeedback(error.message, true);
   } finally {
     setActionButtonsDisabled(false);
+    renderEmployeeRateHints(getSelectedEmployee()?.id);
   }
 }
 
@@ -438,8 +622,12 @@ function syncFormForEmployee() {
     basicInput.value = toAmount(Number(employee.basic_salary || 0) / 2);
     autoFillDeductions(toAmount(basicInput.value));
     autoFillLeaveDays(employee.id);
+    autoFillAttendance(employee.id);
+    const reason = document.getElementById('pc-override-reason');
+    if (reason) reason.value = '';
   }
 
+  renderEmployeeRateHints(employee.id);
   recalc();
 }
 
@@ -830,6 +1018,19 @@ function renderPayslipDetails() {
   assign('ac-pf-pagibig', formatMoney(payslip.deductions?.pagibig || 0));
   assign('ac-pf-tax', formatMoney(payslip.deductions?.withholding_tax || 0));
   assign('ac-pf-absence', formatMoney(payslip.deductions?.absence_deduction || 0));
+  const lateDays = payslip.deductions?.late_days || 0;
+  const undertimeMinutes = payslip.deductions?.undertime_minutes || 0;
+  const halfDays = payslip.deductions?.half_days || 0;
+  const earlyBirdDays = payslip.incentives?.early_bird_days || 0;
+  assign('ac-pf-late-label', lateDays ? `Late (${lateDays} day${lateDays === 1 ? '' : 's'})` : 'Late');
+  assign('ac-pf-late', formatMoney(payslip.deductions?.late_deduction || 0));
+  assign('ac-pf-undertime-label', undertimeMinutes ? `Undertime (${undertimeMinutes} min)` : 'Undertime');
+  assign('ac-pf-undertime', formatMoney(payslip.deductions?.undertime_deduction || 0));
+  assign('ac-pf-half-day-label', halfDays ? `Half Day (${halfDays} day${halfDays === 1 ? '' : 's'})` : 'Half Day');
+  assign('ac-pf-half-day', formatMoney(payslip.deductions?.half_day_deduction || 0));
+  assign('ac-pf-early-bird-label', earlyBirdDays ? `Early Bird (${earlyBirdDays} day${earlyBirdDays === 1 ? '' : 's'})` : 'Early Bird');
+  assign('ac-pf-early-bird', formatMoney(payslip.incentives?.early_bird_incentive || 0));
+  assign('ac-pf-perfect', formatMoney(payslip.incentives?.perfect_attendance_incentive || 0));
   const leaveWithPayDays = payslip.deductions?.leave_with_pay_days || 0;
   assign('ac-pf-leave-with-pay', `${leaveWithPayDays} day${leaveWithPayDays === 1 ? '' : 's'}`);
   assign('ac-pf-leave-without-pay', formatMoney(payslip.deductions?.leave_without_pay_deduction || 0));
@@ -869,9 +1070,17 @@ function populateFormFromDraft() {
   setValue('pc-tax', deductions.withholding_tax);
   setValue('pc-absences', deductions.absences_days);
   setValue('pc-late', deductions.late_days ?? 0);
+  setValue('pc-undertime', deductions.undertime_minutes ?? 0);
+  setValue('pc-half-days', deductions.half_days ?? 0);
   setValue('pc-leave-with-pay-days', deductions.leave_with_pay_days ?? 0);
   setValue('pc-leave-without-pay-days', deductions.leave_without_pay_days ?? 0);
+  setValue('pc-early-bird', payroll.incentives?.early_bird_days ?? 0);
+  const perfectSelect = document.getElementById('pc-perfect');
+  if (perfectSelect) perfectSelect.value = payroll.incentives?.perfect_attendance ? 'yes' : 'no';
+  const reasonInput = document.getElementById('pc-override-reason');
+  if (reasonInput) reasonInput.value = payroll.audit?.deviations?.reason || '';
 
+  renderEmployeeRateHints(draft.employee_id);
   recalc();
 }
 
@@ -893,16 +1102,37 @@ function renderBatchPeriodDropdown() {
   }
 }
 
+// Net Pay = Basic - SSS - PhilHealth - Pag-IBIG - Tax - attendance deductions
+// (computed from the logs) - Leave w/o Pay + incentives, floored at zero.
 function computeBatchRowNetPay(row) {
-  const absenceDeduct = toAmount((row.absences_days + Math.floor(row.late_days / 3)) * 550);
-  const leaveWithoutPayDeduct = toAmount(row.leave_without_pay_days * 550);
-  const totalDeductions = toAmount(row.sss + row.philhealth + row.pagibig + row.tax + absenceDeduct + leaveWithoutPayDeduct);
-  return toAmount(row.basic_salary - totalDeductions);
+  const leaveWithoutPayDeduct = toAmount(row.leave_without_pay_days * row.daily_rate);
+  const totalDeductions = toAmount(
+    row.sss + row.philhealth + row.pagibig + row.tax
+    + row.attendance_deductions + leaveWithoutPayDeduct,
+  );
+  return Math.max(0, toAmount(row.basic_salary - totalDeductions + row.incentives));
+}
+
+/** The editable batch cells that differ from their computed defaults. */
+function batchRowDeviations(employeeId) {
+  const safeId = escapeJsAttr(employeeId);
+  return ['sss', 'philhealth', 'pagibig', 'lwop'].filter((field) => {
+    const input = document.getElementById(`batch-${field}-${safeId}`);
+    return input && !acctSame(input.value, input.dataset.default);
+  });
+}
+
+function refreshBatchReasonVisibility() {
+  const rows = Array.from(document.querySelectorAll('#pc-batch-table-body tr[data-employee-id]'));
+  const anyChanged = rows.some((row) => row.dataset.blocked !== '1' && batchRowDeviations(row.getAttribute('data-employee-id')).length);
+  const wrap = document.getElementById('pc-batch-reason-wrap');
+  if (wrap) wrap.style.display = anyChanged ? '' : 'none';
 }
 
 function recalcBatchRow(employeeId) {
   const safeId = escapeJsAttr(employeeId);
   const get = (field) => toAmount(document.getElementById(`batch-${field}-${safeId}`)?.value);
+  const tr = document.querySelector(`#pc-batch-table-body tr[data-employee-id="${CSS.escape(String(employeeId))}"]`);
 
   const row = {
     basic_salary: get('basic'),
@@ -910,14 +1140,31 @@ function recalcBatchRow(employeeId) {
     philhealth: get('philhealth'),
     pagibig: get('pagibig'),
     tax: get('tax'),
-    absences_days: get('absent'),
-    late_days: get('late'),
     leave_without_pay_days: get('lwop'),
+    daily_rate: toAmount(tr?.dataset.dailyRate),
+    attendance_deductions: toAmount(tr?.dataset.attendanceDeductions),
+    incentives: toAmount(tr?.dataset.incentives),
   };
 
   const netPay = computeBatchRowNetPay(row);
   const netEl = document.getElementById(`batch-net-${safeId}`);
   if (netEl) netEl.textContent = formatMoney(netPay);
+
+  ['sss', 'philhealth', 'pagibig', 'lwop'].forEach((field) => {
+    const input = document.getElementById(`batch-${field}-${safeId}`);
+    if (input) input.style.borderColor = acctSame(input.value, input.dataset.default) ? '' : 'var(--amber)';
+  });
+  refreshBatchReasonVisibility();
+}
+
+// The accountant's own View Attendance page, on the Incomplete Queue tab.
+function openAcctIncompleteQueue() {
+  const nav = getAccountantNavByPageId('ac-attendance');
+  acctNav('ac-attendance', nav);
+  setTimeout(() => {
+    document.querySelector('#ac-att-board [data-att-tab="incomplete"]')?.click();
+    document.getElementById('ac-att-board')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 300);
 }
 
 function escapeJsAttr(value) {
@@ -929,49 +1176,80 @@ function loadBatchPayrollTable() {
   if (!tbody) return;
 
   if (!acctState.employees.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="color:var(--t3);">No employees found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" style="color:var(--t3);">No employees found.</td></tr>';
     return;
   }
+
+  // Two lines per cell: the quantity and what it costs (or earns).
+  const cell = (quantity, amount, sign = '-') => {
+    const color = sign === '+' ? 'var(--green)' : 'var(--red)';
+    return `<span>${escapeHtml(quantity)}</span>${amount ? `<div style="font-size:11px;color:${color};">${sign} ${formatMoney(amount)}</div>` : ''}`;
+  };
 
   tbody.innerHTML = acctState.employees.map((employee) => {
     const id = escapeJsAttr(employee.id);
     // Payroll runs twice a month (1-15 and 16-end), each covering half the
     // employee's monthly rate, so the two runs together add up to one month's pay.
     const basic = toAmount(Number(employee.basic_salary || 0) / 2);
-    const pct2 = toAmount(basic * 0.02);
-    const attendance = acctState.attendanceRows.find((row) => row.employee_id === employee.id);
+    const info = employeePayInfo(employee.id);
+    const counts = info.pay?.counts || {};
+    const amounts = info.pay?.amounts || {};
+    const blocking = info.pay?.blocking || [];
+    const sss = toAmount(basic * info.rates.sss_pct / 100);
+    const philhealth = toAmount(basic * info.rates.philhealth_pct / 100);
+    const pagibig = toAmount(basic * info.rates.pagibig_pct / 100);
     const leave = acctState.leaveSummary.find((row) => row.employee_id === employee.id);
-    const absentDays = attendance?.absent_days || 0;
-    const lateDays = attendance?.late_days || 0;
     const leaveWithPayDays = leave?.with_pay_days || 0;
     const leaveWithoutPayDays = leave?.without_pay_days || 0;
+    const attendanceDeductions = toAmount((amounts.absent || 0) + (amounts.late || 0) + (amounts.undertime || 0) + (amounts.half_day || 0));
+    const incentives = toAmount((amounts.early_bird || 0) + (amounts.perfect_attendance || 0));
     const netPay = computeBatchRowNetPay({
       basic_salary: basic,
-      sss: pct2,
-      philhealth: pct2,
-      pagibig: pct2,
+      sss,
+      philhealth,
+      pagibig,
       tax: 0,
-      absences_days: absentDays,
-      late_days: lateDays,
       leave_without_pay_days: leaveWithoutPayDays,
+      daily_rate: info.unit.daily,
+      attendance_deductions: attendanceDeductions,
+      incentives,
     });
+    const incentiveLabel = [
+      counts.early_bird_days ? `${counts.early_bird_days} day${counts.early_bird_days === 1 ? '' : 's'}` : '',
+      info.pay?.perfect_attendance ? 'Perfect' : '',
+    ].filter(Boolean).join(' · ') || '0';
+    const numberInput = (field, value, width, step) => `<input class="fc" type="number" id="batch-${field}-${id}" value="${value}" data-default="${value}" min="0" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" style="width:${width}px;" oninput="recalcBatchRow('${employee.id}')"${blocking.length ? ' disabled' : ''}>`;
 
-    return `
-      <tr data-employee-id="${escapeHtml(employee.id)}">
+    const mainRow = `
+      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}"${blocking.length ? ' style="opacity:.75;"' : ''}>
         <td class="nm">${escapeHtml(employee.full_name)}</td>
         <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-sss-${id}" value="${pct2}" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-philhealth-${id}" value="${pct2}" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-pagibig-${id}" value="${pct2}" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-tax-${id}" value="0" min="0" step="0.01" inputmode="decimal" style="width:75px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-absent-${id}" value="${absentDays}" min="0" step="1" inputmode="numeric" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-late-${id}" value="${lateDays}" min="0" step="1" inputmode="numeric" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn">${numberInput('sss', sss, 75, '0.01')}</td>
+        <td class="mn">${numberInput('philhealth', philhealth, 75, '0.01')}</td>
+        <td class="mn">${numberInput('pagibig', pagibig, 75, '0.01')}</td>
+        <td class="mn">${numberInput('tax', 0, 75, '0.01')}</td>
+        <td class="mn">${cell(`${counts.absent_days || 0}`, amounts.absent)}</td>
+        <td class="mn">${cell(`${counts.late_days || 0}`, amounts.late)}</td>
+        <td class="mn">${cell(counts.undertime_minutes ? `${counts.undertime_minutes} min` : '0', amounts.undertime)}</td>
+        <td class="mn">${cell(`${counts.half_days || 0}`, amounts.half_day)}</td>
+        <td class="mn">${cell(incentiveLabel, incentives, '+')}</td>
         <td class="mn"><span id="batch-lwp-display-${id}">${leaveWithPayDays}</span><input type="hidden" id="batch-lwp-${id}" value="${leaveWithPayDays}"></td>
-        <td class="mn"><input class="fc" type="number" id="batch-lwop-${id}" value="${leaveWithoutPayDays}" min="0" step="1" inputmode="numeric" style="width:60px;" oninput="recalcBatchRow('${employee.id}')"></td>
+        <td class="mn">${numberInput('lwop', leaveWithoutPayDays, 60, '1')}</td>
         <td class="mn" style="font-family:var(--mono);font-weight:600;" id="batch-net-${id}">${formatMoney(netPay)}</td>
-      </tr>
-    `;
+      </tr>`;
+
+    // Only this employee waits; the rest of the batch is processed.
+    const warningRow = blocking.length ? `
+      <tr class="pc-blocked-row">
+        <td colspan="14" style="font-size:12px;color:var(--amber);background:var(--amber-s);white-space:normal;">
+          ⚠ ${escapeHtml(employee.full_name)} will be skipped — unresolved attendance: ${escapeHtml(describeBlockingDays(blocking))}. HR or the branch Administrator must resolve ${blocking.length === 1 ? 'it' : 'them'} first.
+          <a href="#" onclick="openAcctIncompleteQueue();return false;" style="color:var(--amber);font-weight:600;">View in Attendance →</a>
+        </td>
+      </tr>` : '';
+
+    return mainRow + warningRow;
   }).join('');
+  refreshBatchReasonVisibility();
 }
 
 async function processBatchPayroll() {
@@ -984,15 +1262,37 @@ async function processBatchPayroll() {
     return;
   }
 
-  const rows = Array.from(document.querySelectorAll('#pc-batch-table-body tr[data-employee-id]'));
+  if (!acctState.payrollReady) {
+    if (feedbackEl) { feedbackEl.textContent = acctState.payrollNotReadyMessage; feedbackEl.className = 'adm-feedback err'; }
+    return;
+  }
+
+  const allRows = Array.from(document.querySelectorAll('#pc-batch-table-body tr[data-employee-id]'));
+  // Employees with unresolved attendance are left out; everyone else goes.
+  const rows = allRows.filter((row) => row.dataset.blocked !== '1');
+  const blockedCount = allRows.length - rows.length;
   if (!rows.length) {
-    if (feedbackEl) { feedbackEl.textContent = 'No employees to process.'; feedbackEl.className = 'adm-feedback err'; }
+    if (feedbackEl) {
+      feedbackEl.textContent = blockedCount ? 'Every employee has unresolved attendance for this period.' : 'No employees to process.';
+      feedbackEl.className = 'adm-feedback err';
+    }
+    return;
+  }
+
+  const overrideReason = String(document.getElementById('pc-batch-reason')?.value || '').trim();
+  const changed = rows.some((row) => batchRowDeviations(row.getAttribute('data-employee-id')).length);
+  if (changed && !overrideReason) {
+    if (feedbackEl) { feedbackEl.textContent = 'Give a reason for the values changed from the computed defaults (highlighted).'; feedbackEl.className = 'adm-feedback err'; }
+    document.getElementById('pc-batch-reason')?.focus();
     return;
   }
 
   const confirmed = window.confirmApproveAction
-    ? await window.confirmApproveAction(`process payroll for all ${rows.length} employees`, 'This will generate a payslip for each employee. Already-paid employees for this period will be skipped.')
-    : window.confirm(`Process payroll for all ${rows.length} employees?`);
+    ? await window.confirmApproveAction(
+      `process payroll for ${rows.length} employee${rows.length === 1 ? '' : 's'}`,
+      `This will generate a payslip for each employee. Already-paid employees for this period will be skipped.${blockedCount ? ` ${blockedCount} employee${blockedCount === 1 ? '' : 's'} with unresolved attendance will wait.` : ''}`,
+    )
+    : window.confirm(`Process payroll for ${rows.length} employees?`);
   if (!confirmed) return;
 
   const entries = rows.map((row) => {
@@ -1008,8 +1308,8 @@ async function processBatchPayroll() {
         philhealth: get('philhealth'),
         pagibig: get('pagibig'),
         withholding_tax: get('tax'),
-        absences_days: get('absent'),
-        late_days: get('late'),
+        // Absent / Late / Undertime / Half Day / incentives are computed on
+        // the server from the attendance logs; they are not sent.
         leave_with_pay_days: get('lwp'),
         leave_without_pay_days: get('lwop'),
       },
@@ -1023,7 +1323,7 @@ async function processBatchPayroll() {
     const response = await fetch('/api/accountant/payroll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'batch_submit', pay_period: payPeriod, entries }),
+      body: JSON.stringify({ action: 'batch_submit', pay_period: payPeriod, entries, override_reason: overrideReason }),
     });
 
     const result = await response.json().catch(() => ({}));
@@ -1040,6 +1340,8 @@ async function processBatchPayroll() {
     }
 
     if (feedbackEl) { feedbackEl.textContent = message; feedbackEl.className = 'adm-feedback ok'; }
+    const reasonInput = document.getElementById('pc-batch-reason');
+    if (reasonInput) reasonInput.value = '';
     window.pushNotification?.('Batch Payroll Processed', message, skippedList.length && !processedList.length ? 'info' : 'success');
 
     await loadAccountantData({ period: payPeriod });
@@ -1134,6 +1436,15 @@ async function runAccountantLoad(options = {}) {
     acctState.payslipOptions = payload.payslip_options || [];
     acctState.payslip = payload.payslip || null;
     acctState.periodOptions = payload.period_options || [];
+    acctState.payrollReady = payload.payroll_ready !== false;
+    acctState.payrollNotReadyMessage = payload.payroll_not_ready_message || '';
+    const notReady = document.getElementById('pc-not-ready');
+    if (notReady) {
+      notReady.style.display = acctState.payrollReady ? 'none' : '';
+      notReady.textContent = acctState.payrollReady ? '' : `⚠ ${acctState.payrollNotReadyMessage}`;
+    }
+    const batchButton = document.getElementById('pc-batch-submit-btn');
+    if (batchButton) batchButton.disabled = !acctState.payrollReady;
 
     renderEmployeeDropdown();
     renderPeriodDropdown();
@@ -1299,10 +1610,11 @@ function initAccountant() {
   // Manual deduction inputs only trigger recalc
   // Leave Without Pay is editable too (₱550/day) — it was missing here, so
   // changing it left the Net Pay summary showing the old figure.
-  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late', 'pc-leave-without-pay-days'].forEach(id => {
+  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late', 'pc-undertime', 'pc-half-days', 'pc-early-bird', 'pc-leave-without-pay-days'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
   });
+  document.getElementById('pc-perfect')?.addEventListener('change', recalc);
 
   const employeeSelect = document.getElementById('pc-employee');
   const periodSelect = document.getElementById('pc-period');
@@ -1366,6 +1678,8 @@ window.generatePayslip = generatePayslip;
 window.printPayslip = printPayslip;
 window.openPayslipFromRecord = openPayslipFromRecord;
 window.cancelDraft = cancelDraft;
+window.recalcBatchRow = recalcBatchRow;
+window.openAcctIncompleteQueue = openAcctIncompleteQueue;
 window.submitAccountantChangePassword = submitAccountantChangePassword;
 window.loadAccountantData = loadAccountantData;
 window.loadAccountantProfile = loadAccountantProfile;

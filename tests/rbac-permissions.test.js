@@ -554,7 +554,11 @@ describe("Matrix stays in step with the SQL seed", () => {
 
   beforeAll(async () => {
     const { readFileSync } = await import("node:fs");
-    sql = readFileSync("supabase/migrations/20260903010000_rbac_branch_scoping.sql", "utf8");
+    // The original seed, plus modules added by later migrations.
+    sql = [
+      "supabase/migrations/20260903010000_rbac_branch_scoping.sql",
+      "supabase/migrations/20260926010000_attendance_status_engine.sql",
+    ].map((file) => readFileSync(file, "utf8")).join("\n");
   });
 
   const seedRow = (role, moduleName) => {

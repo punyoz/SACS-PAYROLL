@@ -263,6 +263,21 @@
     statusText.textContent = text;
   }
 
+  // The kiosk only signals whether a tap worked: a green light for an
+  // accepted tap (time in, time out, or a repeat of either), a red light for
+  // anything refused. No name, times or message is shown -- the reader's
+  // user only needs to know whether to walk on or tap again.
+  const LIGHT_MS = 2500;
+  const IDLE_TEXT = 'Tap your RFID card';
+
+  function showLight(ok) {
+    clearTimeout(resultTimer);
+    resultEl.hidden = true;
+    setStatus(ok ? 'in' : 'error', '');
+    resultTimer = setTimeout(() => setStatus('idle', IDLE_TEXT), LIGHT_MS);
+  }
+
+  // Detailed card, kept for reference; the kiosk now uses showLight().
   function showResult(record, tap, message) {
     clearTimeout(resultTimer);
     resultEl.hidden = false;
@@ -300,7 +315,6 @@
     // Clear immediately, before awaiting the fetch, so a second tap's
     // keystrokes land in an empty field instead of appending to this one's.
     scanInput.value = '';
-    setStatus('scanning', 'Reading card...');
 
     try {
       const res = await fetch(API_SCAN, {
@@ -310,18 +324,9 @@
       });
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        resultEl.hidden = true;
-        setStatus('error', data.error || 'RFID not matched to an active employee.');
-        clearTimeout(resultTimer);
-        resultTimer = setTimeout(() => setStatus('idle', 'Tap your RFID card'), 4000);
-        return;
-      }
-
-      showResult(data.record, data.tap, data.message);
+      showLight(res.ok && Boolean(data.record));
     } catch {
-      resultEl.hidden = true;
-      setStatus('error', 'Network error — try again.');
+      showLight(false);
     } finally {
       scanInFlight = false;
       scanInput.value = '';

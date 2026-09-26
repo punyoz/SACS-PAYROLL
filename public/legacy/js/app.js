@@ -1615,6 +1615,14 @@ async function completeResetPassword() {
   showResetFeedback(reply.result.message || 'Your password has been reset.', true);
   if (els.submit) els.submit.textContent = 'Done';
   [els.otp, els.next, els.confirm].forEach((input) => { if (input) input.value = ''; });
+  // The reset also signed the account in (same reply shape as a sign-in):
+  // go straight to its portal instead of making them sign in again.
+  if (reply.result.redirectTo) {
+    showResetFeedback('Password updated. Opening your account...', true);
+    saveAuthContext(reply.result, reply.result.role || 'employee', reply.result.profile?.email);
+    (window.top || window).location.href = reply.result.redirectTo;
+    return;
+  }
   // Back to a fresh login screen, which shows the success notice.
   setTimeout(() => {
     (window.top || window).location.href = '/login?reason=password_reset';
@@ -2861,7 +2869,12 @@ function initPasswordChangeScreen() {
   const feedback = document.getElementById('cp-feedback');
   const submit = document.getElementById('cp-submit');
   const ruleItems = Array.from(document.querySelectorAll('#cp-rules li'));
-  const flow = mountPasswordChangeSteps({
+  // This screen only appears right after a sign-in whose OTP was already
+  // verified, so the password is changed in one step here -- no second OTP.
+  // (Account Settings still uses the emailed-code steps.) The server agrees:
+  // change-password skips the OTP grant while the session is flagged.
+  const firstSignInNeedsOtp = false;
+  const flow = !firstSignInNeedsOtp ? null : mountPasswordChangeSteps({
     key: 'cp',
     current,
     next,
@@ -3558,6 +3571,648 @@ function attachLoginPasswordToggle() {
     });
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ATTENDANCE STATUSES, STATUS BOARD AND CORRECTIONS
+   Every status is computed by the database (trigger attendance_logs_compute_
+   status, supabase/migrations/20260926010000_attendance_status_engine.sql).
+   These helpers only display them, and drive:
+     - the status board on the Admin / HR / Super Admin Attendance pages
+       (All Records, Incomplete Queue, Correction Requests), and
+     - the employee's "This Pay Period" card with Request Correction.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const ATTENDANCE_STATUS_LIST = [
+  'On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent',
+  'Incomplete', 'Pending Correction', 'Corrected',
+];
+
+// green: On Time / Early Bird, yellow: Late / Undertime, orange: Half Day,
+// red: Absent, gray: Incomplete (and awaiting review), blue: Corrected.
+const ATTENDANCE_STATUS_TONE = {
+  'On Time': 'var(--green)',
+  'Early Bird': 'var(--green)',
+  Late: 'var(--yellow)',
+  Undertime: 'var(--yellow)',
+  'Half Day': 'var(--orange)',
+  Absent: 'var(--red)',
+  Incomplete: 'var(--t2)',
+  'Pending Correction': 'var(--t2)',
+  Corrected: 'var(--blue)',
+};
+
+const ATTENDANCE_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+/** Canonical label; a pre-engine "Present" reads as On Time. */
+function normalizeAttendanceStatusLabel(status) {
+  const key = String(status || '').trim().toLowerCase();
+  if (!key) return '—';
+  if (key === 'present') return 'On Time';
+  return ATTENDANCE_STATUS_LIST.find((s) => s.toLowerCase() === key) || String(status);
+}
+
+function attendanceStatusColor(status) {
+  return ATTENDANCE_STATUS_TONE[normalizeAttendanceStatusLabel(status)] || 'var(--t2)';
+}
+
+/** The colour-coded badge every attendance table uses. */
+function attendanceStatusBadge(status) {
+  const label = normalizeAttendanceStatusLabel(status);
+  const color = attendanceStatusColor(label);
+  return `<span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(label)}</span>`;
+}
+
+/** Present / late / absent class for the employee's month calendar. */
+function attendanceCalendarClass(status) {
+  const label = normalizeAttendanceStatusLabel(status);
+  if (label === 'Absent') return 'ab';
+  if (label === 'Late' || label === 'Undertime' || label === 'Half Day') return 'lt';
+  if (label === 'On Time' || label === 'Early Bird' || label === 'Corrected') return 'pr';
+  return '';
+}
+
+function attendanceStatusLegend() {
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">${
+    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected']
+      .map((s) => attendanceStatusBadge(s)).join('')
+  }</div>`;
+}
+
+function attManilaDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+
+function attFormatTime(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: true }).format(date);
+}
+
+function attFormatDate(key) {
+  if (!key) return '—';
+  const date = new Date(`${key}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return key;
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: '2-digit', year: 'numeric', weekday: 'short' }).format(date);
+}
+
+function attFormatDateTime(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true }).format(date);
+}
+
+function attMinutes(value) {
+  const minutes = Number(value || 0);
+  return minutes > 0 ? `${minutes} min` : '—';
+}
+
+/** "HH:MM" (24h, Manila) of an instant, for a time input. */
+function attTimeInputValue(iso) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+}
+
+/** The current pay period and the ones before it, newest first. */
+function attPayPeriodLabels(count = 6) {
+  let [year, month, day] = attManilaDateKey().split('-').map(Number);
+  let firstHalf = day <= 15;
+  const labels = [];
+  for (let i = 0; i < count; i += 1) {
+    const last = firstHalf ? 15 : new Date(Date.UTC(year, month, 0)).getUTCDate();
+    labels.push(`${ATTENDANCE_MONTHS[month - 1]} ${firstHalf ? 1 : 16}-${last}, ${year}`);
+    if (firstHalf) {
+      firstHalf = false;
+      month -= 1;
+      if (month === 0) { month = 12; year -= 1; }
+    } else {
+      firstHalf = true;
+    }
+  }
+  return labels;
+}
+
+async function attFetchJson(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || 'Request failed.');
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+/* ── STATUS BOARD (Admin / HR / Super Admin) ── */
+const attendanceBoards = new Map();
+
+function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
+  const root = document.getElementById(rootId);
+  if (!root) return;
+  if (attendanceBoards.has(rootId)) {
+    refreshAttendanceBoard(rootId);
+    return;
+  }
+
+  const id = escapeHtml(rootId);
+  const periods = attPayPeriodLabels(6);
+  root.innerHTML = `
+    <div class="card" style="margin-top:14px;">
+      <div class="sh" style="margin-bottom:12px;flex-wrap:wrap;gap:10px;">
+        <span class="stitle">Attendance Status</span>
+        <span class="sp"></span>
+        <select class="fc" id="${id}-branch" style="max-width:200px;display:none;" aria-label="Branch"><option value="">All branches</option></select>
+        <select class="fc" id="${id}-period" style="max-width:220px;" aria-label="Pay period">
+          ${periods.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join('')}
+        </select>
+        <button class="btn btn-outline" type="button" data-att-refresh>Refresh</button>
+      </div>
+      <div class="status-tabs" role="tablist">
+        <button class="st-tab st-active" type="button" data-att-tab="all">All Records</button>
+        <button class="st-tab" type="button" data-att-tab="incomplete">Incomplete Queue <span id="${id}-incomplete-count"></span></button>
+        <button class="st-tab" type="button" data-att-tab="corrections">Correction Requests <span id="${id}-corrections-count"></span></button>
+      </div>
+      <div id="${id}-legend">${attendanceStatusLegend()}</div>
+      <div id="${id}-filter-wrap" style="margin-bottom:12px;">
+        <select class="fc" id="${id}-status" style="max-width:240px;" aria-label="Status">
+          <option value="all">All statuses</option>
+          ${ATTENDANCE_STATUS_LIST.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </div>
+      <p id="${id}-note" style="font-size:12px;color:var(--t3);margin-bottom:12px;"></p>
+      <div class="tw"><table>
+        <thead id="${id}-head"></thead>
+        <tbody id="${id}-body">${skeletonRows(8)}</tbody>
+      </table></div>
+      <div class="pg-bar" id="${id}-board-pg"></div>
+      <p id="${id}-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+    </div>`;
+
+  const board = {
+    rootId,
+    tab: 'all',
+    period: periods[0],
+    status: 'all',
+    branch: '',
+    logs: [],
+    corrections: [],
+    canReview: false,
+    loading: false,
+    paginator: null,
+  };
+  board.paginator = createPaginator({ id: `${rootId}-board`, pageSize: 20, renderFn: (rows) => renderAttendanceBoardRows(board, rows) });
+  attendanceBoards.set(rootId, board);
+
+  root.querySelector('[data-att-refresh]')?.addEventListener('click', () => refreshAttendanceBoard(rootId));
+  root.querySelectorAll('[data-att-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      root.querySelectorAll('[data-att-tab]').forEach((b) => b.classList.toggle('st-active', b === button));
+      board.tab = button.getAttribute('data-att-tab');
+      renderAttendanceBoard(board);
+    });
+  });
+  document.getElementById(`${rootId}-period`)?.addEventListener('change', (event) => {
+    board.period = event.target.value;
+    refreshAttendanceBoard(rootId);
+  });
+  document.getElementById(`${rootId}-status`)?.addEventListener('change', (event) => {
+    board.status = event.target.value;
+    renderAttendanceBoard(board);
+  });
+
+  if (branchFilter) {
+    fetchBranchesCached({ activeOnly: false }).then((branches) => {
+      const select = document.getElementById(`${rootId}-branch`);
+      if (!select || !branches.length) return;
+      select.innerHTML = '<option value="">All branches</option>'
+        + branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
+      select.style.display = '';
+      select.addEventListener('change', () => {
+        board.branch = select.value;
+        refreshAttendanceBoard(rootId);
+      });
+    }).catch(() => {});
+  }
+
+  refreshAttendanceBoard(rootId);
+}
+
+async function refreshAttendanceBoard(rootId) {
+  const board = attendanceBoards.get(rootId);
+  if (!board || board.loading) return;
+  board.loading = true;
+  const body = document.getElementById(`${rootId}-body`);
+  if (body) body.innerHTML = skeletonRows(8);
+  attBoardFeedback(board, '');
+
+  try {
+    const params = new URLSearchParams({ period: board.period });
+    if (board.branch) params.set('branch_id', board.branch);
+    const [logsData, correctionsData] = await Promise.all([
+      attFetchJson(`/api/attendance/logs?${params}`),
+      attFetchJson('/api/attendance/corrections?status=pending').catch(() => ({ corrections: [] })),
+    ]);
+    board.logs = logsData.logs || [];
+    board.canReview = Boolean(logsData.can_review);
+    board.engineReady = logsData.engine_ready !== false;
+    board.corrections = correctionsData.corrections || [];
+  } catch (error) {
+    board.logs = [];
+    board.corrections = [];
+    attBoardFeedback(board, error.message, true);
+  } finally {
+    board.loading = false;
+    renderAttendanceBoard(board);
+  }
+}
+
+function attBoardFeedback(board, message, isError = false) {
+  const el = document.getElementById(`${board.rootId}-feedback`);
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = `adm-feedback${message ? (isError ? ' err' : ' ok') : ''}`;
+}
+
+function renderAttendanceBoard(board) {
+  const id = board.rootId;
+  const incomplete = board.logs.filter((row) => row.status === 'Incomplete' || row.status === 'Pending Correction');
+  const setCount = (suffix, n) => {
+    const el = document.getElementById(`${id}-${suffix}`);
+    if (el) el.textContent = n ? `(${n})` : '';
+  };
+  setCount('incomplete-count', incomplete.length);
+  setCount('corrections-count', board.corrections.length);
+
+  const head = document.getElementById(`${id}-head`);
+  const note = document.getElementById(`${id}-note`);
+  const filterWrap = document.getElementById(`${id}-filter-wrap`);
+  const legend = document.getElementById(`${id}-legend`);
+  if (filterWrap) filterWrap.style.display = board.tab === 'all' ? '' : 'none';
+  if (legend) legend.style.display = board.tab === 'corrections' ? 'none' : '';
+
+  let rows;
+  if (board.tab === 'incomplete') {
+    if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
+    if (note) note.textContent = 'Days with a time in but no time out after the shift ended. They are left out of payroll until resolved — by the employee\'s correction request, or by recording the time out (or Absent / Half Day) here.';
+    rows = incomplete;
+  } else if (board.tab === 'corrections') {
+    if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Recorded</th><th>Requested Time Out</th><th>Reason</th><th>Requested</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
+    if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day.';
+    rows = board.corrections;
+  } else {
+    if (head) head.innerHTML = '<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th></tr>';
+    if (note) {
+      note.textContent = board.engineReady === false
+        ? 'Automatic statuses are not active yet: apply the attendance database migration (20260926010000_attendance_status_engine.sql).'
+        : 'Statuses are computed automatically from each branch\'s schedule.';
+    }
+    rows = board.status === 'all' ? board.logs : board.logs.filter((row) => row.status === board.status);
+  }
+
+  board.paginator.setData(rows);
+  if (!rows.length) {
+    const body = document.getElementById(`${id}-body`);
+    const cols = board.tab === 'all' ? 8 : (board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
+    const empty = board.tab === 'corrections' ? 'No correction requests waiting.' : board.tab === 'incomplete' ? 'Nothing to resolve.' : 'No attendance records for this period.';
+    if (body) body.innerHTML = `<tr><td colspan="${cols}" style="color:var(--t3);">${empty}</td></tr>`;
+  }
+}
+
+function renderAttendanceBoardRows(board, rows) {
+  const body = document.getElementById(`${board.rootId}-body`);
+  if (!body) return;
+  const key = escapeHtml(board.rootId);
+
+  if (board.tab === 'corrections') {
+    body.innerHTML = rows.map((c) => `
+      <tr>
+        <td class="nm">${escapeHtml(c.employee_name || '—')}</td>
+        <td>${escapeHtml(attFormatDate(c.log_date))}</td>
+        <td class="mn">${escapeHtml(attFormatTime(c.original_time_in))} – ${escapeHtml(attFormatTime(c.original_time_out))}<div style="margin-top:4px;">${attendanceStatusBadge(c.original_status)}</div></td>
+        <td class="mn">${escapeHtml(attFormatTime(c.corrected_time_out))}</td>
+        <td style="max-width:260px;white-space:normal;">${escapeHtml(c.reason || '')}</td>
+        <td>${escapeHtml(attFormatDateTime(c.requested_at))}</td>
+        ${board.canReview ? `<td><button class="btn btn-primary" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceReview('${key}','${escapeHtml(c.id)}')">Review</button></td>` : ''}
+      </tr>`).join('');
+    return;
+  }
+
+  if (board.tab === 'incomplete') {
+    body.innerHTML = rows.map((row) => `
+      <tr>
+        <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
+        <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+        <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
+        <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
+        <td>${attendanceStatusBadge(row.status)}</td>
+        ${board.canReview ? `<td>${row.status === 'Incomplete'
+          ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceResolve('${key}','${escapeHtml(row.id)}')">Resolve</button>`
+          : '<span style="font-size:12px;color:var(--t3);">See Correction Requests</span>'}</td>` : ''}
+      </tr>`).join('');
+    return;
+  }
+
+  body.innerHTML = rows.map((row) => `
+    <tr>
+      <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
+      <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+      <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
+      <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
+      <td class="mn">${row.time_out ? Number(row.total_hours || 0).toFixed(2) : '—'}</td>
+      <td class="mn">${escapeHtml(attMinutes(row.late_minutes))}</td>
+      <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
+      <td>${attendanceStatusBadge(row.status)}</td>
+    </tr>`).join('');
+}
+
+/* ── Review / resolve / request dialog (one, shared) ── */
+function ensureAttendanceDialog() {
+  let backdrop = document.getElementById('att-dialog');
+  if (backdrop) return backdrop;
+  backdrop = document.createElement('div');
+  backdrop.id = 'att-dialog';
+  backdrop.className = 'adm-modal-backdrop';
+  backdrop.style.display = 'none';
+  backdrop.innerHTML = `
+    <div class="adm-modal-card" style="width:min(520px,100%);" role="dialog" aria-modal="true" aria-labelledby="att-dialog-title">
+      <div class="adm-modal-head">
+        <h3 id="att-dialog-title">Attendance</h3>
+        <button class="btn btn-close-x" type="button" data-att-close title="Close">&#x2715;</button>
+      </div>
+      <form id="att-dialog-form" class="adm-modal-form" style="grid-template-columns:1fr;" novalidate>
+        <div id="att-dialog-summary" style="font-size:13px;color:var(--t2);line-height:1.6;"></div>
+        <div id="att-dialog-fields" style="display:grid;gap:12px;"></div>
+        <p id="att-dialog-feedback" class="adm-feedback"></p>
+        <div class="adm-modal-actions" id="att-dialog-actions" style="gap:8px;"></div>
+      </form>
+    </div>`;
+  document.body.appendChild(backdrop);
+  backdrop.querySelector('[data-att-close]').addEventListener('click', closeAttendanceDialog);
+  backdrop.addEventListener('click', (event) => { if (event.target === backdrop) closeAttendanceDialog(); });
+  backdrop.querySelector('form').addEventListener('submit', (event) => event.preventDefault());
+  return backdrop;
+}
+
+function closeAttendanceDialog() {
+  const backdrop = document.getElementById('att-dialog');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+function openAttendanceDialog({ title, summary, fields, actions }) {
+  const backdrop = ensureAttendanceDialog();
+  backdrop.querySelector('#att-dialog-title').textContent = title;
+  backdrop.querySelector('#att-dialog-summary').innerHTML = summary;
+  backdrop.querySelector('#att-dialog-fields').innerHTML = fields;
+  const feedback = backdrop.querySelector('#att-dialog-feedback');
+  feedback.textContent = '';
+  feedback.className = 'adm-feedback';
+  const actionsEl = backdrop.querySelector('#att-dialog-actions');
+  actionsEl.innerHTML = '';
+  actions.forEach(({ label, className, handler }) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `btn ${className}`;
+    button.textContent = label;
+    button.addEventListener('click', async () => {
+      const buttons = Array.from(actionsEl.querySelectorAll('button'));
+      buttons.forEach((b) => { b.disabled = true; });
+      feedback.textContent = 'Saving...';
+      feedback.className = 'adm-feedback';
+      try {
+        await handler();
+        closeAttendanceDialog();
+      } catch (error) {
+        feedback.textContent = error.message;
+        feedback.className = 'adm-feedback err';
+      } finally {
+        buttons.forEach((b) => { b.disabled = false; });
+      }
+    });
+    actionsEl.appendChild(button);
+  });
+  backdrop.style.display = 'flex';
+  setTimeout(() => backdrop.querySelector('#att-dialog-fields input, #att-dialog-fields textarea, #att-dialog-fields select')?.focus(), 30);
+}
+
+function attDialogValue(id) {
+  return String(document.getElementById(id)?.value || '').trim();
+}
+
+function openAttendanceReview(rootId, correctionId) {
+  const board = attendanceBoards.get(rootId);
+  const correction = board?.corrections.find((c) => String(c.id) === String(correctionId));
+  if (!correction) return;
+
+  openAttendanceDialog({
+    title: 'Review Correction Request',
+    summary: `
+      <div><strong>${escapeHtml(correction.employee_name || 'Employee')}</strong> · ${escapeHtml(attFormatDate(correction.log_date))}</div>
+      <div>Recorded: ${escapeHtml(attFormatTime(correction.original_time_in))} – ${escapeHtml(attFormatTime(correction.original_time_out))} ${attendanceStatusBadge(correction.original_status)}</div>
+      <div>Requested time out: <strong class="mn">${escapeHtml(attFormatTime(correction.corrected_time_out))}</strong></div>
+      <div style="margin-top:6px;color:var(--t1);">“${escapeHtml(correction.reason || '')}”</div>`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="att-review-resolution">If rejected, the record becomes</label>
+        <select id="att-review-resolution" class="fc">
+          <option value="incomplete">Keep as recorded (Incomplete stays out of payroll)</option>
+          <option value="absent">Absent</option>
+          <option value="half_day">Half Day</option>
+        </select>
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-review-note">Note (optional)</label>
+        <textarea id="att-review-note" class="fc" rows="2" maxlength="500" placeholder="Shown with the decision in the audit trail"></textarea>
+      </div>`,
+    actions: [
+      {
+        label: 'Reject',
+        className: 'btn-outline',
+        handler: () => submitAttendanceReview(rootId, correction.id, 'reject'),
+      },
+      {
+        label: 'Approve',
+        className: 'btn-primary',
+        handler: () => submitAttendanceReview(rootId, correction.id, 'approve'),
+      },
+    ],
+  });
+}
+
+async function submitAttendanceReview(rootId, correctionId, decision) {
+  await attFetchJson('/api/attendance/corrections', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      correction_id: correctionId,
+      decision,
+      resolution: attDialogValue('att-review-resolution'),
+      note: attDialogValue('att-review-note'),
+    }),
+  });
+  window.pushNotification?.(
+    decision === 'approve' ? 'Correction Approved' : 'Correction Rejected',
+    decision === 'approve' ? 'The time out was updated and the day is marked Corrected.' : 'The request was rejected.',
+    decision === 'approve' ? 'success' : 'info',
+  );
+  await refreshAttendanceBoard(rootId);
+}
+
+function openAttendanceResolve(rootId, logId) {
+  const board = attendanceBoards.get(rootId);
+  const row = board?.logs.find((r) => String(r.id) === String(logId));
+  if (!row) return;
+
+  openAttendanceDialog({
+    title: 'Resolve Incomplete Record',
+    summary: `
+      <div><strong>${escapeHtml(row.employee_name || 'Employee')}</strong> · ${escapeHtml(attFormatDate(row.log_date))}</div>
+      <div>Time in ${escapeHtml(attFormatTime(row.time_in))}, no time out recorded.</div>`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="att-resolve-resolution">Resolution</label>
+        <select id="att-resolve-resolution" class="fc" onchange="document.getElementById('att-resolve-time-wrap').style.display = this.value === 'time_out' ? '' : 'none'">
+          <option value="time_out">Record the time out</option>
+          <option value="absent">Mark Absent</option>
+          <option value="half_day">Mark Half Day</option>
+        </select>
+      </div>
+      <div class="fg" style="margin:0;" id="att-resolve-time-wrap">
+        <label for="att-resolve-time">Time out</label>
+        <input id="att-resolve-time" class="fc" type="time" />
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-resolve-note">Reason</label>
+        <textarea id="att-resolve-note" class="fc" rows="2" maxlength="500" placeholder="e.g. Confirmed with the branch logbook"></textarea>
+      </div>`,
+    actions: [{
+      label: 'Resolve',
+      className: 'btn-primary',
+      handler: async () => {
+        await attFetchJson('/api/attendance/corrections', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'resolve',
+            log_id: row.id,
+            resolution: attDialogValue('att-resolve-resolution'),
+            time_out: attDialogValue('att-resolve-time'),
+            note: attDialogValue('att-resolve-note'),
+          }),
+        });
+        window.pushNotification?.('Record Resolved', 'The attendance record is resolved and can now be included in payroll.', 'success');
+        await refreshAttendanceBoard(rootId);
+      },
+    }],
+  });
+}
+
+/* ── EMPLOYEE: THIS PAY PERIOD + REQUEST CORRECTION ── */
+const myAttendanceState = { logs: [], period: '' };
+
+async function loadMyAttendancePeriod(rootId = 'emp-att-period') {
+  const root = document.getElementById(rootId);
+  if (!root) return;
+
+  if (!root.dataset.mounted) {
+    root.dataset.mounted = '1';
+    root.innerHTML = `
+      <div class="sh" style="margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <span class="stitle">This Pay Period</span>
+        <span class="sp"></span>
+        <span style="font-size:11px;color:var(--t3);" id="${escapeHtml(rootId)}-label"></span>
+      </div>
+      ${attendanceStatusLegend()}
+      <p style="font-size:12px;color:var(--t3);margin-bottom:10px;">Forgot to tap out, or think a day is wrong? Use <strong>Request Correction</strong> on an Incomplete, Undertime or Half Day record. HR or your Administrator will review it.</p>
+      <div class="tw"><table>
+        <thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th><th></th></tr></thead>
+        <tbody id="${escapeHtml(rootId)}-body">${skeletonRows(5, 3)}</tbody>
+      </table></div>`;
+  }
+
+  const body = document.getElementById(`${rootId}-body`);
+  const label = document.getElementById(`${rootId}-label`);
+  try {
+    const data = await attFetchJson('/api/attendance/logs');
+    myAttendanceState.logs = data.logs || [];
+    myAttendanceState.period = data.range?.label || '';
+    if (label) label.textContent = myAttendanceState.period;
+    if (!body) return;
+    if (!myAttendanceState.logs.length) {
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No attendance recorded yet this pay period.</td></tr>';
+      return;
+    }
+    body.innerHTML = myAttendanceState.logs.map((row) => {
+      let action = '';
+      if (row.correction) action = '<span style="font-size:12px;color:var(--t3);">Awaiting review</span>';
+      else if (row.can_request_correction) {
+        action = `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openMyCorrectionRequest('${escapeHtml(row.id)}','${escapeHtml(rootId)}')">Request Correction</button>`;
+      }
+      return `
+        <tr>
+          <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+          <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
+          <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
+          <td>${attendanceStatusBadge(row.status)}</td>
+          <td>${action}</td>
+        </tr>`;
+    }).join('');
+  } catch (error) {
+    if (body) body.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+function openMyCorrectionRequest(logId, rootId) {
+  const row = myAttendanceState.logs.find((r) => String(r.id) === String(logId));
+  if (!row) return;
+
+  openAttendanceDialog({
+    title: 'Request Correction',
+    summary: `
+      <div><strong>${escapeHtml(attFormatDate(row.log_date))}</strong> ${attendanceStatusBadge(row.status)}</div>
+      <div>Recorded: time in ${escapeHtml(attFormatTime(row.time_in))}, time out ${escapeHtml(attFormatTime(row.time_out))}</div>`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="att-request-time">Corrected time out</label>
+        <input id="att-request-time" class="fc" type="time" value="${escapeHtml(attTimeInputValue(row.time_out))}" />
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-request-reason">Reason</label>
+        <textarea id="att-request-reason" class="fc" rows="3" maxlength="500" placeholder="e.g. The reader was offline when I left at 5:00 PM"></textarea>
+      </div>`,
+    actions: [{
+      label: 'Submit Request',
+      className: 'btn-primary',
+      handler: async () => {
+        await attFetchJson('/api/attendance/corrections', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            log_id: row.id,
+            corrected_time: attDialogValue('att-request-time'),
+            reason: attDialogValue('att-request-reason'),
+          }),
+        });
+        window.pushNotification?.('Correction Requested', 'Your request was sent for review. The day shows Pending Correction until it is decided.', 'success');
+        await loadMyAttendancePeriod(rootId);
+      },
+    }],
+  });
+}
+
+window.attendanceStatusBadge = attendanceStatusBadge;
+window.attendanceStatusColor = attendanceStatusColor;
+window.attendanceCalendarClass = attendanceCalendarClass;
+window.normalizeAttendanceStatusLabel = normalizeAttendanceStatusLabel;
+window.mountAttendanceBoard = mountAttendanceBoard;
+window.refreshAttendanceBoard = refreshAttendanceBoard;
+window.openAttendanceReview = openAttendanceReview;
+window.openAttendanceResolve = openAttendanceResolve;
+window.closeAttendanceDialog = closeAttendanceDialog;
+window.loadMyAttendancePeriod = loadMyAttendancePeriod;
+window.openMyCorrectionRequest = openMyCorrectionRequest;
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);

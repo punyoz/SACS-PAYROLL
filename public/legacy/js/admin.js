@@ -63,6 +63,8 @@ function adminNav(pageId, navEl) {
 
   if (pageId === 'adm-attendance') {
     loadAttendanceData();
+    // Status board: all records, Incomplete queue, correction requests.
+    window.mountAttendanceBoard?.('adm-att-board');
   }
 
   if (pageId === 'adm-audit-logs') {
@@ -370,11 +372,8 @@ function renderAttendanceTable(rows = []) {
     const type = escapeHtml(row.employee_type || 'Teaching');
     const typeBadgeClass = type === 'Non-Teaching' ? 'ba' : 'bt2';
 
+    // Colour-coded by the attendance status engine's statuses (app.js).
     const status = String(row.status || 'Absent');
-    const normalizedStatus = status.toLowerCase();
-    const statusClass = normalizedStatus === 'late'
-      ? 'ba'
-      : (normalizedStatus === 'present' ? 'bg' : 'br');
 
     return `
       <tr>
@@ -383,7 +382,7 @@ function renderAttendanceTable(rows = []) {
         <td class="mn">${formatTimeOnly(row.time_in)}</td>
         <td class="mn">${formatTimeOnly(row.time_out)}</td>
         <td class="mn">${formatHours(row.total_hours)}</td>
-        <td><span class="badge ${statusClass}"><span class="bd"></span>${escapeHtml(status)}</span></td>
+        <td>${attendanceStatusBadge(status)}</td>
       </tr>
     `;
   }).join('');

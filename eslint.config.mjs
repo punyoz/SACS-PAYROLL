@@ -135,6 +135,11 @@ const config = [
         loadOwnStaffId: "readonly",
         skeletonRows: "readonly",
         skeletonCards: "readonly",
+        // Attendance status badges / board (app.js)
+        attendanceStatusBadge: "readonly",
+        attendanceStatusColor: "readonly",
+        attendanceCalendarClass: "readonly",
+        normalizeAttendanceStatusLabel: "readonly",
         createPaginator: "readonly",
         pushNotification: "readonly",
         confirmDestructiveAction: "readonly",

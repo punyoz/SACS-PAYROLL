@@ -18,6 +18,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { requirePermission } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
+import { attendanceBucket } from "@/lib/attendance/status";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -102,7 +103,7 @@ export async function GET(request) {
 
     const countStatus = (name) =>
       attendanceRows.filter(
-        (r) => String(r.status || "").toLowerCase() === name,
+        (r) => attendanceBucket(r.status) === name,
       ).length;
 
     const present = countStatus("present");

@@ -187,6 +187,8 @@
       </table></div>
       <div class="pg-bar" id="sa-att-pg"></div>
 
+      <div id="sa-att-board"></div>
+
       <p style="font-size:12px;color:var(--t3);margin-top:12px;">Need to record a tap manually? Use the RFID Scan Input under <a href="#" onclick="saNav('sa-maintenance', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-maintenance&quot;]'));return false;" style="color:var(--amber);">System Maintenance</a>.</p>
     </div>
 
@@ -435,7 +437,7 @@
           <div>
             <div class="config-section-title">Payroll Configuration</div>
             <div class="config-section-sub">Pay periods, deductions, and computation rules</div>
-            <div class="config-not-enforced">Saved for reference only — not yet applied by the system. Payroll uses the contribution amounts entered on each payslip, not these rates.</div>
+            <div class="config-applies">Changes apply starting the effective date you set — past payslips are not affected.</div>
           </div>
           <button class="btn btn-outline" onclick="saveSAConfig('payroll')">Save</button>
         </div>
@@ -448,17 +450,29 @@
               <option value="weekly">Weekly</option>
             </select>
           </div>
-          <div class="fg" style="margin:0;">
-            <label for="cfg-sss">SSS Contribution (%)</label>
-            <input id="cfg-sss" class="fc" type="number" value="4.5" min="0" max="100" step="0.01" />
+          <!-- Effective-dated payroll rates (loadSAPayrollRates in js/super-admin.js).
+               SSS / PhilHealth / Pag-IBIG live here now, as versioned rates
+               payroll actually uses; each change is a new version with the
+               date it starts, never an overwrite. -->
+          <div style="grid-column:1 / -1;">
+            <label id="sa-rates-cap" style="font-size:12px;font-weight:600;color:var(--t2);">Payroll Rates</label>
+            <div class="config-section-sub" style="margin:1px 0 8px;">Payroll uses the value in force on each pay period's first day. <span id="sa-rates-finalized"></span></div>
+            <div class="tw"><table aria-labelledby="sa-rates-cap">
+              <thead><tr><th>Rate</th><th>This period</th><th>Next period</th><th>History</th><th></th></tr></thead>
+              <tbody id="sa-rates-body"><tr><td colspan="5" style="color:var(--t3);">Loading rates...</td></tr></tbody>
+            </table></div>
           </div>
-          <div class="fg" style="margin:0;">
-            <label for="cfg-philhealth">PhilHealth Contribution (%)</label>
-            <input id="cfg-philhealth" class="fc" type="number" value="2.0" min="0" max="100" step="0.01" />
-          </div>
-          <div class="fg" style="margin:0;">
-            <label for="cfg-pagibig">Pag-IBIG Contribution (%)</label>
-            <input id="cfg-pagibig" class="fc" type="number" value="2.0" min="0" max="100" step="0.01" />
+          <!-- Salary per day for each branch (renderSABranchDailyRates in js/super-admin.js).
+               Absent, Late (3 late = 1 absent), Half Day and Leave Without Pay
+               are priced from the employee's branch rate; undertime uses it ÷ 8
+               unless the branch has its own hourly rate. -->
+          <div style="grid-column:1 / -1;margin-top:6px;">
+            <label id="sa-branch-daily-cap" style="font-size:12px;font-weight:600;color:var(--t2);">Daily Rate per Branch</label>
+            <div class="config-section-sub" style="margin:1px 0 8px;">Salary per day for each branch. A branch without its own rate uses the default Daily rate above.</div>
+            <div class="tw"><table aria-labelledby="sa-branch-daily-cap">
+              <thead><tr><th>Branch</th><th>This period</th><th>Next period</th><th>History</th><th></th></tr></thead>
+              <tbody id="sa-branch-daily-body"><tr><td colspan="5" style="color:var(--t3);">Loading branches...</td></tr></tbody>
+            </table></div>
           </div>
           <div class="fg" style="margin:0; grid-column: 1 / -1;">
             <label id="sa-paycal-cap">Pay Calendar</label>
@@ -507,6 +521,51 @@
       </div>
 
       <p id="sa-config-feedback" class="adm-feedback" style="margin-top:4px;"></p>
+    </div>
+
+    <!-- ── PAYROLL RATE EDIT MODAL ── -->
+    <div id="sa-rate-modal" class="adm-modal-backdrop" style="display:none;">
+      <div class="adm-modal-card" style="width:min(520px,100%);" role="dialog" aria-modal="true" aria-labelledby="sa-rate-modal-title">
+        <div class="adm-modal-head">
+          <h3 id="sa-rate-modal-title">Edit Rate</h3>
+          <button class="btn btn-close-x" type="button" onclick="closeSARateModal()" title="Close">&#x2715;</button>
+        </div>
+        <form class="adm-modal-form" style="grid-template-columns:1fr;" onsubmit="submitSARate(event)" novalidate>
+          <input type="hidden" id="sa-rate-type" />
+          <div id="sa-rate-current" style="font-size:13px;color:var(--t2);line-height:1.6;"></div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-rate-value" id="sa-rate-value-label">New value</label>
+            <input id="sa-rate-value" class="fc" type="number" min="0" step="0.01" inputmode="decimal" required />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-rate-effective">Effective starting</label>
+            <input id="sa-rate-effective" class="fc" type="date" required />
+            <div id="sa-rate-effective-hint" style="font-size:11px;color:var(--t3);margin-top:4px;"></div>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-rate-scope">Applies to</label>
+            <select id="sa-rate-scope" class="fc" onchange="onSARateScopeChange()">
+              <option value="global">Everyone (default)</option>
+              <option value="branch">One branch</option>
+              <option value="position">One position</option>
+              <option value="employee">One employee</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;display:none;" id="sa-rate-ref-wrap">
+            <label for="sa-rate-ref" id="sa-rate-ref-label">Branch</label>
+            <select id="sa-rate-ref" class="fc"></select>
+            <input id="sa-rate-ref-text" class="fc" type="text" maxlength="80" placeholder="e.g. Teacher I" style="display:none;" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-rate-note">Note (optional)</label>
+            <input id="sa-rate-note" class="fc" type="text" maxlength="300" placeholder="e.g. Board resolution 2026-14" />
+          </div>
+          <p id="sa-rate-feedback" class="adm-feedback"></p>
+          <div class="adm-modal-actions">
+            <button type="submit" class="btn btn-primary" id="sa-rate-submit">Save New Version</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- ──────────────────────────────

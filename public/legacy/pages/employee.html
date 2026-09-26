@@ -156,7 +156,7 @@
           </div>
           <div class="att-legend">
             <div class="al"><span class="alb" style="background:var(--green-s);border:1px solid var(--green);"></span>Present</div>
-            <div class="al"><span class="alb" style="background:var(--amber-s);border:1px solid var(--amber);"></span>Late</div>
+            <div class="al"><span class="alb" style="background:var(--amber-s);border:1px solid var(--amber);"></span>Late / Undertime / Half Day</div>
             <div class="al"><span class="alb" style="background:var(--red-s);border:1px solid var(--red);"></span>Absent</div>
             <div class="al"><span class="alb" style="outline:2px solid var(--teal);"></span>Today</div>
           </div>
@@ -202,6 +202,9 @@
         </div>
 
       </div><!-- end .emp-att-cols -->
+
+      <!-- This pay period: statuses + Request Correction (loadMyAttendancePeriod in js/app.js) -->
+      <div class="card" id="emp-att-period" style="margin-top:14px;"></div>
 
     </div><!-- end #emp-attendance -->
 
