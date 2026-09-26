@@ -22,12 +22,11 @@ html, body {
 /* ── BRAND ── */
 .rt-brand { display: flex; align-items: center; gap: 12px; }
 
+/* The school seal (assets/logo-160.png). */
 .rt-icon {
-  width: 42px; height: 42px; border-radius: 12px;
-  background: linear-gradient(135deg, var(--amber), var(--amber2));
-  color: #0D1B2A;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: 20px; flex-shrink: 0;
+  width: 52px; height: 52px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .rt-brand-text { display: flex; flex-direction: column; line-height: 1.3; }
@@ -66,7 +65,7 @@ html, body {
 }
 .rt-btn:disabled { opacity: .6; cursor: wait; }
 
-.rt-btn-primary { width: 100%; background: var(--amber); color: #0D1B2A; }
+.rt-btn-primary { width: 100%; background: var(--amber); color: var(--on-accent); }
 .rt-btn-primary:hover:not(:disabled) { background: var(--amber2); }
 
 .rt-btn-outline { background: transparent; border-color: var(--border); color: var(--t1); }
@@ -135,8 +134,8 @@ html, body {
   /* Tinted from the theme's own accent tokens rather than fixed rgba, so the
      corner glows stay visible against the light background too. */
   background:
-    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--blue) 10%, transparent), transparent 32%),
-    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--amber) 10%, transparent), transparent 32%),
+    radial-gradient(circle at 0% 100%, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 36%),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--color-secondary) 16%, transparent), transparent 36%),
     var(--bg);
 }
 
@@ -209,8 +208,8 @@ html, body {
 .rt-status[data-state="in"] .rt-status-dot,
 .rt-status[data-state="out"] .rt-status-dot { background: var(--green); box-shadow: 0 0 24px var(--green-s); }
 
-.rt-status[data-state="duplicate"] .rt-status-ring { border-color: var(--amber); }
-.rt-status[data-state="duplicate"] .rt-status-dot { background: var(--amber); }
+.rt-status[data-state="duplicate"] .rt-status-ring { border-color: var(--warn); }
+.rt-status[data-state="duplicate"] .rt-status-dot { background: var(--warn); }
 
 .rt-status[data-state="error"] .rt-status-ring { border-color: var(--red); }
 .rt-status[data-state="error"] .rt-status-dot { background: var(--red); box-shadow: 0 0 24px var(--red-s); }
@@ -243,7 +242,7 @@ html, body {
   background: var(--bg4); color: var(--t2); border: 1px solid var(--border);
 }
 .rt-result-badge[data-tone="green"] { background: var(--green-s); color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
-.rt-result-badge[data-tone="amber"] { background: var(--amber-s); color: var(--amber); border-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+.rt-result-badge[data-tone="amber"] { background: var(--warn-s); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 .rt-result-badge[data-tone="red"] { background: var(--red-s); color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 
 /* ── SCAN INPUT ── */

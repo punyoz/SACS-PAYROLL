@@ -16,8 +16,8 @@
 /* ── SIDEBAR ── */
 .sidebar {
   width: var(--sidebar);
-  background: var(--bg2);
-  border-right: 1px solid var(--border);
+  background: var(--chrome);
+  border-right: 2px solid var(--gold);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -37,7 +37,7 @@
   z-index: 0;
   background: radial-gradient(
     300px circle at var(--mx, -999px) var(--my, -999px),
-    rgba(245, 166, 35, 0.08) 0%,
+    color-mix(in srgb, var(--chrome-accent) 12%, transparent) 0%,
     transparent 70%
   );
 }
@@ -45,7 +45,7 @@
 
 .sb-brand {
   padding: 18px 16px 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--chrome-line);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -61,29 +61,24 @@
 }
 
 .sb-refresh-btn:hover {
-  background: var(--bg3);
+  background: var(--chrome-hover);
 }
+/* The school seal in the sidebar / employee header brand block. One rule
+   for every portal (incl. HR, which has no stylesheet of its own). */
 .bi {
-  width: 32px; height: 32px;
-  border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 700;
-  font-family: var(--mono);
-  /* Single system-wide brand colour — every portal (incl. HR, which has no
-     stylesheet of its own) inherits this so the logo always renders. */
-  background: var(--amber);
-  color: #0D1B2A;
+  width: 36px; height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
-[data-theme="light"] .bi { color: #fff; }
-.bt .bn { font-size: 12px; font-weight: 600; color: var(--t1); }
-.bt .bs { font-size: 10px; color: var(--t3); }
+.bt .bn { font-size: 12px; font-weight: 600; color: var(--chrome-text); }
+.bt .bs { font-size: 10px; color: var(--chrome-muted); }
 
 /* ── NAV SECTION LABEL ── */
 .sb-sec {
   padding: 14px 12px 3px;
   font-size: 9px;
   font-weight: 700;
-  color: var(--t3);
+  color: var(--chrome-muted);
   letter-spacing: .12em;
   text-transform: uppercase;
 }
@@ -99,21 +94,21 @@
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
-  color: var(--t2);
+  color: var(--chrome-muted);
   
   position: relative;
   user-select: none;
 }
 .ni { transition: background .15s, color .15s, transform .15s ease; }
-.ni:hover { background: var(--bg3); color: var(--t1); }
+.ni:hover { background: var(--chrome-hover); color: var(--chrome-text); }
 .ni:not(.active):hover { transform: translateX(3px); }
-.ni.active { background: var(--amber-s); color: var(--amber); }
+.ni.active { background: var(--chrome-2); color: var(--chrome-text); }
 .ni.active::before {
   content: '';
   position: absolute; left: 0; top: 50%;
   transform: translateY(-50%);
   width: 3px; height: 18px;
-  background: var(--amber);
+  background: var(--chrome-accent);
   border-radius: 0 3px 3px 0;
 }
 .ni svg { flex-shrink: 0; opacity: 0.85; }
@@ -122,7 +117,7 @@
 .nib {
   margin-left: auto;
   background: var(--red);
-  color: #fff;
+  color: var(--on-color);
   font-size: 9px;
   font-weight: 700;
   padding: 2px 6px;
@@ -133,8 +128,14 @@
 .sb-foot {
   margin-top: auto;
   padding: 12px;
-  border-top: 1px solid var(--border);
-  background: var(--bg2);
+  border-top: 1px solid var(--chrome-line);
+  background: var(--chrome);
+}
+/* Avatars on the green chrome are gold for every role (inline role colours
+   would vanish against it, and no role gets its own scheme). */
+.sb-foot .av {
+  background: var(--chrome-accent) !important;
+  color: var(--color-neutral-dark);
 }
 .uc {
   display: flex; align-items: center; gap: 9px;
@@ -143,21 +144,21 @@
   cursor: pointer;
   
 }
-.uc:hover { background: var(--bg3); }
-.un { font-size: 12px; font-weight: 600; color: var(--t1); }
-.ur { font-size: 10px; color: var(--t3); }
+.uc:hover { background: var(--chrome-hover); }
+.un { font-size: 12px; font-weight: 600; color: var(--chrome-text); }
+.ur { font-size: 10px; color: var(--chrome-muted); }
 .xb {
   margin-left: auto;
   background: none; border: none;
   cursor: pointer;
-  color: var(--t3);
+  color: var(--chrome-muted);
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 6px;
   font-family: var(--sans);
   
 }
-.xb:hover { color: var(--red); background: var(--red-s); }
+.xb:hover { color: var(--on-color); background: var(--red); }
 
 /* ── MAIN AREA ── */
 .main {
@@ -177,31 +178,34 @@
   padding: 0 26px;
   gap: 12px;
   flex-shrink: 0;
-  background: var(--bg);
+  background: var(--chrome);
+  border-bottom: 2px solid var(--gold);
   
 }
-.tb-title { font-size: 15px; font-weight: 600; color: var(--t1); }
-.tb-sub   { font-size: 11px; color: var(--t3); margin-top: 1px; }
+.tb-title { font-size: 15px; font-weight: 600; color: var(--chrome-text); }
+.tb-sub   { font-size: 11px; color: var(--chrome-muted); margin-top: 1px; }
+.tb-logo  { width: 36px; height: 36px; }
 .tb-sp    { flex: 1; }
 
 .tb-search {
   display: flex; align-items: center; gap: 7px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
+  background: var(--chrome-hover);
+  border: 1px solid var(--chrome-line);
   border-radius: 8px;
   padding: 7px 12px;
   width: 200px;
   
 }
-.tb-search.search-hit { border-color: var(--green); }
-.tb-search.search-miss { border-color: var(--red); }
+.tb-search:focus-within { border-color: var(--chrome-accent); }
+.tb-search.search-hit { border-color: var(--chrome-accent); }
+.tb-search.search-miss { border-color: var(--chrome-danger); }
 .tb-search input {
   background: none; border: none; outline: none;
   font-family: var(--sans); font-size: 12px;
-  color: var(--t1); width: 100%;
+  color: var(--chrome-text); width: 100%;
 }
-.tb-search input::placeholder { color: var(--t3); }
-.search-ic { color: var(--t3); font-size: 13px; }
+.tb-search input::placeholder { color: var(--chrome-muted); }
+.search-ic { color: var(--chrome-muted); font-size: 13px; }
 
 .nb {
   width: 32px; height: 32px;
@@ -213,12 +217,34 @@
   transition: border-color 0.15s, background 0.25s;
 }
 .nb:hover { border-color: var(--t3); }
+/* Icon buttons, role tag and search sit on the green bar in every portal. */
+.topbar .nb,
+.topbar .theme-toggle,
+.emp-topbar .nb,
+.emp-topbar .theme-toggle {
+  background: var(--chrome-hover);
+  border-color: var(--chrome-line);
+  color: var(--chrome-text);
+}
+.topbar .nb:hover,
+.topbar .theme-toggle:hover,
+.emp-topbar .nb:hover,
+.emp-topbar .theme-toggle:hover {
+  border-color: var(--chrome-accent);
+  color: var(--chrome-accent);
+}
+.topbar .role-tag,
+.emp-topbar .role-tag {
+  background: var(--chrome-2);
+  color: var(--chrome-accent);
+  border: 1px solid var(--chrome-line);
+}
 .nd {
   position: absolute; top: 5px; right: 5px;
   width: 6px; height: 6px;
   border-radius: 50%;
-  background: var(--amber);
-  border: 1.5px solid var(--bg);
+  background: var(--color-accent-flame);
+  border: 1.5px solid var(--chrome);
 }
 
 .notif-panel {
@@ -231,7 +257,7 @@
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--rl);
-  box-shadow: 0 20px 38px color-mix(in srgb, #000 24%, transparent);
+  box-shadow: 0 20px 38px color-mix(in srgb, var(--shadow-color) 24%, transparent);
   z-index: 900;
   display: none;
 }
@@ -480,7 +506,7 @@
   width: min(440px, 100%);
   background: var(--bg2);
   border: 1px solid var(--border);
-  box-shadow: 0 20px 48px color-mix(in srgb, #000 26%, transparent);
+  box-shadow: 0 20px 48px color-mix(in srgb, var(--shadow-color) 26%, transparent);
   border-radius: var(--rl);
   animation: modal-enter 0.22s ease-out;
   overflow: hidden;
@@ -562,7 +588,7 @@
   align-items: flex-start;
   gap: 10px;
   pointer-events: all;
-  box-shadow: 0 8px 28px color-mix(in srgb, #000 22%, transparent);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--shadow-color) 22%, transparent);
   animation: toast-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
   border-left: 3px solid var(--green);
 }
@@ -675,9 +701,9 @@
   height: 32px;
   flex-shrink: 0;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg2);
-  color: var(--t2);
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-hover);
+  color: var(--chrome-text);
   align-items: center;
   justify-content: center;
   cursor: pointer;
@@ -686,9 +712,9 @@
 .sitemap-fab.visible { display: flex; }
 .sitemap-fab:hover,
 .sitemap-fab:focus-visible {
-  border-color: var(--amber);
-  background: var(--bg3);
-  color: var(--amber);
+  border-color: var(--chrome-accent);
+  background: var(--chrome-2);
+  color: var(--chrome-accent);
 }
 .sitemap-fab svg { pointer-events: none; }
 
@@ -697,7 +723,7 @@
   position: fixed;
   inset: 0;
   z-index: 1050;
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  background: var(--scrim);
   backdrop-filter: blur(2px);
   opacity: 0;
   transition: opacity .16s ease;
@@ -722,9 +748,9 @@
   width: min(300px, 86vw);
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg2);
-  border-right: 1px solid var(--border);
-  box-shadow: 14px 0 40px color-mix(in srgb, #000 30%, transparent);
+  background: var(--chrome);
+  border-right: 2px solid var(--gold);
+  box-shadow: 14px 0 40px color-mix(in srgb, var(--shadow-color) 30%, transparent);
   opacity: 0;
   transform: translateX(-14px);
   transition: opacity .16s ease, transform .16s ease;
@@ -736,11 +762,16 @@
 .sitemap-head {
   position: relative;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 16px 50px 14px 18px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--chrome-line);
 }
-.sitemap-title { font-size: 14px; font-weight: 700; color: var(--t1); }
-.sitemap-sub   { font-size: 11px; color: var(--t3); margin-top: 2px; }
+.sitemap-logo  { width: 44px; height: 44px; }
+.sitemap-text  { min-width: 0; }
+.sitemap-title { font-size: 14px; font-weight: 700; color: var(--chrome-text); }
+.sitemap-sub   { font-size: 11px; color: var(--chrome-muted); margin-top: 2px; }
 .sitemap-close {
   position: absolute;
   top: 10px;
@@ -748,16 +779,16 @@
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg3);
-  color: var(--t2);
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-hover);
+  color: var(--chrome-text);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 13px;
   cursor: pointer;
 }
-.sitemap-close:hover { color: var(--red); border-color: var(--red); }
+.sitemap-close:hover { color: var(--chrome-danger); border-color: var(--chrome-danger); }
 
 .sitemap-body {
   flex: 1;
@@ -772,7 +803,7 @@
   font-weight: 700;
   letter-spacing: .1em;
   text-transform: uppercase;
-  color: var(--t3);
+  color: var(--chrome-muted);
   margin-bottom: 6px;
 }
 .sitemap-grid {
@@ -788,7 +819,7 @@
   border-radius: 8px;
   border: 1px solid transparent;
   background: none;
-  color: var(--t2);
+  color: var(--chrome-muted);
   font-size: 13px;
   font-weight: 500;
   font-family: var(--sans);
@@ -796,8 +827,8 @@
   cursor: pointer;
   width: 100%;
 }
-.sitemap-card:hover { background: var(--bg3); color: var(--t1); }
-.sitemap-card.active { border-color: var(--amber); background: var(--amber-s); color: var(--amber); }
+.sitemap-card:hover { background: var(--chrome-hover); color: var(--chrome-text); }
+.sitemap-card.active { border-color: var(--chrome-accent); background: var(--chrome-2); color: var(--chrome-text); }
 .sitemap-card-icon { display: flex; flex-shrink: 0; opacity: .85; }
 
 /* Cloned straight from the sidebar's own .sb-foot, so it already carries

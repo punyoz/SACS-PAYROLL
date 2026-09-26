@@ -3,12 +3,7 @@
    Administrator role views only
    ═══════════════════════════════════════ */
 
-/* ── SIDEBAR BRAND COLOR ── */
-#s-admin .bi {
-  background: var(--amber);
-  color: #0D1B2A;
-}
-[data-theme="light"] #s-admin .bi { color: #fff; }
+/* ── SIDEBAR BRAND ── the school seal (css/layout.css .bi), same for every role. */
 
 /* ── RFID TERMINAL CALLOUT ── */
 .rfid-terminal-callout {
@@ -72,7 +67,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--bg1) 30%, #000 70%);
+  background: var(--scrim);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   padding: 20px;
@@ -83,7 +78,7 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--bg2);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--shadow-color) 28%, transparent);
   padding: 18px;
 }
 
@@ -142,12 +137,12 @@
 
 .adm-feedback.ok { color: var(--t2); }
 .adm-feedback.loading { color: var(--t2); }
-.adm-feedback.err { color: #E85555; font-weight: 700; }
+.adm-feedback.err { color: var(--red); font-weight: 700; }
 
 .field-error {
   display: block;
   font-size: 11px;
-  color: #E85555;
+  color: var(--red);
   font-weight: 600;
   min-height: 14px;
   margin-top: 3px;
@@ -171,9 +166,9 @@
   flex-shrink: 0;
 }
 .btn-close-x:hover {
-  border-color: #E85555;
-  color: #E85555;
-  background: color-mix(in srgb, #E85555 10%, transparent);
+  border-color: var(--red);
+  color: var(--red);
+  background: var(--red-s);
 }
 
 .adm-modal-actions {

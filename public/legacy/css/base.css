@@ -92,6 +92,7 @@ h3 { font-size: 15px; font-weight: 600; }
 .ct  { font-size: 11px; font-weight: 600; color: var(--t2); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
 .cv  { font-size: 26px; font-weight: 700; font-family: var(--mono); color: var(--t1); }
 .cv.a { color: var(--amber); }
+.cv.w { color: var(--warn);  } /* late / pending — needs attention */
 .cv.t { color: var(--teal);  }
 .cv.r { color: var(--red);   }
 .cv.g { color: var(--green); }
@@ -116,10 +117,8 @@ h3 { font-size: 15px; font-weight: 600; }
   border: none;
   white-space: nowrap;
 }
-.btn-primary { background: var(--amber); color: #fff; }
+.btn-primary { background: var(--amber); color: var(--on-accent); }
 .btn-primary:hover { background: var(--amber2); }
-
-[data-theme="dark"] .btn-primary { color: #0D1B2A; }
 
 .btn-outline {
   background: transparent;
@@ -129,13 +128,13 @@ h3 { font-size: 15px; font-weight: 600; }
 .btn-outline:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-s); }
 
 .btn-teal  { background: var(--teal-s);  border: 1px solid var(--teal);  color: var(--teal);  }
-.btn-teal:hover  { background: var(--teal);  color: #fff; }
+.btn-teal:hover  { background: var(--teal);  color: var(--on-color); }
 
 .btn-red   { background: var(--red-s);   border: 1px solid var(--red);   color: var(--red);   }
-.btn-red:hover   { background: var(--red);   color: #fff; }
+.btn-red:hover   { background: var(--red);   color: var(--on-color); }
 
 .btn-green { background: var(--green-s); border: 1px solid var(--green); color: var(--green); }
-.btn-green:hover { background: var(--green); color: #fff; }
+.btn-green:hover { background: var(--green); color: var(--on-color); }
 
 /* ── CONFIRM DIALOG ── */
 .confirm-backdrop {
@@ -158,7 +157,7 @@ h3 { font-size: 15px; font-weight: 600; }
   padding: 24px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  box-shadow: 0 10px 30px color-mix(in srgb, #000 20%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow-color) 20%, transparent);
   animation: modal-enter 0.2s ease-out;
 }
 
@@ -240,6 +239,7 @@ th {
   color: var(--t3);
   text-transform: uppercase;
   letter-spacing: .07em;
+  border-bottom: 2px solid var(--gold);
 }
 td {
   padding: 12px 16px;
@@ -263,7 +263,7 @@ td.mn { font-family: var(--mono); color: var(--t1); }
   font-weight: 600;
 }
 .bg  { background: var(--green-s); color: var(--green); }
-.ba  { background: var(--amber-s); color: var(--amber); }
+.ba  { background: var(--warn-s);  color: var(--warn);  }
 .br  { background: var(--red-s);   color: var(--red);   }
 .bt2 { background: var(--teal-s);  color: var(--teal);  }
 .bb  { background: var(--blue-s);  color: var(--blue);  }
@@ -326,6 +326,8 @@ select.fc { cursor: pointer; }
 
 /* ── PAYSLIP SHARED ── */
 .pf-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.pf-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pf-logo  { width: 52px; height: 52px; }
 .pf-school     { font-size: 15px; font-weight: 700; color: var(--t1); }
 .pf-school-s   { font-size: 11px; color: var(--t3); margin-top: 2px; }
 .pf-period     { text-align: right; font-size: 12px; color: var(--t2); }
@@ -376,7 +378,7 @@ select.fc { cursor: pointer; }
   align-items: flex-start;
   margin-bottom: 18px;
 }
-.banner-amber { background: var(--amber-s); border: 1px solid var(--amber); color: var(--amber); }
+.banner-amber { background: var(--warn-s);  border: 1px solid var(--warn);  color: var(--warn);  }
 .banner-blue  { background: var(--blue-s);  border: 1px solid var(--blue);  color: var(--blue);  }
 .banner-red   { background: var(--red-s);   border: 1px solid var(--red);   color: var(--red);   }
 
@@ -395,10 +397,9 @@ select.fc { cursor: pointer; }
 .av {
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 700; color: #fff;
+  font-weight: 700; color: var(--on-color);
   flex-shrink: 0;
 }
-[data-theme="dark"] .av { color: #0D1B2A; }
 
 /* ── SCROLLBAR ── */
 .page::-webkit-scrollbar  { width: 5px; }
@@ -447,19 +448,18 @@ select.fc { cursor: pointer; }
    a separate one. */
 #s-login,
 #s-verify-otp {
+  /* Full viewport, so the brand wash below covers the whole screen rather
+     than stopping where the card's content ends. */
+  min-height: 100dvh;
   align-items: center;
   justify-content: center;
   padding: 48px;
+  /* School green washing in from the top-left, gold from the bottom-right —
+     the two colours of the seal the card leads with. */
   background:
-    radial-gradient(circle at 100% 50%, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 28%),
-    radial-gradient(circle at 0% 50%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 26%),
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--color-primary) 16%, transparent), transparent 45%),
+    radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--color-secondary) 18%, transparent), transparent 42%),
     var(--bg);
-}
-
-[data-theme="light"] #s-login,
-[data-theme="light"] #s-verify-otp {
-  /* Keep light mode clean and flat, no dark/vignette artifacts. */
-  background: var(--bg);
 }
 
 .lc {
@@ -467,6 +467,7 @@ select.fc { cursor: pointer; }
   max-width: 560px;
   background: var(--bg2);
   border: 1px solid var(--border);
+  border-top: 4px solid var(--gold);
   border-radius: var(--rl);
   padding: 30px 32px 24px;
   box-shadow: var(--shadow);
@@ -479,21 +480,12 @@ select.fc { cursor: pointer; }
   margin-bottom: 22px;
 }
 
+/* The school seal — the most prominent placement of the logo. */
 .l-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  background: var(--amber);
-  color: #0D1B2A;
-  font-family: var(--mono);
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-[data-theme="light"] .l-icon {
-  color: #fff;
+  width: 92px;
+  height: 92px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .l-name {
@@ -557,7 +549,7 @@ select.fc { cursor: pointer; }
 
 .fi:focus {
   border-color: var(--amber);
-  box-shadow: 0 0 0 3px rgba(245, 166, 35, 0.15);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .fi::placeholder {
@@ -570,7 +562,7 @@ select.fc { cursor: pointer; }
   border-radius: 10px;
   padding: 14px 16px;
   background: var(--amber);
-  color: #0D1B2A;
+  color: var(--on-accent);
   font-size: 18px;
   font-weight: 700;
   cursor: pointer;
@@ -578,9 +570,6 @@ select.fc { cursor: pointer; }
   margin-top: 10px;
 }
 
-[data-theme="light"] .lb {
-  color: #fff;
-}
 
 .lb:hover {
   background: var(--amber2);
@@ -883,9 +872,9 @@ body {
   color: var(--t1);
 }
 .pg-bar button.pg-active {
-  background: var(--teal);
-  color: #fff;
-  border-color: var(--teal);
+  background: var(--amber);
+  color: var(--on-accent);
+  border-color: var(--amber);
   font-weight: 600;
 }
 .pg-bar button:disabled {
@@ -919,9 +908,9 @@ body {
 }
 .st-tab:hover { background: var(--bg3); color: var(--t1); }
 .st-tab.st-active {
-  background: var(--teal);
-  color: #fff;
-  border-color: var(--teal);
+  background: var(--amber);
+  color: var(--on-accent);
+  border-color: var(--amber);
   font-weight: 600;
 }
 
@@ -944,7 +933,7 @@ body {
   padding: 32px 16px;
   min-height: 100dvh;
   background:
-    radial-gradient(circle at 100% 0%, rgba(245, 166, 35, 0.08), rgba(245, 166, 35, 0) 32%),
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--amber) 8%, transparent), transparent 32%),
     var(--bg);
 }
 
@@ -1254,6 +1243,14 @@ body.scroll-locked {
    cards) show where focus is; the ring appears only for keyboard focus. */
 [data-kbd-click]:focus-visible {
   outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+/* On the green chrome the accent would vanish — gold ring there. */
+.sidebar [data-kbd-click]:focus-visible,
+.sitemap-panel :focus-visible,
+.topbar :focus-visible,
+.emp-topbar :focus-visible {
+  outline: 2px solid var(--chrome-accent);
   outline-offset: 2px;
 }
 .tb-search:focus-within { border-color: var(--amber); }

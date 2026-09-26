@@ -30,42 +30,51 @@
     margin: 14mm 12mm;
   }
 
-  /* ── Ink palette ────────────────────────────────────────────────────
+  /* ── Paper palette ──────────────────────────────────────────────────
      Redefining the theme variables converts every descendant in one go,
-     whichever theme the user happens to be viewing in.                 */
+     whichever theme the user happens to be viewing in. Always the light
+     brand palette on white paper: school green for structure, gold for
+     the header rules — the brand tokens themselves come from theme.css. */
   :root,
   [data-theme="dark"],
   [data-theme="light"] {
-    --bg:      #FFFFFF;
-    --bg2:     #FFFFFF;
-    --bg3:     #F4F6F8;
-    --bg4:     #ECEFF2;
-    --border:  #B9C2CC;
-    --border2: #D4DAE0;
+    --bg:      var(--color-neutral-white);
+    --bg2:     var(--color-neutral-white);
+    --bg3:     #F4F6F1;
+    --bg4:     #EBEFE7;
+    --border:  #C9BA84;
+    --border2: #E0D5AE;
 
-    --amber:   #9A6400;
-    --amber2:  #7A4F00;
-    --amber-s: #FBF4E6;
-    --teal:    #0B5F56;
-    --teal-s:  #E8F2F1;
-    --red:     #A32020;
-    --red-s:   #F9EAEA;
-    --green:   #12703A;
-    --green-s: #E9F4ED;
-    --blue:    #1B4B9E;
-    --blue-s:  #EAF0FA;
+    --amber:   var(--color-primary);
+    --amber2:  var(--color-primary-dark);
+    --amber-s: #EAF1EC;
+    --teal:    var(--color-secondary-text);
+    --teal-s:  #F8F1DC;
+    --red:     var(--color-accent-red);
+    --red-s:   #F6E8E8;
+    --green:   var(--color-primary);
+    --green-s: #EAF1EC;
+    --blue:    var(--color-primary-dark);
+    --blue-s:  #E7EEE9;
+    --warn:    var(--color-accent-flame-text);
+    --warn-s:  #FDEEE1;
 
-    --t1:      #000000;
-    --t2:      #333B44;
-    --t3:      #5A646E;
+    --t1:      var(--color-neutral-dark);
+    --t2:      #333A36;
+    --t3:      #555C58;
+
+    /* Structural rules on paper: green frame, gold header underline. */
+    --print-rule:   var(--color-primary);
+    --print-accent: var(--color-secondary);
+    --print-cell:   #9AA39D;
 
     --shadow:    none;
     --shadow-sm: none;
   }
 
   html, body {
-    background: #fff !important;
-    color: #000 !important;
+    background: var(--bg) !important;
+    color: var(--t1) !important;
     height: auto !important;
     min-height: 0 !important;
     overflow: visible !important;
@@ -129,7 +138,7 @@
      margins. A hairline rule keeps the grouping legible in mono.       */
   body[data-print] .card,
   body[data-print] .tw {
-    background: #fff !important;
+    background: var(--bg) !important;
     border: none !important;
     border-radius: 0 !important;
     margin: 0 0 10px !important;
@@ -149,7 +158,7 @@
   body[data-print="payslip"] #ac-payslips > .card,
   body[data-print="payslip"] #emp-payslips .ps-card {
     display: block !important;
-    border: 1.5px solid #000 !important;
+    border: 1.5px solid var(--print-rule) !important;
     padding: 14px 16px !important;
     break-inside: avoid;
   }
@@ -162,8 +171,10 @@
     gap: 16px;
     padding-bottom: 8px;
     margin-bottom: 12px !important;
-    border-bottom: 1.5px solid #000;
+    border-bottom: 2px solid var(--print-accent);
   }
+  body[data-print="payslip"] .pf-logo { width: 17mm !important; height: 17mm !important; }
+  body[data-print="payslip"] .pf-school { color: var(--print-rule); }
   body[data-print="payslip"] .pf-school   { font-size: 15pt !important; font-weight: 700; }
   body[data-print="payslip"] .pf-school-s { font-size: 8pt  !important; }
   body[data-print="payslip"] .pf-period   { font-size: 8.5pt !important; text-align: right; white-space: nowrap; }
@@ -175,8 +186,8 @@
     gap: 8px !important;
     padding: 8px 0 !important;
     margin-bottom: 12px !important;
-    border-top: 1px solid #000;
-    border-bottom: 1px solid #000;
+    border-top: 1px solid var(--print-rule);
+    border-bottom: 1px solid var(--print-rule);
     break-inside: avoid;
   }
   body[data-print="payslip"] .pf-f label { font-size: 6.5pt !important; }
@@ -194,7 +205,8 @@
   }
   body[data-print="payslip"] .pf-stitle {
     font-size: 8pt !important;
-    border-bottom: 1px solid #000;
+    border-bottom: 1px solid var(--print-accent);
+    color: var(--print-rule);
     padding-bottom: 3px;
     margin-bottom: 4px;
   }
@@ -209,14 +221,14 @@
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    border: 1.5px solid #000 !important;
-    background: #F0F2F4 !important;
+    border: 1.5px solid var(--print-rule) !important;
+    background: var(--amber-s) !important;
     padding: 9px 14px !important;
     margin-top: 4px !important;
     break-inside: avoid;
   }
   body[data-print="payslip"] .pf-net-l { font-size: 11pt !important; }
-  body[data-print="payslip"] .pf-net-a { font-size: 16pt !important; color: #000 !important; }
+  body[data-print="payslip"] .pf-net-a { font-size: 16pt !important; color: var(--print-rule) !important; }
 
   /* Signature block — print-only, so a paid record can be acknowledged. */
   body[data-print="payslip"] .card::after {
@@ -225,7 +237,7 @@
     margin-top: 26px;
     padding-top: 6px;
     font-size: 8.5pt;
-    color: #000;
+    color: var(--t1);
   }
 
   /* ═════════════════════════════════════════════════════════════════
@@ -234,27 +246,34 @@
      split across a page boundary.
      ═════════════════════════════════════════════════════════════════ */
 
-  /* Letterhead, print-only (hidden on screen by base.css). */
-  body[data-print="report"] .print-doc-head {
-    display: block !important;
-    border-bottom: 1.5px solid #000;
+  /* Letterhead, print-only (hidden on screen by base.css): the school seal
+     beside the school name, gold rule underneath. The timesheet uses the
+     same letterhead. */
+  body[data-print="report"] .print-doc-head,
+  body[data-print="timesheet"] .print-doc-head {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 2px solid var(--print-accent);
     padding-bottom: 8px;
     margin-bottom: 12px;
     break-inside: avoid;
     break-after: avoid;
   }
-  body[data-print="report"] .pdh-school {
-    font-size: 15pt; font-weight: 700; color: #000; line-height: 1.2;
+  body[data-print] .pdh-logo { width: 18mm; height: 18mm; }
+  body[data-print] .pdh-text { flex: 1; min-width: 0; }
+  body[data-print] .pdh-school {
+    font-size: 15pt; font-weight: 700; color: var(--print-rule); line-height: 1.2;
   }
-  body[data-print="report"] .pdh-sys {
-    font-size: 8pt; color: #333B44; margin-top: 1px;
+  body[data-print] .pdh-sys {
+    font-size: 8pt; color: var(--t2); margin-top: 1px;
   }
-  body[data-print="report"] .pdh-title {
-    font-size: 11pt; font-weight: 700; color: #000; margin-top: 7px;
+  body[data-print] .pdh-title {
+    font-size: 11pt; font-weight: 700; color: var(--t1); margin-top: 7px;
   }
-  body[data-print="report"] .pdh-meta {
+  body[data-print] .pdh-meta {
     display: flex; justify-content: space-between; gap: 16px;
-    font-size: 8.5pt; color: #333B44; margin-top: 2px;
+    font-size: 8.5pt; color: var(--t2); margin-top: 2px;
   }
 
   /* Drop the controls card, keep the summary and the table. */
@@ -267,18 +286,18 @@
   }
 
   body[data-print="report"] .sum-box {
-    border: 1px solid #000 !important;
-    background: #F4F6F8 !important;
+    border: 1px solid var(--print-rule) !important;
+    background: var(--bg3) !important;
     padding: 8px 12px !important;
     margin-bottom: 4px !important;
     break-inside: avoid;
   }
   body[data-print="report"] .sr     { font-size: 9.5pt !important; padding: 2.5px 0 !important; }
-  body[data-print="report"] .sr.tot { font-size: 11pt !important; border-top: 1.5px solid #000 !important; }
+  body[data-print="report"] .sr.tot { font-size: 11pt !important; border-top: 1.5px solid var(--print-rule) !important; }
 
   body[data-print="report"] .stitle {
     font-size: 11pt !important;
-    color: #000 !important;
+    color: var(--print-rule) !important;
     margin-bottom: 6px !important;
   }
 
@@ -297,18 +316,19 @@
   body[data-print] tr    { break-inside: avoid !important; page-break-inside: avoid !important; }
 
   body[data-print] th {
-    background: #E4E8EC !important;
-    color: #000 !important;
+    background: var(--amber-s) !important;
+    color: var(--amber2) !important;
     font-size: 8pt !important;
     text-align: left;
     padding: 5px 7px !important;
-    border: 1px solid #000 !important;
+    border: 1px solid var(--print-rule) !important;
+    border-bottom: 2px solid var(--print-accent) !important;
     white-space: nowrap;
   }
   body[data-print] td {
-    color: #000 !important;
+    color: var(--t1) !important;
     padding: 4px 7px !important;
-    border: 1px solid #7A848E !important;
+    border: 1px solid var(--print-cell) !important;
     vertical-align: top;
   }
 
@@ -317,8 +337,8 @@
   body[data-print] .badge,
   body[data-print] .tag {
     background: transparent !important;
-    border: 1px solid #000 !important;
-    color: #000 !important;
+    border: 1px solid var(--t2) !important;
+    color: var(--t1) !important;
     padding: 0 4px !important;
     font-size: 8pt !important;
   }
@@ -334,7 +354,7 @@
   }
   body[data-print="timesheet"] #ts-printable {
     display: block !important;
-    border: 1.5px solid #000 !important;
+    border: 1.5px solid var(--print-rule) !important;
     padding: 12px 14px !important;
     max-width: none !important;
   }

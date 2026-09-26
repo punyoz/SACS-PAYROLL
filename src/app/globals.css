@@ -1,4 +1,40 @@
+/* Brand tokens for the App Router pages (404, error boundary, the portal
+   frame's backdrop). Same Shepherd Angels Christian School palette as the
+   portal's own central theme — public/legacy/css/theme.css — which these
+   pages cannot load. Keep the two in step. */
 :root {
+  --color-primary:         #1B5E3C;
+  --color-primary-dark:    #0F3D28;
+  --color-secondary:       #C9A227;
+  --color-secondary-light: #E8C766;
+  --color-accent-flame:    #F5811F;
+  --color-accent-red:      #8B1A1A;
+  --color-neutral-white:   #FFFFFF;
+  --color-neutral-dark:    #1A1A1A;
+  --color-neutral-gray:    #6B7280;
+
+  --bg:     #F6F7F3;
+  --bg2:    var(--color-neutral-white);
+  --bg3:    #F2F4EF;
+  --border: #E0D5AE;
+  --t1:     var(--color-neutral-dark);
+  --t3:     #5E6470;
+  --accent: var(--color-primary);
+  --on-accent: var(--color-neutral-white);
+
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --bg:     #0C2318;
+  --bg2:    #112B1F;
+  --bg3:    #17392A;
+  --border: #2F5642;
+  --t1:     #F3F1E8;
+  --t3:     #9DB2A5;
+  --accent: var(--color-secondary);
+  --on-accent: var(--color-neutral-dark);
+
   color-scheme: dark;
 }
 
@@ -11,8 +47,8 @@ body {
   margin: 0;
   padding: 0;
   font-family: "DM Sans", sans-serif;
-  background: #0d1b2a;
-  color: #f0f4f8;
+  background: var(--bg);
+  color: var(--t1);
 }
 
 a {
@@ -26,8 +62,9 @@ a {
 }
 
 .card {
-  background: #122436;
-  border: 1px solid #2a4a66;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--color-secondary);
   border-radius: 14px;
   padding: 20px;
 }
@@ -41,24 +78,21 @@ a {
 .linkCard {
   display: block;
   text-decoration: none;
-  background: #1a3249;
-  border: 1px solid #2a4a66;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 14px;
 }
 
 .muted {
-  color: #8ba5be;
+  color: var(--t3);
   font-size: 14px;
 }
 
 /* Backdrop behind the portal iframe, shown for the instant before the portal
    paints. Matches the portal's own --bg for the saved theme (set on <html> by
-   layout.js), so a light-theme sign-in no longer flashes dark. */
+   layout.js), so a sign-in never flashes the wrong colour. */
 .legacy-frame {
-  background: #0d1b2a;
-}
-
-html[data-theme="light"] .legacy-frame {
-  background: #f4f6f9;
+  background: var(--bg);
 }

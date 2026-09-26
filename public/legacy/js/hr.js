@@ -140,7 +140,7 @@ function renderHRDashboardLeaves(pendingCount) {
     return;
   }
   el.innerHTML = `<div class="approval-item">
-    <div class="approval-info"><strong style="color:var(--amber);">${pendingCount}</strong> leave request${pendingCount > 1 ? 's' : ''} awaiting your decision.</div>
+    <div class="approval-info"><strong style="color:var(--warn);">${pendingCount}</strong> leave request${pendingCount > 1 ? 's' : ''} awaiting your decision.</div>
     <button class="btn btn-outline" onclick="hrGo('hr-leaves')">Review Now</button>
   </div>`;
 }
@@ -933,7 +933,7 @@ function hrReportRowHtml(r) {
       <td>${escapeHtml(r.employee_name || '—')}</td>
       <td>${escapeHtml(r.employee_type || '—')}</td>
       <td style="color:var(--green);">${r.present ?? 0}</td>
-      <td style="color:var(--amber);">${r.late ?? 0}</td>
+      <td style="color:var(--warn);">${r.late ?? 0}</td>
       <td style="color:var(--red);">${r.absent ?? 0}</td>
       <td>${Number(r.total_hours || 0).toFixed(1)}h</td>
     </tr>`;
@@ -1166,10 +1166,10 @@ window.addEventListener('sacs-auth-context-changed', (event) => {
    transfer is recorded in public.transfer_requests and applied at once.
    ═══════════════════════════════════════ */
 
-const HR_BRANCH_COLORS = ['var(--amber)', 'var(--blue)', 'var(--teal)', 'var(--green)', 'var(--red)'];
+const HR_BRANCH_COLORS = ['var(--amber)', 'var(--teal)', 'var(--warn)', 'var(--blue)'];
 
 function hrRenderBranchFilterUI() {
-  const CARD_COLORS = ['a', 'b', 't', 'g', 'r'];
+  const CARD_COLORS = ['a', 't', 'b', 'g']; // no 'r': red is for errors only
 
   // Reset filter to 'all' if the selected branch no longer exists
   if (hrBranchFilter !== 'all' && hrBranchFilter !== 'unassigned' && !hrBranches.some((b) => b.id === hrBranchFilter)) {

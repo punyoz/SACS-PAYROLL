@@ -3,20 +3,15 @@
    Super Administrator role views only
    ═══════════════════════════════════════ */
 
-/* ── SIDEBAR BRAND COLOR ── */
-#s-super-admin .bi {
-  background: var(--amber);
-  color: #0D1B2A;
-}
-[data-theme="light"] #s-super-admin .bi { color: #fff; }
+/* ── SIDEBAR BRAND ── the school seal (css/layout.css .bi), same for every role. */
 
-/* ── NAV ACTIVE STATE (amber accent) ── */
+/* ── NAV ACTIVE STATE ── same green chrome as every other role (layout.css). */
 #s-super-admin .ni.active {
-  background: var(--amber-s);
-  color: var(--amber);
+  background: var(--chrome-2);
+  color: var(--chrome-text);
 }
 #s-super-admin .ni.active::before {
-  background: var(--amber);
+  background: var(--chrome-accent);
 }
 
 /* ── STAT CARD ACCENT ── */
@@ -32,10 +27,10 @@
   font-size: 11px;
   font-weight: 600;
 }
-.sa-pill-online  { background: var(--green-s); color: var(--green); border: 1px solid rgba(62,201,122,.3); }
-.sa-pill-offline { background: var(--red-s);   color: var(--red);   border: 1px solid rgba(232,85,85,.3); }
-.sa-pill-warning { background: var(--amber-s); color: var(--amber); border: 1px solid rgba(245,166,35,.3); }
-.sa-pill-info    { background: var(--blue-s);  color: var(--blue);  border: 1px solid rgba(74,158,245,.3); }
+.sa-pill-online  { background: var(--green-s); color: var(--green); border: 1px solid color-mix(in srgb, var(--green) 30%, transparent); }
+.sa-pill-offline { background: var(--red-s);   color: var(--red);   border: 1px solid color-mix(in srgb, var(--red) 30%, transparent); }
+.sa-pill-warning { background: var(--warn-s);  color: var(--warn);  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+.sa-pill-info    { background: var(--blue-s);  color: var(--blue);  border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent); }
 
 /* ── CONFIG SECTION ── */
 .config-section {

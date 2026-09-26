@@ -8,7 +8,7 @@
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
     <button class="sb-brand sb-refresh-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
-      <div class="bi">S</div>
+      <img class="brand-logo bi" src="assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="36" height="36">
       <div class="bt">
         <div class="bn">SACS Payroll</div>
         <div class="bs">Super Administrator</div>
@@ -58,7 +58,7 @@
 
     <div class="sb-foot">
       <div class="uc">
-        <div class="av" id="sa-avatar" style="width:30px;height:30px;font-size:11px;background:var(--blue);">SA</div>
+        <div class="av" id="sa-avatar" style="width:30px;height:30px;font-size:11px;">SA</div>
         <div><div class="un" id="sa-user-name">Super Admin</div><div class="ur">Super Administrator</div></div>
         <button class="xb" onclick="logout()">Sign Out</button>
       </div>
@@ -70,12 +70,13 @@
 
     <!-- TOPBAR -->
     <div class="topbar">
+      <img class="brand-logo tb-logo" src="assets/logo-160.png" alt="Shepherd Angels Christian School" width="36" height="36">
       <div>
         <div class="tb-title" id="sa-tb-title">SA Dashboard</div>
         <div class="tb-sub">Super Administrator portal</div>
       </div>
       <div class="tb-sp"></div>
-      <span class="role-tag" style="background:var(--blue-s);color:var(--blue);border:1px solid rgba(74,158,245,.35);">Super Admin</span>
+      <span class="role-tag">Super Admin</span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
       <button class="nb" onclick="openSettingsModal('sa')" title="Account Settings" type="button">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -93,7 +94,7 @@
         <div class="card"><div class="ct">Total Employees</div><div class="cv" id="sa-dash-employees">—</div><div class="cch">Active system-wide</div></div>
         <div class="card"><div class="ct">Total Users</div><div class="cv b" id="sa-dash-users">—</div><div class="cch">All registered accounts</div></div>
         <div class="card"><div class="ct">System Status</div><div class="cv g" id="sa-dash-status">Online</div><div class="cch">Database &amp; services</div></div>
-        <div class="card"><div class="ct">Pending Actions</div><div class="cv a" id="sa-dash-pending">—</div><div class="cch">Across all modules</div></div>
+        <div class="card"><div class="ct">Pending Actions</div><div class="cv w" id="sa-dash-pending">—</div><div class="cch">Across all modules</div></div>
       </div>
 
       <div class="sg2">
@@ -141,7 +142,7 @@
           <div class="sh"><span class="stitle">Payroll &amp; Attendance Summary</span></div>
           <div class="sg3" style="margin-top:10px;">
             <div class="card"><div class="ct">Present Today</div><div class="cv g" id="sa-dash-present">—</div></div>
-            <div class="card"><div class="ct">Late Today</div><div class="cv a" id="sa-dash-late">—</div></div>
+            <div class="card"><div class="ct">Late Today</div><div class="cv w" id="sa-dash-late">—</div></div>
             <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="sa-dash-absent">—</div></div>
           </div>
           <div style="margin-top:14px;">
@@ -170,7 +171,7 @@
 
       <div class="sg3">
         <div class="card"><div class="ct">Present Today</div><div class="cv g" id="sa-att-present">0</div></div>
-        <div class="card"><div class="ct">Late Today</div><div class="cv a" id="sa-att-late">0</div></div>
+        <div class="card"><div class="ct">Late Today</div><div class="cv w" id="sa-att-late">0</div></div>
         <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="sa-att-absent">0</div></div>
       </div>
 

@@ -1,78 +1,171 @@
 /* ═══════════════════════════════════════
-   theme.css — CSS variables for dark/light
-   Edit this file to change the color palette
+   theme.css — the ONE place colour is defined.
+   Shepherd Angels Christian School (Antipolo City) brand palette, taken from
+   the school seal (assets/logo.png). Every stylesheet, page fragment and
+   script pulls from these variables — edit here, not in components.
+
+   Layers:
+     1. Brand tokens (--color-*)  — the logo's colours, theme-independent.
+     2. Semantic tokens (--bg, --t1, --amber …) — what components use. The
+        legacy names are kept so no component rules had to be renamed:
+          --amber  = primary accent  (green on light, gold on dark)
+          --teal   = secondary / gold accent (text-safe shade)
+          --green  = success          --red    = error / critical only
+          --warn   = warning, pending --blue   = informational
+     3. Chrome tokens (--chrome-*) — the green navbar / sidebar / drawer.
+
+   Same palette for every role (Super Admin, Admin, HR, Accountant, Employee).
    ═══════════════════════════════════════ */
 
-/* ── DARK MODE (default) ── */
+/* ── 1. BRAND TOKENS (from the logo) ── */
+:root {
+  --color-primary:         #1B5E3C; /* deep green — badge shell, headers, primary buttons */
+  --color-primary-dark:    #0F3D28; /* darker green — hover states, active nav */
+  --color-secondary:       #C9A227; /* gold — borders, accents, icons, dividers */
+  --color-secondary-light: #E8C766; /* lighter gold — highlights, badges */
+  --color-accent-flame:    #F5811F; /* orange (torch flame) — warnings, attention */
+  --color-accent-red:      #8B1A1A; /* deep red (logo dots) — errors, critical only */
+  --color-neutral-white:   #FFFFFF; /* backgrounds, cards */
+  --color-neutral-dark:    #1A1A1A; /* body text */
+  --color-neutral-gray:    #6B7280; /* secondary text, disabled states */
+
+  /* Text-safe shades. Gold (#C9A227, 2.3:1) and flame (#F5811F, 2.6:1) are
+     too light to be read as text on white, so text uses these darker
+     shades of the same hues (5.8:1 and 5.4:1 — WCAG AA). */
+  --color-secondary-text:  #7D6210;
+  --color-accent-flame-text: #A8520B;
+
+  /* Chart series, in order — palette-derived, distinguishable in both themes. */
+  --chart-1: var(--color-primary);
+  --chart-2: var(--color-secondary);
+  --chart-3: var(--color-accent-flame);
+  --chart-4: #4F8F6C; /* light primary */
+  --chart-5: var(--color-accent-red);
+}
+
+/* ── 2+3. LIGHT (default) — white content, green chrome ── */
 :root,
+[data-theme="light"] {
+  --bg:       #F6F7F3;
+  --bg1:      #F6F7F3;
+  --bg2:      var(--color-neutral-white);
+  --bg3:      #F2F4EF;
+  --bg4:      #E6EBE3;
+  --border:   #E0D5AE; /* soft gold hairline */
+  --border2:  #ECE5CB;
+
+  --amber:    var(--color-primary);
+  --amber2:   var(--color-primary-dark);
+  --amber-s:  color-mix(in srgb, var(--color-primary) 10%, transparent);
+
+  --teal:     var(--color-secondary-text);
+  --teal-s:   color-mix(in srgb, var(--color-secondary) 16%, transparent);
+
+  --red:      var(--color-accent-red);
+  --red-s:    color-mix(in srgb, var(--color-accent-red) 9%, transparent);
+
+  --green:    var(--color-primary);
+  --green-s:  color-mix(in srgb, var(--color-primary) 11%, transparent);
+
+  --blue:     var(--color-primary-dark);
+  --blue-s:   color-mix(in srgb, var(--color-primary-dark) 8%, transparent);
+
+  --warn:     var(--color-accent-flame-text);
+  --warn-s:   color-mix(in srgb, var(--color-accent-flame) 14%, transparent);
+
+  /* Attendance status: gold = Late / Undertime, orange = Half Day */
+  --yellow:   var(--color-secondary-text);
+  --orange:   var(--color-accent-flame-text);
+
+  --gold:     var(--color-secondary); /* decorative: rules, underlines, spinners */
+
+  --t1:       var(--color-neutral-dark);
+  --t2:       #3F4A44;
+  --t3:       #5E6470; /* spec gray #6B7280 is 4.35:1 on --bg3; this is 5.3:1 (AA) */
+
+  --on-accent: var(--color-neutral-white); /* text on a solid --amber fill */
+  --on-color:  var(--color-neutral-white); /* text on solid red/green/gold-text fills */
+  --focus-ring: color-mix(in srgb, var(--amber) 22%, transparent);
+  --scrim:     color-mix(in srgb, var(--color-primary-dark) 55%, transparent);
+
+  --chrome:        var(--color-primary);
+  --chrome-2:      var(--color-primary-dark);
+  --chrome-text:   var(--color-neutral-white);
+  --chrome-muted:  #D5E3DA;
+  --chrome-hover:  color-mix(in srgb, #FFFFFF 12%, transparent);
+  --chrome-line:   color-mix(in srgb, var(--color-secondary) 55%, transparent);
+  --chrome-accent: var(--color-secondary-light);
+  --chrome-danger: #F4A3A3; /* --color-accent-red lifted to read on green */
+
+  --shadow-color: var(--color-primary-dark);
+  --shadow:   0 4px 24px color-mix(in srgb, var(--color-primary-dark) 10%, transparent);
+  --shadow-sm:0 2px 8px  color-mix(in srgb, var(--color-primary-dark) 8%, transparent);
+}
+
+/* ── DARK — the same palette at night: deep-green surfaces, gold accent ── */
 [data-theme="dark"] {
-  --bg:       #0D1B2A;
-  --bg2:      #122436;
-  --bg3:      #1A3249;
-  --bg4:      #1E3D59;
-  --border:   #2A4A66;
-  --border2:  #1E3D59;
+  --bg:       #0C2318;
+  --bg1:      #0C2318;
+  --bg2:      #112B1F;
+  --bg3:      #17392A;
+  --bg4:      #1E4533;
+  --border:   #2F5642;
+  --border2:  #22473A;
 
-  --amber:    #F5A623;
-  --amber2:   #E8920F;
-  --amber-s:  rgba(245, 166, 35, 0.13);
+  --amber:    var(--color-secondary);
+  --amber2:   var(--color-secondary-light);
+  --amber-s:  color-mix(in srgb, var(--color-secondary) 14%, transparent);
 
-  --teal:     #1DB8A0;
-  --teal-s:   rgba(29, 184, 160, 0.12);
+  --teal:     var(--color-secondary-light);
+  --teal-s:   color-mix(in srgb, var(--color-secondary-light) 12%, transparent);
 
-  --red:      #E85555;
-  --red-s:    rgba(232, 85, 85, 0.12);
+  --red:      #F08C8C; /* --color-accent-red lifted for dark surfaces (6.4:1) */
+  --red-s:    color-mix(in srgb, #F08C8C 13%, transparent);
 
-  --green:    #3EC97A;
-  --green-s:  rgba(62, 201, 122, 0.12);
+  --green:    #6CC895; /* --color-primary lifted for dark surfaces (7.4:1) */
+  --green-s:  color-mix(in srgb, #6CC895 13%, transparent);
 
-  --blue:     #4A9EF5;
-  --blue-s:   rgba(74, 158, 245, 0.12);
+  --blue:     #A9D8BC;
+  --blue-s:   color-mix(in srgb, #A9D8BC 12%, transparent);
 
-  /* Attendance status badges: yellow = Late / Undertime, orange = Half Day */
-  --yellow:   #E8C547;
-  --orange:   #F08A4B;
+  --warn:     #F79A4A; /* --color-accent-flame lifted (7.0:1) */
+  --warn-s:   color-mix(in srgb, var(--color-accent-flame) 15%, transparent);
 
-  --t1:       #F0F4F8;
-  --t2:       #8BA5BE;
-  --t3:       #7F9DB9; /* was #4D7899: 2.8:1 on --bg3; now 4.65:1 (WCAG AA) */
+  --yellow:   var(--color-secondary-light);
+  --orange:   #F79A4A;
 
+  --gold:     var(--color-secondary);
+
+  --t1:       #F3F1E8;
+  --t2:       #C4D0C8;
+  --t3:       #9DB2A5; /* 5.6:1 on --bg3 */
+
+  --on-accent: var(--color-neutral-dark); /* dark text on gold (7.2:1) */
+  --on-color:  var(--color-neutral-dark);
+  --focus-ring: color-mix(in srgb, var(--amber) 28%, transparent);
+  --scrim:     color-mix(in srgb, #000 55%, transparent);
+
+  --chrome:        var(--color-primary-dark);
+  --chrome-2:      #0A2B1C;
+  --chrome-text:   var(--color-neutral-white);
+  --chrome-muted:  #C4D6CA;
+  --chrome-hover:  color-mix(in srgb, #FFFFFF 10%, transparent);
+  --chrome-line:   color-mix(in srgb, var(--color-secondary) 45%, transparent);
+  --chrome-accent: var(--color-secondary-light);
+  --chrome-danger: #F4A3A3;
+
+  --shadow-color: #000000;
   --shadow:   0 4px 24px rgba(0, 0, 0, 0.35);
   --shadow-sm:0 2px 8px  rgba(0, 0, 0, 0.25);
 }
 
-/* ── LIGHT MODE ── */
-[data-theme="light"] {
-  --bg:       #F4F6F9;
-  --bg2:      #FFFFFF;
-  --bg3:      #EEF1F5;
-  --bg4:      #E2E8F0;
-  --border:   #CBD5E1;
-  --border2:  #E2E8F0;
-
-  --amber:    #D97706;
-  --amber2:   #B45309;
-  --amber-s:  rgba(217, 119, 6, 0.10);
-
-  --teal:     #0F766E;
-  --teal-s:   rgba(15, 118, 110, 0.10);
-
-  --red:      #DC2626;
-  --red-s:    rgba(220, 38, 38, 0.10);
-
-  --green:    #16A34A;
-  --green-s:  rgba(22, 163, 74, 0.10);
-
-  --blue:     #2563EB;
-  --blue-s:   rgba(37, 99, 235, 0.10);
-
-  --yellow:   #A16207;
-  --orange:   #EA580C;
-
-  --t1:       #0F172A;
-  --t2:       #475569;
-  --t3:       #566479; /* was #94A3B8: 2.3:1 on --bg3; now 5.3:1 (WCAG AA) */
-
-  --shadow:   0 4px 24px rgba(0, 0, 0, 0.08);
-  --shadow-sm:0 2px 8px  rgba(0, 0, 0, 0.06);
+/* ── BRAND LOGO ──
+   Shared by every portal header, the login card and printed documents.
+   object-fit: contain + fixed square box = the seal is never stretched. */
+.brand-logo {
+  display: block;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
 }

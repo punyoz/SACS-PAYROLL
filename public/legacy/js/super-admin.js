@@ -2021,7 +2021,7 @@ async function loadSASystemData() {
     saRenderFilteredRfidDevices();
   } catch (error) {
     if (rfidTbody) {
-      rfidTbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${String(error.message).replace(/</g,'&lt;')}</td></tr>`;
+      rfidTbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${String(error.message).replace(/</g,'&lt;')}</td></tr>`;
     }
   }
 }

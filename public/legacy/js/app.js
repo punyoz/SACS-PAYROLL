@@ -20,7 +20,7 @@ function applyTheme(theme) {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
   document.body.classList.add('theme-transitioning');
   applyTheme(current === 'dark' ? 'light' : 'dark');
   setTimeout(() => document.body.classList.remove('theme-transitioning'), 300);
@@ -1248,7 +1248,7 @@ function openProofDocument(proofUrl) {
   overlay.id = 'proof-viewer-overlay';
   overlay.style.cssText = [
     'position:fixed;inset:0;z-index:99999;',
-    'background:rgba(11,15,20,.93);',
+    'background:color-mix(in srgb, var(--color-primary-dark) 94%, transparent);',
     'display:flex;flex-direction:column;',
     'animation:proofFadeIn .15s ease;',
   ].join('');
@@ -1266,15 +1266,15 @@ function openProofDocument(proofUrl) {
 
   overlay.innerHTML = `
     <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;
-                border-bottom:1px solid rgba(255,255,255,.12);flex-shrink:0;gap:12px;">
-      <span style="color:#e6eef8;font-size:13px;font-weight:600;">Proof Document</span>
+                border-bottom:2px solid var(--gold);flex-shrink:0;gap:12px;">
+      <span style="color:var(--chrome-text);font-size:13px;font-weight:600;">Proof Document</span>
       <div style="display:flex;gap:10px;align-items:center;">
         <a id="proof-dl-link" href="${safeUrl}" download="proof-document"
-           style="color:#60a5fa;font-size:12px;text-decoration:underline;cursor:pointer;">
+           style="color:var(--chrome-accent);font-size:12px;text-decoration:underline;cursor:pointer;">
           ⬇ Download
         </a>
         <button id="proof-close-btn"
-          style="background:#ef4444;border:none;color:#fff;padding:5px 14px;
+          style="background:var(--red);border:none;color:var(--on-color);padding:5px 14px;
                  border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;">
           ✕ Close
         </button>
@@ -1293,7 +1293,7 @@ function openProofDocument(proofUrl) {
     const img = document.createElement('img');
     img.src = url;
     img.alt = 'Proof Document';
-    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 4px 32px rgba(0,0,0,.6);';
+    img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;border-radius:6px;box-shadow:0 4px 32px color-mix(in srgb, var(--shadow-color) 60%, transparent);';
     body.appendChild(img);
   } else if (isPdf || isDataUrl) {
     const frame = document.createElement('iframe');
@@ -1303,11 +1303,11 @@ function openProofDocument(proofUrl) {
     body.appendChild(frame);
   } else {
     body.innerHTML = `
-      <div style="color:#e6eef8;text-align:center;font-family:system-ui,sans-serif;padding:32px;">
+      <div style="color:var(--chrome-text);text-align:center;font-family:system-ui,sans-serif;padding:32px;">
         <div style="font-size:48px;margin-bottom:16px;">📎</div>
         <div style="margin-bottom:12px;">This file type cannot be previewed inline.</div>
         <a href="${safeUrl}" download
-           style="color:#60a5fa;text-decoration:underline;font-size:14px;">Download the file</a>
+           style="color:var(--chrome-accent);text-decoration:underline;font-size:14px;">Download the file</a>
       </div>`;
   }
 
@@ -1327,9 +1327,9 @@ function showProofError(message) {
   const banner = document.createElement('div');
   banner.style.cssText = [
     'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);',
-    'background:#1e293b;border:1px solid #475569;border-radius:8px;',
-    'color:#e6eef8;padding:12px 20px;font-size:13px;z-index:99999;',
-    'box-shadow:0 4px 16px rgba(0,0,0,.4);',
+    'background:var(--bg2);border:1px solid var(--red);border-left:3px solid var(--red);border-radius:8px;',
+    'color:var(--t1);padding:12px 20px;font-size:13px;z-index:99999;',
+    'box-shadow:var(--shadow);',
   ].join('');
   banner.textContent = message;
   document.body.appendChild(banner);
@@ -1421,7 +1421,7 @@ function showResetFeedback(message, ok) {
   const { feedback } = resetDialogElements();
   if (!feedback) return;
   feedback.textContent = message || '';
-  feedback.style.color = message ? (ok ? '#3EC97A' : '#E85555') : '';
+  feedback.style.color = message ? (ok ? 'var(--green)' : 'var(--red)') : '';
 }
 
 /** Show the controls for `stage` and label the main button to match. */
@@ -1751,7 +1751,7 @@ function showVotpFeedback(message, ok) {
   const feedback = document.getElementById('votp-feedback');
   if (!feedback) return;
   feedback.textContent = message;
-  feedback.style.color = ok ? '#3EC97A' : '#E85555';
+  feedback.style.color = ok ? 'var(--green)' : 'var(--red)';
 }
 
 async function verifyLoginOtp() {
@@ -3167,7 +3167,16 @@ function setupSitemapFab() {
     close.setAttribute('aria-label', 'Close');
     close.textContent = '✕';
     close.addEventListener('click', closeSitemap);
-    head.append(title, sub, close);
+    const logo = document.createElement('img');
+    logo.className = 'brand-logo sitemap-logo';
+    logo.src = 'assets/logo-160.png';
+    logo.alt = 'Shepherd Angels Christian School seal';
+    logo.width = 44;
+    logo.height = 44;
+    const text = document.createElement('div');
+    text.className = 'sitemap-text';
+    text.append(title, sub);
+    head.append(logo, text, close);
     panel.appendChild(head);
 
     const body = document.createElement('div');
@@ -3390,8 +3399,8 @@ function startScrollLockWatcher() {
 }
 
 function initApp() {
-  // Restore saved theme or default to dark
-  const saved = localStorage.getItem(THEME_KEY) || 'dark';
+  // Restore saved theme or default to light
+  const saved = localStorage.getItem(THEME_KEY) || 'light';
   applyTheme(saved);
 
   startScrollLockWatcher();

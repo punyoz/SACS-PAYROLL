@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>RFID Terminal — SACS Payroll</title>
 <script>
   // Theme is applied before the stylesheets load so the kiosk never paints
-  // dark for a frame and then flips to light. data-theme="dark" stays on
-  // <html> above as the default for the no-JS / no-storage case.
+  // one theme for a frame and then flips to the other. data-theme="light"
+  // stays on <html> above as the default for the no-JS / no-storage case.
   //
   // Same 'sacs-theme' key the portal writes (js/app.js), and the terminal is
   // same-origin with it, so whichever mode the Admin picked in their portal
@@ -18,14 +18,15 @@
       if (saved === 'light' || saved === 'dark') {
         document.documentElement.setAttribute('data-theme', saved);
       }
-    } catch (e) { /* private mode / blocked storage — keep the dark default */ }
+    } catch (e) { /* private mode / blocked storage — keep the light default */ }
   })();
 </script>
 <!-- css/js under /legacy get a 1-hour browser cache (next.config.mjs); bump
      this version string whenever terminal.css/terminal.js change, or edits
      here silently never reach a browser that already loaded the page once. -->
-<link rel="stylesheet" href="/legacy/css/theme.css?v=20260920a" />
-<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260926a" />
+<link rel="icon" href="/legacy/assets/logo-mark.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/legacy/css/theme.css?v=20260926d" />
+<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260926d" />
 </head>
 <body>
 <div class="rt-app">
@@ -37,7 +38,7 @@
     <div class="rt-lock-card">
       <button class="rt-theme-toggle" type="button" data-rt-theme-toggle aria-label="Switch colour theme" title="Switch to light mode">☀️</button>
       <div class="rt-brand">
-        <div class="rt-icon">S</div>
+        <img class="rt-icon" src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="52" height="52">
         <div class="rt-brand-text">
           <span class="rt-school">Shepherd Angels Christian School</span>
           <span class="rt-sub">RFID Attendance Terminal</span>
@@ -63,7 +64,7 @@
   <div class="rt-main" id="rt-main" hidden>
     <div class="rt-topbar">
       <div class="rt-brand">
-        <div class="rt-icon">S</div>
+        <img class="rt-icon" src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="52" height="52">
         <div class="rt-brand-text">
           <span class="rt-school">Shepherd Angels Christian School</span>
           <span class="rt-sub">RFID Attendance Terminal</span>
@@ -129,6 +130,6 @@
 
 </div>
 
-<script src="/legacy/js/terminal.js?v=20260926a"></script>
+<script src="/legacy/js/terminal.js?v=20260926d"></script>
 </body>
 </html>

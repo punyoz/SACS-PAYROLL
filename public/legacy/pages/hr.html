@@ -8,7 +8,7 @@
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
     <button class="sb-brand sb-refresh-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
-      <div class="bi">S</div>
+      <img class="brand-logo bi" src="assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="36" height="36">
       <div class="bt">
         <div class="bn">SACS Payroll</div>
         <div class="bs">Human Resources</div>
@@ -59,7 +59,7 @@
 
     <div class="sb-foot">
       <div class="uc">
-        <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">HR</div>
+        <div class="av" style="width:30px;height:30px;font-size:11px;">HR</div>
         <div><div class="un" id="hr-user-name">HR Officer</div><div class="ur">Human Resources</div></div>
         <button class="xb" onclick="logout()">Sign Out</button>
       </div>
@@ -71,12 +71,13 @@
 
     <!-- TOPBAR -->
     <div class="topbar">
+      <img class="brand-logo tb-logo" src="assets/logo-160.png" alt="Shepherd Angels Christian School" width="36" height="36">
       <div>
         <div class="tb-title" id="hr-tb-title">HR Dashboard</div>
         <div class="tb-sub">Human Resources portal</div>
       </div>
       <div class="tb-sp"></div>
-      <span class="role-tag" style="background:rgba(29,184,160,.15);color:var(--teal);border:1px solid rgba(29,184,160,.3);">HR</span>
+      <span class="role-tag">HR</span>
       <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">☀️</button>
       <button class="nb" onclick="openSettingsModal('hr', 'password')" title="Account Settings" type="button">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -94,7 +95,7 @@
         <div class="card"><div class="ct">Total Employees</div><div class="cv" id="hr-panel-total">0</div><div class="cch">Active staff on record</div></div>
         <div class="card"><div class="ct">Present Today</div><div class="cv g" id="hr-panel-present">0</div><div class="cch">Attendance today</div></div>
         <div class="card"><div class="ct">Absent Today</div><div class="cv r" id="hr-panel-absent">0</div><div class="cch">Not yet recorded</div></div>
-        <div class="card"><div class="ct">Pending Leaves</div><div class="cv a" id="hr-panel-leaves">0</div><div class="cch">Awaiting your decision</div></div>
+        <div class="card"><div class="ct">Pending Leaves</div><div class="cv w" id="hr-panel-leaves">0</div><div class="cch">Awaiting your decision</div></div>
       </div>
 
       <div class="sg2">
@@ -104,7 +105,7 @@
           <div class="sg3" style="margin-top:10px;">
             <div class="card"><div class="ct">Teaching</div><div class="cv" id="hr-panel-teaching">0</div></div>
             <div class="card"><div class="ct">Non-Teaching</div><div class="cv" id="hr-panel-non-teaching">0</div></div>
-            <div class="card"><div class="ct">Late Today</div><div class="cv a" id="hr-panel-late">0</div></div>
+            <div class="card"><div class="ct">Late Today</div><div class="cv w" id="hr-panel-late">0</div></div>
           </div>
           <div style="margin-top:14px;">
             <button class="btn btn-outline" style="margin-right:8px;" onclick="hrGo('hr-employees')">View Employees</button>
@@ -174,7 +175,7 @@
       <div class="ph"><h2>Attendance Monitoring</h2><p>Review employee attendance records, track absences and tardiness</p></div>
       <div class="sg3">
         <div class="card"><div class="ct">Present</div><div class="cv g" id="hr-att-present">0</div></div>
-        <div class="card"><div class="ct">Late</div><div class="cv a" id="hr-att-late">0</div></div>
+        <div class="card"><div class="ct">Late</div><div class="cv w" id="hr-att-late">0</div></div>
         <div class="card"><div class="ct">Absent</div><div class="cv r" id="hr-att-absent">0</div></div>
       </div>
 
@@ -274,7 +275,7 @@
       <div class="sg" id="hr-reports-summary" style="display:none;">
         <div class="card"><div class="ct">Total Records</div><div class="cv" id="hr-rep-total">0</div></div>
         <div class="card"><div class="ct" id="hr-rep-stat1-label">Present Days</div><div class="cv g" id="hr-rep-stat1">0</div></div>
-        <div class="card"><div class="ct" id="hr-rep-stat2-label">Late Days</div><div class="cv a" id="hr-rep-stat2">0</div></div>
+        <div class="card"><div class="ct" id="hr-rep-stat2-label">Late Days</div><div class="cv w" id="hr-rep-stat2">0</div></div>
         <div class="card"><div class="ct" id="hr-rep-stat3-label">Absent Days</div><div class="cv r" id="hr-rep-stat3">0</div></div>
       </div>
 

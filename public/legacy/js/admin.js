@@ -16,7 +16,7 @@ const ADMIN_PAGES = {
   'adm-profile':      'Profile',
 };
 
-const AVATAR_COLORS = ['#3EC97A', '#F5A623', '#1DB8A0', '#E85555', '#7F77DD'];
+const AVATAR_COLORS = ['var(--amber)', 'var(--teal)', 'var(--blue)', 'var(--warn)'];
 let dashboardData = null;
 let attendanceData = null;
 let auditLogsData = [];
@@ -415,7 +415,7 @@ async function loadAttendanceData() {
     }
   } catch (error) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
     }
   }
 }
@@ -685,7 +685,7 @@ async function loadAuditLogs() {
   } catch (error) {
     if (seq !== auditRequestSeq) return;
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
     }
   }
 }
@@ -869,7 +869,7 @@ async function loadSystemData() {
     renderFilteredRfidDevices();
   } catch (error) {
     if (rfidTbody) {
-      rfidTbody.innerHTML = `<tr><td colspan="6" style="color:#E85555;">${escapeHtml(error.message)}</td></tr>`;
+      rfidTbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
     }
   }
 }

@@ -8,8 +8,8 @@
  * an unstyled "something went wrong" in production. Neither belongs in front of
  * a payroll user.
  *
- * Styling is inline and mirrors the portal palette (see public/legacy/css/
- * theme.css), because globals.css is the
+ * Styling is inline but every colour is a brand token from globals.css (the
+ * same palette as public/legacy/css/theme.css), because globals.css is the
  * only stylesheet guaranteed to have loaded at this point.
  */
 
@@ -19,13 +19,14 @@ const S = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#0D1B2A',
+    background: 'var(--bg)',
     fontFamily: 'DM Sans, system-ui, sans-serif',
     padding: '24px',
   },
   card: {
-    background: '#142232',
-    border: '1px solid #1E3448',
+    background: 'var(--bg2)',
+    border: '1px solid var(--border)',
+    borderTop: '4px solid var(--color-secondary)',
     borderRadius: '16px',
     padding: '32px',
     width: '100%',
@@ -33,29 +34,22 @@ const S = {
   },
   brand: { display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '24px' },
   brandIcon: {
-    width: '36px',
-    height: '36px',
-    borderRadius: '10px',
-    background: '#F5A623',
-    color: '#0D1B2A',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 700,
-    fontSize: '16px',
+    width: '44px',
+    height: '44px',
+    objectFit: 'contain',
     flexShrink: 0,
   },
-  brandName: { fontSize: '13px', fontWeight: 600, color: '#E6EEF8', lineHeight: 1.3 },
-  brandSub: { fontSize: '11px', color: '#5A7A9A' },
-  title: { fontSize: '20px', fontWeight: 700, color: '#E6EEF8', marginBottom: '6px' },
-  sub: { fontSize: '13px', color: '#5A7A9A', marginBottom: '24px', lineHeight: 1.6 },
+  brandName: { fontSize: '13px', fontWeight: 600, color: 'var(--t1)', lineHeight: 1.3 },
+  brandSub: { fontSize: '11px', color: 'var(--t3)' },
+  title: { fontSize: '20px', fontWeight: 700, color: 'var(--t1)', marginBottom: '6px' },
+  sub: { fontSize: '13px', color: 'var(--t3)', marginBottom: '24px', lineHeight: 1.6 },
   row: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
   btn: {
     flex: '1 1 150px',
     minHeight: '44px',
     padding: '13px',
-    background: '#F5A623',
-    color: '#0D1B2A',
+    background: 'var(--accent)',
+    color: 'var(--on-accent)',
     border: 'none',
     borderRadius: '10px',
     fontSize: '14px',
@@ -67,8 +61,8 @@ const S = {
     minHeight: '44px',
     padding: '13px',
     background: 'transparent',
-    color: '#E6EEF8',
-    border: '1px solid #1E3448',
+    color: 'var(--t1)',
+    border: '1px solid var(--border)',
     borderRadius: '10px',
     fontSize: '14px',
     fontWeight: 600,
@@ -82,7 +76,7 @@ const S = {
   digest: {
     marginTop: '18px',
     fontSize: '11px',
-    color: '#5A7A9A',
+    color: 'var(--t3)',
     fontFamily: 'DM Mono, ui-monospace, monospace',
     wordBreak: 'break-all',
   },
@@ -93,7 +87,8 @@ export default function ErrorBoundary({ error, reset }) {
     <div style={S.page}>
       <div style={S.card}>
         <div style={S.brand}>
-          <div style={S.brandIcon}>S</div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- static public asset; next/image adds nothing on an error screen */}
+          <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width={44} height={44} style={S.brandIcon} />
           <div>
             <div style={S.brandName}>SACS Payroll</div>
             <div style={S.brandSub}>Shepherd Angels Christian School</div>

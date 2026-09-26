@@ -7,6 +7,13 @@ export const metadata = {
   description: "SACS Payroll Management System",
 };
 
+// Mobile browser chrome in the school's primary green (brand token
+// --color-primary). The favicon and Apple touch icon are app/icon.svg and
+// app/apple-icon.png, which Next.js picks up by file name.
+export const viewport = {
+  themeColor: "#1B5E3C",
+};
+
 // Mirrors the portal's saved theme onto this outer page before first paint.
 // Every sign-in and sign-out is a full navigation, and until the portal frame
 // paints, what shows is this page's background — always dark, so light-theme

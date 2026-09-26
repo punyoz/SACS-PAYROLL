@@ -9,7 +9,7 @@
   <!-- SLIM TOPBAR -->
   <div class="emp-topbar">
     <button class="sb-refresh-btn emp-brand-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
-      <div class="bi" style="background:var(--amber);color:#0D1B2A;">S</div>
+      <img class="brand-logo bi" src="assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="36" height="36">
       <div class="bt">
         <div class="bn">SACS Payroll</div>
         <div class="bs" id="emp-top-role">Employee</div>
@@ -74,7 +74,7 @@
             <div class="es-l">Present</div>
           </div>
           <div class="emp-stat">
-            <div class="es-v" id="emp-stat-late" style="color:var(--amber);">—</div>
+            <div class="es-v" id="emp-stat-late" style="color:var(--warn);">—</div>
             <div class="es-l">Late</div>
           </div>
           <div class="emp-stat">
@@ -156,7 +156,7 @@
           </div>
           <div class="att-legend">
             <div class="al"><span class="alb" style="background:var(--green-s);border:1px solid var(--green);"></span>Present</div>
-            <div class="al"><span class="alb" style="background:var(--amber-s);border:1px solid var(--amber);"></span>Late / Undertime / Half Day</div>
+            <div class="al"><span class="alb" style="background:var(--warn-s);border:1px solid var(--warn);"></span>Late / Undertime / Half Day</div>
             <div class="al"><span class="alb" style="background:var(--red-s);border:1px solid var(--red);"></span>Absent</div>
             <div class="al"><span class="alb" style="outline:2px solid var(--teal);"></span>Today</div>
           </div>
@@ -234,6 +234,16 @@
       <!-- Table Card -->
       <div class="card ts-table-card" id="ts-printable">
 
+        <!-- Letterhead for the printed copy only (css/print.css reveals it). -->
+        <div class="print-doc-head" aria-hidden="true">
+          <img class="brand-logo pdh-logo" src="assets/logo.png" alt="" width="64" height="64">
+          <div class="pdh-text">
+            <div class="pdh-school">Shepherd Angels Christian School</div>
+            <div class="pdh-sys">SACS Payroll Management System</div>
+            <div class="pdh-title">Employee Timesheet</div>
+          </div>
+        </div>
+
         <!-- Table controls -->
         <div class="ts-controls">
           <div class="ts-ctl-left">
@@ -304,8 +314,11 @@
 
       <div class="ps-card">
         <div class="ps-head">
-          <h3>Shepherd Angels Christian School</h3>
-          <p id="ps-period-label">No payslip available</p>
+          <img class="brand-logo ps-logo" src="assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="40" height="40">
+          <div>
+            <h3>Shepherd Angels Christian School</h3>
+            <p id="ps-period-label">No payslip available</p>
+          </div>
         </div>
         <div id="ps-rows">
           <div class="ps-row" style="color:var(--t3);font-style:italic;justify-content:center;padding:16px;">No payslip data available.</div>

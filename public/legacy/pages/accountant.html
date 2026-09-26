@@ -8,7 +8,7 @@
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
     <button class="sb-brand sb-refresh-btn" type="button" onclick="refreshCurrentPortal()" title="Refresh page">
-      <div class="bi">S</div>
+      <img class="brand-logo bi" src="assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="36" height="36">
       <div class="bt">
         <div class="bn">SACS Payroll</div>
         <div class="bs">Accountant</div>
@@ -61,7 +61,7 @@
 
     <div class="sb-foot">
       <div class="uc">
-        <div class="av" style="width:30px;height:30px;font-size:11px;background:var(--teal);">AC</div>
+        <div class="av" style="width:30px;height:30px;font-size:11px;">AC</div>
         <div><div class="un" id="ac-user-name">Accountant</div><div class="ur" id="ac-user-role">Payroll Staff</div></div>
         <button class="xb" onclick="logout()">Sign Out</button>
       </div>
@@ -73,6 +73,7 @@
 
     <!-- TOPBAR -->
     <div class="topbar">
+      <img class="brand-logo tb-logo" src="assets/logo-160.png" alt="Shepherd Angels Christian School" width="36" height="36">
       <div>
         <div class="tb-title" id="ac-tb-title">Dashboard</div>
         <div class="tb-sub">Accountant portal — March 2026</div>
@@ -300,6 +301,8 @@
       </div>
       <div class="card" style="border-color:var(--amber);">
         <div class="pf-head">
+          <div class="pf-brand">
+          <img class="brand-logo pf-logo" src="assets/logo.png" alt="Shepherd Angels Christian School seal" width="52" height="52">
           <div>
             <div class="pf-school">Shepherd Angels Christian School</div>
             <div class="pf-school-s">SACS Payroll Management System</div>
@@ -307,6 +310,7 @@
               <span style="font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--amber);">Payslip No.</span>
               <span style="font-family:var(--mono);font-size:12px;font-weight:700;color:var(--t1);" id="ac-pf-slip-no">—</span>
             </div>
+          </div>
           </div>
           <div class="pf-period">Pay Period<br><strong id="ac-pf-period">N/A</strong><br><span style="font-size:11px;color:var(--t3);" id="ac-pf-issued">Issued: N/A</span></div>
         </div>
@@ -418,12 +422,15 @@
            A report filed for audit has to say what it is and when it was run;
            on screen that context is already in the page chrome. -->
       <div class="print-doc-head" id="rpt-print-head" aria-hidden="true">
+        <img class="brand-logo pdh-logo" src="assets/logo.png" alt="" width="64" height="64">
+        <div class="pdh-text">
         <div class="pdh-school">Shepherd Angels Christian School</div>
         <div class="pdh-sys">SACS Payroll Management System</div>
         <div class="pdh-title">Payroll Report</div>
         <div class="pdh-meta">
           <span id="rpt-print-period">All Periods</span>
           <span id="rpt-print-generated"></span>
+        </div>
         </div>
       </div>
 

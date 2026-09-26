@@ -13,8 +13,8 @@
 /* ── SLIM TOP BAR ── */
 .emp-topbar {
   height: 52px;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  background: var(--chrome);
+  border-bottom: 2px solid var(--gold);
   display: flex;
   align-items: center;
   padding: 0 24px;
@@ -22,7 +22,7 @@
   flex-shrink: 0;
   transition: background 0.25s, border-color 0.25s;
 }
-.emp-topbar .et-name  { margin-left: auto; font-size: 12px; color: var(--t2); }
+.emp-topbar .et-name  { margin-left: auto; font-size: 12px; color: var(--chrome-muted); }
 .emp-brand-btn {
   width: auto;
   display: flex;
@@ -70,10 +70,9 @@
   background: var(--green);
   display: flex; align-items: center; justify-content: center;
   font-size: 22px; font-weight: 700;
-  color: #fff;
+  color: var(--on-color);
   flex-shrink: 0;
 }
-[data-theme="dark"] .emp-avatar { color: #0D1B2A; }
 .emp-hello { flex: 1; min-width: 200px; }
 .emp-hello h2 { font-size: 19px; font-weight: 700; color: var(--t1); }
 .emp-hello p  { font-size: 12px; color: var(--t3); margin-top: 3px; }
@@ -112,7 +111,7 @@
 }
 .ad.pr     { background: var(--green-s); color: var(--green); }
 .ad.ab     { background: var(--red-s);   color: var(--red);   }
-.ad.lt     { background: var(--amber-s); color: var(--amber); }
+.ad.lt     { background: var(--warn-s);  color: var(--warn);  }
 .ad.em     { color: transparent; }
 .ad.no-rec { color: var(--t3); }
 .ad.future { color: var(--t3); opacity: 0.4; }
@@ -156,7 +155,11 @@
   background: var(--amber-s);
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
+.ps-logo { width: 40px; height: 40px; }
 .ps-head h3 { font-size: 14px; font-weight: 700; color: var(--t1); }
 .ps-head p  { font-size: 11px; color: var(--t3); margin-top: 2px; }
 .ps-row {
@@ -535,7 +538,7 @@
   width: 17px; height: 17px;
   border-radius: 50%;
   background: var(--amber);
-  color: #0D1B2A;
+  color: var(--on-accent);
   font-size: 9px;
   font-weight: 700;
   font-family: var(--mono);
@@ -584,19 +587,19 @@
   padding: 5px 12px;
   font-size: 11px;
 }
-.ts-btn-excel:hover { background: var(--green); color: #fff; }
+.ts-btn-excel:hover { background: var(--green); color: var(--on-color); }
 
 /* ════════════════════════════════════════════
    TABLE ROW COLORS (shift type)
 ════════════════════════════════════════════ */
-.ts-row-rest    td { background: rgba(245,166,35,.09) !important; }
-.ts-row-holiday td { background: rgba(232,85,85,.10)  !important; }
-.ts-row-special td { background: rgba(74,158,245,.10) !important; }
+.ts-row-rest    td { background: var(--teal-s) !important; }
+.ts-row-holiday td { background: var(--warn-s) !important; }
+.ts-row-special td { background: var(--blue-s) !important; }
 
 /* Override hover on colored rows to keep color visible */
-.ts-row-rest:hover    td { background: rgba(245,166,35,.17) !important; }
-.ts-row-holiday:hover td { background: rgba(232,85,85,.17)  !important; }
-.ts-row-special:hover td { background: rgba(74,158,245,.17) !important; }
+.ts-row-rest:hover    td { background: color-mix(in srgb, var(--color-secondary) 26%, transparent) !important; }
+.ts-row-holiday:hover td { background: color-mix(in srgb, var(--color-accent-flame) 24%, transparent) !important; }
+.ts-row-special:hover td { background: color-mix(in srgb, var(--blue) 16%, transparent) !important; }
 
 /* Expand (+) button */
 .ts-expand-btn {
@@ -659,8 +662,7 @@
   transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .ts-pg-num:hover { border-color: var(--amber); color: var(--amber); }
-.ts-pg-num.active { background: var(--amber); color: #fff; border-color: var(--amber); }
-[data-theme="dark"] .ts-pg-num.active { color: #0D1B2A; }
+.ts-pg-num.active { background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
 
 /* ════════════════════════════════════════════
    RESPONSIVE — wizard and controls
@@ -691,7 +693,8 @@
 /* Banner */
 .ep-banner {
   position: relative;
-  background: linear-gradient(135deg, #1a3a5c 0%, #1e5799 50%, #2d86c5 100%);
+  background: linear-gradient(135deg, var(--color-primary-dark) 0%, var(--color-primary) 100%);
+  border-bottom: 3px solid var(--gold);
   border-radius: 12px;
   padding: 36px 28px 28px;
   display: flex;
@@ -705,7 +708,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at 70% 30%, rgba(255,255,255,.08) 0%, transparent 60%);
+  background: radial-gradient(ellipse at 70% 30%, color-mix(in srgb, var(--color-secondary-light) 16%, transparent) 0%, transparent 60%);
   pointer-events: none;
 }
 
@@ -713,14 +716,14 @@
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: rgba(255,255,255,.18);
-  border: 3px solid rgba(255,255,255,.55);
+  background: var(--chrome-hover);
+  border: 3px solid var(--chrome-accent);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 26px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--chrome-text);
   letter-spacing: .5px;
   flex-shrink: 0;
 }
@@ -728,14 +731,14 @@
 .ep-banner-name {
   font-size: 18px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--chrome-text);
   margin-top: 4px;
   text-align: center;
 }
 
 .ep-banner-pos {
   font-size: 12px;
-  color: rgba(255,255,255,.72);
+  color: var(--chrome-muted);
   text-align: center;
 }
 
@@ -743,15 +746,15 @@
   position: absolute;
   top: 14px;
   right: 16px;
-  background: rgba(255,255,255,.18);
-  color: #ffffff;
+  background: var(--chrome-2);
+  color: var(--chrome-accent);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .05em;
   text-transform: uppercase;
   padding: 4px 10px;
   border-radius: 20px;
-  border: 1px solid rgba(255,255,255,.3);
+  border: 1px solid var(--chrome-line);
   backdrop-filter: blur(4px);
 }
 
@@ -772,7 +775,7 @@
 .ep-inst-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--blue, #3b82f6);
+  color: var(--amber);
 }
 
 .ep-inst-sys {
