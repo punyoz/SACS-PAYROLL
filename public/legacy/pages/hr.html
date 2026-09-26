@@ -279,6 +279,9 @@
       </div>
 
       <div class="sh" style="margin-top:6px;"><span class="stitle" id="hr-rep-table-title">Report Results</span><span class="sp"></span><button class="btn btn-outline" onclick="exportHRReportCsv()">Export CSV</button></div>
+      <div class="adm-employee-controls" style="margin-bottom:10px;">
+        <input id="hr-rep-search" class="fc" type="text" placeholder="Search name, ID, branch, type, position, or email" aria-label="Search report" oninput="setHrReportSearch(this.value)" />
+      </div>
       <div class="tw"><table>
         <thead><tr id="hr-rep-thead"><th colspan="6" style="color:var(--t3);">Generate a report to view results</th></tr></thead>
         <tbody id="hr-rep-table-body"></tbody>

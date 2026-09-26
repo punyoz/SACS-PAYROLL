@@ -26,6 +26,7 @@ let hrLeaveRequests = [];
 let hrLeaveHistory = [];
 let hrReportData = [];
 let hrReportType = 'attendance';
+let hrReportSearch = '';
 let hrCurrentEditEmployee = null;
 
 let hrBranchAllEmployees = [];
@@ -948,17 +949,32 @@ function hrReportRowHtml(r) {
   </tr>`;
 }
 
+// The report rows matching the search box (name, ID, branch, type, position, email).
+function hrReportFiltered() {
+  const q = hrReportSearch.trim().toLowerCase();
+  if (!q) return hrReportData;
+  return hrReportData.filter((r) =>
+    [r.employee_name, r.full_name, r.employee_id, r.branch_name, r.employee_type, r.position, r.email]
+      .some((v) => String(v || '').toLowerCase().includes(q)));
+}
+
+function setHrReportSearch(value) {
+  hrReportSearch = value || '';
+  if (hrRepPaginator) hrRepPaginator.setData(hrReportFiltered());
+}
+
 // One renderer for both report types: it reads hrReportType on every render,
 // so switching report types never reuses the other type's columns.
 function renderHrReportRows(rows) {
   const tbody = document.getElementById('hr-rep-table-body');
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);text-align:center;">No records found.</td></tr>';
+    const msg = hrReportSearch ? 'No records match your search.' : 'No records found.';
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);text-align:center;">${msg}</td></tr>`;
     return;
   }
   const counts = new Map();
-  hrReportData.forEach((r) => counts.set(r.branch_name, (counts.get(r.branch_name) || 0) + 1));
+  hrReportFiltered().forEach((r) => counts.set(r.branch_name, (counts.get(r.branch_name) || 0) + 1));
   let lastBranch = null;
   tbody.innerHTML = rows.map((r) => {
     let header = '';
@@ -1037,7 +1053,7 @@ async function loadHRReports() {
     if (!hrRepPaginator) {
       hrRepPaginator = createPaginator({ id: 'hr-rep', pageSize: 20, renderFn: renderHrReportRows });
     }
-    hrRepPaginator.setData(hrReportData);
+    hrRepPaginator.setData(hrReportFiltered());
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
