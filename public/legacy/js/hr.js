@@ -744,7 +744,7 @@ function renderHRAttendanceTable(logs) {
             <td>${row.time_in ? escapeHtml(formatTimeOnly(row.time_in)) : '—'}</td>
             <td>${row.time_out ? escapeHtml(formatTimeOnly(row.time_out)) : '—'}</td>
             <td>${row.time_out ? Number(row.total_hours || 0).toFixed(2) + 'h' : '—'}</td>
-            <td>${attendanceStatusBadge(row.status)}</td>
+            <td>${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div style="font-size:11px;color:var(--t3);margin-top:3px;">No tap yet today</div>' : ''}</td>
           </tr>`;
         }).join('');
       },

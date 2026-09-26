@@ -3863,11 +3863,11 @@ function renderAttendanceBoard(board) {
     if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day.';
     rows = board.corrections;
   } else {
-    if (head) head.innerHTML = '<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th></tr>';
+    if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) {
       note.textContent = board.engineReady === false
         ? 'Automatic statuses are not active yet: apply the attendance database migration (20260926010000_attendance_status_engine.sql).'
-        : 'Statuses are computed automatically from each branch\'s schedule.';
+        : `Statuses are computed automatically from each branch's schedule. Today's list includes everyone who has not tapped yet.${board.canReview ? ' If someone worked but did not tap, use Correct on their Absent day.' : ''}`;
     }
     rows = board.status === 'all' ? board.logs : board.logs.filter((row) => row.status === board.status);
   }
@@ -3875,7 +3875,7 @@ function renderAttendanceBoard(board) {
   board.paginator.setData(rows);
   if (!rows.length) {
     const body = document.getElementById(`${id}-body`);
-    const cols = board.tab === 'all' ? 8 : (board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
+    const cols = (board.tab === 'all' ? 8 : board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
     const empty = board.tab === 'corrections' ? 'No correction requests waiting.' : board.tab === 'incomplete' ? 'Nothing to resolve.' : 'No attendance records for this period.';
     if (body) body.innerHTML = `<tr><td colspan="${cols}" style="color:var(--t3);">${empty}</td></tr>`;
   }
@@ -3924,7 +3924,10 @@ function renderAttendanceBoardRows(board, rows) {
       <td class="mn">${row.time_out ? Number(row.total_hours || 0).toFixed(2) : '—'}</td>
       <td class="mn">${escapeHtml(attMinutes(row.late_minutes))}</td>
       <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
-      <td>${attendanceStatusBadge(row.status)}</td>
+      <td>${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div style="font-size:11px;color:var(--t3);margin-top:3px;">No tap yet today</div>' : ''}</td>
+      ${board.canReview ? `<td>${row.status === 'Absent'
+        ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceAbsenceCorrection('${key}','${escapeHtml(row.employee_id)}','${escapeHtml(row.log_date)}')">Correct</button>`
+        : ''}</td>` : ''}
     </tr>`).join('');
 }
 
@@ -4109,6 +4112,53 @@ function openAttendanceResolve(rootId, logId) {
   });
 }
 
+/** HR / Admin: record the real times of a day the employee worked but never tapped. */
+function openAttendanceAbsenceCorrection(rootId, employeeId, logDate) {
+  const board = attendanceBoards.get(rootId);
+  const row = board?.logs.find((r) => String(r.employee_id) === String(employeeId) && r.log_date === logDate && r.status === 'Absent');
+  if (!row) return;
+
+  openAttendanceDialog({
+    title: 'Correct Absence',
+    summary: `
+      <div><strong>${escapeHtml(row.employee_name || 'Employee')}</strong> · ${escapeHtml(attFormatDate(row.log_date))} ${attendanceStatusBadge('Absent')}</div>
+      <div>For a day the employee worked but did not tap. The times you enter are recorded, lateness and undertime are worked out from them, and the day is marked Corrected.</div>`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="att-absence-in">Time in</label>
+        <input id="att-absence-in" class="fc" type="time" />
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-absence-out">Time out</label>
+        <input id="att-absence-out" class="fc" type="time" />
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-absence-note">Reason</label>
+        <textarea id="att-absence-note" class="fc" rows="2" maxlength="500" placeholder="e.g. RFID reader was down; confirmed with the branch logbook"></textarea>
+      </div>`,
+    actions: [{
+      label: 'Save Correction',
+      className: 'btn-primary',
+      handler: async () => {
+        await attFetchJson('/api/attendance/corrections', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'correct_absence',
+            employee_id: row.employee_id,
+            log_date: row.log_date,
+            time_in: attDialogValue('att-absence-in'),
+            time_out: attDialogValue('att-absence-out'),
+            note: attDialogValue('att-absence-note'),
+          }),
+        });
+        window.pushNotification?.('Absence Corrected', `${row.employee_name || 'The employee'}'s day is recorded and marked Corrected.`, 'success');
+        await refreshAttendanceBoard(rootId);
+      },
+    }],
+  });
+}
+
 /* ── EMPLOYEE: THIS PAY PERIOD + REQUEST CORRECTION ── */
 const myAttendanceState = { logs: [], period: '' };
 
@@ -4210,6 +4260,7 @@ window.mountAttendanceBoard = mountAttendanceBoard;
 window.refreshAttendanceBoard = refreshAttendanceBoard;
 window.openAttendanceReview = openAttendanceReview;
 window.openAttendanceResolve = openAttendanceResolve;
+window.openAttendanceAbsenceCorrection = openAttendanceAbsenceCorrection;
 window.closeAttendanceDialog = closeAttendanceDialog;
 window.loadMyAttendancePeriod = loadMyAttendancePeriod;
 window.openMyCorrectionRequest = openMyCorrectionRequest;

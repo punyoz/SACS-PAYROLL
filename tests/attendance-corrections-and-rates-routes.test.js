@@ -6,7 +6,7 @@
  *     reviewers never decide their own, Admin only for its branch.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, table, rpc } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
@@ -147,5 +147,104 @@ describe("Attendance corrections", () => {
     const { PATCH } = await import("@/app/api/attendance/corrections/route");
     const response = await PATCH(requestAs({ userId: "u-hr", role: "hr", branchId: null }, "/api/attendance/corrections", "PATCH", { correction_id: "c-hr-own", decision: "approve" }));
     expect(response.status).toBe(403);
+  });
+});
+
+describe("Today's non-tappers and correcting an absence", () => {
+  // Monday 28 Sep 2026, 10:00 Manila.
+  const MONDAY = new Date("2026-09-28T02:00:00Z");
+  const HR = { userId: "u-hr", role: "hr", branchId: null, fullName: "Hana HR" };
+  const ADMIN = { userId: "u-admin", role: "admin", branchId: "branch-a", fullName: "Ada Admin" };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(MONDAY);
+    table("profiles").push(
+      { id: "u-tapped", full_name: "Tapped In", role: "employee", branch_id: "branch-a", employee_type: "Teaching", date_hired: "2026-01-01" },
+      { id: "u-missing", full_name: "Not Yet", role: "employee", branch_id: "branch-a", employee_type: "Teaching", date_hired: "2026-01-01" },
+      { id: "u-leave", full_name: "On Leave", role: "accountant", branch_id: "branch-a", employee_id: "SACS-009", date_hired: "2026-01-01" },
+      { id: "u-archived", full_name: "Gone", role: "employee", branch_id: "branch-a", archived: true },
+      { id: "u-newhire", full_name: "Starts Later", role: "employee", branch_id: "branch-a", date_hired: "2026-10-01" },
+      { id: "u-other-branch", full_name: "Elsewhere", role: "employee", branch_id: "branch-b", date_hired: "2026-01-01" },
+      { id: "u-admin", full_name: "Ada Admin", role: "admin", branch_id: "branch-a" },
+    );
+    table("attendance_logs").push({
+      id: "log-today", employee_id: "u-tapped", employee_name: "Tapped In", log_date: "2026-09-28",
+      time_in: "2026-09-28T00:05:00Z", status: "On Time", archived_duplicate: false, branch_id: "branch-a",
+    });
+    table("leave_requests").push({ employee_id: "SACS-009", status: "approved", start_date: "2026-09-28", end_date: "2026-09-29" });
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it("lists today's non-tappers as Absent on HR's Attendance page", async () => {
+    const { GET } = await import("@/app/api/hr/attendance/route");
+    const body = await (await GET(requestAs(HR, "/api/hr/attendance?date=2026-09-28"))).json();
+    const names = body.logs.map((row) => [row.employee_name, row.status, Boolean(row.not_yet_tapped)]);
+    expect(names).toEqual(expect.arrayContaining([
+      ["Tapped In", "On Time", false],
+      ["Not Yet", "Absent", true],
+      ["Elsewhere", "Absent", true],
+    ]));
+    // On approved leave, archived, not hired yet, and staff accounts are not listed.
+    expect(names.map((n) => n[0])).not.toEqual(expect.arrayContaining(["On Leave"]));
+    expect(names.map((n) => n[0])).not.toContain("Gone");
+    expect(names.map((n) => n[0])).not.toContain("Starts Later");
+    expect(names.map((n) => n[0])).not.toContain("Ada Admin");
+    expect(body.summary.absent).toBe(2);
+  });
+
+  it("adds nobody on a rest day", async () => {
+    vi.setSystemTime(new Date("2026-09-27T02:00:00Z")); // Sunday
+    const { GET } = await import("@/app/api/hr/attendance/route");
+    const body = await (await GET(requestAs(HR, "/api/hr/attendance?date=2026-09-27"))).json();
+    expect(body.logs.filter((row) => row.not_yet_tapped)).toHaveLength(0);
+  });
+
+  it("shows them on the status board to reviewers, scoped to the Admin's branch", async () => {
+    const { GET } = await import("@/app/api/attendance/logs/route");
+    const board = await (await GET(requestAs(ADMIN, "/api/attendance/logs"))).json();
+    const absent = board.logs.filter((row) => row.not_yet_tapped).map((row) => row.employee_name);
+    expect(absent).toEqual(["Not Yet"]);
+    expect(board.can_review).toBe(true);
+  });
+
+  it("does not call an employee absent in their own view before the day is over", async () => {
+    const { GET } = await import("@/app/api/attendance/logs/route");
+    const own = await (await GET(requestAs({ userId: "u-missing", role: "employee" }, "/api/attendance/logs"))).json();
+    expect(own.logs.filter((row) => row.not_yet_tapped)).toHaveLength(0);
+  });
+
+  it("lets HR correct an absence with the real times and a reason", async () => {
+    const { PATCH } = await import("@/app/api/attendance/corrections/route");
+    const response = await PATCH(requestAs(HR, "/api/attendance/corrections", "PATCH", {
+      action: "correct_absence", employee_id: "u-missing", log_date: "2026-09-28",
+      time_in: "08:05", time_out: "09:30", note: "Reader was offline this morning",
+    }));
+    expect(response.status).toBe(200);
+    expect(rpc.calls.at(-1)).toEqual({
+      fn: "attendance_correct_absence",
+      args: {
+        p_employee_id: "u-missing",
+        p_log_date: "2026-09-28",
+        p_time_in: "2026-09-28T00:05:00.000Z",
+        p_time_out: "2026-09-28T01:30:00.000Z",
+        p_reviewer: "u-hr",
+        p_reviewer_name: "Hana HR",
+        p_note: "Reader was offline this morning",
+      },
+    });
+  });
+
+  it("validates the input and keeps an Admin to its branch", async () => {
+    const { PATCH } = await import("@/app/api/attendance/corrections/route");
+    const patch = (who, body) => PATCH(requestAs(who, "/api/attendance/corrections", "PATCH", { action: "correct_absence", ...body }));
+    const valid = { employee_id: "u-missing", log_date: "2026-09-28", time_in: "08:00", time_out: "17:00", note: "Reader was offline" };
+    expect((await patch(HR, { ...valid, time_out: "07:00" })).status).toBe(400);
+    expect((await patch(HR, { ...valid, note: "no" })).status).toBe(400);
+    expect((await patch(HR, { ...valid, time_in: "8am" })).status).toBe(400);
+    expect((await patch(ADMIN, { ...valid, employee_id: "u-other-branch" })).status).toBe(403);
+    expect((await patch({ userId: "u-missing", role: "employee" }, valid)).status).toBe(403);
+    expect(rpc.calls.filter((c) => c.fn === "attendance_correct_absence")).toHaveLength(0);
   });
 });

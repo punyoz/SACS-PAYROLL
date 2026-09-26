@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
+import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { requirePermission } from "@/lib/rbac/guard";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -58,6 +59,11 @@ export async function GET(request) {
       const { data, error } = await query;
       if (!error) logs = data || [];
     } else {
+      // A past day the nightly close has not reached yet: close it now, so
+      // its missed tap-outs and absences are real records.
+      if (dateParam < getDateKey()) {
+        await supabase.rpc("attendance_close_days", { p_from: dateParam, p_to: dateParam });
+      }
       let query = supabase
         .from("attendance_logs")
         .select("*")
@@ -70,6 +76,19 @@ export async function GET(request) {
 
     // One record per employee per day: first tap in, last tap out.
     logs = collapseDailyTaps(logs).map((row) => ({ ...row, date: row.log_date }));
+
+    // Today: everyone who has not tapped yet is listed as Absent by name, as
+    // the Admin page does (no record exists until the nightly close).
+    if (!viewAll && dateParam === getDateKey()) {
+      let employeeIds = null;
+      if (!guard.branchExempt) {
+        const roster = await supabase.from("profiles").select("id").eq("branch_id", guard.branchId).limit(5000);
+        employeeIds = roster.error ? [] : (roster.data || []).map((row) => row.id);
+      }
+      const loggedIds = new Set(logs.map((row) => String(row.employee_id)));
+      const notTapped = await listNotTapped(supabase, { dateKey: dateParam, loggedIds, employeeIds });
+      logs = [...logs, ...notTapped];
+    }
 
     // Summary counts
     const present = logs.filter((r) => attendanceBucket(r.status) === "present").length;

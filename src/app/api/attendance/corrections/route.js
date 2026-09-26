@@ -222,13 +222,82 @@ async function handleResolve(guard, body) {
   return NextResponse.json({ success: true, correction: data });
 }
 
+/**
+ * PATCH { action: "correct_absence", employee_id, log_date, time_in: "HH:MM",
+ *         time_out: "HH:MM", note }
+ * HR / Admin record the real time in and time out of a day an employee worked
+ * but did not tap at all. An Absent record (or, for today / a day not yet
+ * closed, no record) becomes Corrected.
+ */
+async function handleCorrectAbsence(guard, body) {
+  const employeeId = normalizeText(body.employee_id);
+  const logDate = normalizeText(body.log_date);
+  const timeIn = normalizeText(body.time_in);
+  const timeOut = normalizeText(body.time_out);
+  const note = normalizeText(body.note).slice(0, 500);
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+  if (!employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) {
+    return NextResponse.json({ error: "Choose the employee and the day to correct." }, { status: 400 });
+  }
+  if (!hhmm.test(timeIn) || !hhmm.test(timeOut)) {
+    return NextResponse.json({ error: "Enter the time in and time out (HH:MM)." }, { status: 400 });
+  }
+  if (timeOut <= timeIn) return NextResponse.json({ error: "The time out must be after the time in." }, { status: 400 });
+  if (note.length < 5) return NextResponse.json({ error: "Give a reason for the correction." }, { status: 400 });
+
+  const supabase = getAdminClient();
+  if (guard.scope === SCOPE_BRANCH) {
+    const ids = await branchEmployeeIds(supabase, guard.branchId);
+    if (!ids.includes(employeeId)) {
+      return NextResponse.json({ error: "That employee belongs to another branch." }, { status: 403 });
+    }
+  }
+  if (employeeId === guard.userId) {
+    return NextResponse.json({ error: "You cannot correct your own attendance." }, { status: 403 });
+  }
+
+  const reviewerName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const { data, error } = await supabase.rpc("attendance_correct_absence", {
+    p_employee_id: employeeId,
+    p_log_date: logDate,
+    p_time_in: new Date(`${logDate}T${timeIn}:00+08:00`).toISOString(),
+    p_time_out: new Date(`${logDate}T${timeOut}:00+08:00`).toISOString(),
+    p_reviewer: guard.userId,
+    p_reviewer_name: reviewerName,
+    p_note: note,
+  });
+  if (error) {
+    // A tap recorded at the same moment took the day first.
+    if (String(error.code || "") === "23505") {
+      return NextResponse.json({ error: "A record for this day was just created. Refresh and try again." }, { status: 409 });
+    }
+    return rpcFailure(error, "Unable to correct the absence right now.");
+  }
+
+  await appendAuditLog({
+    module: "attendance",
+    action: "absence_correct",
+    entity_type: "attendance_log",
+    entity_id: data?.log_id || employeeId,
+    description: `Absence of ${data?.employee_name || "employee"} on ${logDate} corrected by ${reviewerName}: ${timeIn}–${timeOut}.`,
+    status: "success",
+    source: "api",
+    metadata: { correction_id: data?.id, employee_id: employeeId, log_date: logDate, time_in: timeIn, time_out: timeOut, note },
+  });
+
+  return NextResponse.json({ success: true, correction: data });
+}
+
 export async function PATCH(request) {
   const guard = await requirePermission(request, "attendance_corrections", "update");
   if (guard.denied) return guard.denied;
 
   try {
     const body = await request.json().catch(() => ({}));
-    if (normalizeText(body.action).toLowerCase() === "resolve") return await handleResolve(guard, body);
+    const action = normalizeText(body.action).toLowerCase();
+    if (action === "resolve") return await handleResolve(guard, body);
+    if (action === "correct_absence") return await handleCorrectAbsence(guard, body);
 
     const correctionId = normalizeText(body.correction_id);
     const decision = normalizeText(body.decision).toLowerCase();

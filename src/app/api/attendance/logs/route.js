@@ -11,6 +11,7 @@ import {
   normalizeAttendanceStatus,
 } from "@/lib/attendance/status";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
+import { listNotTapped } from "@/lib/attendance/not-tapped";
 
 /**
  * GET /api/attendance/logs — the attendance status board.
@@ -112,6 +113,24 @@ export async function GET(request) {
       status: normalizeAttendanceStatus(row.status),
     }));
 
+    // Today has no Absent records until the nightly close, so everyone who
+    // has not tapped yet is added by name (reviewers only -- an employee's own
+    // view does not call them absent before the day is over).
+    const today = manilaDateKey();
+    const wantsAbsent = !statusFilter || statusFilter === "all" || normalizeAttendanceStatus(statusFilter, "") === "Absent";
+    if (!selfOnly && wantsAbsent && today >= range.from && today <= range.to) {
+      let todayQuery = supabase
+        .from("attendance_logs")
+        .select("employee_id")
+        .eq("log_date", today)
+        .eq("archived_duplicate", false)
+        .limit(5000);
+      if (employeeIds) todayQuery = todayQuery.in("employee_id", employeeIds);
+      const todayRows = await todayQuery;
+      const loggedIds = new Set((todayRows.error ? [] : todayRows.data || []).map((row) => String(row.employee_id)));
+      logs.push(...await listNotTapped(supabase, { dateKey: today, loggedIds, employeeIds }));
+    }
+
     // Open correction requests, so the board can show "Pending review" and
     // the employee cannot file a second one.
     const pendingByLog = new Map();
@@ -120,7 +139,7 @@ export async function GET(request) {
         .from("attendance_corrections")
         .select("id,log_id,corrected_time_out,reason,requested_at,status")
         .eq("status", "pending")
-        .in("log_id", logs.map((row) => row.id).slice(0, 1000));
+        .in("log_id", logs.map((row) => row.id).filter(Boolean).slice(0, 1000));
       if (!pending.error) (pending.data || []).forEach((row) => pendingByLog.set(row.log_id, row));
     }
 
