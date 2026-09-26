@@ -917,6 +917,63 @@ function onHrReportTypeChange() {
   if (toWrap) toWrap.style.display = type === 'attendance' ? '' : 'none';
 }
 
+// Rows sorted by branch (Unassigned last), then by employee name, so each
+// branch's employees sit together under one header row.
+function hrReportSortByBranch(records, nameKey) {
+  const branchKey = (r) => (r.branch_id ? r.branch_name || 'Unknown branch' : '￿');
+  return [...records].sort((a, b) =>
+    branchKey(a).localeCompare(branchKey(b)) ||
+    String(a[nameKey] || '').localeCompare(String(b[nameKey] || '')));
+}
+
+function hrReportRowHtml(r) {
+  if (hrReportType === 'attendance') {
+    return `<tr>
+      <td>${escapeHtml(r.employee_name || '—')}</td>
+      <td>${escapeHtml(r.employee_type || '—')}</td>
+      <td style="color:var(--green);">${r.present ?? 0}</td>
+      <td style="color:var(--amber);">${r.late ?? 0}</td>
+      <td style="color:var(--red);">${r.absent ?? 0}</td>
+      <td>${Number(r.total_hours || 0).toFixed(1)}h</td>
+    </tr>`;
+  }
+  const archived = r.archived ? '<span style="color:var(--red);font-size:10px;"> (Archived)</span>' : '';
+  return `<tr>
+    <td>${escapeHtml(r.full_name || '—')}${archived}</td>
+    <td><code style="font-size:11px;">${escapeHtml(r.employee_id || '—')}</code></td>
+    <td>${escapeHtml(r.employee_type || '—')}</td>
+    <td>${escapeHtml(r.position || '—')}</td>
+    <td>${escapeHtml(r.employee_status || 'Active')}</td>
+    <td style="font-size:12px;color:var(--t3);">${escapeHtml(r.email || '—')}</td>
+  </tr>`;
+}
+
+// One renderer for both report types: it reads hrReportType on every render,
+// so switching report types never reuses the other type's columns.
+function renderHrReportRows(rows) {
+  const tbody = document.getElementById('hr-rep-table-body');
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);text-align:center;">No records found.</td></tr>';
+    return;
+  }
+  const counts = new Map();
+  hrReportData.forEach((r) => counts.set(r.branch_name, (counts.get(r.branch_name) || 0) + 1));
+  let lastBranch = null;
+  tbody.innerHTML = rows.map((r) => {
+    let header = '';
+    if (r.branch_name !== lastBranch) {
+      lastBranch = r.branch_name;
+      const n = counts.get(r.branch_name) || 0;
+      header = `<tr><td colspan="6" style="background:var(--bg3);font-weight:700;font-size:12px;color:var(--t1);">
+        ${escapeHtml(r.branch_name || 'Unassigned')}
+        <span style="font-weight:500;color:var(--t3);margin-left:6px;">${n} employee${n === 1 ? '' : 's'}</span>
+      </td></tr>`;
+    }
+    return header + hrReportRowHtml(r);
+  }).join('');
+}
+
 async function loadHRReports() {
   const type = document.getElementById('hr-report-type')?.value || 'attendance';
   hrReportType = type;
@@ -943,9 +1000,10 @@ async function loadHRReports() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to load report.');
 
-    hrReportData = data.records || [];
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
 
     if (type === 'attendance') {
+      hrReportData = hrReportSortByBranch(data.records || [], 'employee_name');
       if (titleEl) titleEl.textContent = `Attendance Report${from ? ` · ${from} to ${to}` : ''}`;
 
       if (thead) thead.innerHTML = '<tr><th>Employee</th><th>Type</th><th>Present</th><th>Late</th><th>Absent</th><th>Total Hours</th></tr>';
@@ -954,7 +1012,6 @@ async function loadHRReports() {
       const totalLate = hrReportData.reduce((s, r) => s + (r.late || 0), 0);
       const totalAbsent = hrReportData.reduce((s, r) => s + (r.absent || 0), 0);
 
-      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
       set('hr-rep-total', hrReportData.length);
       set('hr-rep-stat1-label', 'Present Days');
       set('hr-rep-stat1', totalPresent);
@@ -962,32 +1019,11 @@ async function loadHRReports() {
       set('hr-rep-stat2', totalLate);
       set('hr-rep-stat3-label', 'Absent Days');
       set('hr-rep-stat3', totalAbsent);
-      if (summary) summary.style.display = '';
-
-      if (!hrRepPaginator) {
-        hrRepPaginator = createPaginator({
-          id: 'hr-rep',
-          pageSize: 20,
-          renderFn: (rows) => {
-            if (!tbody) return;
-            tbody.innerHTML = rows.map((r) => `<tr>
-              <td>${escapeHtml(r.employee_name || '—')}</td>
-              <td>${escapeHtml(r.employee_type || '—')}</td>
-              <td style="color:var(--green);">${r.present ?? 0}</td>
-              <td style="color:var(--amber);">${r.late ?? 0}</td>
-              <td style="color:var(--red);">${r.absent ?? 0}</td>
-              <td>${Number(r.total_hours || 0).toFixed(1)}h</td>
-            </tr>`).join('');
-          },
-        });
-      }
-      hrRepPaginator.setData(hrReportData);
-
     } else {
+      hrReportData = hrReportSortByBranch(data.records || [], 'full_name');
       if (titleEl) titleEl.textContent = 'Employee Records Report';
       if (thead) thead.innerHTML = '<tr><th>Employee</th><th>ID</th><th>Type</th><th>Position</th><th>Status</th><th>Email</th></tr>';
 
-      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
       set('hr-rep-total', data.total || hrReportData.length);
       set('hr-rep-stat1-label', 'Active');
       set('hr-rep-stat1', data.active ?? 0);
@@ -995,30 +1031,13 @@ async function loadHRReports() {
       set('hr-rep-stat2', data.archived ?? 0);
       set('hr-rep-stat3-label', 'Teaching');
       set('hr-rep-stat3', hrReportData.filter((r) => r.employee_type?.toLowerCase() === 'teaching').length);
-      if (summary) summary.style.display = '';
-
-      if (!hrRepPaginator) {
-        hrRepPaginator = createPaginator({
-          id: 'hr-rep',
-          pageSize: 20,
-          renderFn: (rows) => {
-            if (!tbody) return;
-            tbody.innerHTML = rows.map((r) => {
-              const archived = r.archived ? '<span style="color:var(--red);font-size:10px;"> (Archived)</span>' : '';
-              return `<tr>
-                <td>${escapeHtml(r.full_name || '—')}${archived}</td>
-                <td><code style="font-size:11px;">${escapeHtml(r.employee_id || '—')}</code></td>
-                <td>${escapeHtml(r.employee_type || '—')}</td>
-                <td>${escapeHtml(r.position || '—')}</td>
-                <td>${escapeHtml(r.employee_status || 'Active')}</td>
-                <td style="font-size:12px;color:var(--t3);">${escapeHtml(r.email || '—')}</td>
-              </tr>`;
-            }).join('');
-          },
-        });
-      }
-      hrRepPaginator.setData(hrReportData);
     }
+    if (summary) summary.style.display = '';
+
+    if (!hrRepPaginator) {
+      hrRepPaginator = createPaginator({ id: 'hr-rep', pageSize: 20, renderFn: renderHrReportRows });
+    }
+    hrRepPaginator.setData(hrReportData);
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
@@ -1029,11 +1048,11 @@ function exportHRReportCsv() {
 
   let headers, rows;
   if (hrReportType === 'attendance') {
-    headers = ['Employee', 'Type', 'Present', 'Late', 'Absent', 'Total Hours'];
-    rows = hrReportData.map((r) => [r.employee_name || '', r.employee_type || '', r.present ?? 0, r.late ?? 0, r.absent ?? 0, Number(r.total_hours || 0).toFixed(2)]);
+    headers = ['Branch', 'Employee', 'Type', 'Present', 'Late', 'Absent', 'Total Hours'];
+    rows = hrReportData.map((r) => [r.branch_name || '', r.employee_name || '', r.employee_type || '', r.present ?? 0, r.late ?? 0, r.absent ?? 0, Number(r.total_hours || 0).toFixed(2)]);
   } else {
-    headers = ['Employee', 'ID', 'Type', 'Position', 'Status', 'Email'];
-    rows = hrReportData.map((r) => [r.full_name || '', r.employee_id || '', r.employee_type || '', r.position || '', r.employee_status || '', r.email || '']);
+    headers = ['Branch', 'Employee', 'ID', 'Type', 'Position', 'Status', 'Email'];
+    rows = hrReportData.map((r) => [r.branch_name || '', r.full_name || '', r.employee_id || '', r.employee_type || '', r.position || '', r.employee_status || '', r.email || '']);
   }
 
   downloadCsv([headers, ...rows], `sacs-hr-${hrReportType}-report-${localDateKey()}.csv`);

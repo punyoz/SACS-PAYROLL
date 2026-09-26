@@ -39,10 +39,15 @@ export async function GET(request) {
     const from = url.searchParams.get("from");
     const to = url.searchParams.get("to") || getDateKey();
 
+    // Branch names so both reports can be grouped per branch.
+    const { data: branchRows } = await supabase.from("branches").select("id,name");
+    const branchNames = new Map((branchRows || []).map((b) => [String(b.id), b.name]));
+    const branchName = (id) => (id ? branchNames.get(String(id)) || "Unknown branch" : "Unassigned");
+
     if (type === "attendance") {
       let query = supabase
         .from("attendance_logs")
-        .select("employee_id, employee_name, employee_type, log_date, time_in, time_out, status, total_hours")
+        .select("employee_id, employee_name, employee_type, branch_id, log_date, time_in, time_out, status, total_hours")
         .order("log_date", { ascending: false })
         .limit(1000);
 
@@ -66,6 +71,9 @@ export async function GET(request) {
             employee_id: row.employee_id,
             employee_name: normalizeText(row.employee_name, "Unknown"),
             employee_type: normalizeText(row.employee_type, "Teaching"),
+            // Logs are newest first, so this is the employee's latest branch.
+            branch_id: row.branch_id || null,
+            branch_name: branchName(row.branch_id),
             present: 0,
             late: 0,
             absent: 0,
@@ -93,16 +101,14 @@ export async function GET(request) {
       const usersResult = await listUsersCached(supabase);
       if (usersResult.error) throw new Error(usersResult.error.message);
 
-      let branchMap = new Map();
-      if (!guard.branchExempt) {
-        const candidateIds = (usersResult.data.users || []).map((u) => u.id);
-        if (candidateIds.length) {
-          const { data: profileRows } = await supabase
-            .from("profiles")
-            .select("id,branch_id")
-            .in("id", candidateIds);
-          (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
-        }
+      const branchMap = new Map();
+      const candidateIds = (usersResult.data.users || []).map((u) => u.id);
+      if (candidateIds.length) {
+        const { data: profileRows } = await supabase
+          .from("profiles")
+          .select("id,branch_id")
+          .in("id", candidateIds);
+        (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
       }
 
       const employees = (usersResult.data.users || [])
@@ -115,6 +121,7 @@ export async function GET(request) {
         })
         .map((u) => {
           const meta = u.user_metadata || {};
+          const branchId = branchMap.get(u.id) || meta.branch_id || null;
           return {
             employee_id: normalizeText(meta.employee_id),
             full_name: normalizeText(meta.full_name, u.email),
@@ -124,6 +131,8 @@ export async function GET(request) {
             position: normalizeText(meta.position, "Employee"),
             employee_status: normalizeText(meta.employee_status, "Active"),
             archived: Boolean(meta.archived),
+            branch_id: branchId,
+            branch_name: branchName(branchId),
             created_at: u.created_at,
           };
         });
