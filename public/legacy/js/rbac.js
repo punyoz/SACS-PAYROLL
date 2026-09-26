@@ -53,6 +53,7 @@
 
   var REASON_BY_CODE = {
     session_replaced: 'signed_in_elsewhere',
+    session_revoked: 'account_changed',
     account_archived: 'account_archived'
   };
 

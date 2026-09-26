@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { listUsersCached } from "@/lib/auth/users-cache";
+import { listUsersCached, getTrustedUserById } from "@/lib/auth/users-cache";
+import { revokeActiveSession } from "@/lib/auth/active-session";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
 
@@ -168,7 +169,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Branch not found." }, { status: 404 });
     }
 
-    const { data: userData, error: userErr } = await supabase.auth.admin.getUserById(userId);
+    const { data: userData, error: userErr } = await getTrustedUserById(supabase, userId);
     if (userErr || !userData?.user) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
@@ -213,6 +214,13 @@ export async function POST(request) {
     // letting the next few seconds of their requests keep the old one
     // (src/lib/auth/live-branch.js).
     invalidateBranchCache(userId);
+
+    // The session cookie still carries the old branch; end it so the next
+    // sign-in picks up the new one. (meta.branch_id is the trusted profiles
+    // copy -- src/lib/auth/users-cache.js.)
+    if (String(meta.branch_id || "") !== String(branchId)) {
+      await revokeActiveSession(userId);
+    }
 
     await appendAuditLog({
       module: "employees",
@@ -286,6 +294,9 @@ export async function DELETE(request) {
     // letting the next few seconds of their requests keep the old one
     // (src/lib/auth/live-branch.js).
     invalidateBranchCache(userId);
+
+    // The session cookie still carries the old branch; end it.
+    await revokeActiveSession(userId);
 
     await appendAuditLog({
       module: "employees",

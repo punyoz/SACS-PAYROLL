@@ -2036,7 +2036,9 @@ let __empStatsInFlight = null;
 let __empStatsInFlightEmail = '';
 const EMP_STATS_CACHE_TTL_MS = 20_000;
 
-async function fetchEmployeeStatsCached(email) {
+// { background: true } marks a timed refresh, which must not keep an idle
+// session alive (src/proxy.js).
+async function fetchEmployeeStatsCached(email, { background = false } = {}) {
   const key = String(email || '').trim();
   if (!key) throw new Error('Missing employee email.');
 
@@ -2046,7 +2048,10 @@ async function fetchEmployeeStatsCached(email) {
 
   if (!__empStatsInFlight || __empStatsInFlightEmail !== key) {
     __empStatsInFlightEmail = key;
-    __empStatsInFlight = fetch(`/api/employee/stats?email=${encodeURIComponent(key)}`)
+    __empStatsInFlight = fetch(
+      `/api/employee/stats?email=${encodeURIComponent(key)}`,
+      background ? { headers: { 'x-sacs-background': '1' } } : undefined,
+    )
       .then(async (res) => {
         if (!res.ok) throw new Error('Failed to load attendance data.');
         const payload = await res.json();
@@ -2955,6 +2960,7 @@ function initPasswordChangeScreen() {
 const LOGIN_REASON_MESSAGES = {
   signed_in_elsewhere: 'You were signed out because your account signed in on another device or browser. Only one active sign-in is allowed per account.',
   account_archived: 'This account has been archived and can no longer sign in.',
+  account_changed: 'Your role or branch was changed by an administrator. Please sign in again.',
   session_expired: 'Your session has expired. Please sign in again.',
   password_reset: 'Your password has been reset. Sign in with your new password.',
 };
@@ -3734,6 +3740,7 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
         <button class="st-tab st-active" type="button" data-att-tab="all">All Records</button>
         <button class="st-tab" type="button" data-att-tab="incomplete">Incomplete Queue <span id="${id}-incomplete-count"></span></button>
         <button class="st-tab" type="button" data-att-tab="corrections">Correction Requests <span id="${id}-corrections-count"></span></button>
+        <button class="st-tab" type="button" data-att-tab="overtime">Overtime <span id="${id}-overtime-count"></span></button>
       </div>
       <div id="${id}-legend">${attendanceStatusLegend()}</div>
       <div id="${id}-filter-wrap" style="margin-bottom:12px;">
@@ -3759,6 +3766,9 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
     branch: '',
     logs: [],
     corrections: [],
+    overtime: [],
+    overtimeCanReview: false,
+    overtimeMinMinutes: 30,
     canReview: false,
     loading: false,
     paginator: null,
@@ -3811,17 +3821,22 @@ async function refreshAttendanceBoard(rootId) {
   try {
     const params = new URLSearchParams({ period: board.period });
     if (board.branch) params.set('branch_id', board.branch);
-    const [logsData, correctionsData] = await Promise.all([
+    const [logsData, correctionsData, overtimeData] = await Promise.all([
       attFetchJson(`/api/attendance/logs?${params}`),
       attFetchJson('/api/attendance/corrections?status=pending').catch(() => ({ corrections: [] })),
+      attFetchJson(`/api/attendance/overtime?${params}`).catch(() => ({ overtime: [] })),
     ]);
     board.logs = logsData.logs || [];
     board.canReview = Boolean(logsData.can_review);
     board.engineReady = logsData.engine_ready !== false;
     board.corrections = correctionsData.corrections || [];
+    board.overtime = overtimeData.overtime || [];
+    board.overtimeCanReview = Boolean(overtimeData.can_review);
+    board.overtimeMinMinutes = Number(overtimeData.min_minutes) || 30;
   } catch (error) {
     board.logs = [];
     board.corrections = [];
+    board.overtime = [];
     attBoardFeedback(board, error.message, true);
   } finally {
     board.loading = false;
@@ -3845,19 +3860,25 @@ function renderAttendanceBoard(board) {
   };
   setCount('incomplete-count', incomplete.length);
   setCount('corrections-count', board.corrections.length);
+  // Waiting for a decision (and still decidable).
+  setCount('overtime-count', board.overtime.filter((row) => !row.approval && !row.locked).length);
 
   const head = document.getElementById(`${id}-head`);
   const note = document.getElementById(`${id}-note`);
   const filterWrap = document.getElementById(`${id}-filter-wrap`);
   const legend = document.getElementById(`${id}-legend`);
   if (filterWrap) filterWrap.style.display = board.tab === 'all' ? '' : 'none';
-  if (legend) legend.style.display = board.tab === 'corrections' ? 'none' : '';
+  if (legend) legend.style.display = board.tab === 'corrections' || board.tab === 'overtime' ? 'none' : '';
 
   let rows;
   if (board.tab === 'incomplete') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = 'Days with a time in but no time out after the shift ended. They are left out of payroll until resolved — by the employee\'s correction request, or by recording the time out (or Absent / Half Day) here.';
     rows = incomplete;
+  } else if (board.tab === 'overtime') {
+    if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time Out</th><th>Past Schedule</th><th>Decision</th>${board.overtimeCanReview ? '<th>Action</th>' : ''}</tr>`;
+    if (note) note.textContent = `Days whose time out is at least ${board.overtimeMinMinutes} minutes after the branch's end of shift. Payroll pays overtime only for the minutes approved here (hourly rate plus the overtime premium in Payroll Rates). Decisions lock once that pay period is processed.`;
+    rows = board.overtime;
   } else if (board.tab === 'corrections') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Recorded</th><th>Requested Time Out</th><th>Reason</th><th>Requested</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day.';
@@ -3875,8 +3896,13 @@ function renderAttendanceBoard(board) {
   board.paginator.setData(rows);
   if (!rows.length) {
     const body = document.getElementById(`${id}-body`);
-    const cols = (board.tab === 'all' ? 8 : board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
-    const empty = board.tab === 'corrections' ? 'No correction requests waiting.' : board.tab === 'incomplete' ? 'Nothing to resolve.' : 'No attendance records for this period.';
+    const cols = board.tab === 'overtime'
+      ? 5 + (board.overtimeCanReview ? 1 : 0)
+      : (board.tab === 'all' ? 8 : board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
+    const empty = board.tab === 'corrections' ? 'No correction requests waiting.'
+      : board.tab === 'incomplete' ? 'Nothing to resolve.'
+        : board.tab === 'overtime' ? 'No overtime in this period.'
+          : 'No attendance records for this period.';
     if (body) body.innerHTML = `<tr><td colspan="${cols}" style="color:var(--t3);">${empty}</td></tr>`;
   }
 }
@@ -3885,6 +3911,30 @@ function renderAttendanceBoardRows(board, rows) {
   const body = document.getElementById(`${board.rootId}-body`);
   if (!body) return;
   const key = escapeHtml(board.rootId);
+
+  if (board.tab === 'overtime') {
+    body.innerHTML = rows.map((row) => {
+      const approval = row.approval;
+      const decision = approval
+        ? (approval.status === 'approved'
+          ? `<span class="badge bg"><span class="bd"></span>Approved ${escapeHtml(attMinutes(approval.approved_minutes))}</span>`
+          : '<span class="badge br"><span class="bd"></span>Rejected</span>')
+        : '<span class="badge ba"><span class="bd"></span>Waiting</span>';
+      const action = row.locked
+        ? '<span style="font-size:12px;color:var(--t3);">Payroll processed</span>'
+        : `<button class="btn ${approval ? 'btn-outline' : 'btn-primary'}" type="button" style="padding:5px 12px;font-size:12px;" onclick="openOvertimeReview('${key}','${escapeHtml(row.log_id)}')">${approval ? 'Change' : 'Review'}</button>`;
+      return `
+      <tr>
+        <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
+        <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+        <td class="mn">${escapeHtml(attFormatTime(row.time_out))}<div style="font-size:11px;color:var(--t3);">Shift ends ${escapeHtml(row.work_end || '')}</div></td>
+        <td class="mn">${escapeHtml(attMinutes(row.overtime_minutes))}</td>
+        <td>${decision}${approval?.decided_by_name ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;">by ${escapeHtml(approval.decided_by_name)}</div>` : ''}</td>
+        ${board.overtimeCanReview ? `<td>${action}</td>` : ''}
+      </tr>`;
+    }).join('');
+    return;
+  }
 
   if (board.tab === 'corrections') {
     body.innerHTML = rows.map((c) => `
@@ -4042,6 +4092,62 @@ function openAttendanceReview(rootId, correctionId) {
       },
     ],
   });
+}
+
+function openOvertimeReview(rootId, logId) {
+  const board = attendanceBoards.get(rootId);
+  const row = board?.overtime.find((r) => String(r.log_id) === String(logId));
+  if (!row) return;
+  const current = row.approval?.status === 'approved' ? row.approval.approved_minutes : row.overtime_minutes;
+
+  openAttendanceDialog({
+    title: 'Review Overtime',
+    summary: `
+      <div><strong>${escapeHtml(row.employee_name || 'Employee')}</strong> · ${escapeHtml(attFormatDate(row.log_date))}</div>
+      <div>Time out <strong class="mn">${escapeHtml(attFormatTime(row.time_out))}</strong>, shift ends ${escapeHtml(row.work_end || '')}: <strong>${escapeHtml(attMinutes(row.overtime_minutes))}</strong> past schedule.</div>
+      <div style="margin-top:6px;">Only the minutes approved here are paid as overtime.</div>`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="att-ot-minutes">Minutes to approve (1–${Number(row.overtime_minutes) || 0})</label>
+        <input id="att-ot-minutes" class="fc" type="number" min="1" max="${Number(row.overtime_minutes) || 0}" step="1" inputmode="numeric" value="${Number(current) || 0}">
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-ot-note">Note (optional)</label>
+        <textarea id="att-ot-note" class="fc" rows="2" maxlength="300" placeholder="Shown with the decision in the audit trail">${escapeHtml(row.approval?.note || '')}</textarea>
+      </div>`,
+    actions: [
+      {
+        label: 'Reject',
+        className: 'btn-outline',
+        handler: () => submitOvertimeReview(rootId, row.log_id, 'reject'),
+      },
+      {
+        label: 'Approve',
+        className: 'btn-primary',
+        handler: () => submitOvertimeReview(rootId, row.log_id, 'approve'),
+      },
+    ],
+  });
+}
+
+async function submitOvertimeReview(rootId, logId, decision) {
+  const minutes = Number(attDialogValue('att-ot-minutes'));
+  await attFetchJson('/api/attendance/overtime', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      log_id: logId,
+      decision,
+      approved_minutes: decision === 'approve' ? minutes : 0,
+      note: attDialogValue('att-ot-note'),
+    }),
+  });
+  window.pushNotification?.(
+    decision === 'approve' ? 'Overtime Approved' : 'Overtime Rejected',
+    decision === 'approve' ? `${minutes} minute${minutes === 1 ? '' : 's'} will be paid as overtime.` : 'No overtime will be paid for this day.',
+    decision === 'approve' ? 'success' : 'info',
+  );
+  await refreshAttendanceBoard(rootId);
 }
 
 async function submitAttendanceReview(rootId, correctionId, decision) {
@@ -4257,6 +4363,7 @@ window.attendanceStatusColor = attendanceStatusColor;
 window.attendanceCalendarClass = attendanceCalendarClass;
 window.normalizeAttendanceStatusLabel = normalizeAttendanceStatusLabel;
 window.mountAttendanceBoard = mountAttendanceBoard;
+window.openOvertimeReview = openOvertimeReview;
 window.refreshAttendanceBoard = refreshAttendanceBoard;
 window.openAttendanceReview = openAttendanceReview;
 window.openAttendanceResolve = openAttendanceResolve;
@@ -4264,6 +4371,45 @@ window.openAttendanceAbsenceCorrection = openAttendanceAbsenceCorrection;
 window.closeAttendanceDialog = closeAttendanceDialog;
 window.loadMyAttendancePeriod = loadMyAttendancePeriod;
 window.openMyCorrectionRequest = openMyCorrectionRequest;
+
+/* ── Keyboard access for clickable non-buttons ──
+   The sidebar items, filter chips, employee tabs and cards are elements with
+   an inline onclick, which a keyboard could not reach. Each one is made a tab
+   stop (role="button" unless it already has a role, or is a table row/cell)
+   and Enter / Space activate it like a click. Content the portals render
+   later is picked up by the observer below. Visible focus: base.css. */
+const KBD_NATIVE_TAGS = new Set(['A', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'LABEL', 'OPTION', 'SUMMARY']);
+
+function enhanceKeyboardClickables(root) {
+  if (!root || root.nodeType !== 1) return;
+  const found = Array.from(root.querySelectorAll('[onclick]:not([data-kbd-click])'));
+  if (root.matches('[onclick]:not([data-kbd-click])')) found.unshift(root);
+  found.forEach((el) => {
+    if (KBD_NATIVE_TAGS.has(el.tagName)) return;
+    el.setAttribute('data-kbd-click', '');
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+    if (!el.hasAttribute('role') && el.tagName !== 'TR' && el.tagName !== 'TD') el.setAttribute('role', 'button');
+  });
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const el = event.target;
+  if (!(el instanceof Element) || !el.hasAttribute('data-kbd-click')) return;
+  event.preventDefault();
+  el.click();
+});
+
+(function watchKeyboardClickables() {
+  const start = () => {
+    enhanceKeyboardClickables(document.body);
+    new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => mutation.addedNodes.forEach(enhanceKeyboardClickables));
+    }).observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.body) start();
+  else document.addEventListener('DOMContentLoaded', start);
+})();
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initApp);

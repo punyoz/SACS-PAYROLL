@@ -70,6 +70,7 @@ function mapEntryToPayslip(row) {
     transportation: toAmount(allowances.transportation),
     rice: toAmount(allowances.rice),
     overtime: toAmount(allowances.overtime),
+    holiday_pay: toAmount(allowances.holiday_pay),
     bonus: toAmount(allowances.bonus),
     sss: toAmount(deductions.sss),
     philhealth: toAmount(deductions.philhealth),

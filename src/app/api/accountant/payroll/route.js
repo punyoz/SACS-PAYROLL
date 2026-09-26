@@ -16,6 +16,13 @@ import {
 import { computeAttendancePay, peso } from "@/lib/payroll/attendance-pay";
 import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRates } from "@/lib/payroll/rates";
 import { periodFromLabel } from "@/lib/payroll/periods";
+import {
+  SEMI_MONTHLY_TAX_TABLE,
+  periodContributions,
+  taxableCompensation,
+  usesLegalRules,
+  withholdingTax as computeWithholdingTax,
+} from "@/lib/payroll/statutory";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -205,7 +212,8 @@ function normalizePayrollEntry(row) {
       allowances: {
         transportation: 0,
         rice: 0,
-        overtime: 0,
+        overtime: toAmount(payrollObj?.allowances?.overtime ?? 0),
+        holiday_pay: toAmount(payrollObj?.allowances?.holiday_pay ?? 0),
         bonus: 0,
       },
       deductions: {
@@ -234,6 +242,8 @@ function normalizePayrollEntry(row) {
         early_bird_incentive: toAmount(payrollObj?.totals?.early_bird_incentive ?? 0),
         perfect_attendance_incentive: toAmount(payrollObj?.totals?.perfect_attendance_incentive ?? 0),
         total_incentives: toAmount(payrollObj?.totals?.total_incentives ?? 0),
+        overtime_pay: toAmount(payrollObj?.totals?.overtime_pay ?? 0),
+        holiday_pay: toAmount(payrollObj?.totals?.holiday_pay ?? 0),
         gross_pay: toAmount(payrollObj?.totals?.gross_pay ?? row.gross_pay),
         total_deductions: toAmount(payrollObj?.totals?.total_deductions ?? row.total_deductions),
         net_pay: floorNetPay(payrollObj?.totals?.net_pay ?? row.net_pay),
@@ -301,7 +311,10 @@ function computeTotals(payroll) {
     ? toAmount(amounts.perfect_attendance)
     : (perfectAttendance ? toAmount(rates.perfect_attendance_bonus) : 0);
 
-  const grossPay = basicSalary; // No allowances; Gross Pay = Basic Salary
+  // Gross Pay = Basic Salary + approved overtime + holiday pay.
+  const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
+  const holidayPay = Math.max(0, toAmount(payroll.earnings?.holiday_pay));
+  const grossPay = toAmount(basicSalary + overtimePay + holidayPay);
   const totalDeductions = toAmount(
     sss + philhealth + pagibig + withholdingTax
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
@@ -321,7 +334,8 @@ function computeTotals(payroll) {
     allowances: {
       transportation: 0,
       rice: 0,
-      overtime: 0,
+      overtime: overtimePay,
+      holiday_pay: holidayPay,
       bonus: 0,
     },
     deductions: {
@@ -350,6 +364,8 @@ function computeTotals(payroll) {
       early_bird_incentive: earlyBirdIncentive,
       perfect_attendance_incentive: perfectAttendanceIncentive,
       total_incentives: totalIncentives,
+      overtime_pay: overtimePay,
+      holiday_pay: holidayPay,
       gross_pay: grossPay,
       total_deductions: totalDeductions,
       net_pay: netPay,
@@ -427,88 +443,80 @@ async function deletePayrollEntryFromDb(supabase, entryId) {
   }
 }
 
-async function nextPayslipSeqPrefix(supabase, processedAt) {
-  const date = processedAt ? new Date(processedAt) : new Date();
-  // The month the payslip was issued in Manila, not on the server's clock.
-  const ym = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-  }).format(date).replace("-", "");
-  const prefix = `PS-${ym}-`;
-
-  const { data } = await supabase
-    .from("payroll_records")
-    .select("payslip_no")
-    .like("payslip_no", `${prefix}%`)
-    .order("payslip_no", { ascending: false })
-    .limit(1);
-
-  let seq = 1;
-  if (data?.length && data[0].payslip_no) {
-    const last = data[0].payslip_no.split("-").pop();
-    seq = (Number(last) || 0) + 1;
-  }
-
-  return { prefix, seq };
-}
-
-async function generatePayslipNo(supabase, processedAt) {
-  const { prefix, seq } = await nextPayslipSeqPrefix(supabase, processedAt);
-  return `${prefix}${String(seq).padStart(4, "0")}`;
-}
-
-// One query instead of one-per-employee: reads the current sequence once and
-// assigns `count` consecutive numbers in memory. Safe within this batch (every
-// number here is guaranteed distinct); a collision with a payslip_no minted by
-// a submission outside this batch still surfaces as a 23505 on insert, which
-// handleBatchSubmit's caller falls back to the slower per-employee path for.
-async function generatePayslipNumbers(supabase, processedAt, count) {
-  const { prefix, seq } = await nextPayslipSeqPrefix(supabase, processedAt);
-  return Array.from({ length: count }, (_, i) => `${prefix}${String(seq + i).padStart(4, "0")}`);
-}
-
-// payroll_records.payslip_no carries a UNIQUE constraint (20260509010000_add_payslip_no.sql),
-// so a collision from generatePayslipNo()'s read-then-increment race surfaces
-// here as a 23505 error rather than a silently duplicated payslip number.
-// Retrying with a freshly-read next sequence number resolves it without
-// treating it as the unrelated "already processed" duplicate this function's
-// caller otherwise reports for a 23505 on employee_id/pay_period.
-async function appendPayrollRecord(supabase, entry, attemptsLeft = 5) {
-  const processedAt = entry.submitted_at || new Date().toISOString();
-  const payslipNo = await generatePayslipNo(supabase, processedAt);
-
-  const insertPayload = {
+/** The payroll_records row for a processed entry (payslip_no is added by the database). */
+function buildRecordPayload(entry) {
+  return {
     employee_id: entry.employee_id,
     employee_name: entry.employee_name,
     employee_type: entry.employee_type,
     gross_pay: toAmount(entry.payroll.totals.gross_pay),
     total_deductions: toAmount(entry.payroll.totals.total_deductions),
+    // Floored: payroll_records feeds the dashboards and branch reports.
     net_pay: floorNetPay(entry.payroll.totals.net_pay),
     period_label: entry.pay_period,
-    processed_at: processedAt,
-    payslip_no: payslipNo,
+    processed_at: entry.submitted_at || new Date().toISOString(),
     ...recordAuditColumns(entry),
   };
+}
 
-  const result = await supabase
-    .from("payroll_records")
-    .insert(insertPayload)
-    .select("id, payslip_no")
-    .maybeSingle();
+/** The payroll_entries row for a processed entry (payslip_no is added by the database). */
+function buildEntryPayload(entry) {
+  return {
+    id: entry.id,
+    employee_id: entry.employee_id,
+    employee_name: entry.employee_name,
+    employee_code: entry.employee_code || null,
+    employee_type: entry.employee_type || null,
+    position: entry.position || null,
+    pay_period: entry.pay_period,
+    status: entry.status,
+    approval_id: entry.approval_id || null,
+    payroll: entry.payroll,
+    submitted_at: entry.submitted_at || null,
+    created_at: entry.created_at,
+    updated_at: entry.updated_at,
+  };
+}
 
-  if (result.error) {
-    const isPayslipNoCollision = isDuplicateKeyError(result.error)
-      && String(result.error.message || "").toLowerCase().includes("payslip_no");
-    if (isPayslipNoCollision && attemptsLeft > 1) {
-      return appendPayrollRecord(supabase, entry, attemptsLeft - 1);
-    }
-    throw new Error(result.error.message);
-  }
+/**
+ * Process payslips, all-or-nothing per employee.
+ *
+ * public.payroll_commit_entries (20260926090000_payroll_legal_rules_and_atomic_commit.sql)
+ * writes each employee's payroll_records row, payslip number, payroll_entries
+ * row and deduction / incentive lines in one transaction, and takes payslip
+ * numbers under a lock. An employee whose write fails leaves nothing behind,
+ * so processing them again is always safe; the others are unaffected.
+ *
+ * @returns {Promise<Array<{ employee_id: string, ok: boolean, record_id?: string,
+ *   entry_id?: string, payslip_no?: string, code?: string, error?: string }>>}
+ *   one result per entry, in order.
+ */
+async function commitPayrollEntries(supabase, entries) {
+  const items = entries.map((entry) => {
+    const lines = buildPayrollLineRows(entry);
+    return {
+      record: buildRecordPayload(entry),
+      entry: buildEntryPayload(entry),
+      deductions: lines.deductions,
+      incentives: lines.incentives,
+    };
+  });
 
-  await writePayrollLines(supabase, result.data?.id, entry);
+  const { data, error } = await supabase.rpc("payroll_commit_entries", { p_items: items });
+  if (error) throw new Error(error.message);
 
-  return { persisted: true, id: result.data?.id, payslip_no: result.data?.payslip_no };
+  const results = Array.isArray(data) ? data : [];
+  return entries.map((entry, index) => results[index] || {
+    employee_id: entry.employee_id,
+    ok: false,
+    error: "The database returned no result for this employee.",
+  });
+}
+
+/** A failed commit result as a message for the accountant. */
+function describeCommitFailure(result) {
+  if (String(result?.code || "") === "23505") return DUPLICATE_SUBMISSION_MESSAGE;
+  return `Payroll was not saved: ${sanitizeError(result?.error, "the database refused the payslip.")}`;
 }
 
 function resolveEntryStatus(entry) {
@@ -699,7 +707,39 @@ async function readPeriodAttendance(supabase, periodStart, periodEnd, employeeId
   return { rows: legacy.data || [], engineReady: false };
 }
 
-const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql and 20260926020000_payroll_rate_configs.sql) first.";
+/**
+ * Approved overtime minutes for the period, by attendance log id
+ * (public.attendance_overtime_approvals). `available` is false when the table
+ * does not exist yet -- payroll then refuses to process, like it does without
+ * the attendance engine, rather than silently paying no overtime.
+ */
+async function readApprovedOvertime(supabase, periodStart, periodEnd) {
+  const result = await supabase
+    .from("attendance_overtime_approvals")
+    .select("log_id,approved_minutes,status")
+    .gte("log_date", periodStart)
+    .lte("log_date", periodEnd)
+    .eq("status", "approved")
+    .limit(20000);
+  if (result.error) return { minutes: new Map(), available: false };
+  return {
+    minutes: new Map((result.data || []).map((row) => [String(row.log_id), Number(row.approved_minutes) || 0])),
+    available: true,
+  };
+}
+
+/** Holidays in the period: date key -> "holiday" (regular) | "special". */
+async function readHolidays(supabase, periodStart, periodEnd) {
+  const result = await supabase
+    .from("attendance_holidays")
+    .select("holiday_date,type")
+    .gte("holiday_date", periodStart)
+    .lte("holiday_date", periodEnd);
+  if (result.error) return new Map();
+  return new Map((result.data || []).map((row) => [String(row.holiday_date).slice(0, 10), row.type === "special" ? "special" : "holiday"]));
+}
+
+const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql and 20260926090000_payroll_legal_rules_and_atomic_commit.sql) first.";
 
 /**
  * Everything payroll needs for one period, per employee: the rate versions in
@@ -708,10 +748,12 @@ const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the at
  */
 async function loadPeriodPayContext(supabase, employees, period) {
   const employeeIds = employees.map((employee) => employee.id);
-  const [leaveContext, attendance, rateResult] = await Promise.all([
+  const [leaveContext, attendance, rateResult, overtimeResult, holidays] = await Promise.all([
     buildLeaveContext(employees, period.start_key, period.end_key),
     readPeriodAttendance(supabase, period.start_key, period.end_key, employeeIds),
     loadRateConfigs(supabase),
+    readApprovedOvertime(supabase, period.start_key, period.end_key),
+    readHolidays(supabase, period.start_key, period.end_key),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 
@@ -736,7 +778,13 @@ async function loadPeriodPayContext(supabase, employees, period) {
   employees.forEach((employee) => {
     const resolved = resolveRates(
       rateResult.configs,
-      { employeeId: employee.id, branchId: employee.branch_id, position: employee.position_title },
+      {
+        employeeId: employee.id,
+        branchId: employee.branch_id,
+        position: employee.position_title,
+        // From LEGAL_RULES_EFFECTIVE the daily rate is the employee's own salary.
+        monthlySalary: employee.basic_salary,
+      },
       period.start_key,
     );
     const auto = computeAttendancePay({
@@ -745,6 +793,8 @@ async function loadPeriodPayContext(supabase, employees, period) {
       rates: resolved,
       periodStart: period.start_key,
       periodEnd: period.end_key,
+      overtime: overtimeResult.minutes,
+      holidays,
     });
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
     byEmployee.set(employee.id, { resolved, auto, leave });
@@ -757,6 +807,9 @@ async function loadPeriodPayContext(supabase, employees, period) {
     if (!context || !employee) return row;
     const values = rateValues(context.resolved);
     const basic = toAmount(Number(employee.basic_salary || 0) / 2);
+    // The very computation processing runs, with nothing overridden, so the
+    // pre-filled defaults can never differ from what the server would use.
+    const preview = buildEmployeePayroll({ employee, context, input: {}, period, actor: null });
     return {
       ...row,
       late_days: context.auto.counts.late_days,
@@ -779,16 +832,14 @@ async function loadPeriodPayContext(supabase, employees, period) {
       ])),
       defaults: {
         basic_salary: basic,
-        sss: peso(basic * values.sss_pct / 100),
-        philhealth: peso(basic * values.philhealth_pct / 100),
-        pagibig: peso(basic * values.pagibig_pct / 100),
+        ...preview.defaults,
       },
     };
   });
 
   return {
     period,
-    engineReady: attendance.engineReady,
+    engineReady: attendance.engineReady && overtimeResult.available,
     ratesReady: rateResult.available,
     leaveSummary,
     attendanceRows: enrichedRows,
@@ -843,14 +894,21 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const basic = pickAmount(input.basic_salary, defaultBasic);
   note("basic_salary", defaultBasic, basic);
 
-  const contributionDefault = (type) => peso(basic * (rates[`${type}_pct`] || 0) / 100);
+  // From LEGAL_RULES_EFFECTIVE: SSS / PhilHealth / Pag-IBIG from the legal
+  // base of the MONTHLY salary, half per payslip, and withholding tax from the
+  // BIR table (src/lib/payroll/statutory.js). Before it: a flat % of the
+  // period's basic and no default tax, exactly as payslips were computed then.
+  const legal = usesLegalRules(period?.start_key);
+  const legalContributions = legal ? periodContributions(employee.basic_salary, rates) : null;
+  const contributionDefault = (type) => (legal
+    ? legalContributions[type]
+    : peso(basic * (rates[`${type}_pct`] || 0) / 100));
   const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
   const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
   const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
   note("sss", contributionDefault("sss"), sss);
   note("philhealth", contributionDefault("philhealth"), philhealth);
   note("pagibig", contributionDefault("pagibig"), pagibig);
-  const withholdingTax = pickAmount(deductionsIn.withholding_tax, 0);
 
   // Leave comes from approved leave requests. With Pay is never editable.
   const leaveWithPayDays = toAmount(leave?.with_pay_days || 0);
@@ -898,6 +956,25 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       : (perfectAttendance ? unit.perfect_attendance : 0),
   };
 
+  // Approved overtime and holiday work (never editable here: overtime is
+  // approved in Attendance, holidays come from the calendar).
+  const overtimePay = toAmount(auto.amounts.overtime || 0);
+  const holidayPay = toAmount(auto.amounts.holiday_premium || 0);
+
+  // Withholding tax on this period's taxable compensation.
+  const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
+  const taxDefault = legal
+    ? computeWithholdingTax(taxableCompensation({
+      basic,
+      earnings: overtimePay + holidayPay,
+      attendanceDeductions: finalAmounts.absent + finalAmounts.late + finalAmounts.undertime
+        + finalAmounts.half_day + leaveWithoutPayAmount,
+      contributions: sss + philhealth + pagibig,
+    }))
+    : 0;
+  const withholdingTax = pickAmount(deductionsIn.withholding_tax, taxDefault);
+  if (legal) note("withholding_tax", taxDefault, withholdingTax);
+
   const adjustment = (type, finalAmount, autoAmount, quantity, unitName) => {
     const amount = peso(finalAmount - autoAmount);
     if (Math.abs(amount) < DEVIATION_TOLERANCE && !quantity) return null;
@@ -922,7 +999,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     statutory("sss", sss, rates.sss_pct, differs(sss, contributionDefault("sss"))),
     statutory("philhealth", philhealth, rates.philhealth_pct, differs(philhealth, contributionDefault("philhealth"))),
     statutory("pagibig", pagibig, rates.pagibig_pct, differs(pagibig, contributionDefault("pagibig"))),
-    statutory("withholding_tax", withholdingTax, null, false),
+    statutory("withholding_tax", withholdingTax, null, legal && differs(withholdingTax, taxDefault)),
     leaveWithoutPayDays > 0 ? {
       type: "leave_without_pay", quantity: leaveWithoutPayDays, unit: "day", rate: rates.daily,
       rate_config_id: resolved.daily?.config_id || null, amount: toAmount(leaveWithoutPayDays * rates.daily),
@@ -933,6 +1010,8 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
 
   const incentiveLines = [
     ...auto.incentives,
+    // Earnings: stored with the incentives, each tied to its attendance log.
+    ...(auto.earnings || []),
     adjustment("early_bird", finalAmounts.early_bird, auto.amounts.early_bird, toAmount(used.early_bird_days - computed.early_bird_days), "day"),
     adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
   ].filter(Boolean);
@@ -958,6 +1037,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       perfect_attendance: perfectAttendance,
     },
     attendance_amounts: finalAmounts,
+    earnings: { overtime: overtimePay, holiday_pay: holidayPay },
   });
 
   const nowIso = new Date().toISOString();
@@ -979,7 +1059,22 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     computed_by_name: actor?.name || null,
   };
 
-  return { payroll, deviations, reason, blocking: auto.blocking };
+  return {
+    payroll,
+    deviations,
+    reason,
+    blocking: auto.blocking,
+    // What the form and the batch table pre-fill (GET).
+    defaults: {
+      statutory_method: legal ? "legal" : "flat",
+      sss: contributionDefault("sss"),
+      philhealth: contributionDefault("philhealth"),
+      pagibig: contributionDefault("pagibig"),
+      withholding_tax: taxDefault,
+      overtime: overtimePay,
+      holiday_pay: holidayPay,
+    },
+  };
 }
 
 const DEVIATION_LABELS = {
@@ -987,6 +1082,7 @@ const DEVIATION_LABELS = {
   sss: "SSS",
   philhealth: "PhilHealth",
   pagibig: "Pag-IBIG",
+  withholding_tax: "Withholding Tax",
   leave_without_pay_days: "Leave Without Pay",
   absences_days: "Absent",
   late_days: "Late",
@@ -1025,25 +1121,14 @@ function recordAuditColumns(entry) {
 }
 
 /**
- * One row per deduction / incentive line in payroll_deductions /
- * payroll_incentives. The same lines are already stored atomically on the
- * payslip row (attendance_snapshot.lines), so a failure here is reported and
- * audited but never loses the trace.
+ * The payroll_deductions / payroll_incentives rows for an entry's lines,
+ * written in the same transaction as the payslip (commitPayrollEntries).
  */
-async function writePayrollLines(supabase, recordId, entry) {
+function buildPayrollLineRows(entry) {
   const audit = entry.payroll?.audit;
-  if (!recordId || !audit?.lines) return { success: true };
+  if (!audit?.lines) return { deductions: [], incentives: [] };
 
-  const base = {
-    payroll_record_id: recordId,
-    payroll_entry_id: entry.id,
-    employee_id: entry.employee_id,
-    pay_period: entry.pay_period,
-    period_start: audit.period?.start_key || null,
-    period_end: audit.period?.end_key || null,
-  };
   const shape = (line) => ({
-    ...base,
     type: line.type,
     quantity: line.quantity ?? null,
     unit: line.unit || null,
@@ -1056,31 +1141,10 @@ async function writePayrollLines(supabase, recordId, entry) {
     note: line.note || null,
   });
 
-  try {
-    const deductions = (audit.lines.deductions || []).map(shape);
-    const incentives = (audit.lines.incentives || []).map(shape);
-    if (deductions.length) {
-      const result = await supabase.from("payroll_deductions").insert(deductions);
-      if (result.error) throw new Error(result.error.message);
-    }
-    if (incentives.length) {
-      const result = await supabase.from("payroll_incentives").insert(incentives);
-      if (result.error) throw new Error(result.error.message);
-    }
-    return { success: true };
-  } catch (error) {
-    await appendAuditLog({
-      module: "payroll",
-      action: "line_items",
-      entity_type: "payroll_record",
-      entity_id: recordId,
-      description: `Deduction/incentive lines for ${entry.employee_name} were not written: ${error.message}. The payslip keeps them in attendance_snapshot.`,
-      status: "failed",
-      source: "api",
-      metadata: { employee_id: entry.employee_id, pay_period: entry.pay_period },
-    });
-    return { success: false, error: error.message };
-  }
+  return {
+    deductions: (audit.lines.deductions || []).map(shape),
+    incentives: (audit.lines.incentives || []).map(shape),
+  };
 }
 
 function mapEntryToRecord(entry) {
@@ -1145,6 +1209,8 @@ function buildPayslipDetails(entry) {
     },
     earnings: {
       basic_salary: entry.payroll.basic_salary,
+      overtime: entry.payroll.totals.overtime_pay ?? 0,
+      holiday_pay: entry.payroll.totals.holiday_pay ?? 0,
       gross_pay: entry.payroll.totals.gross_pay,
     },
     deductions: {
@@ -1290,6 +1356,11 @@ export async function GET(request) {
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
       payslip_options: buildPayslipOptions(payrollRecords),
       payslip: buildPayslipDetails(payslipSource),
+      // From Oct 1, 2026: legal contribution tables and BIR withholding tax
+      // (src/lib/payroll/statutory.js); the table lets the form preview the
+      // tax exactly as the server computes it.
+      legal_rules: usesLegalRules(activePeriod.start_key),
+      tax_table: SEMI_MONTHLY_TAX_TABLE,
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
@@ -1297,41 +1368,9 @@ export async function GET(request) {
 }
 
 // Processes every employee in one request — used by the "Process Payroll for
-// All" batch table. Does not touch the existing single-employee save_draft/
-// submit path below; reuses the same computeTotals()/appendPayrollRecord()/
-// syncPayrollEntryToDb() building blocks that path already relies on.
-// Processes one employee the slow-but-fully-isolated way: a failure here
-// (e.g. a genuine duplicate-key conflict from stale data an earlier check
-// couldn't see) affects only this employee, never the rest of the batch.
-// This is handleBatchSubmit's fallback path, kept byte-for-byte equivalent to
-// how every employee used to be processed before batching was added below.
-async function submitOneBatchEntry(supabase, employee, baseEntry, processed, skipped) {
-  try {
-    const recordResult = await appendPayrollRecord(supabase, baseEntry);
-    if (recordResult.payslip_no) {
-      baseEntry.payslip_no = recordResult.payslip_no;
-    }
-
-    const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
-    if (!dbSync.success) {
-      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: `Payroll was not saved: ${dbSync.error}` });
-      return;
-    }
-
-    processed.push({
-      employee_id: employee.id,
-      employee_name: employee.full_name,
-      entry_id: baseEntry.id,
-      payslip_no: baseEntry.payslip_no || null,
-    });
-  } catch (error) {
-    const reason = isDuplicateKeyError(error)
-      ? DUPLICATE_SUBMISSION_MESSAGE
-      : (error?.message || "Failed to process this employee.");
-    skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason });
-  }
-}
-
+// All" batch table. Builds every employee's payroll with the same
+// buildEmployeePayroll() the single-entry path uses, then commits them all in
+// one call to commitPayrollEntries().
 async function handleBatchSubmit(supabase, body, guard) {
   const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
   const requestedEntries = Array.isArray(body.entries) ? body.entries : [];
@@ -1448,124 +1487,29 @@ async function handleBatchSubmit(supabase, body, guard) {
   }
 
   if (candidates.length) {
-    // Fast path: one payslip-number query, one bulk insert into
-    // payroll_records, one bulk upsert into payroll_entries — 3 round trips
-    // total instead of 3 per employee (a 150-employee batch used to mean
-    // 450+ sequential awaited Supabase calls). "Process Payroll for All" is
-    // expected to succeed for every row every time it's run, so this is the
-    // common case; if the bulk writes fail for any reason (most likely a
-    // payslip_no collision with a submission from outside this batch), fall
-    // through to submitOneBatchEntry()'s slower but fully isolated path so
-    // one bad row can never sink the whole batch.
+    // One round trip for the whole batch. Each employee is committed in its
+    // own transaction inside the database (commitPayrollEntries), so one bad
+    // row never sinks the rest and never leaves half a payslip behind.
+    let results;
     try {
-      const payslipNumbers = await generatePayslipNumbers(supabase, nowIso, candidates.length);
-
-      const recordsPayload = candidates.map(({ baseEntry }, index) => ({
-        employee_id: baseEntry.employee_id,
-        employee_name: baseEntry.employee_name,
-        employee_type: baseEntry.employee_type,
-        gross_pay: toAmount(baseEntry.payroll.totals.gross_pay),
-        total_deductions: toAmount(baseEntry.payroll.totals.total_deductions),
-        // Bulk "process payroll for everyone" writes payroll_records directly,
-        // and those rows feed the dashboards and branch reports — so the floor
-        // has to hold here too, not just on the single-entry path.
-        net_pay: floorNetPay(baseEntry.payroll.totals.net_pay),
-        period_label: baseEntry.pay_period,
-        processed_at: baseEntry.submitted_at,
-        payslip_no: payslipNumbers[index],
-        ...recordAuditColumns(baseEntry),
-      }));
-
-      let recordsInserted = false;
-      let payslipByEmployee = new Map();
-
-      try {
-        const recordsResult = await supabase
-          .from("payroll_records")
-          .insert(recordsPayload)
-          .select("id, employee_id, payslip_no");
-
-        if (recordsResult.error) throw new Error(recordsResult.error.message);
-        recordsInserted = true;
-
-        payslipByEmployee = new Map(
-          (recordsResult.data || []).map((row) => [row.employee_id, row.payslip_no]),
-        );
-
-        const recordIdByEmployee = new Map(
-          (recordsResult.data || []).map((row) => [row.employee_id, row.id]),
-        );
-        for (const { baseEntry } of candidates) {
-          await writePayrollLines(supabase, recordIdByEmployee.get(baseEntry.employee_id), baseEntry);
-        }
-
-        const entriesPayload = candidates.map(({ baseEntry }) => ({
-          id: baseEntry.id,
-          employee_id: baseEntry.employee_id,
-          employee_name: baseEntry.employee_name,
-          employee_code: baseEntry.employee_code || null,
-          employee_type: baseEntry.employee_type || null,
-          position: baseEntry.position || null,
-          pay_period: baseEntry.pay_period,
-          status: baseEntry.status,
-          approval_id: baseEntry.approval_id || null,
-          payslip_no: payslipByEmployee.get(baseEntry.employee_id) || null,
-          payroll: baseEntry.payroll,
-          submitted_at: baseEntry.submitted_at,
-          created_at: baseEntry.created_at,
-          updated_at: baseEntry.updated_at,
-        }));
-
-        const upsertResult = await supabase
-          .from("payroll_entries")
-          .upsert(entriesPayload, { onConflict: "employee_id,pay_period" });
-
-        if (upsertResult.error) throw new Error(upsertResult.error.message);
-
-        candidates.forEach(({ employee, baseEntry }) => {
-          processed.push({
-            employee_id: employee.id,
-            employee_name: employee.full_name,
-            entry_id: baseEntry.id,
-            payslip_no: payslipByEmployee.get(baseEntry.employee_id) || null,
-          });
-        });
-      } catch (bulkError) {
-        if (!recordsInserted) {
-          // Nothing was written yet — safe to fall back to the fully
-          // isolated per-employee path (which mints its own payroll_records
-          // row per employee) without risking a duplicate.
-          for (const { employee, baseEntry } of candidates) {
-            await submitOneBatchEntry(supabase, employee, baseEntry, processed, skipped);
-          }
-        } else {
-          // payroll_records already got its row for every candidate — only
-          // payroll_entries failed to sync. Retrying via appendPayrollRecord()
-          // here would mint a second payroll_records row per employee, so
-          // this only retries the payroll_entries sync, one row at a time.
-          for (const { employee, baseEntry } of candidates) {
-            baseEntry.payslip_no = payslipByEmployee.get(baseEntry.employee_id) || baseEntry.payslip_no;
-            const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
-            if (!dbSync.success) {
-              skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: `Payroll was not saved: ${dbSync.error}` });
-              continue;
-            }
-            processed.push({
-              employee_id: employee.id,
-              employee_name: employee.full_name,
-              entry_id: baseEntry.id,
-              payslip_no: baseEntry.payslip_no || null,
-            });
-          }
-        }
-      }
-    } catch {
-      // generatePayslipNumbers() itself failed — nothing was written for
-      // any candidate, so the fully isolated per-employee path is safe.
-      for (const { employee, baseEntry } of candidates) {
-        await submitOneBatchEntry(supabase, employee, baseEntry, processed, skipped);
-      }
+      results = await commitPayrollEntries(supabase, candidates.map(({ baseEntry }) => baseEntry));
+    } catch (error) {
+      results = candidates.map(({ baseEntry }) => ({ employee_id: baseEntry.employee_id, ok: false, error: error.message }));
     }
+
+    candidates.forEach(({ employee, baseEntry }, index) => {
+      const result = results[index];
+      if (!result?.ok) {
+        skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: describeCommitFailure(result) });
+        return;
+      }
+      processed.push({
+        employee_id: employee.id,
+        employee_name: employee.full_name,
+        entry_id: result.entry_id || baseEntry.id,
+        payslip_no: result.payslip_no || null,
+      });
+    });
   }
 
   await appendAuditLog({
@@ -1713,36 +1657,35 @@ export async function POST(request) {
       processed_by_name: action === "submit" ? actor.name || null : null,
     };
 
+    // Processing writes the payslip, its number, the entry and every line in
+    // one transaction (commitPayrollEntries); a draft is only the entry.
+    let dbSync;
     if (action === "submit") {
-      const recordResult = await appendPayrollRecord(supabase, baseEntry);
-      if (recordResult.payslip_no) {
-        baseEntry.payslip_no = recordResult.payslip_no;
+      const [result] = await commitPayrollEntries(supabase, [baseEntry]);
+      dbSync = result?.ok ? { success: true } : { success: false, error: describeCommitFailure(result) };
+      if (result?.ok) baseEntry.payslip_no = result.payslip_no || null;
+
+      // Nothing was written, so the accountant can simply try again.
+      if (!result?.ok) {
+        await appendAuditLog({
+          module: "payroll",
+          action: "process",
+          entity_type: "payroll_entry",
+          entity_id: baseEntry.id,
+          description: `Payroll entry for ${employee.full_name} failed to save: ${result?.error || "unknown error"}`,
+          status: "failed",
+          source: "api",
+          metadata: { employee_id: employee.id, db_error: result?.error || null, db_code: result?.code || null },
+        });
+
+        const duplicate = String(result?.code || "") === "23505";
+        return NextResponse.json(
+          { error: dbSync.error },
+          { status: duplicate ? 409 : 500 },
+        );
       }
-    }
-
-    const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
-
-    // payroll_entries is the only place Payslips/Payroll Records/Payroll
-    // Monitoring read a processed entry from — a submit whose entries-sync
-    // fails has produced no visible or printable result anywhere, so it must
-    // be reported as a failure rather than the misleading "processed
-    // successfully" response this used to return.
-    if (action === "submit" && !dbSync.success) {
-      await appendAuditLog({
-        module: "payroll",
-        action: "process",
-        entity_type: "payroll_entry",
-        entity_id: baseEntry.id,
-        description: `Payroll entry for ${employee.full_name} failed to save: ${dbSync.error}`,
-        status: "failed",
-        source: "api",
-        metadata: { employee_id: employee.id, db_error: dbSync.error },
-      });
-
-      return NextResponse.json(
-        { error: `Payroll was not saved: ${dbSync.error}` },
-        { status: 500 },
-      );
+    } else {
+      dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
     }
 
     await appendAuditLog({

@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { SECURITY_SECTION, invalidateSecuritySettings } from "@/lib/auth/security-settings";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -80,6 +81,9 @@ export async function PATCH(request) {
     if (result.error) {
       return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
     }
+    // Enforced from the next request here; other server instances pick it up
+    // within a minute (src/lib/auth/security-settings.js).
+    if (section === SECURITY_SECTION) invalidateSecuritySettings();
 
     await appendAuditLog({
       module: "config",

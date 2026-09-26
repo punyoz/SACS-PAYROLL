@@ -16,6 +16,15 @@
  *   Perfect       perfect_attendance_bonus when the period has no Late,
  *   Attendance    Undertime, Absent or Half Day and at least one day attended
  *
+ * Earnings (added to gross pay, each tied to its log):
+ *   Overtime      minutes HR / an Administrator APPROVED for that day
+ *                 (public.attendance_overtime_approvals) ÷ 60 × hourly rate ×
+ *                 (1 + overtime_premium_pct %). Taps alone never pay overtime.
+ *   Holiday pay   a day with both taps on a date in attendance_holidays:
+ *                 regular holiday + regular_holiday_premium_pct % of the
+ *                 daily rate, special day + special_holiday_premium_pct %,
+ *                 prorated by hours worked up to 8.
+ *
  * The minutes and flags are the ones the database engine stored on each row
  * (late_minutes, undertime_minutes, is_half_day, is_early_bird), so a status
  * label is never parsed to decide money. Rates are the versions in force on
@@ -42,6 +51,9 @@ function dayKey(row) {
   return String(row.log_date || row.time_in || row.created_at || "").slice(0, 10);
 }
 
+/** Hours of work a holiday premium is paid for, at most. */
+const HOLIDAY_FULL_DAY_HOURS = 8;
+
 /**
  * @param {object}   args
  * @param {Array}    args.logs         the employee's attendance rows (one per day)
@@ -49,8 +61,10 @@ function dayKey(row) {
  * @param {object}   args.rates        resolveRates() output (or { type: value })
  * @param {string}   args.periodStart  "YYYY-MM-DD"
  * @param {string}   args.periodEnd    "YYYY-MM-DD"
+ * @param {Map}      [args.overtime]   log id -> approved overtime minutes
+ * @param {Map}      [args.holidays]   date key -> "holiday" | "special"
  */
-export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd }) {
+export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays }) {
   const hourly = valueOf(rates, "hourly");
   const daily = valueOf(rates, "daily");
   const halfDayAmount = peso(daily * valueOf(rates, "half_day_pct") / 100);
@@ -59,6 +73,11 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
   const lateMinutePct = valueOf(rates, "late_minute_charge_pct");
   const earlyBirdBonus = valueOf(rates, "early_bird_bonus");
   const perfectBonus = valueOf(rates, "perfect_attendance_bonus");
+  const overtimeHourly = hourly * (1 + valueOf(rates, "overtime_premium_pct") / 100);
+  const holidayPct = {
+    holiday: valueOf(rates, "regular_holiday_premium_pct"),
+    special: valueOf(rates, "special_holiday_premium_pct"),
+  };
 
   const counts = {
     late_minutes: 0,
@@ -69,9 +88,12 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
     attended_days: 0,
     late_days: 0,
     undertime_days: 0,
+    overtime_minutes: 0,
+    holiday_days: 0,
   };
   const deductions = [];
   const incentives = [];
+  const earnings = [];
   const blocking = [];
   const attendedLogIds = [];
   const lateLogs = [];
@@ -109,6 +131,34 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
 
     counts.attended_days += 1;
     if (logId) attendedLogIds.push(logId);
+
+    // Earnings first: a Half Day still earns its approved overtime and its
+    // (prorated) holiday pay.
+    const approvedMinutes = Math.max(0, Math.round(Number(overtime?.get?.(logId)) || 0));
+    if (logId && approvedMinutes > 0) {
+      counts.overtime_minutes += approvedMinutes;
+      earnings.push({
+        type: "overtime", quantity: approvedMinutes, unit: "minute", rate: peso(overtimeHourly),
+        rate_config_id: configOf(rates, "overtime_premium_pct") || configOf(rates, "hourly"),
+        amount: peso((approvedMinutes / 60) * overtimeHourly), source_log_id: logId, log_date: date,
+      });
+    }
+
+    const holidayType = holidays?.get?.(date);
+    const pct = holidayType ? holidayPct[holidayType] || 0 : 0;
+    if (logId && pct > 0 && row.time_in && row.time_out) {
+      const worked = Math.max(0, (new Date(row.time_out) - new Date(row.time_in)) / 3600000);
+      const share = Math.min(worked, HOLIDAY_FULL_DAY_HOURS) / HOLIDAY_FULL_DAY_HOURS;
+      const amount = peso(daily * pct / 100 * share);
+      if (amount > 0) {
+        counts.holiday_days += 1;
+        earnings.push({
+          type: "holiday_premium", quantity: Math.round(share * 100) / 100, unit: "day", rate: peso(daily * pct / 100),
+          rate_config_id: configOf(rates, holidayType === "special" ? "special_holiday_premium_pct" : "regular_holiday_premium_pct"),
+          amount, source_log_id: logId, log_date: date, holiday_type: holidayType,
+        });
+      }
+    }
 
     if (row.is_half_day === true) {
       if (onLeave) return;
@@ -209,6 +259,8 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       absent: sum(deductions, "absent"),
       early_bird: sum(incentives, "early_bird"),
       perfect_attendance: sum(incentives, "perfect_attendance"),
+      overtime: sum(earnings, "overtime"),
+      holiday_premium: sum(earnings, "holiday_premium"),
     },
     unit_amounts: {
       hourly,
@@ -219,9 +271,11 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       late_minute_pct: lateMinutePct,
       early_bird: peso(earlyBirdBonus),
       perfect_attendance: peso(perfectBonus),
+      overtime_hourly: peso(overtimeHourly),
     },
     deductions,
     incentives,
+    earnings,
     blocking,
     source_log_ids: rows.map((row) => row.id).filter(Boolean),
   };

@@ -56,6 +56,12 @@ export async function POST(request) {
     // Whose request this is comes from the signed session, not the body, so a
     // caller cannot file (or later cancel) leave in a colleague's name.
     const employeeId = resolveTargetUserId(guard, body.employee_id);
+    // leave_requests.employee_id is the account's user id (a UUID, with a
+    // foreign key to profiles -- 20260926100000_schema_tidy_up.sql), never an
+    // employee code.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId)) {
+      return NextResponse.json({ error: "Leave can only be filed for an employee account." }, { status: 400 });
+    }
     const employeeName = guard.scope === SCOPE_SELF
       ? String(guard.session?.full_name || "").trim()
       : String(body.employee_name || "").trim();

@@ -1,4 +1,5 @@
-import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
+import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
+import { revokeActiveSession } from "@/lib/auth/active-session";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -11,7 +12,7 @@ import {
   scopeListToBranch,
 } from "@/lib/rbac/guard";
 import { hashTemporaryPassword, buildDefaultPassword } from "@/lib/auth/password-policy";
-import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
+import { normalizeEmployeeFields, validateEmployeeRecord, SALARY_MAX } from "@/lib/employees/record";
 import { syncProfileArchive } from "@/lib/employees/archive";
 import {
   emergencyContactColumns,
@@ -402,6 +403,8 @@ export async function POST(request) {
           full_name: fullName,
           branch_id: branchId,
           employee_id: finalEmployeeId,
+          // The trusted copy payroll reads (src/lib/auth/users-cache.js).
+          basic_salary: record.basic_salary,
           cp_number: normalizeDigits(body.cp_number, 11) || null,
           date_hired: normalizeText(body.date_hired, "") || null,
           address: normalizeText(body.address, "") || null,
@@ -565,6 +568,17 @@ export async function PATCH(request) {
       nextMetadata.employee_id = currentEmployeeId;
       nextMetadata.employee_type = normalizeText(body.employee_type, normalizeText(currentMetadata.employee_type, "Teaching"));
       nextMetadata.position = normalizePositionForRole(body.position, nextRole);
+      // Same rule as creating an employee (validateEmployeeRecord). Without
+      // it a non-numeric value reached the stored salary as null/NaN.
+      if (body.basic_salary !== undefined && body.basic_salary !== null && body.basic_salary !== "") {
+        const requestedSalary = Number(body.basic_salary);
+        if (!(requestedSalary > 0) || requestedSalary > SALARY_MAX) {
+          return NextResponse.json(
+            { error: "Basic salary must be greater than 0 and at most ₱9,999,999.99." },
+            { status: 400 },
+          );
+        }
+      }
       nextMetadata.basic_salary = Number(body.basic_salary ?? currentMetadata.basic_salary ?? 0);
       nextMetadata.employee_status = normalizeText(
         body.employee_status,
@@ -640,6 +654,10 @@ export async function PATCH(request) {
       if (body.philhealth_number !== undefined) profilePatch.philhealth_number = normalizeDigits(body.philhealth_number, 12) || null;
       if (body.bank_name !== undefined) profilePatch.bank_name = normalizeText(body.bank_name, "") || null;
       if (body.bank_account_number !== undefined) profilePatch.bank_account_number = normalizeDigits(body.bank_account_number, 20) || null;
+      // profiles holds the trusted salary payroll reads (src/lib/auth/users-cache.js).
+      if (Number.isFinite(nextMetadata.basic_salary) && nextMetadata.basic_salary >= 0) {
+        profilePatch.basic_salary = nextMetadata.basic_salary;
+      }
 
       const profileResult = await supabase.from("profiles").upsert(profilePatch, {
         onConflict: "id",
@@ -647,6 +665,12 @@ export async function PATCH(request) {
 
       if (profileResult.error) {
         return NextResponse.json({ error: sanitizeError(profileResult.error) }, { status: 400 });
+      }
+
+      // The session cookie still carries the old role; end it so the next
+      // sign-in picks up the new one.
+      if (nextRole !== currentRole) {
+        await revokeActiveSession(id);
       }
     }
 
@@ -721,7 +745,7 @@ export async function DELETE(request) {
     // database level too, so a direct SQL DELETE fails the same way.
     const supabase = getAdminClient();
 
-    const userResult = await supabase.auth.admin.getUserById(id);
+    const userResult = await getTrustedUserById(supabase, id);
     if (userResult.error || !userResult.data?.user) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }

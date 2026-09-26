@@ -909,6 +909,7 @@ function saRateDisplay(rate, value) {
   const amount = Number(value || 0);
   if (rate.unit === 'percent') return `${amount.toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`;
   if (rate.unit === 'count') return amount > 0 ? `${amount} late = 1 absent` : 'Off';
+  if (rate.unit === 'days') return `${amount} days`;
   return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -1039,11 +1040,12 @@ async function openSARateModal(rateType, preset = null) {
   document.getElementById('sa-rate-current').innerHTML = `Current value: <strong class="mn">${escapeHtml(saRateDisplay(rate, current?.value))}</strong>${current?.effective_date ? ` since ${escapeHtml(saRateDate(current.effective_date))}` : ' (built-in default)'}${branchPreset && current?.scope !== 'branch' ? ' — the default; this branch has no rate of its own yet' : ''}<div style="font-size:11px;color:var(--t3);">${escapeHtml(rate.hint || '')}</div>`;
   document.getElementById('sa-rate-value-label').textContent = rate.unit === 'percent'
     ? 'New value (%)'
-    : rate.unit === 'count' ? 'Late days per absence (0 = off)' : 'New value (₱)';
+    : rate.unit === 'count' ? 'Late days per absence (0 = off)'
+      : rate.unit === 'days' ? 'Working days per year' : 'New value (₱)';
   const valueInput = document.getElementById('sa-rate-value');
   valueInput.value = '';
-  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' ? '31' : '';
-  valueInput.step = rate.unit === 'count' ? '1' : '0.01';
+  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' ? '31' : rate.unit === 'days' ? '366' : '';
+  valueInput.step = rate.unit === 'count' || rate.unit === 'days' ? '1' : '0.01';
   const effective = document.getElementById('sa-rate-effective');
   effective.value = saRatesState.data?.default_effective_date || '';
   effective.oninput = saRateEffectiveHint;
@@ -1122,6 +1124,7 @@ async function submitSARate(event) {
   if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return fail('Enter a value of 0 or more.');
   if (rate?.unit === 'percent' && Number(value) > 100) return fail('A percentage cannot be more than 100.');
   if (rate?.unit === 'count' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a whole number from 0 to 31.');
+  if (rate?.unit === 'days' && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 366)) return fail('Enter a whole number of days from 1 to 366.');
   if (!effectiveDate) return fail('Choose the date the new value takes effect.');
   if (scope !== 'global' && !scopeRef) return fail('Choose who this rate applies to.');
 
@@ -2189,7 +2192,8 @@ async function submitSARfidAttendanceScan() {
     const response = await fetch('/api/admin/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rfid_code: rfidCode }),
+      // manual_entry: this box also accepts an Employee ID; the kiosk does not.
+      body: JSON.stringify({ rfid_code: rfidCode, manual_entry: true }),
     });
 
     const payload = await response.json();

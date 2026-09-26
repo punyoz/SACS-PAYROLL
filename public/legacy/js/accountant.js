@@ -34,6 +34,12 @@ const acctState = {
   // false until the attendance / payroll-rate migrations are applied.
   payrollReady: true,
   payrollNotReadyMessage: '',
+  // BIR semi-monthly table from GET /api/accountant/payroll (the server's own).
+  taxTable: [],
+  // The accountant typed a withholding tax; stop re-computing the default.
+  taxEdited: false,
+  // The default tax for the figures on the form (set by recalc()).
+  lastTaxDefault: 0,
 };
 
 let acRecordsPaginator = null;
@@ -271,18 +277,78 @@ function computeAttendanceAmounts(info, q) {
   };
 }
 
+/** Withholding tax for one period from the BIR table the server sent. */
+function acctWithholdingTax(taxable) {
+  const table = acctState.taxTable || [];
+  if (!table.length) return 0;
+  const amount = Math.max(0, toAmount(taxable));
+  let bracket = table[0];
+  table.forEach((row) => { if (amount > Number(row.over)) bracket = row; });
+  return toAmount(Number(bracket.base) + (amount - Number(bracket.over)) * Number(bracket.rate));
+}
+
+/** True when the server computed this employee's period with the legal tables. */
+function usesLegalTables(info) {
+  return info.row?.defaults?.statutory_method === 'legal';
+}
+
+/**
+ * SSS / PhilHealth / Pag-IBIG defaults. With the legal tables they come from
+ * the server (based on the monthly salary, so a Basic Salary edit does not
+ * move them); earlier periods keep the flat % of the period's basic.
+ */
+function contributionDefaults(info, basic) {
+  const defaults = info.row?.defaults;
+  if (usesLegalTables(info)) {
+    return {
+      sss: toAmount(defaults.sss),
+      philhealth: toAmount(defaults.philhealth),
+      pagibig: toAmount(defaults.pagibig),
+    };
+  }
+  return {
+    sss: toAmount(basic * info.rates.sss_pct / 100),
+    philhealth: toAmount(basic * info.rates.philhealth_pct / 100),
+    pagibig: toAmount(basic * info.rates.pagibig_pct / 100),
+  };
+}
+
+/** Approved overtime and holiday pay, computed from the logs on the server. */
+function earningsFor(info) {
+  const amounts = info.pay?.amounts || {};
+  return {
+    overtime: toAmount(amounts.overtime || 0),
+    holiday: toAmount(amounts.holiday_premium || 0),
+  };
+}
+
+/**
+ * Default withholding tax for the figures shown: the same taxable
+ * compensation the server uses (basic + overtime + holiday pay − attendance
+ * and Leave Without Pay deductions − SSS / PhilHealth / Pag-IBIG). Zero for
+ * periods before the legal tables.
+ */
+function taxDefaultFor(info, { basic, earnings, attendanceDeductions, contributions }) {
+  if (!usesLegalTables(info)) return 0;
+  const taxable = Math.max(0, toAmount(basic + earnings - attendanceDeductions - contributions));
+  return acctWithholdingTax(taxable);
+}
+
 function describeBlockingDays(blocking) {
   return (blocking || []).map((b) => `${b.log_date} (${b.status})`).join(', ');
 }
 
 function autoFillDeductions(basic) {
-  // Contribution defaults are the % in force for the selected employee and
-  // period (Super Admin → Payroll Rates), not a fixed 2%.
-  const { rates } = employeePayInfo(getSelectedEmployee()?.id);
+  // Contribution defaults for the selected employee and period: the legal
+  // tables from Oct 1, 2026, the % in force (Super Admin → Payroll Rates)
+  // before that. Withholding tax follows the figures (recalc()).
+  const info = employeePayInfo(getSelectedEmployee()?.id);
+  const defaults = contributionDefaults(info, basic);
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-  setVal('pc-sss', toAmount(basic * rates.sss_pct / 100));
-  setVal('pc-philhealth', toAmount(basic * rates.philhealth_pct / 100));
-  setVal('pc-pagibig', toAmount(basic * rates.pagibig_pct / 100));
+  setVal('pc-sss', defaults.sss);
+  setVal('pc-philhealth', defaults.philhealth);
+  setVal('pc-pagibig', defaults.pagibig);
+  acctState.taxEdited = false;
 }
 
 // Fills Absent / Late / Undertime / Half Day / incentives from the logs.
@@ -300,12 +366,19 @@ function autoFillAttendance(employeeId) {
 
 /** Rate hints next to each field, and the unresolved-attendance warning. */
 function renderEmployeeRateHints(employeeId) {
-  const { rates, unit, pay } = employeePayInfo(employeeId);
+  const info = employeePayInfo(employeeId);
+  const { rates, unit, pay } = info;
   const setTxt = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
   const peso = (v) => formatMoney(v).replace('₱ ', '₱');
-  setTxt('pc-sss-hint', `(default ${rates.sss_pct}% of Basic, editable)`);
-  setTxt('pc-philhealth-hint', `(default ${rates.philhealth_pct}% of Basic, editable)`);
-  setTxt('pc-pagibig-hint', `(default ${rates.pagibig_pct}% of Basic, editable)`);
+  if (usesLegalTables(info)) {
+    setTxt('pc-sss-hint', `(legal table: ${rates.sss_pct}% of salary credit, editable)`);
+    setTxt('pc-philhealth-hint', `(legal table: ${rates.philhealth_pct}% of monthly salary, editable)`);
+    setTxt('pc-pagibig-hint', `(legal table: ${rates.pagibig_pct}% up to the cap, editable)`);
+  } else {
+    setTxt('pc-sss-hint', `(default ${rates.sss_pct}% of Basic, editable)`);
+    setTxt('pc-philhealth-hint', `(default ${rates.philhealth_pct}% of Basic, editable)`);
+    setTxt('pc-pagibig-hint', `(default ${rates.pagibig_pct}% of Basic, editable)`);
+  }
   setTxt('pc-absent-hint', `${peso(unit.absent)}/day`);
   const lateRules = [
     unit.late_days_per_absent > 0 ? `${unit.late_days_per_absent} late = 1 absent (${peso(unit.absent)})` : '',
@@ -334,16 +407,20 @@ function renderEmployeeRateHints(employeeId) {
 function getFormDeviations() {
   const employee = getSelectedEmployee();
   if (!employee) return [];
-  const { pay, rates } = employeePayInfo(employee.id);
+  const info = employeePayInfo(employee.id);
+  const { pay } = info;
   const counts = pay?.counts || {};
   const leave = (acctState.leaveSummary || []).find((row) => row.employee_id === employee.id);
   const get = (id) => toAmount(document.getElementById(id)?.value);
   const basic = get('pc-basic');
+  const contributions = contributionDefaults(info, basic);
   const checks = [
     ['Basic Salary', toAmount(Number(employee.basic_salary || 0) / 2), basic],
-    ['SSS', toAmount(basic * rates.sss_pct / 100), get('pc-sss')],
-    ['PhilHealth', toAmount(basic * rates.philhealth_pct / 100), get('pc-philhealth')],
-    ['Pag-IBIG', toAmount(basic * rates.pagibig_pct / 100), get('pc-pagibig')],
+    ['SSS', contributions.sss, get('pc-sss')],
+    ['PhilHealth', contributions.philhealth, get('pc-philhealth')],
+    ['Pag-IBIG', contributions.pagibig, get('pc-pagibig')],
+    // Tracked only with the legal tables, where the server computes a default.
+    ...(usesLegalTables(info) ? [['Withholding Tax', acctState.lastTaxDefault, get('pc-tax')]] : []),
     ['Leave Without Pay', leave?.without_pay_days || 0, get('pc-leave-without-pay-days')],
     ['Absent', counts.absent_days || 0, get('pc-absences')],
     ['Late', counts.late_days || 0, get('pc-late')],
@@ -385,7 +462,7 @@ function recalc() {
   const sss = get('pc-sss');
   const philhealth = get('pc-philhealth');
   const pagibig = get('pc-pagibig');
-  const tax = get('pc-tax');
+  let tax = get('pc-tax');
   const leaveWithPayDays = get('pc-leave-with-pay-days');
   const leaveWithoutPayDays = get('pc-leave-without-pay-days');
 
@@ -402,7 +479,22 @@ function recalc() {
   });
   const leaveWithoutPayDeduct = toAmount(leaveWithoutPayDays * info.unit.daily);
   const incentives = toAmount(amounts.early_bird + amounts.perfect_attendance);
-  const grossPay = basic; // No allowances; Gross Pay = Basic Salary
+  // Approved overtime and holiday pay (from the logs) are part of gross pay.
+  const earnings = earningsFor(info);
+  const grossPay = toAmount(basic + earnings.overtime + earnings.holiday);
+
+  // Withholding tax follows the figures until the accountant types one.
+  acctState.lastTaxDefault = taxDefaultFor(info, {
+    basic,
+    earnings: earnings.overtime + earnings.holiday,
+    attendanceDeductions: amounts.absent + amounts.late + amounts.undertime + amounts.half_day + leaveWithoutPayDeduct,
+    contributions: sss + philhealth + pagibig,
+  });
+  if (!acctState.taxEdited) {
+    tax = acctState.lastTaxDefault;
+    const taxInput = document.getElementById('pc-tax');
+    if (taxInput) taxInput.value = tax;
+  }
   const totalDeductions = toAmount(
     sss + philhealth + pagibig + tax
     + amounts.absent + amounts.late + amounts.undertime + amounts.half_day
@@ -413,6 +505,8 @@ function recalc() {
 
   const updates = {
     'sum-basic': formatMoney(basic),
+    'sum-overtime': `+ ${formatMoney(earnings.overtime)}`,
+    'sum-holiday': `+ ${formatMoney(earnings.holiday)}`,
     'sum-gross': formatMoney(grossPay),
     'sum-sss': `- ${formatMoney(sss)}`,
     'sum-philhealth': `- ${formatMoney(philhealth)}`,
@@ -1010,6 +1104,7 @@ function renderPayslipDetails() {
   assign('ac-pf-transport', formatMoney(payslip.earnings?.transportation || 0));
   assign('ac-pf-rice', formatMoney(payslip.earnings?.rice || 0));
   assign('ac-pf-overtime', formatMoney(payslip.earnings?.overtime || 0));
+  assign('ac-pf-holiday', formatMoney(payslip.earnings?.holiday_pay || 0));
   assign('ac-pf-bonus', formatMoney(payslip.earnings?.bonus || 0));
   assign('ac-pf-gross', formatMoney(payslip.earnings?.gross_pay || 0));
 
@@ -1068,6 +1163,8 @@ function populateFormFromDraft() {
   setValue('pc-philhealth', deductions.philhealth);
   setValue('pc-pagibig', deductions.pagibig);
   setValue('pc-tax', deductions.withholding_tax);
+  // A draft keeps a typed tax; otherwise the tax follows the figures again.
+  acctState.taxEdited = (payroll.audit?.deviations?.items || []).some((d) => d.field === 'withholding_tax');
   setValue('pc-absences', deductions.absences_days);
   setValue('pc-late', deductions.late_days ?? 0);
   setValue('pc-undertime', deductions.undertime_minutes ?? 0);
@@ -1110,13 +1207,17 @@ function computeBatchRowNetPay(row) {
     row.sss + row.philhealth + row.pagibig + row.tax
     + row.attendance_deductions + leaveWithoutPayDeduct,
   );
-  return Math.max(0, toAmount(row.basic_salary - totalDeductions + row.incentives));
+  // Gross = basic + approved overtime + holiday pay.
+  return Math.max(0, toAmount(row.basic_salary + (row.earnings || 0) - totalDeductions + row.incentives));
 }
 
 /** The editable batch cells that differ from their computed defaults. */
 function batchRowDeviations(employeeId) {
   const safeId = escapeJsAttr(employeeId);
-  return ['sss', 'philhealth', 'pagibig', 'lwop'].filter((field) => {
+  const tr = document.querySelector(`#pc-batch-table-body tr[data-employee-id="${CSS.escape(String(employeeId))}"]`);
+  // Withholding tax has a computed default only with the legal tables.
+  const fields = ['sss', 'philhealth', 'pagibig', 'lwop', ...(tr?.dataset.legal === '1' ? ['tax'] : [])];
+  return fields.filter((field) => {
     const input = document.getElementById(`batch-${field}-${safeId}`);
     return input && !acctSame(input.value, input.dataset.default);
   });
@@ -1129,10 +1230,25 @@ function refreshBatchReasonVisibility() {
   if (wrap) wrap.style.display = anyChanged ? '' : 'none';
 }
 
-function recalcBatchRow(employeeId) {
+function recalcBatchRow(employeeId, changedField) {
   const safeId = escapeJsAttr(employeeId);
   const get = (field) => toAmount(document.getElementById(`batch-${field}-${safeId}`)?.value);
   const tr = document.querySelector(`#pc-batch-table-body tr[data-employee-id="${CSS.escape(String(employeeId))}"]`);
+  const taxInput = document.getElementById(`batch-tax-${safeId}`);
+  if (changedField === 'tax' && taxInput) taxInput.dataset.edited = '1';
+
+  // With the legal tables the tax follows this row's figures until typed.
+  if (tr?.dataset.legal === '1' && taxInput && taxInput.dataset.edited !== '1') {
+    const info = employeePayInfo(employeeId);
+    const taxDefault = taxDefaultFor(info, {
+      basic: get('basic'),
+      earnings: toAmount(tr.dataset.earnings),
+      attendanceDeductions: toAmount(tr.dataset.attendanceDeductions) + toAmount(get('lwop') * toAmount(tr.dataset.dailyRate)),
+      contributions: get('sss') + get('philhealth') + get('pagibig'),
+    });
+    taxInput.value = taxDefault;
+    taxInput.dataset.default = taxDefault;
+  }
 
   const row = {
     basic_salary: get('basic'),
@@ -1144,13 +1260,14 @@ function recalcBatchRow(employeeId) {
     daily_rate: toAmount(tr?.dataset.dailyRate),
     attendance_deductions: toAmount(tr?.dataset.attendanceDeductions),
     incentives: toAmount(tr?.dataset.incentives),
+    earnings: toAmount(tr?.dataset.earnings),
   };
 
   const netPay = computeBatchRowNetPay(row);
   const netEl = document.getElementById(`batch-net-${safeId}`);
   if (netEl) netEl.textContent = formatMoney(netPay);
 
-  ['sss', 'philhealth', 'pagibig', 'lwop'].forEach((field) => {
+  ['sss', 'philhealth', 'pagibig', 'tax', 'lwop'].forEach((field) => {
     const input = document.getElementById(`batch-${field}-${safeId}`);
     if (input) input.style.borderColor = acctSame(input.value, input.dataset.default) ? '' : 'var(--amber)';
   });
@@ -1195,39 +1312,47 @@ function loadBatchPayrollTable() {
     const counts = info.pay?.counts || {};
     const amounts = info.pay?.amounts || {};
     const blocking = info.pay?.blocking || [];
-    const sss = toAmount(basic * info.rates.sss_pct / 100);
-    const philhealth = toAmount(basic * info.rates.philhealth_pct / 100);
-    const pagibig = toAmount(basic * info.rates.pagibig_pct / 100);
+    const legal = usesLegalTables(info);
+    const { sss, philhealth, pagibig } = contributionDefaults(info, basic);
     const leave = acctState.leaveSummary.find((row) => row.employee_id === employee.id);
     const leaveWithPayDays = leave?.with_pay_days || 0;
     const leaveWithoutPayDays = leave?.without_pay_days || 0;
     const attendanceDeductions = toAmount((amounts.absent || 0) + (amounts.late || 0) + (amounts.undertime || 0) + (amounts.half_day || 0));
     const incentives = toAmount((amounts.early_bird || 0) + (amounts.perfect_attendance || 0));
+    const earningsParts = earningsFor(info);
+    const earnings = toAmount(earningsParts.overtime + earningsParts.holiday);
+    const tax = taxDefaultFor(info, {
+      basic,
+      earnings,
+      attendanceDeductions: attendanceDeductions + toAmount(leaveWithoutPayDays * info.unit.daily),
+      contributions: sss + philhealth + pagibig,
+    });
     const netPay = computeBatchRowNetPay({
       basic_salary: basic,
       sss,
       philhealth,
       pagibig,
-      tax: 0,
+      tax,
       leave_without_pay_days: leaveWithoutPayDays,
       daily_rate: info.unit.daily,
       attendance_deductions: attendanceDeductions,
       incentives,
+      earnings,
     });
     const incentiveLabel = [
       counts.early_bird_days ? `${counts.early_bird_days} day${counts.early_bird_days === 1 ? '' : 's'}` : '',
       info.pay?.perfect_attendance ? 'Perfect' : '',
     ].filter(Boolean).join(' · ') || '0';
-    const numberInput = (field, value, width, step) => `<input class="fc" type="number" id="batch-${field}-${id}" value="${value}" data-default="${value}" min="0" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" style="width:${width}px;" oninput="recalcBatchRow('${employee.id}')"${blocking.length ? ' disabled' : ''}>`;
+    const numberInput = (field, value, width, step) => `<input class="fc" type="number" id="batch-${field}-${id}" value="${value}" data-default="${value}" min="0" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" style="width:${width}px;" oninput="recalcBatchRow('${employee.id}','${field}')"${blocking.length ? ' disabled' : ''}>`;
 
     const mainRow = `
-      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}"${blocking.length ? ' style="opacity:.75;"' : ''}>
+      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}" data-earnings="${earnings}" data-legal="${legal ? '1' : '0'}"${blocking.length ? ' style="opacity:.75;"' : ''}>
         <td class="nm">${escapeHtml(employee.full_name)}</td>
-        <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}"></td>
+        <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}">${earnings ? `<div style="font-size:11px;color:var(--green);" title="Approved overtime and holiday pay">+ ${formatMoney(earnings)} OT/holiday</div>` : ''}</td>
         <td class="mn">${numberInput('sss', sss, 75, '0.01')}</td>
         <td class="mn">${numberInput('philhealth', philhealth, 75, '0.01')}</td>
         <td class="mn">${numberInput('pagibig', pagibig, 75, '0.01')}</td>
-        <td class="mn">${numberInput('tax', 0, 75, '0.01')}</td>
+        <td class="mn">${numberInput('tax', tax, 75, '0.01')}</td>
         <td class="mn">${cell(`${counts.absent_days || 0}`, amounts.absent)}</td>
         <td class="mn">${cell(`${counts.late_days || 0}`, amounts.late)}</td>
         <td class="mn">${cell(counts.undertime_minutes ? `${counts.undertime_minutes} min` : '0', amounts.undertime)}</td>
@@ -1438,6 +1563,7 @@ async function runAccountantLoad(options = {}) {
     acctState.periodOptions = payload.period_options || [];
     acctState.payrollReady = payload.payroll_ready !== false;
     acctState.payrollNotReadyMessage = payload.payroll_not_ready_message || '';
+    acctState.taxTable = Array.isArray(payload.tax_table) ? payload.tax_table : [];
     const notReady = document.getElementById('pc-not-ready');
     if (notReady) {
       notReady.style.display = acctState.payrollReady ? 'none' : '';
@@ -1610,9 +1736,14 @@ function initAccountant() {
   // Manual deduction inputs only trigger recalc
   // Leave Without Pay is editable too (₱550/day) — it was missing here, so
   // changing it left the Net Pay summary showing the old figure.
-  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late', 'pc-undertime', 'pc-half-days', 'pc-early-bird', 'pc-leave-without-pay-days'].forEach(id => {
+  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-absences', 'pc-late', 'pc-undertime', 'pc-half-days', 'pc-early-bird', 'pc-leave-without-pay-days'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', recalc);
+  });
+  // A typed withholding tax stays as typed; until then it follows the figures.
+  document.getElementById('pc-tax')?.addEventListener('input', () => {
+    acctState.taxEdited = true;
+    recalc();
   });
   document.getElementById('pc-perfect')?.addEventListener('change', recalc);
 

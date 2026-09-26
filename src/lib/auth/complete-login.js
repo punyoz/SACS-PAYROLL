@@ -19,6 +19,7 @@ import { NextResponse } from "next/server";
 import { attachSession } from "@/lib/rbac/session";
 import { newSessionId, registerActiveSession } from "@/lib/auth/active-session";
 import { buildProfilePayload } from "@/lib/auth/resolve-profile-claims";
+import { loadSecuritySettings } from "@/lib/auth/security-settings";
 
 /** Where each role lands once signed in. */
 export const ROLE_ROUTES = {
@@ -28,6 +29,13 @@ export const ROLE_ROUTES = {
   employee: "/employee",
   hr: "/hr",
 };
+
+export const ARCHIVED_ACCOUNT_MESSAGE = "This account has been archived and can no longer sign in.";
+
+/** True when the account's profiles row (resolveLoginProfile) is archived. */
+export function isArchivedProfile(resolved) {
+  return resolved?.profileRow?.archived === true;
+}
 
 /** True when `role` is one this app can route a sign-in to. */
 export function isRoutableRole(role) {
@@ -48,6 +56,19 @@ export function isRoutableRole(role) {
  *        session cookie, or a 503 when the session could not be registered.
  */
 export async function completeLogin({ userId, resolved, mustChangePassword, decorate }) {
+  // profiles.archived is the copy the account holder cannot edit (their
+  // user_metadata.archived they can). Checked here, where every session is
+  // minted, so sign-in, the OTP step and password reset all honour it.
+  if (isArchivedProfile(resolved)) {
+    const refused = NextResponse.json(
+      { error: ARCHIVED_ACCOUNT_MESSAGE },
+      { status: 403 },
+    );
+    // Still clear the caller's pending OTP / reset state, as a success would.
+    if (decorate) decorate(refused);
+    return refused;
+  }
+
   const sessionId = newSessionId();
 
   try {
@@ -70,8 +91,12 @@ export async function completeLogin({ userId, resolved, mustChangePassword, deco
   if (decorate) decorate(response);
 
   // The signed HttpOnly cookie every API guard reads. Issued here and nowhere
-  // else for a fresh sign-in.
+  // else for a fresh sign-in. It lapses after the Super Admin's Session
+  // Timeout without activity (renewed by src/proxy.js), and 8 hours after
+  // sign-in at the latest.
+  const security = await loadSecuritySettings();
   return attachSession(response, {
+    idle_seconds: security.session * 60,
     user_id: userId,
     role: resolved.resolvedRole,
     branch_id: resolved.resolvedBranchId,

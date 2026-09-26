@@ -1,4 +1,4 @@
-import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
+import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -157,7 +157,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Employee id is required." }, { status: 400 });
     }
 
-    const { data: userData, error: fetchErr } = await supabase.auth.admin.getUserById(id);
+    const { data: userData, error: fetchErr } = await getTrustedUserById(supabase, id);
     if (fetchErr || !userData?.user) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }

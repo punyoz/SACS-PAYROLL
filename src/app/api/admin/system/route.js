@@ -1,4 +1,4 @@
-import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
+import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -145,17 +145,18 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
-    const userResult = await supabase.auth.admin.getUserById(id);
+    const userResult = await getTrustedUserById(supabase, id);
     if (userResult.error || !userResult.data?.user) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
 
-    const targetRole = String(userResult.data.user.user_metadata?.role || "employee").toLowerCase();
-    if (targetRole !== "employee" && targetRole !== "accountant") {
+    // fetchRfidDevices() lists only Employee / Accountant accounts, by the
+    // trusted profiles.role (src/lib/auth/users-cache.js) rather than the
+    // user_metadata copy the account holder can edit.
+    const rfidDevices = await fetchRfidDevices(supabase);
+    if (!rfidDevices.some((device) => device.id === id)) {
       return NextResponse.json({ error: "RFID cards can only be assigned to employee accounts." }, { status: 400 });
     }
-
-    const rfidDevices = await fetchRfidDevices(supabase);
 
     // An Admin may assign, replace or void cards only for its own branch's staff.
     if (!guard.branchExempt) {
@@ -178,6 +179,31 @@ export async function PATCH(request) {
         );
       }
     }
+
+    // profiles.rfid_uid is the copy the RFID terminal trusts, and its unique
+    // index is the real guard against one card on two people -- so it is
+    // written first, and a refusal there stops the change.
+    if (rfidUid) {
+      // An archived employee can no longer tap (the check above already lets
+      // their card be reused); release it so the unique index accepts it.
+      const releaseResult = await supabase
+        .from("profiles")
+        .update({ rfid_uid: null })
+        .eq("rfid_uid", rfidUid)
+        .eq("archived", true)
+        .neq("id", id);
+      if (releaseResult.error) {
+        return NextResponse.json({ error: sanitizeError(releaseResult.error) }, { status: 400 });
+      }
+    }
+    const profileResult = await supabase
+      .from("profiles")
+      .update({ rfid_uid: rfidUid || null })
+      .eq("id", id);
+    if (profileResult.error) {
+      return NextResponse.json({ error: sanitizeError(profileResult.error) }, { status: 400 });
+    }
+    invalidateUsersCache();
 
     const existingUser = userResult.data.user;
     const nextMetadata = {

@@ -90,16 +90,22 @@ export function clientAddressFrom(request) {
 /**
  * Ask whether this attempt may proceed. Call before verifying the password.
  *
+ * `identityMaxAttempts` is the Super Admin's "Max Login Attempts"
+ * (src/lib/auth/security-settings.js); IDENTITY_MAX_ATTEMPTS when not given.
+ *
  * @returns {{ blocked: boolean, retryAfterSeconds: number, scope: "identity"|"ip"|"" }}
  */
-export function checkLoginAllowed(identity, address, now = Date.now()) {
+export function checkLoginAllowed(identity, address, now = Date.now(), { identityMaxAttempts } = {}) {
   const identityKey = String(identity || "").trim().toLowerCase();
   const ipKey = String(address || "unknown");
+  const maxAttempts = Number.isInteger(identityMaxAttempts) && identityMaxAttempts > 0
+    ? identityMaxAttempts
+    : IDENTITY_MAX_ATTEMPTS;
 
   const byIdentity = inspect(
     identityBuckets,
     identityKey,
-    { maxAttempts: IDENTITY_MAX_ATTEMPTS, windowMs: IDENTITY_WINDOW_MS, lockoutMs: IDENTITY_LOCKOUT_MS },
+    { maxAttempts, windowMs: IDENTITY_WINDOW_MS, lockoutMs: IDENTITY_LOCKOUT_MS },
     now,
   );
   if (byIdentity.blocked) {

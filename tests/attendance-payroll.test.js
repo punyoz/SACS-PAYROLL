@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { computeAttendancePay } from "@/lib/payroll/attendance-pay";
-import { resolveRate, resolveRates, rateHistory, validateRateInput, DEFAULT_RATES } from "@/lib/payroll/rates";
+import { resolveRate, resolveRates, rateHistory, validateRateInput, DEFAULT_RATES, RATE_TYPE_KEYS } from "@/lib/payroll/rates";
 import { periodForDateKey, periodFromLabel, nextPeriod } from "@/lib/payroll/periods";
 import {
   normalizeAttendanceStatus,
@@ -111,7 +111,7 @@ describe("Effective-dated rates", () => {
 
   it("falls back to the defaults when no version exists", () => {
     expect(resolveRate([], "absent_pct", {}, "2026-09-16")).toMatchObject({ value: 100, source: "default" });
-    expect(Object.keys(resolveRates([], {}, "2026-09-16"))).toHaveLength(11);
+    expect(Object.keys(resolveRates([], {}, "2026-09-16"))).toHaveLength(RATE_TYPE_KEYS.length);
     expect(resolveRate([], "late_days_per_absent", {}, "2026-09-16").value).toBe(3);
   });
 

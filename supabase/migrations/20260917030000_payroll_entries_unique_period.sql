@@ -34,5 +34,12 @@ DROP INDEX IF EXISTS public.payroll_entries_employee_period_idx;
 -- 3. Enforce the invariant at the database level, and give the app an
 --    ON CONFLICT target to upsert against instead of the previous
 --    delete-then-insert (which had its own race window).
-ALTER TABLE public.payroll_entries
-  ADD CONSTRAINT payroll_entries_employee_period_unique UNIQUE (employee_id, pay_period);
+--    Guarded so the file can be run again.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payroll_entries_employee_period_unique') THEN
+    ALTER TABLE public.payroll_entries
+      ADD CONSTRAINT payroll_entries_employee_period_unique UNIQUE (employee_id, pay_period);
+  END IF;
+END;
+$$;

@@ -24,6 +24,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
 import { reissueSession } from "@/lib/rbac/session";
 import { validateNewPassword } from "@/lib/auth/password-policy";
+import { loadSecuritySettings } from "@/lib/auth/security-settings";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import { requiresLoginOtp } from "@/lib/auth/otp-policy";
 import {
@@ -95,10 +96,12 @@ export async function POST(request) {
       fullName = profileResult.data.full_name;
     }
 
+    const security = await loadSecuritySettings();
     const policyError = validateNewPassword(newPassword, {
       currentPassword,
       full_name: fullName,
       date_of_birth: user.user_metadata?.date_of_birth,
+      minLength: security.pw_min,
     });
     if (policyError) {
       return NextResponse.json({ error: policyError }, { status: 400 });

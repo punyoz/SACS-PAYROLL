@@ -1,4 +1,6 @@
-import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
+import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
+import { revokeActiveSession } from "@/lib/auth/active-session";
+import { loadSecuritySettings } from "@/lib/auth/security-settings";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
@@ -206,7 +208,7 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
-    const userResult = await supabase.auth.admin.getUserById(id);
+    const userResult = await getTrustedUserById(supabase, id);
     if (userResult.error || !userResult.data?.user) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
@@ -345,7 +347,8 @@ export async function PATCH(request) {
       if (password) {
         // Same rules as every other password a person sets (Task 2):
         // 8-72 characters, letters and numbers, an uppercase letter, a symbol.
-        const passwordError = validateNewPassword(password);
+        const security = await loadSecuritySettings();
+        const passwordError = validateNewPassword(password, { minLength: security.pw_min });
         if (passwordError) {
           return NextResponse.json({ error: passwordError.replace(/^New password/, "Password") }, { status: 400 });
         }
@@ -404,6 +407,12 @@ export async function PATCH(request) {
         // account (its trigger writes profiles.branch_id back).
         await supabase.from("employee_branch_assignments").delete().eq("user_id", id);
         invalidateBranchCache(id);
+      }
+
+      // The session cookie still carries the old role (and branch); end it so
+      // the next sign-in picks up the new one.
+      if (normalizeRole(nextMetadata.role) !== currentRole) {
+        await revokeActiveSession(id);
       }
     }
 

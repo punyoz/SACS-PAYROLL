@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
-import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
+import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
 import { validateNewPassword } from "@/lib/auth/password-policy";
+import { loadSecuritySettings } from "@/lib/auth/security-settings";
 import { describeOtpError, OTP_CODE_ERROR } from "@/lib/auth/otp-errors";
 import {
   checkResendAllowed,
@@ -183,7 +184,7 @@ async function handleReset(request, body) {
   if (password !== confirm) return fail("New passwords do not match.", 400, "password_mismatch");
 
   const { admin, anon } = clients();
-  const { data: userData, error: userError } = await admin.auth.admin.getUserById(state.sub);
+  const { data: userData, error: userError } = await getTrustedUserById(admin, state.sub);
   const user = userData?.user;
   if (userError || !canResetPassword(user)) {
     return clearPasswordOtpState(fail("This account cannot be reset here. Contact the administrator.", 403, "not_allowed"), "reset");
@@ -193,9 +194,11 @@ async function handleReset(request, body) {
     return clearPasswordOtpState(fail("This reset has already been used. Request a new OTP.", 400, "grant_used"), "reset");
   }
 
+  const security = await loadSecuritySettings();
   const policyError = validateNewPassword(password, {
     full_name: user.user_metadata?.full_name,
     date_of_birth: user.user_metadata?.date_of_birth,
+    minLength: security.pw_min,
   });
   if (policyError) return fail(policyError, 400, "password_policy");
 

@@ -1248,3 +1248,12 @@ body.scroll-locked {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Keyboard focus ──
+   Elements app.js makes keyboard-operable (sidebar items, chips, tabs,
+   cards) show where focus is; the ring appears only for keyboard focus. */
+[data-kbd-click]:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+.tb-search:focus-within { border-color: var(--amber); }

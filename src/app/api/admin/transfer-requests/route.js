@@ -5,7 +5,8 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, denyRoleEscalation } from "@/lib/rbac/guard";
 import { can } from "@/lib/rbac/permissions";
-import { invalidateUsersCache } from "@/lib/auth/users-cache";
+import { invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
+import { revokeActiveSession } from "@/lib/auth/active-session";
 import {
   readAllTransferRequests,
   insertTransferRequest,
@@ -47,13 +48,16 @@ async function applyBranchMove(supabase, employeeId, fromBranchId, toBranchId) {
   if (error) throw new Error(error.message);
   if (!data?.length) return { moved: false };
 
-  const { data: userData } = await supabase.auth.admin.getUserById(employeeId);
+  const { data: userData } = await getTrustedUserById(supabase, employeeId);
   if (userData?.user) {
     await supabase.auth.admin.updateUserById(employeeId, {
       user_metadata: { ...(userData.user.user_metadata || {}), branch_id: toBranchId },
     });
     invalidateUsersCache();
   }
+  // The session cookie still carries the old branch; end it so the next
+  // sign-in picks up the new one.
+  await revokeActiveSession(employeeId);
   return { moved: true };
 }
 
@@ -107,7 +111,7 @@ export async function POST(request) {
 
     const supabase = getAdminClient();
 
-    const { data: employeeData, error: employeeError } = await supabase.auth.admin.getUserById(employeeId);
+    const { data: employeeData, error: employeeError } = await getTrustedUserById(supabase, employeeId);
     if (employeeError || !employeeData?.user) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }

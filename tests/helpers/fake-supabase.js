@@ -99,18 +99,69 @@ function query(name) {
   return builder;
 }
 
+/**
+ * In-memory stand-in for public.payroll_commit_entries
+ * (20260926090000_payroll_legal_rules_and_atomic_commit.sql): per employee,
+ * a payroll_records row with the next PS-YYYYMM-NNNN number, the
+ * payroll_entries row (upserted on employee + period) and the line rows --
+ * all or nothing, with "23505" when the employee's period is already paid.
+ */
+function commitPayrollEntries({ p_items: items = [] } = {}) {
+  return items.map((item) => {
+    const { record, entry } = item;
+    const records = table("payroll_records");
+    if (records.some((r) => r.employee_id === record.employee_id && r.period_label === record.period_label && !r.archived)) {
+      return { employee_id: entry.employee_id, ok: false, code: "23505", error: "duplicate key value violates unique constraint" };
+    }
+    const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit" })
+      .format(new Date(record.processed_at || Date.now())).replace("-", "");
+    const prefix = `PS-${month}-`;
+    const seq = records
+      .filter((r) => String(r.payslip_no || "").startsWith(prefix))
+      .reduce((max, r) => Math.max(max, Number(String(r.payslip_no).slice(prefix.length)) || 0), 0) + 1;
+    const payslipNo = `${prefix}${String(seq).padStart(4, "0")}`;
+
+    const recordId = `payroll_records-${records.length}-${Math.random().toString(16).slice(2, 8)}`;
+    records.push({ id: recordId, archived: false, ...record, payslip_no: payslipNo });
+
+    const entries = table("payroll_entries");
+    const at = entries.findIndex((e) => e.employee_id === entry.employee_id && e.pay_period === entry.pay_period);
+    const entryRow = { ...entry, payslip_no: payslipNo };
+    if (at >= 0) entries[at] = { ...entries[at], ...entryRow, id: entries[at].id };
+    else entries.push(entryRow);
+    const entryId = at >= 0 ? entries[at].id : entry.id;
+
+    const base = { payroll_record_id: recordId, payroll_entry_id: entryId, employee_id: entry.employee_id, pay_period: entry.pay_period };
+    (item.deductions || []).forEach((line) => table("payroll_deductions").push({ ...base, ...line }));
+    (item.incentives || []).forEach((line) => table("payroll_incentives").push({ ...base, ...line }));
+
+    return { employee_id: entry.employee_id, ok: true, record_id: recordId, entry_id: entryId, payslip_no: payslipNo };
+  });
+}
+
 export const supabaseModule = {
   createClient: () => ({
     from: (name) => query(name),
     rpc: async (fn, args) => {
       rpc.calls.push({ fn, args });
       const result = rpc.results[fn];
+      if (!result && fn === "payroll_commit_entries") return { data: commitPayrollEntries(args), error: null };
       return typeof result === "function" ? result(args) : (result || { data: {}, error: null });
     },
     auth: {
       admin: {
         listUsers: async () => ({ data: { users }, error: null }),
-        updateUserById: async () => ({ data: {}, error: null }),
+        getUserById: async (id) => {
+          const user = users.find((u) => u.id === id) || null;
+          return user ? { data: { user }, error: null } : { data: { user: null }, error: { message: "User not found" } };
+        },
+        // Merges app_metadata like Supabase does, so session revocation is observable.
+        updateUserById: async (id, attrs = {}) => {
+          const user = users.find((u) => u.id === id);
+          if (user && attrs.app_metadata) user.app_metadata = { ...(user.app_metadata || {}), ...attrs.app_metadata };
+          if (user && attrs.user_metadata) user.user_metadata = attrs.user_metadata;
+          return { data: { user: user || {} }, error: null };
+        },
       },
     },
   }),

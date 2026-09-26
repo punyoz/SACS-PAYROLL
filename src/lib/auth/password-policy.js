@@ -137,12 +137,16 @@ export function mustChangePassword(password, user, fullName) {
 /**
  * Validate a password the user chose for themselves. Returns an error message,
  * or null when the password is acceptable.
+ *
+ * `minLength` is the Super Admin's "Password Minimum Length"
+ * (src/lib/auth/security-settings.js); PASSWORD_MIN_LENGTH when not given.
  */
-export function validateNewPassword(newPassword, { currentPassword, full_name, date_of_birth } = {}) {
+export function validateNewPassword(newPassword, { currentPassword, full_name, date_of_birth, minLength } = {}) {
   const value = String(newPassword ?? "");
+  const min = Number.isInteger(minLength) && minLength > 0 ? Math.min(minLength, PASSWORD_MAX_LENGTH) : PASSWORD_MIN_LENGTH;
 
-  if (value.length < PASSWORD_MIN_LENGTH) {
-    return `New password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  if (value.length < min) {
+    return `New password must be at least ${min} characters.`;
   }
   if (value.length > PASSWORD_MAX_LENGTH) {
     return `New password must be at most ${PASSWORD_MAX_LENGTH} characters.`;

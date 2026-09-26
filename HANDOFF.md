@@ -69,8 +69,8 @@ Migrations are applied by hand through the dashboard. If you prefer
 `payroll_entries`, `leave_requests`, `branches`,
 `employee_branch_assignments`, `transfer_requests`, `system_config`,
 `role_permissions`, `attendance_holidays`, `attendance_corrections`,
-`payroll_rate_configs`, `payroll_deductions`, `payroll_incentives`, plus the
-read-only view `employee_info_view`.
+`attendance_overtime_approvals`, `payroll_rate_configs`, `payroll_deductions`,
+`payroll_incentives`, plus the read-only view `employee_info_view`.
 
 That covers every table the application queries. If a page errors with
 "relation does not exist", a migration was skipped.
@@ -138,6 +138,31 @@ night delays the Incomplete queue but never produces a wrong payroll.
 Absences are now recorded for every active Employee/Accountant who does not
 tap on a working day (weekends and the holidays in `attendance_holidays` are
 skipped). Add next year's holidays to that table before January.
+
+---
+
+## 2c. Payroll rules from October 1, 2026, and overtime
+
+`20260926090000_payroll_legal_rules_and_atomic_commit.sql` switches pay
+periods starting on or after **2026-10-01** to the legal tables
+(`src/lib/payroll/statutory.js`): SSS by monthly salary credit, PhilHealth
+within its floor and ceiling, Pag-IBIG up to the maximum fund salary, BIR
+semi-monthly withholding tax, and a daily rate of monthly salary × 12 ÷ 261.
+Earlier periods keep the flat-% rules they were paid under. Every percentage
+and limit is an effective-dated rate in Super Admin → Payroll Rates; check them
+against the current SSS, PhilHealth, Pag-IBIG and BIR circulars.
+
+Overtime is paid only for minutes HR or an Administrator approves in the
+Attendance board's **Overtime** tab (days at least 30 minutes past the end of
+shift); work on a date in `attendance_holidays` earns the holiday premium.
+Payslips are written all-or-nothing by the `payroll_commit_entries` database
+function.
+
+Security settings (Super Admin → System Configuration → Security) are
+enforced: Session Timeout is an idle timeout (8 hours after sign-in at most),
+Max Login Attempts, Password Minimum Length and Force Password Expiry apply at
+sign-in and password change. Also turn on **Authentication → Password security
+→ Leaked password protection** in the Supabase dashboard.
 
 ---
 

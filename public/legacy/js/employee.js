@@ -152,13 +152,13 @@ function updateTodayLog(today) {
   }
 }
 
-async function loadEmployeeStats() {
+async function loadEmployeeStats(options = {}) {
   const context = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
   const email = String(context?.email || '').trim();
   if (!email) return;
 
   try {
-    const data = await fetchEmployeeStatsCached(email);
+    const data = await fetchEmployeeStatsCached(email, { background: options.background === true });
 
     const presentEl = document.getElementById('emp-stat-present');
     if (presentEl) presentEl.textContent = data.present ?? '—';
@@ -225,6 +225,7 @@ function renderPayslipCard(payslip) {
     if (payslip.transportation) rows += `<div class="ps-row"><span>Transportation</span><span class="mn">${fmtPeso(payslip.transportation)}</span></div>`;
     if (payslip.rice) rows += `<div class="ps-row"><span>Rice Allowance</span><span class="mn">${fmtPeso(payslip.rice)}</span></div>`;
     if (payslip.overtime) rows += `<div class="ps-row"><span>Overtime</span><span class="mn">${fmtPeso(payslip.overtime)}</span></div>`;
+    if (payslip.holiday_pay) rows += `<div class="ps-row"><span>Holiday Pay</span><span class="mn">${fmtPeso(payslip.holiday_pay)}</span></div>`;
     if (payslip.bonus) rows += `<div class="ps-row"><span>Bonus</span><span class="mn">${fmtPeso(payslip.bonus)}</span></div>`;
     rows += `<div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">${fmtPeso(payslip.gross_pay)}</span></div>`;
     if (payslip.sss) rows += `<div class="ps-row" style="color:var(--red);"><span>SSS</span><span class="mn">- ${fmtPeso(payslip.sss)}</span></div>`;
@@ -509,7 +510,9 @@ function initEmployeePortal() {
   if (!_empStatsPollStarted) {
     _empStatsPollStarted = true;
     setInterval(() => {
-      if (document.visibilityState === 'visible') loadEmployeeStats();
+      // A timed refresh, not the employee doing something: it must not keep
+      // an idle session alive.
+      if (document.visibilityState === 'visible') loadEmployeeStats({ background: true });
     }, 30000);
   }
 }

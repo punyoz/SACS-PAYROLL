@@ -394,6 +394,14 @@
     if (document.activeElement !== scanInput) focusScanInput();
   }, 1500);
 
+  // The kiosk can go a long time between taps. While it is unlocked (the
+  // Administrator's password opened it), keep its session alive against the
+  // idle timeout; a locked kiosk is left to time out.
+  setInterval(() => {
+    if (mainScreen.hidden) return;
+    fetch('/api/legacy-auth/session', { headers: { 'x-sacs-activity': '1' }, cache: 'no-store' }).catch(() => {});
+  }, 4 * 60 * 1000);
+
   paintThemeToggles(currentTheme());
   tickClock();
   setInterval(tickClock, 1000);

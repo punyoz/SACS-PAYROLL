@@ -34,9 +34,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { readSession, clearSession } from "@/lib/rbac/session";
+import { readSession, clearSession, reissueSession } from "@/lib/rbac/session";
 import { can, isKnownRole } from "@/lib/rbac/permissions";
 import { checkActiveSession } from "@/lib/auth/active-session";
+import { loadSecuritySettings } from "@/lib/auth/security-settings";
 
 export const config = {
   matcher: [
@@ -94,6 +95,8 @@ const API_MODULES = [
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],
+  // Overtime approval: listing is attendance "read", deciding (PATCH) "update".
+  ["/api/attendance/overtime", "attendance"],
   ["/api/admin/system", "system_maintenance"],
   ["/api/admin/dashboard", "dashboard"],
   ["/api/hr/employees", "employee_information"],
@@ -220,6 +223,11 @@ const SESSION_REJECTIONS = {
     reason: "signed_in_elsewhere",
     message: "You were signed out because your account signed in on another device or browser.",
   },
+  revoked: {
+    code: "session_revoked",
+    reason: "account_changed",
+    message: "Your account's role or branch was changed by an administrator. Please sign in again.",
+  },
   archived: {
     code: "account_archived",
     reason: "account_archived",
@@ -236,6 +244,45 @@ async function sessionRejection(session) {
   if (!session.sid) return SESSION_REJECTIONS.expired;
   const state = await checkActiveSession(session.sub, session.sid);
   return SESSION_REJECTIONS[state] || null;
+}
+
+/**
+ * Requests that are not the person doing something, so they never keep an
+ * idle session alive: the portals' 10-second heartbeat, and polls marked
+ * with an "x-sacs-background: 1" header. The RFID terminal's keep-alive asks
+ * for renewal explicitly with "x-sacs-activity: 1".
+ */
+const BACKGROUND_PATHS = ["/api/legacy-auth/session"];
+
+/**
+ * Routes that re-issue the session cookie themselves (change-password lifts
+ * the "must change password" claim); renewing here as well could put the old
+ * claim back.
+ */
+const SELF_ISSUING_PATHS = ["/api/legacy-auth/change-password"];
+
+function isActivity(request, pathname) {
+  if (request.headers.get("x-sacs-background") === "1") return false;
+  if (BACKGROUND_PATHS.includes(pathname)) return request.headers.get("x-sacs-activity") === "1";
+  return true;
+}
+
+/**
+ * Idle timeout (Super Admin → Security → Session Timeout): activity pushes the
+ * cookie's expiry out to "now + timeout" again, never past 8 hours from
+ * sign-in (src/lib/rbac/session.js). Renewed at most once a minute, or at once
+ * when the timeout setting changed.
+ */
+async function withRenewedSession(request, response, session, pathname) {
+  if (!isActivity(request, pathname)) return response;
+  if (SELF_ISSUING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return response;
+
+  const security = await loadSecuritySettings();
+  const idle = security.session * 60;
+  const remaining = Number(session.exp || 0) - Math.floor(Date.now() / 1000);
+  if (Number(session.idl) === idle && remaining > idle - 60) return response;
+
+  return reissueSession(response, session, { idle_seconds: idle });
 }
 
 export async function proxy(request) {
@@ -261,7 +308,7 @@ export async function proxy(request) {
     if (session.role !== "admin") {
       return NextResponse.redirect(new URL(ROLE_HOME[session.role] || "/login", request.url));
     }
-    return NextResponse.next();
+    return withRenewedSession(request, NextResponse.next(), session, pathname);
   }
 
   // ── Portal pages ──
@@ -283,7 +330,7 @@ export async function proxy(request) {
       // Signed in, but this is not their portal — send them to their own.
       return NextResponse.redirect(new URL(ROLE_HOME[session.role] || "/login", request.url));
     }
-    return NextResponse.next();
+    return withRenewedSession(request, NextResponse.next(), session, pathname);
   }
 
   // ── API routes ──
@@ -329,11 +376,11 @@ export async function proxy(request) {
   // module === null means "authenticated session is the whole requirement"
   // (currently just /api/rbac/me, which derives everything from the cookie).
   if (module === null) {
-    return NextResponse.next();
+    return withRenewedSession(request, NextResponse.next(), session, pathname);
   }
 
   if (isBranchLabelRead(pathname, request.method)) {
-    return NextResponse.next();
+    return withRenewedSession(request, NextResponse.next(), session, pathname);
   }
 
   const action = actionForRequest(pathname, request.method);
@@ -345,5 +392,5 @@ export async function proxy(request) {
     );
   }
 
-  return NextResponse.next();
+  return withRenewedSession(request, NextResponse.next(), session, pathname);
 }

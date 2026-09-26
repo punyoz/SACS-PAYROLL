@@ -290,14 +290,22 @@ export async function getAttendancePanels(supabase, activeEmployees, branchScope
   return payload.panels;
 }
 
-function resolveEmployeeByRfid(code, activeEmployees) {
+/**
+ * The employee a scanned code belongs to.
+ *
+ * Only a registered RFID card matches by default. Employee IDs are sequential
+ * (SACS-001, SACS-002, ...), so accepting them at the kiosk let anyone type a
+ * colleague's ID and clock them in. `allowEmployeeId` is set only by the
+ * manual-entry box an Admin / Super Admin uses in their own portal.
+ */
+function resolveEmployeeByRfid(code, activeEmployees, { allowEmployeeId = false } = {}) {
   const normalized = normalizeText(code).toLowerCase();
   if (!normalized) return null;
 
   return activeEmployees.find((employee) => {
     const employeeId = normalizeText(employee.employee_id).toLowerCase();
     const rfidUid = normalizeText(employee.rfid_uid).toLowerCase();
-    return normalized === employeeId || normalized === rfidUid;
+    return (rfidUid && normalized === rfidUid) || (allowEmployeeId && employeeId && normalized === employeeId);
   }) || null;
 }
 
@@ -506,9 +514,13 @@ export async function POST(request) {
       return NextResponse.json({ error: "rfid_code is required." }, { status: 400 });
     }
 
+    // Only the Admin / Super Admin portal's manual box sends manual_entry; the
+    // RFID terminal never does, so at the kiosk only a registered card counts.
+    const manualEntry = body.manual_entry === true;
+
     const supabase = getAdminClient();
     const activeEmployees = await fetchEmployees(supabase);
-    const employee = resolveEmployeeByRfid(rfidCode, activeEmployees);
+    const employee = resolveEmployeeByRfid(rfidCode, activeEmployees, { allowEmployeeId: manualEntry });
 
     if (!employee) {
       return NextResponse.json({ error: "RFID not matched to an active employee." }, { status: 404 });
@@ -539,6 +551,7 @@ export async function POST(request) {
         metadata: {
           employee_id: employee.id,
           rfid_code: rfidCode,
+          manual_entry: manualEntry,
           date_key: dateKey,
           branch_id: employee.branch_id,
           schedule: `${policy.work_start}-${policy.work_end}`,

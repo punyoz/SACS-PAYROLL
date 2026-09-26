@@ -180,7 +180,7 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
     // code. Source order proves it for this single linear async function --
     // the early return sits above signInWithOtp, so that call is unreachable
     // for an exempt role.
-    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(actualRole))");
+    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(resolved.resolvedRole))");
     const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
     const pendingIdx = loginRoute.indexOf("attachPendingLogin(response");
     expect(branchIdx).toBeGreaterThan(-1);
@@ -189,7 +189,7 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
   });
 
   it("the exempt branch finishes the sign-in through the shared helper", () => {
-    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(actualRole))");
+    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(resolved.resolvedRole))");
     const completeIdx = loginRoute.indexOf("return completeLogin(", branchIdx);
     const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
     // completeLogin is called inside the branch, i.e. before the OTP send.
@@ -201,7 +201,7 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
     // A newly created Super Admin/Admin/HR account is on its issued default
     // password and must be forced to the change-password screen on first
     // sign-in, exactly like an employee. Skipping OTP must not skip that.
-    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(actualRole))");
+    const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(resolved.resolvedRole))");
     const branch = loginRoute.slice(branchIdx, loginRoute.indexOf("}", loginRoute.indexOf("});", branchIdx)));
     expect(branch).toMatch(/mustChangePassword:\s*passwordChangeRequired/);
   });
@@ -214,6 +214,21 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
     expect(resendRoute).toMatch(/signInWithOtp/);
     expect(loginRoute).toMatch(/signInWithOtp/);
     expect(loginRoute).toMatch(/attachPendingLogin/);
+  });
+
+  it("the OTP decision uses the profile role, not the editable metadata role", () => {
+    // actualRole is read from user_metadata, which the account holder can
+    // rewrite through Supabase Auth; deciding on it let an Employee skip the
+    // emailed code by claiming an exempt role there.
+    expect(loginRoute).not.toMatch(/requiresLoginOtp\(actualRole\)/);
+    expect(loginRoute).toMatch(/requiresLoginOtp\(resolved\.resolvedRole\)/);
+  });
+
+  it("an archived profile is refused before any code is emailed", () => {
+    const archivedIdx = loginRoute.indexOf("if (isArchivedProfile(resolved))");
+    const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
+    expect(archivedIdx).toBeGreaterThan(-1);
+    expect(archivedIdx).toBeLessThan(sendIdx);
   });
 
   it("re-enabling a role is a one-line change in one file", () => {

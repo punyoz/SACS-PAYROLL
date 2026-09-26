@@ -21,8 +21,26 @@ import crypto from "node:crypto";
 
 export const SESSION_COOKIE = "sacs-session";
 
-/** 8 hours — a payroll shift plus overtime, re-issued on each login. */
+/**
+ * 8 hours — a payroll shift plus overtime. The hard limit from sign-in: the
+ * cookie is renewed on activity (src/proxy.js) up to this, never past it.
+ */
 export const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
+
+/**
+ * When a session's cookie expires: `idle_seconds` after now (the Super
+ * Admin's Session Timeout, src/lib/auth/security-settings.js), but never
+ * later than SESSION_MAX_AGE_SECONDS after sign-in (`login_at`).
+ */
+export function sessionTimes(claims = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  const loginAt = Number(claims.login_at) > 0 ? Math.floor(Number(claims.login_at)) : now;
+  const idle = Number(claims.idle_seconds) > 0
+    ? Math.min(Math.floor(Number(claims.idle_seconds)), SESSION_MAX_AGE_SECONDS)
+    : SESSION_MAX_AGE_SECONDS;
+  const exp = Math.min(now + idle, loginAt + SESSION_MAX_AGE_SECONDS);
+  return { now, loginAt, idle, exp };
+}
 
 // Exported for src/lib/auth/pending-login.js, which signs a second, shorter-
 // lived cookie (the password-verified-but-OTP-pending state) with the exact
@@ -67,10 +85,11 @@ export function safeEqual(a, b) {
  *
  * @param {{ user_id: string, role: string, branch_id?: string|null,
  *           email?: string, full_name?: string, session_id?: string,
- *           must_change_password?: boolean }} claims
+ *           must_change_password?: boolean, login_at?: number,
+ *           idle_seconds?: number }} claims
  */
 export function createSessionToken(claims) {
-  const now = Math.floor(Date.now() / 1000);
+  const { now, loginAt, idle, exp } = sessionTimes(claims);
   const payload = {
     sub: String(claims.user_id || ""),
     role: String(claims.role || "").toLowerCase(),
@@ -80,7 +99,10 @@ export function createSessionToken(claims) {
     sid: String(claims.session_id || ""),
     pwd: Boolean(claims.must_change_password),
     iat: now,
-    exp: now + SESSION_MAX_AGE_SECONDS,
+    // Sign-in time and idle timeout, carried so a renewal keeps both.
+    lat: loginAt,
+    idl: idle,
+    exp,
   };
 
   const payloadPart = base64UrlEncode(JSON.stringify(payload));
@@ -135,7 +157,8 @@ export function sessionCookieOptions(maxAge = SESSION_MAX_AGE_SECONDS) {
 
 /** Attach a fresh session cookie to a NextResponse. */
 export function attachSession(response, claims) {
-  response.cookies.set(SESSION_COOKIE, createSessionToken(claims), sessionCookieOptions());
+  const { now, exp } = sessionTimes(claims);
+  response.cookies.set(SESSION_COOKIE, createSessionToken(claims), sessionCookieOptions(Math.max(0, exp - now)));
   return response;
 }
 
@@ -153,6 +176,9 @@ export function reissueSession(response, session, overrides = {}) {
     full_name: session.full_name,
     session_id: session.sid,
     must_change_password: session.pwd,
+    // Cookies issued before these claims existed count from their issue time.
+    login_at: session.lat || session.iat,
+    idle_seconds: session.idl,
     ...overrides,
   });
 }

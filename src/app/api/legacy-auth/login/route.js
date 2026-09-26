@@ -7,7 +7,8 @@ import { friendlyLoginError, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/auth/logi
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
 import { recordCodeSent } from "@/lib/auth/otp-throttle";
 import { requiresLoginOtp } from "@/lib/auth/otp-policy";
-import { completeLogin } from "@/lib/auth/complete-login";
+import { completeLogin, isArchivedProfile, ARCHIVED_ACCOUNT_MESSAGE } from "@/lib/auth/complete-login";
+import { loadSecuritySettings, isPasswordExpired } from "@/lib/auth/security-settings";
 import { sanitizeError } from "@/lib/api-error";
 import {
   checkLoginAllowed,
@@ -125,7 +126,11 @@ async function handleLogin(request) {
   // signing in as "sacsadmin" and as the admin's email address share one budget
   // instead of giving an attacker two.
   const clientAddress = clientAddressFrom(request);
-  const throttle = checkLoginAllowed(resolvedEmail, clientAddress);
+  // Super Admin → System Configuration → Security.
+  const security = await loadSecuritySettings();
+  const throttle = checkLoginAllowed(resolvedEmail, clientAddress, Date.now(), {
+    identityMaxAttempts: security.login_attempts,
+  });
   if (throttle.blocked) {
     const minutes = Math.max(1, Math.ceil(throttle.retryAfterSeconds / 60));
     return NextResponse.json(
@@ -213,7 +218,18 @@ async function handleLogin(request) {
   // needs the plaintext password (src/lib/auth/password-policy.js), which is
   // never carried into the pending-login cookie — only the resulting boolean
   // is (see src/lib/auth/pending-login.js's header comment).
-  const passwordChangeRequired = mustChangePassword(password, data.user, resolved.resolvedFullName);
+  // ...or past the Super Admin's Force Password Expiry: the same
+  // change-password screen, before anything else is reachable.
+  const passwordChangeRequired = mustChangePassword(password, data.user, resolved.resolvedFullName)
+    || isPasswordExpired(data.user, security.pw_expiry);
+
+  // The user_metadata.archived check above is the copy the account holder can
+  // edit; profiles.archived is the one they cannot. Refused here, before any
+  // code is emailed (completeLogin() refuses it again for every path).
+  if (isArchivedProfile(resolved)) {
+    recordFailedLogin(resolvedEmail, clientAddress);
+    return NextResponse.json({ error: ARCHIVED_ACCOUNT_MESSAGE }, { status: 403 });
+  }
 
   // Roles outside OTP_REQUIRED_ROLES finish here: the password was the whole
   // sign-in for them, so no code is emailed, no pending-login cookie is set,
@@ -222,7 +238,12 @@ async function handleLogin(request) {
   // roles src/lib/auth/otp-policy.js still gates. Note this returns BEFORE
   // signInWithOtp is called, so an exempt sign-in never asks Supabase to send
   // anything.
-  if (!requiresLoginOtp(actualRole)) {
+  //
+  // Decided on resolvedRole (profiles.role), not actualRole: actualRole comes
+  // from user_metadata, which the account holder can edit, and an Employee
+  // who set their own metadata role to an exempt one would otherwise skip
+  // the emailed code. The session is issued with resolvedRole either way.
+  if (!requiresLoginOtp(resolved.resolvedRole)) {
     return completeLogin({
       userId: data.user.id,
       resolved,

@@ -35,7 +35,7 @@
 
   --t1:       #F0F4F8;
   --t2:       #8BA5BE;
-  --t3:       #4D7899;
+  --t3:       #7F9DB9; /* was #4D7899: 2.8:1 on --bg3; now 4.65:1 (WCAG AA) */
 
   --shadow:   0 4px 24px rgba(0, 0, 0, 0.35);
   --shadow-sm:0 2px 8px  rgba(0, 0, 0, 0.25);
@@ -71,7 +71,7 @@
 
   --t1:       #0F172A;
   --t2:       #475569;
-  --t3:       #94A3B8;
+  --t3:       #566479; /* was #94A3B8: 2.3:1 on --bg3; now 5.3:1 (WCAG AA) */
 
   --shadow:   0 4px 24px rgba(0, 0, 0, 0.08);
   --shadow-sm:0 2px 8px  rgba(0, 0, 0, 0.06);

@@ -66,7 +66,7 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
 
     const profileResult = await adminClient
       .from("profiles")
-      .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,role,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+      .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,role,archived,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
       .eq("id", user.id)
       .maybeSingle();
 

@@ -296,10 +296,10 @@ export async function GET(request) {
         .lte("start_date", endDate)
         .gte("end_date", startDate);
 
-      // Older requests carry the SACS-XXX code, newer ones the user UUID —
-      // see buildLeaveContext() in the accountant payroll route.
-      const leaveOwnerIds = [user.id, String(user.user_metadata?.employee_id || "").trim()].filter(Boolean);
-      if (leaveOwnerIds.length) leaveQuery = leaveQuery.in("employee_id", leaveOwnerIds);
+      // leave_requests.employee_id is the user id (UUID) since
+      // 20260926100000_schema_tidy_up.sql moved the old SACS-XXX codes onto
+      // it; an employee code in this filter would now fail the whole query.
+      leaveQuery = leaveQuery.eq("employee_id", user.id);
 
       const leaveResult = await leaveQuery;
       if (!leaveResult.error && Array.isArray(leaveResult.data)) {

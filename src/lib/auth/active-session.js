@@ -64,11 +64,17 @@ export async function registerActiveSession(userId, sessionId) {
  */
 async function fetchEntry(supabase, userId) {
   try {
-    const { data, error } = await supabase.auth.admin.getUserById(userId);
+    // profiles.archived is read alongside: user_metadata.archived is the copy
+    // the account holder can edit, so it alone could be switched back off.
+    const [{ data, error }, profileResult] = await Promise.all([
+      supabase.auth.admin.getUserById(userId),
+      supabase.from("profiles").select("archived").eq("id", userId).maybeSingle(),
+    ]);
     if (error || !data?.user) return null;
+    const profileArchived = !profileResult?.error && profileResult?.data?.archived === true;
     const entry = {
       sessionId: String(data.user.app_metadata?.session_id || ""),
-      archived: data.user.user_metadata?.archived === true,
+      archived: data.user.user_metadata?.archived === true || profileArchived,
       at: Date.now(),
     };
     cache.set(userId, entry);
@@ -78,10 +84,41 @@ async function fetchEntry(supabase, userId) {
   }
 }
 
+/** Prefix of a session id that was ended on purpose (revokeActiveSession). */
+const REVOKED_PREFIX = "revoked:";
+
 function judge(entry, sessionId) {
   if (entry.archived) return "archived";
   if (!entry.sessionId) return "unknown";
+  if (entry.sessionId.startsWith(REVOKED_PREFIX)) return "revoked";
   return entry.sessionId === String(sessionId || "") ? "current" : "replaced";
+}
+
+/**
+ * End the account's current sign-in, e.g. after an administrator changed its
+ * role or branch. The session cookie carries the role and branch it was
+ * issued with, so without this a demoted Admin kept Admin access until the
+ * cookie expired. The next request from that browser is answered with
+ * "session_revoked" (src/proxy.js) and the portal signs out; signing in again
+ * picks up the new role and branch.
+ *
+ * Never throws: the change itself has already been saved, and a failure here
+ * only means the old cookie lives until it expires, as it always did.
+ *
+ * @returns {Promise<boolean>} whether the sign-in was ended.
+ */
+export async function revokeActiveSession(userId) {
+  const supabase = getAdminClient();
+  if (!supabase || !userId) return false;
+  try {
+    const { error } = await supabase.auth.admin.updateUserById(userId, {
+      app_metadata: { session_id: `${REVOKED_PREFIX}${new Date().toISOString()}` },
+    });
+    cache.delete(userId);
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 export async function checkActiveSession(userId, sessionId) {

@@ -485,7 +485,8 @@ async function submitRfidAttendanceScan() {
     const response = await fetch('/api/admin/attendance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rfid_code: rfidCode }),
+      // manual_entry: this box also accepts an Employee ID; the kiosk does not.
+      body: JSON.stringify({ rfid_code: rfidCode, manual_entry: true }),
     });
 
     const payload = await response.json();
