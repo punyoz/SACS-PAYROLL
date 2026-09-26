@@ -117,17 +117,23 @@ Rates) and the per-line deduction/incentive tables. Payroll refuses to process
 until both are applied, and says so on the Process Payroll screen.
 
 The nightly job flags missed tap-outs as Incomplete and writes Absent records
-for working days with no tap and no approved leave:
+for working days with no tap and no approved leave. It is a `pg_cron` job
+(`attendance-nightly-close`, 00:05 Asia/Manila) created by
+`20260926030000_schedule_attendance_nightly.sql`, which calls the database
+function `attendance_close_days` directly, so no key is stored in the
+database. Running the migrations sets it up; nothing else to schedule.
+
+The `attendance-nightly` Edge Function does the same on demand (for example
+to re-close a range of days). Deploy it with:
 
 ```bash
 supabase functions deploy attendance-nightly
 ```
 
-Then in **Edge Functions → attendance-nightly → Schedules** add cron
-`5 16 * * *` (00:05 Asia/Manila), calling it with the service-role key as the
-Bearer token. The payroll and attendance screens run the same database step
-(`attendance_close_days`) for the days they show, so a missed night delays the
-Incomplete queue but never produces a wrong payroll.
+and call it with the service-role key as the Bearer token, optionally with
+`{ "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }`. The payroll and attendance
+screens also run `attendance_close_days` for the days they show, so a missed
+night delays the Incomplete queue but never produces a wrong payroll.
 
 Absences are now recorded for every active Employee/Accountant who does not
 tap on a working day (weekends and the holidays in `attendance_holidays` are

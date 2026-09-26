@@ -1,6 +1,6 @@
 // Supabase Edge Function: attendance-nightly
 //
-// Closes attendance days, once a night:
+// Closes attendance days:
 //   * a record with a time in but no time out after its shift ended becomes
 //     Incomplete (it is then kept out of payroll until it is resolved);
 //   * an active employee with no tap and no approved leave on a working day
@@ -12,13 +12,15 @@
 // function for the days they show, so a missed night never produces a wrong
 // payroll -- it only delays the Incomplete queue.
 //
+// The nightly run itself is a pg_cron job that calls the database function
+// directly (supabase/migrations/20260926030000_schedule_attendance_nightly.sql),
+// so no key has to be stored in the database. This Edge Function is for
+// running it on demand, e.g. to re-close a range of days.
+//
 // Deploy:   supabase functions deploy attendance-nightly
-// Schedule: Supabase Dashboard -> Edge Functions -> attendance-nightly ->
-//           Schedules, cron "5 16 * * *" (00:05 Asia/Manila, which is 16:05 UTC).
 //
 // Body (optional): { "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" } to re-run a
-// range. Default: the last 7 days up to yesterday (Manila), which also
-// catches a night the schedule missed.
+// range. Default: the last 7 days up to yesterday (Manila).
 //
 // Requires the service-role key (SUPABASE_SERVICE_ROLE_KEY is provided to
 // Edge Functions automatically). Callers must send the same key as a Bearer
