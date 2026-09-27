@@ -47,6 +47,7 @@ import {
   PASSWORD_OTP_RESEND_MS,
   PASSWORD_OTP_RESEND_SECONDS,
 } from "@/lib/auth/password-otp";
+import { otpAllowed, otpFailure, otpReset } from "@/lib/auth/persistent-throttle";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -85,6 +86,7 @@ async function sendCode(email, key) {
 
   // Starts the 60 s cooldown and resets the wrong-code count.
   recordCodeSent(key);
+  await otpReset(key);
   return null;
 }
 
@@ -163,7 +165,7 @@ export async function POST(request) {
 
     if (action === "verify") {
       if (!inOtpStage) return clearPasswordOtpState(fail(START_AGAIN, 400, "otp_expired"), "change");
-      if (!checkVerifyAllowed(key).allowed) {
+      if (!checkVerifyAllowed(key).allowed || !(await otpAllowed(key))) {
         return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "change");
       }
 
@@ -175,7 +177,9 @@ export async function POST(request) {
       if (error || !data?.user || data.user.id !== guard.userId) {
         const described = describeOtpError(error, "verify");
         if (described.code === "otp_invalid") {
-          if (!recordVerifyFailure(key).allowed) {
+          const memoryAllowed = recordVerifyFailure(key).allowed;
+          const sharedAllowed = await otpFailure(key);
+          if (!memoryAllowed || !sharedAllowed) {
             return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "change");
           }
           return fail(OTP_CODE_ERROR, 400, "otp_invalid");
@@ -185,6 +189,7 @@ export async function POST(request) {
 
       await verifier.auth.signOut({ scope: "local" }).catch(() => {});
       resetVerifyAttempts(key);
+      await otpReset(key);
 
       return attachPasswordOtpState(
         NextResponse.json({ success: true, verified: true, message: "OTP verified. Enter your new password." }),

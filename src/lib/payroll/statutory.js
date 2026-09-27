@@ -30,6 +30,7 @@
  * Verify the values against the current SSS, PhilHealth, Pag-IBIG and BIR
  * circulars before relying on them.
  */
+import { roundPeso } from "@/lib/payroll/money";
 
 /** Pay periods starting on or after this date use the rules above. */
 export const LEGAL_RULES_EFFECTIVE = "2026-10-01";
@@ -56,9 +57,7 @@ const PAGIBIG_LOW_SALARY = 1500;
 const PAGIBIG_LOW_PCT = 1;
 
 function peso(value) {
-  const amount = Number(value || 0);
-  if (!Number.isFinite(amount)) return 0;
-  return Math.round(amount * 100) / 100;
+  return roundPeso(value);
 }
 
 const num = (rates, key) => Number(rates?.[key]?.value ?? rates?.[key] ?? 0) || 0;

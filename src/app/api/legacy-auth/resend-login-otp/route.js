@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { attachPendingLogin, readPendingLogin } from "@/lib/auth/pending-login";
 import { checkResendAllowed, recordCodeSent } from "@/lib/auth/otp-throttle";
 import { sanitizeError } from "@/lib/api-error";
+import { otpReset } from "@/lib/auth/persistent-throttle";
 
 /**
  * POST /api/legacy-auth/resend-login-otp
@@ -64,6 +65,7 @@ async function handleResend(request) {
   // Starts the resend cooldown and resets the wrong-attempt counter — a fresh
   // code makes whatever was guessed against the old one moot.
   recordCodeSent(pending.sub);
+  await otpReset(pending.sub);
 
   // Fresh 10-minute window to match the fresh code, without disturbing which
   // account or must_change_password state this pending sign-in belongs to.

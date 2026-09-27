@@ -6,8 +6,9 @@ import { mustChangePassword } from "@/lib/auth/password-policy";
 import { friendlyLoginError, SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/auth/login-errors";
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
 import { recordCodeSent } from "@/lib/auth/otp-throttle";
+import { loginRetryAfter, otpReset, recordLoginFailure, recordLoginSuccess } from "@/lib/auth/persistent-throttle";
 import { requiresLoginOtp } from "@/lib/auth/otp-policy";
-import { completeLogin, isArchivedProfile, ARCHIVED_ACCOUNT_MESSAGE } from "@/lib/auth/complete-login";
+import { completeLogin, isArchivedProfile, profileRefusal, ARCHIVED_ACCOUNT_MESSAGE } from "@/lib/auth/complete-login";
 import { loadSecuritySettings, isPasswordExpired } from "@/lib/auth/security-settings";
 import { sanitizeError } from "@/lib/api-error";
 import {
@@ -131,6 +132,13 @@ async function handleLogin(request) {
   const throttle = checkLoginAllowed(resolvedEmail, clientAddress, Date.now(), {
     identityMaxAttempts: security.login_attempts,
   });
+  // The same budget kept in Postgres, shared by every server instance
+  // (src/lib/auth/persistent-throttle.js); the stricter of the two wins.
+  const sharedRetryAfter = await loginRetryAfter(resolvedEmail, clientAddress, security.login_attempts);
+  if (!throttle.blocked && sharedRetryAfter > 0) {
+    throttle.blocked = true;
+    throttle.retryAfterSeconds = sharedRetryAfter;
+  }
   if (throttle.blocked) {
     const minutes = Math.max(1, Math.ceil(throttle.retryAfterSeconds / 60));
     return NextResponse.json(
@@ -153,6 +161,7 @@ async function handleLogin(request) {
 
   if (error || !data?.user) {
     recordFailedLogin(resolvedEmail, clientAddress);
+    await recordLoginFailure(resolvedEmail, clientAddress);
     // Supabase's own wording is not shown to the user: a wrong address and a
     // wrong password must read identically, or this route becomes a way to
     // test which emails hold accounts (src/lib/auth/login-errors.js).
@@ -166,6 +175,7 @@ async function handleLogin(request) {
   if (data.user.user_metadata?.archived === true) {
     await supabase.auth.signOut();
     recordFailedLogin(resolvedEmail, clientAddress);
+    await recordLoginFailure(resolvedEmail, clientAddress);
     return NextResponse.json(
       { error: "This account has been archived and can no longer sign in." },
       { status: 403 },
@@ -185,9 +195,10 @@ async function handleLogin(request) {
   if (!actualRole || !Object.prototype.hasOwnProperty.call(roleRoutes, actualRole)) {
     await supabase.auth.signOut();
     recordFailedLogin(resolvedEmail, clientAddress);
+    await recordLoginFailure(resolvedEmail, clientAddress);
     return NextResponse.json(
       {
-        error: `Could not determine valid role for account. Role is '${actualRole || "unknown"}'.`,
+        error: "This account has no valid role assigned. Contact the administrator.",
       },
       { status: 403 },
     );
@@ -201,6 +212,7 @@ async function handleLogin(request) {
   // password never grants extra OTP guesses, and a wrong OTP never costs a
   // password-throttle attempt.
   recordSuccessfulLogin(resolvedEmail);
+  await recordLoginSuccess(resolvedEmail);
 
   // Only resolvedFullName is used here (mustChangePassword needs it — see
   // below). Role, branch and the extended profile bundle are re-resolved
@@ -226,8 +238,16 @@ async function handleLogin(request) {
   // The user_metadata.archived check above is the copy the account holder can
   // edit; profiles.archived is the one they cannot. Refused here, before any
   // code is emailed (completeLogin() refuses it again for every path).
+  // No profiles row (or profiles unreadable): refused before any code is
+  // emailed, for the same reason completeLogin() refuses it.
+  const missingProfile = profileRefusal(resolved);
+  if (missingProfile) {
+    return NextResponse.json({ error: missingProfile.error }, { status: missingProfile.status });
+  }
+
   if (isArchivedProfile(resolved)) {
     recordFailedLogin(resolvedEmail, clientAddress);
+    await recordLoginFailure(resolvedEmail, clientAddress);
     return NextResponse.json({ error: ARCHIVED_ACCOUNT_MESSAGE }, { status: 403 });
   }
 
@@ -281,6 +301,8 @@ async function handleLogin(request) {
   }
 
   recordCodeSent(data.user.id);
+  // A new code starts a new wrong-guess budget, as the in-memory one does.
+  await otpReset(data.user.id);
 
   const response = NextResponse.json({
     success: true,

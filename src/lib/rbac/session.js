@@ -13,8 +13,8 @@
  * constant time. The login route sets it; src/lib/rbac/guard.js reads it. The
  * localStorage context stays exactly as it is for display purposes.
  *
- * The signing key is SESSION_SECRET when set, otherwise SUPABASE_SERVICE_ROLE_KEY
- * (already required by every API route, and never exposed to the browser).
+ * The signing key is SESSION_SECRET. Outside production only, it falls back to
+ * SUPABASE_SERVICE_ROLE_KEY so local development works without extra setup.
  */
 
 import crypto from "node:crypto";
@@ -47,8 +47,18 @@ export function sessionTimes(claims = {}) {
 // same HMAC scheme. Reusing these rather than a second implementation means
 // there is one signing/verification code path to audit, not two that can
 // drift apart.
+//
+// Production requires SESSION_SECRET. Falling back to the service-role key
+// there meant one leaked value both bypassed RLS and let its holder mint a
+// session cookie for any role; and rotating that key signed everyone out.
+// The fallback is kept for local development and tests only.
 export function signingKey() {
-  const key = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const secret = process.env.SESSION_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set in production for session signing.");
+  }
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error("Missing SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY for session signing.");
   }

@@ -153,6 +153,45 @@ function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
 }
 
+const AUDIT_ROLE_LABELS = {
+  super_admin: 'Super Admin',
+  admin: 'Admin',
+  hr: 'HR',
+  accountant: 'Accountant',
+  employee: 'Employee',
+};
+
+/**
+ * The "Performed By" cell of the Admin and Super Admin audit tables: who did
+ * it, with their role beneath. Entries written before the audit log recorded
+ * its actor (2026-09-27) show a dash.
+ */
+function auditActorCell(log) {
+  const name = String(log?.actor_name || '').trim();
+  const role = String(log?.actor_role || '').trim().toLowerCase();
+  if (!name && !role) return '<span style="color:var(--t3);">—</span>';
+  const roleLabel = AUDIT_ROLE_LABELS[role] || role.replaceAll('_', ' ');
+  return `<div style="font-size:12px;">${escapeHtml(name || 'Unknown user')}</div>`
+    + (roleLabel ? `<div style="font-size:11px;color:var(--t3);">${escapeHtml(roleLabel)}</div>` : '');
+}
+
+/**
+ * A value placed inside a quoted JavaScript string in an inline handler,
+ * e.g. onclick="openThing('${escapeJsArg(id)}')". escapeHtml alone is not
+ * enough there: the browser decodes &#39; back into ' before the handler is
+ * parsed, so a quote in the value would close the JS string. The value is
+ * JS-escaped first, then HTML-escaped for the attribute.
+ */
+function escapeJsArg(value) {
+  const js = String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, '\\n')
+    .replace(/</g, '\\x3C');
+  return escapeHtml(js);
+}
+
 function formatTimeOnly(value) {
   if (!value) return '—';
   const date = new Date(value);
@@ -1239,9 +1278,23 @@ function openProofDocument(proofUrl) {
   const existing = document.getElementById('proof-viewer-overlay');
   if (existing) existing.remove();
 
-  const isDataUrl = url.startsWith('data:');
-  const mime = isDataUrl ? url.slice(5, Math.max(url.indexOf(';'), url.indexOf(','))).replace(/[;,].*/, '') : '';
-  const isImage = isDataUrl ? mime.startsWith('image/') : /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url);
+  // Only the shapes a proof can legitimately take are opened: a base64 data
+  // URL of a PDF / PNG / JPEG (what the employee portal uploads, and all the
+  // API now accepts -- src/lib/leave-requests/proof.js), an https:// link, or
+  // a same-origin path. The URL used to be pasted into this viewer's HTML
+  // unescaped, so a crafted proof_url broke out of the href attribute and ran
+  // as script in the reviewer's session. It is now only ever assigned through
+  // DOM properties, never through markup.
+  const dataMatch = /^data:(application\/pdf|image\/png|image\/jpeg);base64,[A-Za-z0-9+/]+={0,2}$/i.exec(url);
+  const isDataUrl = Boolean(dataMatch);
+  const isHttpsUrl = /^https:\/\//i.test(url);
+  const isSameOriginPath = url.startsWith('/') && !url.startsWith('//');
+  if (!isDataUrl && !isHttpsUrl && !isSameOriginPath) {
+    showProofError('This proof document cannot be opened.');
+    return;
+  }
+  const mime = isDataUrl ? dataMatch[1].toLowerCase() : '';
+  const isImage = isDataUrl ? mime.startsWith('image/') : /\.(png|jpe?g|gif|webp|bmp)$/i.test(url);
   const isPdf   = (isDataUrl && mime === 'application/pdf') || /\.pdf$/i.test(url);
 
   const overlay = document.createElement('div');
@@ -1261,15 +1314,12 @@ function openProofDocument(proofUrl) {
     document.head.appendChild(s);
   }
 
-  // Data URLs only contain base64-safe chars; plain URLs don't need HTML-escaping here.
-  const safeUrl = url;
-
   overlay.innerHTML = `
     <div style="padding:10px 16px;display:flex;align-items:center;justify-content:space-between;
                 border-bottom:2px solid var(--gold);flex-shrink:0;gap:12px;">
       <span style="color:var(--chrome-text);font-size:13px;font-weight:600;">Proof Document</span>
       <div style="display:flex;gap:10px;align-items:center;">
-        <a id="proof-dl-link" href="${safeUrl}" download="proof-document"
+        <a id="proof-dl-link" download="proof-document"
            style="color:var(--chrome-accent);font-size:12px;text-decoration:underline;cursor:pointer;">
           ⬇ Download
         </a>
@@ -1284,6 +1334,7 @@ function openProofDocument(proofUrl) {
          style="flex:1;display:flex;align-items:center;justify-content:center;
                 overflow:auto;padding:${(isPdf || (!isImage && isDataUrl)) ? '0' : '20px'};"></div>
   `;
+  overlay.querySelector('#proof-dl-link').href = url;
 
   document.body.appendChild(overlay);
 
@@ -1306,9 +1357,10 @@ function openProofDocument(proofUrl) {
       <div style="color:var(--chrome-text);text-align:center;font-family:system-ui,sans-serif;padding:32px;">
         <div style="font-size:48px;margin-bottom:16px;">📎</div>
         <div style="margin-bottom:12px;">This file type cannot be previewed inline.</div>
-        <a href="${safeUrl}" download
+        <a id="proof-dl-fallback" download
            style="color:var(--chrome-accent);text-decoration:underline;font-size:14px;">Download the file</a>
       </div>`;
+    body.querySelector('#proof-dl-fallback').href = url;
   }
 
   function closeViewer() {
@@ -3935,7 +3987,7 @@ function renderAttendanceBoard(board) {
 function renderAttendanceBoardRows(board, rows) {
   const body = document.getElementById(`${board.rootId}-body`);
   if (!body) return;
-  const key = escapeHtml(board.rootId);
+  const key = escapeJsArg(board.rootId);
 
   if (board.tab === 'overtime') {
     const overtimeRows = rows.map((row) => {
@@ -3947,7 +3999,7 @@ function renderAttendanceBoardRows(board, rows) {
         : '<span class="badge ba"><span class="bd"></span>Waiting</span>';
       const action = row.locked
         ? '<span style="font-size:12px;color:var(--t3);">Payroll processed</span>'
-        : `<button class="btn ${approval ? 'btn-outline' : 'btn-primary'}" type="button" style="padding:5px 12px;font-size:12px;" onclick="openOvertimeReview('${key}','${escapeHtml(row.log_id)}')">${approval ? 'Change' : 'Review'}</button>`;
+        : `<button class="btn ${approval ? 'btn-outline' : 'btn-primary'}" type="button" style="padding:5px 12px;font-size:12px;" onclick="openOvertimeReview('${key}','${escapeJsArg(row.log_id)}')">${approval ? 'Change' : 'Review'}</button>`;
       return `
       <tr>
         <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
@@ -3971,7 +4023,7 @@ function renderAttendanceBoardRows(board, rows) {
         <td class="mn">${escapeHtml(attFormatTime(c.corrected_time_out))}</td>
         <td style="max-width:260px;white-space:normal;">${escapeHtml(c.reason || '')}</td>
         <td>${escapeHtml(attFormatDateTime(c.requested_at))}</td>
-        ${board.canReview ? `<td><button class="btn btn-primary" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceReview('${key}','${escapeHtml(c.id)}')">Review</button></td>` : ''}
+        ${board.canReview ? `<td><button class="btn btn-primary" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceReview('${key}','${escapeJsArg(c.id)}')">Review</button></td>` : ''}
       </tr>`).join('');
     return;
   }
@@ -3985,7 +4037,7 @@ function renderAttendanceBoardRows(board, rows) {
         <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
         <td>${attendanceStatusBadge(row.status)}</td>
         ${board.canReview ? `<td>${row.status === 'Incomplete'
-          ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceResolve('${key}','${escapeHtml(row.id)}')">Resolve</button>`
+          ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceResolve('${key}','${escapeJsArg(row.id)}')">Resolve</button>`
           : '<span style="font-size:12px;color:var(--t3);">See Correction Requests</span>'}</td>` : ''}
       </tr>`);
     body.innerHTML = attWithDayHeadings(board, rows, incompleteRows, 5 + (board.canReview ? 1 : 0));
@@ -4003,7 +4055,7 @@ function renderAttendanceBoardRows(board, rows) {
       <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
       <td>${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div style="font-size:11px;color:var(--t3);margin-top:3px;">No tap yet today</div>' : ''}</td>
       ${board.canReview ? `<td>${row.status === 'Absent'
-        ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceAbsenceCorrection('${key}','${escapeHtml(row.employee_id)}','${escapeHtml(row.log_date)}')">Correct</button>`
+        ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceAbsenceCorrection('${key}','${escapeJsArg(row.employee_id)}','${escapeJsArg(row.log_date)}')">Correct</button>`
         : ''}</td>` : ''}
     </tr>`);
   body.innerHTML = attWithDayHeadings(board, rows, recordRows, 8 + (board.canReview ? 1 : 0));
@@ -4406,7 +4458,7 @@ async function loadMyAttendancePeriod(rootId = 'emp-att-period') {
       let action = '';
       if (row.correction) action = '<span style="font-size:12px;color:var(--t3);">Awaiting review</span>';
       else if (row.can_request_correction) {
-        action = `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openMyCorrectionRequest('${escapeHtml(row.id)}','${escapeHtml(rootId)}')">Request Correction</button>`;
+        action = `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openMyCorrectionRequest('${escapeJsArg(row.id)}','${escapeJsArg(rootId)}')">Request Correction</button>`;
       }
       return `
         <tr>

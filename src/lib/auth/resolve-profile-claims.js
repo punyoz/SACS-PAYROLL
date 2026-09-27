@@ -59,6 +59,10 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
   const metadata = user.user_metadata || {};
 
   let profileRow = null;
+  // True when profiles could not be read at all (as opposed to the account
+  // genuinely having no row). Sign-in refuses both: without the row, role
+  // and branch would come from user_metadata, which the holder can edit.
+  let profileLookupFailed = !serviceRoleKey;
   if (serviceRoleKey) {
     const adminClient = createClient(url, serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
@@ -72,6 +76,8 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
 
     if (!profileResult.error) {
       profileRow = profileResult.data || null;
+    } else {
+      profileLookupFailed = true;
     }
 
     // STAFF-### for Super Admin / Admin / HR. Read on its own so a database
@@ -112,6 +118,7 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
 
   return {
     profileRow,
+    profileLookupFailed,
     metadata,
     resolvedEmailOutput,
     resolvedFullName,

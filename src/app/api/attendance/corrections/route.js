@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_BRANCH, SCOPE_SELF } from "@/lib/rbac/permissions";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Missed tap-out / disputed record corrections.
@@ -30,19 +30,7 @@ import { SCOPE_BRANCH, SCOPE_SELF } from "@/lib/rbac/permissions";
  * code allowed to set a status by hand.
  */
 
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 const COLUMNS = "id,log_id,employee_id,employee_name,branch_id,log_date,original_status,original_time_in,original_time_out,corrected_time_out,reason,requested_at,status,resolution,approved_by,approved_by_name,approved_at,review_note";
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 /** Messages raised by the database functions are written for people; others are not. */
 function rpcFailure(error, fallback) {
@@ -138,6 +126,7 @@ export async function POST(request) {
     if (error) return rpcFailure(error, "Unable to submit the correction right now.");
 
     await appendAuditLog({
+      actor: guard,
       module: "attendance",
       action: "correction_request",
       entity_type: "attendance_log",
@@ -209,6 +198,7 @@ async function handleResolve(guard, body) {
   if (error) return rpcFailure(error, "Unable to resolve the record right now.");
 
   await appendAuditLog({
+    actor: guard,
     module: "attendance",
     action: "incomplete_resolve",
     entity_type: "attendance_log",
@@ -276,6 +266,7 @@ async function handleCorrectAbsence(guard, body) {
   }
 
   await appendAuditLog({
+    actor: guard,
     module: "attendance",
     action: "absence_correct",
     entity_type: "attendance_log",
@@ -345,6 +336,7 @@ export async function PATCH(request) {
     if (error) return rpcFailure(error, "Unable to record the decision right now.");
 
     await appendAuditLog({
+      actor: guard,
       module: "attendance",
       action: decision === "approve" ? "correction_approve" : "correction_reject",
       entity_type: "attendance_log",

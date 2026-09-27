@@ -1,21 +1,5 @@
-import { createClient } from "@supabase/supabase-js";
 import { normalizeText } from "@/lib/auth/normalize";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 function shapeLogRow(row) {
   const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata : {};
@@ -32,7 +16,33 @@ function shapeLogRow(row) {
     source: normalizeText(row.source, "api"),
     branch_id: row.branch_id || null,
     is_system_event: Boolean(row.is_system_event),
+    actor_id: row.actor_id || null,
+    actor_role: normalizeText(row.actor_role),
+    actor_name: normalizeText(row.actor_name),
+    actor_ip: normalizeText(row.actor_ip),
     metadata,
+  };
+}
+
+/**
+ * Who performed an audited action, from the route guard
+ * (src/lib/rbac/guard.js requirePermission). The guard's identity comes from
+ * the signed HttpOnly session cookie, so an entry can never be attributed to
+ * somebody else by anything in the request body.
+ *
+ * @param {object|null|undefined} guard
+ * @returns {{ actor_id: string|null, actor_role: string|null, actor_name: string|null, actor_ip: string|null }}
+ */
+export function actorColumns(guard) {
+  if (!guard || typeof guard !== "object") {
+    return { actor_id: null, actor_role: null, actor_name: null, actor_ip: null };
+  }
+  const id = normalizeText(guard.userId || guard.session?.sub);
+  return {
+    actor_id: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null,
+    actor_role: normalizeText(guard.role) || null,
+    actor_name: normalizeText(guard.session?.full_name, normalizeText(guard.session?.email)) || null,
+    actor_ip: normalizeText(guard.clientIp) || null,
   };
 }
 
@@ -82,6 +92,8 @@ function applyFilters(logs, options = {}) {
       log.description,
       log.status,
       log.source,
+      log.actor_name,
+      log.actor_role,
     ]
       .map((value) => String(value || "").toLowerCase())
       .join(" ");
@@ -113,6 +125,8 @@ function buildSummary(logs) {
 // fail the primary operation that triggered it — but unlike before, a failed
 // write is no longer silently faked into an in-memory record that looks like
 // it succeeded. It's reported honestly as unpersisted and logged server-side.
+//
+// `payload.actor` is the route's guard: every entry records who did it.
 export async function appendAuditLog(payload) {
   const entry = {
     module: normalizeText(payload.module, "system"),
@@ -127,6 +141,7 @@ export async function appendAuditLog(payload) {
       ? payload.is_system_event
       : isSystemEventModule(payload.module),
     metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+    ...actorColumns(payload.actor),
   };
 
   try {

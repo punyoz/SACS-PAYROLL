@@ -4,6 +4,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
 import { validateNewPassword } from "@/lib/auth/password-policy";
+import { breachedPasswordError } from "@/lib/auth/breached-password";
 import { loadSecuritySettings } from "@/lib/auth/security-settings";
 import { describeOtpError, OTP_CODE_ERROR } from "@/lib/auth/otp-errors";
 import {
@@ -25,6 +26,7 @@ import {
   PASSWORD_OTP_RESEND_SECONDS,
 } from "@/lib/auth/password-otp";
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
+import { otpAllowed, otpFailure, otpReset } from "@/lib/auth/persistent-throttle";
 import { completeLogin, isRoutableRole } from "@/lib/auth/complete-login";
 
 /**
@@ -115,6 +117,7 @@ async function handleSend(body) {
   // Recorded for every identity, found or not, so the cooldown and the reply
   // are the same either way. Also resets the wrong-code count.
   recordCodeSent(key);
+  await otpReset(key);
 
   return attachPasswordOtpState(
     NextResponse.json({ success: true, message: GENERIC_SENT, resend_after: PASSWORD_OTP_RESEND_SECONDS }),
@@ -130,15 +133,17 @@ async function handleVerify(request, body) {
   }
 
   const key = resetThrottleKey(state.idn);
-  if (!checkVerifyAllowed(key).allowed) {
+  if (!checkVerifyAllowed(key).allowed || !(await otpAllowed(key))) {
     return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "reset");
   }
 
   const code = normalizeText(body.code).replace(/\s+/g, "");
   if (!/^\d{8}$/.test(code)) return fail("Enter the 8-digit OTP from your email.", 400, "otp_format");
 
-  const wrongCode = () => {
-    if (!recordVerifyFailure(key).allowed) {
+  const wrongCode = async () => {
+    const memoryAllowed = recordVerifyFailure(key).allowed;
+    const sharedAllowed = await otpFailure(key);
+    if (!memoryAllowed || !sharedAllowed) {
       return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "reset");
     }
     return fail(OTP_CODE_ERROR, 400, "otp_invalid");
@@ -147,13 +152,13 @@ async function handleVerify(request, body) {
   const { admin, anon } = clients();
   const user = await resolveUser(admin, state.idn);
   // No code was ever sent to an ineligible identity: same answer as a wrong code.
-  if (!canResetPassword(user)) return wrongCode();
+  if (!canResetPassword(user)) return await wrongCode();
 
   const verifier = anon();
   const { data, error } = await verifier.auth.verifyOtp({ email: user.email, token: code, type: "email" });
   if (error || !data?.user || data.user.id !== user.id) {
     const described = describeOtpError(error, "verify");
-    if (described.code === "otp_invalid") return wrongCode();
+    if (described.code === "otp_invalid") return await wrongCode();
     return fail(described.error, described.status, described.code);
   }
 
@@ -161,6 +166,7 @@ async function handleVerify(request, body) {
   // used, so end it.
   await verifier.auth.signOut({ scope: "local" }).catch(() => {});
   resetVerifyAttempts(key);
+  await otpReset(key);
 
   return attachPasswordOtpState(
     NextResponse.json({ success: true, verified: true, message: "OTP verified. Choose your new password." }),
@@ -201,6 +207,9 @@ async function handleReset(request, body) {
     minLength: security.pw_min,
   });
   if (policyError) return fail(policyError, 400, "password_policy");
+  // Known-breached passwords (src/lib/auth/breached-password.js).
+  const breachError = await breachedPasswordError(password);
+  if (breachError) return fail(breachError, 400, "password_breached");
 
   // Must differ from the old password. The admin update below does not check
   // that (Supabase only does for a user's own updateUser), so try it.

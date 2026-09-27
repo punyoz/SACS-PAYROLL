@@ -12,38 +12,14 @@
  */
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { requirePermission } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
-function todayKeyManila() {
-  // Attendance is recorded against the school's local day, not UTC.
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-
-  const get = (type) => parts.find((p) => p.type === type)?.value || "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { manilaDateKey as todayKeyManila } from "@/lib/payroll/periods";
 
 export async function GET(request) {
   const guard = await requirePermission(request, "branch_reports", "read");

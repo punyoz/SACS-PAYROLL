@@ -31,12 +31,26 @@ function makeUser(id, email, role, extra = {}) {
 function fakeClient() {
   const byEmail = (email) => db.users.find((u) => u.email === email);
   const byId = (id) => db.users.find((u) => u.id === id);
-  const chain = {
-    select: () => chain, eq: () => chain, in: () => chain,
-    maybeSingle: async () => ({ data: null, error: null }),
+  // profiles rows mirror each auth user: accounts without a profile row are
+  // treated as inactive and cannot sign in (src/lib/auth/users-cache.js).
+  const profileOf = (u) => ({ id: u.id, email: u.email, role: u.user_metadata?.role, archived: false, full_name: "Test Person" });
+  const makeChain = () => {
+    let idFilter = null;
+    const rows = () => db.users.filter((u) => !idFilter || u.id === idFilter).map(profileOf);
+    const chain = {
+      select: () => chain,
+      eq: (column, value) => { if (column === "id") idFilter = value; return chain; },
+      in: () => chain,
+      order: () => chain,
+      range: () => chain,
+      maybeSingle: async () => ({ data: rows()[0] || null, error: null }),
+      then: (resolve, reject) => Promise.resolve({ data: rows(), error: null }).then(resolve, reject),
+    };
+    return chain;
   };
   return {
-    from: () => chain,
+    from: () => makeChain(),
+    rpc: async () => ({ data: 0, error: null }),
     auth: {
       signInWithOtp: async ({ email }) => { db.sent.push(email); return { error: null }; },
       verifyOtp: async ({ email, token }) => (token === GOOD_CODE && byEmail(email)

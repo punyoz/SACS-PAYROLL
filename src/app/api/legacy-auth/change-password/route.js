@@ -24,6 +24,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
 import { reissueSession } from "@/lib/rbac/session";
 import { validateNewPassword } from "@/lib/auth/password-policy";
+import { breachedPasswordError } from "@/lib/auth/breached-password";
 import { loadSecuritySettings } from "@/lib/auth/security-settings";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import { requiresLoginOtp } from "@/lib/auth/otp-policy";
@@ -105,6 +106,11 @@ export async function POST(request) {
     });
     if (policyError) {
       return NextResponse.json({ error: policyError }, { status: 400 });
+    }
+    // Known-breached passwords (src/lib/auth/breached-password.js).
+    const breachError = await breachedPasswordError(newPassword);
+    if (breachError) {
+      return NextResponse.json({ error: breachError }, { status: 400 });
     }
 
     // The mandatory first-sign-in change (session still flagged "must change

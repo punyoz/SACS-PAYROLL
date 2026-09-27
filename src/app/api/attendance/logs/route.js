@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -12,6 +11,7 @@ import {
 } from "@/lib/attendance/status";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 /**
  * GET /api/attendance/logs — the attendance status board.
@@ -30,20 +30,8 @@ import { listNotTapped } from "@/lib/attendance/not-tapped";
  * even if the nightly job has not run.
  */
 
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
 const LOG_COLUMNS = "id,employee_id,employee_name,employee_type,branch_id,log_date,time_in,time_out,total_hours,status,late_minutes,undertime_minutes,is_half_day,is_early_bird,schedule_id,updated_at";
 const MAX_RANGE_DAYS = 62;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 function resolveRange(url) {
   const from = normalizeText(url.searchParams.get("from"));

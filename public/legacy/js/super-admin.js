@@ -565,7 +565,7 @@ function renderSAUsersTable() {
             <td style="font-size:12px;">${escapeHtml(saAccountBranchLabel(u))}</td>
             <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${statusLabel}</span></td>
             <td style="font-size:12px;">${escapeHtml(lastLogin)}</td>
-            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal('${escapeHtml(u.id)}')">Edit</button></td>
+            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openSAAdminUserModal('${escapeJsArg(u.id)}')">Edit</button></td>
           </tr>`;
         }).join('');
       },
@@ -968,7 +968,7 @@ async function loadSAPayrollRates() {
           <td class="mn">${escapeHtml(saRateDisplay(rate, rate.current?.value))}</td>
           <td class="mn" style="${changing ? 'color:var(--amber);font-weight:600;' : ''}">${escapeHtml(saRateDisplay(rate, rate.next_period?.value))}</td>
           <td class="rate-history">${saRateHistoryHtml(rate)}${overrides}</td>
-          <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSARateModal('${escapeHtml(rate.rate_type)}')">Edit</button></td>
+          <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSARateModal('${escapeJsArg(rate.rate_type)}')">Edit</button></td>
         </tr>`;
     }).join('');
   } catch (error) {
@@ -1002,7 +1002,7 @@ function renderSABranchDailyRates(data) {
         <td class="mn">${valueCell(branch.current)}</td>
         <td class="mn" style="${changing ? 'color:var(--amber);font-weight:600;' : ''}">${valueCell(branch.next_period)}</td>
         <td class="rate-history">${history}</td>
-        <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSARateModal('daily', { scope: 'branch', ref: '${escapeHtml(branch.branch_id)}', name: '${escapeHtml(String(branch.name).replace(/'/g, ''))}' })">Edit</button></td>
+        <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSARateModal('daily', { scope: 'branch', ref: '${escapeJsArg(branch.branch_id)}', name: '${escapeJsArg(String(branch.name).replace(/'/g, ''))}' })">Edit</button></td>
       </tr>`;
   }).join('');
 }
@@ -1389,7 +1389,7 @@ let saAuditRequestSeq = 0;
 async function loadSAAuditLogs() {
   const seq = ++saAuditRequestSeq;
   const tbody = document.getElementById('sa-audit-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(7);
+  if (tbody) tbody.innerHTML = skeletonRows(8);
 
   try {
     let url = '/api/admin/audit-logs?limit=200';
@@ -1413,7 +1413,7 @@ async function loadSAAuditLogs() {
     renderSAAuditTable(saAuditLogs);
   } catch (err) {
     if (seq !== saAuditRequestSeq) return;
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -1439,7 +1439,7 @@ function renderSAAuditTable(logs) {
   if (!tbody) return;
 
   if (!logs.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No audit logs found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">No audit logs found.</td></tr>';
     return;
   }
 
@@ -1456,6 +1456,7 @@ function renderSAAuditTable(logs) {
             : '—';
           return `<tr>
             <td style="font-size:11px;color:var(--t3);">${ts}</td>
+            <td>${auditActorCell(log)}</td>
             <td>${escapeHtml(log.module || '—')}</td>
             <td>${escapeHtml(log.action || '—')}</td>
             <td style="font-size:12px;">${log.entity_type ? `${escapeHtml(log.entity_type)}${log.entity_id ? ': ' + escapeHtml(log.entity_id) : ''}` : '—'}</td>
@@ -1970,7 +1971,7 @@ function saRenderRfidDevices(devices) {
     const rfidDisplay = hasRfid ? String(device.rfid_uid).replace(/</g,'&lt;').replace(/>/g,'&gt;') : '—';
     const rfidBadge = hasRfid ? 'bg' : 'ba';
     const rfidStatus = hasRfid ? 'Assigned' : 'Unassigned';
-    const deviceId = String(device.id).replace(/'/g, "\\'");
+    const deviceId = escapeJsArg(device.id);
 
     if (device.archived) return '';
 

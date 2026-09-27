@@ -5,6 +5,7 @@ import {
   findOverlappingApprovedLeave,
 } from "@/lib/leave-requests/store";
 import { sanitizeError } from "@/lib/api-error";
+import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 
 export async function GET(request) {
@@ -15,9 +16,11 @@ export async function GET(request) {
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "pending").trim().toLowerCase();
 
-    const allRequests = (await readAllLeaveRequests()).filter(
-      (r) => guard.branchExempt || String(r.branch_id || "") === String(guard.branchId || ""),
-    );
+    // Narrowed in the query itself for a branch-scoped caller, instead of
+    // downloading every branch's requests (and their proof documents) first.
+    const allRequests = guard.branchExempt
+      ? await readAllLeaveRequests()
+      : await readAllLeaveRequests({ branchId: guard.branchId });
     // pending_accountant is a legacy status from before Leave Approval moved to HR —
     // treat it the same as pending_admin so any request stuck in that state (submitted
     // before this fix) still surfaces here instead of being invisible.
@@ -64,8 +67,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "action must be approve or reject." }, { status: 400 });
     }
 
-    const allRequests = await readAllLeaveRequests();
-    const current = allRequests.find((r) => r.id === id);
+    const [current] = await readAllLeaveRequests({ id });
 
     if (!current) {
       return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
@@ -82,8 +84,12 @@ export async function PATCH(request) {
     }
 
     if (action === "approve") {
+      // Only this employee's approved requests can overlap.
+      const employeeApproved = current.employee_id
+        ? await readAllLeaveRequests({ employeeId: current.employee_id, status: "approved" })
+        : [];
       const overlap = findOverlappingApprovedLeave(
-        allRequests,
+        employeeApproved,
         current.employee_id,
         current.start_date,
         current.end_date,
@@ -100,7 +106,41 @@ export async function PATCH(request) {
     }
 
     const newStatus = action === "approve" ? "approved" : "rejected";
-    await updateLeaveRequestStatus(id, newStatus, { decided_by: "hr", decided_at: new Date().toISOString() });
+    // Conditional on the request still being pending, so two reviewers
+    // deciding it at once cannot both win; records who decided.
+    const deciderName = String(guard.session?.full_name || guard.session?.email || "").trim();
+    const result = await updateLeaveRequestStatus(id, newStatus, {
+      fromStatuses: ["pending_admin", "pending_accountant"],
+      decidedBy: guard.userId || null,
+      decidedByName: deciderName || null,
+    });
+    if (result.conflict) {
+      return NextResponse.json(
+        { error: "This leave request was already decided by someone else. Refresh to see its current status." },
+        { status: 409 },
+      );
+    }
+
+    // Leave decides paid versus unpaid days, so every decision is audited.
+    await appendAuditLog({
+      actor: guard,
+      module: "leave",
+      action: action === "approve" ? "approve" : "reject",
+      entity_type: "leave_request",
+      entity_id: id,
+      branch_id: current.branch_id || null,
+      description: `Leave request for ${current.employee_name} (${current.start_date} to ${current.end_date}, ${current.pay_status === "without_pay" ? "without pay" : "with pay"}) ${newStatus}.`,
+      status: "success",
+      source: "api",
+      metadata: {
+        employee_id: current.employee_id,
+        leave_type: current.leave_type,
+        pay_status: current.pay_status,
+        start_date: current.start_date,
+        end_date: current.end_date,
+        previous_status: current.status,
+      },
+    });
 
     return NextResponse.json({ success: true, new_status: newStatus });
   } catch (error) {

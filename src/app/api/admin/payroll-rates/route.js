@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -13,6 +12,7 @@ import {
   validateRateInput,
 } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Effective-dated payroll rates (Super Admin, System Configuration).
@@ -30,18 +30,6 @@ import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/
  * Payroll reads the version in force on a period's first day, so past
  * payslips are never affected.
  */
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 /** The latest pay period anyone has been paid for, or null. */
 async function latestFinalizedPeriod(supabase) {
@@ -167,6 +155,7 @@ export async function POST(request) {
 
     const label = RATE_TYPES[input.rate_type].label;
     await appendAuditLog({
+      actor: guard,
       module: "config",
       action: "rate_version",
       entity_type: "payroll_rate_config",

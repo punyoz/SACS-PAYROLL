@@ -23,6 +23,7 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
 import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
+import { clientAddressFrom } from "@/lib/auth/login-throttle";
 import {
   can,
   canManageRole,
@@ -127,6 +128,8 @@ export async function requirePermission(request, module, action = "read") {
     branchId,
     scope,
     branchExempt,
+    // Recorded on audit entries (src/lib/audit/store.js actorColumns).
+    clientIp: clientAddressFrom(request),
   };
 }
 
@@ -138,7 +141,17 @@ export function denyForeignBranch(guard, targetBranchId) {
   if (guard.branchExempt) return null;
 
   const target = targetBranchId ? String(targetBranchId) : "";
-  if (!target) return null;
+  if (!target) {
+    // A record with no branch is not in the caller's branch. This used to
+    // return null (allowed), so an Admin or Accountant could read the
+    // payslips, salary and attendance of any employee not yet assigned to a
+    // branch -- and of HR / Super Admin accounts, which carry no branch --
+    // just by naming them. A self-scoped caller is already pinned to their
+    // own record by resolveTargetEmail()/resolveTargetUserId(), so an
+    // employee without a branch can still reach their own data.
+    if (guard.scope === SCOPE_SELF) return null;
+    return deny("That record is not assigned to your branch.", 403);
+  }
 
   if (target !== String(guard.branchId || "")) {
     return deny("That record belongs to another branch.", 403);

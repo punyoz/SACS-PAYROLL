@@ -1,7 +1,7 @@
 /**
  * A small in-memory stand-in for the parts of supabase-js the API routes use:
  * from().select/insert/upsert/update/delete with eq/in/gte/lte/lt/like/order/
- * limit, maybeSingle/single, rpc(), and auth.admin.listUsers().
+ * limit/range, maybeSingle/single, rpc(), and auth.admin.listUsers().
  *
  * Usage (vi.mock is hoisted, so the module is imported inside the factory):
  *
@@ -32,6 +32,8 @@ function query(name) {
   let op = "select";
   let payload = null;
   let limitN = null;
+  let rangeFrom = null;
+  let rangeTo = null;
   let single = false;
   const orders = [];
 
@@ -66,9 +68,12 @@ function query(name) {
       return { data: null, error: null };
     }
     let out = rows.filter(matches);
-    orders.forEach(({ column, ascending }) => {
+    // Applied last-to-first so the first order() is the primary key, as in
+    // SQL (Array#sort is stable).
+    [...orders].reverse().forEach(({ column, ascending }) => {
       out = [...out].sort((a, b) => (String(a[column]) < String(b[column]) ? -1 : 1) * (ascending ? 1 : -1));
     });
+    if (rangeFrom !== null) out = out.slice(rangeFrom, rangeTo + 1);
     if (limitN !== null) out = out.slice(0, limitN);
     return { data: single ? out[0] || null : out, error: null };
   };
@@ -92,6 +97,7 @@ function query(name) {
     },
     order(column, options = {}) { orders.push({ column, ascending: options.ascending !== false }); return builder; },
     limit(n) { limitN = n; return builder; },
+    range(from, to) { rangeFrom = from; rangeTo = to; return builder; },
     maybeSingle() { single = true; return Promise.resolve(run()); },
     single() { single = true; return Promise.resolve(run()); },
     then(resolve, reject) { return Promise.resolve(run()).then(resolve, reject); },

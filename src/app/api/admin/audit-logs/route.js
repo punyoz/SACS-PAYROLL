@@ -45,16 +45,23 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
+    // A browser-sent entry is always filed as a UI event from the caller.
+    // module and source used to be taken from the body, so an Admin could
+    // write an entry that read exactly like a server-side "payroll" /
+    // "process" event with source "api". The portals only ever send
+    // module "ui" (public/legacy/js/admin.js), so nothing they log changes.
+    const status = normalizeText(body.status, "success").toLowerCase() === "failed" ? "failed" : "success";
     const log = await appendAuditLog({
+      actor: guard,
       branch_id: guard.branchExempt ? (body.branch_id || null) : guard.branchId,
-      module: normalizeText(body.module, "ui"),
-      action: normalizeText(body.action, "event"),
-      entity_type: normalizeText(body.entity_type, "screen"),
-      entity_id: normalizeText(body.entity_id),
-      description: normalizeText(body.description, "UI movement captured."),
-      status: normalizeText(body.status, "success"),
-      source: normalizeText(body.source, "ui"),
-      metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+      module: "ui",
+      action: normalizeText(body.action, "event").slice(0, 64),
+      entity_type: normalizeText(body.entity_type, "screen").slice(0, 64),
+      entity_id: normalizeText(body.entity_id).slice(0, 128),
+      description: normalizeText(body.description, "UI movement captured.").slice(0, 500),
+      status,
+      source: "ui",
+      metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
     });
 
     return NextResponse.json({ success: true, log });

@@ -764,7 +764,7 @@ function renderPayrollRecordsTable(rows) {
         <td class="mn">${formatMoneyCompact(record.total_deductions)}</td>
         <td class="mn">${formatMoneyCompact(record.net_pay)}</td>
         <td><span class="badge ${status.badgeClass}">${status.label}</span></td>
-        <td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openPayslipFromRecord('${escapeHtml(record.id)}')" ${payslipDisabled}>Payslip</button></td>
+        <td><button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openPayslipFromRecord('${escapeJsArg(record.id)}')" ${payslipDisabled}>Payslip</button></td>
       </tr>
     `;
   }).join('');
@@ -869,7 +869,7 @@ function renderMonitoringTable(rows) {
     const status = statusMeta(record.status);
     const date = record.submitted_at || record.updated_at || '';
     const isDraft = String(record.status || '').toLowerCase() === 'draft';
-    const safeId = escapeHtml(record.id);
+    const safeId = escapeJsArg(record.id);
 
     const actionBtn = isDraft
       ? `<button class="btn btn-outline" style="font-size:11px;padding:4px 8px;margin-right:4px;" onclick="editDraftEntry('${safeId}')">Edit</button><button class="btn btn-red" style="font-size:11px;padding:4px 8px;" onclick="cancelDraft('${safeId}')">Cancel</button>`
@@ -1551,7 +1551,6 @@ async function runAccountantLoad(options = {}) {
     acctState.panels = payload.panels || {};
 
     if (payload.diag) {
-      console.log('[accountant] payroll diag:', payload.diag, 'draft_entries:', (payload.draft_entries || []).length, 'records:', (payload.records || []).length);
       if (payload.diag.db_error) {
         console.error('[accountant] payroll_entries DB read error:', payload.diag.db_error);
       }

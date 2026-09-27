@@ -28,22 +28,10 @@
  * intended trade: seconds, not a re-login.
  */
 
-import { createClient } from "@supabase/supabase-js";
+import { getCachedServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 const CACHE_TTL_MS = 5_000;
 const cache = new Map(); // user id -> { branchId, at }
-
-let client = null;
-
-function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  if (!client) {
-    client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  }
-  return client;
-}
 
 /** Test seam, and the hook a write path uses after changing someone's branch. */
 export function invalidateBranchCache(userId) {

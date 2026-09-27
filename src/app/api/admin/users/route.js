@@ -2,7 +2,6 @@ import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib
 import { revokeActiveSession } from "@/lib/auth/active-session";
 import { loadSecuritySettings } from "@/lib/auth/security-settings";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeRole, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -13,6 +12,7 @@ import {
   scopeListToBranch,
 } from "@/lib/rbac/guard";
 import { hashTemporaryPassword, validateNewPassword } from "@/lib/auth/password-policy";
+import { breachedPasswordError } from "@/lib/auth/breached-password";
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
 import { syncProfileArchive } from "@/lib/employees/archive";
 import { assignStaffId, fetchStaffIdMap, isStaffIdRole } from "@/lib/employees/staff-id";
@@ -28,6 +28,7 @@ import {
   validateNameParts,
   validateStaffEmail,
 } from "@/lib/employees/staff-record";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 /**
  * GET lists accounts; PATCH edits, archives or restores one.
@@ -46,18 +47,6 @@ const PROFILE_COLUMNS = "id,email,full_name,role,branch_id,cp_number,date_hired,
 const NAME_PART_COLUMNS = "first_name,middle_name,last_name,suffix";
 // Added by 20260924134806_profiles_emergency_contact.sql.
 const EMERGENCY_COLUMNS = "emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 function shapeUser(user, profile) {
   const metadata = user.user_metadata || {};
@@ -352,6 +341,10 @@ export async function PATCH(request) {
         if (passwordError) {
           return NextResponse.json({ error: passwordError.replace(/^New password/, "Password") }, { status: 400 });
         }
+        const breachError = await breachedPasswordError(password);
+        if (breachError) {
+          return NextResponse.json({ error: breachError }, { status: 400 });
+        }
         updatePayload.password = password;
         // A password reset by Super Admin is a one-time password too.
         updatePayload.app_metadata = { temp_password_hash: hashTemporaryPassword(password) };
@@ -418,6 +411,7 @@ export async function PATCH(request) {
 
     const updatedUser = updatedResult.data.user;
     await appendAuditLog({
+      actor: guard,
       module: "users",
       action,
       entity_type: "user",

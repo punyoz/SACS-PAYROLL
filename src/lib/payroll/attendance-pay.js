@@ -36,12 +36,11 @@
  */
 
 import { isUnresolvedStatus, normalizeAttendanceStatus } from "@/lib/attendance/status";
+import { roundPeso } from "@/lib/payroll/money";
 
 /** Round to centavos. */
 export function peso(value) {
-  const amount = Number(value || 0);
-  if (!Number.isFinite(amount)) return 0;
-  return Math.round(amount * 100) / 100;
+  return roundPeso(value);
 }
 
 const valueOf = (rates, type) => Number(rates?.[type]?.value ?? rates?.[type] ?? 0) || 0;

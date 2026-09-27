@@ -32,6 +32,26 @@ export const ROLE_ROUTES = {
 
 export const ARCHIVED_ACCOUNT_MESSAGE = "This account has been archived and can no longer sign in.";
 
+export const MISSING_PROFILE_MESSAGE =
+  "This account has no staff profile yet, so it cannot sign in. Contact HR.";
+export const PROFILE_UNAVAILABLE_MESSAGE =
+  "Unable to verify your account right now. Please try again.";
+
+/**
+ * Why a sign-in must stop because of the account's profiles row, or null.
+ * Role and branch are only ever taken from profiles; an account whose row is
+ * missing (or unreadable right now) would otherwise be signed in on the
+ * user_metadata copy, which its holder can rewrite -- e.g. to role
+ * "super_admin".
+ *
+ * @returns {{ status: number, error: string } | null}
+ */
+export function profileRefusal(resolved) {
+  if (resolved?.profileLookupFailed) return { status: 503, error: PROFILE_UNAVAILABLE_MESSAGE };
+  if (!resolved?.profileRow) return { status: 403, error: MISSING_PROFILE_MESSAGE };
+  return null;
+}
+
 /** True when the account's profiles row (resolveLoginProfile) is archived. */
 export function isArchivedProfile(resolved) {
   return resolved?.profileRow?.archived === true;
@@ -59,6 +79,13 @@ export async function completeLogin({ userId, resolved, mustChangePassword, deco
   // profiles.archived is the copy the account holder cannot edit (their
   // user_metadata.archived they can). Checked here, where every session is
   // minted, so sign-in, the OTP step and password reset all honour it.
+  const missing = profileRefusal(resolved);
+  if (missing) {
+    const refused = NextResponse.json({ error: missing.error }, { status: missing.status });
+    if (decorate) decorate(refused);
+    return refused;
+  }
+
   if (isArchivedProfile(resolved)) {
     const refused = NextResponse.json(
       { error: ARCHIVED_ACCOUNT_MESSAGE },

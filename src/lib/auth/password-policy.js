@@ -91,8 +91,14 @@ export function isDefaultPassword(password, { full_name, date_of_birth } = {}) {
   return lastNameCandidates(full_name).includes(prefix);
 }
 
+// Same rule as src/lib/rbac/session.js signingKey(): SESSION_SECRET is
+// required in production; the service-role fallback is for development only.
 function hashingKey() {
-  const key = process.env.SESSION_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set in production for password hashing.");
+  }
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     throw new Error("Missing SESSION_SECRET or SUPABASE_SERVICE_ROLE_KEY for password hashing.");
   }

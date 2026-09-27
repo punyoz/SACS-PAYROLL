@@ -5,20 +5,8 @@
  * temporary storage.
  */
 
-import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 export function normalizeLeaveRequest(row) {
   return {
@@ -39,6 +27,9 @@ export function normalizeLeaveRequest(row) {
     status: String(row.status || "pending_accountant").toLowerCase(),
     submitted_at: row.submitted_at || new Date().toISOString(),
     decided_at: row.decided_at || null,
+    // Who approved or rejected it (20260927010000_audit_actor_and_leave_decider.sql).
+    decided_by: row.decided_by || null,
+    decided_by_name: row.decided_by_name || null,
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
   };
 }
@@ -49,7 +40,11 @@ export function normalizeLeaveRequest(row) {
 // exists) for callers that only ever need one status — e.g. payroll only
 // cares about approved requests — instead of transferring and re-filtering
 // every leave request ever filed, which grows unbounded with no archiving.
-export async function readAllLeaveRequests({ status } = {}) {
+//
+// `employeeId`, `branchId` and `id` narrow it the same way, so a route that
+// only needs one person's, one branch's or one request's rows no longer
+// downloads the whole table (and every base64 proof document in it) first.
+export async function readAllLeaveRequests({ status, employeeId, branchId, id } = {}) {
   const supabase = getAdminClient();
   let query = supabase
     .from("leave_requests")
@@ -58,6 +53,15 @@ export async function readAllLeaveRequests({ status } = {}) {
 
   if (status) {
     query = query.eq("status", status);
+  }
+  if (employeeId) {
+    query = query.eq("employee_id", employeeId);
+  }
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
+  }
+  if (id) {
+    query = query.eq("id", id);
   }
 
   const { data, error } = await query;
@@ -81,7 +85,18 @@ export async function insertLeaveRequest(newRequest) {
 
 // ─── Update Status ────────────────────────────────────────────────────────────
 
-export async function updateLeaveRequestStatus(id, nextStatus) {
+/**
+ * Decide a leave request.
+ *
+ * `fromStatuses` makes the decision conditional on the row still being in one
+ * of those statuses when the UPDATE runs. Two reviewers deciding the same
+ * request at once used to both succeed (the status was only checked in
+ * JavaScript beforehand), the later write silently replacing the earlier
+ * decision. Now the second one matches no row and gets `conflict: true`.
+ *
+ * `decidedBy` / `decidedByName` record who made the decision.
+ */
+export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, decidedBy, decidedByName } = {}) {
   const nowIso = new Date().toISOString();
   const supabase = getAdminClient();
 
@@ -92,23 +107,33 @@ export async function updateLeaveRequestStatus(id, nextStatus) {
     .maybeSingle();
 
   if (lookupResult.error) throw new Error(lookupResult.error.message);
-  if (!lookupResult.data) return { found: false, request: null };
+  if (!lookupResult.data) return { found: false, conflict: false, request: null };
 
-  const { error } = await supabase
+  const patch = { status: nextStatus, decided_at: nowIso, updated_at: nowIso };
+  if (decidedBy !== undefined) patch.decided_by = decidedBy || null;
+  if (decidedByName !== undefined) patch.decided_by_name = decidedByName || null;
+
+  let query = supabase
     .from("leave_requests")
-    .update({ status: nextStatus, decided_at: nowIso, updated_at: nowIso })
+    .update(patch)
     .eq("id", id);
+  if (Array.isArray(fromStatuses) && fromStatuses.length) {
+    query = query.in("status", fromStatuses);
+  }
+
+  const { data, error } = await query.select("id");
 
   if (error) throw new Error(error.message);
+  if (!data || !data.length) {
+    return { found: true, conflict: true, request: normalizeLeaveRequest(lookupResult.data) };
+  }
 
   const updated = normalizeLeaveRequest({
     ...lookupResult.data,
-    status: nextStatus,
-    decided_at: nowIso,
-    updated_at: nowIso,
+    ...patch,
   });
 
-  return { found: true, request: updated };
+  return { found: true, conflict: false, request: updated };
 }
 
 // ─── Leave Balance ────────────────────────────────────────────────────────────

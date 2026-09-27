@@ -298,7 +298,7 @@ function renderHREmployeeTable() {
             <td style="font-size:12px;">${escapeHtml(e.date_hired || '—')}</td>
             <td><span class="badge" style="color:${statusColor};background:color-mix(in srgb, ${statusColor} 12%, transparent);border:1px solid color-mix(in srgb, ${statusColor} 25%, transparent);">${escapeHtml(statusLabel)}</span></td>
             <td style="font-size:12px;color:var(--t3);">${escapeHtml(e.email || '—')}</td>
-            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal('${escapeHtml(e.id)}')">Edit</button></td>
+            <td><button class="btn btn-outline" style="font-size:11px;padding:4px 10px;" onclick="openHrEditEmployeeModal('${escapeJsArg(e.id)}')">Edit</button></td>
           </tr>`;
         }).join('');
       },
@@ -816,7 +816,7 @@ function renderHRLeaveList() {
     // same approach accountant.js already uses for this button. Interpolating it
     // directly let a crafted proof_url close the JS string and run script in the
     // HR reviewer's session.
-    const safeId = escapeHtml(String(req.id || ''));
+    const safeId = escapeJsArg(String(req.id || ''));
     if (!window._hrProofUrls) window._hrProofUrls = {};
     window._hrProofUrls[String(req.id || '')] = proof;
 
@@ -882,7 +882,7 @@ function renderHRLeaveHistory() {
           const from = req.from_date || req.start_date || '—';
           const to = req.to_date || req.end_date || '—';
           const proof = req.proof_url || req.proof_data || '';
-          const safeId = escapeHtml(String(req.id || ''));
+          const safeId = escapeJsArg(String(req.id || ''));
           if (!window._hrProofUrls) window._hrProofUrls = {};
           window._hrProofUrls[String(req.id || '')] = proof;
           const decided = req.decided_at ? new Date(req.decided_at).toLocaleDateString('en-PH') : '—';
@@ -1199,7 +1199,7 @@ function hrRenderBranchFilterUI() {
 
   if (hrBranches.length) {
     hrBranches.forEach((b) => {
-      chipsHtml += `<div class="chip ${hrBranchFilter === b.id ? 'active' : ''}" data-hbf="${escapeHtml(b.id)}" onclick="setHrBranchFilter('${escapeHtml(b.id)}')">${escapeHtml(b.name)} (0)</div>`;
+      chipsHtml += `<div class="chip ${hrBranchFilter === b.id ? 'active' : ''}" data-hbf="${escapeHtml(b.id)}" onclick="setHrBranchFilter('${escapeJsArg(b.id)}')">${escapeHtml(b.name)} (0)</div>`;
     });
   } else {
     chipsHtml += '<span style="font-size:12px;color:var(--t3);padding:4px 8px;align-self:center;">No branches configured — ask the Super Admin to add branches first.</span>';
@@ -1266,8 +1266,8 @@ function hrRenderBranchTable(employees) {
       : '—';
     const typeClass = emp.employee_type === 'Non-Teaching' ? 'ba' : 'bt2';
     const actionBtn = emp.branch
-      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeHtml(emp.id)}')">Transfer</button>`
-      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeHtml(emp.id)}')">Assign</button>`;
+      ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeJsArg(emp.id)}')">Transfer</button>`
+      : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeJsArg(emp.id)}')">Assign</button>`;
 
     return `
       <tr>

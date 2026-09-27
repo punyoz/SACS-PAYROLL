@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -8,6 +7,7 @@ import { can, SCOPE_SELF } from "@/lib/rbac/permissions";
 import { UNRESOLVED_STATUSES, normalizeAttendanceStatus } from "@/lib/attendance/status";
 import { loadAttendanceConfig, resolveAttendancePolicy } from "@/lib/attendance/policy";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Overtime approval.
@@ -30,18 +30,6 @@ import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/l
 const OVERTIME_MIN_MINUTES = 30;
 const MAX_RANGE_DAYS = 62;
 const NOTE_MAX = 300;
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 function resolveRange(url) {
   const from = normalizeText(url.searchParams.get("from"));
@@ -264,6 +252,7 @@ export async function PATCH(request) {
     if (saved.error) throw new Error(saved.error.message);
 
     await appendAuditLog({
+      actor: guard,
       module: "attendance",
       action: decision === "approve" ? "overtime_approve" : "overtime_reject",
       entity_type: "attendance_log",

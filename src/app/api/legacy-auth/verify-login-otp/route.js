@@ -5,6 +5,7 @@ import { readPendingLogin, clearPendingLogin } from "@/lib/auth/pending-login";
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
 import { completeLogin, ROLE_ROUTES as roleRoutes } from "@/lib/auth/complete-login";
 import { checkVerifyAllowed, recordVerifyFailure, resetVerifyAttempts } from "@/lib/auth/otp-throttle";
+import { otpAllowed, otpFailure, otpReset } from "@/lib/auth/persistent-throttle";
 import { sanitizeError } from "@/lib/api-error";
 
 /**
@@ -48,6 +49,8 @@ async function handleVerify(request) {
   // caps wrong-code guesses against THIS pending sign-in specifically, which
   // a generic IP-wide limit does not (src/lib/auth/otp-throttle.js).
   const gate = checkVerifyAllowed(pending.sub);
+  // Shared across server instances (src/lib/auth/persistent-throttle.js).
+  if (gate.allowed && !(await otpAllowed(pending.sub))) gate.allowed = false;
   if (!gate.allowed) {
     return clearPendingLogin(
       NextResponse.json(
@@ -79,7 +82,8 @@ async function handleVerify(request) {
 
   if (error || !data?.user) {
     const result = recordVerifyFailure(pending.sub);
-    if (!result.allowed) {
+    const sharedAllowed = await otpFailure(pending.sub);
+    if (!result.allowed || !sharedAllowed) {
       return clearPendingLogin(
         NextResponse.json(
           {
@@ -99,6 +103,7 @@ async function handleVerify(request) {
   // src/lib/rbac/session.js), never on a Supabase session the browser holds.
   await supabase.auth.signOut();
   resetVerifyAttempts(pending.sub);
+  await otpReset(pending.sub);
 
   // Check the raw role string, not resolvedRole's normalized fallback — same
   // reasoning as the password step: an unrecognized role must reject, not
@@ -107,7 +112,7 @@ async function handleVerify(request) {
   if (!actualRole || !Object.prototype.hasOwnProperty.call(roleRoutes, actualRole)) {
     return clearPendingLogin(
       NextResponse.json(
-        { error: `Could not determine valid role for account. Role is '${actualRole || "unknown"}'.` },
+        { error: "This account has no valid role assigned. Contact the administrator." },
         { status: 403 },
       ),
     );

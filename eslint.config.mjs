@@ -99,6 +99,10 @@ const config = [
 
         // ── defined in app.js, used by every portal script ──
         escapeHtml: "readonly",
+        escapeJsArg: "readonly",
+        auditActorCell: "readonly",
+        loadOwnEmergencyContact: "readonly",
+        setFormattedDigitValue: "readonly",
         localDateKey: "readonly",
         formatHours: "readonly",
         formatDigitGroups: "readonly",

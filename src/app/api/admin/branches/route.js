@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -7,18 +6,7 @@ import { readSession } from "@/lib/rbac/session";
 import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { requirePermission } from "@/lib/rbac/guard";
 import { can, isBranchExempt } from "@/lib/rbac/permissions";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 function shapeBranch(row) {
   return {
@@ -112,6 +100,7 @@ export async function POST(request) {
     }
 
     await appendAuditLog({
+      actor: guard,
       module: "branches",
       action: "create",
       entity_type: "branch",
@@ -166,6 +155,7 @@ export async function PATCH(request) {
     }
 
     await appendAuditLog({
+      actor: guard,
       module: "branches",
       action: "update",
       entity_type: "branch",
@@ -206,6 +196,7 @@ export async function DELETE(request) {
     }
 
     await appendAuditLog({
+      actor: guard,
       module: "branches",
       action: "delete",
       entity_type: "branch",

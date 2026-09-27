@@ -1,22 +1,10 @@
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 function getCurrentPhilippineMonth() {
   const now = new Date();
@@ -125,8 +113,10 @@ export async function GET(request) {
           }
         }
       }
-    } catch {
-      // attendance_logs table may not exist — return zeros
+    } catch (error) {
+      // The dashboard still loads with zero counts, but the failure is no
+      // longer invisible: it was swallowed without a trace before.
+      console.error("[employee/stats] attendance lookup failed:", error?.message || error);
     }
 
     // Basic salary from user metadata

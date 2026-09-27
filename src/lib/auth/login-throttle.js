@@ -77,14 +77,28 @@ function inspect(buckets, key, { maxAttempts, windowMs, lockoutMs }, now) {
   return { blocked: false, retryAfterSeconds: 0, entry };
 }
 
-/** Best-effort client address. Falls back to a shared bucket when unknown. */
+/**
+ * Best-effort client address. Falls back to a shared bucket when unknown.
+ *
+ * The platform-set headers come first: Vercel writes x-vercel-forwarded-for
+ * and x-real-ip itself, overwriting whatever the client sent. The first hop
+ * of x-forwarded-for is only a last resort, because behind a proxy that
+ * appends rather than overwrites, that hop is whatever the client typed --
+ * letting one attacker rotate through unlimited "addresses".
+ */
 export function clientAddressFrom(request) {
   const headers = request?.headers;
   if (!headers?.get) return "unknown";
 
+  const vercel = String(headers.get("x-vercel-forwarded-for") || "").split(",")[0]?.trim();
+  if (vercel) return vercel;
+
+  const realIp = String(headers.get("x-real-ip") || "").trim();
+  if (realIp) return realIp;
+
   const forwarded = headers.get("x-forwarded-for") || "";
   const first = forwarded.split(",")[0]?.trim();
-  return first || headers.get("x-real-ip") || "unknown";
+  return first || "unknown";
 }
 
 /**

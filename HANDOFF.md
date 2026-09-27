@@ -98,9 +98,10 @@ There is no Edge Function to deploy.
    show the code with `{{ .Token }}`. The default template sends a link
    instead. Example body:
    `<p>Your SACS Payroll code is <strong>{{ .Token }}</strong>. It expires in 5 minutes.</p>`
-3. **Authentication → Providers → Email**: set **Email OTP Length** to 6 and
+3. **Authentication → Providers → Email**: set **Email OTP Length** to 8 and
    **Email OTP Expiration** to 300 seconds (5 minutes). This also applies to
-   the sign-in code.
+   the sign-in code. It must be 8: the Forgot Password and Change Password
+   screens only accept an 8-digit code, so a 6-digit setting breaks them.
 4. **Authentication → Rate Limits**: raise **Emails sent per hour** to suit the
    staff count. Supabase also allows one email per address every 60 seconds.
 

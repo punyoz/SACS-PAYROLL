@@ -1,6 +1,5 @@
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
@@ -12,9 +11,7 @@ import {
   tardinessMinutes,
   undertimeMinutes,
 } from "@/lib/attendance/policy";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 /* ── Philippine national holidays (2024-2027) ── */
 const PH_HOLIDAYS = {
@@ -67,15 +64,6 @@ const PH_HOLIDAYS = {
 const SHIFT_IN_H  = 8;   // 08:00 AM
 const SHIFT_OUT_H = 17;  // 05:00 PM
 const REQ_HOURS   = 8;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 function formatTime12(isoString) {
   if (!isoString) return null;

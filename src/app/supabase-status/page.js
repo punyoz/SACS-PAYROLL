@@ -40,18 +40,39 @@ export default async function SupabaseStatusPage() {
   const supabase = await createClient();
 
   const { data: userData, error: userError } = await supabase.auth.getUser();
-  const { count, error: profileError } = await supabase
-    .from("profiles")
-    .select("id", { count: "exact", head: true });
+
+  // The anon role no longer holds SELECT on any table
+  // (20260927040000_manila_log_date_and_anon_reads.sql), so the old profiles
+  // count could only ever answer "permission denied". Reachability is checked
+  // on endpoints that need no table access instead.
+  const [authHealth, restApi] = await Promise.all([
+    probe("/auth/v1/health"),
+    probe("/rest/v1/"),
+  ]);
 
   return (
     <main className="container">
       <section className="card">
         <h2>Supabase Status</h2>
-        <p className="muted">Auth check: {userError ? "failed" : "ok"}</p>
+        <p className="muted">Auth service: {authHealth}</p>
+        <p className="muted">Database API: {restApi}</p>
+        <p className="muted">Session check: {userError ? "no session" : "ok"}</p>
         <p className="muted">Current user: {userData?.user?.email || "not signed in"}</p>
-        <p className="muted">Profiles count query: {profileError ? profileError.message : String(count ?? 0)}</p>
       </section>
     </main>
   );
+}
+
+/** "reachable (HTTP 200)" / "unreachable" for a path on the Supabase project. */
+async function probe(path) {
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}${path}`, {
+      headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    return `reachable (HTTP ${response.status})`;
+  } catch {
+    return "unreachable";
+  }
 }

@@ -27,6 +27,8 @@
  * fails rather than falling back to the editable copy.
  */
 
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
+
 const TRUSTED_PROFILE_COLUMNS = "id,role,archived,branch_id,employee_id,basic_salary,rfid_uid";
 
 /**
@@ -39,8 +41,27 @@ const TRUSTED_PROFILE_COLUMNS = "id,role,archived,branch_id,employee_id,basic_sa
  * own metadata can do nothing but lock themselves out.
  */
 export function applyTrustedProfile(user, profile) {
-  if (!user || !profile) return user;
+  if (!user) return user;
   const metadata = user.user_metadata || {};
+
+  // No profile row means no trusted copy of anything. This used to hand the
+  // editable metadata back unchanged -- role, branch, salary and card
+  // included -- so an account without a profile row was judged entirely on
+  // values its holder can write. It is now treated as inactive, with none of
+  // the money or card fields, until HR creates its profile. Sign-in refuses
+  // such an account outright (src/lib/auth/complete-login.js).
+  if (!profile) {
+    return {
+      ...user,
+      user_metadata: {
+        ...metadata,
+        archived: true,
+        branch_id: null,
+        basic_salary: 0,
+        rfid_uid: "",
+      },
+    };
+  }
   const trusted = {};
 
   if (profile.role !== undefined && profile.role !== null && String(profile.role).trim()) {
@@ -82,7 +103,12 @@ export async function getTrustedUserById(supabase, id) {
 
 /** Overlay every user in `users` with its profiles row. */
 async function withTrustedProfiles(supabase, users) {
-  const result = await supabase.from("profiles").select(TRUSTED_PROFILE_COLUMNS);
+  // Paged: a plain select stops at PostgREST's 1000-row cap, and every user
+  // past it would have been treated as having no profile row.
+  const result = await fetchAllRows(() => supabase
+    .from("profiles")
+    .select(TRUSTED_PROFILE_COLUMNS)
+    .order("id", { ascending: true }));
   if (result.error) return { users: [], error: result.error };
 
   const byId = new Map((result.data || []).map((row) => [String(row.id), row]));
@@ -117,7 +143,24 @@ export function invalidateUsersCache() {
   generation += 1;
 }
 
-/** Same contract as supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }). */
+/**
+ * Every auth user, page by page. Only the first page of 1000 used to be
+ * read, so past that size accounts silently vanished from every list.
+ * Same `{ data: { users }, error }` shape as listUsers().
+ */
+async function listAllAuthUsers(supabase) {
+  const perPage = 1000;
+  const users = [];
+  for (let page = 1; ; page += 1) {
+    const listed = await supabase.auth.admin.listUsers({ page, perPage });
+    if (listed.error) return listed;
+    const batch = listed.data?.users || [];
+    users.push(...batch);
+    if (batch.length < perPage) return { data: { users }, error: null };
+  }
+}
+
+/** Same contract as supabase.auth.admin.listUsers(), for every page. */
 export async function listUsersCached(supabase) {
   if (cached && cached.expiresAt > Date.now()) {
     return { data: { users: cached.users }, error: null };
@@ -126,8 +169,7 @@ export async function listUsersCached(supabase) {
   if (!inFlight) {
     const startedAt = generation;
 
-    const request = supabase.auth.admin
-      .listUsers({ page: 1, perPage: 1000 })
+    const request = listAllAuthUsers(supabase)
       .then(async (listed) => {
         if (listed.error) return listed;
 

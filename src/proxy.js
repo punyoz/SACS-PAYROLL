@@ -48,6 +48,9 @@ export const config = {
     "/accountant/:path*",
     "/employee/:path*",
     "/rfid-terminal/:path*",
+    // The same kiosk page served by its static path, which would otherwise
+    // skip the Admin-only check below.
+    "/legacy/rfid-terminal.html",
   ],
 };
 
@@ -285,8 +288,26 @@ async function withRenewedSession(request, response, session, pathname) {
   return reissueSession(response, session, { idle_seconds: idle });
 }
 
+/**
+ * Cross-site request refusal for the API. The session cookie is SameSite=Lax,
+ * which already keeps it off cross-site POST/PATCH/DELETE, but Lax still
+ * sends it on a top-level cross-site GET -- and some GETs have side effects
+ * (GET /api/attendance/logs closes past attendance days). Browsers label
+ * every request with Sec-Fetch-Site; only a request another site started is
+ * refused. A client that sends no such header (curl, tests) is unaffected,
+ * and the portals' own calls are "same-origin".
+ */
+function isCrossSiteApiRequest(request, pathname) {
+  if (!pathname.startsWith("/api/")) return false;
+  return String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "cross-site";
+}
+
 export async function proxy(request) {
   const { pathname } = request.nextUrl;
+
+  if (isCrossSiteApiRequest(request, pathname)) {
+    return NextResponse.json({ error: "Cross-site requests are not allowed." }, { status: 403 });
+  }
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
     return NextResponse.next();
@@ -295,7 +316,7 @@ export async function proxy(request) {
   const session = readSession(request);
 
   // ── RFID Terminal (Admin-only kiosk page) ──
-  if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/")) {
+  if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/") || pathname === "/legacy/rfid-terminal.html") {
     if (!session || !isKnownRole(session.role)) {
       return NextResponse.redirect(new URL("/login", request.url));
     }

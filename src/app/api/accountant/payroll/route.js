@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
@@ -15,7 +14,7 @@ import {
 } from "@/lib/attendance/status";
 import { computeAttendancePay, peso } from "@/lib/payroll/attendance-pay";
 import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRates } from "@/lib/payroll/rates";
-import { periodFromLabel } from "@/lib/payroll/periods";
+import { periodFromLabel, manilaDateKey } from "@/lib/payroll/periods";
 import {
   SEMI_MONTHLY_TAX_TABLE,
   periodContributions,
@@ -23,23 +22,11 @@ import {
   usesLegalRules,
   withholdingTax as computeWithholdingTax,
 } from "@/lib/payroll/statutory";
+import { roundPeso } from "@/lib/payroll/money";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
 
 function parseEmployeeIdNumber(employeeId) {
   const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
@@ -53,12 +40,7 @@ function parseEmployeeIdNumber(employeeId) {
 // Vercel — so from midnight to 8 AM Manila on the 1st and the 16th, "today's"
 // pay period (and the period dropdown's current month) was the previous one.
 function manilaToday() {
-  const [year, month, day] = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date()).split("-").map(Number);
+  const [year, month, day] = manilaDateKey().split("-").map(Number);
   return new Date(year, month - 1, day);
 }
 
@@ -92,9 +74,7 @@ function formatPeriodLabel(dateInput) {
 }
 
 function toAmount(value) {
-  const amount = Number(value || 0);
-  if (!Number.isFinite(amount)) return 0;
-  return Math.round(amount * 100) / 100;
+  return roundPeso(value);
 }
 
 function normalizePositionForRole(positionInput, roleInput) {
@@ -374,11 +354,14 @@ function computeTotals(payroll) {
 }
 
 async function readPayrollEntries(supabase) {
-  const result = await supabase
+  // Every entry, paged: this list drives the duplicate-payment checks and the
+  // period picker, and a .limit(2000) used to drop the oldest history
+  // silently once the table outgrew it.
+  const result = await fetchAllRows(() => supabase
     .from("payroll_entries")
     .select("*")
     .order("updated_at", { ascending: false })
-    .limit(2000);
+    .order("id", { ascending: true }));
 
   if (result.error) {
     throw new Error(result.error.message);
@@ -1513,6 +1496,7 @@ async function handleBatchSubmit(supabase, body, guard) {
   }
 
   await appendAuditLog({
+    actor: guard,
     module: "payroll",
     action: "batch_process",
     entity_type: "payroll_entry",
@@ -1668,6 +1652,7 @@ export async function POST(request) {
       // Nothing was written, so the accountant can simply try again.
       if (!result?.ok) {
         await appendAuditLog({
+          actor: guard,
           module: "payroll",
           action: "process",
           entity_type: "payroll_entry",
@@ -1686,9 +1671,32 @@ export async function POST(request) {
       }
     } else {
       dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+
+      // payroll_entries is the only place a draft lives. When that write
+      // fails nothing was saved, so this used to answer success and the
+      // portal said "Draft saved" over a draft that did not exist.
+      if (!dbSync.success) {
+        await appendAuditLog({
+          actor: guard,
+          module: "payroll",
+          action: "draft",
+          entity_type: "payroll_entry",
+          entity_id: baseEntry.id,
+          description: `Payroll draft for ${employee.full_name} failed to save: ${dbSync.error || "unknown error"}`,
+          status: "failed",
+          source: "api",
+          metadata: { employee_id: employee.id, db_error: dbSync.error || null, db_code: dbSync.code || null },
+        });
+        const duplicate = String(dbSync.code || "") === "23505";
+        return NextResponse.json(
+          { error: duplicate ? DUPLICATE_SUBMISSION_MESSAGE : "The draft could not be saved. Please try again." },
+          { status: duplicate ? 409 : 500 },
+        );
+      }
     }
 
     await appendAuditLog({
+      actor: guard,
       module: "payroll",
       action: action === "submit" ? "process" : "draft",
       entity_type: "payroll_entry",
@@ -1766,6 +1774,7 @@ export async function PATCH(request) {
     await deletePayrollEntryFromDb(supabase, entryId);
 
     await appendAuditLog({
+      actor: guard,
       module: "payroll",
       action: "cancel_draft",
       entity_type: "payroll_entry",

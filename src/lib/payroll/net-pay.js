@@ -24,12 +24,11 @@
  * carry into the next period, that is a payroll policy decision and needs its
  * own field — it is not implemented here.
  */
+import { roundPeso } from "@/lib/payroll/money";
 
 /** Round to centavos, treating anything non-numeric as zero. */
 export function toPesoAmount(value) {
-  const amount = Number(value || 0);
-  if (!Number.isFinite(amount)) return 0;
-  return Math.round(amount * 100) / 100;
+  return roundPeso(value);
 }
 
 /**

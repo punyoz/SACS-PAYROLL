@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -7,18 +6,7 @@ import { listUsersCached, getTrustedUserById } from "@/lib/auth/users-cache";
 import { revokeActiveSession } from "@/lib/auth/active-session";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 async function fetchBranchMap(supabase) {
   const result = await supabase.from("branches").select("id,name,status");
@@ -223,6 +211,7 @@ export async function POST(request) {
     }
 
     await appendAuditLog({
+      actor: guard,
       module: "employees",
       action: "update",
       entity_type: "branch_assignment",
@@ -299,6 +288,7 @@ export async function DELETE(request) {
     await revokeActiveSession(userId);
 
     await appendAuditLog({
+      actor: guard,
       module: "employees",
       action: "update",
       entity_type: "branch_assignment",

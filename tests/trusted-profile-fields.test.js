@@ -74,8 +74,12 @@ describe("applyTrustedProfile", () => {
     expect(applyTrustedProfile(selfFlagged, profile).user_metadata.archived).toBe(true);
   });
 
-  it("a user with no profile row is returned unchanged", () => {
-    expect(applyTrustedProfile(tampered, undefined)).toBe(tampered);
+  it("a user with no profile row is treated as inactive, with no trusted fields", () => {
+    const out = applyTrustedProfile(tampered, undefined).user_metadata;
+    expect(out.archived).toBe(true);
+    expect(out.branch_id).toBeNull();
+    expect(out.basic_salary).toBe(0);
+    expect(out.rfid_uid).toBe("");
   });
 
   it("a field missing from the row is not overwritten", () => {

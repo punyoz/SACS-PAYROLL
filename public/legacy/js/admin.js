@@ -602,7 +602,7 @@ function renderAuditTable(logs = []) {
   if (!tbody) return;
 
   if (!logs.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No audit logs found for current filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--t3);">No audit logs found for current filters.</td></tr>';
     return;
   }
 
@@ -619,6 +619,7 @@ function renderAuditTable(logs = []) {
     return `
       <tr>
         <td class="mn">${timestamp}</td>
+        <td>${auditActorCell(log)}</td>
         <td>${moduleName}</td>
         <td>${action}</td>
         <td class="mn">${entity || '—'}</td>
@@ -655,7 +656,7 @@ async function loadAuditLogs() {
   const seq = ++auditRequestSeq;
   const tbody = document.getElementById('adm-audit-table-body');
   if (tbody) {
-    tbody.innerHTML = skeletonRows(7);
+    tbody.innerHTML = skeletonRows(8);
   }
 
   try {
@@ -685,7 +686,7 @@ async function loadAuditLogs() {
   } catch (error) {
     if (seq !== auditRequestSeq) return;
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
     }
   }
 }
@@ -820,7 +821,7 @@ function renderRfidDevices(devices) {
     const rfidDisplay = hasRfid ? escapeHtml(device.rfid_uid) : '—';
     const rfidBadge = hasRfid ? 'bg' : 'ba';
     const rfidStatus = hasRfid ? 'Assigned' : 'Unassigned';
-    const deviceId = escapeHtml(device.id);
+    const deviceId = escapeJsArg(device.id);
     const isArchived = device.archived;
 
     if (isArchived) return '';

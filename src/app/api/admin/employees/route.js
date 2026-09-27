@@ -1,7 +1,6 @@
 import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib/auth/users-cache";
 import { revokeActiveSession } from "@/lib/auth/active-session";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeRole, normalizeRoleEmail, normalizeText, normalizeDigits } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -19,22 +18,7 @@ import {
   normalizeEmergencyContact,
   validateEmergencyContact,
 } from "@/lib/employees/emergency-contact";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -465,6 +449,7 @@ export async function POST(request) {
     }, employeesBefore.length);
 
     await appendAuditLog({
+      actor: guard,
       module: "employees",
       action: "create",
       entity_type: "employee",
@@ -697,6 +682,7 @@ export async function PATCH(request) {
         : "update";
 
     await appendAuditLog({
+      actor: guard,
       module: "employees",
       action: actionLabel,
       entity_type: "employee",
@@ -776,6 +762,7 @@ export async function DELETE(request) {
     invalidateUsersCache();
 
     await appendAuditLog({
+      actor: guard,
       module: "employees",
       action: "archive",
       entity_type: "employee",

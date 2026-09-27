@@ -1,6 +1,6 @@
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import crypto from "node:crypto";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -8,31 +8,8 @@ import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps, hoursBetween, planTap } from "@/lib/attendance/taps";
 import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/policy";
 import { attendanceBucket, normalizeAttendanceStatus as normalizeEngineStatus } from "@/lib/attendance/status";
-
-const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-function getAdminClient() {
-  if (!projectUrl || !serviceRoleKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
-  }
-
-  return createClient(projectUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
-function getDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Manila",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
-}
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -343,7 +320,20 @@ function isDuplicateKeyError(error) {
   return code === "23505" || message.includes("duplicate key");
 }
 
-async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1, policy = null) {
+/**
+ * Who a write came from, for attendance_logs_history
+ * (20260927020000_attendance_logs_history.sql). A fresh change_token on every
+ * write is what tells the database this update was annotated by the API.
+ */
+function changeAnnotation(actor, source) {
+  return {
+    changed_by: actor?.userId || null,
+    change_source: source,
+    change_token: crypto.randomUUID(),
+  };
+}
+
+async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1, policy = null, actor = null, source = "rfid_tap") {
   const lookupResult = await supabase
     .from("attendance_logs")
     .select("*")
@@ -379,6 +369,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
         time_in: nowIso,
         time_out: null,
         total_hours: 0,
+        ...changeAnnotation(actor, source),
       })
       .eq("id", placeholder.id)
       .select("*")
@@ -403,6 +394,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
         time_in: plan.time_in,
         time_out: nowIso,
         total_hours: hoursBetween(plan.time_in, nowIso),
+        ...changeAnnotation(actor, source),
       })
       .eq("id", plan.target.id)
       .select("*")
@@ -444,7 +436,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     // against the row the winner just committed resolves it as this tap's
     // rightful time_out (or duplicate) instead of failing the scan outright.
     if (isDuplicateKeyError(insertResult.error) && retriesLeft > 0) {
-      return persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft - 1, policy);
+      return persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft - 1, policy, actor, source);
     }
     throw new Error(insertResult.error?.message || "Failed to create attendance login.");
   }
@@ -482,6 +474,7 @@ export async function GET(request) {
     );
 
     await appendAuditLog({
+      actor: guard,
       module: "attendance",
       action: "view",
       entity_type: "attendance_log",
@@ -537,10 +530,14 @@ export async function POST(request) {
     // assigned to, so a 7:00 AM branch marks Late earlier than an 8:00 AM one.
     const policy = await getBranchAttendancePolicy(supabase, employee.branch_id);
 
-    const { record, tap } = await persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, 1, policy);
+    const { record, tap } = await persistScanToTable(
+      supabase, employee, dateKey, nowIso, rfidCode, 1, policy,
+      guard, manualEntry ? "manual_entry" : "rfid_tap",
+    );
 
     if (tap !== "duplicate") {
       await appendAuditLog({
+        actor: guard,
         module: "attendance",
         action: tap === "time_out" ? "rfid_timeout" : "rfid_timein",
         entity_type: "employee",

@@ -7,8 +7,23 @@ import {
   normalizeLeaveRequest,
   summarizeLeaveBalance,
 } from "@/lib/leave-requests/store";
-import { requirePermission, resolveTargetUserId } from "@/lib/rbac/guard";
+import { createClient } from "@supabase/supabase-js";
+import { requirePermission, resolveTargetUserId, denyForeignBranch } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
+import { validateProofUrl } from "@/lib/leave-requests/proof";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The branch an employee is assigned to now (profiles is authoritative). */
+async function currentBranchOf(employeeId) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment.");
+  const supabase = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data, error } = await supabase.from("profiles").select("branch_id").eq("id", employeeId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.branch_id || null;
+}
 
 export async function GET(request) {
   try {
@@ -16,27 +31,23 @@ export async function GET(request) {
     if (guard.denied) return guard.denied;
 
     const url = new URL(request.url);
-    const isSelfScoped = guard.scope === SCOPE_SELF;
 
-    // The filter below matches on id OR name, so a self-scoped caller must be
-    // pinned on BOTH. Pinning only the id would still let someone pass
-    // ?employee_name=<colleague> and pull that colleague's leave history back
-    // through the other half of the OR.
+    // Requests are matched on the account id alone. They used to match on id
+    // OR employee name, so two employees who share a name saw each other's
+    // leave -- reasons, dates and medical proof documents included.
     const employeeId = resolveTargetUserId(guard, url.searchParams.get("employee_id"));
-    const employeeName = isSelfScoped
-      ? String(guard.session?.full_name || "").trim().toLowerCase()
-      : String(url.searchParams.get("employee_name") || "").trim().toLowerCase();
-
-    if (!employeeId && !employeeName) {
+    if (!employeeId || !UUID_PATTERN.test(employeeId)) {
       return NextResponse.json({ requests: [] });
     }
 
-    const allRequests = await readAllLeaveRequests();
-    const requests = allRequests.filter((row) => {
-      if (employeeId && row.employee_id === employeeId) return true;
-      if (employeeName && row.employee_name.toLowerCase() === employeeName) return true;
-      return false;
-    });
+    // A branch-scoped reviewer (Admin) may only look inside its own branch.
+    // Previously any employee_id was accepted, whichever branch it was in.
+    if (guard.scope !== SCOPE_SELF && !guard.branchExempt) {
+      const foreign = denyForeignBranch(guard, await currentBranchOf(employeeId));
+      if (foreign) return foreign;
+    }
+
+    const requests = await readAllLeaveRequests({ employeeId });
 
     const balance = summarizeLeaveBalance(requests, employeeId);
 
@@ -73,14 +84,28 @@ export async function POST(request) {
     const startDate = String(body.start_date || "").trim();
     const endDate = String(body.end_date || "").trim();
     const reason = String(body.reason || "").trim();
-    // Preserve proof_url exactly — it may be a large base64 data URL.
-    const proofUrl = String(body.proof_url || "");
+    // Only a PDF / PNG / JPEG data URL under 2 MB, the shape the portal
+    // itself sends. It used to be stored exactly as sent, and the proof
+    // viewer put it straight into HR's page -- a stored XSS any employee
+    // could plant (src/lib/leave-requests/proof.js).
+    const proof = validateProofUrl(body.proof_url);
+    if (!proof.ok) {
+      return NextResponse.json({ error: proof.error }, { status: 400 });
+    }
+    const proofUrl = proof.value;
 
     if (!employeeName || !leaveType || !startDate || !endDate || !reason) {
       return NextResponse.json(
         { error: "employee_name, leave_type, start_date, end_date, and reason are required." },
         { status: 400 },
       );
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return NextResponse.json({ error: "Dates must be in YYYY-MM-DD format." }, { status: 400 });
+    }
+    if (leaveType.length > 64 || reason.length > 1000) {
+      return NextResponse.json({ error: "Leave type or reason is too long." }, { status: 400 });
     }
 
     if (startDate > endDate) {
@@ -90,7 +115,7 @@ export async function POST(request) {
       );
     }
 
-    const allRequests = await readAllLeaveRequests();
+    const allRequests = await readAllLeaveRequests({ employeeId });
     const hasDuplicatePending = allRequests.some((row) => {
       const isSameEmployee = employeeId
         ? row.employee_id === employeeId
