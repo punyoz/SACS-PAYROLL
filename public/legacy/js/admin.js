@@ -142,8 +142,7 @@ function loadAdminProfile() {
   if (typeof loadOwnStaffId === 'function') loadOwnStaffId('adm-ep-info-id');
   setTxt('adm-ep-info-email',  ctx.email);
   setTxt('adm-ep-info-role',   ctx.role);
-  setTxt('adm-ep-bank-name',   ctx.bank_name);
-  setTxt('adm-ep-bank-account',ctx.bank_account_number);
+  if (typeof renderOwnContactAndGovIds === 'function') renderOwnContactAndGovIds('adm-ep', ctx);
   if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('adm-ep-ec');
 }
 

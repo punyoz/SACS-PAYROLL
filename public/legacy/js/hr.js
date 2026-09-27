@@ -1122,6 +1122,7 @@ function loadHRProfile() {
   setTxt('hr-ep-info-role',   ctx.role);
   setTxt('hr-ep-bank-name',   ctx.bank_name);
   setTxt('hr-ep-bank-account',ctx.bank_account_number);
+  if (typeof renderOwnContactAndGovIds === 'function') renderOwnContactAndGovIds('hr-ep', ctx);
   if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('hr-ep-ec');
 }
 

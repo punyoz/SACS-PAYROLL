@@ -19,6 +19,7 @@ import {
   validateEmergencyContact,
 } from "@/lib/employees/emergency-contact";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { PII_LAST4_COLUMNS, maskedPii, withoutPiiMetadata } from "@/lib/employees/pii";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -159,18 +160,16 @@ function shapeEmployee(user, profile, index) {
     employment_type: normalizeText(metadata.employment_type, ""),
     sex: normalizeText(metadata.sex, ""),
     civil_status: normalizeText(metadata.civil_status, ""),
-    tin_number: normalizeText(metadata.tin_number, ""),
     archived: Boolean(metadata.archived),
     date_of_birth: normalizeText(metadata.date_of_birth, ""),
     // profiles is now authoritative for these (real, constrained columns —
     // see supabase/migrations/20260914010000_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
     address: normalizeText(profile?.address, normalizeText(metadata.address, "")),
-    sss_number: normalizeText(profile?.sss_number, normalizeText(metadata.sss_number, "")),
-    pagibig_number: normalizeText(profile?.pagibig_number, normalizeText(metadata.pagibig_number, "")),
-    philhealth_number: normalizeText(profile?.philhealth_number, normalizeText(metadata.philhealth_number, "")),
+    // Government IDs and bank account, masked ("••••1234"); the full numbers
+    // are only served to HR's Edit Employee (src/lib/employees/pii.js).
+    ...maskedPii(profile),
     bank_name: normalizeText(profile?.bank_name, normalizeText(metadata.bank_name, "")),
-    bank_account_number: normalizeText(profile?.bank_account_number, normalizeText(metadata.bank_account_number, "")),
     // Live on profiles, not user_metadata (see
     // supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql).
     cp_number: normalizeText(profile?.cp_number, ""),
@@ -213,7 +212,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,role,branch_id,cp_number,date_hired,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+      .select(`id,email,full_name,role,branch_id,cp_number,date_hired,address,bank_name,${PII_LAST4_COLUMNS}`)
       .in("id", userIds);
 
     // Degrade to auth-metadata-only (matching /api/admin/users and
@@ -344,12 +343,9 @@ export async function POST(request) {
       address: record.address,
       cp_number: record.cp_number,
       date_hired: record.date_hired,
-      sss_number: record.sss_number,
-      pagibig_number: record.pagibig_number,
-      philhealth_number: record.philhealth_number,
-      tin_number: record.tin_number,
+      // Government IDs and the bank account number are stored on profiles
+      // only (encrypted there); user_metadata travels in the access token.
       bank_name: record.bank_name,
-      bank_account_number: record.bank_account_number,
     };
 
     const createUserResult = await supabase.auth.admin.createUser({
@@ -392,11 +388,12 @@ export async function POST(request) {
           cp_number: normalizeDigits(body.cp_number, 11) || null,
           date_hired: normalizeText(body.date_hired, "") || null,
           address: normalizeText(body.address, "") || null,
-          sss_number: normalizeDigits(body.sss_number, 10) || null,
-          pagibig_number: normalizeDigits(body.pagibig_number, 12) || null,
-          philhealth_number: normalizeDigits(body.philhealth_number, 12) || null,
+          sss_number: record.sss_number,
+          pagibig_number: record.pagibig_number,
+          philhealth_number: record.philhealth_number,
+          tin_number: record.tin_number,
           bank_name: normalizeText(body.bank_name, "") || null,
-          bank_account_number: normalizeDigits(body.bank_account_number, 20) || null,
+          bank_account_number: record.bank_account_number,
           ...emergencyContactColumns(emergencyContact),
         },
         {
@@ -441,11 +438,12 @@ export async function POST(request) {
       cp_number: normalizeDigits(body.cp_number, 11),
       date_hired: normalizeText(body.date_hired, ""),
       address: normalizeText(body.address, ""),
-      sss_number: normalizeDigits(body.sss_number, 10),
-      pagibig_number: normalizeDigits(body.pagibig_number, 12),
-      philhealth_number: normalizeDigits(body.philhealth_number, 12),
+      sss_number_last4: record.sss_number.slice(-4),
+      pagibig_number_last4: record.pagibig_number.slice(-4),
+      philhealth_number_last4: record.philhealth_number.slice(-4),
+      tin_number_last4: record.tin_number.slice(-4),
       bank_name: normalizeText(body.bank_name, ""),
-      bank_account_number: normalizeDigits(body.bank_account_number, 20),
+      bank_account_number_last4: record.bank_account_number.slice(-4),
     }, employeesBefore.length);
 
     await appendAuditLog({
@@ -527,7 +525,7 @@ export async function PATCH(request) {
     const foreignBranch = denyForeignBranch(guard, targetBranch);
     if (foreignBranch) return foreignBranch;
     const nextMetadata = {
-      ...currentMetadata,
+      ...withoutPiiMetadata(currentMetadata),
       role: nextRole,
     };
 
@@ -577,11 +575,7 @@ export async function PATCH(request) {
         nextMetadata.archived = false;
       }
       if (body.address !== undefined) nextMetadata.address = normalizeText(body.address, normalizeText(currentMetadata.address, ""));
-      if (body.sss_number !== undefined) nextMetadata.sss_number = normalizeText(body.sss_number, normalizeText(currentMetadata.sss_number, ""));
-      if (body.pagibig_number !== undefined) nextMetadata.pagibig_number = normalizeText(body.pagibig_number, normalizeText(currentMetadata.pagibig_number, ""));
-      if (body.philhealth_number !== undefined) nextMetadata.philhealth_number = normalizeText(body.philhealth_number, normalizeText(currentMetadata.philhealth_number, ""));
       if (body.bank_name !== undefined) nextMetadata.bank_name = normalizeText(body.bank_name, normalizeText(currentMetadata.bank_name, ""));
-      if (body.bank_account_number !== undefined) nextMetadata.bank_account_number = normalizeText(body.bank_account_number, normalizeText(currentMetadata.bank_account_number, ""));
       if (body.cp_number !== undefined) nextMetadata.cp_number = normalizeDigits(body.cp_number, 11);
       if (body.date_hired !== undefined) nextMetadata.date_hired = normalizeText(body.date_hired, "");
     }
@@ -634,11 +628,14 @@ export async function PATCH(request) {
       if (body.cp_number !== undefined) profilePatch.cp_number = normalizeDigits(body.cp_number, 11) || null;
       if (body.date_hired !== undefined) profilePatch.date_hired = normalizeText(body.date_hired, "") || null;
       if (body.address !== undefined) profilePatch.address = normalizeText(body.address, "") || null;
-      if (body.sss_number !== undefined) profilePatch.sss_number = normalizeDigits(body.sss_number, 10) || null;
-      if (body.pagibig_number !== undefined) profilePatch.pagibig_number = normalizeDigits(body.pagibig_number, 12) || null;
-      if (body.philhealth_number !== undefined) profilePatch.philhealth_number = normalizeDigits(body.philhealth_number, 12) || null;
+      // Government IDs / bank account: '' clears (the profiles_protect_pii
+      // trigger stores NULL), whereas NULL would keep the encrypted value.
+      if (body.sss_number !== undefined) profilePatch.sss_number = normalizeDigits(body.sss_number, 10);
+      if (body.pagibig_number !== undefined) profilePatch.pagibig_number = normalizeDigits(body.pagibig_number, 12);
+      if (body.philhealth_number !== undefined) profilePatch.philhealth_number = normalizeDigits(body.philhealth_number, 12);
+      if (body.tin_number !== undefined) profilePatch.tin_number = normalizeDigits(body.tin_number, 12);
       if (body.bank_name !== undefined) profilePatch.bank_name = normalizeText(body.bank_name, "") || null;
-      if (body.bank_account_number !== undefined) profilePatch.bank_account_number = normalizeDigits(body.bank_account_number, 20) || null;
+      if (body.bank_account_number !== undefined) profilePatch.bank_account_number = normalizeDigits(body.bank_account_number, 20);
       // profiles holds the trusted salary payroll reads (src/lib/auth/users-cache.js).
       if (Number.isFinite(nextMetadata.basic_salary) && nextMetadata.basic_salary >= 0) {
         profilePatch.basic_salary = nextMetadata.basic_salary;
@@ -668,11 +665,7 @@ export async function PATCH(request) {
       cp_number: nextMetadata.cp_number,
       date_hired: nextMetadata.date_hired,
       address: nextMetadata.address,
-      sss_number: nextMetadata.sss_number,
-      pagibig_number: nextMetadata.pagibig_number,
-      philhealth_number: nextMetadata.philhealth_number,
       bank_name: nextMetadata.bank_name,
-      bank_account_number: nextMetadata.bank_account_number,
     }, 0);
 
     const actionLabel = action === "archive"
@@ -738,7 +731,7 @@ export async function DELETE(request) {
 
     const existingUser = userResult.data.user;
     const nextMetadata = {
-      ...(existingUser.user_metadata || {}),
+      ...withoutPiiMetadata(existingUser.user_metadata || {}),
       archived: true,
       employee_status: "Inactive",
       rfid_status: "Inactive",

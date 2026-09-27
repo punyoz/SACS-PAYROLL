@@ -529,6 +529,14 @@
             <div class="ep-info-label">Email Address</div>
             <div class="ep-info-value" id="ac-ep-info-email">—</div>
           </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Contact Number</div>
+            <div class="ep-info-value" id="ac-ep-info-cpnumber">—</div>
+          </div>
+          <div class="ep-info-item" style="grid-column:1/-1;">
+            <div class="ep-info-label">Home Address</div>
+            <div class="ep-info-value" id="ac-ep-info-address">—</div>
+          </div>
         </div>
       </div>
 
@@ -550,6 +558,28 @@
           <div class="ep-info-item" style="grid-column:1/-1;">
             <div class="ep-info-label">Address</div>
             <div class="ep-info-value" id="ac-ep-ec-address">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card ep-info-card">
+        <div class="stitle" style="margin-bottom:14px;">Government Contributions</div>
+        <div class="ep-info-grid">
+          <div class="ep-info-item">
+            <div class="ep-info-label">SSS Number</div>
+            <div class="ep-info-value" id="ac-ep-sss-number">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">PhilHealth Number</div>
+            <div class="ep-info-value" id="ac-ep-philhealth-number">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Pag-IBIG Number</div>
+            <div class="ep-info-value" id="ac-ep-pagibig-number">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">TIN</div>
+            <div class="ep-info-value" id="ac-ep-tin-number">—</div>
           </div>
         </div>
       </div>
@@ -618,6 +648,80 @@
                 <option value="V">V</option>
               </select>
             </div>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="ac-edit-cpnumber">Contact Number</label>
+            <input id="ac-edit-cpnumber" class="fc" type="tel" placeholder="e.g. 0917 123 4567" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="ac-edit-address">Home Address</label>
+            <textarea id="ac-edit-address" class="fc" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
+          </div>
+        </div>
+        <div class="settings-section-label">Emergency Contact</div>
+        <div style="display:grid;gap:12px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="fg" style="margin:0;">
+              <label for="ac-edit-ec-name">Contact Person</label>
+              <input id="ac-edit-ec-name" class="fc" type="text" maxlength="100" placeholder="e.g. Maria Dela Cruz" autocomplete="off" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="ac-edit-ec-relationship">Relationship</label>
+              <select id="ac-edit-ec-relationship" class="fc">
+                <option value="">Select relationship</option>
+                <option value="Spouse">Spouse</option>
+                <option value="Parent">Parent</option>
+                <option value="Child">Child</option>
+                <option value="Sibling">Sibling</option>
+                <option value="Guardian">Guardian</option>
+                <option value="Relative">Relative</option>
+                <option value="Partner">Partner</option>
+                <option value="Friend">Friend</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="ac-edit-ec-number">Contact Number</label>
+            <input id="ac-edit-ec-number" class="fc" type="tel" placeholder="e.g. 0918 765 4321" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="ac-edit-ec-address">Address</label>
+            <textarea id="ac-edit-ec-address" class="fc" rows="2" maxlength="200" placeholder="House no., street, barangay, city/municipality, province"></textarea>
+          </div>
+        </div>
+        <div class="settings-section-label">Government Contributions</div>
+        <p style="font-size:11px;color:var(--t3);margin:-4px 0 10px;line-height:1.5;">Set by HR for payroll. Contact HR to change these.</p>
+        <div style="display:grid;gap:12px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="fg" style="margin:0;">
+              <label for="ac-edit-sss">SSS Number</label>
+              <input id="ac-edit-sss" class="fc" type="text" placeholder="e.g. 12-3456789-0" readonly style="background:var(--bg3);cursor:default;" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="ac-edit-philhealth">PhilHealth Number</label>
+              <input id="ac-edit-philhealth" class="fc" type="text" placeholder="e.g. 12-345678901-2" readonly style="background:var(--bg3);cursor:default;" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="ac-edit-pagibig">Pag-IBIG Number</label>
+              <input id="ac-edit-pagibig" class="fc" type="text" placeholder="e.g. 1234-5678-9012" readonly style="background:var(--bg3);cursor:default;" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="ac-edit-tin">TIN</label>
+              <input id="ac-edit-tin" class="fc" type="text" placeholder="e.g. 123-456-789-000" readonly style="background:var(--bg3);cursor:default;" />
+            </div>
+          </div>
+        </div>
+        <div class="settings-section-label">Bank Information</div>
+        <p style="font-size:11px;color:var(--t3);margin:-4px 0 10px;line-height:1.5;">Set by HR for payroll. Contact HR to change these.</p>
+        <div style="display:grid;gap:12px;margin-bottom:14px;">
+          <div class="fg" style="margin:0;">
+            <label for="ac-edit-bankname">Bank Name</label>
+            <input id="ac-edit-bankname" class="fc" type="text" maxlength="50" placeholder="e.g. BPI, BDO, Landbank" readonly style="background:var(--bg3);cursor:default;" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="ac-edit-bankaccount">Bank Account Number</label>
+            <input id="ac-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" readonly style="background:var(--bg3);cursor:default;" />
           </div>
         </div>
         <button class="btn btn-primary" style="width:100%;padding:11px;margin-bottom:6px;" onclick="saveProfileInfo('ac')">Save Information</button>

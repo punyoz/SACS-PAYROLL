@@ -7,9 +7,11 @@
  * CHECK constraints repeat these rules).
  *
  * It is corrected through HR's Edit Employee (PATCH /api/hr/employees) and
- * Super Admin's Edit Account (PATCH /api/admin/users), see
- * validateEmergencyContactUpdate(), and shown read-only on every portal's
- * Profile page (GET /api/legacy-auth/update-profile).
+ * Super Admin's Edit Account (PATCH /api/admin/users), and by the account
+ * holder through their own Profile page's Edit Account
+ * (POST /api/legacy-auth/update-profile), all via
+ * validateEmergencyContactUpdate(); every portal's Profile page shows it
+ * (GET /api/legacy-auth/update-profile).
  *
  *   emergency_contact_name          1-100 chars, letters, spaces, - ' .
  *   emergency_contact_relationship  one of EMERGENCY_RELATIONSHIP_OPTIONS

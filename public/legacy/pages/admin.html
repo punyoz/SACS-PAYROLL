@@ -319,6 +319,14 @@
             <div class="ep-info-label">Account Role</div>
             <div class="ep-info-value" id="adm-ep-info-role">—</div>
           </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Contact Number</div>
+            <div class="ep-info-value" id="adm-ep-info-cpnumber">—</div>
+          </div>
+          <div class="ep-info-item" style="grid-column:1/-1;">
+            <div class="ep-info-label">Home Address</div>
+            <div class="ep-info-value" id="adm-ep-info-address">—</div>
+          </div>
         </div>
       </div>
 
@@ -345,15 +353,23 @@
       </div>
 
       <div class="card ep-info-card">
-        <div class="stitle" style="margin-bottom:14px;">Bank Information</div>
+        <div class="stitle" style="margin-bottom:14px;">Government Contributions</div>
         <div class="ep-info-grid">
           <div class="ep-info-item">
-            <div class="ep-info-label">Bank Name</div>
-            <div class="ep-info-value" id="adm-ep-bank-name">—</div>
+            <div class="ep-info-label">SSS Number</div>
+            <div class="ep-info-value" id="adm-ep-sss-number">—</div>
           </div>
           <div class="ep-info-item">
-            <div class="ep-info-label">Bank Account Number</div>
-            <div class="ep-info-value" id="adm-ep-bank-account">—</div>
+            <div class="ep-info-label">PhilHealth Number</div>
+            <div class="ep-info-value" id="adm-ep-philhealth-number">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">Pag-IBIG Number</div>
+            <div class="ep-info-value" id="adm-ep-pagibig-number">—</div>
+          </div>
+          <div class="ep-info-item">
+            <div class="ep-info-label">TIN</div>
+            <div class="ep-info-value" id="adm-ep-tin-number">—</div>
           </div>
         </div>
       </div>
@@ -408,12 +424,65 @@
             </div>
           </div>
           <div class="fg" style="margin:0;">
-            <label for="adm-edit-bankname">Bank Name</label>
-            <input id="adm-edit-bankname" class="fc" type="text" placeholder="e.g. BPI, BDO, Landbank" />
+            <label for="adm-edit-cpnumber">Contact Number</label>
+            <input id="adm-edit-cpnumber" class="fc" type="tel" placeholder="e.g. 0917 123 4567" />
           </div>
           <div class="fg" style="margin:0;">
-            <label for="adm-edit-bankaccount">Bank Account Number</label>
-            <input id="adm-edit-bankaccount" class="fc" type="text" placeholder="Bank account number" />
+            <label for="adm-edit-address">Home Address</label>
+            <textarea id="adm-edit-address" class="fc" rows="2" maxlength="200" placeholder="e.g. 123 Rizal St., Barangay San Isidro, Antipolo City, Rizal"></textarea>
+          </div>
+        </div>
+        <div class="settings-section-label">Emergency Contact</div>
+        <div style="display:grid;gap:12px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="fg" style="margin:0;">
+              <label for="adm-edit-ec-name">Contact Person</label>
+              <input id="adm-edit-ec-name" class="fc" type="text" maxlength="100" placeholder="e.g. Maria Dela Cruz" autocomplete="off" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="adm-edit-ec-relationship">Relationship</label>
+              <select id="adm-edit-ec-relationship" class="fc">
+                <option value="">Select relationship</option>
+                <option value="Spouse">Spouse</option>
+                <option value="Parent">Parent</option>
+                <option value="Child">Child</option>
+                <option value="Sibling">Sibling</option>
+                <option value="Guardian">Guardian</option>
+                <option value="Relative">Relative</option>
+                <option value="Partner">Partner</option>
+                <option value="Friend">Friend</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="adm-edit-ec-number">Contact Number</label>
+            <input id="adm-edit-ec-number" class="fc" type="tel" placeholder="e.g. 0918 765 4321" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="adm-edit-ec-address">Address</label>
+            <textarea id="adm-edit-ec-address" class="fc" rows="2" maxlength="200" placeholder="House no., street, barangay, city/municipality, province"></textarea>
+          </div>
+        </div>
+        <div class="settings-section-label">Government Contributions</div>
+        <div style="display:grid;gap:12px;margin-bottom:14px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="fg" style="margin:0;">
+              <label for="adm-edit-sss">SSS Number</label>
+              <input id="adm-edit-sss" class="fc" type="text" placeholder="e.g. 12-3456789-0" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="adm-edit-philhealth">PhilHealth Number</label>
+              <input id="adm-edit-philhealth" class="fc" type="text" placeholder="e.g. 12-345678901-2" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="adm-edit-pagibig">Pag-IBIG Number</label>
+              <input id="adm-edit-pagibig" class="fc" type="text" placeholder="e.g. 1234-5678-9012" />
+            </div>
+            <div class="fg" style="margin:0;">
+              <label for="adm-edit-tin">TIN</label>
+              <input id="adm-edit-tin" class="fc" type="text" placeholder="e.g. 123-456-789-000" />
+            </div>
           </div>
         </div>
         <button class="btn btn-primary" style="width:100%;padding:11px;margin-bottom:6px;" onclick="saveProfileInfo('adm')">Save Information</button>

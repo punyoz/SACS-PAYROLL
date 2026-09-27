@@ -918,9 +918,7 @@ function loadProfilePage() {
   setTxt('ep-sss-number',         ctx.sss_number);
   setTxt('ep-pagibig-number',     ctx.pagibig_number);
   setTxt('ep-philhealth-number',  ctx.philhealth_number);
-  setTxt('ep-tin-number',         ctx.tin_number
-    ? formatDigitGroups(digitsOnly(ctx.tin_number), DIGIT_FIELD_SPECS.tin_number.groups)
-    : '');
+  setTxt('ep-tin-number',         formatPiiForDisplay(ctx.tin_number, DIGIT_FIELD_SPECS.tin_number.groups));
   setTxt('ep-bank-name',     ctx.bank_name);
   setTxt('ep-bank-account',  ctx.bank_account_number);
   if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('ep-ec');

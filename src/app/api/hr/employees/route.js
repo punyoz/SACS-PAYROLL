@@ -12,6 +12,7 @@ import {
   validateEmergencyContactUpdate,
 } from "@/lib/employees/emergency-contact";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { PII_FIELDS, fetchProfilesPii, withoutPiiMetadata } from "@/lib/employees/pii";
 
 function toTitleCaseWords(value) {
   const normalized = normalizeText(value).toLowerCase();
@@ -71,12 +72,9 @@ function shapeEmployee(user, profile) {
     // see supabase/migrations/20260914010000_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
     address: normalizeText(profile?.address, normalizeText(meta.address, "")),
-    sss_number: normalizeText(profile?.sss_number, normalizeText(meta.sss_number, "")),
-    pagibig_number: normalizeText(profile?.pagibig_number, normalizeText(meta.pagibig_number, "")),
-    philhealth_number: normalizeText(profile?.philhealth_number, normalizeText(meta.philhealth_number, "")),
-    tin_number: normalizeText(meta.tin_number, ""),
+    // Government IDs and bank account are filled in by GET from the
+    // encrypted columns (src/lib/employees/pii.js).
     bank_name: normalizeText(profile?.bank_name, normalizeText(meta.bank_name, "")),
-    bank_account_number: normalizeText(profile?.bank_account_number, normalizeText(meta.bank_account_number, "")),
     cp_number: normalizeText(profile?.cp_number, normalizeText(meta.cp_number, "")),
     date_hired: normalizeText(profile?.date_hired, normalizeText(meta.date_hired, "")),
     branch_id: profile?.branch_id || meta.branch_id || null,
@@ -107,7 +105,7 @@ export async function GET(request) {
     if (userIds.length) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,sss_number,pagibig_number,philhealth_number,bank_name,bank_account_number")
+        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,bank_name")
         .in("id", userIds);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
     }
@@ -121,6 +119,16 @@ export async function GET(request) {
     // HR reaches every branch here (SCOPE_ALL); anyone branch-scoped is filtered.
     employees = scopeListToBranch(employees, guard, (e) => e.branch_id);
     employees.sort((a, b) => a.full_name.localeCompare(b.full_name));
+
+    // HR's Edit Employee form needs the full numbers. Decrypted only for the
+    // rows this caller may see, after the branch filter above.
+    const pii = await fetchProfilesPii(supabase, employees.map((e) => e.id));
+    employees = employees.map((e) => {
+      const values = pii.get(e.id) || {};
+      const filled = { ...e };
+      for (const field of PII_FIELDS) filled[field] = values[field] || "";
+      return filled;
+    });
 
     return NextResponse.json({ employees, total: employees.length });
   } catch (error) {
@@ -191,8 +199,10 @@ export async function PATCH(request) {
     const parts = nameParts(record);
     const fullName = composeFullName(parts);
 
+    // Government IDs and the bank account number go to profiles only, where
+    // they are encrypted; any old copy in metadata is dropped.
     const updatedMeta = {
-      ...currentMeta,
+      ...withoutPiiMetadata(currentMeta),
       full_name: fullName,
       date_of_birth: record.date_of_birth,
       sex: record.sex,
@@ -206,12 +216,7 @@ export async function PATCH(request) {
       address: record.address,
       cp_number: record.cp_number,
       date_hired: record.date_hired,
-      sss_number: record.sss_number,
-      philhealth_number: record.philhealth_number,
-      pagibig_number: record.pagibig_number,
-      tin_number: record.tin_number,
       bank_name: record.bank_name,
-      bank_account_number: record.bank_account_number,
     };
 
     const updatePayload = { user_metadata: updatedMeta };
@@ -243,6 +248,7 @@ export async function PATCH(request) {
         sss_number: record.sss_number,
         pagibig_number: record.pagibig_number,
         philhealth_number: record.philhealth_number,
+        tin_number: record.tin_number,
         bank_name: record.bank_name,
         bank_account_number: record.bank_account_number,
         ...emergencyContactColumns(emergencyContact),

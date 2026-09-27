@@ -102,6 +102,8 @@ const config = [
         escapeJsArg: "readonly",
         auditActorCell: "readonly",
         loadOwnEmergencyContact: "readonly",
+        renderOwnContactAndGovIds: "readonly",
+        formatPiiForDisplay: "readonly",
         setFormattedDigitValue: "readonly",
         localDateKey: "readonly",
         formatHours: "readonly",

@@ -1688,6 +1688,7 @@ function loadAccountantProfile() {
   setTxt('ac-ep-info-email',  ctx.email);
   setTxt('ac-ep-bank-name',   ctx.bank_name);
   setTxt('ac-ep-bank-account',ctx.bank_account_number);
+  if (typeof renderOwnContactAndGovIds === 'function') renderOwnContactAndGovIds('ac-ep', ctx);
   if (typeof loadOwnEmergencyContact === 'function') loadOwnEmergencyContact('ac-ep-ec');
 }
 

@@ -15,14 +15,19 @@ const RESOLVED = {
     cp_number: "0917-000-0000",
     date_hired: "2020-01-01",
     address: "Cebu City",
-    sss_number: "01-2345678-9",
-    pagibig_number: "1234-5678-9012",
-    philhealth_number: "12-345678901-2",
+    // Only the last four digits are selected; the full numbers are encrypted
+    // (src/lib/employees/pii.js).
+    sss_number_last4: "6789",
+    pagibig_number_last4: "9012",
+    philhealth_number_last4: "9012",
+    tin_number_last4: "6789",
     bank_name: "BDO",
-    bank_account_number: "001234567890",
+    bank_account_number_last4: "7890",
   },
   metadata: {
-    tin_number: "123-456-789",
+    // A leftover copy in metadata must never reach the payload.
+    sss_number: "0123456789",
+    tin_number: "123456789",
     sex: "female",
     civil_status: "single",
     employment_type: "Full-time",
@@ -39,15 +44,20 @@ const RESOLVED = {
 };
 
 describe("buildProfilePayload", () => {
-  it("prefers the profiles table over metadata for the fields profiles owns", () => {
+  it("masks government IDs and the bank account number to their last four digits", () => {
     const payload = buildProfilePayload(RESOLVED, false);
-    expect(payload.bank_account_number).toBe("001234567890");
-    expect(payload.sss_number).toBe("01-2345678-9");
+    expect(payload.bank_account_number).toBe("••••7890");
+    expect(payload.sss_number).toBe("••••6789");
+    expect(payload.pagibig_number).toBe("••••9012");
+    expect(payload.philhealth_number).toBe("••••9012");
+    expect(payload.tin_number).toBe("••••6789");
+    expect(payload.bank_name).toBe("BDO");
   });
 
-  it("falls back to metadata-only fields for what profiles does not carry", () => {
+  it("never carries a full number from metadata, and falls back to it for other fields", () => {
     const payload = buildProfilePayload(RESOLVED, false);
-    expect(payload.tin_number).toBe("123-456-789");
+    expect(JSON.stringify(payload)).not.toContain("0123456789");
+    expect(JSON.stringify(payload)).not.toContain("123456789");
     expect(payload.sex).toBe("female");
   });
 

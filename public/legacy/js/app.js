@@ -486,6 +486,37 @@ function loadOwnEmergencyContact(prefix) {
     .catch(() => {});
 }
 
+/* ── CONTACT + GOVERNMENT NUMBERS (Profile page, read-only) ── */
+// Fills `${prefix}-info-cpnumber`, `-info-address`, `-sss-number`,
+// `-philhealth-number`, `-pagibig-number` and `-tin-number` from the sign-in
+// context, formatted as the Employee portal's Profile page shows them.
+function renderOwnContactAndGovIds(prefix, ctx) {
+  const set = (suffix, value) => {
+    const el = document.getElementById(`${prefix}-${suffix}`);
+    if (el) el.textContent = value || '—';
+  };
+  const cp = digitsOnly(ctx?.cp_number);
+  set('info-cpnumber', cp ? formatDigitGroups(cp, DIGIT_FIELD_SPECS.cp_number.groups, DIGIT_FIELD_SPECS.cp_number.separator) : '');
+  set('info-address', ctx?.address);
+  set('sss-number', ctx?.sss_number);
+  set('philhealth-number', ctx?.philhealth_number);
+  set('pagibig-number', ctx?.pagibig_number);
+  set('tin-number', formatPiiForDisplay(ctx?.tin_number, DIGIT_FIELD_SPECS.tin_number.groups));
+}
+
+// Government IDs and bank account numbers reach the browser masked
+// ("••••1234", src/lib/employees/pii.js) everywhere except HR's Edit Employee.
+// A masked value is shown as it is; only a full number is dash-grouped.
+function isMaskedPii(value) {
+  return String(value || '').includes('•');
+}
+
+function formatPiiForDisplay(value, groups) {
+  if (isMaskedPii(value)) return String(value);
+  const digits = digitsOnly(value);
+  return digits ? formatDigitGroups(digits, groups) : '';
+}
+
 /* ── STAFF ID (Profile page, read-only) ── */
 // Super Admin / Admin / HR carry a STAFF-### ID instead of an employee ID.
 // Shown from the sign-in context, then refreshed from
@@ -555,17 +586,85 @@ function populateSettingsModalProfile(prefix) {
       .catch(() => {});
   }
 
-  // Only the employee portal's settings modal has an address/contact-number
-  // field — other roles' own profiles don't display or edit these.
-  setVal(`${prefix}-edit-address`,     ctx.address);
-  setVal(`${prefix}-edit-bankname`,    ctx.bank_name);
-  setVal(`${prefix}-edit-bankaccount`, ctx.bank_account_number);
+  // Contact, emergency contact, government numbers and bank: filled from the
+  // sign-in context first, then from GET /api/legacy-auth/update-profile so a
+  // change HR made since sign-in shows. A box the person has already typed in
+  // is left alone when the fresh values arrive.
+  EDIT_ACCOUNT_FIELDS.forEach(({ id, spec }) => {
+    const input = document.getElementById(`${prefix}-edit-${id}`);
+    if (!input) return;
+    delete input.dataset.touched;
+    if (!input.dataset.touchBound) {
+      input.dataset.touchBound = '1';
+      input.addEventListener('input', () => { input.dataset.touched = '1'; });
+      input.addEventListener('change', () => { input.dataset.touched = '1'; });
+      // A masked number ("••••1234") clears when the box is entered so a new
+      // one can be typed, and comes back if the box is left empty.
+      input.addEventListener('focus', () => {
+        if (!input.readOnly && input.dataset.masked && input.value === input.dataset.masked) input.value = '';
+      });
+      input.addEventListener('blur', () => {
+        if (input.dataset.masked && !input.value) input.value = input.dataset.masked;
+      });
+    }
+    if (spec) bindDigitInput(input, DIGIT_FIELD_SPECS[spec]);
+  });
+  fillEditAccountFields(prefix, ctx);
 
-  const cpInput = document.getElementById(`${prefix}-edit-cpnumber`);
-  if (cpInput) {
-    setFormattedDigitValue(cpInput, ctx.cp_number, DIGIT_FIELD_SPECS.cp_number.groups, DIGIT_FIELD_SPECS.cp_number.separator);
-    bindDigitInput(cpInput, DIGIT_FIELD_SPECS.cp_number);
-  }
+  fetch('/api/legacy-auth/update-profile', { method: 'GET', cache: 'no-store' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      const stored = data?.profile;
+      if (!stored) return;
+      fillEditAccountFields(prefix, stored, true);
+      const latest = getAuthContext();
+      if (!latest) return;
+      const next = { ...latest };
+      EDIT_ACCOUNT_FIELDS.forEach(({ key }) => {
+        if (stored[key] !== undefined) next[key] = stored[key] || '';
+      });
+      localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(next));
+    })
+    .catch(() => {});
+}
+
+// The Edit Account boxes beyond the name: `${prefix}-edit-${id}` holds the
+// profile field `key`; `spec` names its DIGIT_FIELD_SPECS input mask.
+// Government numbers and bank details are read-only (the `readonly`
+// attribute in the page markup) on the Employee and Accountant portals, where
+// HR sets them; saveProfileInfo() leaves read-only boxes out of the request.
+const EDIT_ACCOUNT_FIELDS = [
+  { id: 'cpnumber',        key: 'cp_number',                      spec: 'cp_number' },
+  { id: 'address',         key: 'address' },
+  { id: 'ec-name',         key: 'emergency_contact_name' },
+  { id: 'ec-relationship', key: 'emergency_contact_relationship' },
+  { id: 'ec-number',       key: 'emergency_contact_number',       spec: 'emergency_contact_number' },
+  { id: 'ec-address',      key: 'emergency_contact_address' },
+  { id: 'sss',             key: 'sss_number',                     spec: 'sss_number' },
+  { id: 'philhealth',      key: 'philhealth_number',              spec: 'philhealth_number' },
+  { id: 'pagibig',         key: 'pagibig_number',                 spec: 'pagibig_number' },
+  { id: 'tin',             key: 'tin_number',                     spec: 'tin_number' },
+  { id: 'bankname',        key: 'bank_name' },
+  { id: 'bankaccount',     key: 'bank_account_number',            spec: 'bank_account_number' },
+];
+
+function fillEditAccountFields(prefix, source, skipTouched = false) {
+  EDIT_ACCOUNT_FIELDS.forEach(({ id, key, spec }) => {
+    const input = document.getElementById(`${prefix}-edit-${id}`);
+    if (!input || source[key] === undefined) return;
+    if (skipTouched && input.dataset.touched) return;
+    if (isMaskedPii(source[key])) {
+      input.value = source[key];
+      input.dataset.masked = source[key];
+    } else if (spec) {
+      delete input.dataset.masked;
+      const { groups, separator } = DIGIT_FIELD_SPECS[spec];
+      setFormattedDigitValue(input, source[key], groups, separator);
+    } else {
+      delete input.dataset.masked;
+      input.value = source[key] || '';
+    }
+  });
 }
 
 async function saveProfileInfo(prefix) {
@@ -582,22 +681,17 @@ async function saveProfileInfo(prefix) {
   const middle_name = String(document.getElementById(`${prefix}-edit-middlename`)?.value || '').trim();
   const last_name   = String(document.getElementById(`${prefix}-edit-lastname`)?.value   || '').trim();
   const suffix      = String(document.getElementById(`${prefix}-edit-suffix`)?.value     || '').trim();
-  // Bank fields are only on some portals' forms (not Employee / Accountant);
-  // when absent they are left out of the payload so nothing on file is wiped.
-  const bankNameEl = document.getElementById(`${prefix}-edit-bankname`);
-  const bankAccountEl = document.getElementById(`${prefix}-edit-bankaccount`);
-  const bank_name = bankNameEl ? String(bankNameEl.value || '').trim() : undefined;
-  const bank_account_number = bankAccountEl ? String(bankAccountEl.value || '').trim() : undefined;
-  // Address is only present in the employee portal's modal — other roles
-  // have no such field, so leave it out of their payload entirely rather
-  // than sending an empty string that would wipe out any address already
-  // on file for that account.
-  const addressEl = document.getElementById(`${prefix}-edit-address`);
-  const address = addressEl ? String(addressEl.value || '').trim() : undefined;
-
-  // Same story as address: only the employee portal's modal has this field.
-  const cpNumberEl = document.getElementById(`${prefix}-edit-cpnumber`);
-  const cp_number = cpNumberEl ? digitsOnly(cpNumberEl.value) : undefined;
+  // A box missing from this portal's dialog, or read-only on it (government
+  // numbers and bank on Employee / Accountant), is left out of the payload so
+  // nothing on file is wiped.
+  const extra = {};
+  EDIT_ACCOUNT_FIELDS.forEach(({ id, key, spec }) => {
+    const input = document.getElementById(`${prefix}-edit-${id}`);
+    if (!input || input.readOnly) return;
+    // Still showing the stored number's mask: unchanged, so not sent.
+    if (input.dataset.masked && input.value === input.dataset.masked) return;
+    extra[key] = spec ? digitsOnly(input.value) : String(input.value || '').trim();
+  });
 
   if (!first_name || !last_name) {
     if (feedbackEl) { feedbackEl.textContent = 'First and last name are required.'; feedbackEl.className = 'adm-feedback err'; }
@@ -623,11 +717,7 @@ async function saveProfileInfo(prefix) {
   if (feedbackEl) { feedbackEl.textContent = 'Saving...'; feedbackEl.className = 'adm-feedback loading'; }
 
   try {
-    const payload = { email, full_name, first_name, middle_name, last_name, suffix };
-    if (bank_name !== undefined) payload.bank_name = bank_name;
-    if (bank_account_number !== undefined) payload.bank_account_number = bank_account_number;
-    if (address !== undefined) payload.address = address;
-    if (cp_number !== undefined) payload.cp_number = cp_number;
+    const payload = { email, full_name, first_name, middle_name, last_name, suffix, ...extra };
 
     const response = await fetch('/api/legacy-auth/update-profile', {
       method: 'POST',
@@ -648,13 +738,15 @@ async function saveProfileInfo(prefix) {
       middle_name: savedProfile.middle_name ?? middle_name,
       last_name: savedProfile.last_name ?? last_name,
       suffix: savedProfile.suffix ?? suffix,
-      bank_name: savedProfile.bank_name ?? bank_name ?? ctx.bank_name,
-      bank_account_number: savedProfile.bank_account_number ?? bank_account_number ?? ctx.bank_account_number,
     };
-    if (address !== undefined) updatedCtx.address = savedProfile.address ?? address;
-    if (cp_number !== undefined) updatedCtx.cp_number = savedProfile.cp_number ?? cp_number;
+    EDIT_ACCOUNT_FIELDS.forEach(({ key }) => {
+      if (savedProfile[key] !== undefined) updatedCtx[key] = savedProfile[key] || '';
+    });
     localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(updatedCtx));
     dispatchAuthContextChanged(updatedCtx);
+    // Redraw the Profile page behind the dialog with what was just saved.
+    const profileLoader = { emp: 'loadProfilePage', ac: 'loadAccountantProfile', hr: 'loadHRProfile', adm: 'loadAdminProfile' }[prefix];
+    if (profileLoader && typeof window[profileLoader] === 'function') window[profileLoader]();
 
     if (feedbackEl) { feedbackEl.textContent = 'Profile updated successfully.'; feedbackEl.className = 'adm-feedback ok'; }
     pushNotification('Profile Updated', 'Your information has been saved.', 'success');
