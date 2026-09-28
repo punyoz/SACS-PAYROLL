@@ -1146,13 +1146,21 @@ async function submitSARate(event) {
     ? document.getElementById('sa-rate-ref-text').value.trim()
     : (scope === 'global' ? '' : document.getElementById('sa-rate-ref').value);
 
-  const fail = (message) => { feedback.textContent = message; feedback.className = 'adm-feedback err'; };
-  if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return fail('Enter a value of 0 or more.');
-  if (rate?.unit === 'percent' && Number(value) > 100) return fail('A percentage cannot be more than 100.');
-  if (rate?.unit === 'count' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a whole number from 0 to 31.');
-  if (rate?.unit === 'days' && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 366)) return fail('Enter a whole number of days from 1 to 366.');
-  if (!effectiveDate) return fail('Choose the date the new value takes effect.');
-  if (scope !== 'global' && !scopeRef) return fail('Choose who this rate applies to.');
+  const fail = (message, fieldId) => {
+    feedback.textContent = message;
+    feedback.className = 'adm-feedback err';
+    if (fieldId) {
+      showFieldError(fieldId, message);
+      document.getElementById(fieldId)?.focus();
+    }
+  };
+  const refField = scope === 'position' ? 'sa-rate-ref-text' : 'sa-rate-ref';
+  if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return fail('Enter a value of 0 or more.', 'sa-rate-value');
+  if (rate?.unit === 'percent' && Number(value) > 100) return fail('A percentage cannot be more than 100.', 'sa-rate-value');
+  if (rate?.unit === 'count' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a whole number from 0 to 31.', 'sa-rate-value');
+  if (rate?.unit === 'days' && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 366)) return fail('Enter a whole number of days from 1 to 366.', 'sa-rate-value');
+  if (!effectiveDate) return fail('Choose the date the new value takes effect.', 'sa-rate-effective');
+  if (scope !== 'global' && !scopeRef) return fail('Choose who this rate applies to.', refField);
 
   const confirmed = window.confirmApproveAction
     ? await window.confirmApproveAction(
@@ -1279,17 +1287,23 @@ async function saveSAConfig(section) {
     label = `${label} for ${branchName}`;
   }
 
-  const confirmed = window.confirmApproveAction
-    ? await window.confirmApproveAction(`save the ${label} changes`, 'This will apply system-wide immediately.', { title: 'Confirm Save', confirmLabel: 'Save' })
-    : window.confirm(`Save ${label} changes?`);
-  if (!confirmed) return;
-
   const fieldMap = {
     general:    { org_name: 'cfg-org-name', timezone: 'cfg-timezone', date_format: 'cfg-date-format', currency: 'cfg-currency' },
     attendance: { work_start: 'cfg-work-start', work_end: 'cfg-work-end', grace: 'cfg-grace', work_hours: 'cfg-work-hours' },
     payroll:    { pay_freq: 'cfg-pay-freq', sss: 'cfg-sss', philhealth: 'cfg-philhealth', pagibig: 'cfg-pagibig' },
     security:   { session: 'cfg-session', login_attempts: 'cfg-login-attempts', pw_min: 'cfg-pw-min', pw_expiry: 'cfg-pw-expiry' },
   };
+
+  // Every setting needs a value; a blank one is named under its field.
+  if (!requireFields(Object.values(fieldMap[section] || {}))) {
+    if (fb) { fb.textContent = 'Fill in the highlighted settings.'; fb.style.color = 'var(--red)'; }
+    return;
+  }
+
+  const confirmed = window.confirmApproveAction
+    ? await window.confirmApproveAction(`save the ${label} changes`, 'This will apply system-wide immediately.', { title: 'Confirm Save', confirmLabel: 'Save' })
+    : window.confirm(`Save ${label} changes?`);
+  if (!confirmed) return;
 
   const fields = fieldMap[section] || {};
   const values = {};
@@ -2213,6 +2227,7 @@ async function submitSARfidAttendanceScan() {
   const rfidCode = String(input.value || '').trim();
   if (!rfidCode) {
     showSARfidFeedback('Enter RFID or employee ID first.', true);
+    showFieldError(input, 'Enter RFID or employee ID.');
     return;
   }
 
@@ -2567,12 +2582,11 @@ function refreshSAStaffFormRules(form, submitBtn) {
     if (error) error.textContent = show ? message : (control.dataset.blockedNote || '');
   });
 
-  // The Edit dialog keeps Save clickable: a disabled button looks the same as
-  // an enabled one in this theme, so a click that did nothing read as "Save
-  // is broken". submitSAAdminUser() re-checks and names what to fix.
-  if (submitBtn && submitBtn.dataset.busy !== '1') {
-    submitBtn.disabled = form.id === 'sa-admin-user-form' ? false : !valid;
-  }
+  // Save stays clickable: a disabled button looks the same as an enabled one
+  // in this theme, so a click that did nothing read as "Save is broken".
+  // submitSAAdminUser() / submitSAStaffAccount() re-check, mark every field
+  // that is missing or wrong in red, and say what to fix.
+  if (submitBtn && submitBtn.dataset.busy !== '1') submitBtn.disabled = false;
   return valid;
 }
 

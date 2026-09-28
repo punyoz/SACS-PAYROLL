@@ -478,6 +478,7 @@ async function submitRfidAttendanceScan() {
   const rfidCode = String(input.value || '').trim();
   if (!rfidCode) {
     showRfidFeedback('Enter RFID or employee ID first.', true);
+    showFieldError(input, 'Enter RFID or employee ID.');
     return;
   }
 

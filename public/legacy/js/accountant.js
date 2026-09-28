@@ -586,11 +586,13 @@ function getSelectedEmployee() {
 function buildSubmissionPayload(action) {
   const employee = getSelectedEmployee();
   if (!employee) {
+    showFieldError('pc-employee', 'Select an employee.');
     throw new Error('Select an employee first.');
   }
 
   const payPeriod = String(document.getElementById('pc-period')?.value || '').trim();
   if (!payPeriod) {
+    showFieldError('pc-period', 'Select a pay period.');
     throw new Error('Select a pay period first.');
   }
 
@@ -624,6 +626,9 @@ async function upsertPayrollEntry(action) {
   if (!response.ok) {
     const err = new Error(result.error || 'Failed to save payroll entry.');
     err.status = response.status;
+    if (result.code === 'override_reason_required') {
+      showFieldError('pc-override-reason', 'Give a reason for the values changed from the computed defaults.');
+    }
     throw err;
   }
 
@@ -1409,6 +1414,7 @@ async function processBatchPayroll() {
 
   if (!payPeriod) {
     if (feedbackEl) { feedbackEl.textContent = 'Select a pay period first.'; feedbackEl.className = 'adm-feedback err'; }
+    showFieldError('pc-batch-period');
     return;
   }
 
@@ -1433,6 +1439,7 @@ async function processBatchPayroll() {
   const changed = rows.some((row) => batchRowDeviations(row.getAttribute('data-employee-id')).length);
   if (changed && !overrideReason) {
     if (feedbackEl) { feedbackEl.textContent = 'Give a reason for the values changed from the computed defaults (highlighted).'; feedbackEl.className = 'adm-feedback err'; }
+    showFieldError('pc-batch-reason', 'Give a reason for the changed values.');
     document.getElementById('pc-batch-reason')?.focus();
     return;
   }

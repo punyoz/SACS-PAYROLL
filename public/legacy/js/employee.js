@@ -492,13 +492,19 @@ async function submitLeaveRequest() {
   const reason = String(document.getElementById('emp-leave-reason')?.value || '').trim();
   const proofFile = document.getElementById('emp-leave-proof')?.files?.[0];
 
-  if (!leaveType || !startDate || !endDate || !reason) {
-    showLeaveFeedback('Leave type, date range, and reason are required.', true);
+  if (!requireFields([
+    { field: 'emp-leave-type', label: 'Leave type' },
+    { field: 'emp-leave-start', label: 'Start date' },
+    { field: 'emp-leave-end', label: 'End date' },
+    { field: 'emp-leave-reason', label: 'Reason' },
+  ])) {
+    showLeaveFeedback('Please fill in the highlighted fields.', true);
     return;
   }
 
   if (startDate > endDate) {
     showLeaveFeedback('Start date must not be after end date.', true);
+    showFieldError('emp-leave-end', 'End date must be on or after the start date.');
     return;
   }
 
@@ -859,12 +865,16 @@ async function generateTimesheet() {
   const endDate   = String(document.getElementById('ts-end-date')?.value   || '').trim();
   const tbody     = document.getElementById('ts-tbody');
 
-  if (!startDate || !endDate) {
+  if (!requireFields([
+    { field: 'ts-start-date', label: 'Start date' },
+    { field: 'ts-end-date', label: 'End date' },
+  ])) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">Please select both start and end dates.</td></tr>';
     return;
   }
   if (startDate > endDate) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:16px;color:var(--red);font-size:12px;">Start date must not be after end date.</td></tr>';
+    showFieldError('ts-end-date', 'End date must be on or after the start date.');
     return;
   }
   if (tbody) tbody.innerHTML = skeletonRows(12, 5);

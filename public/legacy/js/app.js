@@ -114,6 +114,109 @@ function debounce(fn, wait = 250) {
   };
 }
 
+/* ── FIELD MESSAGES ──
+   One way, in every portal, to say which field is missing or wrong: a red
+   outline, a red message under the field (the .field-error style the HR and
+   Super Admin forms already use) and focus on the first one. The message
+   clears as soon as the field is edited.
+   A field inside a field box (.fg in the portals, .fl on the sign-in page,
+   .ts-step on the timesheet) gets its message under it. A field sitting in a
+   toolbar row has no box; it gets the outline only, and the caller shows the
+   message in that section's feedback line, so no row changes shape. */
+const FIELD_BOX_SELECTOR = '.fg, .fl, .ts-step';
+
+function resolveField(field) {
+  return typeof field === 'string' ? document.getElementById(field) : field || null;
+}
+
+function fieldMessageSlot(input, create) {
+  const box = input.closest(FIELD_BOX_SELECTOR);
+  if (!box) return null;
+  let slot = box.querySelector(':scope > .field-error');
+  if (!slot && create) {
+    slot = document.createElement('span');
+    slot.className = 'field-error';
+    slot.setAttribute('aria-live', 'polite');
+    box.appendChild(slot);
+  }
+  return slot;
+}
+
+/** The field's own label, for "<label> is required." */
+function fieldLabel(input) {
+  const label = input.id ? document.querySelector(`label[for="${input.id}"]`) : null;
+  const text = String(label?.textContent || input.getAttribute('aria-label') || input.placeholder || 'This field')
+    .replace(/\*/g, '')
+    .replace(/\(optional\)/i, '')
+    .replace(/:\s*$/, '')
+    .trim();
+  return text || 'This field';
+}
+
+function clearFieldError(field) {
+  const input = resolveField(field);
+  if (!input) return;
+  input.classList.remove('field-invalid');
+  input.removeAttribute('aria-invalid');
+  const slot = fieldMessageSlot(input, false);
+  if (slot) slot.textContent = '';
+}
+
+function showFieldError(field, message) {
+  const input = resolveField(field);
+  if (!input) return;
+  input.classList.add('field-invalid');
+  input.setAttribute('aria-invalid', 'true');
+  const slot = fieldMessageSlot(input, true);
+  if (slot) slot.textContent = message || `${fieldLabel(input)} is required.`;
+  if (!input.dataset.fieldMessageBound) {
+    input.dataset.fieldMessageBound = '1';
+    const clear = () => clearFieldError(input);
+    input.addEventListener('input', clear);
+    input.addEventListener('change', clear);
+  }
+}
+
+/**
+ * Check fields before sending. Each entry is a field (element or id), or
+ * { field, label, check }: `check(value, input)` returns a message, or ''
+ * when the value is fine; without it the field only has to be filled in.
+ * Marks every failing field, focuses the first, and returns true only when
+ * all of them pass.
+ */
+function requireFields(entries) {
+  let first = null;
+  entries.forEach((entry) => {
+    const spec = typeof entry === 'string' || entry instanceof Element ? { field: entry } : entry;
+    const input = resolveField(spec.field);
+    if (!input) return;
+    const value = input.type === 'file' ? (input.files?.length ? input.files[0].name : '') : String(input.value || '').trim();
+    const message = spec.check
+      ? spec.check(value, input)
+      : (value ? '' : `${spec.label || fieldLabel(input)} is required.`);
+    if (message) {
+      showFieldError(input, message);
+      if (!first) first = input;
+    } else {
+      clearFieldError(input);
+    }
+  });
+  if (first) {
+    first.focus({ preventScroll: true });
+    first.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }
+  return !first;
+}
+
+// Forms that use the browser's own checks (required, min, pattern) get the
+// same red message under the field as everything else.
+document.addEventListener('invalid', (event) => {
+  const input = event.target;
+  if (input instanceof HTMLElement && input.matches('input, select, textarea')) {
+    showFieldError(input, input.validity?.valueMissing ? `${fieldLabel(input)} is required.` : input.validationMessage);
+  }
+}, true);
+
 /**
  * Today's date as YYYY-MM-DD in Asia/Manila — the same calendar the API uses
  * (every route's getDateKey()). new Date().toISOString().slice(0, 10) is the
@@ -693,20 +796,17 @@ async function saveProfileInfo(prefix) {
     extra[key] = spec ? digitsOnly(input.value) : String(input.value || '').trim();
   });
 
-  if (!first_name || !last_name) {
-    if (feedbackEl) { feedbackEl.textContent = 'First and last name are required.'; feedbackEl.className = 'adm-feedback err'; }
-    return;
-  }
-  if (!/^[A-Za-z\s]+$/.test(first_name)) {
-    if (feedbackEl) { feedbackEl.textContent = 'First name must contain only letters.'; feedbackEl.className = 'adm-feedback err'; }
-    return;
-  }
-  if (!/^[A-Za-z\s]+$/.test(last_name)) {
-    if (feedbackEl) { feedbackEl.textContent = 'Last name must contain only letters.'; feedbackEl.className = 'adm-feedback err'; }
-    return;
-  }
-  if (middle_name && !/^[A-Za-z\s]+$/.test(middle_name)) {
-    if (feedbackEl) { feedbackEl.textContent = 'Middle name must contain only letters.'; feedbackEl.className = 'adm-feedback err'; }
+  // Same rules and wording as before, now also shown under each field.
+  const namePart = (label, required) => (value) => {
+    if (!value) return required ? `${label} is required.` : '';
+    return /^[A-Za-z\s]+$/.test(value) ? '' : `${label} must contain only letters.`;
+  };
+  if (!requireFields([
+    { field: `${prefix}-edit-firstname`, check: namePart('First name', true) },
+    { field: `${prefix}-edit-middlename`, check: namePart('Middle name', false) },
+    { field: `${prefix}-edit-lastname`, check: namePart('Last name', true) },
+  ])) {
+    if (feedbackEl) { feedbackEl.textContent = 'Please correct the highlighted fields.'; feedbackEl.className = 'adm-feedback err'; }
     return;
   }
 
@@ -1658,6 +1758,7 @@ async function sendResetOtp() {
   const identity = String(els.identity?.value || '').trim();
   if (!identity) {
     showResetFeedback('Enter your Employee ID or email address.', false);
+    showFieldError(els.identity, 'Enter your Employee ID or email address.');
     return;
   }
 
@@ -1702,6 +1803,7 @@ async function verifyResetOtp() {
   const code = String(els.otp?.value || '').trim();
   if (!/^\d{8}$/.test(code)) {
     showResetFeedback('Enter the 8-digit OTP from your email.', false);
+    showFieldError(els.otp, 'Enter the 8-digit OTP from your email.');
     return;
   }
 
@@ -1733,13 +1835,19 @@ async function completeResetPassword() {
   const password = String(els.next?.value || '').trim();
   const confirm = String(els.confirm?.value || '').trim();
   const rules = refreshResetRules();
+  // The message goes under the field it is about, as well as in the dialog.
+  const fail = (message, input) => { showResetFeedback(message, false); showFieldError(input, message); };
 
-  if (!rules.length) { showResetFeedback(`New password must be ${PASSWORD_MIN_LENGTH}-72 characters.`, false); return; }
-  if (!rules.spaces) { showResetFeedback('New password cannot contain spaces.', false); return; }
-  if (!rules.mix) { showResetFeedback('New password must contain both letters and numbers.', false); return; }
-  if (!rules.upper) { showResetFeedback('New password must contain at least one uppercase letter.', false); return; }
-  if (!rules.symbol) { showResetFeedback('New password must contain at least one symbol (e.g. ! @ # $).', false); return; }
-  if (!rules.match) { showResetFeedback('Passwords do not match.', false); return; }
+  if (!requireFields([
+    { field: els.next, label: 'New password' },
+    { field: els.confirm, label: 'Confirm password' },
+  ])) { showResetFeedback('Fill in both password fields.', false); return; }
+  if (!rules.length) { fail(`New password must be ${PASSWORD_MIN_LENGTH}-72 characters.`, els.next); return; }
+  if (!rules.spaces) { fail('New password cannot contain spaces.', els.next); return; }
+  if (!rules.mix) { fail('New password must contain both letters and numbers.', els.next); return; }
+  if (!rules.upper) { fail('New password must contain at least one uppercase letter.', els.next); return; }
+  if (!rules.symbol) { fail('New password must contain at least one symbol (e.g. ! @ # $).', els.next); return; }
+  if (!rules.match) { fail('Passwords do not match.', els.confirm); return; }
 
   resetRequestInFlight = true;
   if (els.submit) { els.submit.disabled = true; els.submit.textContent = 'Resetting...'; }
@@ -1807,10 +1915,10 @@ async function login() {
   const usernameInput = document.getElementById('login-identity-input')?.value?.trim();
   const password = document.getElementById('login-password-input')?.value?.trim();
 
-  if (!usernameInput || !password) {
-    window.alert(`Enter your username or email and password to sign in.`);
-    return;
-  }
+  if (!requireFields([
+    { field: 'login-identity-input', label: 'Username or email' },
+    { field: 'login-password-input', label: 'Password' },
+  ])) return;
 
   const button = document.querySelector('#s-login .lb');
   const buttonLabel = button?.textContent;
@@ -1904,6 +2012,7 @@ async function verifyLoginOtp() {
   const code = document.getElementById('votp-code-input')?.value?.trim();
   if (!code) {
     showVotpFeedback('Enter the code from your email.', false);
+    showFieldError('votp-code-input', 'Enter the code from your email.');
     return;
   }
 
@@ -2710,6 +2819,7 @@ async function advancePasswordChangeFlow(flow) {
     const currentPassword = flow.current.value.trim();
     if (!currentPassword) {
       flow.report('Enter your current password.', 'err');
+      showFieldError(flow.current, 'Enter your current password.');
       flow.current.focus();
       return;
     }
@@ -2745,6 +2855,7 @@ async function advancePasswordChangeFlow(flow) {
     const code = flow.otp.value.trim();
     if (!/^\d{8}$/.test(code)) {
       flow.report('Enter the 8-digit OTP from your email.', 'err');
+      showFieldError(flow.otp, 'Enter the 8-digit OTP from your email.');
       flow.otp.focus();
       return;
     }
@@ -2890,6 +3001,15 @@ async function submitAccountPasswordChange(prefix, ids = {}) {
     feedback.style.color = '';
   };
 
+  if (!requireFields([
+    { field: currentId, label: 'Current password' },
+    { field: newId, label: 'New password' },
+    { field: confirmId, label: 'Confirm password' },
+  ])) {
+    show('Fill in the highlighted fields.', 'err');
+    return;
+  }
+
   show('Updating password...', 'loading');
   if (submitButton) submitButton.disabled = true;
   let result;
@@ -2905,6 +3025,10 @@ async function submitAccountPasswordChange(prefix, ids = {}) {
 
   if (!result.ok) {
     show(result.message, 'err');
+    // Point at the field the message is about.
+    if (/do not match/i.test(result.message)) showFieldError(confirmId, result.message);
+    else if (/^new password/i.test(result.message)) showFieldError(newId, result.message);
+    else if (/current password/i.test(result.message)) showFieldError(currentId, result.message);
     if (flow && PASSWORD_CHANGE_RESTART_CODES.includes(result.code)) setPasswordChangeStage(flow, 'current');
     return;
   }
@@ -3069,6 +3193,16 @@ function initPasswordChangeScreen() {
       return;
     }
 
+    if (!requireFields([
+      { field: current, label: 'Current password' },
+      { field: next, label: 'New password' },
+      { field: confirm, label: 'Confirm password' },
+    ])) {
+      feedback.textContent = 'Fill in the highlighted fields.';
+      feedback.className = 'cp-feedback err';
+      return;
+    }
+
     submit.disabled = true;
     submit.textContent = 'Updating...';
     feedback.textContent = '';
@@ -3078,6 +3212,9 @@ function initPasswordChangeScreen() {
     if (!result.ok) {
       feedback.textContent = result.message;
       feedback.className = 'cp-feedback err';
+      if (/do not match/i.test(result.message)) showFieldError(confirm, result.message);
+      else if (/^new password/i.test(result.message)) showFieldError(next, result.message);
+      else if (/current password/i.test(result.message)) showFieldError(current, result.message);
       submit.disabled = false;
       submit.textContent = 'Update password & continue';
       if (flow && PASSWORD_CHANGE_RESTART_CODES.includes(result.code)) setPasswordChangeStage(flow, 'current');
@@ -3682,6 +3819,9 @@ function initApp() {
   window.skeletonRows = skeletonRows;
   window.skeletonCards = skeletonCards;
   window.printDocument = printDocument;
+  window.showFieldError = showFieldError;
+  window.clearFieldError = clearFieldError;
+  window.requireFields = requireFields;
   window.submitAccountPasswordChange = submitAccountPasswordChange;
   window.requestPasswordChange = requestPasswordChange;
   window.setMustChangePasswordFlag = setMustChangePasswordFlag;
@@ -4341,6 +4481,17 @@ function attDialogValue(id) {
   return String(document.getElementById(id)?.value || '').trim();
 }
 
+// The server's rules for these dialogs (src/app/api/attendance/corrections),
+// checked first so the field that is missing is the one marked.
+const attReasonCheck = (value) => {
+  if (!value) return 'Reason is required.';
+  return value.length >= 5 ? '' : 'Give a little more detail (at least 5 characters).';
+};
+
+function attRequireFields(entries) {
+  if (!requireFields(entries)) throw new Error('Fill in the highlighted fields.');
+}
+
 function openAttendanceReview(rootId, correctionId) {
   const board = attendanceBoards.get(rootId);
   const correction = board?.corrections.find((c) => String(c.id) === String(correctionId));
@@ -4419,6 +4570,17 @@ function openOvertimeReview(rootId, logId) {
 
 async function submitOvertimeReview(rootId, logId, decision) {
   const minutes = Number(attDialogValue('att-ot-minutes'));
+  if (decision === 'approve') {
+    const max = Number(document.getElementById('att-ot-minutes')?.max) || 0;
+    attRequireFields([{
+      field: 'att-ot-minutes',
+      check: (value) => {
+        if (!value) return 'Minutes to approve is required.';
+        const n = Number(value);
+        return Number.isInteger(n) && n >= 1 && n <= max ? '' : `Enter a whole number from 1 to ${max}.`;
+      },
+    }]);
+  }
   await attFetchJson('/api/attendance/overtime', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -4487,6 +4649,10 @@ function openAttendanceResolve(rootId, logId) {
       label: 'Resolve',
       className: 'btn-primary',
       handler: async () => {
+        attRequireFields([
+          ...(attDialogValue('att-resolve-resolution') === 'time_out' ? [{ field: 'att-resolve-time', label: 'Time out' }] : []),
+          { field: 'att-resolve-note', check: attReasonCheck },
+        ]);
         await attFetchJson('/api/attendance/corrections', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -4533,6 +4699,18 @@ function openAttendanceAbsenceCorrection(rootId, employeeId, logDate) {
       label: 'Save Correction',
       className: 'btn-primary',
       handler: async () => {
+        attRequireFields([
+          { field: 'att-absence-in', label: 'Time in' },
+          {
+            field: 'att-absence-out',
+            check: (value) => {
+              if (!value) return 'Time out is required.';
+              const timeIn = attDialogValue('att-absence-in');
+              return timeIn && value <= timeIn ? 'The time out must be after the time in.' : '';
+            },
+          },
+          { field: 'att-absence-note', check: attReasonCheck },
+        ]);
         await attFetchJson('/api/attendance/corrections', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -4629,6 +4807,10 @@ function openMyCorrectionRequest(logId, rootId) {
       label: 'Submit Request',
       className: 'btn-primary',
       handler: async () => {
+        attRequireFields([
+          { field: 'att-request-time', label: 'Corrected time out' },
+          { field: 'att-request-reason', check: attReasonCheck },
+        ]);
         await attFetchJson('/api/attendance/corrections', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

@@ -98,6 +98,9 @@ const config = [
         ...browserGlobals,
 
         // ── defined in app.js, used by every portal script ──
+        showFieldError: "readonly",
+        clearFieldError: "readonly",
+        requireFields: "readonly",
         escapeHtml: "readonly",
         escapeJsArg: "readonly",
         auditActorCell: "readonly",

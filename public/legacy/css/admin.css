@@ -267,6 +267,7 @@
 }
 
 .fc.field-invalid,
+.fi.field-invalid,
 .adm-modal-form .fc.field-invalid,
 .adm-modal-form select.fc.field-invalid {
   border-color: var(--red);
