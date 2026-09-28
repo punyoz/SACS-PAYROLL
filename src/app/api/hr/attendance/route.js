@@ -32,6 +32,7 @@ export async function GET(request) {
       let query = supabase
         .from("attendance_logs")
         .select("*")
+        .eq("archived_duplicate", false)
         .order("log_date", { ascending: false })
         .order("time_in", { ascending: false })
         .limit(500);
@@ -48,6 +49,7 @@ export async function GET(request) {
         .from("attendance_logs")
         .select("*")
         .eq("log_date", dateParam)
+        .eq("archived_duplicate", false)
         .order("time_in", { ascending: true });
       if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId);
       const { data, error } = await query;
@@ -75,10 +77,11 @@ export async function GET(request) {
     const late = logs.filter((r) => attendanceBucket(r.status) === "late").length;
     const absent = logs.filter((r) => attendanceBucket(r.status) === "absent").length;
     const incomplete = logs.filter((r) => attendanceBucket(r.status) === "unresolved").length;
+    const onLeave = logs.filter((r) => attendanceBucket(r.status) === "leave").length;
 
     return NextResponse.json({
       logs,
-      summary: { present, late, absent, incomplete },
+      summary: { present, late, absent, incomplete, on_leave: onLeave },
       date: dateParam,
       date_label: getDateLabel(new Date(dateParam + "T00:00:00")),
       generated_at: new Date().toISOString(),

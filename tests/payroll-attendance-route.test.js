@@ -277,3 +277,28 @@ describe("Daily rate per branch", () => {
     expect(byName["Cainta Branch"].current).toMatchObject({ value: 500, scope: "global" });
   });
 });
+
+describe("Leave days in payroll", () => {
+  it("counts only working days, split into paid and unpaid, with their dates", async () => {
+    const leave = (id, start, end, payStatus) => ({
+      id, employee_id: EMP_OK, employee_name: "Okay Employee", position: "Employee", leave_type: "Leave",
+      pay_status: payStatus, start_date: start, end_date: end, reason: "r", proof_url: "", status: "approved",
+      submitted_at: "2026-09-01T00:00:00Z",
+    });
+    table("leave_requests").push(
+      // Fri Sep 25 - Mon Sep 28: the weekend is not a leave day.
+      leave("paid", "2026-09-25", "2026-09-28", "with_pay"),
+      // Tue Sep 29 - Wed Sep 30, with Sep 30 a holiday: 1 unpaid day.
+      leave("unpaid", "2026-09-29", "2026-09-30", "without_pay"),
+    );
+    table("attendance_holidays").push({ holiday_date: "2026-09-30", type: "special" });
+
+    const body = await (await GET(request("GET", null, `?period=${encodeURIComponent(PERIOD)}`))).json();
+    expect(body.leave_summary.find((row) => row.employee_id === EMP_OK)).toMatchObject({
+      with_pay_days: 2,
+      without_pay_days: 1,
+      with_pay_dates: ["2026-09-25", "2026-09-28"],
+      without_pay_dates: ["2026-09-29"],
+    });
+  });
+});

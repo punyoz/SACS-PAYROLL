@@ -112,6 +112,7 @@
 .ad.pr     { background: var(--green-s); color: var(--green); }
 .ad.ab     { background: var(--red-s);   color: var(--red);   }
 .ad.lt     { background: var(--warn-s);  color: var(--warn);  }
+.ad.lv     { background: var(--blue-s);  color: var(--blue);  cursor: pointer; }
 .ad.em     { color: transparent; }
 .ad.no-rec { color: var(--t3); }
 .ad.future { color: var(--t3); opacity: 0.4; }
@@ -595,11 +596,13 @@
 .ts-row-rest    td { background: var(--teal-s) !important; }
 .ts-row-holiday td { background: var(--warn-s) !important; }
 .ts-row-special td { background: var(--blue-s) !important; }
+.ts-row-leave   td { background: var(--blue-s) !important; }
 
 /* Override hover on colored rows to keep color visible */
 .ts-row-rest:hover    td { background: color-mix(in srgb, var(--color-secondary) 26%, transparent) !important; }
 .ts-row-holiday:hover td { background: color-mix(in srgb, var(--color-accent-flame) 24%, transparent) !important; }
 .ts-row-special:hover td { background: color-mix(in srgb, var(--blue) 16%, transparent) !important; }
+.ts-row-leave:hover   td { background: color-mix(in srgb, var(--blue) 16%, transparent) !important; }
 
 /* Expand (+) button */
 .ts-expand-btn {

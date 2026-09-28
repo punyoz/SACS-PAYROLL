@@ -92,9 +92,12 @@ function getDayName(dateStr) {
   }
 }
 
+// UTC, like generateDateRange(): Manila midnight read back with the local
+// getDay() on a UTC server (Vercel) is the previous day, so every weekday
+// shifted by one — Sunday and Monday came out as rest days, Saturday as work.
 function getDayOfWeek(dateStr) {
   try {
-    return new Date(`${dateStr}T00:00:00+08:00`).getDay();
+    return new Date(`${dateStr}T00:00:00Z`).getUTCDay();
   } catch {
     return -1;
   }
@@ -259,6 +262,8 @@ export async function GET(request) {
       .eq("employee_id", user.id)
       .gte("log_date", startDate)
       .lte("log_date", endDate)
+      // Folded duplicates and released (cancelled) leave days.
+      .eq("archived_duplicate", false)
       .order("log_date", { ascending: true });
 
     // One record per day: the first tap is Time In, the last tap Time Out.
@@ -271,16 +276,15 @@ export async function GET(request) {
 
     /* Approved leave requests overlapping the date range */
     const leaveDates = new Set();
+    // Every approved leave day (with or without pay) -> its leave type.
+    const leaveTypeByDate = new Map();
     try {
-      const fullName = String(user.user_metadata?.full_name || "").trim();
       let leaveQuery = supabase
         .from("leave_requests")
-        .select("start_date, end_date")
+        .select("start_date, end_date, pay_status, leave_type")
         // Stored lowercase (HR writes "approved"); "Approved" matched no row,
         // so the Leave w/ Pay column never showed a single leave day.
         .eq("status", "approved")
-        // This column is Leave *with* Pay; unpaid leave is not counted in it.
-        .eq("pay_status", "with_pay")
         .lte("start_date", endDate)
         .gte("end_date", startDate);
 
@@ -296,7 +300,10 @@ export async function GET(request) {
           const lc = new Date(`${lv.start_date}T00:00:00Z`);
           const le = new Date(`${lv.end_date}T00:00:00Z`);
           while (lc <= le) {
-            leaveDates.add(lc.toISOString().slice(0, 10));
+            const key = lc.toISOString().slice(0, 10);
+            // The Leave w/ Pay column counts paid leave only.
+            if (String(lv.pay_status || "with_pay").toLowerCase() !== "without_pay") leaveDates.add(key);
+            leaveTypeByDate.set(key, String(lv.leave_type || "Leave"));
             lc.setUTCDate(lc.getUTCDate() + 1);
           }
         }
@@ -325,8 +332,19 @@ export async function GET(request) {
     const records = dates.map((dateStr) => {
       const att       = attMap[dateStr] || null;
       const policy    = policyFor(att?.branch_id || currentBranchId);
-      const shift     = getShiftInfo(dateStr, policy);
+      let shift       = getShiftInfo(dateStr, policy);
       const hasLeave  = leaveDates.has(dateStr) ? 1 : 0;
+      // A working day covered by approved leave, with no tap of its own.
+      if (shift.row_type === "regular" && !att?.time_in
+        && (att?.status === "On Leave" || leaveTypeByDate.has(dateStr))) {
+        shift = {
+          row_type: "leave",
+          shift_type: `On Leave (${leaveTypeByDate.get(dateStr) || "Leave"})`,
+          shift_in: null,
+          shift_out: null,
+          required_hours: 0,
+        };
+      }
       const timeInIso = att?.time_in  || null;
       const timeOutIso= att?.time_out || null;
 
@@ -350,7 +368,8 @@ export async function GET(request) {
         undertime,
         leave_with_pay: hasLeave,
         row_type:       shift.row_type,
-        status:         att?.status || (shift.row_type === "rest" ? "Rest Day" : "No Record"),
+        status:         att?.status
+          || (shift.row_type === "rest" ? "Rest Day" : shift.row_type === "leave" ? "On Leave" : "No Record"),
       };
     });
 

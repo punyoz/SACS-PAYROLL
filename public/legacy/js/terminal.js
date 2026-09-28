@@ -265,16 +265,19 @@
 
   // The kiosk only signals whether a tap worked: a green light for an
   // accepted tap (time in, time out, or a repeat of either), a red light for
-  // anything refused. No name, times or message is shown -- the reader's
-  // user only needs to know whether to walk on or tap again.
+  // anything refused. No name or times are shown -- the reader's user only
+  // needs to know whether to walk on or tap again. The one message shown is
+  // the server's refusal for someone on approved leave, since tapping again
+  // would not help them.
   const LIGHT_MS = 2500;
+  const MESSAGE_MS = 5000;
   const IDLE_TEXT = 'Tap your RFID card';
 
-  function showLight(ok) {
+  function showLight(ok, message = '') {
     clearTimeout(resultTimer);
     resultEl.hidden = true;
-    setStatus(ok ? 'in' : 'error', '');
-    resultTimer = setTimeout(() => setStatus('idle', IDLE_TEXT), LIGHT_MS);
+    setStatus(ok ? 'in' : 'error', message);
+    resultTimer = setTimeout(() => setStatus('idle', IDLE_TEXT), message ? MESSAGE_MS : LIGHT_MS);
   }
 
   // Detailed card, kept for reference; the kiosk now uses showLight().
@@ -324,7 +327,7 @@
       });
       const data = await res.json().catch(() => ({}));
 
-      showLight(res.ok && Boolean(data.record));
+      showLight(res.ok && Boolean(data.record), !res.ok && data.on_leave ? data.error : '');
     } catch {
       showLight(false);
     } finally {

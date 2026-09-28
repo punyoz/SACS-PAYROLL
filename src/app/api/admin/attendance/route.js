@@ -10,6 +10,7 @@ import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/pol
 import { attendanceBucket, normalizeAttendanceStatus as normalizeEngineStatus } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
+import { LEAVE_TAP_MESSAGE, isEmployeeOnLeave, recordBlockedTap } from "@/lib/attendance/leave";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -156,6 +157,8 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey, branchSco
     .from("attendance_logs")
     .select("*")
     .eq("log_date", dateKey)
+    // Folded duplicates and released leave days are not the day's record.
+    .eq("archived_duplicate", false)
     .order("created_at", { ascending: false })
     .limit(1000);
 
@@ -239,6 +242,7 @@ function buildAttendancePayload(rows, dateKey, canPersist, sourceMode) {
     late_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "late").length,
     absent_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "absent").length,
     incomplete_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "unresolved").length,
+    on_leave_today: normalizedRows.filter((row) => attendanceBucket(row.status) === "leave").length,
   };
 
   const attendance_logs = normalizedRows.sort((a, b) => a.employee_name.localeCompare(b.employee_name));
@@ -356,8 +360,10 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
   // an Absent row for this day, with no taps. The first real tap turns that
   // row into the Time In instead of colliding with it on the one-row-per-day
   // index; the database recomputes its status.
+  // An On Leave row is never claimed: the caller refuses a tap on a leave
+  // day before getting here.
   const placeholder = plan.action === "time_in"
-    ? (lookupResult.data || []).find((row) => !row.time_in && !row.time_out)
+    ? (lookupResult.data || []).find((row) => !row.time_in && !row.time_out && !row.leave_request_id)
     : null;
   if (placeholder) {
     const claimResult = await supabase
@@ -525,6 +531,39 @@ export async function POST(request) {
 
     const nowIso = new Date().toISOString();
     const dateKey = getDateKey(new Date());
+
+    // Approved leave covering today: nothing is saved, the attempt is kept
+    // for HR. Applies to the kiosk and the portal's manual box alike, and
+    // only to approved leave (pending, rejected and cancelled never block).
+    const leave = await isEmployeeOnLeave(supabase, employee.id, dateKey);
+    if (leave) {
+      const source = manualEntry ? "manual_entry" : "rfid_tap";
+      await recordBlockedTap(supabase, {
+        employee, dateKey, leave, rfidCode: normalizeText(rfidCode), source, recordedBy: guard.userId || null,
+      });
+      await appendAuditLog({
+        actor: guard,
+        module: "attendance",
+        action: "rfid_blocked_on_leave",
+        entity_type: "employee",
+        entity_id: employee.employee_id,
+        description: `RFID tap refused for ${employee.full_name}: on approved leave (${leave.leave_type}, ${leave.start_date} to ${leave.end_date}).`,
+        status: "failed",
+        source: "api",
+        branch_id: employee.branch_id || null,
+        metadata: {
+          employee_id: employee.id,
+          rfid_code: rfidCode,
+          manual_entry: manualEntry,
+          date_key: dateKey,
+          leave_request_id: leave.id,
+        },
+      });
+      return NextResponse.json(
+        { error: LEAVE_TAP_MESSAGE, on_leave: true, persisted: false },
+        { status: 409 },
+      );
+    }
 
     // The tap is judged against the schedule of the branch the employee is
     // assigned to, so a 7:00 AM branch marks Late earlier than an 8:00 AM one.

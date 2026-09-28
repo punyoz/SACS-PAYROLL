@@ -5,6 +5,7 @@ import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { readApprovedLeave } from "@/lib/attendance/leave";
 
 function getCurrentPhilippineMonth() {
   const now = new Date();
@@ -62,7 +63,7 @@ export async function GET(request) {
     );
 
     if (!user) {
-      return NextResponse.json({ present: 0, late: 0, absent: 0, basic_salary: null, today: null });
+      return NextResponse.json({ present: 0, late: 0, absent: 0, on_leave: 0, basic_salary: null, today: null });
     }
 
     const foreign = denyForeignBranch(guard, user.user_metadata?.branch_id);
@@ -74,6 +75,7 @@ export async function GET(request) {
     let present = 0;
     let late = 0;
     let absent = 0;
+    let onLeave = 0;
     let today = null;
     const records = [];
 
@@ -84,9 +86,16 @@ export async function GET(request) {
         .eq("employee_id", user.id)
         .gte("log_date", monthStart)
         .lt("log_date", monthEnd)
+        // Folded duplicates and released (cancelled) leave days.
+        .eq("archived_duplicate", false)
         .order("log_date", { ascending: true });
 
       if (!attResult.error && Array.isArray(attResult.data)) {
+        // What each On Leave day is, for the calendar and records table.
+        const leaveFor = attResult.data.some((row) => row.status === "On Leave")
+          ? await readApprovedLeave(supabase, { employeeIds: [user.id], from: monthStart, to: monthEnd })
+          : () => null;
+
         // One record per day (first tap in, last tap out) so a day with a
         // repeated tap is never counted twice.
         for (const row of collapseDailyTaps(attResult.data, { employeeKey: () => user.id })) {
@@ -96,12 +105,14 @@ export async function GET(request) {
           if (status === "present") present++;
           else if (status === "late") late++;
           else if (status === "absent") absent++;
+          else if (status === "leave") onLeave++;
 
           records.push({
             date: row.log_date,
             status: row.status || "Absent",
             time_in: row.time_in || null,
             time_out: row.time_out || null,
+            leave: status === "leave" ? leaveFor(user.id, row.log_date) : null,
           });
 
           if (row.log_date === todayKey && !today) {
@@ -119,6 +130,31 @@ export async function GET(request) {
       console.error("[employee/stats] attendance lookup failed:", error?.message || error);
     }
 
+    // The next approved leave that has not ended yet (today's included).
+    let upcomingLeave = null;
+    try {
+      const leaveResult = await supabase
+        .from("leave_requests")
+        .select("leave_type,pay_status,start_date,end_date,decided_by_name")
+        .eq("employee_id", user.id)
+        .eq("status", "approved")
+        .gte("end_date", todayKey)
+        .order("start_date", { ascending: true })
+        .limit(1);
+      const next = leaveResult.error ? null : (leaveResult.data || [])[0];
+      if (next) {
+        upcomingLeave = {
+          leave_type: next.leave_type || "Leave",
+          pay_status: next.pay_status || "with_pay",
+          start_date: next.start_date,
+          end_date: next.end_date || next.start_date,
+          approved_by: next.decided_by_name || null,
+        };
+      }
+    } catch {
+      // Supplementary: the dashboard loads without it.
+    }
+
     // Basic salary from user metadata
     const basicSalary = Number(user.user_metadata?.basic_salary || 0) || null;
 
@@ -126,6 +162,8 @@ export async function GET(request) {
       present,
       late,
       absent,
+      on_leave: onLeave,
+      upcoming_leave: upcomingLeave,
       basic_salary: formatPeso(basicSalary),
       today,
       records,

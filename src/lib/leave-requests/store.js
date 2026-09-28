@@ -30,6 +30,8 @@ export function normalizeLeaveRequest(row) {
     // Who approved or rejected it (20260927010000_audit_actor_and_leave_decider.sql).
     decided_by: row.decided_by || null,
     decided_by_name: row.decided_by_name || null,
+    cancelled_at: row.cancelled_at || null,
+    cancelled_by_name: row.cancelled_by_name || null,
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
   };
 }
@@ -77,7 +79,9 @@ export async function insertLeaveRequest(newRequest) {
   const normalized = normalizeLeaveRequest(newRequest);
   const supabase = getAdminClient();
 
-  const { error } = await supabase.from("leave_requests").insert(normalized);
+  // Cancellation fields are only ever written by cancelApprovedLeaveRequest().
+  const { cancelled_at: _cancelledAt, cancelled_by_name: _cancelledByName, ...row } = normalized;
+  const { error } = await supabase.from("leave_requests").insert(row);
   if (error) throw new Error(error.message);
 
   return normalized;
@@ -134,6 +138,51 @@ export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, d
   });
 
   return { found: true, conflict: false, request: updated };
+}
+
+/**
+ * Cancel an approved request. Conditional on it still being approved, like a
+ * decision; the approver (decided_by) is kept and the canceller recorded
+ * apart (20260928010000_leave_attendance_sync.sql). The database trigger then
+ * releases its On Leave days.
+ */
+export async function cancelApprovedLeaveRequest(id, { cancelledBy, cancelledByName } = {}) {
+  const nowIso = new Date().toISOString();
+  const supabase = getAdminClient();
+
+  const { data, error } = await supabase
+    .from("leave_requests")
+    .update({
+      status: "cancelled",
+      cancelled_at: nowIso,
+      cancelled_by: cancelledBy || null,
+      cancelled_by_name: cancelledByName || null,
+      updated_at: nowIso,
+    })
+    .eq("id", id)
+    .eq("status", "approved")
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  return { conflict: !data || !data.length };
+}
+
+/**
+ * Bring the request's attendance days in step with it and report the covered
+ * working days that already have a real tap (left as recorded, for HR to
+ * resolve). The trigger on leave_requests already ran the sync; this repeats
+ * it (it is idempotent) only to read the result. Null when the database
+ * function is not there yet.
+ */
+export async function syncLeaveAttendance(id) {
+  const supabase = getAdminClient();
+  const { data, error } = await supabase.rpc("attendance_sync_leave", { p_leave_id: id });
+  if (error) return null;
+  return {
+    marked: Number(data?.marked || 0),
+    removed: Number(data?.removed || 0),
+    conflicts: Array.isArray(data?.conflicts) ? data.conflicts : [],
+  };
 }
 
 // ─── Leave Balance ────────────────────────────────────────────────────────────

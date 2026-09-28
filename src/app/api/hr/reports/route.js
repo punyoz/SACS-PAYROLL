@@ -28,6 +28,7 @@ export async function GET(request) {
       let query = supabase
         .from("attendance_logs")
         .select("employee_id, employee_name, employee_type, branch_id, log_date, time_in, time_out, status, total_hours")
+        .eq("archived_duplicate", false)
         .order("log_date", { ascending: false })
         .limit(1000);
 
@@ -57,6 +58,7 @@ export async function GET(request) {
             present: 0,
             late: 0,
             absent: 0,
+            on_leave: 0,
             total_hours: 0,
           });
         }
@@ -65,6 +67,7 @@ export async function GET(request) {
         if (s === "present") rec.present++;
         else if (s === "late") { rec.present++; rec.late++; }
         else if (s === "absent") rec.absent++;
+        else if (s === "leave") rec.on_leave++;
         rec.total_hours += Number(row.total_hours || 0);
       });
 

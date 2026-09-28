@@ -70,7 +70,8 @@ export async function GET(request) {
     let attendanceQuery = supabase
       .from("attendance_logs")
       .select("id,status,employee_id,branch_id,log_date,time_in,time_out")
-      .eq("log_date", dateKey);
+      .eq("log_date", dateKey)
+      .eq("archived_duplicate", false);
     if (branchId) attendanceQuery = attendanceQuery.eq("branch_id", branchId);
 
     const attendanceResult = await attendanceQuery;
@@ -84,12 +85,15 @@ export async function GET(request) {
 
     const present = countStatus("present");
     const late = countStatus("late");
+    const onLeave = countStatus("leave");
     const attendance = {
       date: dateKey,
       present,
       late,
-      // Anyone on the active roster with no log for today is absent.
-      absent: Math.max(0, headcount.total - present - late),
+      on_leave: onLeave,
+      // Anyone on the active roster with no log for today (and not on
+      // approved leave) is absent.
+      absent: Math.max(0, headcount.total - present - late - onLeave),
       logged: attendanceRows.length,
     };
 

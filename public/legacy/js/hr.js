@@ -687,6 +687,7 @@ async function loadHRAttendance() {
     set('hr-att-present', s.present ?? 0);
     set('hr-att-late', s.late ?? 0);
     set('hr-att-absent', s.absent ?? 0);
+    set('hr-att-on-leave', `On leave: ${s.on_leave ?? 0}`);
 
     renderHRAttendanceTable(hrAttendanceLogs);
   } catch (err) {
@@ -715,6 +716,7 @@ async function loadHRAllAttendance() {
     set('hr-att-present', s.present ?? 0);
     set('hr-att-late', s.late ?? 0);
     set('hr-att-absent', s.absent ?? 0);
+    set('hr-att-on-leave', `On leave: ${s.on_leave ?? 0}`);
 
     renderHRAttendanceTable(hrAttendanceLogs);
   } catch (err) {
@@ -855,6 +857,43 @@ async function hrLeaveAction(id, action) {
     if (!res.ok) throw new Error(data.error || 'Action failed.');
 
     pushNotification(`Leave ${action === 'approve' ? 'Approved' : 'Rejected'}`, `Leave request has been ${action === 'approve' ? 'approved' : 'rejected'}.`, action === 'approve' ? 'success' : 'info');
+    warnLeaveAttendanceConflicts(data.attendance_conflicts);
+    loadHRLeaves();
+  } catch (err) {
+    pushNotification('Error', err.message, 'error');
+  }
+}
+
+// Approving never overwrites a day the employee actually tapped in; HR is
+// told which days those are so they can be resolved in Attendance.
+function warnLeaveAttendanceConflicts(conflicts) {
+  if (!Array.isArray(conflicts) || !conflicts.length) return;
+  const days = conflicts.map((c) => `${c.log_date} (${c.status})`).join(', ');
+  pushNotification(
+    'Leave overlaps recorded attendance',
+    `These days already have an RFID tap and were left as recorded, not marked On Leave: ${days}. Resolve them in Attendance if needed.`,
+    'error',
+  );
+}
+
+// Cancelling approved leave releases its On Leave days: the employee can tap
+// in on them again. Only until the leave has ended.
+async function hrCancelLeave(id) {
+  const confirmed = await confirmDestructiveAction(
+    'cancel this approved leave',
+    'Its On Leave days are removed from attendance and the employee can tap in on them again.',
+  );
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch('/api/hr/leave-requests', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action: 'cancel' }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not cancel the leave.');
+    pushNotification('Leave Cancelled', 'The approved leave was cancelled and its On Leave days released.', 'info');
     loadHRLeaves();
   } catch (err) {
     pushNotification('Error', err.message, 'error');
@@ -877,7 +916,7 @@ function renderHRLeaveHistory() {
       renderFn: (rows) => {
         tbody.innerHTML = rows.map((req) => {
           const s = String(req.status || '').toLowerCase();
-          const color = s === 'approved' ? 'var(--green)' : s === 'rejected' ? 'var(--red)' : 'var(--amber)';
+          const color = s === 'approved' ? 'var(--green)' : s === 'rejected' ? 'var(--red)' : s === 'cancelled' ? 'var(--t3)' : 'var(--amber)';
           const days = req.days || req.duration_days || '?';
           const from = req.from_date || req.start_date || '—';
           const to = req.to_date || req.end_date || '—';
@@ -896,7 +935,7 @@ function renderHRLeaveHistory() {
             <td>${escapeHtml(String(days))}d · ${escapeHtml(from)} – ${escapeHtml(to)}</td>
             <td style="font-size:12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(req.reason || '—')}</td>
             <td>${proof ? `<button class="btn btn-outline" style="font-size:10px;padding:2px 8px;" onclick="openProofDocument(window._hrProofUrls['${safeId}'])">View</button>` : '—'}</td>
-            <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(req.status || '—')}</span></td>
+            <td><span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(req.status || '—')}</span>${s === 'approved' && (req.end_date || req.start_date || '') >= localDateKey() ? `<button class="btn btn-outline" style="font-size:10px;padding:2px 8px;margin-left:6px;" onclick="hrCancelLeave('${safeId}')">Cancel</button>` : ''}${s === 'cancelled' && req.cancelled_by_name ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;">by ${escapeHtml(req.cancelled_by_name)}</div>` : ''}</td>
             <td style="font-size:12px;">${submitted}</td>
             <td style="font-size:12px;">${decided}</td>
           </tr>`;
@@ -935,6 +974,7 @@ function hrReportRowHtml(r) {
       <td style="color:var(--green);">${r.present ?? 0}</td>
       <td style="color:var(--warn);">${r.late ?? 0}</td>
       <td style="color:var(--red);">${r.absent ?? 0}</td>
+      <td style="color:var(--blue);">${r.on_leave ?? 0}</td>
       <td>${Number(r.total_hours || 0).toFixed(1)}h</td>
     </tr>`;
   }
@@ -968,9 +1008,10 @@ function setHrReportSearch(value) {
 function renderHrReportRows(rows) {
   const tbody = document.getElementById('hr-rep-table-body');
   if (!tbody) return;
+  const cols = hrReportType === 'attendance' ? 7 : 6;
   if (!rows.length) {
     const msg = hrReportSearch ? 'No records match your search.' : 'No records found.';
-    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--t3);text-align:center;">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${cols}" style="color:var(--t3);text-align:center;">${msg}</td></tr>`;
     return;
   }
   const counts = new Map();
@@ -981,7 +1022,7 @@ function renderHrReportRows(rows) {
     if (r.branch_name !== lastBranch) {
       lastBranch = r.branch_name;
       const n = counts.get(r.branch_name) || 0;
-      header = `<tr><td colspan="6" style="background:var(--bg3);font-weight:700;font-size:12px;color:var(--t1);">
+      header = `<tr><td colspan="${cols}" style="background:var(--bg3);font-weight:700;font-size:12px;color:var(--t1);">
         ${escapeHtml(r.branch_name || 'Unassigned')}
         <span style="font-weight:500;color:var(--t3);margin-left:6px;">${n} employee${n === 1 ? '' : 's'}</span>
       </td></tr>`;
@@ -1022,7 +1063,7 @@ async function loadHRReports() {
       hrReportData = hrReportSortByBranch(data.records || [], 'employee_name');
       if (titleEl) titleEl.textContent = `Attendance Report${from ? ` · ${from} to ${to}` : ''}`;
 
-      if (thead) thead.innerHTML = '<tr><th>Employee</th><th>Type</th><th>Present</th><th>Late</th><th>Absent</th><th>Total Hours</th></tr>';
+      if (thead) thead.innerHTML = '<tr><th>Employee</th><th>Type</th><th>Present</th><th>Late</th><th>Absent</th><th>On Leave</th><th>Total Hours</th></tr>';
 
       const totalPresent = hrReportData.reduce((s, r) => s + (r.present || 0), 0);
       const totalLate = hrReportData.reduce((s, r) => s + (r.late || 0), 0);
@@ -1064,8 +1105,8 @@ function exportHRReportCsv() {
 
   let headers, rows;
   if (hrReportType === 'attendance') {
-    headers = ['Branch', 'Employee', 'Type', 'Present', 'Late', 'Absent', 'Total Hours'];
-    rows = hrReportData.map((r) => [r.branch_name || '', r.employee_name || '', r.employee_type || '', r.present ?? 0, r.late ?? 0, r.absent ?? 0, Number(r.total_hours || 0).toFixed(2)]);
+    headers = ['Branch', 'Employee', 'Type', 'Present', 'Late', 'Absent', 'On Leave', 'Total Hours'];
+    rows = hrReportData.map((r) => [r.branch_name || '', r.employee_name || '', r.employee_type || '', r.present ?? 0, r.late ?? 0, r.absent ?? 0, r.on_leave ?? 0, Number(r.total_hours || 0).toFixed(2)]);
   } else {
     headers = ['Branch', 'Employee', 'ID', 'Type', 'Position', 'Status', 'Email'];
     rows = hrReportData.map((r) => [r.branch_name || '', r.full_name || '', r.employee_id || '', r.employee_type || '', r.position || '', r.employee_status || '', r.email || '']);

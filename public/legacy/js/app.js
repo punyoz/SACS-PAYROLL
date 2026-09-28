@@ -3743,11 +3743,12 @@ function attachLoginPasswordToggle() {
 
 const ATTENDANCE_STATUS_LIST = [
   'On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent',
-  'Incomplete', 'Pending Correction', 'Corrected',
+  'Incomplete', 'Pending Correction', 'Corrected', 'On Leave',
 ];
 
 // green: On Time / Early Bird, yellow: Late / Undertime, orange: Half Day,
-// red: Absent, gray: Incomplete (and awaiting review), blue: Corrected.
+// red: Absent, gray: Incomplete (and awaiting review), blue: Corrected and
+// On Leave (a working day covered by approved leave).
 const ATTENDANCE_STATUS_TONE = {
   'On Time': 'var(--green)',
   'Early Bird': 'var(--green)',
@@ -3758,6 +3759,7 @@ const ATTENDANCE_STATUS_TONE = {
   Incomplete: 'var(--t2)',
   'Pending Correction': 'var(--t2)',
   Corrected: 'var(--blue)',
+  'On Leave': 'var(--blue)',
 };
 
 const ATTENDANCE_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -3781,10 +3783,11 @@ function attendanceStatusBadge(status) {
   return `<span class="badge" style="color:${color};background:color-mix(in srgb, ${color} 12%, transparent);border:1px solid color-mix(in srgb, ${color} 25%, transparent);">${escapeHtml(label)}</span>`;
 }
 
-/** Present / late / absent class for the employee's month calendar. */
+/** Present / late / absent / leave class for the employee's month calendar. */
 function attendanceCalendarClass(status) {
   const label = normalizeAttendanceStatusLabel(status);
   if (label === 'Absent') return 'ab';
+  if (label === 'On Leave') return 'lv';
   if (label === 'Late' || label === 'Undertime' || label === 'Half Day') return 'lt';
   if (label === 'On Time' || label === 'Early Bird' || label === 'Corrected') return 'pr';
   return '';
@@ -3792,9 +3795,23 @@ function attendanceCalendarClass(status) {
 
 function attendanceStatusLegend() {
   return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">${
-    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected']
+    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected', 'On Leave']
       .map((s) => attendanceStatusBadge(s)).join('')
   }</div>`;
+}
+
+/** "Sick Leave · Sep 28 – Sep 29, 2026 · With pay · Approved by …" for an On Leave day. */
+function attendanceLeaveSummary(leave) {
+  if (!leave) return 'Approved leave';
+  const fmt = (key) => {
+    const date = new Date(`${key}T00:00:00+08:00`);
+    if (!key || Number.isNaN(date.getTime())) return key || '—';
+    return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  };
+  const range = leave.start_date === leave.end_date ? fmt(leave.start_date) : `${fmt(leave.start_date)} – ${fmt(leave.end_date)}`;
+  const parts = [leave.leave_type || 'Leave', range, leave.pay_status === 'without_pay' ? 'Without pay' : 'With pay'];
+  if (leave.approved_by) parts.push(`Approved by ${leave.approved_by}`);
+  return parts.join(' · ');
 }
 
 function attManilaDateKey(date = new Date()) {
@@ -3894,6 +3911,7 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
         <button class="st-tab" type="button" data-att-tab="incomplete">Incomplete Queue <span id="${id}-incomplete-count"></span></button>
         <button class="st-tab" type="button" data-att-tab="corrections">Correction Requests <span id="${id}-corrections-count"></span></button>
         <button class="st-tab" type="button" data-att-tab="overtime">Overtime <span id="${id}-overtime-count"></span></button>
+        <button class="st-tab" type="button" data-att-tab="blocked">Blocked Taps <span id="${id}-blocked-count"></span></button>
       </div>
       <div id="${id}-legend">${attendanceStatusLegend()}</div>
       <div id="${id}-filter-wrap" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px;">
@@ -3925,6 +3943,7 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
     logs: [],
     corrections: [],
     overtime: [],
+    blocked: [],
     overtimeCanReview: false,
     overtimeMinMinutes: 30,
     canReview: false,
@@ -3994,12 +4013,14 @@ async function refreshAttendanceBoard(rootId) {
     board.engineReady = logsData.engine_ready !== false;
     board.corrections = correctionsData.corrections || [];
     board.overtime = overtimeData.overtime || [];
+    board.blocked = logsData.blocked_taps || [];
     board.overtimeCanReview = Boolean(overtimeData.can_review);
     board.overtimeMinMinutes = Number(overtimeData.min_minutes) || 30;
   } catch (error) {
     board.logs = [];
     board.corrections = [];
     board.overtime = [];
+    board.blocked = [];
     attBoardFeedback(board, error.message, true);
   } finally {
     board.loading = false;
@@ -4025,13 +4046,14 @@ function renderAttendanceBoard(board) {
   setCount('corrections-count', board.corrections.length);
   // Waiting for a decision (and still decidable).
   setCount('overtime-count', board.overtime.filter((row) => !row.approval && !row.locked).length);
+  setCount('blocked-count', board.blocked.length);
 
   const head = document.getElementById(`${id}-head`);
   const note = document.getElementById(`${id}-note`);
   const filterWrap = document.getElementById(`${id}-filter-wrap`);
   const legend = document.getElementById(`${id}-legend`);
   if (filterWrap) filterWrap.style.display = board.tab === 'all' ? '' : 'none';
-  if (legend) legend.style.display = board.tab === 'corrections' || board.tab === 'overtime' ? 'none' : '';
+  if (legend) legend.style.display = board.tab === 'corrections' || board.tab === 'overtime' || board.tab === 'blocked' ? 'none' : '';
 
   renderAttendanceDateOptions(board);
 
@@ -4044,6 +4066,10 @@ function renderAttendanceBoard(board) {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time Out</th><th>Past Schedule</th><th>Decision</th>${board.overtimeCanReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = `Days whose time out is at least ${board.overtimeMinMinutes} minutes after the branch's end of shift. Payroll pays overtime only for the minutes approved here (hourly rate plus the overtime premium in Payroll Rates). Decisions lock once that pay period is processed.`;
     rows = attSortByDay(board.overtime);
+  } else if (board.tab === 'blocked') {
+    if (head) head.innerHTML = '<tr><th>Employee</th><th>Date</th><th>Attempted</th><th>Source</th><th>Reason</th></tr>';
+    if (note) note.textContent = 'RFID taps refused because the employee was on approved leave that day. Nothing was recorded for them.';
+    rows = attSortByDay(board.blocked);
   } else if (board.tab === 'corrections') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Recorded</th><th>Requested Time Out</th><th>Reason</th><th>Requested</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day.';
@@ -4066,8 +4092,10 @@ function renderAttendanceBoard(board) {
     const body = document.getElementById(`${id}-body`);
     const cols = board.tab === 'overtime'
       ? 5 + (board.overtimeCanReview ? 1 : 0)
-      : (board.tab === 'all' ? 8 : board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
-    const empty = board.tab === 'corrections' ? 'No correction requests waiting.'
+      : board.tab === 'blocked' ? 5
+        : (board.tab === 'all' ? 8 : board.tab === 'incomplete' ? 5 : 6) + (board.canReview ? 1 : 0);
+    const empty = board.tab === 'blocked' ? 'No taps were blocked in this period.'
+      : board.tab === 'corrections' ? 'No correction requests waiting.'
       : board.tab === 'incomplete' ? 'Nothing to resolve.'
         : board.tab === 'overtime' ? 'No overtime in this period.'
           : board.date !== 'all' ? 'No attendance records for this day.'
@@ -4103,6 +4131,19 @@ function renderAttendanceBoardRows(board, rows) {
       </tr>`;
     });
     body.innerHTML = attWithDayHeadings(board, rows, overtimeRows, 5 + (board.overtimeCanReview ? 1 : 0));
+    return;
+  }
+
+  if (board.tab === 'blocked') {
+    const blockedRows = rows.map((row) => `
+      <tr>
+        <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
+        <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+        <td class="mn">${escapeHtml(attFormatDateTime(row.attempted_at))}</td>
+        <td>${row.source === 'manual_entry' ? 'Manual entry' : 'RFID terminal'}</td>
+        <td style="max-width:280px;white-space:normal;">${escapeHtml(row.reason || '')}</td>
+      </tr>`);
+    body.innerHTML = attWithDayHeadings(board, rows, blockedRows, 5);
     return;
   }
 
@@ -4145,7 +4186,7 @@ function renderAttendanceBoardRows(board, rows) {
       <td class="mn">${row.time_out ? Number(row.total_hours || 0).toFixed(2) : '—'}</td>
       <td class="mn">${escapeHtml(attMinutes(row.late_minutes))}</td>
       <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
-      <td>${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div style="font-size:11px;color:var(--t3);margin-top:3px;">No tap yet today</div>' : ''}</td>
+      <td>${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div style="font-size:11px;color:var(--t3);margin-top:3px;">No tap yet today</div>' : ''}${row.status === 'On Leave' ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:normal;">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}</td>
       ${board.canReview ? `<td>${row.status === 'Absent'
         ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceAbsenceCorrection('${key}','${escapeJsArg(row.employee_id)}','${escapeJsArg(row.log_date)}')">Correct</button>`
         : ''}</td>` : ''}
@@ -4557,7 +4598,7 @@ async function loadMyAttendancePeriod(rootId = 'emp-att-period') {
           <td>${escapeHtml(attFormatDate(row.log_date))}</td>
           <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
           <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
-          <td>${attendanceStatusBadge(row.status)}</td>
+          <td>${attendanceStatusBadge(row.status)}${row.status === 'On Leave' ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:normal;">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}</td>
           <td>${action}</td>
         </tr>`;
     }).join('');
@@ -4607,6 +4648,7 @@ function openMyCorrectionRequest(logId, rootId) {
 window.attendanceStatusBadge = attendanceStatusBadge;
 window.attendanceStatusColor = attendanceStatusColor;
 window.attendanceCalendarClass = attendanceCalendarClass;
+window.attendanceLeaveSummary = attendanceLeaveSummary;
 window.normalizeAttendanceStatusLabel = normalizeAttendanceStatusLabel;
 window.mountAttendanceBoard = mountAttendanceBoard;
 window.openOvertimeReview = openOvertimeReview;

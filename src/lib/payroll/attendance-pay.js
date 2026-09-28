@@ -11,7 +11,8 @@
  *   Undertime     short minutes ÷ 60 × hourly rate
  *   Half Day      half_day_pct % of the daily rate
  *   Absent        absent_pct % of the daily rate (not on a day covered by
- *                 approved leave -- leave is paid or deducted on its own line)
+ *                 approved leave -- leave is paid or deducted on its own line;
+ *                 On Leave days are skipped entirely for the same reason)
  *   Early Bird    early_bird_bonus per Early Bird day
  *   Perfect       perfect_attendance_bonus when the period has no Late,
  *   Attendance    Undertime, Absent or Half Day and at least one day attended
@@ -114,6 +115,10 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       blocking.push({ log_id: logId, log_date: date, status });
       return;
     }
+
+    // An On Leave day is paid, or deducted once as Leave Without Pay, on the
+    // leave line -- never an absence, and not an attended day either.
+    if (status === "On Leave") return;
 
     if (status === "Absent") {
       // Approved leave already accounts for the day (paid, or deducted once

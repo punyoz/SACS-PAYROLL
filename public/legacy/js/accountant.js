@@ -454,6 +454,24 @@ function autoFillLeaveDays(employeeId) {
   const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
   setVal('pc-leave-with-pay-days', summary?.with_pay_days || 0);
   setVal('pc-leave-without-pay-days', summary?.without_pay_days || 0);
+  renderLeaveDates(summary);
+}
+
+// Which working days each leave figure is (the employee's On Leave days).
+function renderLeaveDates(summary) {
+  const fmt = (dates) => (dates || []).map((key) => {
+    const date = new Date(`${key}T00:00:00+08:00`);
+    return Number.isNaN(date.getTime()) ? key
+      : new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }).format(date);
+  }).join(', ');
+  const set = (id, dates, note) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = dates?.length ? `${fmt(dates)} · ${note}` : '';
+    el.style.display = dates?.length ? '' : 'none';
+  };
+  set('pc-lwp-dates', summary?.with_pay_dates, 'paid, no deduction');
+  set('pc-lwop-dates', summary?.without_pay_dates, 'deducted at the daily rate');
 }
 
 function recalc() {
@@ -1171,6 +1189,7 @@ function populateFormFromDraft() {
   setValue('pc-half-days', deductions.half_days ?? 0);
   setValue('pc-leave-with-pay-days', deductions.leave_with_pay_days ?? 0);
   setValue('pc-leave-without-pay-days', deductions.leave_without_pay_days ?? 0);
+  renderLeaveDates((acctState.leaveSummary || []).find((row) => row.employee_id === draft.employee_id));
   setValue('pc-early-bird', payroll.incentives?.early_bird_days ?? 0);
   const perfectSelect = document.getElementById('pc-perfect');
   if (perfectSelect) perfectSelect.value = payroll.incentives?.perfect_attendance ? 'yes' : 'no';

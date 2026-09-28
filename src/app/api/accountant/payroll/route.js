@@ -4,7 +4,7 @@ import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { readAllLeaveRequests, countLeaveDays } from "@/lib/leave-requests/store";
+import { readAllLeaveRequests } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -509,11 +509,13 @@ function resolveEntryStatus(entry) {
 // Buckets the engine's statuses (src/lib/attendance/status.js) for the
 // present / late / absent day counts: every attended status is "present",
 // Incomplete and Pending Correction are "unresolved" (neither worked nor
-// unworked until someone resolves them).
+// unworked until someone resolves them). On Leave is "leave": the leave
+// summary accounts for it, so it is neither present nor absent here.
 function normalizeAttendanceStatus(value) {
   const status = normalizeEngineStatus(value, "Absent");
   if (status === "Late") return "late";
   if (status === "Absent") return "absent";
+  if (status === "On Leave") return "leave";
   if (isUnresolvedStatus(status)) return "unresolved";
   return "present";
 }
@@ -543,7 +545,18 @@ function expandDateRange(startKey, endKey) {
 // day an approved leave covers so fetchAttendanceSummary() can reconcile
 // against it. Days are clamped to the period window so a leave request
 // spanning a cutoff only counts toward the half it actually falls in.
-async function buildLeaveContext(employees, periodStart, periodEnd) {
+//
+// Only working days count as leave days -- the same days that become On Leave
+// in attendance (20260928010000_leave_attendance_sync.sql): Saturday, Sunday
+// and holidays are skipped, so a Friday-to-Monday leave is 2 days, paid (With
+// Pay) or deducted at the daily rate (Without Pay). The dates themselves are
+// returned too, so the accountant sees which days each figure is.
+function isLeaveWorkingDay(dayKey, holidays) {
+  const weekday = new Date(`${dayKey}T00:00:00Z`).getUTCDay();
+  return weekday !== 0 && weekday !== 6 && !holidays?.has?.(dayKey);
+}
+
+async function buildLeaveContext(employees, periodStart, periodEnd, holidays = new Map()) {
   // Payroll only ever needs approved requests — filtering server-side avoids
   // transferring every leave request ever filed (pending, rejected, from
   // years ago) on every payroll page load.
@@ -564,8 +577,8 @@ async function buildLeaveContext(employees, periodStart, periodEnd) {
       (r) => r.employee_id === employee.id || r.employee_id === employee.employee_id,
     );
 
-    let withPayDays = 0;
-    let withoutPayDays = 0;
+    const withPayDates = [];
+    const withoutPayDates = [];
     const coveredDays = new Set();
 
     requestsForEmployee.forEach((request) => {
@@ -576,14 +589,24 @@ async function buildLeaveContext(employees, periodStart, periodEnd) {
 
       const overlapStart = requestStart > periodStart ? requestStart : periodStart;
       const overlapEnd = requestEnd < periodEnd ? requestEnd : periodEnd;
-      const days = countLeaveDays(overlapStart, overlapEnd);
-      if (request.pay_status === "without_pay") withoutPayDays += days;
-      else withPayDays += days;
+      if (overlapStart > overlapEnd) return;
 
-      expandDateRange(overlapStart, overlapEnd).forEach((day) => coveredDays.add(day));
+      expandDateRange(overlapStart, overlapEnd).forEach((day) => {
+        coveredDays.add(day);
+        if (!isLeaveWorkingDay(day, holidays)) return;
+        (request.pay_status === "without_pay" ? withoutPayDates : withPayDates).push(day);
+      });
     });
 
-    summaries.push({ employee_id: employee.id, with_pay_days: withPayDays, without_pay_days: withoutPayDays });
+    withPayDates.sort();
+    withoutPayDates.sort();
+    summaries.push({
+      employee_id: employee.id,
+      with_pay_days: withPayDates.length,
+      without_pay_days: withoutPayDates.length,
+      with_pay_dates: withPayDates,
+      without_pay_dates: withoutPayDates,
+    });
     leaveDaysByEmployee.set(employee.id, coveredDays);
   });
 
@@ -731,12 +754,13 @@ const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the at
  */
 async function loadPeriodPayContext(supabase, employees, period) {
   const employeeIds = employees.map((employee) => employee.id);
-  const [leaveContext, attendance, rateResult, overtimeResult, holidays] = await Promise.all([
-    buildLeaveContext(employees, period.start_key, period.end_key),
+  // Holidays first: leave days are counted on working days only.
+  const holidays = await readHolidays(supabase, period.start_key, period.end_key);
+  const [leaveContext, attendance, rateResult, overtimeResult] = await Promise.all([
+    buildLeaveContext(employees, period.start_key, period.end_key, holidays),
     readPeriodAttendance(supabase, period.start_key, period.end_key, employeeIds),
     loadRateConfigs(supabase),
     readApprovedOvertime(supabase, period.start_key, period.end_key),
-    readHolidays(supabase, period.start_key, period.end_key),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 

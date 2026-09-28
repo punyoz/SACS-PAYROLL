@@ -85,9 +85,12 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
   if (!grid) return;
 
   const statusMap = {};
+  const leaveMap = {};
   for (const rec of records) {
     statusMap[rec.date] = rec.status;
+    if (rec.leave) leaveMap[rec.date] = rec.leave;
   }
+  leaveCalendarDetails.clear();
 
   const [year, month] = todayKey.split('-').map(Number);
   const todayDay = Number(todayKey.split('-')[2]);
@@ -109,7 +112,8 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
     const status = statusMap[dateKey];
 
     // On Time / Early Bird / Corrected: present; Late / Undertime / Half
-    // Day: late; Absent: absent (attendanceCalendarClass in app.js).
+    // Day: late; Absent: absent; On Leave: leave (attendanceCalendarClass in
+    // app.js).
     const dayClass = status ? attendanceCalendarClass(status) : '';
     let cls = 'ad';
     if (dayClass) cls += ` ${dayClass}`;
@@ -118,10 +122,27 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
 
     if (isToday) cls += ' td';
 
+    if (dayClass === 'lv') {
+      // Hover (title) or click / tap shows the leave type, dates and approver.
+      const summary = window.attendanceLeaveSummary ? window.attendanceLeaveSummary(leaveMap[dateKey]) : 'Approved leave';
+      leaveCalendarDetails.set(dateKey, summary);
+      html += `<div class="${cls}" title="On Leave · ${escapeHtml(summary)}" role="button" tabindex="0" onclick="showLeaveDayDetails('${escapeJsArg(dateKey)}')">${day}</div>`;
+      continue;
+    }
+
     html += `<div class="${cls}">${day}</div>`;
   }
 
   grid.innerHTML = html;
+}
+
+// Calendar day -> its leave summary, for showLeaveDayDetails().
+const leaveCalendarDetails = new Map();
+
+function showLeaveDayDetails(dateKey) {
+  const summary = leaveCalendarDetails.get(dateKey);
+  if (!summary) return;
+  window.showToast?.(`On Leave · ${dateKey}`, summary, 'info');
 }
 
 function updateTodayLog(today) {
@@ -132,7 +153,11 @@ function updateTodayLog(today) {
   if (!today || !today.time_in) {
     if (timeInEl) { timeInEl.textContent = '— : —'; timeInEl.style.color = 'var(--t3)'; }
     if (timeOutEl) { timeOutEl.textContent = '— : —'; timeOutEl.style.color = 'var(--t3)'; }
-    if (statusWrap) statusWrap.innerHTML = '<span class="badge ba"><span class="bd"></span>No data</span>';
+    if (statusWrap) {
+      statusWrap.innerHTML = today?.status === 'On Leave'
+        ? attendanceStatusBadge('On Leave')
+        : '<span class="badge ba"><span class="bd"></span>No data</span>';
+    }
     return;
   }
 
@@ -169,6 +194,11 @@ async function loadEmployeeStats(options = {}) {
     const absentEl = document.getElementById('emp-stat-absent');
     if (absentEl) absentEl.textContent = data.absent ?? '—';
 
+    const leaveEl = document.getElementById('emp-stat-leave');
+    if (leaveEl) leaveEl.textContent = data.on_leave ?? '—';
+
+    renderUpcomingLeave(data.upcoming_leave || null);
+
     const netpayEl = document.getElementById('emp-stat-netpay');
     if (netpayEl) netpayEl.textContent = data.basic_salary || '—';
 
@@ -179,6 +209,19 @@ async function loadEmployeeStats(options = {}) {
   } catch {
     // Stats are supplementary — fail silently
   }
+}
+
+function renderUpcomingLeave(leave) {
+  const el = document.getElementById('emp-upcoming-leave');
+  if (!el) return;
+  if (!leave) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  const summary = window.attendanceLeaveSummary ? window.attendanceLeaveSummary(leave) : `${leave.leave_type} · ${leave.start_date} to ${leave.end_date}`;
+  el.textContent = `Upcoming leave: ${summary}`;
+  el.style.display = '';
 }
 
 function handleLegacyAuthContextChange() {
@@ -324,7 +367,7 @@ function renderLeaveRequests() {
 
   container.innerHTML = leaveState.requests.map((request) => {
     const status = String(request.status || 'pending').toLowerCase();
-    const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' ? 'br' : 'ba';
+    const badgeClass = status === 'approved' ? 'bg' : status === 'rejected' || status === 'cancelled' ? 'br' : 'ba';
     const payStatusLabel = request.pay_status === 'without_pay' ? 'Without Pay' : 'With Pay';
     const submittedAt = request.submitted_at ? new Date(request.submitted_at).toLocaleString('en-PH', {
       month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -382,9 +425,52 @@ async function loadMyLeaveRequests() {
     leaveState.requests = Array.isArray(payload.requests) ? payload.requests : [];
     renderLeaveRequests();
     renderLeaveBalance(payload.balance);
+    notifyLeaveDecisions(leaveState.requests, context);
   } catch (error) {
     showLeaveFeedback(error.message, true);
   }
+}
+
+/*
+ * There is no server-side notification store, so the portal remembers (per
+ * account, in this browser) the status it last showed for each request and
+ * announces an approval or cancellation the first time it sees one. On a
+ * browser that has never seen the request, only decisions from the last
+ * 7 days are announced, so an old approval is not repeated on a new device.
+ */
+const LEAVE_SEEN_KEY_PREFIX = 'sacs-leave-seen:';
+const LEAVE_NOTIFY_WINDOW_MS = 7 * 86400000;
+
+function notifyLeaveDecisions(requests, context) {
+  const accountKey = String(context?.id || context?.email || '').trim();
+  if (!accountKey) return;
+  const storageKey = `${LEAVE_SEEN_KEY_PREFIX}${accountKey}`;
+
+  let seen = null;
+  try { seen = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch { seen = null; }
+  const known = seen && typeof seen === 'object' ? seen : {};
+
+  const next = {};
+  requests.forEach((request) => {
+    const id = String(request.id || '');
+    const status = String(request.status || '').toLowerCase();
+    if (!id) return;
+    next[id] = status;
+    if (known[id] === status) return;
+
+    const decidedAt = new Date(status === 'cancelled' ? (request.cancelled_at || request.updated_at) : request.decided_at).getTime();
+    const recent = Number.isFinite(decidedAt) && Date.now() - decidedAt <= LEAVE_NOTIFY_WINDOW_MS;
+    if (!(id in known) && !recent) return;
+
+    const range = `${request.leave_type || 'Leave'} · ${request.start_date} to ${request.end_date}`;
+    if (status === 'approved') {
+      window.pushNotification?.('Your leave request was approved.', range, 'success');
+    } else if (status === 'cancelled') {
+      window.pushNotification?.('Your approved leave was cancelled.', `${range} · You can tap in on these days again.`, 'info');
+    }
+  });
+
+  try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* storage blocked: notices may repeat */ }
 }
 
 // Set while a request is being submitted. Reading a proof file and uploading it
@@ -528,6 +614,7 @@ window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChan
 window.submitLeaveRequest = submitLeaveRequest;
 window.submitChangePassword = submitChangePassword;
 window.viewPayslip = viewPayslip;
+window.showLeaveDayDetails = showLeaveDayDetails;
 
 /* ════════════════════════════════════════════
    EMPLOYEE TAB NAVIGATION
@@ -629,7 +716,7 @@ async function loadAttendanceRecords() {
         <td style="color:var(--t3);">${dayName}</td>
         <td class="mn">${timeIn}</td>
         <td class="mn">${timeOut}</td>
-        <td>${attendanceStatusBadge(r.status)}</td>
+        <td>${attendanceStatusBadge(r.status)}${r.status === 'On Leave' && window.attendanceLeaveSummary ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:normal;">${escapeHtml(window.attendanceLeaveSummary(r.leave))}</div>` : ''}</td>
       </tr>`;
     }).join('');
 
@@ -695,7 +782,8 @@ function renderTsPage() {
       const rowCls =
         r.row_type === 'rest'    ? 'ts-row-rest' :
         r.row_type === 'holiday' ? 'ts-row-holiday' :
-        r.row_type === 'special' ? 'ts-row-special' : '';
+        r.row_type === 'special' ? 'ts-row-special' :
+        r.row_type === 'leave'   ? 'ts-row-leave' : '';
       return `<tr class="${rowCls}">
         <td style="padding:8px 10px;"><span class="ts-expand-btn">+</span></td>
         <td class="nm">${r.date}</td>

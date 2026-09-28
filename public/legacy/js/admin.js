@@ -274,6 +274,9 @@ function renderDashboardPanels(panels = {}) {
   if (totalEmployeesEl) totalEmployeesEl.textContent = String(panels.total_employees || 0);
   if (absentTodayEl) absentTodayEl.textContent = String(panels.absent_today || 0);
 
+  const onLeaveTodayEl = document.getElementById('adm-panel-on-leave-today');
+  if (onLeaveTodayEl) onLeaveTodayEl.textContent = String(panels.on_leave_today || 0);
+
   // There is no #adm-panel-total-payroll card in pages/admin.html — the matrix
   // gives Admin view-only access to payroll records, and no total-payroll tile
   // was ever added to this dashboard. The line that wrote to it has been

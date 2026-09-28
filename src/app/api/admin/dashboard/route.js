@@ -155,6 +155,7 @@ function buildDashboardPayload(activeEmployees, attendancePanels, recentActivity
       absent_today: Number(attendancePanels.absent_today || 0),
       present_today: Number(attendancePanels.present_today || 0),
       late_today: Number(attendancePanels.late_today || 0),
+      on_leave_today: Number(attendancePanels.on_leave_today || 0),
       teaching_count: teachingCount,
       non_teaching_count: nonTeachingCount,
     },

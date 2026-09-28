@@ -61,7 +61,8 @@ export async function GET(request) {
       let attQuery = supabase
         .from("attendance_logs")
         .select("employee_id, status, time_in, time_out, log_date")
-        .eq("log_date", today);
+        .eq("log_date", today)
+        .eq("archived_duplicate", false);
       if (!guard.branchExempt) attQuery = attQuery.eq("branch_id", guard.branchId);
       const { data: attRows } = await attQuery;
 
@@ -99,6 +100,7 @@ export async function GET(request) {
       let recentQuery = supabase
         .from("attendance_logs")
         .select("employee_id, employee_name, log_date, time_in, time_out, status, created_at")
+        .eq("archived_duplicate", false)
         .order("created_at", { ascending: false })
         .limit(40);
       if (!guard.branchExempt) recentQuery = recentQuery.eq("branch_id", guard.branchId);
