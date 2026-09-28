@@ -362,11 +362,15 @@
     if (value) submitScan(value);
   });
 
+  // Card UIDs are numbers only, and the kiosk no longer accepts employee IDs
+  // (see resolveEmployeeByRfid in /api/admin/attendance), so anything else
+  // typed or pasted is dropped as it arrives.
   // Some readers never send Enter after a tap — auto-submit once digits stop
-  // arriving for a beat, restricted to numeric UIDs so a paused manual
-  // employee-ID entry (e.g. "SACS-001") never auto-fires mid-typing.
+  // arriving for a beat.
   scanInput.addEventListener('input', () => {
     clearTimeout(idleTimer);
+    const digits = scanInput.value.replace(/\D/g, '');
+    if (digits !== scanInput.value) scanInput.value = digits;
     const value = scanInput.value.trim();
     if (!/^\d{6,}$/.test(value)) return;
     idleTimer = setTimeout(() => {
