@@ -639,6 +639,14 @@ async function openSAAdminUserModal(userId) {
   setFormattedDigitValue(form.elements.emergency_contact_number, user.emergency_contact_number, ecSpec.groups, ecSpec.separator);
   resetSAStaffFormRules(form, submitBtn);
 
+  // An existing account should already pass every rule. Anything that does
+  // not (a branch that was deleted, a value saved before a rule existed) is
+  // shown now, under its field, rather than only after a Save attempt.
+  Array.from(form.elements).forEach((control) => {
+    if (control.name && SA_STAFF_RULES[control.name]) control.dataset.touched = '1';
+  });
+  refreshSAStaffFormRules(form, submitBtn);
+
   modal.style.display = 'flex';
 }
 
@@ -2559,7 +2567,12 @@ function refreshSAStaffFormRules(form, submitBtn) {
     if (error) error.textContent = show ? message : (control.dataset.blockedNote || '');
   });
 
-  if (submitBtn && submitBtn.dataset.busy !== '1') submitBtn.disabled = !valid;
+  // The Edit dialog keeps Save clickable: a disabled button looks the same as
+  // an enabled one in this theme, so a click that did nothing read as "Save
+  // is broken". submitSAAdminUser() re-checks and names what to fix.
+  if (submitBtn && submitBtn.dataset.busy !== '1') {
+    submitBtn.disabled = form.id === 'sa-admin-user-form' ? false : !valid;
+  }
   return valid;
 }
 
