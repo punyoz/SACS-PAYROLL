@@ -1101,9 +1101,27 @@ async function onSARateScopeChange() {
         saRatesState.employees = [];
       }
     }
-    select.innerHTML = saRatesState.employees
-      .map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.full_name)}${e.employee_id ? ` — ${escapeHtml(e.employee_id)}` : ''}</option>`)
-      .join('') || '<option value="">No employees found</option>';
+    // Grouped by branch so the right person is easy to find.
+    const branches = await fetchBranchesCached({ activeOnly: false }).catch(() => []);
+    const branchNames = new Map(branches.map((b) => [String(b.id), b.name]));
+    const groups = new Map();
+    saRatesState.employees.forEach((e) => {
+      const name = branchNames.get(String(e.branch_id || '')) || 'No branch assigned';
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(e);
+    });
+    const groupNames = [...groups.keys()].sort((a, b) => {
+      if (a === 'No branch assigned') return 1;
+      if (b === 'No branch assigned') return -1;
+      return a.localeCompare(b);
+    });
+    select.innerHTML = groupNames.map((name) => {
+      const options = groups.get(name)
+        .sort((a, b) => String(a.full_name || '').localeCompare(String(b.full_name || '')))
+        .map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.full_name)}${e.employee_id ? ` — ${escapeHtml(e.employee_id)}` : ''}</option>`)
+        .join('');
+      return `<optgroup label="${escapeHtml(name)}">${options}</optgroup>`;
+    }).join('') || '<option value="">No employees found</option>';
   }
 }
 
