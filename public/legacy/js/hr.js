@@ -1279,6 +1279,14 @@ function hrUpdateBranchSummary() {
   });
 }
 
+// Group order for the Employee Branch List: Unassigned first (they need an
+// Assign), then the branches in the same order as the cards above.
+function hrBranchGroupRank(emp) {
+  if (!emp.branch) return -1;
+  const idx = hrBranches.findIndex((b) => b.id === emp.branch);
+  return idx >= 0 ? idx : hrBranches.length;
+}
+
 function hrGetFilteredBranchEmployees() {
   const search = hrBranchSearch.toLowerCase();
   return hrBranchAllEmployees.filter((e) => {
@@ -1287,7 +1295,8 @@ function hrGetFilteredBranchEmployees() {
     if (!search) return true;
     const hay = [e.full_name, e.employee_id, e.email].map((v) => String(v || '').toLowerCase()).join(' ');
     return hay.includes(search);
-  });
+  }).sort((a, b) => hrBranchGroupRank(a) - hrBranchGroupRank(b)
+    || String(a.full_name || '').localeCompare(String(b.full_name || '')));
 }
 
 function hrRenderBranchTable(employees) {
@@ -1299,7 +1308,24 @@ function hrRenderBranchTable(employees) {
     return;
   }
 
+  // One header row per branch, as on HR Reports. Counts cover the whole
+  // filtered list, and each page starts with its group's header.
+  const groupKey = (emp) => emp.branch || '';
+  const counts = new Map();
+  hrGetFilteredBranchEmployees().forEach((emp) => counts.set(groupKey(emp), (counts.get(groupKey(emp)) || 0) + 1));
+  let lastGroup = null;
+
   tbody.innerHTML = employees.map((emp) => {
+    let header = '';
+    if (groupKey(emp) !== lastGroup) {
+      lastGroup = groupKey(emp);
+      const n = counts.get(lastGroup) || 0;
+      const title = emp.branch ? (emp.branch_label || hrBranchName(emp.branch) || 'Unknown branch') : 'Unassigned';
+      header = `<tr><td colspan="7" style="background:var(--bg3);font-weight:700;font-size:12px;color:var(--t1);">
+        ${escapeHtml(title)}
+        <span style="font-weight:500;color:var(--t3);margin-left:6px;">${n} employee${n === 1 ? '' : 's'}</span>
+      </td></tr>`;
+    }
     const branchIdx = emp.branch ? hrBranches.findIndex((b) => b.id === emp.branch) : -1;
     const branchColor = branchIdx >= 0 ? HR_BRANCH_COLORS[branchIdx % HR_BRANCH_COLORS.length] : 'var(--t3)';
     const inactiveTag = emp.branch && emp.branch_status && emp.branch_status !== 'Active' ? ' (Inactive)' : '';
@@ -1315,7 +1341,7 @@ function hrRenderBranchTable(employees) {
       ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeJsArg(emp.id)}')">Transfer</button>`
       : `<button class="btn btn-primary" style="font-size:11px;padding:5px 11px;" onclick="openHrBranchAssignModal('${escapeJsArg(emp.id)}')">Assign</button>`;
 
-    return `
+    return `${header}
       <tr>
         <td class="nm">${escapeHtml(emp.full_name || '')}</td>
         <td class="mn">${escapeHtml(emp.employee_id || '—')}</td>
