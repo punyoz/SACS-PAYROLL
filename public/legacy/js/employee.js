@@ -927,8 +927,14 @@ function tsExportExcel() {
     r.time_in  || '', r.time_out  || '',
     r.required_hours, r.tardiness, r.undertime, r.leave_with_pay,
   ]);
+  // A cell starting with = + - @ (or tab / CR) runs as a formula in Excel;
+  // a leading ' keeps it text. Plain numbers such as -12.50 are left alone.
+  const csvText = v => {
+    const s = String(v);
+    return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+  };
   const csv  = [headers, ...rows].map(row =>
-    row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+    row.map(v => `"${csvText(v).replace(/"/g, '""')}"`).join(',')
   ).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);

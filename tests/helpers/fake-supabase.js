@@ -10,16 +10,22 @@
 
 // Kept on globalThis: vi.resetModules() hands the mocked supabase-js a fresh
 // copy of this module, and both copies must see the same data.
-const state = (globalThis.__fakeSupabaseState ??= { db: {}, users: [], rpc: { calls: [], results: {} } });
+const state = (globalThis.__fakeSupabaseState ??= { db: {}, users: [], rpc: { calls: [], results: {} }, maxRows: null });
 export const db = state.db;
 export const users = state.users;
 export const rpc = state.rpc;
+
+/** Cap every select at n rows, like PostgREST's max-rows (1000 by default). null = no cap. */
+export function setMaxRows(n) {
+  state.maxRows = n;
+}
 
 export function resetDb() {
   for (const key of Object.keys(db)) delete db[key];
   users.length = 0;
   rpc.calls = [];
   rpc.results = {};
+  state.maxRows = null;
 }
 
 export function table(name) {
@@ -75,6 +81,7 @@ function query(name) {
     });
     if (rangeFrom !== null) out = out.slice(rangeFrom, rangeTo + 1);
     if (limitN !== null) out = out.slice(0, limitN);
+    if (state.maxRows !== null) out = out.slice(0, state.maxRows);
     return { data: single ? out[0] || null : out, error: null };
   };
 

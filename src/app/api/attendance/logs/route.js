@@ -13,6 +13,7 @@ import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/l
 import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { readApprovedLeave, readBlockedTaps } from "@/lib/attendance/leave";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 
 /**
  * GET /api/attendance/logs — the attendance status board.
@@ -74,27 +75,29 @@ export async function GET(request) {
     const closed = await supabase.rpc("attendance_close_days", { p_from: range.from, p_to: range.to });
     const engineReady = !closed.error;
 
-    let query = supabase
-      .from("attendance_logs")
-      .select(engineReady ? LOG_COLUMNS : "id,employee_id,employee_name,employee_type,branch_id,log_date,time_in,time_out,total_hours,status")
-      .gte("log_date", range.from)
-      .lte("log_date", range.to)
-      .eq("archived_duplicate", false)
-      .order("log_date", { ascending: false })
-      .order("employee_name", { ascending: true })
-      .limit(5000);
-    if (employeeIds) {
-      if (!employeeIds.length) {
-        return NextResponse.json({ range, logs: [], counts: {}, statuses: ATTENDANCE_STATUSES, engine_ready: engineReady });
-      }
-      query = query.in("employee_id", employeeIds);
+    if (employeeIds && !employeeIds.length) {
+      return NextResponse.json({ range, logs: [], counts: {}, statuses: ATTENDANCE_STATUSES, engine_ready: engineReady });
     }
-
     const statusFilter = normalizeText(url.searchParams.get("status"));
-    if (statusFilter === "unresolved") query = query.in("status", UNRESOLVED_STATUSES);
-    else if (statusFilter && statusFilter !== "all") query = query.eq("status", normalizeAttendanceStatus(statusFilter, statusFilter));
 
-    const result = await query;
+    // Paged: a 62-day range for ~200 employees is several thousand rows, past
+    // PostgREST's max-rows (1000 by default); an unpaged read silently hides
+    // the rest, including Incomplete days HR has to resolve.
+    const result = await fetchAllRows(() => {
+      let query = supabase
+        .from("attendance_logs")
+        .select(engineReady ? LOG_COLUMNS : "id,employee_id,employee_name,employee_type,branch_id,log_date,time_in,time_out,total_hours,status")
+        .gte("log_date", range.from)
+        .lte("log_date", range.to)
+        .eq("archived_duplicate", false)
+        .order("log_date", { ascending: false })
+        .order("employee_name", { ascending: true })
+        .order("id", { ascending: true });
+      if (employeeIds) query = query.in("employee_id", employeeIds);
+      if (statusFilter === "unresolved") query = query.in("status", UNRESOLVED_STATUSES);
+      else if (statusFilter && statusFilter !== "all") query = query.eq("status", normalizeAttendanceStatus(statusFilter, statusFilter));
+      return query;
+    });
     if (result.error) throw new Error(result.error.message);
 
     const logs = (result.data || []).map((row) => ({

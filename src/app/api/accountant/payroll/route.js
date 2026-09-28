@@ -689,14 +689,21 @@ const ENGINE_ATTENDANCE_COLUMNS = "id,employee_id,status,log_date,time_in,time_o
 async function readPeriodAttendance(supabase, periodStart, periodEnd, employeeIds = null) {
   const closed = await supabase.rpc("attendance_close_days", { p_from: periodStart, p_to: periodEnd });
 
-  let query = supabase
-    .from("attendance_logs")
-    .select(ENGINE_ATTENDANCE_COLUMNS)
-    .gte("log_date", periodStart)
-    .lte("log_date", periodEnd)
-    .eq("archived_duplicate", false);
-  if (employeeIds && employeeIds.length && employeeIds.length <= 200) query = query.in("employee_id", employeeIds);
-  const engine = await query.order("created_at", { ascending: false }).limit(20000);
+  // Paged: PostgREST returns at most max-rows (1000 by default) per request,
+  // and a period for 200 employees is ~2,200 rows. A dropped row is an
+  // absence or late day payroll never charges. id breaks created_at ties
+  // (the nightly close writes many rows in one statement) so pages are stable.
+  const buildQuery = () => {
+    let query = supabase
+      .from("attendance_logs")
+      .select(ENGINE_ATTENDANCE_COLUMNS)
+      .gte("log_date", periodStart)
+      .lte("log_date", periodEnd)
+      .eq("archived_duplicate", false);
+    if (employeeIds && employeeIds.length && employeeIds.length <= 200) query = query.in("employee_id", employeeIds);
+    return query.order("created_at", { ascending: false }).order("id", { ascending: true });
+  };
+  const engine = await fetchAllRows(buildQuery);
 
   if (!engine.error) return { rows: engine.data || [], engineReady: !closed?.error };
 
@@ -720,13 +727,15 @@ async function readPeriodAttendance(supabase, periodStart, periodEnd, employeeId
  * the attendance engine, rather than silently paying no overtime.
  */
 async function readApprovedOvertime(supabase, periodStart, periodEnd) {
-  const result = await supabase
+  // Paged for the same reason as readPeriodAttendance: a dropped row is
+  // approved overtime that never gets paid.
+  const result = await fetchAllRows(() => supabase
     .from("attendance_overtime_approvals")
     .select("log_id,approved_minutes,status")
     .gte("log_date", periodStart)
     .lte("log_date", periodEnd)
     .eq("status", "approved")
-    .limit(20000);
+    .order("log_id", { ascending: true }));
   if (result.error) return { minutes: new Map(), available: false };
   return {
     minutes: new Map((result.data || []).map((row) => [String(row.log_id), Number(row.approved_minutes) || 0])),
@@ -860,9 +869,13 @@ function differs(a, b) {
   return Math.abs(toAmount(a) - toAmount(b)) > DEVIATION_TOLERANCE;
 }
 
+// Every override is a salary, contribution, tax, day count or minute count,
+// none of which can be negative; a negative one would raise net pay (e.g. SSS
+// -5,000 adds 5,000). The form has min="0" but the API is reachable directly,
+// so the floor is enforced here too.
 function pickAmount(value, fallback) {
-  if (value === undefined || value === null || value === "") return toAmount(fallback);
-  return toAmount(value);
+  if (value === undefined || value === null || value === "") return Math.max(0, toAmount(fallback));
+  return Math.max(0, toAmount(value));
 }
 
 function rateSnapshot(resolved) {

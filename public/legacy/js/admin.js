@@ -573,7 +573,10 @@ function exportAttendanceCsv() {
 }
 
 function toCsvValue(value) {
-  const text = String(value ?? '');
+  let text = String(value ?? '');
+  // A cell starting with = + - @ (or tab / CR) runs as a formula in Excel;
+  // a leading ' keeps it text. Plain numbers such as -12.50 are left alone.
+  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
   if (text.includes(',') || text.includes('"') || text.includes('\n')) {
     return `"${text.replaceAll('"', '""')}"`;
   }

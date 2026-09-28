@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { resetDb, table, users, rpc } from "./helpers/fake-supabase.js";
+import { resetDb, table, users, rpc, setMaxRows } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -147,6 +147,24 @@ describe("GET: the batch table's figures", () => {
     expect(blocked.pay.blocking).toEqual([{ log_id: "b1", log_date: "2026-09-16", status: "Incomplete" }]);
     expect(blocked.unresolved_days).toBe(1);
   });
+
+  it("still sees every log when the period has more rows than one API response carries", async () => {
+    // ~200 employees x 11 days is past PostgREST's 1000-row default. The newest
+    // 1200 rows belong to others, so an unpaged read would miss EMP_OK's days.
+    setMaxRows(1000);
+    for (let e = 0; e < 200; e += 1) {
+      const id = `u-filler-${e}`;
+      users.push(user(id, `Filler ${e}`, 20000));
+      table("profiles").push({ id, full_name: `Filler ${e}`, email: `${id}@sacs.test`, branch_id: BRANCH });
+      for (let d = 23; d <= 30; d += 1) {
+        table("attendance_logs").push(log(`${id}-${d}`, id, `2026-09-${d}`, { created_at: "2026-09-30T12:00:00Z" }));
+      }
+    }
+    const body = await (await GET(request("GET", null, `?period=${encodeURIComponent(PERIOD)}`))).json();
+    const ok = body.attendance_rows.find((r) => r.employee_id === EMP_OK);
+    expect(ok.pay.amounts).toMatchObject({ late: 500, undertime: 90, half_day: 250, absent: 500, early_bird: 20 });
+    expect(body.attendance_rows.find((r) => r.employee_id === EMP_BLOCKED).unresolved_days).toBe(1);
+  });
 });
 
 describe("POST batch_submit", () => {
@@ -207,6 +225,18 @@ describe("POST batch_submit", () => {
       items: [{ field: "sss", default: 200, value: 250 }],
     });
     expect(table("payroll_deductions").find((d) => d.type === "sss")).toMatchObject({ amount: 250, is_override: true, note: "New SSS bracket" });
+  });
+
+  it("never lets a negative override raise net pay", async () => {
+    const entry = { employee_id: EMP_OK, basic_salary: 10000, deductions: { sss: -5000, philhealth: 200, pagibig: 200 } };
+    const result = await (await POST(request("POST", {
+      action: "batch_submit", pay_period: PERIOD, entries: [entry], override_reason: "crafted request",
+    }))).json();
+    expect(result.processed).toHaveLength(1);
+    const record = table("payroll_records").find((r) => r.employee_id === EMP_OK);
+    expect(record.deviations.items).toEqual([{ field: "sss", default: 200, value: 0 }]);
+    expect(record.net_pay).toBeLessThanOrEqual(record.gross_pay);
+    expect(table("payroll_deductions").some((d) => d.amount < 0 && d.type === "sss")).toBe(false);
   });
 });
 

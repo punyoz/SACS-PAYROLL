@@ -1049,7 +1049,13 @@ function exportReportCSV() {
     String(toAmount(r.net_pay)),
     r.status || '',
   ]);
-  const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  // A cell starting with = + - @ (or tab / CR) runs as a formula in Excel;
+  // a leading ' keeps it text. Plain numbers such as -12.50 are left alone.
+  const csvText = (v) => {
+    const s = String(v);
+    return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+  };
+  const csv = [headers, ...rows].map((row) => row.map((v) => `"${csvText(v).replace(/"/g, '""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

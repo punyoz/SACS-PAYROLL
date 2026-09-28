@@ -1609,7 +1609,11 @@ async function exportSAData(type) {
 function saDownloadCsv(rows, filename) {
   const csv = rows.map((r) =>
     r.map((v) => {
-      const s = String(v ?? '').replace(/"/g, '""');
+      let s = String(v ?? '');
+      // A cell starting with = + - @ (or tab / CR) runs as a formula in Excel;
+      // a leading ' keeps it text. Plain numbers such as -12.50 are left alone.
+      if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+      s = s.replace(/"/g, '""');
       return /[,"\n]/.test(s) ? `"${s}"` : s;
     }).join(',')
   ).join('\r\n');
