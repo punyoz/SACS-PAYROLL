@@ -1,4 +1,4 @@
-# BNCS Payroll (Next.js)
+# SACS Payroll (Next.js)
 
 This project has been migrated to Next.js and prepared for Supabase integration.
 
@@ -39,17 +39,11 @@ This project has been migrated to Next.js and prepared for Supabase integration.
 
 The active migrations live in `supabase/migrations/`. Apply any new SQL files there via the Supabase Dashboard SQL Editor, then restart `npm run dev`.
 
-Tables used by the APIs:
+Tables used by the APIs (20 tables and 1 view):
 
-- `profiles`
-- `payroll_records`
-- `payroll_entries`
-- `attendance_logs`
-- `audit_logs`
-- `leave_requests`
-- `branches`
-- `employee_branch_assignments`
-- `transfer_requests`
-- `system_config`
-- `role_permissions`
+- Accounts and branches: `profiles`, `branches`, `employee_branch_assignments`, `transfer_requests`, `role_permissions`, `system_config`
+- Attendance: `attendance_logs`, `attendance_logs_history`, `attendance_corrections`, `attendance_overtime_approvals`, `attendance_holidays`, `attendance_blocked_taps`
+- Leave: `leave_requests`
+- Payroll: `payroll_entries`, `payroll_records`, `payroll_deductions`, `payroll_incentives`, `payroll_rate_configs`
+- System: `audit_logs`, `auth_throttle`
 - `employee_info_view` (read-only view)
