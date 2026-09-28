@@ -1328,6 +1328,8 @@ function renderSAAttendancePanels(payload = {}) {
   set('sa-att-present', panels.present_today);
   set('sa-att-late', panels.late_today);
   set('sa-att-absent', panels.absent_today);
+  const onLeaveEl = document.getElementById('sa-att-on-leave');
+  if (onLeaveEl) onLeaveEl.textContent = `On leave: ${panels.on_leave_today || 0}`;
 
   const titleEl = document.getElementById('sa-attendance-title');
   if (titleEl) titleEl.textContent = `Attendance Log — ${payload?.date_label || 'Today'}`;

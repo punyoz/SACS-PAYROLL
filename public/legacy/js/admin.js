@@ -197,6 +197,7 @@ async function loadBranchReports() {
     setText('adm-br-present', data.attendance?.present ?? 0);
     setText('adm-br-late', data.attendance?.late ?? 0);
     setText('adm-br-absent', data.attendance?.absent ?? 0);
+    setText('adm-br-on-leave', `On leave: ${data.attendance?.on_leave ?? 0}`);
     setText('adm-br-date', data.attendance?.date || '—');
 
     if (payrollBody) {
@@ -354,6 +355,8 @@ function renderAttendancePanels(payload = {}) {
   if (presentEl) presentEl.textContent = String(panels.present_today || 0);
   if (lateEl) lateEl.textContent = String(panels.late_today || 0);
   if (absentEl) absentEl.textContent = String(panels.absent_today || 0);
+  const onLeaveEl = document.getElementById('adm-att-on-leave');
+  if (onLeaveEl) onLeaveEl.textContent = `On leave: ${panels.on_leave_today || 0}`;
   if (titleEl) {
     const dateLabel = payload?.date_label || 'Today';
     titleEl.textContent = `Attendance Log — ${dateLabel}`;
