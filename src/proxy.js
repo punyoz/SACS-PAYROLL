@@ -315,7 +315,7 @@ export async function proxy(request) {
 
   const session = readSession(request);
 
-  // ── RFID Terminal (Admin-only kiosk page) ──
+  // ── RFID Terminal (Admin / Super Admin kiosk page) ──
   if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/") || pathname === "/legacy/rfid-terminal.html") {
     if (!session || !isKnownRole(session.role)) {
       return NextResponse.redirect(new URL("/login", request.url));
@@ -326,7 +326,7 @@ export async function proxy(request) {
       loginUrl.searchParams.set("reason", rejection.reason);
       return clearSession(NextResponse.redirect(loginUrl));
     }
-    if (session.role !== "admin") {
+    if (session.role !== "admin" && session.role !== "super_admin") {
       return NextResponse.redirect(new URL(ROLE_HOME[session.role] || "/login", request.url));
     }
     return withRenewedSession(request, NextResponse.next(), session, pathname);

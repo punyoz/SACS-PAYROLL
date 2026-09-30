@@ -2273,6 +2273,15 @@ window.submitSARfidUpdate = submitSARfidUpdate;
 window.voidSARfidCard = voidSARfidCard;
 window.submitSARfidAttendanceScan = submitSARfidAttendanceScan;
 
+// Same kiosk page the Administrator opens (see openRfidTerminal() in
+// admin.js): navigate the top tab rather than open a popup, which can be
+// silently blocked. terminal.js sends a Super Admin back to /super-admin.
+function openSARfidTerminal() {
+  window.top.location.href = '/rfid-terminal';
+}
+
+window.openSARfidTerminal = openSARfidTerminal;
+
 window.loadSAAttendanceData = loadSAAttendanceData;
 window.onSAAttendanceBranchChange = onSAAttendanceBranchChange;
 window.exportSAAttendanceCsv = exportSAAttendanceCsv;
