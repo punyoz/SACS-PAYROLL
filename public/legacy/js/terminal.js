@@ -1,11 +1,12 @@
 /**
  * RFID Attendance Terminal — public/legacy/rfid-terminal.html
  *
- * A standalone kiosk page opened from Administration's Attendance panel
- * (openRfidTerminal() in admin.js), meant to sit next to the RFID reader.
- * It shares the signed-in Admin's session cookie (same browser, same
- * origin), but adds its own password lock on top: opening the terminal and
- * leaving it both require that same Admin to type their password again, so
+ * A standalone kiosk page opened from the Attendance panel of Administration
+ * (openRfidTerminal() in admin.js) or Super Admin (openSARfidTerminal() in
+ * super-admin.js), meant to sit next to the RFID reader. It shares the
+ * signed-in user's session cookie (same browser, same origin), but adds its
+ * own password lock on top: opening the terminal and leaving it both require
+ * that same user to type their password again, so
  * it can be left running unattended without becoming a way for anyone else
  * at the desk to touch attendance records or wander off with it open.
  *
@@ -27,6 +28,8 @@
   const lockFeedback = document.getElementById('rt-lock-feedback');
   const lockSubmit = document.getElementById('rt-lock-submit');
   const lockSub = document.getElementById('rt-lock-sub');
+  const lockBack = document.getElementById('rt-lock-back');
+  const exitSub = document.getElementById('rt-exit-sub');
 
   const branchEl = document.getElementById('rt-branch');
   const clockEl = document.getElementById('rt-clock');
@@ -48,54 +51,12 @@
   const scanInput = document.getElementById('rt-scan-input');
 
   let branchName = '—';
+  // Where Exit Terminal and the lock screen's back link return to. Set in
+  // boot() from the signed-in role.
+  let homePath = '/admin';
   let scanInFlight = false;
   let queuedCode = null;
   let resultTimer = null;
-
-  /* ── THEME ──
-     The kiosk reads and writes the same 'sacs-theme' key as the portal
-     (js/app.js) and is same-origin with it, so the mode carries across in
-     both directions: the terminal opens in whatever the Admin last chose,
-     and a switch made here is still in effect back in the portal.
-
-     rfid-terminal.html has already applied the stored theme before first
-     paint; this only keeps the buttons and later switches in sync. */
-  const THEME_KEY = 'sacs-theme';
-  const themeToggles = document.querySelectorAll('[data-rt-theme-toggle]');
-  const rtApp = document.querySelector('.rt-app');
-
-  function currentTheme() {
-    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-  }
-
-  function paintThemeToggles(theme) {
-    themeToggles.forEach((btn) => {
-      // Matches the portal's own toggle: the button shows the mode it
-      // switches TO, not the one currently active.
-      btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-      btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
-    });
-  }
-
-  function applyTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    try {
-      localStorage.setItem(THEME_KEY, theme);
-    } catch (e) {
-      // Blocked storage — the kiosk still switches, it just won't be
-      // remembered across a reload.
-    }
-    paintThemeToggles(theme);
-  }
-
-  function toggleTheme() {
-    const next = currentTheme() === 'dark' ? 'light' : 'dark';
-    if (rtApp) {
-      rtApp.classList.add('rt-theme-transitioning');
-      setTimeout(() => rtApp.classList.remove('rt-theme-transitioning'), 300);
-    }
-    applyTheme(next);
-  }
 
   function formatTime(value) {
     if (!value) return '—';
@@ -148,13 +109,21 @@
       window.location.href = '/login';
       return;
     }
-    if (!user || user.role !== 'admin') {
+    const isSuperAdmin = user?.role === 'super_admin';
+    if (!user || (user.role !== 'admin' && !isSuperAdmin)) {
       window.location.href = '/admin';
       return;
     }
-    branchName = await fetchBranchName(user.branch_id);
+    homePath = isSuperAdmin ? '/super-admin' : '/admin';
+    const portalLabel = isSuperAdmin ? 'Super Admin' : 'Administration';
+    lockBack.href = homePath;
+    lockBack.textContent = `\u2190 Back to ${portalLabel}`;
+    exitSub.textContent = `Enter your ${portalLabel} password to close the terminal.`;
+    // A Super Admin is not tied to one branch, and the scan API accepts any
+    // branch's cards from them, so the kiosk says so instead of one name.
+    branchName = isSuperAdmin ? 'All branches' : await fetchBranchName(user.branch_id);
     branchEl.textContent = branchName;
-    lockSub.textContent = `Enter ${user.full_name || 'your'} Administration password to open the terminal.`;
+    lockSub.textContent = `Enter ${user.full_name || 'your'} ${portalLabel} password to open the terminal.`;
     lockPassword.focus();
   }
 
@@ -233,13 +202,13 @@
     try {
       const valid = await verifyPassword(password);
       if (!valid) { showExitFeedback('Incorrect password.', true); return; }
-      // admin.js navigates the tab to this page rather than opening a popup
-      // (popups are too easily blocked), so window.close() has nothing to
-      // close here — go back to Administration directly. The close() call is
-      // kept only for the case this page was opened as a script-opened
-      // window some other way.
+      // admin.js / super-admin.js navigate the tab to this page rather than
+      // opening a popup (popups are too easily blocked), so window.close()
+      // has nothing to close here — go back to the opener's portal directly.
+      // The close() call is kept only for the case this page was opened as a
+      // script-opened window some other way.
       window.close();
-      window.location.href = '/admin';
+      window.location.href = homePath;
     } catch (err) {
       showExitFeedback(err.message, true);
     } finally {
@@ -381,17 +350,10 @@
     }, 400);
   });
 
-  themeToggles.forEach((btn) => {
-    btn.addEventListener('click', toggleTheme);
-  });
-
   document.addEventListener('click', (event) => {
     if (mainScreen.hidden) return;
     if (exitModal.classList.contains('active')) return;
     if (event.target.closest('#rt-exit-btn')) return;
-    // A theme-toggle click falls through to focusScanInput() on purpose: the
-    // reader is a keyboard, so the scan field must take focus straight back
-    // or the next tap would be typed into the button instead.
     focusScanInput();
   });
 
@@ -409,7 +371,6 @@
     fetch('/api/legacy-auth/session', { headers: { 'x-sacs-activity': '1' }, cache: 'no-store' }).catch(() => {});
   }, 4 * 60 * 1000);
 
-  paintThemeToggles(currentTheme());
   tickClock();
   setInterval(tickClock, 1000);
   boot();

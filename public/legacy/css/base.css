@@ -52,12 +52,6 @@ html, body {
   overflow-y: auto;
 }
 
-body.theme-transitioning,
-body.theme-transitioning .card,
-body.theme-transitioning .screen {
-  transition: background 0.25s, color 0.25s, border-color 0.25s;
-}
-
 /* ── SCREENS ── */
 .screen { display: none; width: 100%; min-height: 100%; }
 .screen.active { display: flex; }
@@ -425,21 +419,6 @@ select.fc { cursor: pointer; }
 }
 .sr { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; color: var(--t2); }
 .sr.tot { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; font-weight: 700; color: var(--t1); }
-
-/* ── THEME TOGGLE BUTTON ── */
-.theme-toggle {
-  width: 34px; height: 34px;
-  border-radius: 8px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  color: var(--t2);
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 16px;
-  
-  flex-shrink: 0;
-}
-.theme-toggle:hover { border-color: var(--amber); color: var(--amber); }
 
 /* ── LOGIN SCREEN ── */
 /* #s-verify-otp (the email-code screen login() shows after a correct
@@ -1172,16 +1151,14 @@ body.scroll-locked {
   .settings-close,
   .btn-close-x,
   .nb,
-  .sitemap-fab,
-  .theme-toggle {
+  .sitemap-fab {
     position: relative;
   }
 
   .settings-close::after,
   .btn-close-x::after,
   .nb::after,
-  .sitemap-fab::after,
-  .theme-toggle::after {
+  .sitemap-fab::after {
     content: "";
     position: absolute;
     top: 50%;

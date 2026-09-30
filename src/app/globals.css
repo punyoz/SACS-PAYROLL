@@ -25,19 +25,6 @@
   color-scheme: light;
 }
 
-html[data-theme="dark"] {
-  --bg:     #0C2318;
-  --bg2:    #112B1F;
-  --bg3:    #17392A;
-  --border: #2F5642;
-  --t1:     #F3F1E8;
-  --t3:     #9DB2A5;
-  --accent: var(--color-secondary);
-  --on-accent: var(--color-neutral-dark);
-
-  color-scheme: dark;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -91,8 +78,8 @@ a {
 }
 
 /* Backdrop behind the portal iframe, shown for the instant before the portal
-   paints. Matches the portal's own --bg for the saved theme (set on <html> by
-   layout.js), so a sign-in never flashes the wrong colour. */
+   paints. Matches the portal's own --bg, so a sign-in never flashes the
+   wrong colour. */
 .legacy-frame {
   background: var(--bg);
 }

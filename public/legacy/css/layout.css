@@ -219,17 +219,13 @@
 .nb:hover { border-color: var(--t3); }
 /* Icon buttons, role tag and search sit on the green bar in every portal. */
 .topbar .nb,
-.topbar .theme-toggle,
-.emp-topbar .nb,
-.emp-topbar .theme-toggle {
+.emp-topbar .nb {
   background: var(--chrome-hover);
   border-color: var(--chrome-line);
   color: var(--chrome-text);
 }
 .topbar .nb:hover,
-.topbar .theme-toggle:hover,
-.emp-topbar .nb:hover,
-.emp-topbar .theme-toggle:hover {
+.emp-topbar .nb:hover {
   border-color: var(--chrome-accent);
   color: var(--chrome-accent);
 }
@@ -394,8 +390,7 @@
   display: none;
 }
 
-.topbar .nb,
-.topbar .theme-toggle {
+.topbar .nb {
   flex-shrink: 0;
 }
 

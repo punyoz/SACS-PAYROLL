@@ -31,12 +31,10 @@
   }
 
   /* ── Paper palette ──────────────────────────────────────────────────
-     Redefining the theme variables converts every descendant in one go,
-     whichever theme the user happens to be viewing in. Always the light
-     brand palette on white paper: school green for structure, gold for
+     Redefining the theme variables converts every descendant in one go.
+     Always the light brand palette on white paper: school green for structure, gold for
      the header rules — the brand tokens themselves come from theme.css. */
   :root,
-  [data-theme="dark"],
   [data-theme="light"] {
     --bg:      var(--color-neutral-white);
     --bg2:     var(--color-neutral-white);
@@ -97,7 +95,6 @@
   body[data-print] .sidebar,
   body[data-print] .topbar,
   body[data-print] .pg-bar,
-  body[data-print] .theme-toggle,
   body[data-print] .btn,
   body[data-print] .ph,
   body[data-print] .banner,

@@ -1,30 +1,10 @@
 /* ═══════════════════════════════════════
    app.js — core application logic
-   Handles: login, logout, theme toggle
+   Handles: login, logout
    Edit this file for auth and routing init
    ═══════════════════════════════════════ */
 
 'use strict';
-
-/* ── THEME ── */
-const THEME_KEY = 'sacs-theme';
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem(THEME_KEY, theme);
-  // update all toggle button icons
-  document.querySelectorAll('.theme-toggle').forEach(btn => {
-    btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-    btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
-  });
-}
-
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme') || 'light';
-  document.body.classList.add('theme-transitioning');
-  applyTheme(current === 'dark' ? 'light' : 'dark');
-  setTimeout(() => document.body.classList.remove('theme-transitioning'), 300);
-}
 
 /* ── AUTH CONSTANTS ── */
 const AUTH_CONTEXT_KEY = 'sacs-auth-context';
@@ -3680,9 +3660,9 @@ function startScrollLockWatcher() {
 }
 
 function initApp() {
-  // Restore saved theme or default to light
-  const saved = localStorage.getItem(THEME_KEY) || 'light';
-  applyTheme(saved);
+  // The system has a single (light) theme. Drop any mode an older build
+  // saved so it can never come back.
+  try { localStorage.removeItem('sacs-theme'); } catch (e) { /* blocked storage */ }
 
   startScrollLockWatcher();
 

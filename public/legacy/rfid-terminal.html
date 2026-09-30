@@ -4,29 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>RFID Terminal — SACS Payroll</title>
-<script>
-  // Theme is applied before the stylesheets load so the kiosk never paints
-  // one theme for a frame and then flips to the other. data-theme="light"
-  // stays on <html> above as the default for the no-JS / no-storage case.
-  //
-  // Same 'sacs-theme' key the portal writes (js/app.js), and the terminal is
-  // same-origin with it, so whichever mode the Admin picked in their portal
-  // is the one the kiosk opens in.
-  (function () {
-    try {
-      var saved = localStorage.getItem('sacs-theme');
-      if (saved === 'light' || saved === 'dark') {
-        document.documentElement.setAttribute('data-theme', saved);
-      }
-    } catch (e) { /* private mode / blocked storage — keep the light default */ }
-  })();
-</script>
 <!-- css/js under /legacy get a 1-hour browser cache (next.config.mjs); bump
      this version string whenever terminal.css/terminal.js change, or edits
      here silently never reach a browser that already loaded the page once. -->
 <link rel="icon" href="/legacy/assets/logo-mark.svg" type="image/svg+xml" />
-<link rel="stylesheet" href="/legacy/css/theme.css?v=20260926d" />
-<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260926d" />
+<link rel="stylesheet" href="/legacy/css/theme.css?v=20260930a" />
+<link rel="stylesheet" href="/legacy/css/terminal.css?v=20260930a" />
 </head>
 <body>
 <div class="rt-app">
@@ -36,7 +19,6 @@
        Admin's own password before it will do anything. -->
   <div class="rt-lock" id="rt-lock">
     <div class="rt-lock-card">
-      <button class="rt-theme-toggle" type="button" data-rt-theme-toggle aria-label="Switch colour theme" title="Switch to light mode">☀️</button>
       <div class="rt-brand">
         <img class="rt-icon" src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="52" height="52">
         <div class="rt-brand-text">
@@ -45,18 +27,18 @@
         </div>
       </div>
       <h1 class="rt-lock-title">Unlock Terminal</h1>
-      <p class="rt-lock-sub" id="rt-lock-sub">Enter your Administration password to open the terminal.</p>
+      <p class="rt-lock-sub" id="rt-lock-sub">Enter your password to open the terminal.</p>
 
       <form id="rt-lock-form" novalidate>
         <div class="rt-input-wrap">
-          <label class="rt-sr-only" for="rt-lock-password">Administration password</label>
+          <label class="rt-sr-only" for="rt-lock-password">Your password</label>
           <input id="rt-lock-password" class="rt-input" type="password" placeholder="Password" autocomplete="current-password" />
           <button type="button" class="rt-eye" data-target="rt-lock-password" aria-label="Show password">Show</button>
         </div>
         <p id="rt-lock-feedback" class="rt-feedback" role="alert" aria-live="assertive"></p>
         <button class="rt-btn rt-btn-primary" type="submit" id="rt-lock-submit">Unlock Terminal</button>
       </form>
-      <a class="rt-lock-back" href="/admin">&larr; Back to Administration</a>
+      <a class="rt-lock-back" id="rt-lock-back" href="/admin">&larr; Back to Administration</a>
     </div>
   </div>
 
@@ -76,7 +58,6 @@
           <span class="rt-branch" id="rt-branch">—</span>
         </div>
         <div class="rt-clock" id="rt-clock">--:--:--</div>
-        <button class="rt-theme-toggle" type="button" data-rt-theme-toggle aria-label="Switch colour theme" title="Switch to light mode">☀️</button>
         <button class="rt-btn rt-btn-outline" id="rt-exit-btn" type="button">Exit Terminal</button>
       </div>
     </div>
@@ -114,9 +95,9 @@
   <div class="rt-modal-backdrop" id="rt-exit-modal" aria-hidden="true">
     <div class="rt-modal-card">
       <h3>Exit RFID Terminal</h3>
-      <p>Enter your Administration password to close the terminal.</p>
+      <p id="rt-exit-sub">Enter your Administration password to close the terminal.</p>
       <div class="rt-input-wrap">
-        <label class="rt-sr-only" for="rt-exit-password">Administration password</label>
+        <label class="rt-sr-only" for="rt-exit-password">Your password</label>
         <input id="rt-exit-password" class="rt-input" type="password" placeholder="Password" autocomplete="current-password" />
         <button type="button" class="rt-eye" data-target="rt-exit-password" aria-label="Show password">Show</button>
       </div>
@@ -130,6 +111,6 @@
 
 </div>
 
-<script src="/legacy/js/terminal.js?v=20260928b"></script>
+<script src="/legacy/js/terminal.js?v=20260930a"></script>
 </body>
 </html>

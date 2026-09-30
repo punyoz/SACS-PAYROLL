@@ -7,15 +7,14 @@
   <link rel="icon" href="assets/logo-mark.svg" type="image/svg+xml">
   <script>
     (function() {
-      var savedTheme = localStorage.getItem('sacs-theme') || 'light';
-      document.documentElement.setAttribute('data-theme', savedTheme);
+      document.documentElement.setAttribute('data-theme', 'light');
 
       // Cache-bust version. This used to be Math.floor(Date.now() / 300000),
       // which minted a brand-new URL for every asset every 5 minutes — so the
       // browser re-downloaded the entire portal several times an hour and the
       // HTTP cache never got to do its job. It is now a fixed build stamp:
       // bump ?v= here when shipping legacy asset changes.
-      window._bv = '20260928i';
+      window._bv = '20260930a';
 
       // Which portal this is. LegacyRoleFrame renders the iframe as
       // /legacy/index.html?role=<role>, so the role is known before a single
@@ -80,10 +79,8 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     /* First-paint background, before theme.css arrives — the same --bg values
-       it defines — so a load never flashes the wrong colour. Light (the
-       default) and dark brand surfaces. */
+       it defines — so a load never flashes the wrong colour. */
     :where(html) { background: #F6F7F3; }
-    :where(html[data-theme="dark"]) { background: #0C2318; }
 
     /* The portal is assembled in steps (page fragment, then app.js picks the
        screen, then the portal script opens the saved page). Revealing it once
