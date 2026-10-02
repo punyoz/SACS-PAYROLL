@@ -11,7 +11,7 @@
  *   - every processed payslip carries its snapshot and traceable lines.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, table, users, rpc, setMaxRows } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
@@ -75,7 +75,16 @@ function request(method, body, query = "") {
   });
 }
 
+// Processing writes Final payslips, accepted only after the period ends and up
+// to its pay date (src/lib/payroll/generation-window.js): Oct 2 is inside
+// September 16-30's window.
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-02T10:00:00+08:00"));
   vi.resetModules();
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "service";

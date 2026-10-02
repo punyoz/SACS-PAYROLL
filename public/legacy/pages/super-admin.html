@@ -537,6 +537,30 @@
         </div>
       </div>
 
+      <!-- Final payslips are locked; only a Super Admin override (with a reason,
+           audit-logged) recomputes one. loadSAPayslipOverrides in js/super-admin.js. -->
+      <div class="config-section">
+        <div class="config-section-head">
+          <div>
+            <div class="config-section-title">Final Payslip Override</div>
+            <div class="config-section-sub">Recompute a locked Final payslip from the latest attendance and corrections</div>
+            <div class="config-applies">Needs a reason, saved in the audit log. The replaced payslip is archived, never deleted, and a new payslip number is issued.</div>
+          </div>
+          <button class="btn btn-outline" type="button" onclick="loadSAPayslipOverrides()">Refresh</button>
+        </div>
+        <div class="config-section-body" style="display:block;">
+          <div class="fg" style="margin:0 0 12px;max-width:260px;">
+            <label for="sa-ovr-period">Pay Period</label>
+            <select id="sa-ovr-period" class="fc" onchange="loadSAPayslipOverrides(this.value)"><option value="">Loading...</option></select>
+          </div>
+          <div class="tw"><table>
+            <thead><tr><th>Employee</th><th>Payslip No.</th><th>Net Pay</th><th>Processed</th><th>Action</th></tr></thead>
+            <tbody id="sa-ovr-body"><tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr></tbody>
+          </table></div>
+          <p id="sa-ovr-feedback" class="adm-feedback" style="margin-top:8px;"></p>
+        </div>
+      </div>
+
       <p id="sa-config-feedback" class="adm-feedback" style="margin-top:4px;"></p>
     </div>
 

@@ -152,6 +152,8 @@
       <div class="ph"><h2>Process Payroll</h2><p>Compute employee salaries including deductions. Processed payrolls generate payslips automatically.</p></div>
       <div id="ac-pending-banner" class="pending-banner" style="display:none;"></div>
       <div id="pc-not-ready" class="banner" style="display:none;background:var(--amber-s);border:1px solid var(--amber);color:var(--amber);"></div>
+      <!-- Payslip generation window for the selected period (renderGenerationWindow). -->
+      <div id="pc-window-banner" class="banner" style="display:none;"></div>
 
       <!-- BATCH PROCESSING -->
       <div class="card" style="margin-bottom:14px;">
@@ -167,11 +169,11 @@
             <tr>
               <th>Employee</th><th>Basic Salary</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th>
               <th>Tax</th><th>Absent</th><th>Late</th><th>Undertime</th><th>Half Day</th><th>Early Bird / Incentive</th>
-              <th>Leave w/ Pay</th><th>Leave w/o Pay</th><th>Net Pay</th>
+              <th>Leave w/ Pay</th><th>Leave w/o Pay</th><th>Net Pay</th><th>Payslip</th>
             </tr>
           </thead>
           <tbody id="pc-batch-table-body">
-            <tr><td colspan="14" style="color:var(--t3);">Loading employees...</td></tr>
+            <tr><td colspan="15" style="color:var(--t3);">Loading employees...</td></tr>
           </tbody>
         </table></div>
         <div class="fg" id="pc-batch-reason-wrap" style="margin:14px 0 0;display:none;">
@@ -297,6 +299,7 @@
         <select class="fc" style="max-width:270px;" id="ac-payslip-select"><option value="">No payslips available</option></select>
         <button class="btn btn-primary" id="ac-generate-payslip-btn" onclick="generatePayslip()">Generate</button>
         <button class="btn btn-outline" id="ac-print-payslip-btn" onclick="printPayslip()">🖨 Print</button>
+        <button class="btn btn-outline" id="ac-download-pdf-btn" onclick="downloadPayslipPdf()">⬇ Download PDF</button>
       </div>
       <div class="card" style="border-color:var(--amber);">
         <div class="pf-head">
@@ -311,14 +314,18 @@
             </div>
           </div>
           </div>
-          <div class="pf-period">Pay Period<br><strong id="ac-pf-period">N/A</strong><br><span style="font-size:11px;color:var(--t3);" id="ac-pf-issued">Issued: N/A</span></div>
+          <div class="pf-period">Pay Period<br><strong id="ac-pf-period">N/A</strong><br><span style="font-size:11px;color:var(--t3);" id="ac-pf-issued">Issued: N/A</span><div id="ac-pf-status" style="margin-top:6px;"></div></div>
         </div>
         <div class="pf-emp">
           <div class="pf-f"><label id="ac-pf-name-cap">Employee Name</label><p id="ac-pf-name" aria-labelledby="ac-pf-name-cap">N/A</p></div>
           <div class="pf-f"><label id="ac-pf-id-cap">ID</label><p style="font-family:var(--mono);" id="ac-pf-id" aria-labelledby="ac-pf-id-cap">N/A</p></div>
           <div class="pf-f"><label id="ac-pf-position-cap">Position</label><p id="ac-pf-position" aria-labelledby="ac-pf-position-cap">N/A</p></div>
           <div class="pf-f"><label id="ac-pf-type-cap">Type</label><p id="ac-pf-type" aria-labelledby="ac-pf-type-cap">N/A</p></div>
+          <div class="pf-f"><label id="ac-pf-branch-cap">Branch</label><p id="ac-pf-branch" aria-labelledby="ac-pf-branch-cap">—</p></div>
         </div>
+        <div id="ac-pf-status-note" class="pf-note" style="display:none;"></div>
+        <!-- Attendance numbers the payslip was computed from (renderPayslipGeneration). -->
+        <div id="ac-pf-attendance" class="pf-attendance" style="display:none;"></div>
         <div class="pf-breakdown">
           <div>
             <div class="pf-stitle">Earnings</div>
@@ -345,7 +352,10 @@
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);" id="ac-pf-total-deductions">₱ 0.00</span></div>
           </div>
         </div>
+        <!-- How each deduction was computed. -->
+        <div id="ac-pf-basis" class="pf-basis" style="display:none;"></div>
         <div class="pf-net"><div class="pf-net-l">Net Pay</div><div class="pf-net-a" id="ac-pf-net">₱ 0.00</div></div>
+        <div id="ac-pf-generated" style="font-size:11px;color:var(--t3);margin-top:10px;"></div>
       </div>
     </div>
 

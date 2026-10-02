@@ -5790,6 +5790,7 @@ window.mountAttendanceEmployeePage = mountAttendanceEmployeePage;
 window.openAttendanceCorrectionHistory = openAttendanceCorrectionHistory;
 window.openAttendanceTaps = openAttendanceTaps;
 window.attEmployeeBack = attEmployeeBack;
+window.openAttendanceDialog = openAttendanceDialog;
 window.closeAttendanceDialog = closeAttendanceDialog;
 window.loadMyAttendancePeriod = loadMyAttendancePeriod;
 window.openMyCorrectionRequest = openMyCorrectionRequest;

@@ -40,6 +40,11 @@ const acctState = {
   taxEdited: false,
   // The default tax for the figures on the form (set by recalc()).
   lastTaxDefault: 0,
+  // When payslips for the active period may be generated (server-computed,
+  // Asia/Manila): not_open | draft | final | closed.
+  generationWindow: null,
+  activePeriod: '',
+  canOverride: false,
 };
 
 let acRecordsPaginator = null;
@@ -400,7 +405,11 @@ function renderEmployeeRateHints(employeeId) {
       : '';
   }
   const submitButton = document.getElementById('ac-submit-btn');
-  if (submitButton) submitButton.disabled = Boolean(blocking.length) || !acctState.payrollReady;
+  const finalWindow = !acctState.generationWindow || acctState.generationWindow.state === 'final';
+  if (submitButton) {
+    submitButton.disabled = Boolean(blocking.length) || !acctState.payrollReady || !finalWindow;
+    submitButton.title = finalWindow ? '' : (acctState.generationWindow?.message || '');
+  }
 }
 
 /** Manual changes from the computed defaults, for the override reason. */
@@ -1160,6 +1169,7 @@ function renderPayslipDetails() {
   assign('ac-pf-leave-without-pay', formatMoney(payslip.deductions?.leave_without_pay_deduction || 0));
   assign('ac-pf-total-deductions', formatMoney(payslip.deductions?.total_deductions || 0));
   assign('ac-pf-net', formatMoney(payslip.net_pay || 0));
+  renderPayslipGeneration(payslip);
 }
 
 function populateFormFromDraft() {
@@ -1323,7 +1333,7 @@ function loadBatchPayrollTable() {
   if (!tbody) return;
 
   if (!acctState.employees.length) {
-    tbody.innerHTML = '<tr><td colspan="14" style="color:var(--t3);">No employees found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="15" style="color:var(--t3);">No employees found.</td></tr>';
     return;
   }
 
@@ -1391,12 +1401,13 @@ function loadBatchPayrollTable() {
         <td class="mn"><span id="batch-lwp-display-${id}">${leaveWithPayDays}</span><input type="hidden" id="batch-lwp-${id}" value="${leaveWithPayDays}"></td>
         <td class="mn">${numberInput('lwop', leaveWithoutPayDays, 60, '1')}</td>
         <td class="mn" style="font-family:var(--mono);font-weight:600;" id="batch-net-${id}">${formatMoney(netPay)}</td>
+        <td>${acctPayslipCell(employee)}</td>
       </tr>`;
 
     // Only this employee waits; the rest of the batch is processed.
     const warningRow = blocking.length ? `
       <tr class="pc-blocked-row">
-        <td colspan="14" style="font-size:12px;color:var(--amber);background:var(--amber-s);white-space:normal;">
+        <td colspan="15" style="font-size:12px;color:var(--amber);background:var(--amber-s);white-space:normal;">
           ⚠ ${escapeHtml(employee.full_name)} will be skipped — unresolved attendance: ${escapeHtml(describeBlockingDays(blocking))}. HR or the branch Administrator must resolve ${blocking.length === 1 ? 'it' : 'them'} first.
           <a href="#" onclick="openAcctIncompleteQueue();return false;" style="color:var(--amber);font-weight:600;">View in Attendance →</a>
         </td>
@@ -1595,13 +1606,21 @@ async function runAccountantLoad(options = {}) {
     acctState.payrollReady = payload.payroll_ready !== false;
     acctState.payrollNotReadyMessage = payload.payroll_not_ready_message || '';
     acctState.taxTable = Array.isArray(payload.tax_table) ? payload.tax_table : [];
+    acctState.generationWindow = payload.generation_window || null;
+    acctState.activePeriod = payload.active_period?.label || '';
+    acctState.canOverride = payload.can_override === true;
+    renderGenerationWindow();
     const notReady = document.getElementById('pc-not-ready');
     if (notReady) {
       notReady.style.display = acctState.payrollReady ? 'none' : '';
       notReady.textContent = acctState.payrollReady ? '' : `⚠ ${acctState.payrollNotReadyMessage}`;
     }
     const batchButton = document.getElementById('pc-batch-submit-btn');
-    if (batchButton) batchButton.disabled = !acctState.payrollReady;
+    const finalWindow = !acctState.generationWindow || acctState.generationWindow.state === 'final';
+    if (batchButton) {
+      batchButton.disabled = !acctState.payrollReady || !finalWindow;
+      batchButton.title = finalWindow ? '' : (acctState.generationWindow?.message || '');
+    }
 
     renderEmployeeDropdown();
     renderPeriodDropdown();
@@ -1698,6 +1717,205 @@ async function cancelDraft(entryId) {
 }
 
 
+
+/* ── PAYSLIP GENERATION (per employee, inside the generation window) ──
+   The server decides the window (src/lib/payroll/generation-window.js):
+   from 3 days before the period ends a Draft counting attendance up to
+   today; after it ends, up to the pay date, the Final payslip (locked).
+   These only mirror it on the buttons. */
+
+const ACCT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-10-12" -> "Oct 12, 2026". */
+function acctDateLabel(key) {
+  const [y, m, d] = String(key || '').split('-').map(Number);
+  return y && m && d ? `${ACCT_MONTHS[m - 1]} ${d}, ${y}` : String(key || '');
+}
+
+function renderGenerationWindow() {
+  const banner = document.getElementById('pc-window-banner');
+  const win = acctState.generationWindow;
+  if (!banner) return;
+  if (!win) {
+    banner.style.display = 'none';
+    return;
+  }
+  const tone = win.state === 'final' ? 'green' : win.state === 'draft' ? 'blue' : 'warn';
+  const icon = win.state === 'final' || win.state === 'draft' ? 'ℹ' : '⚠';
+  banner.style.display = '';
+  banner.style.background = `var(--${tone}-s)`;
+  banner.style.border = `1px solid var(--${tone})`;
+  banner.style.color = `var(--${tone})`;
+  banner.innerHTML = `<strong>${escapeHtml(acctState.activePeriod || 'This period')}:</strong> ${icon} ${escapeHtml(win.message)}`
+    + ` <span style="opacity:.85;">Window ${escapeHtml(acctDateLabel(win.opens_on))} – ${escapeHtml(acctDateLabel(win.pay_date))}${win.pay_date_scheduled ? ' (pay date from the Pay Calendar)' : ''}.</span>`;
+}
+
+/** The Payslip cell of an employee's batch row: state + Generate / Regenerate / View. */
+function acctPayslipCell(employee) {
+  const win = acctState.generationWindow;
+  const row = acctState.attendanceRows.find((r) => r.employee_id === employee.id);
+  const state = row?.payslip || null;
+  const id = escapeJsAttr(employee.id);
+  const small = (text) => `<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:normal;">${text}</div>`;
+  const view = (entryId) => `<button class="btn btn-outline" type="button" style="padding:4px 10px;font-size:12px;" onclick="openPayslipFromRecord('${escapeJsAttr(entryId)}')">View</button>`;
+
+  if (state?.status === 'final') {
+    return `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;"><span class="badge bg"><span class="bd"></span>Final</span>${view(state.entry_id)}</div>${small(`${escapeHtml(state.payslip_no || '')} · locked`)}`;
+  }
+
+  const canGenerate = Boolean(win?.can_generate);
+  const isDraft = state?.status === 'draft';
+  const label = isDraft ? 'Regenerate' : 'Generate';
+  const finalNext = win?.state === 'final';
+  const title = canGenerate
+    ? (finalNext ? 'Creates the Final payslip (locked once saved)' : `Draft with attendance up to ${acctDateLabel(win.attendance_through)}`)
+    : (win?.message || '');
+  const button = `<button class="btn ${finalNext && canGenerate ? 'btn-primary' : 'btn-outline'}" type="button" style="padding:4px 10px;font-size:12px;" title="${escapeHtml(title)}" onclick="generateEmployeePayslip('${id}')"${canGenerate ? '' : ' disabled'}>${finalNext && canGenerate ? 'Generate Final' : label}</button>`;
+  const badge = isDraft ? '<span class="badge ba"><span class="bd"></span>Draft</span>' : '';
+  const note = isDraft
+    ? small(`Up to ${escapeHtml(acctDateLabel(state.attendance_through))}`)
+    : (!canGenerate && win?.state === 'not_open' ? small(`Opens ${escapeHtml(acctDateLabel(win.opens_on))}`) : '')
+      + (!canGenerate && win?.state === 'closed' ? small('Window closed') : '');
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">${badge}${button}${isDraft ? view(state.entry_id) : ''}</div>${note}`;
+}
+
+/** Generate (or regenerate) one employee's payslip for the active period. */
+async function generateEmployeePayslip(employeeId, confirmIncomplete = false) {
+  const employee = acctState.employees.find((e) => e.id === employeeId);
+  const feedbackEl = document.getElementById('pc-batch-feedback');
+  const say = (text, isError = false) => {
+    if (!feedbackEl) return;
+    feedbackEl.textContent = text;
+    feedbackEl.className = `adm-feedback${text ? (isError ? ' err' : ' ok') : ''}`;
+  };
+
+  try {
+    say(`Generating ${employee?.full_name || 'the'} payslip...`);
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'generate',
+        employee_id: employeeId,
+        pay_period: acctState.activePeriod,
+        confirm_incomplete: confirmIncomplete,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    // Unresolved Incomplete days: resolve first, or confirm to leave them out.
+    if (response.status === 422 && data.code === 'unresolved_attendance') {
+      say('');
+      const proceed = window.confirmApproveAction
+        ? await window.confirmApproveAction(
+          'generate this payslip without counting the unresolved days',
+          `${data.error} They will be listed on the payslip as not counted.`,
+          { title: 'Unresolved Attendance', confirmLabel: 'Generate Anyway' },
+        )
+        : window.confirm(`${data.error}\n\nGenerate anyway?`);
+      if (proceed) await generateEmployeePayslip(employeeId, true);
+      return;
+    }
+    if (!response.ok) throw new Error(data.error || 'Unable to generate the payslip.');
+
+    const final = data.status === 'final';
+    say(final
+      ? `Final payslip ${data.entry?.payslip_no || ''} generated for ${employee?.full_name || 'the employee'}. It is now locked.`
+      : `Draft payslip generated for ${employee?.full_name || 'the employee'} (attendance up to ${acctDateLabel(data.window?.attendance_through)}).`);
+    window.pushNotification?.(final ? 'Final Payslip Generated' : 'Draft Payslip Generated', final ? 'The payslip is final and locked.' : 'You can regenerate it until the period ends.', 'success');
+
+    await loadAccountantData({ period: acctState.activePeriod });
+    if (data.entry?.id) openPayslipFromRecord(data.entry.id);
+  } catch (error) {
+    say(error.message, true);
+  }
+}
+
+/** Payslip page: Draft / Final, branch, attendance summary, deduction basis, who generated it. */
+function renderPayslipGeneration(payslip) {
+  const statusEl = document.getElementById('ac-pf-status');
+  const noteEl = document.getElementById('ac-pf-status-note');
+  const attendanceEl = document.getElementById('ac-pf-attendance');
+  const basisEl = document.getElementById('ac-pf-basis');
+  const generatedEl = document.getElementById('ac-pf-generated');
+  const branchEl = document.getElementById('ac-pf-branch');
+  const draft = payslip.status === 'draft';
+  const generation = payslip.generation || null;
+
+  if (statusEl) {
+    statusEl.innerHTML = draft
+      ? '<span class="badge ba"><span class="bd"></span>Draft</span>'
+      : '<span class="badge bg"><span class="bd"></span>Final</span>';
+  }
+  if (branchEl) branchEl.textContent = payslip.employee?.branch || '—';
+
+  if (noteEl) {
+    const notes = [];
+    if (draft && generation?.attendance_through) notes.push(`Includes attendance up to ${acctDateLabel(generation.attendance_through)}.`);
+    if (generation?.confirmed_incomplete?.length) {
+      notes.push(`Not counted (unresolved when generated): ${generation.confirmed_incomplete.map((item) => `${acctDateLabel(item.log_date)} (${item.status})`).join(', ')}.`);
+    }
+    if (generation?.override) notes.push(`Overridden by ${generation.override.by_name || 'Super Admin'}: ${generation.override.reason}`);
+    noteEl.style.display = notes.length ? '' : 'none';
+    noteEl.innerHTML = notes.map((text) => `<div>${escapeHtml(text)}</div>`).join('');
+  }
+
+  const summary = payslip.attendance_summary;
+  if (attendanceEl) {
+    attendanceEl.style.display = summary ? '' : 'none';
+    attendanceEl.innerHTML = summary ? `
+      <div class="pf-stitle">Attendance Summary</div>
+      <div class="pf-att-grid">
+        ${[
+          ['Days present', summary.days_present],
+          ['Days absent', summary.days_absent],
+          ['Half days', summary.half_days],
+          ['Late minutes', summary.late_minutes],
+          ['Undertime minutes', summary.undertime_minutes],
+          ['Leave days', summary.leave_days],
+        ].map(([label, value]) => `<div class="pf-att-item"><span>${escapeHtml(label)}</span><strong class="mn">${escapeHtml(String(value ?? 0))}</strong></div>`).join('')}
+      </div>` : '';
+  }
+
+  const basis = Array.isArray(payslip.deduction_basis) ? payslip.deduction_basis : [];
+  if (basisEl) {
+    basisEl.style.display = basis.length ? '' : 'none';
+    basisEl.innerHTML = basis.length
+      ? `<div class="pf-stitle">How Deductions Were Computed</div>${basis.map((line) => `<div class="pf-basis-row">${escapeHtml(line.basis)}</div>`).join('')}`
+      : '';
+  }
+
+  if (generatedEl) {
+    generatedEl.textContent = generation?.generated_by_name
+      ? `Generated by ${generation.generated_by_name} on ${generation.generated_at_label || formatDateTime(generation.generated_at)}${generation.regenerations ? ` · regenerated ${generation.regenerations} time${generation.regenerations === 1 ? '' : 's'}` : ''}.`
+      : '';
+  }
+}
+
+/** Download the selected payslip as a PDF (built on the server). */
+async function downloadPayslipPdf() {
+  const entryId = acctState.payslip?.entry_id;
+  if (!entryId) return;
+  try {
+    const response = await fetch(`/api/accountant/payroll?format=pdf&entry_id=${encodeURIComponent(entryId)}`);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || 'Unable to download the payslip.');
+    }
+    const blob = await response.blob();
+    const match = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') || '');
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = match ? match[1] : 'payslip.pdf';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (error) {
+    window.pushNotification?.('Download Failed', error.message, 'error');
+  }
+}
 
 /* ── PROFILE ── */
 function loadAccountantProfile() {
@@ -1862,3 +2080,5 @@ if (document.readyState === 'loading') {
 }
 
 window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChange);
+window.generateEmployeePayslip = generateEmployeePayslip;
+window.downloadPayslipPdf = downloadPayslipPdf;

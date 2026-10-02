@@ -101,6 +101,8 @@ export async function GET(request) {
     let payrollQuery = supabase
       .from("payroll_records")
       .select("id,net_pay,gross_pay,period_label,processed_at,branch_id")
+      // A record a Super Admin override replaced is kept, archived, for audit.
+      .eq("archived", false)
       .order("processed_at", { ascending: false })
       .limit(500);
     if (branchId) payrollQuery = payrollQuery.eq("branch_id", branchId);

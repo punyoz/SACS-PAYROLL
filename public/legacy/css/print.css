@@ -176,10 +176,10 @@
   body[data-print="payslip"] .pf-school-s { font-size: 8pt  !important; }
   body[data-print="payslip"] .pf-period   { font-size: 8.5pt !important; text-align: right; white-space: nowrap; }
 
-  /* Employee identity strip — 4 across in landscape, wraps in portrait. */
+  /* Employee identity strip — 5 across (name, ID, position, type, branch). */
   body[data-print="payslip"] .pf-emp {
     display: grid !important;
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
     gap: 8px !important;
     padding: 8px 0 !important;
     margin-bottom: 12px !important;
@@ -207,6 +207,9 @@
     padding-bottom: 3px;
     margin-bottom: 4px;
   }
+  body[data-print="payslip"] .pf-att-grid { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; gap: 6px !important; }
+  body[data-print="payslip"] .pf-att-item { padding: 4px 6px !important; }
+  body[data-print="payslip"] .pf-basis-row { font-size: 8pt !important; padding: 2px 0 !important; }
   body[data-print="payslip"] .pf-row {
     font-size: 9pt !important;
     padding: 2.5px 0 !important;

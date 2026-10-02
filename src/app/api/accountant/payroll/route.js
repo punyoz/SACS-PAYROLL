@@ -8,6 +8,10 @@ import { readAllLeaveRequests } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { requirePermission } from "@/lib/rbac/guard";
+import { SCOPE_ALL } from "@/lib/rbac/permissions";
+import { formatDateKey, generationWindow, loadPayCalendar } from "@/lib/payroll/generation-window";
+import { buildAttendanceSummary, buildDeductionBasis } from "@/lib/payroll/payslip-summary";
+import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import {
   isUnresolvedStatus,
   normalizeAttendanceStatus as normalizeEngineStatus,
@@ -230,6 +234,9 @@ function normalizePayrollEntry(row) {
       },
       // Rates, attendance lines and manual deviations behind this entry.
       audit: payrollObj?.audit && typeof payrollObj.audit === "object" ? payrollObj.audit : null,
+      // Payslip generation (Generate / Regenerate): Draft or Final, attendance
+      // counted up to, who and when, and the attendance snapshot used.
+      generation: payrollObj?.generation && typeof payrollObj.generation === "object" ? payrollObj.generation : null,
     },
   };
 }
@@ -760,16 +767,21 @@ const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the at
  * Everything payroll needs for one period, per employee: the rate versions in
  * force on the period's first day, the attendance lines computed from the
  * logs, and the approved leave.
+ *
+ * `through` (a date inside the period) counts attendance and leave only up to
+ * that day, for a payslip generated before the period ends: days that have
+ * not happened yet are never absences or leave deductions.
  */
-async function loadPeriodPayContext(supabase, employees, period) {
+async function loadPeriodPayContext(supabase, employees, period, { through = null } = {}) {
   const employeeIds = employees.map((employee) => employee.id);
+  const lastDay = through && through >= period.start_key && through < period.end_key ? through : period.end_key;
   // Holidays first: leave days are counted on working days only.
   const holidays = await readHolidays(supabase, period.start_key, period.end_key);
   const [leaveContext, attendance, rateResult, overtimeResult] = await Promise.all([
-    buildLeaveContext(employees, period.start_key, period.end_key, holidays),
-    readPeriodAttendance(supabase, period.start_key, period.end_key, employeeIds),
+    buildLeaveContext(employees, period.start_key, lastDay, holidays),
+    readPeriodAttendance(supabase, period.start_key, lastDay, employeeIds),
     loadRateConfigs(supabase),
-    readApprovedOvertime(supabase, period.start_key, period.end_key),
+    readApprovedOvertime(supabase, period.start_key, lastDay),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 
@@ -777,7 +789,7 @@ async function loadPeriodPayContext(supabase, employees, period) {
     supabase,
     employees,
     period.start_key,
-    period.end_key,
+    lastDay,
     leaveDaysByEmployee,
     attendance.rows,
   );
@@ -808,7 +820,7 @@ async function loadPeriodPayContext(supabase, employees, period) {
       leaveDays: leaveDaysByEmployee.get(employee.id),
       rates: resolved,
       periodStart: period.start_key,
-      periodEnd: period.end_key,
+      periodEnd: lastDay,
       overtime: overtimeResult.minutes,
       holidays,
     });
@@ -855,6 +867,7 @@ async function loadPeriodPayContext(supabase, employees, period) {
 
   return {
     period,
+    through: lastDay,
     engineReady: attendance.engineReady && overtimeResult.available,
     ratesReady: rateResult.available,
     leaveSummary,
@@ -1133,7 +1146,9 @@ function recordAuditColumns(entry) {
     period_start: audit.period?.start_key || null,
     period_end: audit.period?.end_key || null,
     rate_version_snapshot: audit.rates || null,
-    attendance_snapshot: audit.attendance ? { ...audit.attendance, lines: audit.lines || null } : null,
+    attendance_snapshot: audit.attendance
+      ? { ...audit.attendance, lines: audit.lines || null, generation: entry.payroll?.generation || null }
+      : null,
     deviations: audit.deviations || null,
     processed_by: entry.processed_by || null,
     processed_by_name: entry.processed_by_name || null,
@@ -1179,6 +1194,7 @@ function mapEntryToRecord(entry) {
     employee_code: entry.employee_code,
     employee_type: entry.employee_type,
     pay_period: entry.pay_period,
+    payslip_no: entry.payslip_no || null,
     gross_pay: grossPay,
     total_deductions: totalDeductions,
     net_pay: netPay,
@@ -1204,28 +1220,102 @@ function buildPayrollPanels(records) {
   };
 }
 
-function buildPayslipOptions(records) {
-  return records
-    .filter((record) => record.status !== "on_hold")
-    .map((record) => ({
-      id: record.id,
-      label: `${record.employee_name} — ${record.pay_period}`,
-    }));
+function buildPayslipOptions(records, generatedDrafts = []) {
+  return [
+    ...generatedDrafts.map((entry) => ({
+      id: entry.id,
+      label: `${entry.employee_name} — ${entry.pay_period} (Draft)`,
+    })),
+    ...records
+      .filter((record) => record.status !== "on_hold")
+      .map((record) => ({
+        id: record.id,
+        label: `${record.employee_name} — ${record.pay_period}`,
+      })),
+  ];
+}
+
+/** "Oct 12, 2026, 09:30 AM" (Manila). */
+function formatManilaDateTime(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return String(iso || "");
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(date);
+}
+
+/** The generation window for a period, from the Pay Calendar (Asia/Manila dates). */
+async function periodWindow(supabase, period) {
+  return generationWindow(period, { payCalendar: await loadPayCalendar(supabase) });
+}
+
+/**
+ * Process Payroll / Process for All write Final payslips, so they are only
+ * accepted once the period has ended and until its pay date. Before that,
+ * Generate makes a Draft.
+ */
+function refuseOutsideFinalWindow(genWindow) {
+  if (genWindow.state === "final") return null;
+  const error = genWindow.state === "not_open"
+    ? genWindow.message
+    : genWindow.state === "draft"
+      ? `This period ends on ${formatDateKey(genWindow.period_end)}: a payslip generated now is a Draft (use Generate). Final payslips are processed from ${formatDateKey(addDayKey(genWindow.period_end, 1))} to the pay date, ${formatDateKey(genWindow.pay_date)}.`
+      : genWindow.message;
+  return NextResponse.json({ error, code: "generation_window", genWindow }, { status: 403 });
+}
+
+function addDayKey(dateKey, days) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** The employee's payslip state for the period, for the Generate buttons. */
+function payslipStateFor(entries, employeeId, periodLabel) {
+  const entry = entries.find((row) => row.employee_id === employeeId && row.pay_period === periodLabel);
+  if (!entry) return null;
+  const generation = entry.payroll?.generation || null;
+  return {
+    entry_id: entry.id,
+    status: entry.status === "draft" ? (generation ? "draft" : "form_draft") : "final",
+    payslip_no: entry.payslip_no || null,
+    attendance_through: generation?.attendance_through || null,
+    generated_at: generation?.generated_at || null,
+    generated_by_name: generation?.generated_by_name || null,
+  };
 }
 
 function buildPayslipDetails(entry) {
   if (!entry) return null;
+  const generation = entry.payroll?.generation || null;
 
   return {
     entry_id: entry.id,
     payslip_no: entry.payslip_no || null,
     pay_period: entry.pay_period,
     issued_at: entry.submitted_at || entry.updated_at || entry.created_at,
+    // Draft while the period is open; Final (locked) once processed.
+    status: entry.status === "draft" ? "draft" : "final",
+    generation: generation
+      ? {
+        attendance_through: generation.attendance_through || null,
+        attendance_through_label: generation.attendance_through_label || null,
+        generated_at: generation.generated_at || null,
+        generated_at_label: generation.generated_at ? formatManilaDateTime(generation.generated_at) : null,
+        generated_by_name: generation.generated_by_name || null,
+        regenerations: generation.regenerations || 0,
+        confirmed_incomplete: generation.confirmed_incomplete || [],
+        override: generation.override || null,
+      }
+      : null,
+    attendance_summary: generation?.attendance_summary || null,
+    deduction_basis: generation?.deduction_basis || [],
     employee: {
       id: entry.employee_code,
       name: entry.employee_name,
       type: entry.employee_type,
-      position: entry.position,
+      position: generation?.position_title || entry.position,
+      branch: generation?.branch_name || null,
     },
     earnings: {
       basic_salary: entry.payroll.basic_salary,
@@ -1314,6 +1404,26 @@ export async function GET(request) {
       readPayrollEntries(supabase),
     ]);
 
+    // ?format=pdf&entry_id=… : the payslip as a PDF download.
+    if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
+      const visible = new Set(employees.map((e) => e.id));
+      const entry = entriesResult.entries.find((row) => row.id === requestedEntryId);
+      if (!entry || (!guard.branchExempt && !visible.has(entry.employee_id))) {
+        return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
+      }
+      const details = buildPayslipDetails(entry);
+      const pdf = buildPayslipPdf(details);
+      const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "draft").replace(/[^\w-]/g, "")}-${entry.pay_period.replace(/[^\w-]+/g, "-")}${details.status === "draft" ? "-DRAFT" : ""}.pdf`;
+      return new NextResponse(pdf, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
     // Branch-scoped callers only ever see entries for employees in their own
     // branch — payroll_entries carries no branch_id of its own, but every
     // entry's employee_id ties back to an employee already filtered above.
@@ -1354,11 +1464,20 @@ export async function GET(request) {
     const activePeriod = periodFromLabel(selectedPeriod)
       || findPeriodRangeByLabel(selectedPeriod)
       || getPayPeriodRange(manilaToday());
+    // When payslips for this period may be generated, and attendance counted
+    // up to today while it is still open.
+    const genWindow = await periodWindow(supabase, activePeriod);
     // Attendance lines, leave and the rate versions in force on the period's
     // first day, per employee (loadPeriodPayContext above).
-    const payContext = await loadPeriodPayContext(supabase, employees, activePeriod);
+    const payContext = await loadPeriodPayContext(supabase, employees, activePeriod, { through: genWindow.attendance_through });
     const leaveSummary = payContext.leaveSummary;
-    const attendanceRows = payContext.attendanceRows;
+    const attendanceRows = payContext.attendanceRows.map((row) => ({
+      ...row,
+      payslip: payslipStateFor(sortedEntries, row.employee_id, activePeriod.label),
+    }));
+    const generatedDrafts = sortedEntries.filter((entry) => entry.status === "draft"
+      && entry.payroll?.generation
+      && (!selectedPeriod || entry.pay_period === selectedPeriod));
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -1374,8 +1493,11 @@ export async function GET(request) {
       payroll_ready: payContext.engineReady && payContext.ratesReady,
       payroll_not_ready_message: payContext.engineReady && payContext.ratesReady ? null : PAYROLL_NOT_READY_MESSAGE,
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
-      payslip_options: buildPayslipOptions(payrollRecords),
+      payslip_options: buildPayslipOptions(payrollRecords, generatedDrafts),
       payslip: buildPayslipDetails(payslipSource),
+      generation_window: genWindow,
+      // Super Admin only: change a Final payslip, with a reason.
+      can_override: guard.scope === SCOPE_ALL,
       // From Oct 1, 2026: legal contribution tables and BIR withholding tax
       // (src/lib/payroll/statutory.js); the table lets the form preview the
       // tax exactly as the server computes it.
@@ -1411,6 +1533,8 @@ async function handleBatchSubmit(supabase, body, guard) {
   // Attendance, leave and rates for the period, computed here -- never taken
   // from the browser. Attendance figures cannot be edited in the batch table.
   const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
+  const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
+  if (refused) return refused;
   const payContext = await loadPeriodPayContext(supabase, employees, period);
   if (!payContext.engineReady || !payContext.ratesReady) {
     return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
@@ -1576,6 +1700,10 @@ export async function POST(request) {
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
+    if (action === "submit") {
+      const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
+      if (refused) return refused;
+    }
     const payContext = await loadPeriodPayContext(supabase, [employee], period);
     if (action === "submit" && (!payContext.engineReady || !payContext.ratesReady)) {
       return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
@@ -1768,6 +1896,202 @@ export async function POST(request) {
   }
 }
 
+/**
+ * PATCH { action: "generate", employee_id, pay_period, confirm_incomplete? }
+ *   One employee's payslip, computed from the period's attendance records:
+ *     - from 3 days before the period ends to its last day: a Draft counting
+ *       attendance up to today (Regenerate recomputes it from the latest
+ *       records and corrections);
+ *     - after the period ends, up to the pay date: the Final payslip, written
+ *       with its payslip number and locked.
+ *   Unresolved Incomplete / Pending Correction days are never counted
+ *   silently: the request is refused (422, code "unresolved_attendance")
+ *   until it is repeated with confirm_incomplete: true, and the days are then
+ *   recorded on the payslip as left out.
+ *
+ * PATCH { action: "override_final", employee_id, pay_period, reason, confirm_incomplete? }
+ *   Super Admin only (every-branch scope): recompute a Final payslip after the
+ *   period has ended, even past the pay date, with a reason. The previous
+ *   payroll record is archived (kept, never deleted) and a new one is issued.
+ *
+ * Accountant and Super Admin reach this (process_payroll "update"); the
+ * window is enforced here whatever the portal shows.
+ */
+async function handleGenerate(supabase, body, guard, { override = false } = {}) {
+  const payPeriod = normalizeText(body.pay_period);
+  const period = periodFromLabel(payPeriod);
+  if (!period) return NextResponse.json({ error: "Choose a valid pay period." }, { status: 400 });
+
+  const reason = normalizeText(body.reason).slice(0, 500);
+  if (override) {
+    if (guard.scope !== SCOPE_ALL) {
+      return NextResponse.json({ error: "Only a Super Admin can override a Final payslip." }, { status: 403 });
+    }
+    if (reason.length < 10) {
+      return NextResponse.json({ error: "Give a reason for the override (at least 10 characters).", code: "override_reason_required" }, { status: 400 });
+    }
+  }
+
+  const employees = await fetchEmployees(supabase, guard);
+  const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
+  if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+
+  const genWindow = await periodWindow(supabase, period);
+  if (override) {
+    if (genWindow.state === "not_open" || genWindow.state === "draft") {
+      return NextResponse.json({
+        error: `An override changes a Final payslip, which exists only after the period ends (${formatDateKey(genWindow.period_end)}). Regenerate the Draft instead.`,
+        code: "generation_window",
+        window: genWindow,
+      }, { status: 403 });
+    }
+  } else if (!genWindow.can_generate) {
+    return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
+  }
+
+  const { entries } = await readPayrollEntries(supabase);
+  const existing = entries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label) || null;
+  const existingFinal = existing && existing.status !== "draft";
+  if (existingFinal && !override) {
+    return NextResponse.json({
+      error: "This payslip is Final and locked. Changing it needs a Super Admin override with a reason.",
+      code: "payslip_locked",
+    }, { status: 409 });
+  }
+
+  const through = genWindow.attendance_through;
+  const payContext = await loadPeriodPayContext(supabase, [employee], period, { through });
+  if (!payContext.engineReady || !payContext.ratesReady) {
+    return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
+  }
+  const context = payContext.byEmployee.get(employee.id);
+  const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+  const built = buildEmployeePayroll({ employee, context, input: {}, allowAttendanceOverrides: false, period, actor });
+
+  if (built.blocking.length && body.confirm_incomplete !== true) {
+    const days = built.blocking.map((item) => `${formatDateKey(item.log_date)} (${item.status})`).join(", ");
+    return NextResponse.json({
+      error: `${employee.full_name} has ${built.blocking.length} unresolved attendance record${built.blocking.length === 1 ? "" : "s"}: ${days}. Resolve ${built.blocking.length === 1 ? "it" : "them"} in Attendance first, or confirm to generate without counting ${built.blocking.length === 1 ? "it" : "them"}.`,
+      code: "unresolved_attendance",
+      blocking: built.blocking,
+    }, { status: 422 });
+  }
+
+  const final = genWindow.state === "final" || genWindow.state === "closed";
+  const nowIso = new Date().toISOString();
+  const branch = employee.branch_id
+    ? await supabase.from("branches").select("name").eq("id", employee.branch_id).maybeSingle()
+    : { data: null };
+  const previous = existing?.payroll?.generation || null;
+  built.payroll.generation = {
+    status: final ? "final" : "draft",
+    attendance_through: through,
+    attendance_through_label: formatDateKey(through),
+    generated_at: nowIso,
+    generated_by: guard.userId || null,
+    generated_by_name: actor.name || null,
+    regenerations: previous ? (Number(previous.regenerations) || 0) + 1 : 0,
+    window: { opens_on: genWindow.opens_on, period_end: genWindow.period_end, pay_date: genWindow.pay_date },
+    confirmed_incomplete: built.blocking,
+    attendance_summary: buildAttendanceSummary({ auto: context.auto, leave: context.leave, through }),
+    deduction_basis: buildDeductionBasis({
+      payroll: built.payroll,
+      auto: context.auto,
+      rates: rateValues(context.resolved),
+      legal: usesLegalRules(period.start_key),
+    }),
+    branch_name: branch?.data?.name || null,
+    position_title: employee.position_title || employee.position,
+    override: override
+      ? { reason, by: guard.userId || null, by_name: actor.name || null, at: nowIso, replaced_payslip_no: existing?.payslip_no || null }
+      : null,
+  };
+
+  const baseEntry = {
+    id: existing?.id || crypto.randomUUID(),
+    employee_id: employee.id,
+    employee_name: employee.full_name,
+    employee_code: employee.employee_id,
+    employee_type: employee.employee_type,
+    position: employee.position,
+    pay_period: period.label,
+    status: final ? "paid" : "draft",
+    submitted_at: final ? nowIso : null,
+    created_at: existing?.created_at || nowIso,
+    updated_at: nowIso,
+    payroll: built.payroll,
+    processed_by: final ? guard.userId || null : null,
+    processed_by_name: final ? actor.name || null : null,
+  };
+
+  if (final) {
+    // An override replaces the live payroll record: the old one is archived
+    // (kept for the audit trail) so the new one can take its place, and put
+    // back if the new one cannot be written.
+    let archivedIds = [];
+    if (existingFinal) {
+      const archived = await supabase
+        .from("payroll_records")
+        .update({ archived: true })
+        .eq("employee_id", employee.id)
+        .eq("period_label", period.label)
+        .eq("archived", false)
+        .select("id");
+      if (archived.error) throw new Error(archived.error.message);
+      archivedIds = (archived.data || []).map((row) => row.id);
+    }
+    const [result] = await commitPayrollEntries(supabase, [baseEntry]);
+    if (!result?.ok) {
+      if (archivedIds.length) await supabase.from("payroll_records").update({ archived: false }).in("id", archivedIds);
+      return NextResponse.json({ error: describeCommitFailure(result) }, { status: String(result?.code || "") === "23505" ? 409 : 500 });
+    }
+    baseEntry.payslip_no = result.payslip_no || null;
+  } else {
+    const dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+    if (!dbSync.success) {
+      return NextResponse.json({ error: "The draft payslip could not be saved. Please try again." }, { status: 500 });
+    }
+  }
+
+  const action = override ? "payslip_override" : final ? "payslip_finalize" : previous ? "payslip_regenerate" : "payslip_generate";
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action,
+    entity_type: "payroll_entry",
+    entity_id: baseEntry.id,
+    description: override
+      ? `Final payslip for ${employee.full_name}, ${period.label}, overridden by ${actor.name}: ${reason}`
+      : `${final ? "Final" : "Draft"} payslip for ${employee.full_name}, ${period.label}, ${previous && !final ? "regenerated" : "generated"} (attendance up to ${formatDateKey(through)}).`,
+    status: "success",
+    source: "api",
+    metadata: {
+      employee_id: employee.id,
+      pay_period: period.label,
+      status: final ? "final" : "draft",
+      payslip_no: baseEntry.payslip_no || null,
+      replaced_payslip_no: override ? existing?.payslip_no || null : undefined,
+      reason: override ? reason : undefined,
+      attendance_through: through,
+      attendance_summary: built.payroll.generation.attendance_summary,
+      confirmed_incomplete: built.blocking.length ? built.blocking : undefined,
+      totals: {
+        gross_pay: built.payroll.totals.gross_pay,
+        total_deductions: built.payroll.totals.total_deductions,
+        net_pay: built.payroll.totals.net_pay,
+      },
+    },
+  });
+
+  return NextResponse.json({
+    success: true,
+    status: final ? "final" : "draft",
+    entry: mapEntryToRecord(baseEntry),
+    payslip: buildPayslipDetails(baseEntry),
+    window: genWindow,
+  });
+}
+
 export async function PATCH(request) {
   try {
     const guard = await requirePermission(request, "process_payroll", "update");
@@ -1776,8 +2100,11 @@ export async function PATCH(request) {
     const body = await request.json();
     const action = normalizeText(body.action).toLowerCase();
 
+    if (action === "generate") return await handleGenerate(getAdminClient(), body, guard, { override: false });
+    if (action === "override_final") return await handleGenerate(getAdminClient(), body, guard, { override: true });
+
     if (action !== "cancel_draft") {
-      return NextResponse.json({ error: "Action must be cancel_draft." }, { status: 400 });
+      return NextResponse.json({ error: "Action must be generate, override_final or cancel_draft." }, { status: 400 });
     }
 
     const entryId = normalizeText(body.entry_id);

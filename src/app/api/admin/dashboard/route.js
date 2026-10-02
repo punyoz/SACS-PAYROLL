@@ -95,6 +95,8 @@ async function buildRecentActivity(supabase, activeEmployees, guard) {
     let query = supabase
       .from("payroll_records")
       .select("id, employee_id, employee_name, employee_type, net_pay, period_label, processed_at, payslip_no, branch_id")
+      // A record a Super Admin override replaced is kept, archived, for audit.
+      .eq("archived", false)
       .order("processed_at", { ascending: false })
       .limit(guard.branchExempt ? 5 : 50);
 

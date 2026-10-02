@@ -870,6 +870,7 @@ function renderSAPayCalendar() {
 async function loadSAConfig() {
   renderSAPayCalendar();
   loadSAPayrollRates();
+  loadSAPayslipOverrides();
   try {
     const res = await fetch('/api/admin/config');
     if (!res.ok) return;
@@ -1347,6 +1348,113 @@ async function saveSAConfig(section) {
   } catch (err) {
     if (fb) { fb.textContent = err.message; fb.style.color = 'var(--red)'; }
   }
+}
+
+/* ── FINAL PAYSLIP OVERRIDE ──
+   A Final payslip is locked. A Super Admin can recompute it from the latest
+   attendance and corrections, with a reason (PATCH /api/accountant/payroll
+   { action: "override_final" }); the server archives the replaced payroll
+   record and issues a new payslip number. */
+const saOverride = { period: '', records: [] };
+
+async function loadSAPayslipOverrides(period) {
+  const body = document.getElementById('sa-ovr-body');
+  const select = document.getElementById('sa-ovr-period');
+  if (!body) return;
+  if (typeof period === 'string') saOverride.period = period;
+  body.innerHTML = skeletonRows(5, 3);
+
+  try {
+    const params = new URLSearchParams();
+    if (saOverride.period) params.set('period', saOverride.period);
+    const res = await fetch(`/api/accountant/payroll${params.toString() ? `?${params}` : ''}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to load payslips.');
+
+    saOverride.period = data.active_period?.label || saOverride.period;
+    saOverride.records = data.records || [];
+    if (select) {
+      const options = data.period_options || [];
+      select.innerHTML = options.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join('');
+      select.value = saOverride.period;
+    }
+
+    if (!saOverride.records.length) {
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No Final payslips for this period.</td></tr>';
+      return;
+    }
+    body.innerHTML = saOverride.records.map((record) => `
+      <tr>
+        <td class="nm">${escapeHtml(record.employee_name || '—')}<div style="font-size:11px;color:var(--t3);font-weight:400;">${escapeHtml(record.employee_code || '')}</div></td>
+        <td class="mn">${escapeHtml(record.payslip_no || '—')}</td>
+        <td class="mn">${typeof formatMoney === 'function' ? formatMoney(record.net_pay) : escapeHtml(String(record.net_pay))}</td>
+        <td>${escapeHtml(record.submitted_at ? new Date(record.submitted_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }) : '—')}${record.payroll?.generation?.override ? '<div style="font-size:11px;color:var(--warn);">Overridden</div>' : ''}</td>
+        <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSAPayslipOverride('${escapeJsArg(record.id)}')">Override</button></td>
+      </tr>`).join('');
+  } catch (error) {
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+function openSAPayslipOverride(entryId) {
+  const record = saOverride.records.find((row) => String(row.id) === String(entryId));
+  if (!record || typeof window.openAttendanceDialog !== 'function') return;
+
+  window.openAttendanceDialog({
+    title: 'Override Final Payslip',
+    summary: `
+      <div><strong>${escapeHtml(record.employee_name || 'Employee')}</strong> · ${escapeHtml(record.pay_period || '')}</div>
+      <div>The payslip is recomputed from the latest attendance and corrections. The current one is archived and a new payslip number is issued.</div>`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="sa-ovr-reason">Reason</label>
+        <textarea id="sa-ovr-reason" class="fc" rows="3" maxlength="500" placeholder="e.g. HR corrected Sep 24 after the payslip was finalized"></textarea>
+      </div>`,
+    actions: [{
+      label: 'Override Payslip',
+      className: 'btn-primary',
+      handler: () => submitSAPayslipOverride(record, false),
+    }],
+  });
+}
+
+async function submitSAPayslipOverride(record, confirmIncomplete) {
+  const reasonOk = requireFields([{
+    field: 'sa-ovr-reason',
+    check: (value) => (!value ? 'Reason is required.' : value.length < 10 ? 'Give a little more detail (at least 10 characters).' : ''),
+  }]);
+  if (!reasonOk) throw new Error('Fill in the highlighted fields.');
+  const reason = String(document.getElementById('sa-ovr-reason')?.value || '').trim();
+
+  const res = await fetch('/api/accountant/payroll', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'override_final',
+      employee_id: record.employee_id,
+      pay_period: record.pay_period,
+      reason,
+      confirm_incomplete: confirmIncomplete,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 422 && data.code === 'unresolved_attendance') {
+    const proceed = window.confirmApproveAction
+      ? await window.confirmApproveAction('override without counting the unresolved days', data.error, { title: 'Unresolved Attendance', confirmLabel: 'Override Anyway' })
+      : window.confirm(`${data.error}\n\nOverride anyway?`);
+    if (!proceed) throw new Error('Override cancelled.');
+    return submitSAPayslipOverride(record, true);
+  }
+  if (!res.ok) throw new Error(data.error || 'Unable to override the payslip.');
+
+  window.pushNotification?.('Payslip Overridden', `New Final payslip ${data.entry?.payslip_no || ''} issued for ${record.employee_name || 'the employee'}.`, 'success');
+  const feedback = document.getElementById('sa-ovr-feedback');
+  if (feedback) {
+    feedback.textContent = `Overridden: ${record.employee_name || 'employee'}, new payslip ${data.entry?.payslip_no || ''}.`;
+    feedback.className = 'adm-feedback ok';
+  }
+  await loadSAPayslipOverrides();
+  return undefined;
 }
 
 /* ── ATTENDANCE MONITORING ── */
@@ -2898,3 +3006,5 @@ async function submitSAStaffAccount(event) {
 
   return true;
 }
+window.loadSAPayslipOverrides = loadSAPayslipOverrides;
+window.openSAPayslipOverride = openSAPayslipOverride;

@@ -133,6 +133,8 @@ async function fetchPayslipsForUser(supabase, userId) {
         "id,employee_id,employee_name,employee_type,gross_pay,total_deductions,net_pay,period_label,processed_at,payslip_no",
       )
       .eq("employee_id", userId)
+      // A record a Super Admin override replaced is kept, archived, for audit.
+      .eq("archived", false)
       .order("processed_at", { ascending: false })
       .limit(50);
 
@@ -143,6 +145,7 @@ async function fetchPayslipsForUser(supabase, userId) {
           "id,employee_id,employee_name,employee_type,gross_pay,total_deductions,net_pay,period_label,processed_at",
         )
         .eq("employee_id", userId)
+        .eq("archived", false)
         .order("processed_at", { ascending: false })
         .limit(50);
       data = r2.data;
