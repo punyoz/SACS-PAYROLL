@@ -16,7 +16,7 @@ const {
   DEFAULT_PASSWORD_SYMBOL,
 } = await import("@/lib/auth/password-policy");
 const { normalizeEmployeeFields, validateEmployeeRecord } = await import("@/lib/employees/record");
-const { collapseDailyTaps, planTap, DUPLICATE_TAP_WINDOW_MS } = await import("@/lib/attendance/taps");
+const { collapseDailyTaps, planTap, firstAndLastTap } = await import("@/lib/attendance/taps");
 
 describe("Default password detection", () => {
   const person = { full_name: "Juan Santos Dela Cruz Jr.", date_of_birth: "2004-10-08" };
@@ -168,7 +168,7 @@ describe("Required employee fields", () => {
   });
 });
 
-describe("RFID: only the first and last tap of the day count", () => {
+describe("RFID: every tap counts; first tap in, last tap out", () => {
   const at = (hhmmss) => `2026-09-16T${hhmmss}.000Z`;
   const row = (id, timeIn, timeOut = null, status = "Present") => ({
     id, employee_id: "e1", log_date: "2026-09-16", time_in: timeIn, time_out: timeOut, status,
@@ -178,24 +178,35 @@ describe("RFID: only the first and last tap of the day count", () => {
     expect(planTap([], at("00:00:00"))).toEqual({ action: "time_in" });
   });
 
-  it("ignores a repeated tap within the duplicate window", () => {
-    const plan = planTap([row("r1", at("00:00:00"))], at("00:00:30"));
-    expect(plan.action).toBe("duplicate");
-    expect(DUPLICATE_TAP_WINDOW_MS).toBe(60_000);
+  it("accepts a second tap seconds after the first, as the Time Out (no cooldown)", () => {
+    const plan = planTap([row("r1", at("00:00:00"))], at("00:00:05"));
+    expect(plan).toMatchObject({ action: "time_out", time_in: at("00:00:00"), time_out: at("00:00:05") });
   });
 
   it("moves Time Out to every later tap, keeping the first Time In", () => {
     const first = planTap([row("r1", at("00:00:00"))], at("09:00:00"));
-    expect(first).toMatchObject({ action: "time_out", time_in: at("00:00:00") });
+    expect(first).toMatchObject({ action: "time_out", time_in: at("00:00:00"), time_out: at("09:00:00") });
     expect(first.target.id).toBe("r1");
 
     const later = planTap([row("r1", at("00:00:00"), at("09:00:00"))], at("10:30:00"));
-    expect(later).toMatchObject({ action: "time_out", time_in: at("00:00:00") });
+    expect(later).toMatchObject({ action: "time_out", time_in: at("00:00:00"), time_out: at("10:30:00") });
   });
 
-  it("measures the duplicate window from the latest tap, not the first", () => {
-    const plan = planTap([row("r1", at("00:00:00"), at("09:00:00"))], at("09:00:20"));
-    expect(plan.action).toBe("duplicate");
+  it("builds the day from every raw tap: 5 taps -> first in, last out", () => {
+    const raw = [at("00:00:00"), at("00:00:03"), at("04:00:00"), at("05:00:00")];
+    const plan = planTap([row("r1", at("00:00:00"), at("05:00:00"))], at("09:01:00"), raw);
+    expect(plan).toMatchObject({ action: "time_out", time_in: at("00:00:00"), time_out: at("09:01:00") });
+    expect(firstAndLastTap([...raw, at("09:01:00")]).tap_count).toBe(5);
+  });
+
+  it("leaves a single tap as Time In only", () => {
+    expect(firstAndLastTap([at("00:00:00")])).toEqual({ time_in: at("00:00:00"), time_out: null, tap_count: 1 });
+  });
+
+  it("never overwrites a day HR / Admin corrected", () => {
+    const plan = planTap([row("r1", at("00:00:00"), at("09:00:00"), "Corrected")], at("10:00:00"));
+    expect(plan.action).toBe("after_correction");
+    expect(plan.target.id).toBe("r1");
   });
 
   it("folds a day that older code split across rows into first-in / last-out", () => {

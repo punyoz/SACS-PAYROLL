@@ -13,7 +13,7 @@
  * behaviour of the sidebar changes. Only *which* rows appear does.
  */
 
-import { allowedModules, MODULES } from "@/lib/rbac/permissions";
+import { allowedModules, can, MODULES } from "@/lib/rbac/permissions";
 
 /** The nav click handler each portal already defines. */
 const NAV_HANDLER = {
@@ -180,7 +180,22 @@ export function defaultPageFor(role) {
   return menu[0]?.items?.[0]?.page || "";
 }
 
+/**
+ * Pages opened from inside another page rather than from the sidebar (the
+ * Individual Employee Attendance page, from Attendance Monitoring). Allowed
+ * when the parent page is and the role holds the permission the page needs.
+ */
+const SUB_PAGES = [
+  { parent: "adm-attendance", page: "adm-att-employee", module: "attendance_corrections", action: "update" },
+  { parent: "hr-attendance", page: "hr-att-employee", module: "attendance_corrections", action: "update" },
+  { parent: "sa-attendance", page: "sa-att-employee", module: "attendance_corrections", action: "update" },
+];
+
 /** Every page id a role is allowed to open — the frontend page-level guard. */
 export function allowedPagesFor(role) {
-  return buildMenu(role).flatMap((section) => section.items.map((item) => item.page));
+  const pages = buildMenu(role).flatMap((section) => section.items.map((item) => item.page));
+  SUB_PAGES.forEach((sub) => {
+    if (pages.includes(sub.parent) && can(role, sub.module, sub.action)) pages.push(sub.page);
+  });
+  return pages;
 }

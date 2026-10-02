@@ -12,6 +12,7 @@ import {
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { readApprovedLeave, readBlockedTaps } from "@/lib/attendance/leave";
+import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 
@@ -135,6 +136,10 @@ export async function GET(request) {
       if (!pending.error) (pending.data || []).forEach((row) => pendingByLog.set(row.log_id, row));
     }
 
+    // Reviewers: branch / employee ID each row is grouped and labelled by,
+    // and who corrected each Corrected day and why.
+    const labelled = selfOnly ? logs : await annotateAttendanceRows(supabase, logs);
+
     const counts = {};
     logs.forEach((row) => { counts[row.status] = (counts[row.status] || 0) + 1; });
 
@@ -143,12 +148,14 @@ export async function GET(request) {
       ? await readApprovedLeave(supabase, { employeeIds, from: range.from, to: range.to })
       : () => null;
 
-    // Taps refused because of approved leave, for reviewers to see.
-    const blockedTaps = selfOnly ? [] : await readBlockedTaps(supabase, { employeeIds, from: range.from, to: range.to });
+    // Refused taps (unregistered card, inactive employee, another branch's card,
+    // approved leave), for reviewers to see -- by employee, and by where tapped.
+    const tapBranch = guard.branchExempt ? normalizeText(url.searchParams.get("branch_id")) : guard.branchId;
+    const blockedTaps = selfOnly ? [] : await readBlockedTaps(supabase, { employeeIds, branchId: tapBranch || null, from: range.from, to: range.to });
 
     return NextResponse.json({
       range,
-      logs: logs.map((row) => ({
+      logs: labelled.map((row) => ({
         ...row,
         leave: row.status === "On Leave" ? leaveFor(row.employee_id, row.log_date) : null,
         correction: pendingByLog.get(row.id) || null,

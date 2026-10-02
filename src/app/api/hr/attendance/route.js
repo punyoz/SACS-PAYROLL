@@ -3,6 +3,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
+import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
@@ -71,6 +72,9 @@ export async function GET(request) {
       const notTapped = await listNotTapped(supabase, { dateKey: dateParam, loggedIds, employeeIds });
       logs = [...logs, ...notTapped];
     }
+
+    // Branch, employee ID and "Corrected by" labels for the grouped table.
+    logs = await annotateAttendanceRows(supabase, logs);
 
     // Summary counts
     const present = logs.filter((r) => attendanceBucket(r.status) === "present").length;

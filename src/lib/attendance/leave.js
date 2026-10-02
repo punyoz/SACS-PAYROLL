@@ -92,20 +92,33 @@ export async function readApprovedLeave(supabase, { employeeIds = null, from, to
     .find((leave) => leave.start_date <= dateKey && dateKey <= leave.end_date) || null;
 }
 
-/** The refused taps for a range, newest first (reviewers only). */
-export async function readBlockedTaps(supabase, { employeeIds = null, from, to }) {
-  if (Array.isArray(employeeIds) && !employeeIds.length) return [];
-  let query = supabase
+/**
+ * The refused taps for a range, newest first (reviewers only). Branch-scoped
+ * callers see their employees' refused taps plus any tapped at their branch
+ * (an unregistered card, another branch's card).
+ */
+export async function readBlockedTaps(supabase, { employeeIds = null, branchId = null, from, to }) {
+  const base = () => supabase
     .from("attendance_blocked_taps")
-    .select("id,employee_id,employee_name,branch_id,log_date,attempted_at,reason,leave_request_id,source")
+    .select("id,employee_id,employee_name,branch_id,log_date,attempted_at,reason,leave_request_id,source,rfid_code")
     .gte("log_date", from)
     .lte("log_date", to)
     .order("attempted_at", { ascending: false })
     .limit(1000);
-  if (Array.isArray(employeeIds)) query = query.in("employee_id", employeeIds);
-  const result = await query;
-  // No table yet (migration not applied): nothing to show.
-  return result.error ? [] : result.data || [];
+
+  const queries = [];
+  if (!Array.isArray(employeeIds)) queries.push(base());
+  else {
+    if (employeeIds.length) queries.push(base().in("employee_id", employeeIds));
+    if (branchId) queries.push(base().eq("branch_id", branchId));
+  }
+  if (!queries.length) return [];
+
+  const results = await Promise.all(queries);
+  const byId = new Map();
+  // A table not there yet (migration not applied) reads as nothing to show.
+  results.forEach((result) => (result.error ? [] : result.data || []).forEach((row) => byId.set(row.id, row)));
+  return [...byId.values()].sort((a, b) => String(b.attempted_at || "").localeCompare(String(a.attempted_at || "")));
 }
 
 /**

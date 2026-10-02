@@ -191,7 +191,7 @@
 
       <div class="sh"><span class="stitle" id="hr-att-title">Attendance Log — Today</span><span class="sp"></span><button class="btn btn-outline" onclick="exportHRAttendanceCsv()">Export CSV</button></div>
       <div class="tw"><table>
-        <thead><tr><th>Employee</th><th>Type</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
+        <thead><tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th><th>Action</th></tr></thead>
         <tbody id="hr-att-table-body">
           <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td></tr>
           <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td></tr>
@@ -203,6 +203,15 @@
       <div class="pg-bar" id="hr-att-pg"></div>
 
       <div id="hr-att-board"></div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Individual Employee Attendance Record
+         (opened from Attendance Monitoring; filled by mountAttendanceEmployeePage in app.js)
+    ────────────────────────────── -->
+    <div class="page" id="hr-att-employee">
+      <div class="ph"><h2>Employee Attendance Record</h2><p>One employee's attendance, corrections and leave</p></div>
+      <div id="hr-att-employee-root"></div>
     </div>
 
     <!-- ──────────────────────────────

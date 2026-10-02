@@ -10,6 +10,7 @@
 const ADMIN_PAGES = {
   'adm-dashboard':    'Dashboard',
   'adm-attendance':   'Attendance',
+  'adm-att-employee': 'Employee Attendance Record',
   'adm-audit-logs':   'Audit Logs',
   'adm-maintenance':  'System Maintenance',
   'adm-branch-reports':'Branch Reports',
@@ -67,6 +68,13 @@ function adminNav(pageId, navEl) {
     window.mountAttendanceBoard?.('adm-att-board');
   }
 
+  if (pageId === 'adm-att-employee') {
+    // One employee's attendance record (opened from a name / View Records).
+    window.mountAttendanceEmployeePage?.('adm-att-employee-root', {
+      onBack: () => adminNav('adm-attendance', getAdminNavByPageId('adm-attendance')),
+    });
+  }
+
   if (pageId === 'adm-audit-logs') {
     loadAuditLogs();
   }
@@ -96,6 +104,14 @@ function adminNav(pageId, navEl) {
     metadata: { page_id: pageId },
   });
 }
+
+/* Individual Employee Attendance page: app.js opens it through this hook,
+   and reloads the Attendance Log after a correction through the other. */
+window.attEmployeePageNav = () => adminNav('adm-att-employee', getAdminNavByPageId('adm-attendance'));
+window.onAttendanceCorrected = () => {
+  if (document.getElementById('adm-attendance')?.classList.contains('active')) return loadAttendanceData();
+  return null;
+};
 
 function getAdminNavByPageId(pageId) {
   const navItems = Array.from(document.querySelectorAll('#s-admin .ni'));
@@ -368,7 +384,15 @@ function renderAttendanceTable(rows = []) {
   if (!tbody) return;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No attendance records found for today.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--t3);">No attendance records found for today.</td></tr>';
+    return;
+  }
+
+  // Grouped by branch, then day, then employee, with Correct / View Records
+  // (app.js, shared with the status board). The plain rows below remain the
+  // fallback if app.js has not loaded the helpers.
+  if (typeof window.attRenderAttendanceLogPage === 'function') {
+    tbody.innerHTML = window.attRenderAttendanceLogPage('adm-att', rows);
     return;
   }
 
@@ -405,7 +429,7 @@ function showRfidFeedback(message, isError = false) {
 async function loadAttendanceData() {
   const tbody = document.getElementById('adm-attendance-table-body');
   if (tbody) {
-    tbody.innerHTML = skeletonRows(6);
+    tbody.innerHTML = skeletonRows(9);
   }
 
   try {
@@ -413,14 +437,20 @@ async function loadAttendanceData() {
 
     attendanceData = payload;
     renderAttendancePanels(payload);
+    const logRows = typeof window.attPrepareAttendanceLog === 'function'
+      ? window.attPrepareAttendanceLog('adm-att', payload.attendance_logs || [], {
+        canReview: true,
+        rerender: (rows) => attPaginator?.setData(rows),
+      })
+      : payload.attendance_logs || [];
     if (attPaginator) {
-      attPaginator.setData(payload.attendance_logs || []);
+      attPaginator.setData(logRows);
     } else {
-      renderAttendanceTable(payload.attendance_logs || []);
+      renderAttendanceTable(logRows);
     }
   } catch (error) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
     }
   }
 }
@@ -430,6 +460,9 @@ function formatRfidScanFeedback(record, tap) {
   const name = record.employee_name || 'Employee';
   if (tap === 'duplicate') {
     return `${name}: repeated tap ignored — only the first and last tap of the day count.`;
+  }
+  if (tap === 'after_correction') {
+    return `${name}: tap recorded. This day was corrected by HR / Admin, so its times stay as corrected (flagged for review).`;
   }
   if (record.time_out) {
     return `${name}: Time Out recorded at ${formatTimeOnly(record.time_out)} (Time In ${formatTimeOnly(record.time_in)}).`;

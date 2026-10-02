@@ -3964,6 +3964,26 @@ function attMinutes(value) {
   return minutes > 0 ? `${minutes} min` : '—';
 }
 
+/** Worked minutes of a day with both taps; null when it has no time out. */
+function attWorkedMinutes(row) {
+  if (!row || !row.time_in || !row.time_out) return null;
+  const ms = new Date(row.time_out) - new Date(row.time_in);
+  if (Number.isFinite(ms)) return Math.max(0, Math.round(ms / 60000));
+  return Math.max(0, Math.round(Number(row.total_hours || 0) * 60));
+}
+
+/** 122 -> "2h 02m". */
+function attHoursMinutes(minutes) {
+  const total = Math.max(0, Math.round(Number(minutes) || 0));
+  return `${Math.floor(total / 60)}h ${String(total % 60).padStart(2, '0')}m`;
+}
+
+/** The Hours column: "0h 02m" rather than "0.03". */
+function attFormatHours(row) {
+  const minutes = attWorkedMinutes(row);
+  return minutes === null ? '—' : attHoursMinutes(minutes);
+}
+
 /** "HH:MM" (24h, Manila) of an instant, for a time input. */
 function attTimeInputValue(iso) {
   if (!iso) return '';
@@ -4020,7 +4040,6 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
       <div class="sh" style="margin-bottom:12px;flex-wrap:wrap;gap:10px;">
         <span class="stitle">Attendance Status</span>
         <span class="sp"></span>
-        <select class="fc" id="${id}-branch" style="max-width:200px;display:none;" aria-label="Branch"><option value="">All branches</option></select>
         <select class="fc" id="${id}-period" style="max-width:220px;" aria-label="Pay period">
           ${periods.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`).join('')}
         </select>
@@ -4035,6 +4054,7 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
       </div>
       <div id="${id}-legend">${attendanceStatusLegend()}</div>
       <div id="${id}-filter-wrap" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px;">
+        <select class="fc" id="${id}-branch" style="max-width:240px;display:none;" aria-label="Branch"><option value="">All Branches</option></select>
         <select class="fc" id="${id}-status" style="max-width:240px;" aria-label="Status">
           <option value="all">All statuses</option>
           ${ATTENDANCE_STATUS_LIST.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
@@ -4069,6 +4089,13 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
     canReview: false,
     loading: false,
     paginator: null,
+    // Branch grouping (every board but an employee's own): collapsed branch
+    // sections, branch names, and each employee's current branch.
+    scope: '',
+    groupByBranch: false,
+    collapsed: new Set(),
+    branchNames: new Map(),
+    employeeBranch: new Map(),
   };
   board.paginator = createPaginator({ id: `${rootId}-board`, pageSize: 20, renderFn: (rows) => renderAttendanceBoardRows(board, rows) });
   attendanceBoards.set(rootId, board);
@@ -4090,24 +4117,22 @@ function mountAttendanceBoard(rootId, { branchFilter = false } = {}) {
     board.status = event.target.value;
     renderAttendanceBoard(board);
   });
+  // Branch filter: applied on the loaded rows, on every tab.
+  document.getElementById(`${rootId}-branch`)?.addEventListener('change', (event) => {
+    board.branch = event.target.value;
+    renderAttendanceBoard(board);
+  });
   document.getElementById(`${rootId}-date`)?.addEventListener('change', (event) => {
     board.date = event.target.value;
     renderAttendanceBoard(board);
   });
 
-  if (branchFilter) {
-    fetchBranchesCached({ activeOnly: false }).then((branches) => {
-      const select = document.getElementById(`${rootId}-branch`);
-      if (!select || !branches.length) return;
-      select.innerHTML = '<option value="">All branches</option>'
-        + branches.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('');
-      select.style.display = '';
-      select.addEventListener('change', () => {
-        board.branch = select.value;
-        refreshAttendanceBoard(rootId);
-      });
-    }).catch(() => {});
-  }
+  // Every branch by name, including ones with no rows yet (the rows' own
+  // branch names fill in when this list cannot be read).
+  fetchBranchesCached({ activeOnly: !branchFilter }).then((branches) => {
+    (branches || []).forEach((b) => { if (b?.id) board.branchNames.set(String(b.id), b.name || 'Branch'); });
+    renderAttendanceBranchOptions(board);
+  }).catch(() => {});
 
   refreshAttendanceBoard(rootId);
 }
@@ -4122,14 +4147,22 @@ async function refreshAttendanceBoard(rootId) {
 
   try {
     const params = new URLSearchParams({ period: board.period });
-    if (board.branch) params.set('branch_id', board.branch);
     const [logsData, correctionsData, overtimeData] = await Promise.all([
       attFetchJson(`/api/attendance/logs?${params}`),
       attFetchJson('/api/attendance/corrections?status=pending').catch(() => ({ corrections: [] })),
       attFetchJson(`/api/attendance/overtime?${params}`).catch(() => ({ overtime: [] })),
     ]);
-    board.logs = logsData.logs || [];
+    // One row per employee per day (a real record wins over a "no tap yet" one).
+    board.logs = attOneRowPerDay(logsData.logs || []);
     board.canReview = Boolean(logsData.can_review);
+    board.scope = String(logsData.scope || '');
+    board.groupByBranch = board.scope !== 'self';
+    board.employeeBranch = new Map();
+    board.logs.forEach((row) => {
+      const branch = String(row.group_branch_id || row.branch_id || '');
+      if (row.employee_id && branch) board.employeeBranch.set(String(row.employee_id), branch);
+      if (branch && row.branch_name && !board.branchNames.has(branch)) board.branchNames.set(branch, row.branch_name);
+    });
     board.engineReady = logsData.engine_ready !== false;
     board.corrections = correctionsData.corrections || [];
     board.overtime = overtimeData.overtime || [];
@@ -4157,57 +4190,82 @@ function attBoardFeedback(board, message, isError = false) {
 
 function renderAttendanceBoard(board) {
   const id = board.rootId;
-  const incomplete = board.logs.filter((row) => row.status === 'Incomplete' || row.status === 'Pending Correction');
+  // The branch filter narrows every tab.
+  const inBranch = (row) => !board.branch || attRowBranchId(board, row) === board.branch;
+  const logs = board.logs.filter(inBranch);
+  const corrections = board.corrections.filter(inBranch);
+  const overtime = board.overtime.filter(inBranch);
+  const blocked = board.blocked.filter(inBranch);
+  const incomplete = logs.filter((row) => row.status === 'Incomplete' || row.status === 'Pending Correction');
   const setCount = (suffix, n) => {
     const el = document.getElementById(`${id}-${suffix}`);
     if (el) el.textContent = n ? `(${n})` : '';
   };
   setCount('incomplete-count', incomplete.length);
-  setCount('corrections-count', board.corrections.length);
+  setCount('corrections-count', corrections.length);
   // Waiting for a decision (and still decidable).
-  setCount('overtime-count', board.overtime.filter((row) => !row.approval && !row.locked).length);
-  setCount('blocked-count', board.blocked.length);
+  setCount('overtime-count', overtime.filter((row) => !row.approval && !row.locked).length);
+  setCount('blocked-count', blocked.length);
 
   const head = document.getElementById(`${id}-head`);
   const note = document.getElementById(`${id}-note`);
   const filterWrap = document.getElementById(`${id}-filter-wrap`);
   const legend = document.getElementById(`${id}-legend`);
-  if (filterWrap) filterWrap.style.display = board.tab === 'all' ? '' : 'none';
+  const statusSelect = document.getElementById(`${id}-status`);
+  const dateSelect = document.getElementById(`${id}-date`);
+  renderAttendanceBranchOptions(board);
+  const branchVisible = board.groupByBranch && board.branchNames.size > 0;
+  if (filterWrap) filterWrap.style.display = board.tab === 'all' || branchVisible ? '' : 'none';
+  if (statusSelect) statusSelect.style.display = board.tab === 'all' ? '' : 'none';
+  if (dateSelect) dateSelect.style.display = board.tab === 'all' ? '' : 'none';
   if (legend) legend.style.display = board.tab === 'corrections' || board.tab === 'overtime' || board.tab === 'blocked' ? 'none' : '';
 
   renderAttendanceDateOptions(board);
 
+  // The day filter applies before the status chips count, so each chip says
+  // how many of the visible days' rows it would show.
+  const dayRows = logs.filter((row) => board.date === 'all' || row.log_date === board.date);
+  if (legend) legend.innerHTML = board.tab === 'all' ? attendanceStatusChips(board, dayRows) : attendanceStatusLegend();
+
   let rows;
+  let groupSource = null;
   if (board.tab === 'incomplete') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Status</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
-    if (note) note.textContent = 'Days with a time in but no time out after the shift ended. They are left out of payroll until resolved — by the employee\'s correction request, or by recording the time out (or Absent / Half Day) here.';
+    if (note) note.textContent = 'Days with a time in but no time out after the shift ended. They are left out of payroll until resolved — by the employee\'s correction request, by recording the time out (or Absent / Half Day) here, or with Correct.';
     rows = attSortByDay(incomplete);
+    groupSource = incomplete;
   } else if (board.tab === 'overtime') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time Out</th><th>Past Schedule</th><th>Decision</th>${board.overtimeCanReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) note.textContent = `Days whose time out is at least ${board.overtimeMinMinutes} minutes after the branch's end of shift. Payroll pays overtime only for the minutes approved here (hourly rate plus the overtime premium in Payroll Rates). Decisions lock once that pay period is processed.`;
-    rows = attSortByDay(board.overtime);
+    rows = attSortByDay(overtime);
   } else if (board.tab === 'blocked') {
     if (head) head.innerHTML = '<tr><th>Employee</th><th>Date</th><th>Attempted</th><th>Source</th><th>Reason</th></tr>';
-    if (note) note.textContent = 'RFID taps refused because the employee was on approved leave that day. Nothing was recorded for them.';
-    rows = attSortByDay(board.blocked);
+    if (note) note.textContent = 'RFID taps that were refused: an unregistered card, an inactive employee, another branch\'s card, or an employee on approved leave. Nothing was recorded for them. Tapping again soon after a tap is never refused.';
+    rows = attSortByDay(blocked);
   } else if (board.tab === 'corrections') {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Recorded</th><th>Requested Time Out</th><th>Reason</th><th>Requested</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
-    if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day.';
-    rows = board.corrections;
+    if (note) note.textContent = 'Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day. Correct enters different times yourself and closes the request.';
+    rows = corrections;
   } else {
     if (head) head.innerHTML = `<tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th>${board.canReview ? '<th>Action</th>' : ''}</tr>`;
     if (note) {
       note.textContent = board.engineReady === false
         ? 'Automatic statuses are not active yet: apply the attendance database migration (20260926010000_attendance_status_engine.sql).'
-        : `Statuses are computed automatically from each branch's schedule. Today's list includes everyone who has not tapped yet.${board.canReview ? ' If someone worked but did not tap, use Correct on their Absent day.' : ''}`;
+        : `Statuses are computed automatically from each branch's schedule. Today's list includes everyone who has not tapped yet.${board.canReview ? ' Use Correct on any day to fix a wrong time in or time out, or to record a day someone worked but did not tap.' : ''}`;
     }
-    rows = attSortByDay(board.logs.filter((row) => (board.status === 'all' || row.status === board.status)
-      && (board.date === 'all' || row.log_date === board.date)));
+    rows = attSortByDay(dayRows.filter((row) => board.status === 'all' || row.status === board.status));
+    groupSource = dayRows;
+  }
+
+  // Branch first, then day (newest first), then employee (A–Z).
+  if (groupSource && board.groupByBranch) {
+    rows = attSortByBranchDay(board, rows);
+    attComputeBranchCounts(board, groupSource);
   }
 
   // Day headings count the whole day, not just the rows on the current page.
-  board.dayCounts = attDayCounts(rows);
-  board.paginator.setData(rows);
+  board.dayCounts = board.groupByBranch && groupSource ? attBranchDayCounts(board, rows) : attDayCounts(rows);
+  board.paginator.setData(groupSource && board.groupByBranch ? attApplyCollapsed(board, rows) : rows);
   if (!rows.length) {
     const body = document.getElementById(`${id}-body`);
     const cols = board.tab === 'overtime'
@@ -4257,7 +4315,7 @@ function renderAttendanceBoardRows(board, rows) {
   if (board.tab === 'blocked') {
     const blockedRows = rows.map((row) => `
       <tr>
-        <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
+        <td class="nm">${escapeHtml(row.employee_name || (row.employee_id ? '—' : `Unregistered card ${row.rfid_code || ''}`.trim()))}</td>
         <td>${escapeHtml(attFormatDate(row.log_date))}</td>
         <td class="mn">${escapeHtml(attFormatDateTime(row.attempted_at))}</td>
         <td>${row.source === 'manual_entry' ? 'Manual entry' : 'RFID terminal'}</td>
@@ -4276,42 +4334,29 @@ function renderAttendanceBoardRows(board, rows) {
         <td class="mn">${escapeHtml(attFormatTime(c.corrected_time_out))}</td>
         <td style="max-width:260px;white-space:normal;">${escapeHtml(c.reason || '')}</td>
         <td>${escapeHtml(attFormatDateTime(c.requested_at))}</td>
-        ${board.canReview ? `<td><button class="btn btn-primary" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceReview('${key}','${escapeJsArg(c.id)}')">Review</button></td>` : ''}
+        ${board.canReview ? `<td><div class="att-actions"><button class="btn btn-primary" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceReview('${key}','${escapeJsArg(c.id)}')">Review</button>${attCorrectButton(attCorrectionRecord(board, c))}</div></td>` : ''}
       </tr>`).join('');
     return;
   }
 
   if (board.tab === 'incomplete') {
-    const incompleteRows = rows.map((row) => `
+    const incompleteRows = rows.map((row) => (row.__branchStub ? '' : `
       <tr>
-        <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
+        <td class="nm">${attEmployeeCell(row, { link: board.canReview })}</td>
         <td>${escapeHtml(attFormatDate(row.log_date))}</td>
         <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
         <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
         <td>${attendanceStatusBadge(row.status)}</td>
-        ${board.canReview ? `<td>${row.status === 'Incomplete'
+        ${board.canReview ? `<td><div class="att-actions">${row.status === 'Incomplete'
           ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceResolve('${key}','${escapeJsArg(row.id)}')">Resolve</button>`
-          : '<span style="font-size:12px;color:var(--t3);">See Correction Requests</span>'}</td>` : ''}
-      </tr>`);
-    body.innerHTML = attWithDayHeadings(board, rows, incompleteRows, 5 + (board.canReview ? 1 : 0));
+          : '<span style="font-size:12px;color:var(--t3);">See Correction Requests</span>'}${attCorrectButton(row)}</div></td>` : ''}
+      </tr>`));
+    body.innerHTML = attWithGroupHeadings(board, rows, incompleteRows, 5 + (board.canReview ? 1 : 0));
     return;
   }
 
-  const recordRows = rows.map((row) => `
-    <tr>
-      <td class="nm">${escapeHtml(row.employee_name || '—')}</td>
-      <td>${escapeHtml(attFormatDate(row.log_date))}</td>
-      <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
-      <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
-      <td class="mn">${row.time_out ? Number(row.total_hours || 0).toFixed(2) : '—'}</td>
-      <td class="mn">${escapeHtml(attMinutes(row.late_minutes))}</td>
-      <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
-      <td>${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div style="font-size:11px;color:var(--t3);margin-top:3px;">No tap yet today</div>' : ''}${row.status === 'On Leave' ? `<div style="font-size:11px;color:var(--t3);margin-top:3px;white-space:normal;">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}</td>
-      ${board.canReview ? `<td>${row.status === 'Absent'
-        ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceAbsenceCorrection('${key}','${escapeJsArg(row.employee_id)}','${escapeJsArg(row.log_date)}')">Correct</button>`
-        : ''}</td>` : ''}
-    </tr>`);
-  body.innerHTML = attWithDayHeadings(board, rows, recordRows, 8 + (board.canReview ? 1 : 0));
+  const recordRows = rows.map((row) => (row.__branchStub ? '' : attRecordRowHtml(row, { canReview: board.canReview })));
+  body.innerHTML = attWithGroupHeadings(board, rows, recordRows, 8 + (board.canReview ? 1 : 0));
 }
 
 /* ── Day grouping (status board) ──
@@ -4377,7 +4422,7 @@ function attWithDayHeadings(board, rows, rowHtml, colspan) {
 function renderAttendanceDateOptions(board) {
   const select = document.getElementById(`${board.rootId}-date`);
   if (!select) return;
-  const counts = attDayCounts(board.logs);
+  const counts = attDayCounts(board.logs.filter((row) => !board.branch || attRowBranchId(board, row) === board.branch));
   const days = [...counts.keys()].filter(Boolean).sort().reverse();
   if (board.date !== 'all' && !counts.has(board.date)) board.date = 'all';
   select.innerHTML = '<option value="all">All days</option>'
@@ -4386,6 +4431,921 @@ function renderAttendanceDateOptions(board) {
       return `<option value="${escapeHtml(key)}">${escapeHtml(attFormatDate(key))} (${n})</option>`;
     }).join('');
   select.value = board.date;
+}
+
+/* ── Branch grouping (status board and Attendance Log) ──
+   Rows are grouped by branch first (the branch the employee is in NOW),
+   then by day (newest first), then by employee (A–Z). Each branch heading
+   can be collapsed and shows the counts for its latest day. The same
+   helpers serve the status board and the Admin / HR / Super Admin Attendance Log, whose
+   view objects carry the same fields (collapsed, branchNames, ...). */
+
+/** One row per employee per day: a real record wins over a "no tap yet" placeholder. */
+function attOneRowPerDay(rows) {
+  const byKey = new Map();
+  const loose = [];
+  (rows || []).forEach((row) => {
+    if (!row?.employee_id || !row?.log_date) { loose.push(row); return; }
+    const key = `${row.employee_id}|${row.log_date}`;
+    const prev = byKey.get(key);
+    if (!prev || ((prev.placeholder || prev.not_yet_tapped) && !(row.placeholder || row.not_yet_tapped))) byKey.set(key, row);
+  });
+  return [...byKey.values(), ...loose];
+}
+
+function attRowBranchId(view, row) {
+  return String(row?.group_branch_id
+    || (row?.employee_id ? view?.employeeBranch?.get(String(row.employee_id)) : '')
+    || row?.branch_id
+    || '');
+}
+
+function attBranchLabel(view, branch) {
+  return view?.branchNames?.get(branch) || (branch ? 'Branch' : 'No branch assigned');
+}
+
+/** Branch name A–Z ("No branch" last), then newest day, then employee A–Z. */
+function attSortByBranchDay(view, rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const ba = attRowBranchId(view, a);
+    const bb = attRowBranchId(view, b);
+    if (ba !== bb) {
+      if (!ba) return 1;
+      if (!bb) return -1;
+      return attBranchLabel(view, ba).localeCompare(attBranchLabel(view, bb)) || ba.localeCompare(bb);
+    }
+    const byDay = String(b.log_date || '').localeCompare(String(a.log_date || ''));
+    return byDay || String(a.employee_name || '').localeCompare(String(b.employee_name || ''));
+  });
+}
+
+/**
+ * Per branch: its latest day up to today (an approved leave can already have
+ * rows for days ahead), and that day's employees and statuses.
+ */
+function attComputeBranchCounts(view, rows) {
+  const today = attTodayKey();
+  const latest = new Map();
+  (rows || []).forEach((row) => {
+    const branch = attRowBranchId(view, row);
+    const day = String(row.log_date || '');
+    const prev = latest.get(branch);
+    const better = prev === undefined
+      || (day <= today && (prev > today || day > prev))
+      || (day > today && prev > today && day < prev);
+    if (better) latest.set(branch, day);
+  });
+  const counts = new Map();
+  latest.forEach((day, branch) => counts.set(branch, { latestDay: day, employees: new Set(), statuses: new Map() }));
+  (rows || []).forEach((row) => {
+    const branch = attRowBranchId(view, row);
+    const info = counts.get(branch);
+    if (!info || String(row.log_date || '') !== info.latestDay) return;
+    info.employees.add(String(row.employee_id || row.id || row.employee_name || ''));
+    if (row.status) info.statuses.set(row.status, (info.statuses.get(row.status) || 0) + 1);
+  });
+  view.branchCounts = counts;
+  return counts;
+}
+
+/** Like attDayCounts(), keyed "branch|day". */
+function attBranchDayCounts(view, rows) {
+  const counts = new Map();
+  (rows || []).forEach((row) => {
+    const key = `${attRowBranchId(view, row)}|${String(row.log_date || '')}`;
+    if (!counts.has(key)) counts.set(key, { total: 0, statuses: new Map() });
+    const day = counts.get(key);
+    day.total += 1;
+    if (row.status) day.statuses.set(row.status, (day.statuses.get(row.status) || 0) + 1);
+  });
+  return counts;
+}
+
+/** A collapsed branch keeps only its heading (one stub row stands in for its rows). */
+function attApplyCollapsed(view, rows) {
+  if (!view.collapsed?.size) return rows;
+  const out = [];
+  const stubbed = new Set();
+  rows.forEach((row) => {
+    const branch = attRowBranchId(view, row);
+    if (!view.collapsed.has(branch)) { out.push(row); return; }
+    if (stubbed.has(branch)) return;
+    stubbed.add(branch);
+    out.push({ __branchStub: true, group_branch_id: branch, log_date: '' });
+  });
+  return out;
+}
+
+function attBranchHeadingRow(view, branch, colspan) {
+  const info = view.branchCounts?.get(branch) || { latestDay: '', employees: new Set(), statuses: new Map() };
+  const collapsed = Boolean(view.collapsed?.has(branch));
+  const employees = info.employees.size;
+  const breakdown = ATTENDANCE_STATUS_LIST.filter((s) => info.statuses.get(s)).map((s) => `${info.statuses.get(s)} ${s}`);
+  const summary = [`${employees} employee${employees === 1 ? '' : 's'}`, ...breakdown].join(' · ');
+  const day = info.latestDay ? `${attFormatDate(info.latestDay)}: ` : '';
+  return `<tr class="att-branch-row"><td colspan="${colspan}">
+    <button type="button" class="att-branch-toggle" aria-expanded="${collapsed ? 'false' : 'true'}" onclick="toggleAttendanceBranch('${escapeJsArg(view.rootId)}','${escapeJsArg(branch)}')">
+      <span class="att-branch-caret" aria-hidden="true">${collapsed ? '&#9656;' : '&#9662;'}</span>${escapeHtml(attBranchLabel(view, branch))}
+    </button>
+    <span class="att-day-summary">${escapeHtml(day + summary)}</span>
+  </td></tr>`;
+}
+
+function attBranchDayHeadingRow(view, branch, key, colspan) {
+  const day = view.dayCounts?.get(`${branch}|${key}`) || { total: 0, statuses: new Map() };
+  const breakdown = ATTENDANCE_STATUS_LIST.filter((s) => day.statuses.get(s)).map((s) => `${day.statuses.get(s)} ${s}`);
+  const summary = [`${day.total} record${day.total === 1 ? '' : 's'}`, ...breakdown].join(' · ');
+  const today = key === attTodayKey() ? ' <span class="badge bt2" style="margin-left:6px;">Today</span>' : '';
+  return `<tr class="att-day-row"><td colspan="${colspan}" style="padding-left:30px;"><strong>${escapeHtml(attFormatDayHeading(key))}</strong>${today}<span class="att-day-summary">${escapeHtml(summary)}</span></td></tr>`;
+}
+
+/** The page's rows under branch and day headings (repeated at the top of each page). */
+function attWithGroupHeadings(view, rows, rowHtml, colspan) {
+  if (!view.groupByBranch) return attWithDayHeadings(view, rows, rowHtml, colspan);
+  let lastBranch = null;
+  let lastDay = null;
+  return rows.map((row, index) => {
+    const branch = attRowBranchId(view, row);
+    let html = '';
+    if (branch !== lastBranch) {
+      html += attBranchHeadingRow(view, branch, colspan);
+      lastBranch = branch;
+      lastDay = null;
+    }
+    if (row.__branchStub) return html;
+    const key = String(row.log_date || '');
+    if (key !== lastDay) {
+      html += attBranchDayHeadingRow(view, branch, key, colspan);
+      lastDay = key;
+    }
+    return html + rowHtml[index];
+  }).join('');
+}
+
+function toggleAttendanceBranch(viewId, branch) {
+  const board = attendanceBoards.get(viewId);
+  const view = board || attLogViews.get(viewId);
+  if (!view) return;
+  if (view.collapsed.has(branch)) view.collapsed.delete(branch);
+  else view.collapsed.add(branch);
+  if (board) renderAttendanceBoard(board);
+  else view.rerender?.(attApplyCollapsed(view, view.rows));
+}
+
+/** The Branch filter: every branch the board knows, A–Z. */
+function renderAttendanceBranchOptions(board) {
+  const select = document.getElementById(`${board.rootId}-branch`);
+  if (!select) return;
+  const show = board.groupByBranch && board.branchNames.size > 0;
+  select.style.display = show ? '' : 'none';
+  if (!show) return;
+  const options = [...board.branchNames.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  if (board.branch && !board.branchNames.has(board.branch)) board.branch = '';
+  select.innerHTML = '<option value="">All Branches</option>'
+    + options.map(([value, name]) => `<option value="${escapeHtml(value)}">${escapeHtml(name)}</option>`).join('');
+  select.value = board.branch;
+}
+
+/** The status legend as chips with counts; a chip filters the table to that status. */
+function attendanceStatusChips(board, rows) {
+  const counts = new Map();
+  (rows || []).forEach((row) => counts.set(row.status, (counts.get(row.status) || 0) + 1));
+  const key = escapeJsArg(board.rootId);
+  const statuses = ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Pending Correction', 'Corrected', 'On Leave']
+    .filter((s) => s !== 'Pending Correction' || counts.get(s) || board.status === s);
+  return `<div class="att-chips" role="group" aria-label="Filter by status">${statuses.map((s) => {
+    const n = counts.get(s) || 0;
+    const active = board.status === s;
+    return `<button type="button" class="att-chip${active ? ' att-chip-active' : ''}${n ? '' : ' att-chip-zero'}" style="--chip:${attendanceStatusColor(s)};" aria-pressed="${active}" title="${active ? 'Show all statuses' : `Show only ${escapeHtml(s)}`}" onclick="setAttendanceStatusChip('${key}','${escapeJsArg(s)}')">${escapeHtml(s)}<span class="att-chip-n">${n}</span></button>`;
+  }).join('')}</div>`;
+}
+
+function setAttendanceStatusChip(rootId, status) {
+  const board = attendanceBoards.get(rootId);
+  if (!board) return;
+  board.status = board.status === status ? 'all' : status;
+  const select = document.getElementById(`${rootId}-status`);
+  if (select) select.value = board.status;
+  renderAttendanceBoard(board);
+}
+
+/* ── Rows: employee cell, notes, actions ── */
+
+/** Name (a link to the employee's record page for HR / Admin) with employee ID and type below. */
+function attEmployeeCell(row, { link = false, showType = false } = {}) {
+  const name = escapeHtml(row?.employee_name || '—');
+  const sub = [row?.employee_code, showType ? row?.employee_type : ''].filter(Boolean).join(' · ');
+  const subHtml = sub ? `<div class="att-emp-sub">${escapeHtml(sub)}</div>` : '';
+  if (!link || !row?.employee_id || typeof window.attEmployeePageNav !== 'function') return `${name}${subHtml}`;
+  return `<a href="#" class="att-emp-link" title="View attendance records" onclick="openAttendanceEmployeePage('${escapeJsArg(row.employee_id)}');return false;">${name}</a>${subHtml}`;
+}
+
+/** "Corrected by Juan Dela Cruz · Reader was down" under a Corrected badge. */
+function attCorrectedNote(row) {
+  const c = row?.last_correction;
+  if (normalizeAttendanceStatusLabel(row?.status) !== 'Corrected' || !c) return '';
+  const parts = [`Corrected by ${c.approved_by_name || 'HR / Admin'}`];
+  if (c.reason) parts.push(c.reason);
+  return `<div class="att-row-note">${escapeHtml(parts.join(' · '))}</div>`;
+}
+
+/** A tap came in after HR / Admin corrected the day: its times were kept, HR should review. */
+function attTapFlagNote(row) {
+  if (!row?.tap_after_correction_at || normalizeAttendanceStatusLabel(row.status) !== 'Corrected') return '';
+  return `<div class="att-row-note att-flag" title="Latest tap ${escapeHtml(attFormatTapTime(row.tap_after_correction_at))}">New tap after correction</div>`;
+}
+
+function attStatusCell(row) {
+  return `${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div class="att-row-note">No tap yet today</div>' : ''}${normalizeAttendanceStatusLabel(row.status) === 'On Leave' ? `<div class="att-row-note">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}${attCorrectedNote(row)}${attTapFlagNote(row)}`;
+}
+
+/** One record row: Employee, Date, Time In, Time Out, Hours, Late, Undertime, Status, Action. */
+function attRecordRowHtml(row, { canReview = false, showType = false } = {}) {
+  return `
+    <tr>
+      <td class="nm">${attEmployeeCell(row, { link: canReview, showType })}</td>
+      <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+      <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
+      <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
+      <td class="mn">${escapeHtml(attFormatHours(row))}</td>
+      <td class="mn">${escapeHtml(attMinutes(row.late_minutes))}</td>
+      <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
+      <td>${attStatusCell(row)}</td>
+      ${canReview ? `<td><div class="att-actions">${attCorrectButton(row)}${attViewRecordsButton(row)}</div></td>` : ''}
+    </tr>`;
+}
+
+/* ── Correct any record (HR / Admin) ──
+   One dialog for every place a record is shown: All Records, Incomplete
+   Queue, Correction Requests, the Attendance Log and the employee's record
+   page. PATCH /api/attendance/corrections { action: "correct_record" }; the
+   server re-checks the role and branch, and the database keeps the original
+   taps (attendance_correct_record). */
+const attCorrectRecords = new Map();
+
+const ATT_CORRECTION_TYPES = [
+  ['time_in', 'Correct time in (accidental late time in)'],
+  ['time_out', 'Correct time out (accidental late or missing time out)'],
+  ['both', 'Correct both time in and time out'],
+  ['present', 'Mark as present (worked but did not tap)'],
+];
+
+function attIsLogId(id) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || ''));
+}
+
+function attCanCorrect(row) {
+  return Boolean(row?.employee_id && row?.log_date) && normalizeAttendanceStatusLabel(row.status) !== 'On Leave';
+}
+
+function attCorrectButton(row) {
+  if (!attCanCorrect(row)) return '';
+  const key = `${row.employee_id}|${row.log_date}`;
+  attCorrectRecords.set(key, row);
+  return `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceCorrectionByKey('${escapeJsArg(key)}')">Correct</button>`;
+}
+
+function attViewRecordsButton(row) {
+  if (!row?.employee_id || typeof window.attEmployeePageNav !== 'function') return '';
+  return `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openAttendanceEmployeePage('${escapeJsArg(row.employee_id)}')">View Records</button>`;
+}
+
+/** The record a correction request is about: the loaded row, or the request's own copy of it. */
+function attCorrectionRecord(board, c) {
+  const live = board.logs.find((row) => String(row.id) === String(c.log_id));
+  if (live) return live;
+  return {
+    id: c.log_id,
+    employee_id: c.employee_id,
+    employee_name: c.employee_name,
+    log_date: c.log_date,
+    time_in: c.original_time_in,
+    time_out: c.original_time_out,
+    status: 'Pending Correction',
+    group_branch_id: c.branch_id,
+  };
+}
+
+function openAttendanceCorrectionByKey(key) {
+  const row = attCorrectRecords.get(key);
+  if (row) openAttendanceCorrection(row);
+}
+
+function attCorrectionNeeds(type) {
+  return {
+    in: type === 'time_in' || type === 'both' || type === 'present',
+    out: type === 'time_out' || type === 'both' || type === 'present',
+  };
+}
+
+function attSyncCorrectionFields() {
+  const needs = attCorrectionNeeds(attDialogValue('att-correct-type'));
+  const inWrap = document.getElementById('att-correct-in-wrap');
+  const outWrap = document.getElementById('att-correct-out-wrap');
+  if (inWrap) inWrap.style.display = needs.in ? '' : 'none';
+  if (outWrap) outWrap.style.display = needs.out ? '' : 'none';
+}
+
+function openAttendanceCorrection(row) {
+  if (!attCanCorrect(row)) return;
+  const status = normalizeAttendanceStatusLabel(row.status);
+  const defaultType = !row.time_in ? 'present' : (!row.time_out ? 'time_out' : 'time_in');
+  const readOnly = (label, value) => `<div class="fg" style="margin:0;"><label>${label}</label><div class="fc att-readonly">${escapeHtml(value)}</div></div>`;
+
+  openAttendanceDialog({
+    title: 'Correct Attendance',
+    summary: `
+      <div><strong>${escapeHtml(row.employee_name || 'Employee')}</strong>${row.employee_code ? ` <span style="color:var(--t3);">(${escapeHtml(row.employee_code)})</span>` : ''} · ${escapeHtml(attFormatDate(row.log_date))} ${attendanceStatusBadge(status)}</div>
+      <div class="att-correct-current">
+        ${readOnly('Current time in', attFormatTime(row.time_in))}
+        ${readOnly('Current time out', attFormatTime(row.time_out))}
+      </div>
+      ${status === 'Pending Correction' ? '<div style="margin-top:6px;">Saving closes the employee\'s pending correction request.</div>' : ''}`,
+    fields: `
+      <div class="fg" style="margin:0;">
+        <label for="att-correct-type">Resolution</label>
+        <select id="att-correct-type" class="fc" onchange="attSyncCorrectionFields()">
+          ${ATT_CORRECTION_TYPES.map(([value, label]) => `<option value="${value}"${value === defaultType ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="att-correct-current">
+        <div class="fg" style="margin:0;" id="att-correct-in-wrap">
+          <label for="att-correct-in">New time in</label>
+          <input id="att-correct-in" class="fc" type="time" value="${escapeHtml(attTimeInputValue(row.time_in))}" />
+        </div>
+        <div class="fg" style="margin:0;" id="att-correct-out-wrap">
+          <label for="att-correct-out">New time out</label>
+          <input id="att-correct-out" class="fc" type="time" value="${escapeHtml(attTimeInputValue(row.time_out))}" />
+        </div>
+      </div>
+      <div class="fg" style="margin:0;">
+        <label for="att-correct-note">Reason</label>
+        <textarea id="att-correct-note" class="fc" rows="2" maxlength="500" placeholder="e.g. Tapped in late by mistake; confirmed with the branch logbook"></textarea>
+      </div>
+      <p style="font-size:11px;color:var(--t3);margin:0;">Hours, late, undertime and status are recomputed from the branch schedule and used by payroll. The original taps are kept in the correction history.</p>`,
+    actions: [{
+      label: 'Save Correction',
+      className: 'btn-primary',
+      handler: () => submitAttendanceCorrection(row),
+    }],
+  });
+  attSyncCorrectionFields();
+}
+
+async function submitAttendanceCorrection(row) {
+  const type = attDialogValue('att-correct-type');
+  const needs = attCorrectionNeeds(type);
+  const today = attTodayKey();
+  const nowHm = attTimeInputValue(new Date().toISOString());
+  const currentIn = attTimeInputValue(row.time_in);
+  const currentOut = attTimeInputValue(row.time_out);
+  const newIn = attDialogValue('att-correct-in');
+  const newOut = attDialogValue('att-correct-out');
+  const effectiveIn = needs.in ? newIn : currentIn;
+  const notFuture = (value) => (row.log_date === today && value && value > nowHm ? 'A corrected time cannot be in the future.' : '');
+
+  attRequireFields([
+    {
+      field: 'att-correct-type',
+      check: (value) => {
+        if (!value) return 'Choose a resolution.';
+        if (!needs.in && !row.time_in) return 'This record has no time in. Choose "Correct both" or "Mark as present".';
+        if (!needs.out && !row.time_out && row.log_date < today) return 'This day has no time out. Choose "Correct both" to enter it too.';
+        return '';
+      },
+    },
+    ...(needs.in ? [{
+      field: 'att-correct-in',
+      check: (value) => {
+        if (!value) return 'New time in is required.';
+        if (!needs.out && currentOut && value >= currentOut) return `Time in must be earlier than the time out (${attFormatTime(row.time_out)}).`;
+        return notFuture(value);
+      },
+    }] : []),
+    ...(needs.out ? [{
+      field: 'att-correct-out',
+      check: (value) => {
+        if (!value) return 'New time out is required.';
+        if (effectiveIn && value <= effectiveIn) return 'Time out must be later than time in.';
+        return notFuture(value);
+      },
+    }] : []),
+    { field: 'att-correct-note', check: attReasonCheck },
+  ]);
+  const effectiveOut = needs.out ? newOut : currentOut;
+  if (row.time_in && effectiveIn === currentIn && effectiveOut === currentOut) {
+    throw new Error('The new times are the same as the current ones.');
+  }
+
+  await attFetchJson('/api/attendance/corrections', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'correct_record',
+      log_id: attIsLogId(row.id) ? row.id : undefined,
+      employee_id: row.employee_id,
+      log_date: row.log_date,
+      type,
+      time_in: needs.in ? newIn : undefined,
+      time_out: needs.out ? newOut : undefined,
+      note: attDialogValue('att-correct-note'),
+    }),
+  });
+  window.pushNotification?.('Attendance Corrected', `${row.employee_name || 'The employee'}'s ${attFormatDate(row.log_date)} record is updated and marked Corrected.`, 'success');
+  await attAfterCorrection();
+}
+
+/** Reload whatever shows attendance on screen after a correction. */
+async function attAfterCorrection() {
+  try { invalidateAttendanceCache(); } catch { /* not loaded on this page */ }
+  const reloads = [];
+  attendanceBoards.forEach((board, rootId) => {
+    if (document.getElementById(rootId)?.offsetParent) reloads.push(refreshAttendanceBoard(rootId));
+  });
+  if (attEmployeeView.rootId && document.getElementById(attEmployeeView.rootId)?.offsetParent) reloads.push(loadAttendanceEmployeePage());
+  if (typeof window.onAttendanceCorrected === 'function') reloads.push(Promise.resolve(window.onAttendanceCorrected()));
+  await Promise.allSettled(reloads);
+}
+
+/* ── Attendance Log (Admin / HR / Super Admin): the same grouping as the status board ── */
+const attLogViews = new Map();
+
+function attLogView(viewId) {
+  if (!attLogViews.has(viewId)) {
+    attLogViews.set(viewId, {
+      rootId: viewId,
+      tab: 'all',
+      groupByBranch: true,
+      collapsed: new Set(),
+      branchNames: new Map(),
+      employeeBranch: new Map(),
+      dayCounts: new Map(),
+      branchCounts: new Map(),
+      canReview: false,
+      rows: [],
+      rerender: null,
+    });
+  }
+  return attLogViews.get(viewId);
+}
+
+/**
+ * Prepare an Attendance Log's rows: one per employee per day, sorted by
+ * branch, day and employee. Returns the rows to paginate; `rerender(rows)`
+ * re-paginates after a branch is collapsed or expanded.
+ */
+function attPrepareAttendanceLog(viewId, rows, { canReview = false, rerender = null } = {}) {
+  const view = attLogView(viewId);
+  view.canReview = canReview;
+  view.rerender = rerender;
+  const list = attOneRowPerDay((rows || []).map((row) => ({ ...row, log_date: row.log_date || row.date })));
+  view.employeeBranch = new Map();
+  list.forEach((row) => {
+    const branch = String(row.group_branch_id || row.branch_id || '');
+    if (row.employee_id && branch) view.employeeBranch.set(String(row.employee_id), branch);
+    if (branch && row.branch_name) view.branchNames.set(branch, row.branch_name);
+  });
+  view.rows = attSortByBranchDay(view, list);
+  attComputeBranchCounts(view, list);
+  view.dayCounts = attBranchDayCounts(view, view.rows);
+  return attApplyCollapsed(view, view.rows);
+}
+
+/** One page of an Attendance Log, with branch and day headings. */
+function attRenderAttendanceLogPage(viewId, pageRows) {
+  const view = attLogView(viewId);
+  const html = pageRows.map((row) => (row.__branchStub ? '' : attRecordRowHtml(row, { canReview: view.canReview, showType: true })));
+  return attWithGroupHeadings(view, pageRows, html, 8 + (view.canReview ? 1 : 0));
+}
+
+/* ── INDIVIDUAL EMPLOYEE ATTENDANCE RECORD (Admin / HR / Super Admin) ──
+   Opened from an employee's name or View Records. The portal provides
+   window.attEmployeePageNav() (show its page) and mounts the page with
+   mountAttendanceEmployeePage(rootId, { onBack }). The employee id lives in
+   the iframe URL (?employee=) and sessionStorage, so a refresh reopens it. */
+const ATT_EMPLOYEE_KEY = 'sacs-att-employee';
+const attEmployeeView = { rootId: '', employeeId: '', range: 'this_month', from: '', to: '', status: 'all', data: null, seq: 0, onBack: null };
+
+function openAttendanceEmployeePage(employeeId) {
+  if (!employeeId || typeof window.attEmployeePageNav !== 'function') return;
+  attEmployeeView.employeeId = String(employeeId);
+  try { sessionStorage.setItem(ATT_EMPLOYEE_KEY, attEmployeeView.employeeId); } catch { /* private mode */ }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    params.set('employee', attEmployeeView.employeeId);
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  } catch { /* keep going without the deep link */ }
+  closeAttendanceDialog();
+  window.attEmployeePageNav();
+}
+
+function attEmployeeStoredId() {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('employee');
+    if (fromUrl) return fromUrl;
+  } catch { /* ignore */ }
+  if (attEmployeeView.employeeId) return attEmployeeView.employeeId;
+  try { return sessionStorage.getItem(ATT_EMPLOYEE_KEY) || ''; } catch { return ''; }
+}
+
+function attEmployeeBack() {
+  if (typeof attEmployeeView.onBack === 'function') attEmployeeView.onBack();
+}
+
+/** The selected range as { from, to } (Manila dates; never past today for the current week / month). */
+function attEmployeeRange(view = attEmployeeView) {
+  const today = attTodayKey();
+  const [y, m, d] = today.split('-').map(Number);
+  const iso = (date) => date.toISOString().slice(0, 10);
+  if (view.range === 'this_week') {
+    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    return { from: iso(new Date(Date.UTC(y, m - 1, d - ((weekday + 6) % 7)))), to: today };
+  }
+  if (view.range === 'last_month') {
+    return { from: iso(new Date(Date.UTC(y, m - 2, 1))), to: iso(new Date(Date.UTC(y, m - 1, 0))) };
+  }
+  if (view.range === 'custom' && view.from && view.to) return { from: view.from, to: view.to };
+  return { from: `${today.slice(0, 8)}01`, to: today };
+}
+
+function mountAttendanceEmployeePage(rootId, { onBack } = {}) {
+  const root = document.getElementById(rootId);
+  if (!root) return;
+  attEmployeeView.onBack = onBack || null;
+  const employeeId = attEmployeeStoredId();
+  if (!employeeId) {
+    attEmployeeBack();
+    return;
+  }
+  if (attEmployeeView.rootId !== rootId || attEmployeeView.employeeId !== employeeId) {
+    attEmployeeView.range = 'this_month';
+    attEmployeeView.from = '';
+    attEmployeeView.to = '';
+    attEmployeeView.status = 'all';
+    attEmployeeView.data = null;
+  }
+  attEmployeeView.rootId = rootId;
+  attEmployeeView.employeeId = employeeId;
+
+  const id = escapeHtml(rootId);
+  const range = attEmployeeRange();
+  root.innerHTML = `
+    <div class="sh att-emp-back">
+      <button class="btn btn-outline" type="button" onclick="attEmployeeBack()">&#8592; Back to Attendance Monitoring</button>
+    </div>
+    <div class="card att-emp-head" id="${id}-head"><div class="sk-bar" style="width:40%;height:18px;"></div></div>
+    <div class="card att-emp-filters-card">
+      <div class="att-emp-filters">
+        <div class="fg" style="margin:0;">
+          <label for="${id}-range">Date range</label>
+          <select id="${id}-range" class="fc">
+            <option value="this_week">This Week</option>
+            <option value="this_month">This Month</option>
+            <option value="last_month">Last Month</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="fg att-emp-custom" style="margin:0;" id="${id}-custom-from-wrap">
+          <label for="${id}-from">From</label>
+          <input id="${id}-from" class="fc" type="date" value="${escapeHtml(attEmployeeView.from || range.from)}" max="${escapeHtml(attTodayKey())}" />
+        </div>
+        <div class="fg att-emp-custom" style="margin:0;" id="${id}-custom-to-wrap">
+          <label for="${id}-to">To</label>
+          <input id="${id}-to" class="fc" type="date" value="${escapeHtml(attEmployeeView.to || range.to)}" />
+        </div>
+        <button class="btn btn-outline att-emp-custom" type="button" id="${id}-apply">Apply</button>
+        <div class="fg" style="margin:0;">
+          <label for="${id}-status">Status</label>
+          <select id="${id}-status" class="fc">
+            <option value="all">All statuses</option>
+            ${ATTENDANCE_STATUS_LIST.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="sg att-emp-summary" id="${id}-summary"></div>
+    <div class="card">
+      <div class="sh" style="flex-wrap:wrap;gap:8px;">
+        <span class="stitle">Attendance Records</span><span class="sp"></span>
+        <span id="${id}-range-label" style="font-size:12px;color:var(--t3);"></span>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th><th>Remarks</th><th>Action</th></tr></thead>
+        <tbody id="${id}-body">${skeletonRows(9)}</tbody>
+      </table></div>
+      <p id="${id}-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+    </div>`;
+
+  const rangeSelect = document.getElementById(`${rootId}-range`);
+  const statusSelect = document.getElementById(`${rootId}-status`);
+  if (rangeSelect) rangeSelect.value = attEmployeeView.range;
+  if (statusSelect) statusSelect.value = attEmployeeView.status;
+  const syncCustom = () => {
+    root.querySelectorAll('.att-emp-custom').forEach((el) => { el.style.display = attEmployeeView.range === 'custom' ? '' : 'none'; });
+  };
+  syncCustom();
+  rangeSelect?.addEventListener('change', () => {
+    attEmployeeView.range = rangeSelect.value;
+    syncCustom();
+    if (attEmployeeView.range !== 'custom') loadAttendanceEmployeePage();
+  });
+  document.getElementById(`${rootId}-apply`)?.addEventListener('click', () => {
+    const ok = requireFields([
+      { field: `${rootId}-from`, label: 'From' },
+      {
+        field: `${rootId}-to`,
+        check: (value) => {
+          if (!value) return 'To is required.';
+          const from = String(document.getElementById(`${rootId}-from`)?.value || '');
+          return from && value < from ? 'To must be on or after From.' : '';
+        },
+      },
+    ]);
+    if (!ok) return;
+    attEmployeeView.from = document.getElementById(`${rootId}-from`).value;
+    attEmployeeView.to = document.getElementById(`${rootId}-to`).value;
+    loadAttendanceEmployeePage();
+  });
+  statusSelect?.addEventListener('change', () => {
+    attEmployeeView.status = statusSelect.value;
+    renderAttendanceEmployeePage();
+  });
+
+  loadAttendanceEmployeePage();
+}
+
+async function loadAttendanceEmployeePage() {
+  const view = attEmployeeView;
+  const rootId = view.rootId;
+  if (!rootId || !view.employeeId) return;
+  const { from, to } = attEmployeeRange(view);
+  const seq = ++view.seq;
+  const body = document.getElementById(`${rootId}-body`);
+  const feedback = document.getElementById(`${rootId}-feedback`);
+  if (body) body.innerHTML = skeletonRows(9);
+  if (feedback) { feedback.textContent = ''; feedback.className = 'adm-feedback'; }
+
+  try {
+    const params = new URLSearchParams({ from, to });
+    const data = await attFetchJson(`/api/attendance/employee/${encodeURIComponent(view.employeeId)}?${params}`);
+    if (seq !== view.seq) return;
+    view.data = data;
+    renderAttendanceEmployeePage();
+  } catch (error) {
+    if (seq !== view.seq) return;
+    view.data = null;
+    if (body) body.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+    const head = document.getElementById(`${rootId}-head`);
+    if (head && (error.status === 403 || error.status === 404)) head.innerHTML = `<div style="color:var(--red);font-size:13px;">${escapeHtml(error.message)}</div>`;
+    const summary = document.getElementById(`${rootId}-summary`);
+    if (summary) summary.innerHTML = '';
+  }
+}
+
+/** "October 2026". */
+function attFormatMonthHeading(key) {
+  const [y, m] = String(key || '').split('-').map(Number);
+  return y && m ? `${ATTENDANCE_MONTHS[m - 1]} ${y}` : '—';
+}
+
+function renderAttendanceEmployeePage() {
+  const view = attEmployeeView;
+  const rootId = view.rootId;
+  const data = view.data;
+  if (!rootId || !data) return;
+  const employee = data.employee || {};
+  const logs = data.logs || [];
+
+  // Header card.
+  const head = document.getElementById(`${rootId}-head`);
+  if (head) {
+    const schedule = employee.schedule
+      ? `${employee.schedule.work_start || '—'} – ${employee.schedule.work_end || '—'} · ${Number(employee.schedule.grace) || 0} min grace${employee.schedule.source === 'branch' ? '' : ' (default schedule)'}`
+      : '—';
+    const item = (label, value) => `<div class="att-emp-meta-item"><span class="ct">${escapeHtml(label)}</span><span class="att-emp-meta-value">${escapeHtml(value || '—')}</span></div>`;
+    const initials = String(employee.full_name || '').trim().split(/\s+/).filter(Boolean);
+    head.innerHTML = `
+      <div class="att-emp-title">
+        <div class="att-emp-avatar" aria-hidden="true">${escapeHtml(initials.length > 1 ? initials[0][0] + initials[initials.length - 1][0] : String(employee.full_name || 'NA').slice(0, 2)).toUpperCase()}</div>
+        <div>
+          <h3 style="margin:0;color:var(--t1);">${escapeHtml(employee.full_name || 'Employee')}</h3>
+          <div style="font-size:12px;color:var(--t3);margin-top:2px;">Individual Attendance Record${employee.archived ? ' · Archived' : ''}</div>
+        </div>
+      </div>
+      <div class="att-emp-meta">
+        ${item('Employee ID', employee.employee_code)}
+        ${item('Branch', employee.branch_name)}
+        ${item('Position', employee.position)}
+        ${item('Employment Status', [employee.employee_status, employee.employee_type].filter(Boolean).join(' · '))}
+        ${item('Assigned Schedule', schedule)}
+        ${item('RFID Card', employee.rfid_masked || 'Not assigned')}
+      </div>`;
+  }
+
+  const rangeLabel = document.getElementById(`${rootId}-range-label`);
+  if (rangeLabel && data.range) rangeLabel.textContent = `${attFormatDate(data.range.from)} – ${attFormatDate(data.range.to)}`;
+
+  // Summary cards: the whole range, whatever the status filter.
+  const real = logs.filter((row) => !row.placeholder && !row.not_yet_tapped);
+  const attended = ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Corrected'];
+  const lateRows = real.filter((row) => Number(row.late_minutes) > 0);
+  const underRows = real.filter((row) => Number(row.undertime_minutes) > 0);
+  const leaveRows = real.filter((row) => row.status === 'On Leave');
+  const unpaidLeave = leaveRows.filter((row) => row.leave?.pay_status === 'without_pay').length;
+  const sum = (rows, field) => rows.reduce((total, row) => total + (Number(row[field]) || 0), 0);
+  const totalMinutes = real.reduce((total, row) => total + (attWorkedMinutes(row) || 0), 0);
+  const card = (label, value, tone, sub) => `<div class="card"><div class="ct">${escapeHtml(label)}</div><div class="cv ${tone}">${escapeHtml(String(value))}</div>${sub ? `<div class="cch">${escapeHtml(sub)}</div>` : ''}</div>`;
+  const summary = document.getElementById(`${rootId}-summary`);
+  if (summary) {
+    summary.innerHTML = [
+      card('Days Present', real.filter((row) => attended.includes(row.status)).length, 'g'),
+      card('Days Absent', real.filter((row) => row.status === 'Absent').length, 'r'),
+      card('Times Late', lateRows.length, 'w', `${sum(lateRows, 'late_minutes')} min total`),
+      card('Undertime', `${sum(underRows, 'undertime_minutes')} min`, 'w', `${underRows.length} day${underRows.length === 1 ? '' : 's'}`),
+      card('Half Days', real.filter((row) => row.is_half_day === true || row.status === 'Half Day').length, 'a'),
+      card('Incomplete', real.filter((row) => row.status === 'Incomplete' || row.status === 'Pending Correction').length, ''),
+      card('Leave Days', leaveRows.length, 't', leaveRows.length ? `${leaveRows.length - unpaidLeave} with pay · ${unpaidLeave} without pay` : ''),
+      card('Total Hours Worked', attHoursMinutes(totalMinutes), 'g'),
+    ].join('');
+  }
+
+  // Records: by month, then date (newest first).
+  const body = document.getElementById(`${rootId}-body`);
+  if (!body) return;
+  const rows = logs
+    .filter((row) => view.status === 'all' || row.status === view.status)
+    .sort((a, b) => String(b.log_date || '').localeCompare(String(a.log_date || '')));
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="9" style="color:var(--t3);">${view.status === 'all' ? 'No attendance records in this range.' : `No ${escapeHtml(view.status)} records in this range.`}</td></tr>`;
+    return;
+  }
+  const monthCounts = new Map();
+  rows.forEach((row) => {
+    const month = String(row.log_date || '').slice(0, 7);
+    monthCounts.set(month, (monthCounts.get(month) || 0) + 1);
+  });
+  let lastMonth = null;
+  body.innerHTML = rows.map((row) => {
+    const month = String(row.log_date || '').slice(0, 7);
+    let heading = '';
+    if (month !== lastMonth) {
+      const n = monthCounts.get(month) || 0;
+      heading = `<tr class="att-day-row"><td colspan="9"><strong>${escapeHtml(attFormatMonthHeading(month))}</strong><span class="att-day-summary">${n} record${n === 1 ? '' : 's'}</span></td></tr>`;
+      lastMonth = month;
+    }
+    return heading + `
+      <tr>
+        <td>${escapeHtml(attFormatDate(row.log_date))}</td>
+        <td class="mn">${escapeHtml(attFormatTime(row.time_in))}</td>
+        <td class="mn">${escapeHtml(attFormatTime(row.time_out))}</td>
+        <td class="mn">${escapeHtml(attFormatHours(row))}</td>
+        <td class="mn">${escapeHtml(attMinutes(row.late_minutes))}</td>
+        <td class="mn">${escapeHtml(attMinutes(row.undertime_minutes))}</td>
+        <td>${attendanceStatusBadge(row.status)}</td>
+        <td class="att-remarks">${attEmployeeRemarks(row)}</td>
+        <td>${attCorrectButton({ ...row, employee_code: employee.employee_code })}</td>
+      </tr>`;
+  }).join('');
+}
+
+/** Remarks: leave, correction (with its history), pending request, no tap yet. */
+function attEmployeeRemarks(row) {
+  const parts = [];
+  if (row.not_yet_tapped) parts.push('<div>No tap yet today</div>');
+  if (normalizeAttendanceStatusLabel(row.status) === 'On Leave') parts.push(`<div>${escapeHtml(attendanceLeaveSummary(row.leave))}</div>`);
+  const pending = (row.corrections || []).find((c) => c.status === 'pending');
+  if (pending) parts.push(`<div>Correction requested: time out ${escapeHtml(attFormatTime(pending.corrected_time_out))} · “${escapeHtml(pending.reason || '')}”</div>`);
+  if (normalizeAttendanceStatusLabel(row.status) === 'Corrected' && row.last_correction) {
+    const c = row.last_correction;
+    parts.push(`<div>${attendanceStatusBadge('Corrected')} by ${escapeHtml(c.approved_by_name || 'HR / Admin')}${c.reason ? ` · ${escapeHtml(c.reason)}` : ''}</div>`);
+  }
+  const flag = attTapFlagNote(row);
+  if (flag) parts.push(flag);
+  const links = [];
+  if ((row.corrections || []).length && attIsLogId(row.id)) {
+    links.push(`<a href="#" class="att-emp-link" onclick="openAttendanceCorrectionHistory('${escapeJsArg(row.id)}');return false;">Correction History (${row.corrections.length})</a>`);
+  }
+  if (normalizeAttendanceStatusLabel(row.status) !== 'On Leave' || (row.taps || []).length) {
+    links.push(`<a href="#" class="att-emp-link" onclick="openAttendanceTaps('${escapeJsArg(row.log_date)}');return false;">View Taps (${(row.taps || []).length})</a>`);
+  }
+  if (links.length) parts.push(`<div class="att-remark-links">${links.join('')}</div>`);
+  return parts.length ? parts.join('') : '<span style="color:var(--t3);">—</span>';
+}
+
+/** "08:01:15 AM" -- taps can be seconds apart, so seconds are shown. */
+function attFormatTapTime(iso) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).format(date);
+}
+
+/**
+ * Every raw RFID tap of one day (attendance_taps), oldest first. The first
+ * tap is the Time In and the last the Time Out; on a Corrected day those are
+ * what the taps said, and taps after the correction are marked.
+ */
+function openAttendanceTaps(logDate) {
+  const data = attEmployeeView.data;
+  const row = data?.logs?.find((r) => r.log_date === logDate);
+  if (!row) return;
+  const taps = [...(row.taps || [])].sort((a, b) => String(a.tapped_at).localeCompare(String(b.tapped_at)));
+  const corrected = normalizeAttendanceStatusLabel(row.status) === 'Corrected';
+  const correctedAt = corrected ? row.last_correction?.approved_at : null;
+
+  const items = taps.map((tap, index) => {
+    const role = index === 0 ? 'Time In' : (index === taps.length - 1 ? 'Time Out' : '');
+    const late = correctedAt && String(tap.tapped_at) > String(correctedAt);
+    return `
+      <tr class="${role ? 'att-tap-key' : ''}">
+        <td class="mn">${index + 1}</td>
+        <td class="mn">${escapeHtml(attFormatTapTime(tap.tapped_at))}</td>
+        <td>${role ? `<span class="badge ${role === 'Time In' ? 'bg' : 'bb'}">${role}</span>` : '<span style="color:var(--t3);">—</span>'}${late ? '<div class="att-row-note att-flag">After correction</div>' : ''}</td>
+        <td>${escapeHtml(tap.branch_name || '—')}</td>
+        <td>${escapeHtml(tap.device || (tap.source === 'manual_entry' ? 'Manual entry (portal)' : 'RFID Terminal'))}</td>
+      </tr>`;
+  }).join('');
+
+  const note = !taps.length
+    ? 'No taps were recorded for this day.'
+    : taps.length === 1
+      ? 'One tap only: it is the Time In. The day stays Incomplete until a later tap records the Time Out.'
+      : `Time In is the first tap, Time Out the last of ${taps.length} taps.`;
+  const correctedNote = corrected
+    ? `<div style="margin-top:4px;">This day was corrected${row.last_correction?.approved_by_name ? ` by ${escapeHtml(row.last_correction.approved_by_name)}` : ''}: the record shows <span class="mn">${escapeHtml(attFormatTime(row.time_in))} – ${escapeHtml(attFormatTime(row.time_out))}</span>, not the taps below.</div>`
+    : '';
+
+  openAttendanceDialog({
+    title: 'Tap History',
+    summary: `<div><strong>${escapeHtml(row.employee_name || data?.employee?.full_name || 'Employee')}</strong> · ${escapeHtml(attFormatDate(row.log_date))} ${attendanceStatusBadge(row.status)}</div>
+      <div>${escapeHtml(note)}</div>${correctedNote}`,
+    fields: taps.length
+      ? `<div class="tw att-taps-table"><table>
+          <thead><tr><th>#</th><th>Time</th><th>Counts As</th><th>Branch</th><th>Reader</th></tr></thead>
+          <tbody>${items}</tbody>
+        </table></div>`
+      : '',
+    actions: [{ label: 'Close', className: 'btn-outline', handler: async () => {} }],
+  });
+}
+
+function attCorrectionKind(c) {
+  const labels = {
+    time_in: 'Time in corrected',
+    time_out: 'Time out corrected',
+    both: 'Time in and time out corrected',
+    present: 'Marked present (did not tap)',
+  };
+  if (c.correction_type && labels[c.correction_type]) return labels[c.correction_type];
+  if (c.corrected_time_in) return 'Absence corrected';
+  if (c.original_status === 'Incomplete' && c.status === 'approved' && c.reason && c.reason === c.review_note) return 'Incomplete record resolved';
+  return 'Employee correction request';
+}
+
+function openAttendanceCorrectionHistory(logId) {
+  const row = attEmployeeView.data?.logs?.find((r) => String(r.id) === String(logId));
+  if (!row) return;
+  const pair = (timeIn, timeOut) => `${attFormatTime(timeIn)} – ${attFormatTime(timeOut)}`;
+  const items = [...(row.corrections || [])].reverse().map((c) => {
+    const state = c.status === 'pending' ? 'Waiting for review' : c.status === 'approved' ? 'Applied' : 'Rejected';
+    let after;
+    if (c.status === 'pending') after = `Requested time out ${attFormatTime(c.corrected_time_out)}`;
+    else if (c.resolution === 'absent') after = 'Marked Absent';
+    else if (c.resolution === 'half_day') after = 'Marked Half Day';
+    else if (c.status === 'rejected') after = 'Kept as recorded';
+    else after = pair(c.corrected_time_in || c.original_time_in, c.corrected_time_out || c.original_time_out);
+    const hasFacts = c.corrected_late_minutes !== null && c.corrected_late_minutes !== undefined;
+    const before = attWorkedMinutes({ time_in: c.original_time_in, time_out: c.original_time_out });
+    const afterMinutes = attWorkedMinutes({ time_in: c.corrected_time_in || c.original_time_in, time_out: c.corrected_time_out });
+    const facts = hasFacts ? `
+        <div class="att-history-facts">
+          <span>Hours ${escapeHtml(before === null ? '—' : attHoursMinutes(before))} → ${escapeHtml(afterMinutes === null ? '—' : attHoursMinutes(afterMinutes))}</span>
+          <span>Late ${escapeHtml(attMinutes(c.original_late_minutes))} → ${escapeHtml(attMinutes(c.corrected_late_minutes))}</span>
+          <span>Undertime ${escapeHtml(attMinutes(c.original_undertime_minutes))} → ${escapeHtml(attMinutes(c.corrected_undertime_minutes))}</span>
+        </div>` : '';
+    const who = c.status === 'pending' ? (c.requested_by_name || 'Employee') : (c.approved_by_name || c.requested_by_name || 'HR / Admin');
+    const when = c.status === 'pending' ? c.requested_at : (c.approved_at || c.requested_at);
+    return `
+      <div class="att-history-item">
+        <div class="att-history-top"><strong>${escapeHtml(attCorrectionKind(c))}</strong><span>${escapeHtml(state)}</span></div>
+        <div class="att-history-grid">
+          <div><span class="att-history-label">Original taps</span><span class="mn">${escapeHtml(pair(c.original_time_in, c.original_time_out))}</span> ${c.original_status ? attendanceStatusBadge(c.original_status) : ''}</div>
+          <div><span class="att-history-label">New values</span><span class="mn">${escapeHtml(after)}</span></div>
+        </div>
+        ${facts}
+        <div class="att-history-reason">Reason: “${escapeHtml(c.reason || '')}”</div>
+        ${c.review_note && c.review_note !== c.reason ? `<div class="att-history-reason">Note: ${escapeHtml(c.review_note)}</div>` : ''}
+        <div class="att-history-by">${c.status === 'pending' ? 'Requested' : 'Changed'} by ${escapeHtml(who)} · ${escapeHtml(attFormatDateTime(when))}</div>
+      </div>`;
+  }).join('');
+
+  openAttendanceDialog({
+    title: 'Correction History',
+    summary: `<div><strong>${escapeHtml(row.employee_name || attEmployeeView.data?.employee?.full_name || 'Employee')}</strong> · ${escapeHtml(attFormatDate(row.log_date))} ${attendanceStatusBadge(row.status)}</div>
+      <div>Now: <span class="mn">${escapeHtml(pair(row.time_in, row.time_out))}</span></div>`,
+    fields: `<div class="att-history">${items || '<div style="color:var(--t3);">No corrections for this day.</div>'}</div>`,
+    actions: [{ label: 'Close', className: 'btn-outline', handler: async () => {} }],
+  });
 }
 
 /* ── Review / resolve / request dialog (one, shared) ── */
@@ -4818,6 +5778,18 @@ window.refreshAttendanceBoard = refreshAttendanceBoard;
 window.openAttendanceReview = openAttendanceReview;
 window.openAttendanceResolve = openAttendanceResolve;
 window.openAttendanceAbsenceCorrection = openAttendanceAbsenceCorrection;
+window.openAttendanceCorrection = openAttendanceCorrection;
+window.openAttendanceCorrectionByKey = openAttendanceCorrectionByKey;
+window.attSyncCorrectionFields = attSyncCorrectionFields;
+window.toggleAttendanceBranch = toggleAttendanceBranch;
+window.setAttendanceStatusChip = setAttendanceStatusChip;
+window.attPrepareAttendanceLog = attPrepareAttendanceLog;
+window.attRenderAttendanceLogPage = attRenderAttendanceLogPage;
+window.openAttendanceEmployeePage = openAttendanceEmployeePage;
+window.mountAttendanceEmployeePage = mountAttendanceEmployeePage;
+window.openAttendanceCorrectionHistory = openAttendanceCorrectionHistory;
+window.openAttendanceTaps = openAttendanceTaps;
+window.attEmployeeBack = attEmployeeBack;
 window.closeAttendanceDialog = closeAttendanceDialog;
 window.loadMyAttendancePeriod = loadMyAttendancePeriod;
 window.openMyCorrectionRequest = openMyCorrectionRequest;

@@ -292,7 +292,8 @@
       const res = await fetch(API_SCAN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rfid_code: code }),
+        // Every tap is stored with the reader it came from (Tap History).
+        body: JSON.stringify({ rfid_code: code, device: `RFID Terminal · ${branchName}` }),
       });
       const data = await res.json().catch(() => ({}));
 

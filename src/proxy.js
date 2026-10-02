@@ -98,6 +98,9 @@ const API_MODULES = [
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],
+  // One employee's attendance record page; the handler also requires
+  // attendance_corrections "update" (HR / Admin / Super Admin).
+  ["/api/attendance/employee", "attendance_corrections"],
   // Overtime approval: listing is attendance "read", deciding (PATCH) "update".
   ["/api/attendance/overtime", "attendance"],
   ["/api/admin/system", "system_maintenance"],

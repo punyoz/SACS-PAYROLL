@@ -6,11 +6,13 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps, hoursBetween, planTap } from "@/lib/attendance/taps";
+import { maskCardCode, recordRawTap, recordRefusedTap, tapDevice } from "@/lib/attendance/raw-taps";
 import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/policy";
 import { attendanceBucket, normalizeAttendanceStatus as normalizeEngineStatus } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { LEAVE_TAP_MESSAGE, isEmployeeOnLeave, recordBlockedTap } from "@/lib/attendance/leave";
+import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -72,6 +74,7 @@ function shapeEmployee(user, profile, index) {
     rfid_uid: normalizeText(metadata.rfid_uid),
     archived: Boolean(metadata.archived),
     branch_id: profile?.branch_id || metadata.branch_id || null,
+    employee_status: normalizeText(profile?.employee_status, "Active"),
   };
 }
 
@@ -92,7 +95,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,branch_id")
+      .select("id,email,full_name,branch_id,employee_status")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -144,6 +147,7 @@ function mapAttendanceRow(row) {
     created_at: toIso(row.created_at),
     late_minutes: Number(row.late_minutes || 0),
     undertime_minutes: Number(row.undertime_minutes || 0),
+    branch_id: row.branch_id || null,
   };
 }
 
@@ -221,6 +225,8 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey, branchSco
       status: "Absent",
       log_date: dateKey,
       created_at: null,
+      branch_id: employee.branch_id || null,
+      not_yet_tapped: true,
     });
   });
 
@@ -311,13 +317,6 @@ function isLateInManila(now = new Date(), policy = null) {
   return false;
 }
 
-/**
- * Record one RFID tap. Only the first and last tap of the day count: the first
- * creates the day's row (Time In), every later tap moves that same row's Time
- * Out, and a repeat tap within a minute of the previous one is ignored.
- *
- * @returns {{ record: object, tap: "time_in" | "time_out" | "duplicate" }}
- */
 function isDuplicateKeyError(error) {
   const code = String(error?.code || "").toLowerCase();
   const message = String(error?.message || "").toLowerCase();
@@ -337,6 +336,28 @@ function changeAnnotation(actor, source) {
   };
 }
 
+/** The day's raw taps (attendance_taps), [] when the table is not there yet. */
+async function readDayTaps(supabase, employeeId, dateKey) {
+  const result = await supabase
+    .from("attendance_taps")
+    .select("tapped_at")
+    .eq("employee_id", employeeId)
+    .eq("log_date", dateKey)
+    .order("tapped_at", { ascending: true })
+    .limit(1000);
+  return result.error ? [] : (result.data || []).map((row) => row.tapped_at);
+}
+
+/**
+ * Apply one RFID tap to the employee's day. Every tap counts (there is no
+ * cooldown; the caller stores the raw tap first): the first tap of the day is
+ * Time In, every later tap moves Time Out to the latest tap, on the day's one
+ * attendance_logs row. The database's status engine recomputes hours, late,
+ * undertime and status on each write. A day HR / Admin corrected keeps its
+ * corrected times and is only flagged "New tap after correction".
+ *
+ * @returns {{ record: object, tap: "time_in" | "time_out" | "after_correction" }}
+ */
 async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1, policy = null, actor = null, source = "rfid_tap") {
   const lookupResult = await supabase
     .from("attendance_logs")
@@ -354,7 +375,20 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     throw new Error(lookupResult.error.message);
   }
 
-  const plan = planTap(lookupResult.data || [], nowIso);
+  const rawTaps = await readDayTaps(supabase, employee.id, dateKey);
+  const plan = planTap(lookupResult.data || [], nowIso, rawTaps);
+
+  if (plan.action === "after_correction") {
+    // The corrected times stay; the tap is already in attendance_taps and the
+    // day is flagged for HR to review.
+    const flagResult = await supabase
+      .from("attendance_logs")
+      .update({ tap_after_correction_at: nowIso, ...changeAnnotation(actor, source) })
+      .eq("id", plan.target.id)
+      .select("*")
+      .maybeSingle();
+    return { record: mapAttendanceRow(flagResult.data || plan.target), tap: "after_correction" };
+  }
 
   // The nightly close (public.attendance_close_days) may already have written
   // an Absent row for this day, with no taps. The first real tap turns that
@@ -387,19 +421,15 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     return { record: mapAttendanceRow(claimResult.data), tap: "time_in" };
   }
 
-  if (plan.action === "duplicate") {
-    return { record: mapAttendanceRow(plan.record), tap: "duplicate" };
-  }
-
   if (plan.action === "time_out") {
     const updateResult = await supabase
       .from("attendance_logs")
       .update({
-        // Normalise the row to the day's first tap too, in case an older
-        // version split this day across several rows.
+        // First tap of the day in, last tap out (also normalises a day an
+        // older version split across several rows).
         time_in: plan.time_in,
-        time_out: nowIso,
-        total_hours: hoursBetween(plan.time_in, nowIso),
+        time_out: plan.time_out,
+        total_hours: plan.time_out ? hoursBetween(plan.time_in, plan.time_out) : 0,
         ...changeAnnotation(actor, source),
       })
       .eq("id", plan.target.id)
@@ -410,7 +440,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
       throw new Error(updateResult.error?.message || "Failed to update attendance time out.");
     }
 
-    return { record: mapAttendanceRow(updateResult.data), tap: "time_out" };
+    return { record: mapAttendanceRow(updateResult.data), tap: plan.time_out ? "time_out" : "time_in" };
   }
 
   const insertPayload = {
@@ -425,6 +455,7 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     // value for a database the engine migration has not reached yet.
     status: isLateInManila(new Date(nowIso), policy) ? "Late" : "On Time",
     log_date: dateKey,
+    archived_duplicate: false,
   };
 
   const insertResult = await supabase
@@ -434,13 +465,10 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
     .maybeSingle();
 
   if (insertResult.error || !insertResult.data) {
-    // Two concurrent first-taps for the same employee+day can both reach here
-    // having seen zero existing rows (the lookup above ran before either had
-    // written). attendance_logs_employee_day_unique (see
-    // 20260917010000_attendance_logs_unique_employee_day.sql) turns the loser's
-    // insert into a 23505 instead of a second silent row — re-planning once
-    // against the row the winner just committed resolves it as this tap's
-    // rightful time_out (or duplicate) instead of failing the scan outright.
+    // Two taps at the same moment for the same employee+day can both reach
+    // here having seen no row; attendance_logs_employee_day_unique turns the
+    // loser's insert into a 23505, and re-planning once against the winner's
+    // row records this tap as the Time Out instead of failing it.
     if (isDuplicateKeyError(insertResult.error) && retriesLeft > 0) {
       return persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft - 1, policy, actor, source);
     }
@@ -448,6 +476,21 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
   }
 
   return { record: mapAttendanceRow(insertResult.data), tap: "time_in" };
+}
+
+/** Why an unmatched code was refused: an archived / inactive employee's card, or no one's. */
+async function unmatchedCardReason(supabase, code) {
+  const value = normalizeText(code);
+  const result = await supabase
+    .from("profiles")
+    .select("id,full_name,branch_id,archived,employee_status")
+    .eq("rfid_uid", value)
+    .limit(1);
+  const owner = result.error ? null : (result.data || [])[0];
+  if (owner) {
+    return { employee: owner, reason: `Inactive employee: card ${maskCardCode(value)} belongs to an archived or inactive account.` };
+  }
+  return { employee: null, reason: `Unregistered RFID card ${maskCardCode(value)}.` };
 }
 
 export async function GET(request) {
@@ -478,6 +521,8 @@ export async function GET(request) {
       attendanceData.can_persist,
       attendanceData.source_mode,
     );
+    // Branch, employee ID and "Corrected by" labels for the grouped table.
+    payload.attendance_logs = await annotateAttendanceRows(supabase, payload.attendance_logs);
 
     await appendAuditLog({
       actor: guard,
@@ -521,16 +566,55 @@ export async function POST(request) {
     const activeEmployees = await fetchEmployees(supabase);
     const employee = resolveEmployeeByRfid(rfidCode, activeEmployees, { allowEmployeeId: manualEntry });
 
+    const nowIso = new Date().toISOString();
+    const dateKey = getDateKey(new Date());
+    const tapSource = manualEntry ? "manual_entry" : "rfid_tap";
+    // A tap is refused only for a real reason, and kept in Blocked Taps:
+    // an unregistered card, an inactive employee, another branch's employee
+    // (approved leave is handled below). Never for tapping again too soon.
+    const refuse = async ({ refusedEmployee = null, reason, status, error }) => {
+      await recordRefusedTap(supabase, {
+        employee: refusedEmployee,
+        branchId: guard.branchId || null,
+        dateKey,
+        reason,
+        rfidCode: maskCardCode(rfidCode),
+        source: tapSource,
+        recordedBy: guard.userId || null,
+      });
+      await appendAuditLog({
+        actor: guard,
+        module: "attendance",
+        action: "rfid_refused",
+        entity_type: "employee",
+        entity_id: refusedEmployee?.employee_id || maskCardCode(rfidCode),
+        description: `RFID tap refused: ${reason}`,
+        status: "failed",
+        source: "api",
+        metadata: { rfid_code: maskCardCode(rfidCode), manual_entry: manualEntry, date_key: dateKey, employee_id: refusedEmployee?.id || null },
+      });
+      return NextResponse.json({ error, persisted: false, refused: true }, { status });
+    };
+
     if (!employee) {
-      return NextResponse.json({ error: "RFID not matched to an active employee." }, { status: 404 });
+      const unmatched = await unmatchedCardReason(supabase, rfidCode);
+      return refuse({ refusedEmployee: unmatched.employee, reason: unmatched.reason, status: 404, error: "RFID not matched to an active employee." });
+    }
+
+    if (String(employee.employee_status || "").toLowerCase() === "inactive") {
+      return refuse({ refusedEmployee: employee, reason: `Inactive employee: ${employee.full_name}.`, status: 403, error: "This employee is inactive. The tap was not recorded." });
     }
 
     // Correcting or recording a scan for someone in another branch is refused.
     const foreignBranch = denyForeignBranch(guard, employee.branch_id);
-    if (foreignBranch) return foreignBranch;
-
-    const nowIso = new Date().toISOString();
-    const dateKey = getDateKey(new Date());
+    if (foreignBranch) {
+      return refuse({
+        refusedEmployee: employee,
+        reason: `Wrong branch: ${employee.full_name} belongs to another branch.`,
+        status: foreignBranch.status || 403,
+        error: "This card belongs to an employee of another branch.",
+      });
+    }
 
     // Approved leave covering today: nothing is saved, the attempt is kept
     // for HR. Applies to the kiosk and the portal's manual box alike, and
@@ -569,42 +653,52 @@ export async function POST(request) {
     // assigned to, so a 7:00 AM branch marks Late earlier than an 8:00 AM one.
     const policy = await getBranchAttendancePolicy(supabase, employee.branch_id);
 
+    // Every accepted tap is kept as its own raw row first, then the day's
+    // record is rebuilt from first tap (in) to last tap (out).
+    await recordRawTap(supabase, {
+      employee,
+      dateKey,
+      tappedAt: nowIso,
+      rfidCode: normalizeText(rfidCode),
+      device: tapDevice(body, manualEntry),
+      source: tapSource,
+      recordedBy: guard.userId || null,
+    });
+
     const { record, tap } = await persistScanToTable(
       supabase, employee, dateKey, nowIso, rfidCode, 1, policy,
-      guard, manualEntry ? "manual_entry" : "rfid_tap",
+      guard, tapSource,
     );
 
-    if (tap !== "duplicate") {
-      await appendAuditLog({
-        actor: guard,
-        module: "attendance",
-        action: tap === "time_out" ? "rfid_timeout" : "rfid_timein",
-        entity_type: "employee",
-        entity_id: employee.employee_id,
-        description: `RFID scan processed for ${employee.full_name}.`,
-        status: "success",
-        source: "api",
-        metadata: {
-          employee_id: employee.id,
-          rfid_code: rfidCode,
-          manual_entry: manualEntry,
-          date_key: dateKey,
-          branch_id: employee.branch_id,
-          schedule: `${policy.work_start}-${policy.work_end}`,
-          grace: policy.grace,
-        },
-      });
-    }
+    await appendAuditLog({
+      actor: guard,
+      module: "attendance",
+      action: tap === "time_out" ? "rfid_timeout" : tap === "after_correction" ? "rfid_tap_after_correction" : "rfid_timein",
+      entity_type: "employee",
+      entity_id: employee.employee_id,
+      description: `RFID scan processed for ${employee.full_name}.`,
+      status: "success",
+      source: "api",
+      metadata: {
+        employee_id: employee.id,
+        rfid_code: rfidCode,
+        manual_entry: manualEntry,
+        date_key: dateKey,
+        branch_id: employee.branch_id,
+        schedule: `${policy.work_start}-${policy.work_end}`,
+        grace: policy.grace,
+      },
+    });
 
     const messages = {
-      time_in: "RFID time-in recorded.",
-      time_out: "RFID time-out recorded. A later tap today will replace it.",
-      duplicate: "Repeated tap ignored — only the first and last tap of the day are counted.",
+      time_in: "RFID time-in recorded. The next tap records the time out.",
+      time_out: "RFID time-out recorded. A later tap today moves it to that tap.",
+      after_correction: "Tap recorded. This day was corrected by HR / Admin, so its times stay as corrected; the tap is flagged for review.",
     };
 
     return NextResponse.json({
       success: true,
-      persisted: tap !== "duplicate",
+      persisted: true,
       tap,
       message: messages[tap],
       record,

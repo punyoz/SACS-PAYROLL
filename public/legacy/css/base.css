@@ -1247,3 +1247,124 @@ body.scroll-locked {
   color: var(--t2);
   font-weight: 500;
 }
+
+/* ── Attendance: branch sections (status board and Attendance Log) ── */
+.att-branch-row td {
+  background: color-mix(in srgb, var(--amber) 9%, var(--bg2));
+  color: var(--t1);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--amber) 25%, var(--border));
+  white-space: normal;
+}
+.att-branch-row:hover td { background: color-mix(in srgb, var(--amber) 9%, var(--bg2)); }
+.att-branch-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t1);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.att-branch-toggle:hover { color: var(--amber); }
+.att-branch-caret { width: 12px; color: var(--amber); font-size: 12px; }
+
+/* Status chips with counts; a chip filters the table. */
+.att-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.att-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--chip);
+  background: color-mix(in srgb, var(--chip) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip) 25%, transparent);
+  cursor: pointer;
+  transition: background .15s, box-shadow .15s;
+}
+.att-chip:hover { background: color-mix(in srgb, var(--chip) 20%, transparent); }
+.att-chip-active {
+  background: color-mix(in srgb, var(--chip) 22%, transparent);
+  box-shadow: 0 0 0 2px var(--chip);
+}
+.att-chip-zero { opacity: .55; }
+.att-chip-n { font-family: var(--mono); font-weight: 700; }
+
+/* Rows */
+.att-emp-sub { font-size: 11px; font-weight: 400; color: var(--t3); margin-top: 2px; }
+.att-emp-link { color: var(--t1); text-decoration: none; border-bottom: 1px dashed color-mix(in srgb, var(--amber) 55%, transparent); }
+.att-emp-link:hover { color: var(--amber); border-bottom-style: solid; }
+.att-row-note { font-size: 11px; color: var(--t3); margin-top: 3px; white-space: normal; max-width: 320px; }
+.att-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.att-flag { color: var(--warn); font-weight: 600; }
+.att-remark-links { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 3px; }
+
+/* Tap History dialog */
+.att-taps-table { max-height: 50vh; overflow-y: auto; }
+.att-taps-table table { min-width: 0; }
+.att-taps-table td, .att-taps-table th { padding: 8px 10px; }
+.att-tap-key td { background: color-mix(in srgb, var(--amber) 7%, var(--bg2)); }
+
+/* Correct dialog */
+.att-correct-current { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.att-readonly { background: var(--bg3); color: var(--t2); cursor: default; font-family: var(--mono); }
+
+/* ── Individual Employee Attendance Record ── */
+.att-emp-back { margin-bottom: 14px; }
+.att-emp-head { display: grid; gap: 16px; }
+.att-emp-title { display: flex; align-items: center; gap: 12px; }
+.att-emp-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--amber);
+  color: var(--on-accent);
+  font-weight: 700;
+  font-size: 15px;
+}
+.att-emp-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 18px; }
+.att-emp-meta-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.att-emp-meta-value { font-size: 13px; color: var(--t1); font-weight: 500; overflow-wrap: anywhere; }
+.att-emp-filters-card { margin: 14px 0; }
+.att-emp-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.att-emp-filters .fg { min-width: 170px; }
+.att-emp-summary .cv { font-size: 22px; }
+.att-remarks { white-space: normal; max-width: 320px; font-size: 12px; color: var(--t2); line-height: 1.5; }
+
+/* Correction History dialog */
+.att-history { display: grid; gap: 10px; max-height: 55vh; overflow-y: auto; }
+.att-history-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg3);
+  font-size: 12px;
+  color: var(--t2);
+  display: grid;
+  gap: 6px;
+}
+.att-history-top { display: flex; justify-content: space-between; gap: 10px; color: var(--t1); }
+.att-history-top span { font-size: 11px; color: var(--t3); }
+.att-history-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.att-history-label { display: block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--t3); margin-bottom: 2px; }
+.att-history-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--mono); font-size: 11px; color: var(--t1); }
+.att-history-reason { color: var(--t1); }
+.att-history-by { font-size: 11px; color: var(--t3); }
+
+@media (max-width: 640px) {
+  .att-correct-current,
+  .att-history-grid { grid-template-columns: 1fr; }
+  .att-emp-filters .fg { min-width: 0; flex: 1 1 140px; }
+}

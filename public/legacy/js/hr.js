@@ -12,6 +12,7 @@ const HR_PAGES = {
   'hr-employees':     'User Management',
   'hr-transfers':     'Transfer Requests',
   'hr-attendance':    'Attendance Monitoring',
+  'hr-att-employee':  'Employee Attendance Record',
   'hr-leaves':        'Leave Approval',
   'hr-reports':       'HR Reports',
   'hr-profile':       'Profile',
@@ -68,6 +69,10 @@ function hrNav(pageId, navEl) {
   else if (pageId === 'hr-attendance') {
     loadHRAttendance();
     window.mountAttendanceBoard?.('hr-att-board');
+  }
+  else if (pageId === 'hr-att-employee') {
+    // One employee's attendance record (opened from a name / View Records).
+    window.mountAttendanceEmployeePage?.('hr-att-employee-root', { onBack: () => hrGo('hr-attendance') });
   }
   else if (pageId === 'hr-leaves') loadHRLeaves();
   else if (pageId === 'hr-reports') { /* user clicks Generate */ }
@@ -656,6 +661,20 @@ async function submitHrEditEmployee(event) {
 }
 
 /* ── ATTENDANCE ── */
+// Individual Employee Attendance page: app.js opens it through this hook
+// (the Attendance row stays highlighted), and reloads the Attendance Log after
+// a correction through the other.
+window.attEmployeePageNav = () => hrNav(
+  'hr-att-employee',
+  document.querySelector('#s-hr .ni[data-page="hr-attendance"]')
+    || document.querySelector(`#s-hr .ni[onclick*="'hr-attendance'"]`),
+);
+let hrAttendanceView = 'date';
+window.onAttendanceCorrected = () => {
+  if (!document.getElementById('hr-attendance')?.classList.contains('active')) return null;
+  return hrAttendanceView === 'all' ? loadHRAllAttendance() : loadHRAttendance();
+};
+
 // Both loaders below fill the same table. Changing the date (or switching to
 // All Records) while an earlier request is still out let the slower, older
 // response land last and overwrite the newer one; only the latest request's
@@ -663,6 +682,7 @@ async function submitHrEditEmployee(event) {
 let hrAttendanceRequestSeq = 0;
 
 async function loadHRAttendance() {
+  hrAttendanceView = 'date';
   const dateInput = document.getElementById('hr-att-date');
   const today = localDateKey();
   const date = dateInput?.value || today;
@@ -672,7 +692,7 @@ async function loadHRAttendance() {
   if (titleEl) titleEl.textContent = `Attendance Log — ${date === today ? 'Today' : date}`;
 
   const tbody = document.getElementById('hr-att-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(7);
+  if (tbody) tbody.innerHTML = skeletonRows(9);
 
   const seq = ++hrAttendanceRequestSeq;
   try {
@@ -692,16 +712,17 @@ async function loadHRAttendance() {
     renderHRAttendanceTable(hrAttendanceLogs);
   } catch (err) {
     if (seq !== hrAttendanceRequestSeq) return;
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
 async function loadHRAllAttendance() {
+  hrAttendanceView = 'all';
   const titleEl = document.getElementById('hr-att-title');
   if (titleEl) titleEl.textContent = 'Attendance Log — All Records';
 
   const tbody = document.getElementById('hr-att-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(7);
+  if (tbody) tbody.innerHTML = skeletonRows(9);
 
   const seq = ++hrAttendanceRequestSeq;
   try {
@@ -721,7 +742,7 @@ async function loadHRAllAttendance() {
     renderHRAttendanceTable(hrAttendanceLogs);
   } catch (err) {
     if (seq !== hrAttendanceRequestSeq) return;
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -730,7 +751,7 @@ function renderHRAttendanceTable(logs) {
   if (!tbody) return;
 
   if (!logs.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No attendance records found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--t3);">No attendance records found.</td></tr>';
     return;
   }
 
@@ -739,6 +760,12 @@ function renderHRAttendanceTable(logs) {
       id: 'hr-att',
       pageSize: 20,
       renderFn: (rows) => {
+        // Grouped by branch, then day, then employee, with Correct / View
+        // Records (app.js, shared with the status board).
+        if (typeof window.attRenderAttendanceLogPage === 'function') {
+          tbody.innerHTML = window.attRenderAttendanceLogPage('hr-att', rows);
+          return;
+        }
         tbody.innerHTML = rows.map((row) => {
           return `<tr>
             <td>${escapeHtml(row.employee_name || row.employee_id || '—')}</td>
@@ -754,7 +781,9 @@ function renderHRAttendanceTable(logs) {
     });
   }
 
-  hrAttPaginator.setData(logs);
+  hrAttPaginator.setData(typeof window.attPrepareAttendanceLog === 'function'
+    ? window.attPrepareAttendanceLog('hr-att', logs, { canReview: true, rerender: (rows) => hrAttPaginator.setData(rows) })
+    : logs);
 }
 
 function exportHRAttendanceCsv() {

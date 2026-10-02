@@ -24,6 +24,9 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
  *         becomes Corrected. Reject: it stays Incomplete (kept out of payroll),
  *         or is forced to Absent / Half Day.
  *
+ *   PATCH { action: "correct_record", ... }  HR / Admin correct any record
+ *         (time in, time out, both, or mark present) -- handleCorrectRecord().
+ *
  * The status changes themselves happen inside the database functions
  * attendance_request_correction / attendance_review_correction
  * (supabase/migrations/20260926010000_attendance_status_engine.sql), the only
@@ -280,6 +283,139 @@ async function handleCorrectAbsence(guard, body) {
   return NextResponse.json({ success: true, correction: data });
 }
 
+const CORRECTION_TYPES = ["time_in", "time_out", "both", "present"];
+const CORRECTION_TYPE_LABELS = {
+  time_in: "time in corrected",
+  time_out: "time out corrected",
+  both: "time in and time out corrected",
+  present: "marked present",
+};
+
+/**
+ * PATCH { action: "correct_record", log_id? | (employee_id, log_date),
+ *         type: "time_in" | "time_out" | "both" | "present",
+ *         time_in?: "HH:MM", time_out?: "HH:MM", note }
+ * HR / Admin correct any record that is not On Leave, including one already
+ * tapped in and out (an accidental late time in or late time out). With no
+ * log_id, a day that has no record yet (today, before the nightly close) is
+ * created. The database function attendance_correct_record keeps the original
+ * taps on attendance_corrections and recomputes the status facts.
+ */
+async function handleCorrectRecord(guard, body) {
+  const logId = normalizeText(body.log_id);
+  const type = normalizeText(body.type).toLowerCase();
+  const timeIn = normalizeText(body.time_in);
+  const timeOut = normalizeText(body.time_out);
+  const note = normalizeText(body.note).slice(0, 500);
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const needsIn = type === "time_in" || type === "both" || type === "present";
+  const needsOut = type === "time_out" || type === "both" || type === "present";
+
+  if (!CORRECTION_TYPES.includes(type)) {
+    return NextResponse.json({ error: "Choose what to correct: time in, time out, both, or mark as present." }, { status: 400 });
+  }
+  if (needsIn && !hhmm.test(timeIn)) return NextResponse.json({ error: "Enter the new time in (HH:MM)." }, { status: 400 });
+  if (needsOut && !hhmm.test(timeOut)) return NextResponse.json({ error: "Enter the new time out (HH:MM)." }, { status: 400 });
+  if (needsIn && needsOut && timeOut <= timeIn) {
+    return NextResponse.json({ error: "Time out must be later than time in." }, { status: 400 });
+  }
+  if (!note) return NextResponse.json({ error: "Reason is required." }, { status: 400 });
+  if (note.length < 5) return NextResponse.json({ error: "Give a reason for the correction (at least 5 characters)." }, { status: 400 });
+
+  const supabase = getAdminClient();
+  let employeeId = normalizeText(body.employee_id);
+  let logDate = normalizeText(body.log_date);
+  let before = null;
+
+  if (logId) {
+    const logResult = await supabase
+      .from("attendance_logs")
+      .select("id,employee_id,employee_name,log_date,status,time_in,time_out,total_hours,late_minutes,undertime_minutes")
+      .eq("id", logId)
+      .maybeSingle();
+    if (logResult.error) throw new Error(logResult.error.message);
+    if (!logResult.data) return NextResponse.json({ error: "Attendance record not found." }, { status: 404 });
+    before = logResult.data;
+    employeeId = before.employee_id;
+    logDate = before.log_date;
+  } else if (!employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) {
+    return NextResponse.json({ error: "Choose the employee and the day to correct." }, { status: 400 });
+  }
+
+  if (guard.scope === SCOPE_BRANCH) {
+    const ids = await branchEmployeeIds(supabase, guard.branchId);
+    if (!ids.includes(employeeId)) {
+      return NextResponse.json({ error: "That employee belongs to another branch." }, { status: 403 });
+    }
+  }
+  if (employeeId === guard.userId) {
+    return NextResponse.json({ error: "You cannot correct your own attendance." }, { status: 403 });
+  }
+
+  // Manila local time on the record's own day.
+  const toIso = (hm) => (hm ? new Date(`${logDate}T${hm}:00+08:00`).toISOString() : null);
+  const reviewerName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const { data, error } = await supabase.rpc("attendance_correct_record", {
+    p_log_id: logId || null,
+    p_employee_id: employeeId,
+    p_log_date: logDate,
+    p_type: type,
+    p_time_in: needsIn ? toIso(timeIn) : null,
+    p_time_out: needsOut ? toIso(timeOut) : null,
+    p_reviewer: guard.userId,
+    p_reviewer_name: reviewerName,
+    p_note: note,
+  });
+  if (error) {
+    if (String(error.code || "") === "23505") {
+      return NextResponse.json({ error: "A record for this day was just created. Refresh and try again." }, { status: 409 });
+    }
+    if (String(error.code || "") === "PGRST202") {
+      return NextResponse.json({ error: "Record corrections are not set up yet: apply the migration 20261002010000_attendance_correct_any_record.sql." }, { status: 503 });
+    }
+    return rpcFailure(error, "Unable to save the correction right now.");
+  }
+
+  const oldValues = {
+    status: before?.status || "Absent",
+    time_in: data?.original_time_in ?? null,
+    time_out: data?.original_time_out ?? null,
+    total_hours: data?.original_total_hours ?? 0,
+    late_minutes: data?.original_late_minutes ?? 0,
+    undertime_minutes: data?.original_undertime_minutes ?? 0,
+  };
+  const newValues = {
+    status: "Corrected",
+    time_in: data?.corrected_time_in ?? null,
+    time_out: data?.corrected_time_out ?? null,
+    total_hours: data?.corrected_total_hours ?? 0,
+    late_minutes: data?.corrected_late_minutes ?? 0,
+    undertime_minutes: data?.corrected_undertime_minutes ?? 0,
+  };
+
+  await appendAuditLog({
+    actor: guard,
+    module: "attendance",
+    action: "record_correct",
+    entity_type: "attendance_log",
+    entity_id: data?.log_id || logId || employeeId,
+    description: `Attendance of ${data?.employee_name || before?.employee_name || "employee"} on ${logDate} ${CORRECTION_TYPE_LABELS[type]} by ${reviewerName}.`,
+    status: "success",
+    source: "api",
+    metadata: {
+      correction_id: data?.id,
+      employee_id: employeeId,
+      log_date: logDate,
+      type,
+      old_values: oldValues,
+      new_values: newValues,
+      reason: note,
+    },
+  });
+
+  return NextResponse.json({ success: true, correction: data, old_values: oldValues, new_values: newValues });
+}
+
 export async function PATCH(request) {
   const guard = await requirePermission(request, "attendance_corrections", "update");
   if (guard.denied) return guard.denied;
@@ -289,6 +425,7 @@ export async function PATCH(request) {
     const action = normalizeText(body.action).toLowerCase();
     if (action === "resolve") return await handleResolve(guard, body);
     if (action === "correct_absence") return await handleCorrectAbsence(guard, body);
+    if (action === "correct_record") return await handleCorrectRecord(guard, body);
 
     const correctionId = normalizeText(body.correction_id);
     const decision = normalizeText(body.decision).toLowerCase();

@@ -184,7 +184,7 @@
 
       <div class="sh"><span class="stitle" id="sa-attendance-title">Attendance Log — Today</span><span class="sp"></span><button class="btn btn-outline" onclick="exportSAAttendanceCsv()">Export CSV</button></div>
       <div class="tw"><table>
-        <thead><tr><th>Employee</th><th>Type</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Status</th></tr></thead>
+        <thead><tr><th>Employee</th><th>Date</th><th>Time In</th><th>Time Out</th><th>Hours</th><th>Late</th><th>Undertime</th><th>Status</th><th>Action</th></tr></thead>
         <tbody id="sa-attendance-table-body">
           <tr class="sk-row"><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:65%"></div></td><td><div class="sk-bar" style="width:75%"></div></td></tr>
           <tr class="sk-row"><td><div class="sk-bar" style="width:80%"></div></td><td><div class="sk-bar" style="width:55%"></div></td><td><div class="sk-bar" style="width:90%"></div></td><td><div class="sk-bar" style="width:70%"></div></td><td><div class="sk-bar" style="width:75%"></div></td><td><div class="sk-bar" style="width:65%"></div></td></tr>
@@ -198,6 +198,15 @@
       <div id="sa-att-board"></div>
 
       <p style="font-size:12px;color:var(--t3);margin-top:12px;">Need to record a tap manually? Use the RFID Scan Input under <a href="#" onclick="saNav('sa-maintenance', document.querySelector('#s-super-admin .ni[onclick*=&quot;sa-maintenance&quot;]'));return false;" style="color:var(--amber);">System Maintenance</a>.</p>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Individual Employee Attendance Record
+         (opened from Attendance; filled by mountAttendanceEmployeePage in app.js)
+    ────────────────────────────── -->
+    <div class="page" id="sa-att-employee">
+      <div class="ph"><h2>Employee Attendance Record</h2><p>One employee's attendance, taps, corrections and leave</p></div>
+      <div id="sa-att-employee-root"></div>
     </div>
 
     <!-- ──────────────────────────────

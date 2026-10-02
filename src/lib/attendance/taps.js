@@ -1,14 +1,15 @@
 /**
- * RFID attendance: only the FIRST and the LAST tap of a day count.
+ * RFID attendance: the FIRST tap of a day is Time In, the LAST is Time Out.
  *
- * People tap a card more than once — the reader was slow, they weren't sure it
- * registered, they tapped again on the way out. The rule:
+ * Every tap is accepted, however soon after the previous one (there is no
+ * cooldown), and every tap is kept as its own row in public.attendance_taps.
+ * The day's attendance_logs row is rebuilt from them on each tap:
  *
- *   - The first tap of the day is Time In, and decides Present / Late.
- *   - Every later tap moves Time Out to that tap, so once the day is over Time
- *     Out is the last tap of the day.
- *   - A tap within DUPLICATE_TAP_WINDOW_MS of the previous recorded tap is the
- *     same tap repeated, and is ignored.
+ *   - one tap:   Time In only (Incomplete once the shift is over);
+ *   - two taps+: Time In = first tap, Time Out = last tap, so a tap after a
+ *                Time Out simply moves the Time Out to it.
+ *   - a day HR / Admin corrected keeps its corrected times; a tap after the
+ *     correction is still stored, and the day is flagged for review.
  *
  * One attendance_logs row per employee per day carries this. Earlier versions
  * started a fresh row on a third tap, and hard deletes are blocked at the
@@ -16,8 +17,6 @@
  * collapseDailyTaps() folds those into one record so every screen and report
  * reads the same first and last tap.
  */
-
-export const DUPLICATE_TAP_WINDOW_MS = 60 * 1000;
 
 function toTime(value) {
   if (!value) return null;
@@ -102,26 +101,35 @@ export function collapseDailyTaps(rows, {
 }
 
 /**
- * Decide what a new tap does to the employee's day.
+ * First and last of a set of tap times: { time_in, time_out, tap_count }.
+ * time_out is null with a single tap (or taps all at the same instant).
+ */
+export function firstAndLastTap(times) {
+  const sorted = (times || []).map(toTime).filter((t) => t !== null).sort((a, b) => a - b);
+  if (!sorted.length) return { time_in: null, time_out: null, tap_count: 0 };
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  return {
+    time_in: new Date(first).toISOString(),
+    time_out: last > first ? new Date(last).toISOString() : null,
+    tap_count: sorted.length,
+  };
+}
+
+/**
+ * Decide what a new tap does to the employee's day. Every tap counts.
  *
- * @param {Array} dayRows  every attendance_logs row for this employee today
- * @param {string} nowIso  when the card was tapped
+ * @param {Array} dayRows   every attendance_logs row for this employee that day
+ * @param {string} nowIso   when the card was tapped
+ * @param {string[]} [rawTaps]  the day's earlier raw taps (attendance_taps.tapped_at)
  * @returns {{ action: "time_in" }
- *         | { action: "duplicate", record: object }
- *         | { action: "time_out", target: object, time_in: string }}
+ *         | { action: "after_correction", target: object }
+ *         | { action: "time_out", target: object, time_in: string, time_out: string|null }}
  *   `target` is the row to update: the one holding the day's first tap.
  */
-export function planTap(dayRows, nowIso) {
+export function planTap(dayRows, nowIso, rawTaps = []) {
   const rows = (dayRows || []).filter((row) => tapTimes(row).length);
   if (!rows.length) return { action: "time_in" };
-
-  const day = collapseGroup(rows);
-  const lastTap = Math.max(...rows.flatMap(tapTimes));
-  const now = toTime(nowIso);
-
-  if (now !== null && now - lastTap <= DUPLICATE_TAP_WINDOW_MS) {
-    return { action: "duplicate", record: day };
-  }
 
   const target = rows.reduce((best, row) => {
     const bestIn = toTime(best.time_in) ?? Infinity;
@@ -129,5 +137,13 @@ export function planTap(dayRows, nowIso) {
     return rowIn < bestIn ? row : best;
   });
 
-  return { action: "time_out", target, time_in: day.time_in };
+  // HR / Admin set this day's times; a new tap never overwrites them.
+  if (String(target.status || "") === "Corrected") return { action: "after_correction", target };
+
+  const day = firstAndLastTap([
+    ...rows.flatMap((row) => [row.time_in, row.time_out]),
+    ...(rawTaps || []),
+    nowIso,
+  ]);
+  return { action: "time_out", target, time_in: day.time_in, time_out: day.time_out };
 }

@@ -10,6 +10,7 @@
 const SA_PAGES = {
   'sa-dashboard':    'SA Dashboard',
   'sa-attendance':   'Attendance',
+  'sa-att-employee': 'Employee Attendance Record',
   'sa-branches':     'Branch Management',
   'sa-accounts':     'Admin & HR Accounts',
   'sa-roles':        'Roles & Permissions',
@@ -61,6 +62,12 @@ function saNav(pageId, navEl) {
   else if (pageId === 'sa-attendance') {
     loadSAAttendanceData();
     window.mountAttendanceBoard?.('sa-att-board', { branchFilter: true });
+  }
+  else if (pageId === 'sa-att-employee') {
+    // One employee's attendance record (opened from a name / View Records).
+    window.mountAttendanceEmployeePage?.('sa-att-employee-root', {
+      onBack: () => saNav('sa-attendance', saAttendanceNavEl()),
+    });
   }
   else if (pageId === 'sa-branches')   loadSABranches();
   else if (pageId === 'sa-accounts')   loadSAUsers();
@@ -1343,6 +1350,19 @@ async function saveSAConfig(section) {
 }
 
 /* ── ATTENDANCE MONITORING ── */
+// Individual Employee Attendance page: app.js opens it through this hook (the
+// Attendance row stays highlighted), and reloads the Attendance Log after a
+// correction through the other.
+function saAttendanceNavEl() {
+  return document.querySelector('#s-super-admin .ni[data-page="sa-attendance"]')
+    || document.querySelector(`#s-super-admin .ni[onclick*="'sa-attendance'"]`);
+}
+window.attEmployeePageNav = () => saNav('sa-att-employee', saAttendanceNavEl());
+window.onAttendanceCorrected = () => {
+  if (!document.getElementById('sa-attendance')?.classList.contains('active')) return null;
+  return loadSAAttendanceData();
+};
+
 function renderSAAttendancePanels(payload = {}) {
   const panels = payload?.panels || {};
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = String(v || 0); };
@@ -1362,7 +1382,14 @@ function renderSAAttendanceTable(rows = []) {
   if (!tbody) return;
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No attendance records found for today.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--t3);">No attendance records found for today.</td></tr>';
+    return;
+  }
+
+  // Grouped by branch, then day, then employee, with Correct / View Records
+  // (app.js, shared with the status board and the Admin / HR log).
+  if (typeof window.attRenderAttendanceLogPage === 'function') {
+    tbody.innerHTML = window.attRenderAttendanceLogPage('sa-att', rows);
     return;
   }
 
@@ -1388,7 +1415,7 @@ function renderSAAttendanceTable(rows = []) {
 
 async function loadSAAttendanceData() {
   const tbody = document.getElementById('sa-attendance-table-body');
-  if (tbody) tbody.innerHTML = skeletonRows(6);
+  if (tbody) tbody.innerHTML = skeletonRows(9);
 
   try {
     const payload = await fetchAttendanceCached();
@@ -1399,9 +1426,14 @@ async function loadSAAttendanceData() {
     if (!saAttPaginator) {
       saAttPaginator = createPaginator({ id: 'sa-att', pageSize: 15, renderFn: renderSAAttendanceTable });
     }
-    saAttPaginator.setData(payload.attendance_logs || []);
+    saAttPaginator.setData(typeof window.attPrepareAttendanceLog === 'function'
+      ? window.attPrepareAttendanceLog('sa-att', payload.attendance_logs || [], {
+        canReview: true,
+        rerender: (rows) => saAttPaginator.setData(rows),
+      })
+      : payload.attendance_logs || []);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -1981,6 +2013,9 @@ function formatSARfidScanFeedback(record, tap) {
   const name = record.employee_name || 'Employee';
   if (tap === 'duplicate') {
     return `${name}: repeated tap ignored — only the first and last tap of the day count.`;
+  }
+  if (tap === 'after_correction') {
+    return `${name}: tap recorded. This day was corrected by HR / Admin, so its times stay as corrected (flagged for review).`;
   }
   if (record.time_out) {
     return `${name}: Time Out recorded at ${saFormatTimeOnly(record.time_out)} (Time In ${saFormatTimeOnly(record.time_in)}).`;
