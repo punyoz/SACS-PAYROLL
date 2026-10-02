@@ -94,6 +94,22 @@ h3 { font-size: 15px; font-weight: 600; }
 .cch .up { color: var(--green); font-weight: 500; }
 .cch .dn { color: var(--red);   font-weight: 500; }
 
+/* Count cards whose labels wrap to different line counts (e.g. "Spring
+   Valley Branch"): each card spans three shared rows -- label, number,
+   caption -- so the numbers sit on one line across the whole row. */
+.count-cards > .card {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  row-gap: 3px;
+  align-content: start;
+}
+.count-cards > .card .ct { margin-bottom: 0; }
+@supports not (grid-template-rows: subgrid) {
+  .count-cards > .card { display: flex; flex-direction: column; }
+  .count-cards > .card .ct { min-height: calc(3 * 1.35em); }
+}
+
 /* ── SECTION HEADER ── */
 .sh { display: flex; align-items: center; margin-bottom: 14px; }
 .sh .stitle { font-size: 14px; font-weight: 600; color: var(--t1); }
