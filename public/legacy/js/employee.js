@@ -241,6 +241,46 @@ function fmtPesoShort(amount) {
   return '₱ ' + n.toLocaleString('en-PH', { maximumFractionDigits: 0 });
 }
 
+/**
+ * Semi-monthly payslip (from Oct 1, 2026): the 1st half is half the monthly
+ * salary with nothing deducted; the 2nd half shows the whole month less what
+ * the 1st half paid.
+ */
+function semiMonthlyPayslipRows(m) {
+  const row = (label, value, style = '') => `<div class="ps-row"${style ? ` style="${style}"` : ''}><span>${escapeHtml(label)}</span><span class="mn">${value}</span></div>`;
+  const minus = (label, amount) => (Number(amount) > 0 ? row(label, `- ${fmtPeso(amount)}`, 'color:var(--red);') : '');
+  const plus = (label, amount) => (Number(amount) > 0 ? row(label, `+ ${fmtPeso(amount)}`, 'color:var(--green);') : '');
+  const days = (n) => `${n}d`;
+
+  if (m.half === 'first') {
+    return row('Monthly Salary', fmtPeso(m.monthly_salary))
+      + `<div class="ps-row tot"><span>1st Half Pay (÷ 2)</span><span class="mn" style="color:var(--teal);">${fmtPeso(m.semi_monthly_pay)}</span></div>`
+      + row('Deductions', 'None this half', 'color:var(--t3);')
+      + `<div class="ps-row" style="color:var(--t3);font-size:12px;white-space:normal;"><span>Absences, leave, incentives, contributions and tax for ${escapeHtml(m.month_label || 'the month')} are settled on the ${escapeHtml(m.second_half_label || '2nd half')} payslip.</span></div>`;
+  }
+
+  return row(`Monthly Salary — ${m.month_label || ''}`, fmtPeso(m.monthly_salary))
+    + minus(`Absences without pay (${days(m.absent_days || 0)})`, m.absent_deduction)
+    + minus(`Leave Without Pay (${days(m.leave_without_pay_days || 0)})`, m.leave_without_pay_deduction)
+    + minus('Late', m.late_deduction)
+    + minus('Undertime', m.undertime_deduction)
+    + minus('Half Day', m.half_day_deduction)
+    + (Number(m.leave_with_pay_days) > 0 ? row(`Leave With Pay (${days(m.leave_with_pay_days)})`, 'No deduction') : '')
+    + plus('Incentives', Number(m.other_incentive || 0) + Number(m.attendance_incentives || 0))
+    + plus(`Overload Pay (${m.overload_hours} h)`, m.overload_pay)
+    + plus('Overtime', m.overtime_pay)
+    + plus('Holiday Pay', m.holiday_pay)
+    + `<div class="ps-row tot"><span>Monthly Gross</span><span class="mn" style="color:var(--teal);">${fmtPeso(m.monthly_gross)}</span></div>`
+    + minus('SSS', m.sss)
+    + minus('PhilHealth', m.philhealth)
+    + minus('Pag-IBIG', m.pagibig)
+    + minus('Withholding Tax (monthly)', m.withholding_tax)
+    + `<div class="ps-row tot"><span>Monthly Net</span><span class="mn">${fmtPeso(m.monthly_net)}</span></div>`
+    + row('Paid in 1st Half', `- ${fmtPeso(m.first_half_paid)}`)
+    + minus(`Balance carried from ${m.carry_from || 'last month'}`, m.carry_in)
+    + (Number(m.carry_over_out) > 0 ? row('Carried to next month', fmtPeso(m.carry_over_out), 'color:var(--amber);') : '');
+}
+
 function renderPayslipCard(payslip) {
   const periodLabel = document.getElementById('ps-period-label');
   const psRows = document.getElementById('ps-rows');
@@ -263,7 +303,10 @@ function renderPayslipCard(payslip) {
   if (periodLabel) periodLabel.textContent = issuedDate ? `${payslip.period_label} · Issued ${issuedDate}` : payslip.period_label;
 
   let rows = '';
-  if (payslip.has_breakdown) {
+  const m = payslip.monthly || null;
+  if (m) {
+    rows += semiMonthlyPayslipRows(m);
+  } else if (payslip.has_breakdown) {
     rows += `<div class="ps-row"><span>Basic Salary</span><span class="mn">${fmtPeso(payslip.basic_salary)}</span></div>`;
     if (payslip.transportation) rows += `<div class="ps-row"><span>Transportation</span><span class="mn">${fmtPeso(payslip.transportation)}</span></div>`;
     if (payslip.rice) rows += `<div class="ps-row"><span>Rice Allowance</span><span class="mn">${fmtPeso(payslip.rice)}</span></div>`;
@@ -290,7 +333,8 @@ function renderPayslipCard(payslip) {
 
   psRows.innerHTML = rows;
   if (psNet) psNet.style.display = '';
-  if (psNetLabel) psNetLabel.textContent = `Net Pay — ${payslip.period_label}`;
+  const netName = m ? (m.half === 'first' ? '1st Half Net Pay' : '2nd Half Net Pay') : 'Net Pay';
+  if (psNetLabel) psNetLabel.textContent = `${netName} — ${payslip.period_label}`;
   if (psNetAmount) psNetAmount.textContent = fmtPeso(payslip.net_pay);
 }
 

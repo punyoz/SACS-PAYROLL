@@ -34,6 +34,14 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       Payslips
     </div>
+    <div class="ni" onclick="acctNav('ac-incentives',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3l-3.8 2 .7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      Incentives &amp; Overload
+    </div>
+    <div class="ni" onclick="acctNav('ac-13th',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="11.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      13th Month Pay
+    </div>
     
     <div class="sb-sec">Reference</div>
     <div class="ni" onclick="acctNav('ac-attendance',this)">
@@ -154,6 +162,8 @@
       <div id="pc-not-ready" class="banner" style="display:none;background:var(--amber-s);border:1px solid var(--amber);color:var(--amber);"></div>
       <!-- Payslip generation window for the selected period (renderGenerationWindow). -->
       <div id="pc-window-banner" class="banner" style="display:none;"></div>
+      <!-- Semi-monthly rule for the selected period (renderSemiMonthlyBanner). -->
+      <div id="pc-semi-banner" class="banner banner-blue" style="display:none;"></div>
 
       <!-- BATCH PROCESSING -->
       <div class="card" style="margin-bottom:14px;">
@@ -252,7 +262,15 @@
               <div class="sr"><span>Leave With Pay</span><span style="font-family:var(--mono);" id="sum-leave-with-pay">0 days</span></div>
               <div class="sr" style="color:var(--red);"><span>Leave Without Pay</span><span style="font-family:var(--mono);" id="sum-leave-without-pay">- ₱ 0.00</span></div>
               <div class="sr" style="color:var(--green);"><span>Early Bird / Attendance Incentive</span><span style="font-family:var(--mono);" id="sum-incentives">+ ₱ 0.00</span></div>
-              <div class="sr tot"><span>Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 0.00</span></div>
+              <!-- Semi-monthly 2nd half: the month less the 1st half (recalc). -->
+              <div id="sum-semi-wrap" style="display:none;">
+                <div class="sr" style="color:var(--green);"><span>Incentives / Overload Pay</span><span style="font-family:var(--mono);" id="sum-other-incentives">+ ₱ 0.00</span></div>
+                <div class="sr" style="font-weight:700;color:var(--t1);border-top:1px solid var(--border);margin-top:6px;padding-top:10px;"><span>Monthly Net</span><span style="font-family:var(--mono);color:var(--teal);" id="sum-month-net">₱ 0.00</span></div>
+                <div class="sr"><span id="sum-first-half-label">Paid in 1st Half</span><span style="font-family:var(--mono);" id="sum-first-half">- ₱ 0.00</span></div>
+                <div class="sr" style="color:var(--red);"><span>Balance Carried Over</span><span style="font-family:var(--mono);" id="sum-carry-in">- ₱ 0.00</span></div>
+                <div class="sr" id="sum-carry-out-row" style="display:none;color:var(--amber);"><span>Carried to Next Month</span><span style="font-family:var(--mono);" id="sum-carry-out">₱ 0.00</span></div>
+              </div>
+              <div class="sr tot"><span id="sum-net-label">Net Pay</span><span style="font-family:var(--mono);color:var(--amber);" id="sum-net">₱ 0.00</span></div>
             </div>
           </div>
           <div class="card">
@@ -326,7 +344,9 @@
         <div id="ac-pf-status-note" class="pf-note" style="display:none;"></div>
         <!-- Attendance numbers the payslip was computed from (renderPayslipGeneration). -->
         <div id="ac-pf-attendance" class="pf-attendance" style="display:none;"></div>
-        <div class="pf-breakdown">
+        <!-- Semi-monthly payslip: the month behind it (renderSemiMonthlyPayslip). -->
+        <div class="pf-breakdown" id="ac-pf-monthly" style="display:none;"></div>
+        <div class="pf-breakdown" id="ac-pf-breakdown">
           <div>
             <div class="pf-stitle">Earnings</div>
             <div class="pf-row"><span>Basic Salary</span><span class="mn" id="ac-pf-basic">₱ 0.00</span></div>
@@ -354,8 +374,103 @@
         </div>
         <!-- How each deduction was computed. -->
         <div id="ac-pf-basis" class="pf-basis" style="display:none;"></div>
-        <div class="pf-net"><div class="pf-net-l">Net Pay</div><div class="pf-net-a" id="ac-pf-net">₱ 0.00</div></div>
+        <div class="pf-net"><div class="pf-net-l" id="ac-pf-net-label">Net Pay</div><div class="pf-net-a" id="ac-pf-net">₱ 0.00</div></div>
         <div id="ac-pf-generated" style="font-size:11px;color:var(--t3);margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Incentives & Overload (js/accountant.js loadMonthlyItems)
+    ────────────────────────────── -->
+    <div class="page" id="ac-incentives">
+      <div class="ph"><h2>Incentives &amp; Overload</h2><p>Added to the 2nd half payroll of the month they are counted in</p></div>
+      <div id="ac-items-lock" class="banner banner-blue" style="display:none;"></div>
+      <div class="sg2">
+        <div class="card">
+          <div class="stitle" style="margin-bottom:14px;">Add Incentive or Overload</div>
+          <div class="form-grid">
+            <div class="fg" style="grid-column:1/-1;">
+              <label for="ac-item-employee">Employee</label>
+              <select class="fc" id="ac-item-employee"><option value="">Loading employees...</option></select>
+            </div>
+            <div class="fg">
+              <label for="ac-item-kind">Type</label>
+              <select class="fc" id="ac-item-kind" onchange="onMonthlyItemKindChange()">
+                <option value="incentive">Incentive (₱)</option>
+                <option value="overload">Overload (hours)</option>
+              </select>
+            </div>
+            <div class="fg">
+              <label for="ac-item-date">Date it is for</label>
+              <input class="fc" type="date" id="ac-item-date" min="2026-10-01">
+            </div>
+            <div class="fg" id="ac-item-amount-wrap">
+              <label for="ac-item-amount">Amount (₱)</label>
+              <input class="fc" type="number" id="ac-item-amount" min="0" max="9999999.99" step="0.01" inputmode="decimal">
+            </div>
+            <div class="fg" id="ac-item-hours-wrap" style="display:none;">
+              <label for="ac-item-hours">Overload hours <span style="color:var(--t3);font-weight:400;" id="ac-item-hours-hint">(hourly rate × hours)</span></label>
+              <input class="fc" type="number" id="ac-item-hours" min="0" max="744" step="0.25" inputmode="decimal">
+            </div>
+            <div class="fg" style="grid-column:1/-1;">
+              <label for="ac-item-description">Description</label>
+              <input class="fc" type="text" id="ac-item-description" maxlength="200" placeholder="e.g. Coaching incentive, extra Math class">
+            </div>
+          </div>
+          <button class="btn btn-primary" id="ac-item-submit" style="width:100%;padding:11px;font-size:13px;margin-top:6px;" onclick="submitMonthlyItem()">Add to Payroll →</button>
+          <p id="ac-item-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+        </div>
+        <div class="card">
+          <div class="stitle" style="margin-bottom:10px;">How it is paid</div>
+          <div class="sum-box">
+            <div class="sr"><span>1st half (1–15)</span><span>Monthly salary ÷ 2, no deductions</span></div>
+            <div class="sr"><span>2nd half (16–end)</span><span>Whole month settled</span></div>
+            <div class="sr"><span>Incentive</span><span>+ amount</span></div>
+            <div class="sr"><span>Overload</span><span>+ hourly rate × hours</span></div>
+            <div class="sr"><span>Filed after the lock day</span><span>Next month</span></div>
+          </div>
+          <p style="font-size:12px;color:var(--t3);margin-top:10px;">Both are taxable and count toward the month's gross pay. An item already paid on a Final payslip cannot be removed.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div class="sh" style="flex-wrap:wrap;gap:10px;">
+          <span class="stitle">Items</span>
+          <span class="sp"></span>
+          <input class="fc" type="month" id="ac-items-month" style="max-width:180px;" onchange="loadMonthlyItems()">
+          <button class="btn btn-outline" onclick="loadMonthlyItems()">Refresh</button>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Date</th><th>Type</th><th>Description</th><th>Amount / Hours</th><th>Counted In</th><th>Added By</th><th></th></tr></thead>
+          <tbody id="ac-items-body"><tr><td colspan="8" style="color:var(--t3);">Loading...</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: 13th Month Pay (js/accountant.js loadThirteenthMonth)
+    ────────────────────────────── -->
+    <div class="page" id="ac-13th">
+      <div class="ph"><h2>13th Month Pay</h2><p>Total basic salary earned in the year ÷ 12 — a separate payout in December</p></div>
+      <div id="ac-13th-banner" class="banner banner-blue" style="display:none;"></div>
+      <div class="sg3">
+        <div class="card"><div class="ct">Employees</div><div class="cv t" id="ac-13th-count">0</div><div class="cch" id="ac-13th-year-label">This year</div></div>
+        <div class="card"><div class="ct">Total 13th Month</div><div class="cv a" id="ac-13th-total">₱ 0</div><div class="cch">Computed from Final payslips</div></div>
+        <div class="card"><div class="ct">Processed</div><div class="cv" id="ac-13th-processed">0</div><div class="cch">Recorded payouts</div></div>
+      </div>
+      <div class="card">
+        <div class="sh" style="flex-wrap:wrap;gap:10px;">
+          <span class="stitle">Employees</span>
+          <span class="sp"></span>
+          <select class="fc" id="ac-13th-year" style="max-width:140px;" onchange="loadThirteenthMonth()"></select>
+          <button class="btn btn-outline" onclick="loadThirteenthMonth()">Refresh</button>
+        </div>
+        <p style="font-size:12px;color:var(--t3);margin-bottom:12px;">Only unpaid absences (Absent days and Leave Without Pay) reduce it. Paid leave, late, undertime, incentives and overtime do not.</p>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Payslips</th><th>Basic Earned</th><th>13th Month</th><th>Status</th></tr></thead>
+          <tbody id="ac-13th-body"><tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr></tbody>
+        </table></div>
+        <button id="ac-13th-submit" class="btn btn-primary" style="width:100%;padding:12px;font-size:13px;margin-top:14px;" onclick="processThirteenthMonth()">Process 13th Month Pay →</button>
+        <p id="ac-13th-feedback" class="adm-feedback" style="margin-top:10px;"></p>
       </div>
     </div>
 

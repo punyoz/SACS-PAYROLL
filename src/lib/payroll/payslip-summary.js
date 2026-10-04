@@ -51,8 +51,9 @@ export function buildAttendanceSummary({ auto, leave, through }) {
  * @param {object} args.auto     computeAttendancePay() output (unit amounts)
  * @param {object} args.rates    rate values in force (rateValues())
  * @param {boolean} args.legal   legal contribution tables in force
+ * @param {string} [args.taxBasis]  how the withholding tax was computed, when not the semi-monthly table
  */
-export function buildDeductionBasis({ payroll, auto, rates, legal }) {
+export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis }) {
   const d = payroll?.deductions || {};
   const t = payroll?.totals || {};
   const unit = auto?.unit_amounts || {};
@@ -91,7 +92,8 @@ export function buildDeductionBasis({ payroll, auto, rates, legal }) {
   add("sss", "SSS", d.sss, statutoryBasis("sss"));
   add("philhealth", "PhilHealth", d.philhealth, statutoryBasis("philhealth"));
   add("pagibig", "Pag-IBIG", d.pagibig, statutoryBasis("pagibig"));
-  add("withholding_tax", "Withholding tax", d.withholding_tax, legal ? "BIR semi-monthly withholding table" : "as entered");
+  add("withholding_tax", "Withholding tax", d.withholding_tax, taxBasis || (legal ? "BIR semi-monthly withholding table" : "as entered"));
+  add("carry_over", "Balance carried over", t.carry_over_deduction, "negative 2nd half net pay of the previous month");
 
   return lines;
 }

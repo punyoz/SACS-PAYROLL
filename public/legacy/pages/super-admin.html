@@ -507,6 +507,64 @@
         </div>
       </div>
 
+      <!-- Semi-monthly payroll: monthly withholding tax table and contribution
+           amounts (loadSAPayrollSettings in js/super-admin.js). The divisor,
+           attendance lock day and overload premium are Payroll Rates above. -->
+      <div class="config-section">
+        <div class="config-section-head">
+          <div>
+            <div class="config-section-title">Withholding Tax Table (Monthly)</div>
+            <div class="config-section-sub">The 2nd half computes withholding tax once, on the month's taxable income (monthly gross − SSS, PhilHealth, Pag-IBIG)</div>
+            <div class="config-applies">Saved as a new version from the effective date — past payslips are not affected. <span id="sa-tax-finalized"></span></div>
+          </div>
+          <button class="btn btn-outline" type="button" onclick="loadSAPayrollSettings()">Refresh</button>
+        </div>
+        <div class="config-section-body">
+          <div style="grid-column:1 / -1;">
+            <label id="sa-tax-cap" style="font-size:12px;font-weight:600;color:var(--t2);">Brackets</label>
+            <div class="config-section-sub" style="margin:1px 0 8px;">Tax = base tax + rate × (taxable income − "over"), for the highest bracket the taxable income is over. <span id="sa-tax-current"></span></div>
+            <div class="tw"><table aria-labelledby="sa-tax-cap">
+              <thead><tr><th>Over (₱)</th><th>Base Tax (₱)</th><th>Rate (%)</th><th>Example</th><th></th></tr></thead>
+              <tbody id="sa-tax-body"><tr><td colspan="5" style="color:var(--t3);">Loading tax table...</td></tr></tbody>
+            </table></div>
+            <button class="btn btn-outline" type="button" style="margin-top:8px;padding:5px 12px;font-size:12px;" onclick="addSATaxRow()">+ Add Bracket</button>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-tax-effective">Effective starting</label>
+            <input id="sa-tax-effective" class="fc" type="date" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-tax-note">Note (optional)</label>
+            <input id="sa-tax-note" class="fc" type="text" maxlength="300" placeholder="e.g. BIR RR 11-2018 Annex E" />
+          </div>
+          <div style="grid-column:1 / -1;">
+            <button class="btn btn-primary" type="button" id="sa-tax-submit" onclick="submitSATaxTable()">Save New Version</button>
+            <p id="sa-tax-feedback" class="adm-feedback" style="margin-top:8px;"></p>
+            <div id="sa-tax-history" class="rate-history" style="font-size:11px;color:var(--t3);margin-top:6px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="config-section">
+        <div class="config-section-head">
+          <div>
+            <div class="config-section-title">Contribution Amounts</div>
+            <div class="config-section-sub">Monthly SSS, PhilHealth and Pag-IBIG per employee, deducted once in the 2nd half. Computed from the legal table unless a fixed amount is set.</div>
+            <div class="config-applies">A change applies from its effective date; a blank amount goes back to the legal table.</div>
+          </div>
+          <button class="btn btn-outline" type="button" onclick="loadSAPayrollSettings()">Refresh</button>
+        </div>
+        <div class="config-section-body">
+          <div style="grid-column:1 / -1;">
+            <input class="fc" type="search" id="sa-contrib-search" placeholder="Search employee..." style="max-width:260px;margin-bottom:8px;" oninput="renderSAContributions()">
+            <div class="tw"><table>
+              <thead><tr><th>Employee</th><th>Monthly Salary</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Total</th><th></th></tr></thead>
+              <tbody id="sa-contrib-body"><tr><td colspan="7" style="color:var(--t3);">Loading employees...</td></tr></tbody>
+            </table></div>
+          </div>
+        </div>
+      </div>
+
       <!-- Security Settings -->
       <div class="config-section">
         <div class="config-section-head">
@@ -604,6 +662,44 @@
           <p id="sa-rate-feedback" class="adm-feedback"></p>
           <div class="adm-modal-actions">
             <button type="submit" class="btn btn-primary" id="sa-rate-submit">Save New Version</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="sa-contrib-modal" class="adm-modal-backdrop" style="display:none;">
+      <div class="adm-modal-card" style="width:min(520px,100%);" role="dialog" aria-modal="true" aria-labelledby="sa-contrib-modal-title">
+        <div class="adm-modal-head">
+          <h3 id="sa-contrib-modal-title">Contribution Amounts</h3>
+          <button class="btn btn-close-x" type="button" onclick="closeSAContributionModal()" title="Close">&#x2715;</button>
+        </div>
+        <form class="adm-modal-form" onsubmit="submitSAContribution(event)" novalidate>
+          <input type="hidden" id="sa-contrib-employee" />
+          <div id="sa-contrib-current" style="grid-column:1 / -1;font-size:13px;color:var(--t2);line-height:1.6;"></div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-contrib-sss">SSS (₱/month)</label>
+            <input id="sa-contrib-sss" class="fc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Computed" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-contrib-philhealth">PhilHealth</label>
+            <input id="sa-contrib-philhealth" class="fc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Computed" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-contrib-pagibig">Pag-IBIG</label>
+            <input id="sa-contrib-pagibig" class="fc" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Computed" />
+          </div>
+          <div class="fg" style="margin:0;grid-column:1 / -1;">
+            <label for="sa-contrib-effective">Effective starting</label>
+            <input id="sa-contrib-effective" class="fc" type="date" required />
+          </div>
+          <div class="fg" style="margin:0;grid-column:1 / -1;">
+            <label for="sa-contrib-note">Note (optional)</label>
+            <input id="sa-contrib-note" class="fc" type="text" maxlength="300" placeholder="e.g. Voluntary SSS contribution" />
+          </div>
+          <p id="sa-contrib-feedback" class="adm-feedback" style="grid-column:1 / -1;"></p>
+          <div class="adm-modal-actions" style="grid-column:1 / -1;">
+            <button type="button" class="btn btn-outline" onclick="clearSAContributionInputs()">Use Legal Table</button>
+            <button type="submit" class="btn btn-primary" id="sa-contrib-submit">Save</button>
           </div>
         </form>
       </div>

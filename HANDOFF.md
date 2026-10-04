@@ -70,7 +70,9 @@ Migrations are applied by hand through the dashboard. If you prefer
 `employee_branch_assignments`, `transfer_requests`, `system_config`,
 `role_permissions`, `attendance_holidays`, `attendance_corrections`,
 `attendance_overtime_approvals`, `payroll_rate_configs`, `payroll_deductions`,
-`payroll_incentives`, plus the read-only view `employee_info_view`.
+`payroll_incentives`, `payroll_tax_brackets`, `payroll_contribution_amounts`,
+`payroll_monthly_incentives`, `payroll_thirteenth_month`, plus the read-only
+view `employee_info_view`.
 
 That covers every table the application queries. If a page errors with
 "relation does not exist", a migration was skipped.
@@ -158,6 +160,29 @@ Attendance board's **Overtime** tab (days at least 30 minutes past the end of
 shift); work on a date in `attendance_holidays` earns the holiday premium.
 Payslips are written all-or-nothing by the `payroll_commit_entries` database
 function.
+
+### Semi-monthly payroll (from October 1, 2026)
+
+`20261003010000_semi_monthly_payroll.sql` and `src/lib/payroll/semi-monthly.js`:
+
+- **1st half (1–15):** monthly salary ÷ 2, nothing deducted.
+- **2nd half (16–end):** settles the whole month: absences and Leave Without
+  Pay at the daily rate (monthly × 12 ÷ Working days per year; 31 or less
+  means days per month), late / undertime / half day, approved leave,
+  incentives and overload hours (Accountant → Incentives & Overload),
+  overtime and holiday pay, the month's SSS / PhilHealth / Pag-IBIG once,
+  and withholding tax once from the **monthly** table. It pays the month's
+  net less what the 1st half paid. A negative result is paid as 0 and carried
+  into next month's 2nd half.
+- **Attendance lock day** (Payroll Rates, seeded 28): the 2nd half counts
+  attendance from the day after last month's lock to this month's. Leave and
+  incentives dated or filed after the lock are paid next month.
+- **Super Admin → System Configuration** also holds the Withholding Tax
+  Table (Monthly), seeded with the BIR table, and per-employee Contribution
+  Amounts. Both are saved as versions from an effective date.
+- **13th month** (Accountant → 13th Month Pay): basic pay earned in the year
+  (less Absent days and Leave Without Pay) ÷ 12, from Final payslips.
+  Processed from December 1 and recorded once per employee.
 
 Security settings (Super Admin → System Configuration → Security) are
 enforced: Session Timeout is an idle timeout (8 hours after sign-in at most),

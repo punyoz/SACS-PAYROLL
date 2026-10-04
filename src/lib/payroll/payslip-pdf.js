@@ -85,6 +85,48 @@ class Page {
   }
 }
 
+/**
+ * Semi-monthly payslip (src/lib/payroll/semi-monthly.js): the 1st half is half
+ * the monthly salary with nothing deducted; the 2nd half shows the month less
+ * what the 1st half paid.
+ */
+function semiMonthlyRows(p, m) {
+  if (m.half === "first") {
+    p.heading("Earnings - 1st half");
+    p.row("Monthly salary", m.monthly_salary || 0);
+    p.row("Semi-monthly pay (monthly salary / 2)", m.semi_monthly_pay || 0, { bold: true });
+    p.heading("Deductions");
+    p.row("None this half", 0, { note: `Absences, leave, incentives, contributions and tax are settled on the ${m.second_half_label || "2nd half"} payslip.` });
+    return;
+  }
+  const window = m.window ? ` (attendance ${m.window.start_key} to ${m.window.end_key})` : "";
+  p.heading(`Month of ${m.month_label || ""}${window}`);
+  p.row("Monthly salary", m.monthly_salary || 0, { note: `Daily rate ${money(m.daily_rate)}, hourly ${money(m.hourly_rate)}` });
+  const minus = (label, amount, note) => { if (Number(amount) > 0) p.row(`Less: ${label}`, amount, { note }); };
+  const plus = (label, amount, note) => { if (Number(amount) > 0) p.row(`Add: ${label}`, amount, { note }); };
+  minus(`Absences without pay (${m.absent_days || 0} days)`, m.absent_deduction);
+  minus(`Leave without pay (${m.leave_without_pay_days || 0} days)`, m.leave_without_pay_deduction);
+  minus("Late", m.late_deduction);
+  minus("Undertime", m.undertime_deduction);
+  minus("Half day", m.half_day_deduction);
+  if (Number(m.leave_with_pay_days) > 0) p.row(`Leave with pay (${m.leave_with_pay_days} days) - no deduction`, null);
+  plus("Incentives", Number(m.other_incentive || 0) + Number(m.attendance_incentives || 0));
+  plus(`Overload pay (${m.overload_hours} h)`, m.overload_pay);
+  plus("Overtime", m.overtime_pay);
+  plus("Holiday pay", m.holiday_pay);
+  p.row("Monthly gross", m.monthly_gross || 0, { bold: true });
+
+  p.heading("Contributions and tax");
+  p.row("SSS", m.sss || 0);
+  p.row("PhilHealth", m.philhealth || 0);
+  p.row("Pag-IBIG", m.pagibig || 0);
+  p.row("Withholding tax (monthly table)", m.withholding_tax || 0, { note: `Taxable income ${money(m.taxable_income)}` });
+  p.row("Monthly net", m.monthly_net || 0, { bold: true });
+  p.row(m.first_half_status === "final" ? "Less: paid in 1st half" : "Less: paid in 1st half (not processed)", m.first_half_paid || 0);
+  minus(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);
+  if (Number(m.carry_over_out) > 0) p.row("Balance carried to next month", m.carry_over_out);
+}
+
 /** The payslip (buildPayslipDetails() in the payroll route) as PDF bytes. */
 export function buildPayslipPdf(details) {
   const p = new Page();
@@ -116,41 +158,45 @@ export function buildPayslipPdf(details) {
   }
   p.rule();
 
+  const monthly = details?.monthly || null;
   const earnings = details?.earnings || {};
-  p.heading("Earnings");
-  p.row("Basic pay", earnings.basic_salary || 0);
-  if (Number(earnings.overtime) > 0) p.row("Overtime", earnings.overtime);
-  if (Number(earnings.holiday_pay) > 0) p.row("Holiday pay", earnings.holiday_pay);
-  if (Number(details?.incentives?.total_incentives) > 0) p.row("Allowances / incentives", details.incentives.total_incentives);
-  p.row("Gross pay", earnings.gross_pay || 0, { bold: true });
+  if (monthly) semiMonthlyRows(p, monthly);
+  if (!monthly) {
+    p.heading("Earnings");
+    p.row("Basic pay", earnings.basic_salary || 0);
+    if (Number(earnings.overtime) > 0) p.row("Overtime", earnings.overtime);
+    if (Number(earnings.holiday_pay) > 0) p.row("Holiday pay", earnings.holiday_pay);
+    if (Number(details?.incentives?.total_incentives) > 0) p.row("Allowances / incentives", details.incentives.total_incentives);
+    p.row("Gross pay", earnings.gross_pay || 0, { bold: true });
 
-  if (summary) {
-    p.heading("Attendance summary");
-    const items = [
-      ["Days present", summary.days_present],
-      ["Days absent", summary.days_absent],
-      ["Half days", summary.half_days],
-      ["Late minutes", summary.late_minutes],
-      ["Undertime minutes", summary.undertime_minutes],
-      ["Leave days", summary.leave_days],
-    ];
-    const cell = (PAGE_W - 2 * MARGIN) / 6;
-    items.forEach(([label, value], index) => {
-      p.text(MARGIN + index * cell, p.y, label, { size: 8, gray: 0.45 });
-      p.text(MARGIN + index * cell, p.y - 13, String(value ?? 0), { size: 11, bold: true });
-    });
-    p.y -= 30;
+    if (summary) {
+      p.heading("Attendance summary");
+      const items = [
+        ["Days present", summary.days_present],
+        ["Days absent", summary.days_absent],
+        ["Half days", summary.half_days],
+        ["Late minutes", summary.late_minutes],
+        ["Undertime minutes", summary.undertime_minutes],
+        ["Leave days", summary.leave_days],
+      ];
+      const cell = (PAGE_W - 2 * MARGIN) / 6;
+      items.forEach(([label, value], index) => {
+        p.text(MARGIN + index * cell, p.y, label, { size: 8, gray: 0.45 });
+        p.text(MARGIN + index * cell, p.y - 13, String(value ?? 0), { size: 11, bold: true });
+      });
+      p.y -= 30;
+    }
+
+    p.heading("Deductions");
+    const basis = Array.isArray(details?.deduction_basis) ? details.deduction_basis : [];
+    if (basis.length) basis.forEach((line) => p.row(line.label, line.amount, { note: line.basis }));
+    else p.row("No deductions", 0);
+    p.row("Total deductions", details?.deductions?.total_deductions || 0, { bold: true });
   }
-
-  p.heading("Deductions");
-  const basis = Array.isArray(details?.deduction_basis) ? details.deduction_basis : [];
-  if (basis.length) basis.forEach((line) => p.row(line.label, line.amount, { note: line.basis }));
-  else p.row("No deductions", 0);
-  p.row("Total deductions", details?.deductions?.total_deductions || 0, { bold: true });
 
   p.y -= 4;
   p.rule();
-  p.text(MARGIN, p.y, "NET PAY", { size: 12, bold: true });
+  p.text(MARGIN, p.y, monthly ? `${monthly.half === "first" ? "1ST" : "2ND"} HALF NET PAY` : "NET PAY", { size: 12, bold: true });
   p.right(PAGE_W - MARGIN, p.y, `PHP ${money(details?.net_pay || 0)}`, { size: 14, bold: true });
   p.y -= 26;
 

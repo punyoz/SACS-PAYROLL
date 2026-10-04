@@ -870,6 +870,7 @@ function renderSAPayCalendar() {
 async function loadSAConfig() {
   renderSAPayCalendar();
   loadSAPayrollRates();
+  loadSAPayrollSettings();
   loadSAPayslipOverrides();
   try {
     const res = await fetch('/api/admin/config');
@@ -925,6 +926,7 @@ function saRateDisplay(rate, value) {
   const amount = Number(value || 0);
   if (rate.unit === 'percent') return `${amount.toLocaleString('en-PH', { maximumFractionDigits: 2 })}%`;
   if (rate.unit === 'count') return amount > 0 ? `${amount} late = 1 absent` : 'Off';
+  if (rate.unit === 'day_of_month') return amount > 0 ? `Day ${amount}` : 'Month end';
   if (rate.unit === 'days') return `${amount} days`;
   return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -1057,11 +1059,12 @@ async function openSARateModal(rateType, preset = null) {
   document.getElementById('sa-rate-value-label').textContent = rate.unit === 'percent'
     ? 'New value (%)'
     : rate.unit === 'count' ? 'Late days per absence (0 = off)'
-      : rate.unit === 'days' ? 'Working days per year' : 'New value (₱)';
+      : rate.unit === 'day_of_month' ? 'Day of the month (0 = month end)'
+        : rate.unit === 'days' ? 'Working days (per year, or per month if 31 or less)' : 'New value (₱)';
   const valueInput = document.getElementById('sa-rate-value');
   valueInput.value = '';
-  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' ? '31' : rate.unit === 'days' ? '366' : '';
-  valueInput.step = rate.unit === 'count' || rate.unit === 'days' ? '1' : '0.01';
+  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' || rate.unit === 'day_of_month' ? '31' : rate.unit === 'days' ? '366' : '';
+  valueInput.step = rate.unit === 'count' || rate.unit === 'days' || rate.unit === 'day_of_month' ? '1' : '0.01';
   const effective = document.getElementById('sa-rate-effective');
   effective.value = saRatesState.data?.default_effective_date || '';
   effective.oninput = saRateEffectiveHint;
@@ -1167,6 +1170,7 @@ async function submitSARate(event) {
   if (rate?.unit === 'percent' && Number(value) > 100) return fail('A percentage cannot be more than 100.', 'sa-rate-value');
   if (rate?.unit === 'count' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a whole number from 0 to 31.', 'sa-rate-value');
   if (rate?.unit === 'days' && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 366)) return fail('Enter a whole number of days from 1 to 366.', 'sa-rate-value');
+  if (rate?.unit === 'day_of_month' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a day of the month from 0 (month end) to 31.', 'sa-rate-value');
   if (!effectiveDate) return fail('Choose the date the new value takes effect.', 'sa-rate-effective');
   if (scope !== 'global' && !scopeRef) return fail('Choose who this rate applies to.', refField);
 
@@ -1213,6 +1217,265 @@ async function submitSARate(event) {
   }
 }
 
+/* ── SEMI-MONTHLY PAYROLL SETTINGS ──
+ * GET/POST /api/admin/payroll-settings: the monthly withholding tax table and
+ * each employee's monthly contribution amounts. Both are saved as versions
+ * from an effective date, like the rates above. */
+let saPaySettings = { data: null, taxRows: [] };
+
+function saPeso(value) {
+  return `₱${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Tax on a taxable income with the brackets being edited. */
+function saTaxFor(taxable, rows) {
+  const sorted = [...rows].sort((a, b) => Number(a.bracket_over) - Number(b.bracket_over));
+  let bracket = sorted[0];
+  sorted.forEach((row) => { if (taxable > Number(row.bracket_over)) bracket = row; });
+  if (!bracket) return 0;
+  return Math.max(0, Math.round((Number(bracket.base_tax) + (taxable - Number(bracket.bracket_over)) * Number(bracket.rate_pct) / 100) * 100) / 100);
+}
+
+async function loadSAPayrollSettings() {
+  const taxBody = document.getElementById('sa-tax-body');
+  const contribBody = document.getElementById('sa-contrib-body');
+  if (!taxBody && !contribBody) return;
+  try {
+    const res = await fetch('/api/admin/payroll-settings');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to load payroll settings.');
+    if (!data.available) throw new Error(data.error || 'Payroll settings are not set up yet.');
+    saPaySettings.data = data;
+
+    const versions = data.tax_table?.versions || [];
+    const current = versions.find((v) => v.version_id === data.tax_table.current_version_id) || versions[0] || null;
+    const upcoming = versions.find((v) => v.version_id === data.tax_table.next_period_version_id) || current;
+    saPaySettings.taxRows = (upcoming?.rows || [{ bracket_over: 0, base_tax: 0, rate_pct: 0 }]).map((row) => ({ ...row }));
+    const currentEl = document.getElementById('sa-tax-current');
+    if (currentEl) currentEl.textContent = current ? `In force since ${saRateDate(current.effective_date)}.` : 'No table yet — payroll cannot compute the 2nd half until one is saved.';
+    const finalizedEl = document.getElementById('sa-tax-finalized');
+    if (finalizedEl) {
+      finalizedEl.textContent = data.finalized_period
+        ? `${data.finalized_period.label} is already processed; new versions start ${saRateDate(data.earliest_effective_date)} or later.`
+        : '';
+    }
+    const effective = document.getElementById('sa-tax-effective');
+    if (effective && !effective.value) effective.value = data.default_effective_date || '';
+    const history = document.getElementById('sa-tax-history');
+    if (history) {
+      history.innerHTML = versions.length
+        ? `History: ${versions.map((v) => `${escapeHtml(saRateDate(v.effective_date))}${v.created_by_name ? ` · ${escapeHtml(v.created_by_name)}` : ''}${v.note ? ` (${escapeHtml(v.note)})` : ''}`).join(' → ')}`
+        : '';
+    }
+    renderSATaxRows();
+    renderSAContributions();
+  } catch (error) {
+    if (taxBody) taxBody.innerHTML = `<tr><td colspan="5" style="color:var(--amber);">${escapeHtml(error.message)}</td></tr>`;
+    if (contribBody) contribBody.innerHTML = `<tr><td colspan="7" style="color:var(--amber);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+function renderSATaxRows() {
+  const body = document.getElementById('sa-tax-body');
+  if (!body) return;
+  const rows = saPaySettings.taxRows;
+  const input = (index, field, value, step) => `<input class="fc" type="number" min="0"${field === 'rate_pct' ? ' max="100"' : ''} step="${step}" inputmode="decimal" value="${escapeHtml(String(value))}" style="max-width:140px;" oninput="onSATaxInput(${index}, '${field}', this.value)">`;
+  body.innerHTML = rows.map((row, index) => {
+    const next = rows[index + 1];
+    const example = next ? `At ${saPeso(next.bracket_over)}: ${saPeso(saTaxFor(Number(next.bracket_over), rows))}` : `Above ${saPeso(row.bracket_over)}: ${row.rate_pct}% of the excess`;
+    return `
+      <tr>
+        <td class="mn">${input(index, 'bracket_over', row.bracket_over, '0.01')}</td>
+        <td class="mn">${input(index, 'base_tax', row.base_tax, '0.01')}</td>
+        <td class="mn">${input(index, 'rate_pct', row.rate_pct, '0.01')}</td>
+        <td style="font-size:12px;color:var(--t3);" id="sa-tax-example-${index}">${escapeHtml(example)}</td>
+        <td>${index > 0 ? `<button class="btn btn-outline" type="button" style="padding:4px 10px;font-size:12px;" onclick="removeSATaxRow(${index})">Remove</button>` : ''}</td>
+      </tr>`;
+  }).join('');
+}
+
+function onSATaxInput(index, field, value) {
+  if (!saPaySettings.taxRows[index]) return;
+  saPaySettings.taxRows[index][field] = value === '' ? '' : Number(value);
+  // Examples follow the figures; the inputs keep their focus.
+  saPaySettings.taxRows.forEach((row, i) => {
+    const el = document.getElementById(`sa-tax-example-${i}`);
+    const next = saPaySettings.taxRows[i + 1];
+    if (el) el.textContent = next ? `At ${saPeso(next.bracket_over)}: ${saPeso(saTaxFor(Number(next.bracket_over), saPaySettings.taxRows))}` : `Above ${saPeso(row.bracket_over)}: ${row.rate_pct}% of the excess`;
+  });
+}
+
+function addSATaxRow() {
+  const last = saPaySettings.taxRows[saPaySettings.taxRows.length - 1] || { bracket_over: 0 };
+  saPaySettings.taxRows.push({ bracket_over: Number(last.bracket_over || 0) + 1, base_tax: 0, rate_pct: 0 });
+  renderSATaxRows();
+}
+
+function removeSATaxRow(index) {
+  saPaySettings.taxRows.splice(index, 1);
+  renderSATaxRows();
+}
+
+async function submitSATaxTable() {
+  const feedback = document.getElementById('sa-tax-feedback');
+  const button = document.getElementById('sa-tax-submit');
+  const effectiveDate = document.getElementById('sa-tax-effective')?.value || '';
+  const fail = (message) => { if (feedback) { feedback.textContent = message; feedback.className = 'adm-feedback err'; } };
+  const rows = saPaySettings.taxRows.map((row) => ({ bracket_over: Number(row.bracket_over), base_tax: Number(row.base_tax), rate_pct: Number(row.rate_pct) }));
+  if (!rows.length) return fail('Add at least one bracket.');
+  if (rows.some((row) => [row.bracket_over, row.base_tax, row.rate_pct].some((v) => !Number.isFinite(v) || v < 0))) return fail('Every amount must be 0 or more.');
+  if (rows.some((row) => row.rate_pct > 100)) return fail('A rate cannot be more than 100%.');
+  if (rows[0].bracket_over !== 0) return fail('The first bracket must start at 0.');
+  if (rows.some((row, i) => i > 0 && row.bracket_over <= rows[i - 1].bracket_over)) return fail('Each bracket must start above the one before it.');
+  if (!effectiveDate) { showFieldError('sa-tax-effective', 'Choose the date it takes effect.'); return fail('Choose the date it takes effect.'); }
+
+  const confirmed = window.confirmApproveAction
+    ? await window.confirmApproveAction(
+      `save the monthly withholding tax table from ${saRateDate(effectiveDate)}`,
+      'A new version is added; the current one stays in the history. Past payslips are not affected.',
+      { title: 'Confirm Tax Table', confirmLabel: 'Save' },
+    )
+    : window.confirm('Save this tax table?');
+  if (!confirmed) return;
+
+  try {
+    if (button) button.disabled = true;
+    if (feedback) { feedback.textContent = 'Saving...'; feedback.className = 'adm-feedback'; }
+    const res = await fetch('/api/admin/payroll-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'tax_table', effective_date: effectiveDate, rows, note: document.getElementById('sa-tax-note')?.value.trim() || '' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to save the tax table.');
+    if (feedback) { feedback.textContent = data.warning || `Saved — applies from ${saRateDate(data.effective_date)}.`; feedback.className = 'adm-feedback ok'; }
+    if (typeof pushNotification === 'function') pushNotification(data.warning ? 'Tax Table Scheduled' : 'Tax Table Saved', data.warning || `Applies from ${saRateDate(data.effective_date)}.`, data.warning ? 'info' : 'success');
+    await loadSAPayrollSettings();
+  } catch (error) {
+    fail(error.message);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function renderSAContributions() {
+  const body = document.getElementById('sa-contrib-body');
+  const data = saPaySettings.data;
+  if (!body || !data) return;
+  const query = String(document.getElementById('sa-contrib-search')?.value || '').trim().toLowerCase();
+  const rows = (data.contributions || []).filter((row) => !query
+    || String(row.employee_name || '').toLowerCase().includes(query)
+    || String(row.employee_code || '').toLowerCase().includes(query));
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="7" style="color:var(--t3);">No employees found.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map((row) => {
+    const value = (type) => {
+      const fixed = row.fixed && row.fixed[type] !== null && row.fixed[type] !== undefined;
+      const amount = fixed ? Number(row.fixed[type]) : Number(row.computed[type] || 0);
+      return { amount, fixed };
+    };
+    const cells = ['sss', 'philhealth', 'pagibig'].map(value);
+    const total = cells.reduce((sum, c) => sum + c.amount, 0);
+    const cell = (c) => `${escapeHtml(saPeso(c.amount))}<div style="font-size:11px;color:${c.fixed ? 'var(--amber)' : 'var(--t3)'};">${c.fixed ? 'Fixed' : 'Legal table'}</div>`;
+    const scheduled = row.scheduled
+      ? `<div style="font-size:11px;color:var(--amber);">Changes ${escapeHtml(saRateDate(row.scheduled.effective_date))}</div>`
+      : '';
+    return `
+      <tr>
+        <td class="nm">${escapeHtml(row.employee_name)}<div style="font-size:11px;color:var(--t3);">${escapeHtml([row.employee_code, row.branch_name].filter(Boolean).join(' · '))}</div>${scheduled}</td>
+        <td class="mn">${escapeHtml(saPeso(row.monthly_salary))}</td>
+        <td class="mn">${cell(cells[0])}</td>
+        <td class="mn">${cell(cells[1])}</td>
+        <td class="mn">${cell(cells[2])}</td>
+        <td class="mn" style="font-weight:600;">${escapeHtml(saPeso(total))}</td>
+        <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSAContributionModal('${escapeJsArg(row.employee_id)}')">Edit</button></td>
+      </tr>`;
+  }).join('');
+}
+
+function openSAContributionModal(employeeId) {
+  const row = (saPaySettings.data?.contributions || []).find((r) => r.employee_id === employeeId);
+  const modal = document.getElementById('sa-contrib-modal');
+  if (!row || !modal) return;
+  document.getElementById('sa-contrib-employee').value = employeeId;
+  document.getElementById('sa-contrib-modal-title').textContent = `Contribution Amounts — ${row.employee_name}`;
+  document.getElementById('sa-contrib-current').innerHTML = `Legal table: SSS <strong class="mn">${escapeHtml(saPeso(row.computed.sss))}</strong>, PhilHealth <strong class="mn">${escapeHtml(saPeso(row.computed.philhealth))}</strong>, Pag-IBIG <strong class="mn">${escapeHtml(saPeso(row.computed.pagibig))}</strong> a month on ${escapeHtml(saPeso(row.monthly_salary))}.<div style="font-size:11px;color:var(--t3);">Leave an amount blank to use the legal table.</div>`;
+  ['sss', 'philhealth', 'pagibig'].forEach((type) => {
+    const input = document.getElementById(`sa-contrib-${type}`);
+    const fixed = row.fixed && row.fixed[type] !== null && row.fixed[type] !== undefined ? row.fixed[type] : '';
+    if (input) input.value = fixed;
+  });
+  document.getElementById('sa-contrib-effective').value = saPaySettings.data?.default_effective_date || '';
+  document.getElementById('sa-contrib-note').value = '';
+  const feedback = document.getElementById('sa-contrib-feedback');
+  feedback.textContent = '';
+  feedback.className = 'adm-feedback';
+  modal.style.display = 'flex';
+  setTimeout(() => document.getElementById('sa-contrib-sss')?.focus(), 30);
+}
+
+function closeSAContributionModal() {
+  const modal = document.getElementById('sa-contrib-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function clearSAContributionInputs() {
+  ['sss', 'philhealth', 'pagibig'].forEach((type) => {
+    const input = document.getElementById(`sa-contrib-${type}`);
+    if (input) input.value = '';
+  });
+}
+
+async function submitSAContribution(event) {
+  event?.preventDefault?.();
+  const feedback = document.getElementById('sa-contrib-feedback');
+  const button = document.getElementById('sa-contrib-submit');
+  const value = (id) => document.getElementById(id)?.value ?? '';
+  const amounts = { sss: value('sa-contrib-sss'), philhealth: value('sa-contrib-philhealth'), pagibig: value('sa-contrib-pagibig') };
+  const effectiveDate = value('sa-contrib-effective');
+  const fail = (message) => { feedback.textContent = message; feedback.className = 'adm-feedback err'; };
+  if (Object.values(amounts).some((v) => v !== '' && (!Number.isFinite(Number(v)) || Number(v) < 0))) return fail('Enter each amount as 0 or more, or leave it blank.');
+  if (!effectiveDate) { showFieldError('sa-contrib-effective', 'Choose the date it takes effect.'); return fail('Choose the date it takes effect.'); }
+
+  try {
+    button.disabled = true;
+    feedback.textContent = 'Saving...';
+    feedback.className = 'adm-feedback';
+    const res = await fetch('/api/admin/payroll-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'contribution',
+        employee_id: value('sa-contrib-employee'),
+        effective_date: effectiveDate,
+        ...amounts,
+        note: value('sa-contrib-note').trim(),
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to save the contribution amounts.');
+    closeSAContributionModal();
+    if (typeof pushNotification === 'function') pushNotification(data.warning ? 'Scheduled for Next Period' : 'Contributions Saved', data.warning || `Applies from ${saRateDate(data.effective_date)}.`, data.warning ? 'info' : 'success');
+    await loadSAPayrollSettings();
+  } catch (error) {
+    fail(error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+window.loadSAPayrollSettings = loadSAPayrollSettings;
+window.onSATaxInput = onSATaxInput;
+window.addSATaxRow = addSATaxRow;
+window.removeSATaxRow = removeSATaxRow;
+window.submitSATaxTable = submitSATaxTable;
+window.renderSAContributions = renderSAContributions;
+window.openSAContributionModal = openSAContributionModal;
+window.closeSAContributionModal = closeSAContributionModal;
+window.clearSAContributionInputs = clearSAContributionInputs;
+window.submitSAContribution = submitSAContribution;
 window.loadSAPayrollRates = loadSAPayrollRates;
 window.openSARateModal = openSARateModal;
 window.closeSARateModal = closeSARateModal;

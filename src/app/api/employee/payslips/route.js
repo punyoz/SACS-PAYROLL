@@ -78,6 +78,8 @@ function mapEntryToPayslip(row) {
     early_bird_days: toAmount(payroll.incentives?.early_bird_days),
     early_bird_incentive: toAmount(totals.early_bird_incentive),
     perfect_attendance_incentive: toAmount(totals.perfect_attendance_incentive),
+    // Semi-monthly payroll: the month behind a 1st / 2nd half payslip.
+    monthly: payroll.monthly && typeof payroll.monthly === "object" ? payroll.monthly : null,
   };
 }
 

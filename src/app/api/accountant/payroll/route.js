@@ -10,17 +10,35 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_ALL } from "@/lib/rbac/permissions";
 import { formatDateKey, generationWindow, loadPayCalendar } from "@/lib/payroll/generation-window";
-import { buildAttendanceSummary, buildDeductionBasis } from "@/lib/payroll/payslip-summary";
+import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
+import {
+  SEMI_MONTHLY_RULE,
+  SEMI_MONTHLY_RULES_EFFECTIVE,
+  computeFirstHalf,
+  computeSecondHalf,
+  halfOf,
+  monthInfo,
+  monthKeyOf,
+  monthlyWindow,
+  overloadPayFor,
+  payrollMonthFor,
+  resolveTaxTableRows,
+  shiftMonth,
+  taxTableFromRows,
+  usesSemiMonthlyRules,
+} from "@/lib/payroll/semi-monthly";
+import { basicEarnedFromPayroll, compute13thMonthFromEntries } from "@/lib/payroll/thirteenth-month";
 import {
   isUnresolvedStatus,
   normalizeAttendanceStatus as normalizeEngineStatus,
 } from "@/lib/attendance/status";
 import { computeAttendancePay, peso } from "@/lib/payroll/attendance-pay";
-import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRates } from "@/lib/payroll/rates";
+import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { periodFromLabel, manilaDateKey } from "@/lib/payroll/periods";
 import {
   SEMI_MONTHLY_TAX_TABLE,
+  monthlyContributions,
   periodContributions,
   taxableCompensation,
   usesLegalRules,
@@ -225,6 +243,9 @@ function normalizePayrollEntry(row) {
         leave_without_pay_deduction: toAmount(payrollObj?.totals?.leave_without_pay_deduction),
         early_bird_incentive: toAmount(payrollObj?.totals?.early_bird_incentive ?? 0),
         perfect_attendance_incentive: toAmount(payrollObj?.totals?.perfect_attendance_incentive ?? 0),
+        other_incentive: toAmount(payrollObj?.totals?.other_incentive ?? 0),
+        overload_pay: toAmount(payrollObj?.totals?.overload_pay ?? 0),
+        carry_over_deduction: toAmount(payrollObj?.totals?.carry_over_deduction ?? 0),
         total_incentives: toAmount(payrollObj?.totals?.total_incentives ?? 0),
         overtime_pay: toAmount(payrollObj?.totals?.overtime_pay ?? 0),
         holiday_pay: toAmount(payrollObj?.totals?.holiday_pay ?? 0),
@@ -237,6 +258,11 @@ function normalizePayrollEntry(row) {
       // Payslip generation (Generate / Regenerate): Draft or Final, attendance
       // counted up to, who and when, and the attendance snapshot used.
       generation: payrollObj?.generation && typeof payrollObj.generation === "object" ? payrollObj.generation : null,
+      // Semi-monthly payroll (src/lib/payroll/semi-monthly.js): the month's
+      // computation behind a 1st / 2nd half payslip, and the basic pay it
+      // earned for the 13th month.
+      monthly: payrollObj?.monthly && typeof payrollObj.monthly === "object" ? payrollObj.monthly : null,
+      basic_earned: payrollObj?.basic_earned ?? null,
     },
   };
 }
@@ -297,6 +323,10 @@ function computeTotals(payroll) {
   const perfectAttendanceIncentive = amounts
     ? toAmount(amounts.perfect_attendance)
     : (perfectAttendance ? toAmount(rates.perfect_attendance_bonus) : 0);
+  // Semi-monthly 2nd half: incentives and overload pay filed for the month
+  // (payroll_monthly_incentives).
+  const otherIncentive = Math.max(0, toAmount(payroll.extra?.incentive));
+  const overloadPay = Math.max(0, toAmount(payroll.extra?.overload));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -307,7 +337,7 @@ function computeTotals(payroll) {
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
     + leaveWithoutPayDeduction,
   );
-  const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive);
+  const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive + otherIncentive + overloadPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -350,6 +380,8 @@ function computeTotals(payroll) {
       leave_without_pay_deduction: leaveWithoutPayDeduction,
       early_bird_incentive: earlyBirdIncentive,
       perfect_attendance_incentive: perfectAttendanceIncentive,
+      other_incentive: otherIncentive,
+      overload_pay: overloadPay,
       total_incentives: totalIncentives,
       overtime_pay: overtimePay,
       holiday_pay: holidayPay,
@@ -563,7 +595,10 @@ function isLeaveWorkingDay(dayKey, holidays) {
   return weekday !== 0 && weekday !== 6 && !holidays?.has?.(dayKey);
 }
 
-async function buildLeaveContext(employees, periodStart, periodEnd, holidays = new Map()) {
+// includeDay(day, request), when given, keeps only the leave days this payroll
+// counts (semi-monthly: the lock day decides the month); a day it leaves out
+// is still "covered", so it is never deducted as an absence either.
+async function buildLeaveContext(employees, periodStart, periodEnd, holidays = new Map(), includeDay = null) {
   // Payroll only ever needs approved requests — filtering server-side avoids
   // transferring every leave request ever filed (pending, rejected, from
   // years ago) on every payroll page load.
@@ -601,6 +636,7 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
       expandDateRange(overlapStart, overlapEnd).forEach((day) => {
         coveredDays.add(day);
         if (!isLeaveWorkingDay(day, holidays)) return;
+        if (includeDay && !includeDay(day, request)) return;
         (request.pay_status === "without_pay" ? withoutPayDates : withPayDates).push(day);
       });
     });
@@ -761,7 +797,121 @@ async function readHolidays(supabase, periodStart, periodEnd) {
   return new Map((result.data || []).map((row) => [String(row.holiday_date).slice(0, 10), row.type === "special" ? "special" : "holiday"]));
 }
 
-const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql and 20260926090000_payroll_legal_rules_and_atomic_commit.sql) first.";
+const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql and 20261003010000_semi_monthly_payroll.sql) first.";
+
+/** Zero amounts for a 1st half with no Final payslip. */
+const NO_FIRST_HALF = Object.freeze({ gross_pay: 0, total_deductions: 0, total_incentives: 0, net_pay: 0, basic_earned: 0 });
+
+/**
+ * Semi-monthly payroll (src/lib/payroll/semi-monthly.js), for a period from
+ * SEMI_MONTHLY_RULES_EFFECTIVE: which half it is and, for the 2nd half, the
+ * month's attendance window (lock day), the monthly tax table, and per
+ * employee what the month settles against: the 1st half already paid, a
+ * balance carried from last month, incentives and overload hours filed for
+ * the month, and fixed contribution amounts.
+ *
+ * `ready` is false when the 2nd half cannot be computed (migration not
+ * applied, or no tax table); payroll then refuses to process.
+ */
+async function loadSemiMonthlyContext(supabase, employees, period, configs) {
+  const half = halfOf(period.start_key);
+  const month = monthInfo(monthKeyOf(period.start_key));
+  const previous = monthInfo(shiftMonth(month.month_key, -1));
+  // The lock day in force for a month's 2nd half.
+  const lockDayFor = (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
+  const window = monthlyWindow(month.month_key, lockDayFor);
+  const base = {
+    half,
+    month_key: month.month_key,
+    month_label: month.label,
+    first_half_label: month.first_half_label,
+    second_half_label: month.second_half_label,
+    window,
+    lock_day: lockDayFor(month.month_key),
+    lockDayFor,
+  };
+
+  const entriesResult = await supabase
+    .from("payroll_entries")
+    .select("id,employee_id,pay_period,status,payroll,payslip_no")
+    .in("pay_period", [month.first_half_label, month.second_half_label, previous.second_half_label]);
+  if (entriesResult.error) throw new Error(entriesResult.error.message);
+  const entries = (entriesResult.data || []).map(normalizePayrollEntry);
+  const find = (employeeId, label) => entries.find((entry) => entry.employee_id === employeeId && entry.pay_period === label) || null;
+
+  const byEmployee = new Map();
+  if (half === "first") {
+    employees.forEach((employee) => {
+      byEmployee.set(employee.id, { ...base, second_half_final: find(employee.id, month.second_half_label)?.status === "paid" });
+    });
+    return { ...base, ready: true, tax_table: [], byEmployee };
+  }
+
+  const [taxResult, contributionResult, itemResult] = await Promise.all([
+    supabase.from("payroll_tax_brackets")
+      .select("id,version_id,effective_date,bracket_over,base_tax,rate_pct,created_at")
+      .lte("effective_date", period.start_key),
+    supabase.from("payroll_contribution_amounts")
+      .select("employee_id,effective_date,sss,philhealth,pagibig,created_at")
+      .lte("effective_date", period.start_key),
+    fetchAllRows(() => supabase.from("payroll_monthly_incentives")
+      .select("id,employee_id,item_date,kind,description,amount,hours,created_at")
+      .eq("archived", false)
+      .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
+      .lte("item_date", window.end_key)
+      .order("item_date", { ascending: true })
+      .order("id", { ascending: true })),
+  ]);
+  const failed = taxResult.error || contributionResult.error || itemResult.error;
+  const taxTable = failed ? [] : taxTableFromRows(resolveTaxTableRows(taxResult.data, period.start_key));
+  if (failed || !taxTable.length) {
+    return { ...base, ready: false, tax_table: [], byEmployee };
+  }
+
+  employees.forEach((employee) => {
+    const first = find(employee.id, month.first_half_label);
+    const firstPaid = first?.status === "paid";
+    const totals = first?.payroll?.totals || {};
+    const previousSecond = find(employee.id, previous.second_half_label);
+    const carryIn = previousSecond?.status === "paid" ? toAmount(previousSecond.payroll?.monthly?.carry_over_out || 0) : 0;
+
+    // Fixed amounts set for this employee (Super Admin → Contribution Amounts);
+    // a blank one stays computed from the legal table.
+    const fixed = (contributionResult.data || [])
+      .filter((row) => row.employee_id === employee.id)
+      .sort((a, b) => (String(b.effective_date).localeCompare(String(a.effective_date)) || String(b.created_at || "").localeCompare(String(a.created_at || ""))))[0] || null;
+    const contributionAmounts = {};
+    ["sss", "philhealth", "pagibig"].forEach((type) => {
+      if (fixed && fixed[type] !== null && fixed[type] !== undefined) contributionAmounts[type] = toAmount(fixed[type]);
+    });
+
+    // Filed after the lock: counted next month.
+    const items = (itemResult.data || []).filter((item) => item.employee_id === employee.id
+      && payrollMonthFor(String(item.item_date).slice(0, 10), manilaDateKey(new Date(item.created_at || Date.now())), lockDayFor) === month.month_key);
+
+    byEmployee.set(employee.id, {
+      ...base,
+      first_half: firstPaid
+        ? {
+          status: "final",
+          payslip_no: first.payslip_no || null,
+          gross_pay: toAmount(totals.gross_pay),
+          total_deductions: toAmount(totals.total_deductions),
+          total_incentives: toAmount(totals.total_incentives),
+          net_pay: floorNetPay(totals.net_pay),
+          basic_earned: basicEarnedFromPayroll(first.payroll),
+        }
+        : { status: first ? "draft" : "not_processed", payslip_no: null, ...NO_FIRST_HALF },
+      carry_in: carryIn,
+      carry_from: carryIn ? previous.label : null,
+      contribution_amounts: contributionAmounts,
+      items,
+      tax_table: taxTable,
+    });
+  });
+
+  return { ...base, ready: true, tax_table: taxTable, byEmployee };
+}
 
 /**
  * Everything payroll needs for one period, per employee: the rate versions in
@@ -774,21 +924,33 @@ const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the at
  */
 async function loadPeriodPayContext(supabase, employees, period, { through = null } = {}) {
   const employeeIds = employees.map((employee) => employee.id);
-  const lastDay = through && through >= period.start_key && through < period.end_key ? through : period.end_key;
+  const rateResult = await loadRateConfigs(supabase);
+  // Semi-monthly payroll: the 2nd half counts the month's attendance window
+  // (from the day after last month's lock day to this month's), and leave
+  // filed after the lock is counted next month.
+  const semi = usesSemiMonthlyRules(period.start_key)
+    ? await loadSemiMonthlyContext(supabase, employees, period, rateResult.configs)
+    : null;
+  const settling = semi?.half === "second";
+  const span = settling ? semi.window : period;
+  const lastDay = through && through >= span.start_key && through < span.end_key ? through : span.end_key;
+  const leaveFrom = settling ? SEMI_MONTHLY_RULES_EFFECTIVE : span.start_key;
+  const includeLeaveDay = settling
+    ? (day, request) => payrollMonthFor(day, manilaDateKey(new Date(request.submitted_at || Date.now())), semi.lockDayFor) === semi.month_key
+    : null;
   // Holidays first: leave days are counted on working days only.
-  const holidays = await readHolidays(supabase, period.start_key, period.end_key);
-  const [leaveContext, attendance, rateResult, overtimeResult] = await Promise.all([
-    buildLeaveContext(employees, period.start_key, lastDay, holidays),
-    readPeriodAttendance(supabase, period.start_key, lastDay, employeeIds),
-    loadRateConfigs(supabase),
-    readApprovedOvertime(supabase, period.start_key, lastDay),
+  const holidays = await readHolidays(supabase, leaveFrom < span.start_key ? leaveFrom : span.start_key, period.end_key);
+  const [leaveContext, attendance, overtimeResult] = await Promise.all([
+    buildLeaveContext(employees, leaveFrom, lastDay, holidays, includeLeaveDay),
+    readPeriodAttendance(supabase, span.start_key, lastDay, employeeIds),
+    readApprovedOvertime(supabase, span.start_key, lastDay),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 
   const attendanceRows = await fetchAttendanceSummary(
     supabase,
     employees,
-    period.start_key,
+    span.start_key,
     lastDay,
     leaveDaysByEmployee,
     attendance.rows,
@@ -819,13 +981,13 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       logs: logsByEmployee.get(employee.id) || [],
       leaveDays: leaveDaysByEmployee.get(employee.id),
       rates: resolved,
-      periodStart: period.start_key,
+      periodStart: span.start_key,
       periodEnd: lastDay,
       overtime: overtimeResult.minutes,
       holidays,
     });
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
-    byEmployee.set(employee.id, { resolved, auto, leave });
+    byEmployee.set(employee.id, { resolved, auto, leave, semi: semi?.byEmployee.get(employee.id) || null });
   });
 
   // What the batch table and the Single Entry form show and pre-fill.
@@ -869,7 +1031,8 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     period,
     through: lastDay,
     engineReady: attendance.engineReady && overtimeResult.available,
-    ratesReady: rateResult.available,
+    ratesReady: rateResult.available && (!semi || semi.ready),
+    semi,
     leaveSummary,
     attendanceRows: enrichedRows,
     byEmployee,
@@ -903,6 +1066,128 @@ function rateSnapshot(resolved) {
 }
 
 /**
+ * Semi-monthly 1st half: Monthly Salary / 2, no deductions at all.
+ * Attendance, leave, incentives, contributions and tax are all settled in
+ * the 2nd half. Basic salary may still be overridden, with a reason.
+ */
+function buildFirstHalfPayroll({ employee, context, input = {}, period, actor }) {
+  const { resolved, auto } = context;
+  const semi = context.semi;
+  const rates = rateValues(resolved);
+  const reason = normalizeText(input.override_reason);
+  const defaultBasic = computeFirstHalf({ monthlySalary: employee.basic_salary }).semi_monthly_pay;
+  const basic = pickAmount(input.basic_salary, defaultBasic);
+  const deviations = differs(defaultBasic, basic)
+    ? [{ field: "basic_salary", default: toAmount(defaultBasic), value: toAmount(basic) }]
+    : [];
+
+  const none = { absent: 0, late: 0, undertime: 0, half_day: 0, early_bird: 0, perfect_attendance: 0 };
+  const payroll = computeTotals({ basic_salary: basic, rates, deductions: {}, incentives: {}, attendance_amounts: none, earnings: {} });
+  payroll.basic_earned = toAmount(basic);
+  payroll.monthly = {
+    rule: SEMI_MONTHLY_RULE,
+    half: "first",
+    month_key: semi.month_key,
+    month_label: semi.month_label,
+    second_half_label: semi.second_half_label,
+    monthly_salary: toAmount(employee.basic_salary),
+    semi_monthly_pay: toAmount(basic),
+    net_pay: payroll.totals.net_pay,
+  };
+
+  const nowIso = new Date().toISOString();
+  payroll.audit = {
+    period: { label: period.label, start_key: period.start_key, end_key: period.end_key },
+    rates: rateSnapshot(resolved),
+    attendance: {
+      counts: auto.counts,
+      perfect_attendance: auto.perfect_attendance,
+      source_log_ids: [],
+      blocking: [],
+    },
+    lines: { deductions: [], incentives: [] },
+    deviations: deviations.length
+      ? { items: deviations, reason: reason || null, by: actor?.userId || null, by_name: actor?.name || null, at: nowIso }
+      : null,
+    computed_at: nowIso,
+    computed_by: actor?.userId || null,
+    computed_by_name: actor?.name || null,
+  };
+
+  return {
+    payroll,
+    deviations,
+    reason,
+    // Attendance is counted in the 2nd half, so nothing here waits on it.
+    blocking: [],
+    refusal: semi.second_half_final
+      ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
+      : null,
+    defaults: {
+      statutory_method: "semi_monthly_first",
+      semi_monthly: "first",
+      basic_salary: defaultBasic,
+      sss: 0,
+      philhealth: 0,
+      pagibig: 0,
+      withholding_tax: 0,
+      overtime: 0,
+      holiday_pay: 0,
+    },
+  };
+}
+
+/**
+ * Semi-monthly 2nd half. computeTotals() priced the whole month; the payslip
+ * pays the month less what the 1st half already paid and any balance carried
+ * in. Its gross / incentives / deductions are what the month adds beyond the
+ * 1st half, so the two payslips of a month add up to the month in records,
+ * dashboards and reports. payroll.monthly keeps the month's figures for the
+ * payslip.
+ */
+function applySecondHalfSettlement(payroll, { settlement, semi, rates }) {
+  const month = { ...payroll.totals };
+  const first = semi.first_half || NO_FIRST_HALF;
+  const gross = toAmount(month.gross_pay - first.gross_pay);
+  const incentives = toAmount(month.total_incentives - first.total_incentives);
+  payroll.totals = {
+    ...month,
+    gross_pay: gross,
+    total_incentives: incentives,
+    total_deductions: toAmount(gross + incentives - settlement.second_half_net),
+    carry_over_deduction: settlement.carry_in,
+    net_pay: settlement.net_pay,
+  };
+  // 13th month: the month's basic less unpaid absences, less the 1st half's.
+  const earnedThisMonth = Math.max(0, toAmount(payroll.basic_salary - month.absence_deduction - month.leave_without_pay_deduction));
+  payroll.basic_earned = toAmount(earnedThisMonth - first.basic_earned);
+  payroll.monthly = {
+    rule: SEMI_MONTHLY_RULE,
+    half: "second",
+    month_key: semi.month_key,
+    month_label: semi.month_label,
+    window: semi.window,
+    lock_day: semi.lock_day,
+    divisor: Number(rates.working_days_per_year) || null,
+    first_half_label: semi.first_half_label,
+    first_half_status: first.status || "not_processed",
+    first_half_payslip_no: first.payslip_no || null,
+    carry_from: semi.carry_from || null,
+    ...settlement,
+    absent_deduction: toAmount(month.absence_deduction),
+    leave_without_pay_deduction: toAmount(month.leave_without_pay_deduction),
+    late_deduction: toAmount(month.late_deduction),
+    undertime_deduction: toAmount(month.undertime_deduction),
+    half_day_deduction: toAmount(month.half_day_deduction),
+    attendance_incentives: toAmount(month.early_bird_incentive + month.perfect_attendance_incentive),
+    other_incentive: toAmount(month.other_incentive),
+    overtime_pay: toAmount(month.overtime_pay),
+    holiday_pay: toAmount(month.holiday_pay),
+    month_totals: { gross_pay: month.gross_pay, total_deductions: month.total_deductions, total_incentives: month.total_incentives, net_pay: month.net_pay },
+  };
+}
+
+/**
  * One employee's payroll for one period, computed on the server.
  *
  * Attendance figures always come from the logs (context.auto). The Single
@@ -914,6 +1199,11 @@ function rateSnapshot(resolved) {
  */
 function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOverrides = false, period, actor }) {
   const { resolved, auto, leave } = context;
+  // Semi-monthly payroll (src/lib/payroll/semi-monthly.js): the 1st half is
+  // half the salary with nothing deducted; the 2nd half settles the month.
+  const semi = context.semi || null;
+  if (semi?.half === "first") return buildFirstHalfPayroll({ employee, context, input, period, actor });
+  const settling = semi?.half === "second";
   const rates = rateValues(resolved);
   const deductionsIn = input.deductions || {};
   const incentivesIn = input.incentives || {};
@@ -923,7 +1213,8 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     if (differs(def, value)) deviations.push({ field, default: toAmount(def), value: toAmount(value) });
   };
 
-  const defaultBasic = toAmount(Number(employee.basic_salary || 0) / 2);
+  // The 2nd half computes the whole month on the monthly salary.
+  const defaultBasic = settling ? toAmount(employee.basic_salary) : toAmount(Number(employee.basic_salary || 0) / 2);
   const basic = pickAmount(input.basic_salary, defaultBasic);
   note("basic_salary", defaultBasic, basic);
 
@@ -932,7 +1223,13 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // BIR table (src/lib/payroll/statutory.js). Before it: a flat % of the
   // period's basic and no default tax, exactly as payslips were computed then.
   const legal = usesLegalRules(period?.start_key);
-  const legalContributions = legal ? periodContributions(employee.basic_salary, rates) : null;
+  // The 2nd half deducts the whole month's share once, or the fixed amounts
+  // set for the employee (Super Admin -> Contribution Amounts).
+  const legalContributions = legal
+    ? (settling
+      ? { ...monthlyContributions(employee.basic_salary, rates), ...(semi.contribution_amounts || {}) }
+      : periodContributions(employee.basic_salary, rates))
+    : null;
   const contributionDefault = (type) => (legal
     ? legalContributions[type]
     : peso(basic * (rates[`${type}_pct`] || 0) / 100));
@@ -994,9 +1291,41 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const overtimePay = toAmount(auto.amounts.overtime || 0);
   const holidayPay = toAmount(auto.amounts.holiday_premium || 0);
 
+  // Semi-monthly 2nd half: incentives and overload hours filed for the month.
+  const items = settling ? semi.items || [] : [];
+  const overloadRate = peso((Number(rates.hourly) || 0) * (1 + (Number(rates.overload_premium_pct) || 0) / 100));
+  const itemAmount = (item) => (item.kind === "overload"
+    ? overloadPayFor(rates.hourly, item.hours, rates.overload_premium_pct)
+    : toAmount(item.amount));
+  const sumItems = (kind, value) => toAmount(items.filter((item) => item.kind === kind).reduce((sum, item) => sum + value(item), 0));
+  const otherIncentive = sumItems("incentive", itemAmount);
+  const overloadHours = sumItems("overload", (item) => Number(item.hours) || 0);
+  const overloadPay = sumItems("overload", itemAmount);
+
   // Withholding tax on this period's taxable compensation.
   const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
-  const taxDefault = legal
+  // 2nd half: once, on the month's taxable income, from the monthly table.
+  const settle = (tax) => computeSecondHalf({
+    monthlySalary: basic,
+    dailyRate: rates.daily,
+    absentDays: used.absences_days,
+    leaveWithoutPayDays,
+    leaveWithPayDays,
+    absenceDeduction: finalAmounts.absent + leaveWithoutPayAmount,
+    otherAttendanceDeductions: finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day,
+    incentives: finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive,
+    overloadHours,
+    overloadPay,
+    otherEarnings: overtimePay + holidayPay,
+    contributions: { sss, philhealth, pagibig },
+    taxTable: semi?.tax_table || [],
+    withholdingTax: tax,
+    firstHalfPaid: semi?.first_half?.net_pay || 0,
+    carryIn: semi?.carry_in || 0,
+  });
+  const taxDefault = settling
+    ? settle(undefined).table_withholding_tax
+    : legal
     ? computeWithholdingTax(taxableCompensation({
       basic,
       earnings: overtimePay + holidayPay,
@@ -1007,6 +1336,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     : 0;
   const withholdingTax = pickAmount(deductionsIn.withholding_tax, taxDefault);
   if (legal) note("withholding_tax", taxDefault, withholdingTax);
+  const settlement = settling ? settle(withholdingTax) : null;
 
   const adjustment = (type, finalAmount, autoAmount, quantity, unitName) => {
     const amount = peso(finalAmount - autoAmount);
@@ -1039,6 +1369,12 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       source_log_id: null, is_override: differs(leaveWithoutPayDays, defaultWithoutPay),
       note: differs(leaveWithoutPayDays, defaultWithoutPay) ? reason || null : null, log_date: null,
     } : null,
+    // A negative 2nd half last month, recovered here.
+    settlement?.carry_in > 0 ? {
+      type: "carry_over", quantity: null, unit: null, rate: null, rate_config_id: null,
+      amount: settlement.carry_in, source_log_id: null, is_override: false,
+      note: `Balance carried over from ${semi.carry_from || "last month"}`, log_date: null,
+    } : null,
   ].filter(Boolean);
 
   const incentiveLines = [
@@ -1047,6 +1383,18 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     ...(auto.earnings || []),
     adjustment("early_bird", finalAmounts.early_bird, auto.amounts.early_bird, toAmount(used.early_bird_days - computed.early_bird_days), "day"),
     adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
+    // Incentives and overload hours filed for the month (payroll_monthly_incentives).
+    ...items.map((item) => (item.kind === "overload"
+      ? {
+        type: "overload", quantity: toAmount(item.hours), unit: "hour", rate: overloadRate,
+        rate_config_id: resolved.overload_premium_pct?.config_id || null, amount: itemAmount(item),
+        source_log_id: null, is_override: false, note: item.description || null, log_date: String(item.item_date).slice(0, 10),
+      }
+      : {
+        type: "incentive", quantity: 1, unit: "item", rate: itemAmount(item), rate_config_id: null,
+        amount: itemAmount(item), source_log_id: null, is_override: false,
+        note: item.description || null, log_date: String(item.item_date).slice(0, 10),
+      })),
   ].filter(Boolean);
 
   const payroll = computeTotals({
@@ -1071,6 +1419,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
+    extra: { incentive: otherIncentive, overload: overloadPay },
   });
 
   const nowIso = new Date().toISOString();
@@ -1091,15 +1440,28 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     computed_by: actor?.userId || null,
     computed_by_name: actor?.name || null,
   };
+  if (settling) applySecondHalfSettlement(payroll, { settlement, semi, rates });
 
   return {
     payroll,
     deviations,
     reason,
     blocking: auto.blocking,
+    refusal: null,
     // What the form and the batch table pre-fill (GET).
     defaults: {
       statutory_method: legal ? "legal" : "flat",
+      basic_salary: defaultBasic,
+      ...(settling ? {
+        semi_monthly: "second",
+        other_incentive: otherIncentive,
+        overload_hours: overloadHours,
+        overload_pay: overloadPay,
+        first_half_paid: semi.first_half.net_pay,
+        first_half_status: semi.first_half.status,
+        carry_in: semi.carry_in,
+        monthly: payroll.monthly,
+      } : {}),
       sss: contributionDefault("sss"),
       philhealth: contributionDefault("philhealth"),
       pagibig: contributionDefault("pagibig"),
@@ -1350,6 +1712,9 @@ function buildPayslipDetails(entry) {
       total_incentives: entry.payroll.totals.total_incentives ?? 0,
     },
     net_pay: entry.payroll.totals.net_pay,
+    // Semi-monthly: the month's computation (2nd half) or the half-salary
+    // 1st half; rendered instead of the per-period breakdown.
+    monthly: entry.payroll.monthly || null,
   };
 }
 
@@ -1389,6 +1754,281 @@ function getPeriodOptions(entries) {
   return periods;
 }
 
+/* ── 13th month pay (src/lib/payroll/thirteenth-month.js) ─────────────────── */
+
+/** GET ?view=thirteenth_month&year=YYYY: every employee's 13th month from their Final payslips. */
+async function handleThirteenthMonthView(supabase, employees, entries, url) {
+  const today = manilaDateKey();
+  const year = Number(url.searchParams.get("year")) || Number(today.slice(0, 4));
+  const processed = await supabase
+    .from("payroll_thirteenth_month")
+    .select("employee_id,year,basic_earned,amount,processed_at,processed_by_name")
+    .eq("year", year);
+  const available = !processed.error;
+  const done = new Map((processed.data || []).map((row) => [row.employee_id, row]));
+
+  const rows = employees.map((employee) => {
+    const computed = compute13thMonthFromEntries(entries.filter((entry) => entry.employee_id === employee.id), year);
+    return {
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      employee_code: employee.employee_id,
+      employee_type: employee.employee_type,
+      total_basic_earned: computed.total_basic_earned,
+      amount: computed.amount,
+      periods: computed.periods,
+      processed: done.get(employee.id) || null,
+    };
+  });
+
+  return NextResponse.json({
+    year,
+    available,
+    error: available ? null : PAYROLL_NOT_READY_MESSAGE,
+    process_opens: `${year}-12-01`,
+    can_process: available && today >= `${year}-12-01`,
+    rows,
+    total_amount: toAmount(rows.reduce((sum, row) => sum + (row.processed ? Number(row.processed.amount) : row.amount), 0)),
+  });
+}
+
+/** PATCH { action: "process_13th_month", year, employee_ids? }: record the December payout. */
+async function handleProcessThirteenthMonth(supabase, body, guard) {
+  const today = manilaDateKey();
+  const year = Number(body.year) || Number(today.slice(0, 4));
+  if (today < `${year}-12-01`) {
+    return NextResponse.json({ error: `The ${year} 13th month pay is processed in December, from ${formatDateKey(`${year}-12-01`)}.`, code: "thirteenth_month_window" }, { status: 403 });
+  }
+
+  const [employees, { entries }] = await Promise.all([fetchEmployees(supabase, guard), readPayrollEntries(supabase)]);
+  const wanted = Array.isArray(body.employee_ids) && body.employee_ids.length ? new Set(body.employee_ids.map(String)) : null;
+  const existing = await supabase.from("payroll_thirteenth_month").select("employee_id").eq("year", year);
+  if (existing.error) return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
+  const already = new Set((existing.data || []).map((row) => row.employee_id));
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const nowIso = new Date().toISOString();
+
+  const processed = [];
+  const skipped = [];
+  const rows = [];
+  employees.filter((employee) => !wanted || wanted.has(employee.id)).forEach((employee) => {
+    if (already.has(employee.id)) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Already processed." });
+      return;
+    }
+    const computed = compute13thMonthFromEntries(entries.filter((entry) => entry.employee_id === employee.id), year);
+    if (!(computed.amount > 0)) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "No basic pay earned this year." });
+      return;
+    }
+    rows.push({
+      employee_id: employee.id,
+      employee_name: employee.full_name,
+      year,
+      basic_earned: computed.total_basic_earned,
+      amount: computed.amount,
+      breakdown: { periods: computed.periods },
+      processed_by: guard.userId || null,
+      processed_by_name: actorName || null,
+      processed_at: nowIso,
+    });
+    processed.push({ employee_id: employee.id, employee_name: employee.full_name, amount: computed.amount });
+  });
+
+  if (rows.length) {
+    const result = await supabase.from("payroll_thirteenth_month").insert(rows);
+    if (result.error) {
+      const duplicate = isDuplicateKeyError(result.error);
+      return NextResponse.json({
+        error: duplicate ? "Another 13th month payout for this year was recorded at the same time. Refresh and try again." : sanitizeError(result.error),
+      }, { status: duplicate ? 409 : 500 });
+    }
+  }
+
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action: "thirteenth_month_process",
+    entity_type: "payroll_thirteenth_month",
+    entity_id: String(year),
+    description: `13th month pay ${year} processed for ${processed.length} employee(s)${skipped.length ? ` (${skipped.length} skipped)` : ""}.`,
+    status: "success",
+    source: "api",
+    metadata: { year, processed, skipped },
+  });
+
+  return NextResponse.json({ success: true, year, processed, skipped });
+}
+
+/* ── Incentives and overload hours (payroll_monthly_incentives) ────────────── */
+
+const MONTHLY_ITEM_KINDS = new Set(["incentive", "overload"]);
+
+/** Lock days in force, from the rate versions (semi-monthly payroll). */
+async function loadLockDayFor(supabase) {
+  const { configs } = await loadRateConfigs(supabase);
+  return (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
+}
+
+function itemPayrollMonth(item, lockDayFor) {
+  return payrollMonthFor(
+    String(item.item_date).slice(0, 10),
+    manilaDateKey(new Date(item.created_at || Date.now())),
+    lockDayFor,
+  );
+}
+
+/** GET ?view=monthly_items&month=YYYY-MM: the items dated in or counted for a month. */
+async function handleMonthlyItemsView(supabase, employees, url) {
+  const param = normalizeText(url.searchParams.get("month"));
+  const monthKey = /^\d{4}-\d{2}$/.test(param) ? param : manilaDateKey().slice(0, 7);
+  const month = monthInfo(monthKey);
+  const lockDayFor = await loadLockDayFor(supabase);
+  const names = new Map(employees.map((employee) => [employee.id, employee]));
+
+  const result = await fetchAllRows(() => supabase
+    .from("payroll_monthly_incentives")
+    .select("id,employee_id,item_date,kind,description,amount,hours,created_at,created_by_name")
+    .eq("archived", false)
+    .gte("item_date", monthInfo(shiftMonth(monthKey, -1)).start_key)
+    .lte("item_date", month.end_key)
+    .order("item_date", { ascending: false })
+    .order("id", { ascending: true }));
+  if (result.error) {
+    return NextResponse.json({ available: false, error: PAYROLL_NOT_READY_MESSAGE, month, items: [] });
+  }
+
+  const items = (result.data || [])
+    .filter((item) => names.has(item.employee_id))
+    .map((item) => {
+      const payrollMonth = itemPayrollMonth(item, lockDayFor);
+      return {
+        ...item,
+        item_date: String(item.item_date).slice(0, 10),
+        employee_name: names.get(item.employee_id).full_name,
+        employee_code: names.get(item.employee_id).employee_id,
+        payroll_month: payrollMonth,
+        payroll_month_label: monthInfo(payrollMonth).label,
+        moved_to_next_month: payrollMonth !== monthKeyOf(item.item_date),
+      };
+    })
+    .filter((item) => item.payroll_month === monthKey || monthKeyOf(item.item_date) === monthKey);
+
+  const lockDay = lockDayFor(monthKey);
+  return NextResponse.json({
+    available: true,
+    month,
+    lock_day: lockDay,
+    window: monthlyWindow(monthKey, lockDayFor),
+    items,
+  });
+}
+
+/** POST { action: "add_monthly_item", employee_id, item_date, kind, description, amount | hours } */
+async function handleAddMonthlyItem(supabase, body, guard) {
+  const employees = await fetchEmployees(supabase, guard);
+  const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
+  if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+
+  const kind = normalizeText(body.kind).toLowerCase();
+  const itemDate = normalizeText(body.item_date);
+  const description = normalizeText(body.description).slice(0, 200);
+  const amount = Number(body.amount);
+  const hours = Number(body.hours);
+  if (!MONTHLY_ITEM_KINDS.has(kind)) return NextResponse.json({ error: "Choose Incentive or Overload." }, { status: 400 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(itemDate)) return NextResponse.json({ error: "Choose the date it is for." }, { status: 400 });
+  if (itemDate < SEMI_MONTHLY_RULES_EFFECTIVE) {
+    return NextResponse.json({ error: `Incentives and overload are paid by the semi-monthly payroll, from ${formatDateKey(SEMI_MONTHLY_RULES_EFFECTIVE)}.` }, { status: 400 });
+  }
+  if (!description) return NextResponse.json({ error: "Describe what it is for." }, { status: 400 });
+  if (kind === "incentive" && !(Number.isFinite(amount) && amount > 0 && amount <= 9999999.99)) {
+    return NextResponse.json({ error: "Enter an incentive amount greater than 0." }, { status: 400 });
+  }
+  if (kind === "overload" && !(Number.isFinite(hours) && hours > 0 && hours <= 744)) {
+    return NextResponse.json({ error: "Enter overload hours greater than 0 (at most 744)." }, { status: 400 });
+  }
+
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const row = {
+    employee_id: employee.id,
+    branch_id: employee.branch_id || null,
+    item_date: itemDate,
+    kind,
+    description,
+    amount: kind === "incentive" ? toAmount(amount) : null,
+    hours: kind === "overload" ? toAmount(hours) : null,
+    created_by: guard.userId || null,
+    created_by_name: actorName || null,
+    created_at: new Date().toISOString(),
+  };
+  const result = await supabase.from("payroll_monthly_incentives").insert(row);
+  if (result.error) {
+    return NextResponse.json({ error: isInternalDbSchemaError(result.error.message) ? PAYROLL_NOT_READY_MESSAGE : sanitizeError(result.error) }, { status: 500 });
+  }
+
+  const payrollMonth = itemPayrollMonth(row, await loadLockDayFor(supabase));
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action: "monthly_item_add",
+    entity_type: "payroll_monthly_incentive",
+    entity_id: employee.id,
+    description: `${kind === "incentive" ? `Incentive ₱${money(row.amount)}` : `Overload ${row.hours} h`} for ${employee.full_name} (${description}), counted in ${monthInfo(payrollMonth).label} payroll.`,
+    status: "success",
+    source: "api",
+    metadata: { ...row, payroll_month: payrollMonth },
+  });
+
+  return NextResponse.json({ success: true, payroll_month: payrollMonth, payroll_month_label: monthInfo(payrollMonth).label });
+}
+
+/** PATCH { action: "archive_monthly_item", item_id }: never once a Final payslip paid it. */
+async function handleArchiveMonthlyItem(supabase, body, guard) {
+  const itemId = normalizeText(body.item_id);
+  if (!itemId) return NextResponse.json({ error: "item_id is required." }, { status: 400 });
+  const found = await supabase.from("payroll_monthly_incentives").select("*").eq("id", itemId).maybeSingle();
+  if (found.error) throw new Error(found.error.message);
+  const item = found.data;
+  if (!item || item.archived) return NextResponse.json({ error: "Item not found." }, { status: 404 });
+
+  const employees = await fetchEmployees(supabase, guard);
+  const employee = employees.find((row) => row.id === item.employee_id);
+  if (!employee) return NextResponse.json({ error: "That item belongs to another branch." }, { status: 403 });
+
+  const payrollMonth = itemPayrollMonth(item, await loadLockDayFor(supabase));
+  const secondHalf = monthInfo(payrollMonth).second_half_label;
+  const paid = await supabase
+    .from("payroll_entries")
+    .select("id,status")
+    .eq("employee_id", item.employee_id)
+    .eq("pay_period", secondHalf)
+    .maybeSingle();
+  if (paid.data?.status === "paid") {
+    return NextResponse.json({ error: `Already paid on the Final ${secondHalf} payslip; it can no longer be removed.`, code: "payslip_locked" }, { status: 409 });
+  }
+
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const result = await supabase
+    .from("payroll_monthly_incentives")
+    .update({ archived: true, archived_by: guard.userId || null, archived_by_name: actorName || null, archived_at: new Date().toISOString() })
+    .eq("id", itemId);
+  if (result.error) throw new Error(result.error.message);
+
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action: "monthly_item_archive",
+    entity_type: "payroll_monthly_incentive",
+    entity_id: itemId,
+    description: `Removed ${item.kind} "${item.description}" for ${employee.full_name} from ${monthInfo(payrollMonth).label} payroll.`,
+    status: "success",
+    source: "api",
+    metadata: { item_id: itemId, employee_id: item.employee_id, payroll_month: payrollMonth },
+  });
+
+  return NextResponse.json({ success: true });
+}
+
 export async function GET(request) {
   try {
     const guard = await requirePermission(request, "process_payroll", "read");
@@ -1403,6 +2043,11 @@ export async function GET(request) {
       fetchEmployees(supabase, guard),
       readPayrollEntries(supabase),
     ]);
+
+    // ?view=thirteenth_month&year=… and ?view=monthly_items&month=YYYY-MM
+    const view = normalizeText(url.searchParams.get("view")).toLowerCase();
+    if (view === "thirteenth_month") return await handleThirteenthMonthView(supabase, employees, entriesResult.entries, url, guard);
+    if (view === "monthly_items") return await handleMonthlyItemsView(supabase, employees, url);
 
     // ?format=pdf&entry_id=… : the payslip as a PDF download.
     if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
@@ -1502,7 +2147,21 @@ export async function GET(request) {
       // (src/lib/payroll/statutory.js); the table lets the form preview the
       // tax exactly as the server computes it.
       legal_rules: usesLegalRules(activePeriod.start_key),
-      tax_table: SEMI_MONTHLY_TAX_TABLE,
+      // Semi-monthly payroll: the 2nd half uses the MONTHLY table (Super Admin
+      // -> Withholding Tax Table); the 1st half deducts no tax.
+      tax_table: payContext.semi
+        ? payContext.semi.tax_table
+        : SEMI_MONTHLY_TAX_TABLE,
+      semi_monthly: payContext.semi
+        ? {
+          half: payContext.semi.half,
+          month_label: payContext.semi.month_label,
+          first_half_label: payContext.semi.first_half_label,
+          second_half_label: payContext.semi.second_half_label,
+          window: payContext.semi.window,
+          lock_day: payContext.semi.lock_day,
+        }
+        : null,
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
@@ -1584,6 +2243,10 @@ async function handleBatchSubmit(supabase, body, guard) {
       actor,
     });
 
+    if (built.refusal) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: built.refusal, code: "month_settled" });
+      continue;
+    }
     // Only this employee waits; everyone else in the batch is processed.
     if (built.blocking.length) {
       skipped.push({
@@ -1679,6 +2342,8 @@ export async function POST(request) {
     const body = await request.json();
     const action = normalizeText(body.action, "save_draft").toLowerCase();
 
+    if (action === "add_monthly_item") return await handleAddMonthlyItem(getAdminClient(), body, guard);
+
     if (action !== "save_draft" && action !== "submit" && action !== "batch_submit") {
       return NextResponse.json({ error: "Action must be save_draft, submit, or batch_submit." }, { status: 400 });
     }
@@ -1722,6 +2387,9 @@ export async function POST(request) {
       actor,
     });
 
+    if (built.refusal) {
+      return NextResponse.json({ error: built.refusal, code: "month_settled" }, { status: 422 });
+    }
     if (action === "submit" && built.blocking.length) {
       // 422, not 409: the portal reads 409 as "already processed".
       return NextResponse.json(
@@ -1967,6 +2635,9 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const context = payContext.byEmployee.get(employee.id);
   const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
   const built = buildEmployeePayroll({ employee, context, input: {}, allowAttendanceOverrides: false, period, actor });
+  if (built.refusal) {
+    return NextResponse.json({ error: built.refusal, code: "month_settled" }, { status: 422 });
+  }
 
   if (built.blocking.length && body.confirm_incomplete !== true) {
     const days = built.blocking.map((item) => `${formatDateKey(item.log_date)} (${item.status})`).join(", ");
@@ -1999,6 +2670,9 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       auto: context.auto,
       rates: rateValues(context.resolved),
       legal: usesLegalRules(period.start_key),
+      taxBasis: built.payroll.monthly?.half === "second"
+        ? `BIR monthly withholding table on taxable income ${money(built.payroll.monthly.taxable_income)}`
+        : undefined,
     }),
     branch_name: branch?.data?.name || null,
     position_title: employee.position_title || employee.position,
@@ -2102,9 +2776,11 @@ export async function PATCH(request) {
 
     if (action === "generate") return await handleGenerate(getAdminClient(), body, guard, { override: false });
     if (action === "override_final") return await handleGenerate(getAdminClient(), body, guard, { override: true });
+    if (action === "archive_monthly_item") return await handleArchiveMonthlyItem(getAdminClient(), body, guard);
+    if (action === "process_13th_month") return await handleProcessThirteenthMonth(getAdminClient(), body, guard);
 
     if (action !== "cancel_draft") {
-      return NextResponse.json({ error: "Action must be generate, override_final or cancel_draft." }, { status: 400 });
+      return NextResponse.json({ error: "Action must be generate, override_final, archive_monthly_item, process_13th_month or cancel_draft." }, { status: 400 });
     }
 
     const entryId = normalizeText(body.entry_id);

@@ -95,6 +95,8 @@ const API_MODULES = [
   ["/api/admin/config", "system_configuration"],
   // Effective-dated payroll rates: Super Admin's System Configuration.
   ["/api/admin/payroll-rates", "system_configuration"],
+  // Monthly withholding tax table and contribution amounts (semi-monthly payroll).
+  ["/api/admin/payroll-settings", "system_configuration"],
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],

@@ -13,6 +13,8 @@ const ACCT_PAGES = {
   'ac-process':    'Process Payroll',
   'ac-records':    'Payroll Records',
   'ac-payslips':   'Payslips',
+  'ac-incentives': 'Incentives & Overload',
+  'ac-13th':       '13th Month Pay',
   'ac-attendance': 'View Attendance',
   'ac-monitoring': 'Payroll Monitoring',
   'ac-reports':    'Payroll Reports',
@@ -45,6 +47,9 @@ const acctState = {
   generationWindow: null,
   activePeriod: '',
   canOverride: false,
+  // Semi-monthly payroll for the active period (GET semi_monthly): which half
+  // it is, the month, and the 2nd half's attendance window / lock day.
+  semiMonthly: null,
 };
 
 let acRecordsPaginator = null;
@@ -211,6 +216,8 @@ function acctNav(pageId, navEl) {
   }
 
   if (pageId === 'ac-profile') loadAccountantProfile();
+  if (pageId === 'ac-incentives') loadMonthlyItems();
+  if (pageId === 'ac-13th') loadThirteenthMonth();
   // Read-only status board (Incomplete records that hold payroll back).
   if (pageId === 'ac-attendance') window.mountAttendanceBoard?.('ac-att-board');
 }
@@ -250,6 +257,33 @@ function employeePayInfo(employeeId) {
 }
 
 const acctSame = (a, b) => Math.abs(toAmount(a) - toAmount(b)) < 0.005;
+
+/* Semi-monthly payroll (from Oct 1, 2026): the 1st half is the monthly salary
+   ÷ 2 with nothing deducted; the 2nd half settles the whole month (attendance,
+   leave, incentives, contributions, monthly withholding tax) less what the 1st
+   half paid. 'first' | 'second' | null (earlier periods). */
+function semiHalf() {
+  return acctState.semiMonthly?.half || null;
+}
+
+/** The server's default basic for the period (monthly salary in a 2nd half). */
+function basicDefaultFor(employee) {
+  const row = (acctState.attendanceRows || []).find((r) => r.employee_id === employee?.id);
+  const fallback = toAmount(Number(employee?.basic_salary || 0) / 2);
+  return row?.defaults?.basic_salary !== undefined ? toAmount(row.defaults.basic_salary) : fallback;
+}
+
+/** What a 2nd half adds and settles against, from the server's preview. */
+function semiExtras(info) {
+  const d = info.row?.defaults || {};
+  return {
+    other: toAmount(Number(d.other_incentive || 0) + Number(d.overload_pay || 0)),
+    overloadHours: toAmount(d.overload_hours || 0),
+    firstHalfPaid: toAmount(d.first_half_paid || 0),
+    firstHalfStatus: d.first_half_status || 'not_processed',
+    carryIn: toAmount(d.carry_in || 0),
+  };
+}
 
 /**
  * Attendance amounts for the quantities shown. Same rule as the server
@@ -304,6 +338,8 @@ function usesLegalTables(info) {
  */
 function contributionDefaults(info, basic) {
   const defaults = info.row?.defaults;
+  // Semi-monthly 1st half: nothing deducted.
+  if (semiHalf() === 'first') return { sss: 0, philhealth: 0, pagibig: 0 };
   if (usesLegalTables(info)) {
     return {
       sss: toAmount(defaults.sss),
@@ -333,9 +369,12 @@ function earningsFor(info) {
  * and Leave Without Pay deductions − SSS / PhilHealth / Pag-IBIG). Zero for
  * periods before the legal tables.
  */
-function taxDefaultFor(info, { basic, earnings, attendanceDeductions, contributions }) {
-  if (!usesLegalTables(info)) return 0;
-  const taxable = Math.max(0, toAmount(basic + earnings - attendanceDeductions - contributions));
+function taxDefaultFor(info, { basic, earnings, attendanceDeductions, contributions, incentives = 0 }) {
+  if (semiHalf() === 'first' || !usesLegalTables(info)) return 0;
+  // Semi-monthly 2nd half: the month's taxable income (incentives and
+  // overload included), on the monthly table the server sent.
+  const extra = semiHalf() === 'second' ? toAmount(incentives) : 0;
+  const taxable = Math.max(0, toAmount(basic + earnings + extra - attendanceDeductions - contributions));
   return acctWithholdingTax(taxable);
 }
 
@@ -422,9 +461,13 @@ function getFormDeviations() {
   const leave = (acctState.leaveSummary || []).find((row) => row.employee_id === employee.id);
   const get = (id) => toAmount(document.getElementById(id)?.value);
   const basic = get('pc-basic');
+  // Semi-monthly 1st half: only the basic salary can differ (nothing else is deducted).
+  if (semiHalf() === 'first') {
+    return acctSame(basicDefaultFor(employee), basic) ? [] : [`Basic Salary: ${basicDefaultFor(employee)} → ${basic}`];
+  }
   const contributions = contributionDefaults(info, basic);
   const checks = [
-    ['Basic Salary', toAmount(Number(employee.basic_salary || 0) / 2), basic],
+    ['Basic Salary', basicDefaultFor(employee), basic],
     ['SSS', contributions.sss, get('pc-sss')],
     ['PhilHealth', contributions.philhealth, get('pc-philhealth')],
     ['Pag-IBIG', contributions.pagibig, get('pc-pagibig')],
@@ -484,6 +527,7 @@ function renderLeaveDates(summary) {
 }
 
 function recalc() {
+  applyFirstHalfLock();
   const get = (id) => toAmount(document.getElementById(id)?.value);
   const basic = get('pc-basic');
   const sss = get('pc-sss');
@@ -509,6 +553,9 @@ function recalc() {
   // Approved overtime and holiday pay (from the logs) are part of gross pay.
   const earnings = earningsFor(info);
   const grossPay = toAmount(basic + earnings.overtime + earnings.holiday);
+  // Semi-monthly 2nd half: incentives / overload filed for the month.
+  const settling = semiHalf() === 'second';
+  const extras = settling ? semiExtras(info) : { other: 0, firstHalfPaid: 0, carryIn: 0 };
 
   // Withholding tax follows the figures until the accountant types one.
   acctState.lastTaxDefault = taxDefaultFor(info, {
@@ -516,6 +563,7 @@ function recalc() {
     earnings: earnings.overtime + earnings.holiday,
     attendanceDeductions: amounts.absent + amounts.late + amounts.undertime + amounts.half_day + leaveWithoutPayDeduct,
     contributions: sss + philhealth + pagibig,
+    incentives: incentives + extras.other,
   });
   if (!acctState.taxEdited) {
     tax = acctState.lastTaxDefault;
@@ -528,7 +576,11 @@ function recalc() {
     + leaveWithoutPayDeduct,
   );
   // Net Pay = Gross - deductions + incentives, floored at zero like the server.
-  const netPay = Math.max(0, toAmount(grossPay - totalDeductions + incentives));
+  // A 2nd half pays the month's net less the 1st half and any carried balance.
+  const monthNet = toAmount(grossPay - totalDeductions + incentives + extras.other);
+  const secondHalfNet = toAmount(monthNet - extras.firstHalfPaid - extras.carryIn);
+  const netPay = Math.max(0, settling ? secondHalfNet : monthNet);
+  renderSemiMonthlySummary(settling, { extras, monthNet, secondHalfNet });
 
   const updates = {
     'sum-basic': formatMoney(basic),
@@ -553,6 +605,37 @@ function recalc() {
   Object.entries(updates).forEach(([id, value]) => {
     const el = document.getElementById(id);
     if (el) el.textContent = value;
+  });
+}
+
+/** The 2nd half rows of the Computation Summary, and the 1st half's locked fields. */
+function renderSemiMonthlySummary(settling, { extras, monthNet, secondHalfNet }) {
+  const wrap = document.getElementById('sum-semi-wrap');
+  if (wrap) wrap.style.display = settling ? '' : 'none';
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  const half = semiHalf();
+  set('sum-net-label', half === 'second' ? '2nd Half Net Pay' : half === 'first' ? '1st Half Net Pay' : 'Net Pay');
+  if (settling) {
+    set('sum-other-incentives', `+ ${formatMoney(extras.other)}`);
+    set('sum-month-net', formatMoney(monthNet));
+    set('sum-first-half-label', extras.firstHalfStatus === 'final' ? 'Paid in 1st Half' : 'Paid in 1st Half (not processed)');
+    set('sum-first-half', `- ${formatMoney(extras.firstHalfPaid)}`);
+    set('sum-carry-in', `- ${formatMoney(extras.carryIn)}`);
+    const carryRow = document.getElementById('sum-carry-out-row');
+    if (carryRow) carryRow.style.display = secondHalfNet < 0 ? '' : 'none';
+    set('sum-carry-out', formatMoney(Math.max(0, -secondHalfNet)));
+  }
+}
+
+/** 1st half: no deductions at all, so those fields are zero and cannot be typed in. */
+function applyFirstHalfLock() {
+  const firstHalf = semiHalf() === 'first';
+  ['pc-sss', 'pc-philhealth', 'pc-pagibig', 'pc-tax', 'pc-absences', 'pc-late', 'pc-undertime', 'pc-half-days',
+    'pc-leave-with-pay-days', 'pc-leave-without-pay-days', 'pc-early-bird', 'pc-perfect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = firstHalf;
+    if (firstHalf) el.value = id === 'pc-perfect' ? 'no' : 0;
   });
 }
 
@@ -743,9 +826,10 @@ function syncFormForEmployee() {
   if (!basicInput) return;
 
   if (!acctState.currentEntryId) {
-    // Payroll runs twice a month (1-15 and 16-end), each covering half the
-    // employee's monthly rate, so the two runs together add up to one month's pay.
-    basicInput.value = toAmount(Number(employee.basic_salary || 0) / 2);
+    // Payroll runs twice a month (1-15 and 16-end). Semi-monthly payroll: the
+    // 1st half is half the monthly salary; the 2nd half computes the whole
+    // month on the monthly salary (the server's default either way).
+    basicInput.value = basicDefaultFor(employee);
     autoFillDeductions(toAmount(basicInput.value));
     autoFillLeaveDays(employee.id);
     autoFillAttendance(employee.id);
@@ -1169,6 +1253,7 @@ function renderPayslipDetails() {
   assign('ac-pf-leave-without-pay', formatMoney(payslip.deductions?.leave_without_pay_deduction || 0));
   assign('ac-pf-total-deductions', formatMoney(payslip.deductions?.total_deductions || 0));
   assign('ac-pf-net', formatMoney(payslip.net_pay || 0));
+  renderSemiMonthlyPayslip(payslip);
   renderPayslipGeneration(payslip);
 }
 
@@ -1247,8 +1332,11 @@ function computeBatchRowNetPay(row) {
     row.sss + row.philhealth + row.pagibig + row.tax
     + row.attendance_deductions + leaveWithoutPayDeduct,
   );
-  // Gross = basic + approved overtime + holiday pay.
-  return Math.max(0, toAmount(row.basic_salary + (row.earnings || 0) - totalDeductions + row.incentives));
+  // Gross = basic + approved overtime + holiday pay. A semi-monthly 2nd half
+  // adds the month's incentives / overload and pays the month less the 1st
+  // half and any balance carried in.
+  const monthNet = toAmount(row.basic_salary + (row.earnings || 0) - totalDeductions + row.incentives + (row.other_incentives || 0));
+  return Math.max(0, toAmount(monthNet - (row.first_half_paid || 0) - (row.carry_in || 0)));
 }
 
 /** The editable batch cells that differ from their computed defaults. */
@@ -1285,6 +1373,7 @@ function recalcBatchRow(employeeId, changedField) {
       earnings: toAmount(tr.dataset.earnings),
       attendanceDeductions: toAmount(tr.dataset.attendanceDeductions) + toAmount(get('lwop') * toAmount(tr.dataset.dailyRate)),
       contributions: get('sss') + get('philhealth') + get('pagibig'),
+      incentives: toAmount(tr.dataset.incentives) + toAmount(tr.dataset.otherIncentives),
     });
     taxInput.value = taxDefault;
     taxInput.dataset.default = taxDefault;
@@ -1301,6 +1390,9 @@ function recalcBatchRow(employeeId, changedField) {
     attendance_deductions: toAmount(tr?.dataset.attendanceDeductions),
     incentives: toAmount(tr?.dataset.incentives),
     earnings: toAmount(tr?.dataset.earnings),
+    other_incentives: toAmount(tr?.dataset.otherIncentives),
+    first_half_paid: toAmount(tr?.dataset.firstHalfPaid),
+    carry_in: toAmount(tr?.dataset.carryIn),
   };
 
   const netPay = computeBatchRowNetPay(row);
@@ -1345,18 +1437,21 @@ function loadBatchPayrollTable() {
 
   tbody.innerHTML = acctState.employees.map((employee) => {
     const id = escapeJsAttr(employee.id);
-    // Payroll runs twice a month (1-15 and 16-end), each covering half the
-    // employee's monthly rate, so the two runs together add up to one month's pay.
-    const basic = toAmount(Number(employee.basic_salary || 0) / 2);
+    // Payroll runs twice a month (1-15 and 16-end). Semi-monthly payroll: the
+    // 1st half is half the monthly salary, the 2nd half the whole month.
+    const basic = basicDefaultFor(employee);
     const info = employeePayInfo(employee.id);
-    const counts = info.pay?.counts || {};
-    const amounts = info.pay?.amounts || {};
-    const blocking = info.pay?.blocking || [];
+    const half = semiHalf();
+    const extras = half === 'second' ? semiExtras(info) : { other: 0, overloadHours: 0, firstHalfPaid: 0, carryIn: 0 };
+    // A 1st half counts no attendance: it is settled in the 2nd half.
+    const counts = half === 'first' ? {} : info.pay?.counts || {};
+    const amounts = half === 'first' ? {} : info.pay?.amounts || {};
+    const blocking = half === 'first' ? [] : info.pay?.blocking || [];
     const legal = usesLegalTables(info);
     const { sss, philhealth, pagibig } = contributionDefaults(info, basic);
     const leave = acctState.leaveSummary.find((row) => row.employee_id === employee.id);
-    const leaveWithPayDays = leave?.with_pay_days || 0;
-    const leaveWithoutPayDays = leave?.without_pay_days || 0;
+    const leaveWithPayDays = half === 'first' ? 0 : leave?.with_pay_days || 0;
+    const leaveWithoutPayDays = half === 'first' ? 0 : leave?.without_pay_days || 0;
     const attendanceDeductions = toAmount((amounts.absent || 0) + (amounts.late || 0) + (amounts.undertime || 0) + (amounts.half_day || 0));
     const incentives = toAmount((amounts.early_bird || 0) + (amounts.perfect_attendance || 0));
     const earningsParts = earningsFor(info);
@@ -1366,6 +1461,7 @@ function loadBatchPayrollTable() {
       earnings,
       attendanceDeductions: attendanceDeductions + toAmount(leaveWithoutPayDays * info.unit.daily),
       contributions: sss + philhealth + pagibig,
+      incentives: incentives + extras.other,
     });
     const netPay = computeBatchRowNetPay({
       basic_salary: basic,
@@ -1378,15 +1474,23 @@ function loadBatchPayrollTable() {
       attendance_deductions: attendanceDeductions,
       incentives,
       earnings,
+      other_incentives: extras.other,
+      first_half_paid: extras.firstHalfPaid,
+      carry_in: extras.carryIn,
     });
     const incentiveLabel = [
       counts.early_bird_days ? `${counts.early_bird_days} day${counts.early_bird_days === 1 ? '' : 's'}` : '',
-      info.pay?.perfect_attendance ? 'Perfect' : '',
+      info.pay?.perfect_attendance && half !== 'first' ? 'Perfect' : '',
+      extras.other ? `Incentive/overload${extras.overloadHours ? ` (${extras.overloadHours} h)` : ''}` : '',
     ].filter(Boolean).join(' · ') || '0';
-    const numberInput = (field, value, width, step) => `<input class="fc" type="number" id="batch-${field}-${id}" value="${value}" data-default="${value}" min="0" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" style="width:${width}px;" oninput="recalcBatchRow('${employee.id}','${field}')"${blocking.length ? ' disabled' : ''}>`;
+    const lockInput = blocking.length || half === 'first';
+    const numberInput = (field, value, width, step) => `<input class="fc" type="number" id="batch-${field}-${id}" value="${value}" data-default="${value}" min="0" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" style="width:${width}px;" oninput="recalcBatchRow('${employee.id}','${field}')"${lockInput ? ' disabled' : ''}>`;
+    const netNote = half === 'second'
+      ? `<div style="font-size:11px;color:var(--t3);font-weight:400;white-space:normal;" title="Monthly net less what the 1st half paid">less 1st half ${formatMoney(extras.firstHalfPaid)}${extras.carryIn ? ` and carried ${formatMoney(extras.carryIn)}` : ''}</div>`
+      : '';
 
     const mainRow = `
-      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}" data-earnings="${earnings}" data-legal="${legal ? '1' : '0'}"${blocking.length ? ' style="opacity:.75;"' : ''}>
+      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}" data-earnings="${earnings}" data-legal="${legal ? '1' : '0'}" data-other-incentives="${extras.other}" data-first-half-paid="${extras.firstHalfPaid}" data-carry-in="${extras.carryIn}"${blocking.length ? ' style="opacity:.75;"' : ''}>
         <td class="nm">${escapeHtml(employee.full_name)}</td>
         <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}">${earnings ? `<div style="font-size:11px;color:var(--green);" title="Approved overtime and holiday pay">+ ${formatMoney(earnings)} OT/holiday</div>` : ''}</td>
         <td class="mn">${numberInput('sss', sss, 75, '0.01')}</td>
@@ -1397,10 +1501,10 @@ function loadBatchPayrollTable() {
         <td class="mn">${cell(`${counts.late_days || 0}`, amounts.late)}</td>
         <td class="mn">${cell(counts.undertime_minutes ? `${counts.undertime_minutes} min` : '0', amounts.undertime)}</td>
         <td class="mn">${cell(`${counts.half_days || 0}`, amounts.half_day)}</td>
-        <td class="mn">${cell(incentiveLabel, incentives, '+')}</td>
+        <td class="mn">${cell(incentiveLabel, toAmount(incentives + extras.other), '+')}</td>
         <td class="mn"><span id="batch-lwp-display-${id}">${leaveWithPayDays}</span><input type="hidden" id="batch-lwp-${id}" value="${leaveWithPayDays}"></td>
         <td class="mn">${numberInput('lwop', leaveWithoutPayDays, 60, '1')}</td>
-        <td class="mn" style="font-family:var(--mono);font-weight:600;" id="batch-net-${id}">${formatMoney(netPay)}</td>
+        <td class="mn" style="font-family:var(--mono);font-weight:600;"><span id="batch-net-${id}">${formatMoney(netPay)}</span>${netNote}</td>
         <td>${acctPayslipCell(employee)}</td>
       </tr>`;
 
@@ -1609,7 +1713,9 @@ async function runAccountantLoad(options = {}) {
     acctState.generationWindow = payload.generation_window || null;
     acctState.activePeriod = payload.active_period?.label || '';
     acctState.canOverride = payload.can_override === true;
+    acctState.semiMonthly = payload.semi_monthly || null;
     renderGenerationWindow();
+    renderSemiMonthlyBanner();
     const notReady = document.getElementById('pc-not-ready');
     if (notReady) {
       notReady.style.display = acctState.payrollReady ? 'none' : '';
@@ -1917,6 +2023,310 @@ async function downloadPayslipPdf() {
   }
 }
 
+/* ── SEMI-MONTHLY PAYROLL ──
+   The server computes everything (src/lib/payroll/semi-monthly.js); these
+   only show it. */
+
+function acctShortDate(key) {
+  const [y, m, d] = String(key || '').split('-').map(Number);
+  return y && m && d ? `${ACCT_MONTHS[m - 1]} ${d}` : String(key || '');
+}
+
+function renderSemiMonthlyBanner() {
+  const banner = document.getElementById('pc-semi-banner');
+  const semi = acctState.semiMonthly;
+  if (!banner) return;
+  banner.style.display = semi ? '' : 'none';
+  if (!semi) return;
+  banner.innerHTML = semi.half === 'first'
+    ? `<strong>1st half:</strong> the full semi-monthly salary (monthly salary ÷ 2) with no deductions. Absences, leave, incentives, contributions and withholding tax for ${escapeHtml(semi.month_label)} are settled on the ${escapeHtml(semi.second_half_label)} payslip.`
+    : `<strong>2nd half settles ${escapeHtml(semi.month_label)}:</strong> attendance ${escapeHtml(acctShortDate(semi.window?.start_key))} – ${escapeHtml(acctDateLabel(semi.window?.end_key))}${semi.lock_day ? ` (locked on day ${escapeHtml(String(semi.lock_day))}; later items go to next month)` : ''}, approved leave, incentives and overload, the month's SSS / PhilHealth / Pag-IBIG and withholding tax from the monthly table. Net pay is the month's net less what the 1st half paid.`;
+}
+
+/** Payslip page: the month behind a semi-monthly payslip, in place of the per-period breakdown. */
+function renderSemiMonthlyPayslip(payslip) {
+  const monthlyEl = document.getElementById('ac-pf-monthly');
+  const classicEl = document.getElementById('ac-pf-breakdown');
+  const netLabel = document.getElementById('ac-pf-net-label');
+  const m = payslip?.monthly || null;
+  if (!monthlyEl || !classicEl) return;
+  monthlyEl.style.display = m ? '' : 'none';
+  classicEl.style.display = m ? 'none' : '';
+  if (netLabel) netLabel.textContent = m ? (m.half === 'first' ? '1st Half Net Pay' : '2nd Half Net Pay') : 'Net Pay';
+  if (!m) return;
+
+  const row = (label, amount, { sign = '', color = '', bold = false, muted = false } = {}) => `
+    <div class="pf-row"${bold ? ' style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"' : ''}>
+      <span${muted ? ' style="color:var(--t3);"' : ''}>${escapeHtml(label)}</span>
+      <span class="mn"${color ? ` style="color:var(--${color});"` : ''}>${typeof amount === 'number' ? `${sign}${formatMoney(amount)}` : escapeHtml(amount)}</span>
+    </div>`;
+  const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? '' : 's'}`;
+
+  if (m.half === 'first') {
+    monthlyEl.innerHTML = `
+      <div>
+        <div class="pf-stitle">Earnings — 1st Half</div>
+        ${row('Monthly Salary', Number(m.monthly_salary || 0))}
+        ${row('Semi-monthly Pay (÷ 2)', Number(m.semi_monthly_pay || 0), { bold: true, color: 'teal' })}
+      </div>
+      <div>
+        <div class="pf-stitle">Deductions</div>
+        ${row('None this half', 0)}
+        <div class="pf-row" style="color:var(--t3);font-size:12px;white-space:normal;"><span>Absences, leave, incentives, contributions and withholding tax for ${escapeHtml(m.month_label || 'the month')} are settled on the ${escapeHtml(m.second_half_label || '2nd half')} payslip.</span></div>
+      </div>`;
+    return;
+  }
+
+  const attendanceDeductions = [
+    ['Late', m.late_deduction], ['Undertime', m.undertime_deduction], ['Half Day', m.half_day_deduction],
+  ].filter(([, amount]) => Number(amount) > 0);
+  monthlyEl.innerHTML = `
+    <div>
+      <div class="pf-stitle">Month of ${escapeHtml(m.month_label || '')}</div>
+      ${m.window ? row(`Attendance ${acctShortDate(m.window.start_key)} – ${acctShortDate(m.window.end_key)}`, `Daily ${formatMoney(m.daily_rate)}`, { muted: true }) : ''}
+      ${row('Monthly Salary', Number(m.monthly_salary || 0))}
+      ${row(`Absences without pay (${plural(m.absent_days || 0, 'day')})`, Number(m.absent_deduction || 0), { sign: '- ', color: 'red' })}
+      ${row(`Leave Without Pay (${plural(m.leave_without_pay_days || 0, 'day')})`, Number(m.leave_without_pay_deduction || 0), { sign: '- ', color: 'red' })}
+      ${attendanceDeductions.map(([label, amount]) => row(label, Number(amount), { sign: '- ', color: 'red' })).join('')}
+      ${row(`Leave With Pay (${plural(m.leave_with_pay_days || 0, 'day')})`, 'No deduction')}
+      ${row('Incentives', toAmount(Number(m.other_incentive || 0) + Number(m.attendance_incentives || 0)), { sign: '+ ', color: 'green' })}
+      ${Number(m.overload_pay) > 0 ? row(`Overload Pay (${m.overload_hours} h)`, Number(m.overload_pay), { sign: '+ ', color: 'green' }) : ''}
+      ${Number(m.overtime_pay) > 0 ? row('Overtime', Number(m.overtime_pay), { sign: '+ ', color: 'green' }) : ''}
+      ${Number(m.holiday_pay) > 0 ? row('Holiday Pay', Number(m.holiday_pay), { sign: '+ ', color: 'green' }) : ''}
+      ${row('Monthly Gross', Number(m.monthly_gross || 0), { bold: true, color: 'teal' })}
+    </div>
+    <div>
+      <div class="pf-stitle">Contributions &amp; Tax</div>
+      ${row('SSS', Number(m.sss || 0), { sign: '- ' })}
+      ${row('PhilHealth', Number(m.philhealth || 0), { sign: '- ' })}
+      ${row('Pag-IBIG', Number(m.pagibig || 0), { sign: '- ' })}
+      ${row('Taxable Income', Number(m.taxable_income || 0), { muted: true })}
+      ${row('Withholding Tax (monthly)', Number(m.withholding_tax || 0), { sign: '- ' })}
+      ${row('Monthly Net', Number(m.monthly_net || 0), { bold: true })}
+      ${row(m.first_half_status === 'final' ? 'Paid in 1st Half' : 'Paid in 1st Half (not processed)', Number(m.first_half_paid || 0), { sign: '- ' })}
+      ${Number(m.carry_in) > 0 ? row(`Balance carried from ${m.carry_from || 'last month'}`, Number(m.carry_in), { sign: '- ', color: 'red' }) : ''}
+      ${Number(m.carry_over_out) > 0 ? row('Carried to next month', Number(m.carry_over_out), { color: 'amber' }) : ''}
+    </div>`;
+}
+
+/* ── INCENTIVES & OVERLOAD ── */
+
+function acctCurrentMonthKey() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit' }).format(new Date());
+}
+
+function onMonthlyItemKindChange() {
+  const overload = document.getElementById('ac-item-kind')?.value === 'overload';
+  const amountWrap = document.getElementById('ac-item-amount-wrap');
+  const hoursWrap = document.getElementById('ac-item-hours-wrap');
+  if (amountWrap) amountWrap.style.display = overload ? 'none' : '';
+  if (hoursWrap) hoursWrap.style.display = overload ? '' : 'none';
+}
+
+function renderMonthlyItemEmployees() {
+  const select = document.getElementById('ac-item-employee');
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML = acctState.employees.length
+    ? acctState.employees.map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(`${e.full_name} — ${e.employee_id}`)}</option>`).join('')
+    : '<option value="">No employees found</option>';
+  if (previous && acctState.employees.some((e) => e.id === previous)) select.value = previous;
+}
+
+async function loadMonthlyItems() {
+  renderMonthlyItemEmployees();
+  const monthInput = document.getElementById('ac-items-month');
+  const dateInput = document.getElementById('ac-item-date');
+  if (monthInput && !monthInput.value) monthInput.value = acctCurrentMonthKey();
+  if (dateInput && !dateInput.value) dateInput.value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+  const tbody = document.getElementById('ac-items-body');
+  const lockBanner = document.getElementById('ac-items-lock');
+  if (!tbody) return;
+  tbody.innerHTML = skeletonRows(8);
+  try {
+    const response = await fetch(`/api/accountant/payroll?view=monthly_items&month=${encodeURIComponent(monthInput?.value || acctCurrentMonthKey())}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to load incentives.');
+    if (!data.available) throw new Error(data.error || 'Incentives are not set up yet.');
+    if (lockBanner) {
+      lockBanner.style.display = '';
+      lockBanner.innerHTML = `<strong>${escapeHtml(data.month?.label || '')}:</strong> attendance ${escapeHtml(acctShortDate(data.window?.start_key))} – ${escapeHtml(acctDateLabel(data.window?.end_key))}. ${data.lock_day ? `Locked on day ${escapeHtml(String(data.lock_day))} — anything dated or filed after it is paid next month.` : 'Locked at month end.'}`;
+    }
+    const items = data.items || [];
+    tbody.innerHTML = items.length ? items.map((item) => `
+      <tr>
+        <td class="nm">${escapeHtml(item.employee_name)}<div style="font-size:11px;color:var(--t3);">${escapeHtml(item.employee_code || '')}</div></td>
+        <td class="mn">${escapeHtml(acctDateLabel(item.item_date))}</td>
+        <td>${item.kind === 'overload' ? '<span class="badge bt2"><span class="bd"></span>Overload</span>' : '<span class="badge bg"><span class="bd"></span>Incentive</span>'}</td>
+        <td style="white-space:normal;">${escapeHtml(item.description)}</td>
+        <td class="mn">${item.kind === 'overload' ? `${escapeHtml(String(item.hours))} h` : formatMoney(item.amount)}</td>
+        <td>${escapeHtml(item.payroll_month_label)}${item.moved_to_next_month ? '<div style="font-size:11px;color:var(--amber);">After the lock — next month</div>' : ''}</td>
+        <td style="font-size:12px;color:var(--t3);">${escapeHtml(item.created_by_name || '')}</td>
+        <td><button class="btn btn-outline" type="button" style="padding:4px 10px;font-size:12px;" onclick="archiveMonthlyItem('${escapeJsAttr(item.id)}')">Remove</button></td>
+      </tr>`).join('') : '<tr><td colspan="8" style="color:var(--t3);">No incentives or overload for this month.</td></tr>';
+  } catch (error) {
+    if (lockBanner) lockBanner.style.display = 'none';
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+async function submitMonthlyItem() {
+  const feedback = document.getElementById('ac-item-feedback');
+  const button = document.getElementById('ac-item-submit');
+  const value = (id) => String(document.getElementById(id)?.value || '').trim();
+  const say = (text, kind = '') => { if (feedback) { feedback.textContent = text; feedback.className = `adm-feedback${kind ? ` ${kind}` : ''}`; } };
+  const kind = value('ac-item-kind');
+  const payload = {
+    action: 'add_monthly_item',
+    employee_id: value('ac-item-employee'),
+    kind,
+    item_date: value('ac-item-date'),
+    description: value('ac-item-description'),
+    amount: kind === 'incentive' ? value('ac-item-amount') : undefined,
+    hours: kind === 'overload' ? value('ac-item-hours') : undefined,
+  };
+  if (!payload.employee_id) { showFieldError('ac-item-employee', 'Select an employee.'); return; }
+  if (!payload.item_date) { showFieldError('ac-item-date', 'Choose the date it is for.'); return; }
+  if (kind === 'incentive' && !(Number(payload.amount) > 0)) { showFieldError('ac-item-amount', 'Enter an amount greater than 0.'); return; }
+  if (kind === 'overload' && !(Number(payload.hours) > 0)) { showFieldError('ac-item-hours', 'Enter the overload hours.'); return; }
+  if (!payload.description) { showFieldError('ac-item-description', 'Describe what it is for.'); return; }
+
+  try {
+    if (button) button.disabled = true;
+    say('Saving...');
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to add it.');
+    say(`Added — counted in the ${data.payroll_month_label} payroll.`, 'ok');
+    ['ac-item-amount', 'ac-item-hours', 'ac-item-description'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    window.pushNotification?.('Added to Payroll', `Counted in the ${data.payroll_month_label} 2nd half payroll.`, 'success');
+    await loadMonthlyItems();
+    loadAccountantData();
+  } catch (error) {
+    say(error.message, 'err');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function archiveMonthlyItem(itemId) {
+  const confirmed = window.confirmDestructiveAction
+    ? await window.confirmDestructiveAction('remove this item from payroll', 'It will no longer be paid. The record is kept in the history.')
+    : window.confirm('Remove this item from payroll?');
+  if (!confirmed) return;
+  try {
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'archive_monthly_item', item_id: itemId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to remove it.');
+    window.pushNotification?.('Removed', 'The item was removed from payroll.', 'info');
+    await loadMonthlyItems();
+    loadAccountantData();
+  } catch (error) {
+    window.pushNotification?.('Not Removed', error.message, 'error');
+  }
+}
+
+/* ── 13TH MONTH PAY ── */
+
+const acct13th = { data: null };
+
+async function loadThirteenthMonth() {
+  const yearSelect = document.getElementById('ac-13th-year');
+  const thisYear = Number(acctCurrentMonthKey().slice(0, 4));
+  if (yearSelect && !yearSelect.options.length) {
+    const years = [];
+    for (let year = thisYear; year >= Math.min(2026, thisYear); year -= 1) years.push(year);
+    yearSelect.innerHTML = years.map((year) => `<option value="${year}">${year}</option>`).join('');
+  }
+  const year = Number(yearSelect?.value || thisYear);
+  const tbody = document.getElementById('ac-13th-body');
+  const banner = document.getElementById('ac-13th-banner');
+  const button = document.getElementById('ac-13th-submit');
+  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+  if (!tbody) return;
+  tbody.innerHTML = skeletonRows(5);
+  try {
+    const response = await fetch(`/api/accountant/payroll?view=thirteenth_month&year=${year}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to load the 13th month pay.');
+    acct13th.data = data;
+    const rows = data.rows || [];
+    const processedCount = rows.filter((row) => row.processed).length;
+    set('ac-13th-count', String(rows.length));
+    set('ac-13th-year-label', `Year ${data.year}`);
+    set('ac-13th-total', formatMoneyCompact(data.total_amount || 0));
+    set('ac-13th-processed', `${processedCount} / ${rows.length}`);
+    if (banner) {
+      banner.style.display = '';
+      banner.innerHTML = data.can_process
+        ? `<strong>${data.year}:</strong> processing is open. Each payout is recorded once and locked.`
+        : `<strong>${data.year}:</strong> figures so far. The 13th month pay is processed in December, from ${escapeHtml(acctDateLabel(data.process_opens))}.`;
+    }
+    if (button) {
+      button.disabled = !data.can_process || processedCount === rows.length;
+      button.title = data.can_process ? '' : `Opens ${acctDateLabel(data.process_opens)}`;
+    }
+    tbody.innerHTML = rows.length ? rows.map((row) => {
+      const amount = row.processed ? Number(row.processed.amount) : row.amount;
+      const status = row.processed
+        ? `<span class="badge bg"><span class="bd"></span>Processed</span><div style="font-size:11px;color:var(--t3);margin-top:3px;">${escapeHtml(formatDateTime(row.processed.processed_at))}${row.processed.processed_by_name ? ` · ${escapeHtml(row.processed.processed_by_name)}` : ''}</div>`
+        : '<span class="badge ba"><span class="bd"></span>Not processed</span>';
+      return `
+        <tr>
+          <td class="nm">${escapeHtml(row.employee_name)}<div style="font-size:11px;color:var(--t3);">${escapeHtml(row.employee_code || '')} · ${escapeHtml(row.employee_type || '')}</div></td>
+          <td class="mn">${(row.periods || []).length}</td>
+          <td class="mn">${formatMoney(row.processed ? row.processed.basic_earned : row.total_basic_earned)}</td>
+          <td class="mn" style="font-weight:600;">${formatMoney(amount)}</td>
+          <td>${status}</td>
+        </tr>`;
+    }).join('') : '<tr><td colspan="5" style="color:var(--t3);">No employees found.</td></tr>';
+  } catch (error) {
+    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+async function processThirteenthMonth() {
+  const data = acct13th.data;
+  const feedback = document.getElementById('ac-13th-feedback');
+  const button = document.getElementById('ac-13th-submit');
+  if (!data?.can_process) return;
+  const pending = (data.rows || []).filter((row) => !row.processed && row.amount > 0);
+  if (!pending.length) return;
+  const confirmed = window.confirmApproveAction
+    ? await window.confirmApproveAction(
+      `process the ${data.year} 13th month pay for ${pending.length} employee${pending.length === 1 ? '' : 's'}`,
+      'Each payout is recorded once and cannot be processed again.',
+    )
+    : window.confirm(`Process the ${data.year} 13th month pay?`);
+  if (!confirmed) return;
+  try {
+    if (button) button.disabled = true;
+    if (feedback) { feedback.textContent = 'Processing...'; feedback.className = 'adm-feedback'; }
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'process_13th_month', year: data.year }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Unable to process the 13th month pay.');
+    const message = `Processed ${result.processed.length} payout${result.processed.length === 1 ? '' : 's'}.${result.skipped.length ? ` ${result.skipped.length} skipped.` : ''}`;
+    if (feedback) { feedback.textContent = message; feedback.className = 'adm-feedback ok'; }
+    window.pushNotification?.('13th Month Pay Processed', message, 'success');
+    await loadThirteenthMonth();
+  } catch (error) {
+    if (feedback) { feedback.textContent = error.message; feedback.className = 'adm-feedback err'; }
+    if (button) button.disabled = false;
+  }
+}
+
 /* ── PROFILE ── */
 function loadAccountantProfile() {
   const ctx = window.getLegacyAuthContext ? window.getLegacyAuthContext() : null;
@@ -2081,4 +2491,10 @@ if (document.readyState === 'loading') {
 
 window.addEventListener('sacs-auth-context-changed', handleLegacyAuthContextChange);
 window.generateEmployeePayslip = generateEmployeePayslip;
+window.onMonthlyItemKindChange = onMonthlyItemKindChange;
+window.loadMonthlyItems = loadMonthlyItems;
+window.submitMonthlyItem = submitMonthlyItem;
+window.archiveMonthlyItem = archiveMonthlyItem;
+window.loadThirteenthMonth = loadThirteenthMonth;
+window.processThirteenthMonth = processThirteenthMonth;
 window.downloadPayslipPdf = downloadPayslipPdf;
