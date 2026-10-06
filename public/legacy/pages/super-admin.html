@@ -563,8 +563,8 @@
         <div class="config-section-head">
           <div>
             <div class="config-section-title">Contribution Amounts</div>
-            <div class="config-section-sub">Monthly SSS, PhilHealth and Pag-IBIG per employee, deducted once in the 2nd half. Computed from the legal table unless a fixed amount is set.</div>
-            <div class="config-applies">A change applies from its effective date; a blank amount goes back to the legal table.</div>
+            <div class="config-section-sub">Monthly SSS, PhilHealth and Pag-IBIG per employee, deducted once in the 2nd half. Without an amount here, payroll uses Payroll Rates: the SSS / PhilHealth / Pag-IBIG fixed amounts when "Contributions as fixed amounts" is On, otherwise the legal tables.</div>
+            <div class="config-applies">A change applies from its effective date; a blank amount goes back to the Payroll Rates default. 0 = exempt.</div>
           </div>
           <button class="btn btn-outline" type="button" onclick="loadSAPayrollSettings()">Refresh</button>
         </div>
@@ -575,6 +575,51 @@
               <thead><tr><th>Employee</th><th>Monthly Salary</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Total</th><th></th></tr></thead>
               <tbody id="sa-contrib-body"><tr><td colspan="7" style="color:var(--t3);">Loading employees...</td></tr></tbody>
             </table></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Regular holidays and special non-working days (loadSAHolidays in
+           js/super-admin.js, /api/admin/holidays). Nobody is marked Absent on
+           these days and payroll never deducts them. -->
+      <div class="config-section">
+        <div class="config-section-head">
+          <div>
+            <div class="config-section-title">Holidays</div>
+            <div class="config-section-sub">Regular holidays and special non-working days. Nobody is marked Absent on them, and work on them earns the holiday premium in Payroll Rates.</div>
+            <div class="config-applies">Add each year's proclaimed days (Eid'l Fitr, Eid'l Adha, Chinese New Year, Black Saturday, All Souls' Day, Christmas Eve, declared days) as soon as they are announced.</div>
+          </div>
+          <button class="btn btn-outline" type="button" onclick="loadSAHolidays()">Refresh</button>
+        </div>
+        <div class="config-section-body">
+          <div class="fg" style="margin:0;">
+            <label for="sa-hol-year">Year</label>
+            <select id="sa-hol-year" class="fc" onchange="loadSAHolidays(this.value)"></select>
+          </div>
+          <div style="grid-column:1 / -1;">
+            <div class="tw"><table aria-label="Holidays">
+              <thead><tr><th>Date</th><th>Holiday</th><th>Type</th><th>Added by</th><th></th></tr></thead>
+              <tbody id="sa-hol-body"><tr><td colspan="5" style="color:var(--t3);">Loading holidays...</td></tr></tbody>
+            </table></div>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-hol-date">Date</label>
+            <input id="sa-hol-date" class="fc" type="date" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-hol-name">Name</label>
+            <input id="sa-hol-name" class="fc" type="text" maxlength="100" placeholder="e.g. Eid'l Fitr" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="sa-hol-type">Type</label>
+            <select id="sa-hol-type" class="fc">
+              <option value="holiday">Regular Holiday</option>
+              <option value="special">Special Non-Working Day</option>
+            </select>
+          </div>
+          <div style="grid-column:1 / -1;">
+            <button class="btn btn-primary" type="button" id="sa-hol-submit" onclick="addSAHoliday()">Add Holiday</button>
+            <p id="sa-hol-feedback" class="adm-feedback" style="margin-top:8px;"></p>
           </div>
         </div>
       </div>
@@ -712,7 +757,7 @@
           </div>
           <p id="sa-contrib-feedback" class="adm-feedback" style="grid-column:1 / -1;"></p>
           <div class="adm-modal-actions" style="grid-column:1 / -1;">
-            <button type="button" class="btn btn-outline" onclick="clearSAContributionInputs()">Use Legal Table</button>
+            <button type="button" class="btn btn-outline" onclick="clearSAContributionInputs()">Use Default</button>
             <button type="submit" class="btn btn-primary" id="sa-contrib-submit">Save</button>
           </div>
         </form>
@@ -786,9 +831,9 @@
       <div class="banner banner-blue">ℹ Database backups are managed through Supabase. Manual exports below are for emergency use and compliance archiving.</div>
 
       <div class="sg3" style="margin-bottom:16px;">
-        <div class="card"><div class="ct">Last Backup</div><div class="cv b" id="sa-backup-last">—</div><div class="cch">Point-in-time restore ready</div></div>
+        <div class="card"><div class="ct">Backups</div><div class="cv b" id="sa-backup-last">Supabase</div><div class="cch">Not visible to this app. Check Supabase Dashboard → Database → Backups</div></div>
         <div class="card"><div class="ct">DB Status</div><div class="cv g" id="sa-backup-db-status">Checking...</div><div class="cch">Supabase connection</div></div>
-        <div class="card"><div class="ct">Data Integrity</div><div class="cv g" id="sa-backup-integrity">Healthy</div><div class="cch">No anomalies detected</div></div>
+        <div class="card"><div class="ct">Core Tables</div><div class="cv g" id="sa-backup-integrity">Checking...</div><div class="cch">Attendance, payroll and configuration tables reachable</div></div>
       </div>
 
       <!-- Backup status details -->
@@ -830,7 +875,7 @@
           <div class="backup-row">
             <div class="backup-icon">✅</div>
             <div class="backup-info">
-              <div class="backup-label">Leave Requests Table</div>
+              <div class="backup-label">System Configuration Table</div>
               <div class="backup-meta" id="sa-bk-leave-meta">Checking...</div>
             </div>
             <span class="sa-pill" id="sa-bk-leave-pill">—</span>

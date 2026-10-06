@@ -5,7 +5,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
-import { collapseDailyTaps, hoursBetween, planTap } from "@/lib/attendance/taps";
+import { collapseDailyTaps, findRepeatedTap, hoursBetween, planTap } from "@/lib/attendance/taps";
 import { maskCardCode, recordRawTap, recordRefusedTap, tapDevice } from "@/lib/attendance/raw-taps";
 import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/policy";
 import { attendanceBucket, normalizeAttendanceStatus as normalizeEngineStatus } from "@/lib/attendance/status";
@@ -478,6 +478,46 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
   return { record: mapAttendanceRow(insertResult.data), tap: "time_in" };
 }
 
+/**
+ * Taps the RFID terminal could not send when they happened (network down)
+ * come back with the time they were tapped. Only the terminal's kiosk
+ * session may send one, and only from the last OFFLINE_TAP_MAX_AGE_MS.
+ */
+const OFFLINE_TAP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const OFFLINE_TAP_MAX_SKEW_MS = 2 * 60 * 1000;
+
+/** { at: Date } for a usable offline tap time, { error } for an unusable one, null when none was sent. */
+function offlineTapTime(value, now = new Date()) {
+  if (value === undefined || value === null || value === "") return null;
+  const at = new Date(String(value));
+  if (Number.isNaN(at.getTime())) return { error: "The saved tap has no valid time." };
+  const age = now.getTime() - at.getTime();
+  if (age > OFFLINE_TAP_MAX_AGE_MS) return { error: "The saved tap is more than a day old and was not recorded. Ask HR to correct the day." };
+  if (age < -OFFLINE_TAP_MAX_SKEW_MS) return { error: "The saved tap's time is in the future." };
+  return { at: age < 0 ? now : at };
+}
+
+/**
+ * The tap already recorded that this one repeats (see findRepeatedTap in
+ * src/lib/attendance/taps.js), with the day's row, or null.
+ */
+async function findRepeat(supabase, employeeId, dateKey, tapIso) {
+  const rows = await supabase
+    .from("attendance_logs")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .eq("log_date", dateKey)
+    .eq("archived_duplicate", false)
+    .order("created_at", { ascending: true })
+    .limit(50);
+  if (rows.error) return null;
+  const rawTaps = await readDayTaps(supabase, employeeId, dateKey);
+  const repeated = findRepeatedTap(rows.data || [], rawTaps, tapIso);
+  if (!repeated) return null;
+  const day = collapseDailyTaps(rows.data || [], { dateKey: () => dateKey })[0] || null;
+  return { repeated, record: day ? mapAttendanceRow(day) : null };
+}
+
 /** Why an unmatched code was refused: an archived / inactive employee's card, or no one's. */
 async function unmatchedCardReason(supabase, code) {
   const value = normalizeText(code);
@@ -560,14 +600,22 @@ export async function POST(request) {
 
     // Only the Admin / Super Admin portal's manual box sends manual_entry; the
     // RFID terminal never does, so at the kiosk only a registered card counts.
-    const manualEntry = body.manual_entry === true;
+    // The kiosk session (src/lib/auth/kiosk-session.js) is never manual entry.
+    const manualEntry = body.manual_entry === true && !guard.kiosk;
+
+    // A tap the terminal saved while offline carries its own time.
+    const offline = guard.kiosk ? offlineTapTime(body.offline_tapped_at) : null;
+    if (offline?.error) {
+      return NextResponse.json({ error: offline.error, persisted: false, refused: true }, { status: 422 });
+    }
+    const tappedAt = offline?.at || new Date();
 
     const supabase = getAdminClient();
     const activeEmployees = await fetchEmployees(supabase);
     const employee = resolveEmployeeByRfid(rfidCode, activeEmployees, { allowEmployeeId: manualEntry });
 
-    const nowIso = new Date().toISOString();
-    const dateKey = getDateKey(new Date());
+    const nowIso = tappedAt.toISOString();
+    const dateKey = getDateKey(tappedAt);
     const tapSource = manualEntry ? "manual_entry" : "rfid_tap";
     // A tap is refused only for a real reason, and kept in Blocked Taps:
     // an unregistered card, an inactive employee, another branch's employee
@@ -653,6 +701,30 @@ export async function POST(request) {
     // assigned to, so a 7:00 AM branch marks Late earlier than an 8:00 AM one.
     const policy = await getBranchAttendancePolicy(supabase, employee.branch_id);
 
+    // The same tap twice (within a few minutes of one already recorded) is
+    // not a Time Out: nothing is saved, and the employee is told it counted.
+    const repeat = await findRepeat(supabase, employee.id, dateKey, nowIso);
+    if (repeat) {
+      await appendAuditLog({
+        actor: guard,
+        module: "attendance",
+        action: "rfid_repeat_ignored",
+        entity_type: "employee",
+        entity_id: employee.employee_id,
+        description: `Repeated RFID tap ignored for ${employee.full_name} (already tapped at ${repeat.repeated}).`,
+        status: "success",
+        source: "api",
+        metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: nowIso, repeated: repeat.repeated, offline: Boolean(offline) },
+      });
+      return NextResponse.json({
+        success: true,
+        persisted: false,
+        tap: "duplicate",
+        message: "Already recorded. A repeated tap within a few minutes is not counted.",
+        record: repeat.record,
+      });
+    }
+
     // Every accepted tap is kept as its own raw row first, then the day's
     // record is rebuilt from first tap (in) to last tap (out).
     await recordRawTap(supabase, {
@@ -660,7 +732,7 @@ export async function POST(request) {
       dateKey,
       tappedAt: nowIso,
       rfidCode: normalizeText(rfidCode),
-      device: tapDevice(body, manualEntry),
+      device: offline ? `${tapDevice(body, manualEntry)} (sent late)` : tapDevice(body, manualEntry),
       source: tapSource,
       recordedBy: guard.userId || null,
     });
@@ -684,6 +756,8 @@ export async function POST(request) {
         rfid_code: rfidCode,
         manual_entry: manualEntry,
         date_key: dateKey,
+        tapped_at: nowIso,
+        offline: Boolean(offline),
         branch_id: employee.branch_id,
         schedule: `${policy.work_start}-${policy.work_end}`,
         grace: policy.grace,

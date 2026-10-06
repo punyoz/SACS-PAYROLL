@@ -7,7 +7,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { loadRateConfigs, rateValues, resolveRates } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
-import { monthlyContributions } from "@/lib/payroll/statutory";
+import { monthlyContributionsFor } from "@/lib/payroll/school-sheet";
 import { resolveTaxTableRows } from "@/lib/payroll/semi-monthly";
 import { roundPeso } from "@/lib/payroll/money";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
@@ -16,11 +16,13 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
  * Semi-monthly payroll settings (Super Admin, System Configuration).
  *
  *   GET   the monthly withholding tax table in force and its versions, and
- *         every employee's monthly SSS / PhilHealth / Pag-IBIG: computed from
- *         the legal table, or the fixed amounts set for them.
+ *         every employee's monthly SSS / PhilHealth / Pag-IBIG: the amounts
+ *         set for them, else what payroll uses by default -- the fixed
+ *         amounts in Payroll Rates when "Contributions as fixed amounts" is
+ *         On (the school's SSS / PhilHealth / Pag-IBIG), else the legal tables.
  *   POST  { kind: "tax_table", effective_date, rows: [{ bracket_over, base_tax, rate_pct }], note? }
  *         { kind: "contribution", employee_id, effective_date, sss, philhealth, pagibig, note? }
- *         (a blank amount = computed from the legal table)
+ *         (a blank amount = the Payroll Rates default above)
  *
  * Both are versions, never overwrites: payroll uses the one in force on the
  * pay period's first day, and a date inside an already-processed period is
@@ -152,7 +154,8 @@ export async function GET(request) {
       const rates = rateValues(resolveRates(configs, {
         employeeId: employee.id, branchId: employee.branch_id, position: employee.position, monthlySalary: employee.basic_salary,
       }, current.start_key));
-      const computed = monthlyContributions(employee.basic_salary, rates);
+      // The same default payroll deducts (src/lib/payroll/school-sheet.js).
+      const computed = monthlyContributionsFor(employee.basic_salary, rates);
       const fixed = latestFor(employee.id, current.start_key);
       const scheduled = latestFor(employee.id, "9999-12-31");
       const amounts = (row) => (row && ["sss", "philhealth", "pagibig"].some((type) => row[type] !== null && row[type] !== undefined)
@@ -165,6 +168,8 @@ export async function GET(request) {
         branch_name: employee.branch_name,
         monthly_salary: employee.basic_salary,
         computed: { sss: computed.sss, philhealth: computed.philhealth, pagibig: computed.pagibig },
+        // "fixed": the Payroll Rates fixed amounts; "legal": the legal tables.
+        default_source: Number(rates.contribution_method) === 1 ? "fixed" : "legal",
         fixed: amounts(fixed),
         scheduled: scheduled && scheduled !== fixed ? amounts(scheduled) || { cleared: true, effective_date: scheduled.effective_date } : null,
       };

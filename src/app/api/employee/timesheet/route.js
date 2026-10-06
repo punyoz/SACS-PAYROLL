@@ -12,6 +12,7 @@ import {
   undertimeMinutes,
 } from "@/lib/attendance/policy";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { readHolidayMap } from "@/lib/attendance/holidays";
 
 /* ── Philippine national holidays (2024-2027) ── */
 const PH_HOLIDAYS = {
@@ -162,7 +163,9 @@ function generateDateRange(startDate, endDate) {
   return dates;
 }
 
-function getShiftInfo(dateStr, policy = null) {
+// `holidays` is attendance_holidays for the range (Super Admin -> Holidays);
+// PH_HOLIDAYS covers a database that cannot be read.
+function getShiftInfo(dateStr, policy = null, holidays = null) {
   const dow = getDayOfWeek(dateStr);
 
   if (dow === 0 || dow === 6) {
@@ -175,7 +178,7 @@ function getShiftInfo(dateStr, policy = null) {
     };
   }
 
-  const holiday = PH_HOLIDAYS[dateStr];
+  const holiday = holidays?.get?.(dateStr) || PH_HOLIDAYS[dateStr];
   if (holiday) {
     return {
       row_type: holiday.type,
@@ -327,12 +330,15 @@ export async function GET(request) {
       return policyCache.get(key);
     };
 
+    /* The holidays payroll and the nightly close use */
+    const holidays = await readHolidayMap(supabase, startDate, endDate);
+
     /* Build a record for every calendar day in the range */
     const dates   = generateDateRange(startDate, endDate);
     const records = dates.map((dateStr) => {
       const att       = attMap[dateStr] || null;
       const policy    = policyFor(att?.branch_id || currentBranchId);
-      let shift       = getShiftInfo(dateStr, policy);
+      let shift       = getShiftInfo(dateStr, policy, holidays);
       const hasLeave  = leaveDates.has(dateStr) ? 1 : 0;
       // A working day covered by approved leave, with no tap of its own.
       if (shift.row_type === "regular" && !att?.time_in

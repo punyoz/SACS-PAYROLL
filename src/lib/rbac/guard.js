@@ -22,6 +22,7 @@
 
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
+import { readKioskSession } from "@/lib/auth/kiosk-session";
 import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { clientAddressFrom } from "@/lib/auth/login-throttle";
 import {
@@ -56,7 +57,11 @@ function deny(message, status) {
  * }>}
  */
 export async function requirePermission(request, module, action = "read") {
-  const session = readSession(request);
+  // An RFID terminal tap carries the kiosk's own session
+  // (src/lib/auth/kiosk-session.js), which src/proxy.js has already checked;
+  // every other request, the ordinary signed session.
+  const kiosk = readKioskSession(request);
+  const session = kiosk || readSession(request);
 
   if (!session) {
     return {
@@ -130,6 +135,8 @@ export async function requirePermission(request, module, action = "read") {
     branchExempt,
     // Recorded on audit entries (src/lib/audit/store.js actorColumns).
     clientIp: clientAddressFrom(request),
+    // True when the caller is the RFID terminal's kiosk session.
+    kiosk: Boolean(kiosk),
   };
 }
 

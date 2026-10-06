@@ -3,6 +3,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
+import { correctionPayrollNotice } from "@/lib/payroll/final-payslips";
 import { SCOPE_BRANCH, SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
@@ -212,7 +213,9 @@ async function handleResolve(guard, body) {
     metadata: { correction_id: data?.id, resolution, time_out: timeOut, note },
   });
 
-  return NextResponse.json({ success: true, correction: data });
+  // A Final payslip that counted this day does not change by itself.
+  const payrollNotice = await correctionPayrollNotice(supabase, logResult.data.employee_id, logResult.data.log_date);
+  return NextResponse.json({ success: true, correction: data, payroll_notice: payrollNotice });
 }
 
 /**
@@ -280,7 +283,8 @@ async function handleCorrectAbsence(guard, body) {
     metadata: { correction_id: data?.id, employee_id: employeeId, log_date: logDate, time_in: timeIn, time_out: timeOut, note },
   });
 
-  return NextResponse.json({ success: true, correction: data });
+  const payrollNotice = await correctionPayrollNotice(supabase, employeeId, logDate);
+  return NextResponse.json({ success: true, correction: data, payroll_notice: payrollNotice });
 }
 
 const CORRECTION_TYPES = ["time_in", "time_out", "both", "present"];
@@ -413,7 +417,8 @@ async function handleCorrectRecord(guard, body) {
     },
   });
 
-  return NextResponse.json({ success: true, correction: data, old_values: oldValues, new_values: newValues });
+  const payrollNotice = await correctionPayrollNotice(supabase, employeeId, logDate);
+  return NextResponse.json({ success: true, correction: data, old_values: oldValues, new_values: newValues, payroll_notice: payrollNotice });
 }
 
 export async function PATCH(request) {
@@ -486,7 +491,8 @@ export async function PATCH(request) {
       metadata: { correction_id: correctionId, decision, resolution: data?.resolution, note: note || null },
     });
 
-    return NextResponse.json({ success: true, correction: data });
+    const payrollNotice = await correctionPayrollNotice(supabase, existing.data.employee_id, existing.data.log_date);
+    return NextResponse.json({ success: true, correction: data, payroll_notice: payrollNotice });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

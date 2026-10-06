@@ -385,6 +385,8 @@ export async function POST(request) {
           employee_id: finalEmployeeId,
           // The trusted copy payroll reads (src/lib/auth/users-cache.js).
           basic_salary: record.basic_salary,
+          // Position-scoped payroll rates read this copy, never user_metadata.
+          position: normalizePositionForRole(record.position, role),
           cp_number: normalizeDigits(body.cp_number, 11) || null,
           date_hired: normalizeText(body.date_hired, "") || null,
           address: normalizeText(body.address, "") || null,
@@ -636,6 +638,8 @@ export async function PATCH(request) {
       if (body.tin_number !== undefined) profilePatch.tin_number = normalizeDigits(body.tin_number, 12);
       if (body.bank_name !== undefined) profilePatch.bank_name = normalizeText(body.bank_name, "") || null;
       if (body.bank_account_number !== undefined) profilePatch.bank_account_number = normalizeDigits(body.bank_account_number, 20);
+      // Position-scoped payroll rates read profiles.position, never user_metadata.
+      if (nextMetadata.position) profilePatch.position = nextMetadata.position;
       // profiles holds the trusted salary payroll reads (src/lib/auth/users-cache.js).
       if (Number.isFinite(nextMetadata.basic_salary) && nextMetadata.basic_salary >= 0) {
         profilePatch.basic_salary = nextMetadata.basic_salary;

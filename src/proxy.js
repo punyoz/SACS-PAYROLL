@@ -38,6 +38,7 @@ import { readSession, clearSession, reissueSession } from "@/lib/rbac/session";
 import { can, isKnownRole } from "@/lib/rbac/permissions";
 import { checkActiveSession } from "@/lib/auth/active-session";
 import { loadSecuritySettings } from "@/lib/auth/security-settings";
+import { clearKioskSession, kioskRefusal, readKioskSession } from "@/lib/auth/kiosk-session";
 
 export const config = {
   matcher: [
@@ -97,6 +98,8 @@ const API_MODULES = [
   ["/api/admin/payroll-rates", "system_configuration"],
   // Monthly withholding tax table and contribution amounts (semi-monthly payroll).
   ["/api/admin/payroll-settings", "system_configuration"],
+  // Regular holidays and special non-working days (attendance_holidays).
+  ["/api/admin/holidays", "system_configuration"],
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],
@@ -361,6 +364,25 @@ export async function proxy(request) {
 
   // ── API routes ──
   if (!pathname.startsWith("/api/")) {
+    return NextResponse.next();
+  }
+
+  // An RFID terminal tap on the kiosk's own session (src/lib/auth/kiosk-session.js):
+  // it outlives the unlocking Admin's 8-hour sign-in and is not replaced by
+  // that Admin signing in elsewhere. Without a valid one, the tap falls
+  // through to the ordinary session check below.
+  const kiosk = readKioskSession(request);
+  if (kiosk) {
+    const refusal = await kioskRefusal(kiosk);
+    if (refusal) {
+      return clearKioskSession(NextResponse.json(
+        { error: "The RFID terminal was signed out. Unlock it again.", code: refusal },
+        { status: 401 },
+      ));
+    }
+    if (!can(kiosk.role, "attendance", "update")) {
+      return NextResponse.json({ error: "You do not have permission to perform this action." }, { status: 403 });
+    }
     return NextResponse.next();
   }
 
