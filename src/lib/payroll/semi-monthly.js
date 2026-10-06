@@ -98,9 +98,11 @@ function addDays(dateKey, days) {
  * @param {string} monthKey             "YYYY-MM"
  * @param {(monthKey: string) => number} lockDayFor  lock day in force for a month
  */
-export function monthlyWindow(monthKey, lockDayFor) {
+export function monthlyWindow(monthKey, lockDayFor, { carryOver = true } = {}) {
   const previousLock = lockDateKey(shiftMonth(monthKey, -1), lockDayFor(shiftMonth(monthKey, -1)));
-  const start = addDays(previousLock, 1);
+  // carryOver false: days after the lock day are never deducted, so each
+  // month reads from its own 1st (the school: the 1st to the 15th).
+  const start = carryOver ? addDays(previousLock, 1) : `${monthKey}-01`;
   return {
     start_key: start > SEMI_MONTHLY_RULES_EFFECTIVE ? start : SEMI_MONTHLY_RULES_EFFECTIVE,
     end_key: lockDateKey(monthKey, lockDayFor(monthKey)),
@@ -189,6 +191,8 @@ export function computeSecondHalf({
   overloadPremiumPct = 0,
   overloadPay,
   otherEarnings = 0,
+  // Cash advance installments: taken from the net only, never from taxable income.
+  cashAdvance = 0,
   contributions = {},
   taxTable = [],
   withholdingTax,
@@ -213,7 +217,8 @@ export function computeSecondHalf({
   const taxable = Math.max(0, peso(monthlyGross - contributionTotal));
   const tableTax = monthlyWithholdingTax(taxable, taxTable);
   const tax = withholdingTax !== undefined && withholdingTax !== null ? peso(withholdingTax) : tableTax;
-  const monthlyNet = peso(monthlyGross - contributionTotal - tax);
+  const cashAdvanceTotal = peso(cashAdvance);
+  const monthlyNet = peso(monthlyGross - contributionTotal - tax - cashAdvanceTotal);
   const paid = peso(firstHalfPaid);
   const carried = peso(carryIn);
   const secondHalf = peso(monthlyNet - paid - carried);
@@ -239,6 +244,7 @@ export function computeSecondHalf({
     taxable_income: taxable,
     table_withholding_tax: tableTax,
     withholding_tax: tax,
+    cash_advance: cashAdvanceTotal,
     monthly_net: monthlyNet,
     first_half_paid: paid,
     carry_in: carried,

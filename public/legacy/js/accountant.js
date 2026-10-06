@@ -14,6 +14,7 @@ const ACCT_PAGES = {
   'ac-records':    'Payroll Records',
   'ac-payslips':   'Payslips',
   'ac-incentives': 'Incentives & Overload',
+  'ac-cash-advances': 'Cash Advances',
   'ac-13th':       '13th Month Pay',
   'ac-attendance': 'View Attendance',
   'ac-monitoring': 'Payroll Monitoring',
@@ -217,6 +218,7 @@ function acctNav(pageId, navEl) {
 
   if (pageId === 'ac-profile') loadAccountantProfile();
   if (pageId === 'ac-incentives') loadMonthlyItems();
+  if (pageId === 'ac-cash-advances') loadCashAdvances();
   if (pageId === 'ac-13th') loadThirteenthMonth();
   // Read-only status board (Incomplete records that hold payroll back).
   if (pageId === 'ac-attendance') window.mountAttendanceBoard?.('ac-att-board');
@@ -418,6 +420,14 @@ function renderEmployeeRateHints(employeeId) {
     setTxt('pc-sss-hint', `(legal table: ${rates.sss_pct}% of salary credit, editable)`);
     setTxt('pc-philhealth-hint', `(legal table: ${rates.philhealth_pct}% of monthly salary, editable)`);
     setTxt('pc-pagibig-hint', `(legal table: ${rates.pagibig_pct}% up to the cap, editable)`);
+    // The school's payroll sheet: fixed amounts, or this employee's own (0 = exempt).
+    const source = info.row?.defaults?.contribution_source || null;
+    if (source) {
+      const words = { fixed: 'fixed monthly amount', employee: 'set for this employee' };
+      ['sss', 'philhealth', 'pagibig'].forEach((type) => {
+        if (words[source[type]]) setTxt(`pc-${type}-hint`, `(${words[source[type]]}, editable)`);
+      });
+    }
   } else {
     setTxt('pc-sss-hint', `(default ${rates.sss_pct}% of Basic, editable)`);
     setTxt('pc-philhealth-hint', `(default ${rates.philhealth_pct}% of Basic, editable)`);
@@ -556,6 +566,11 @@ function recalc() {
   // Semi-monthly 2nd half: incentives / overload filed for the month.
   const settling = semiHalf() === 'second';
   const extras = settling ? semiExtras(info) : { other: 0, firstHalfPaid: 0, carryIn: 0 };
+  // The school's payroll sheet (each half on its own attendance): the month's
+  // incentives / overload on the 2nd half, as the server computed them.
+  if (!settling && info.row?.defaults?.per_half) extras.other = semiExtras(info).other;
+  // Cash advance installments (Cash Advances page), as the server computed them.
+  const cashAdvance = toAmount(info.row?.defaults?.cash_advance || 0);
 
   // Withholding tax follows the figures until the accountant types one.
   acctState.lastTaxDefault = taxDefaultFor(info, {
@@ -573,7 +588,7 @@ function recalc() {
   const totalDeductions = toAmount(
     sss + philhealth + pagibig + tax
     + amounts.absent + amounts.late + amounts.undertime + amounts.half_day
-    + leaveWithoutPayDeduct,
+    + leaveWithoutPayDeduct + cashAdvance,
   );
   // Net Pay = Gross - deductions + incentives, floored at zero like the server.
   // A 2nd half pays the month's net less the 1st half and any carried balance.
@@ -597,7 +612,8 @@ function recalc() {
     'sum-half-day': `- ${formatMoney(amounts.half_day)}`,
     'sum-leave-with-pay': `${leaveWithPayDays} day${leaveWithPayDays === 1 ? '' : 's'}`,
     'sum-leave-without-pay': `- ${formatMoney(leaveWithoutPayDeduct)}`,
-    'sum-incentives': `+ ${formatMoney(incentives)}`,
+    'sum-cash-advance': `- ${formatMoney(cashAdvance)}`,
+    'sum-incentives': `+ ${formatMoney(incentives + (settling ? 0 : extras.other))}`,
     'sum-net': formatMoney(netPay),
   };
   renderOverrideState();
@@ -1067,6 +1083,16 @@ function generateReport() {
   const period = document.getElementById('rpt-period')?.value || 'all';
   const reportType = document.getElementById('rpt-type')?.value || 'summary';
 
+  // Payroll Sheet (School Format) is built on the server, per branch.
+  if (reportType === 'sheet') {
+    generatePayrollSheet();
+    return;
+  }
+  const sheetEl = document.getElementById('rpt-sheet');
+  if (sheetEl) sheetEl.style.display = 'none';
+  const tableCard = document.getElementById('rpt-table-card');
+  if (tableCard) tableCard.style.display = '';
+
   const all = [...(acctState.records || []), ...(acctState.draftEntries || [])];
   _reportData = period === 'all' ? all : all.filter((r) => r.pay_period === period);
 
@@ -1133,6 +1159,10 @@ function renderReportTable(reportType) {
 }
 
 function exportReportCSV() {
+  if (document.getElementById('rpt-type')?.value === 'sheet') {
+    exportPayrollSheetCSV();
+    return;
+  }
   if (!_reportData.length) {
     window.pushNotification?.('No Data', 'Generate a report first before exporting.', 'info');
     return;
@@ -1251,6 +1281,7 @@ function renderPayslipDetails() {
   const leaveWithPayDays = payslip.deductions?.leave_with_pay_days || 0;
   assign('ac-pf-leave-with-pay', `${leaveWithPayDays} day${leaveWithPayDays === 1 ? '' : 's'}`);
   assign('ac-pf-leave-without-pay', formatMoney(payslip.deductions?.leave_without_pay_deduction || 0));
+  assign('ac-pf-cash-advance', formatMoney(payslip.deductions?.cash_advance || 0));
   assign('ac-pf-total-deductions', formatMoney(payslip.deductions?.total_deductions || 0));
   assign('ac-pf-net', formatMoney(payslip.net_pay || 0));
   renderSemiMonthlyPayslip(payslip);
@@ -1330,7 +1361,7 @@ function computeBatchRowNetPay(row) {
   const leaveWithoutPayDeduct = toAmount(row.leave_without_pay_days * row.daily_rate);
   const totalDeductions = toAmount(
     row.sss + row.philhealth + row.pagibig + row.tax
-    + row.attendance_deductions + leaveWithoutPayDeduct,
+    + row.attendance_deductions + leaveWithoutPayDeduct + (row.cash_advance || 0),
   );
   // Gross = basic + approved overtime + holiday pay. A semi-monthly 2nd half
   // adds the month's incentives / overload and pays the month less the 1st
@@ -1393,6 +1424,7 @@ function recalcBatchRow(employeeId, changedField) {
     other_incentives: toAmount(tr?.dataset.otherIncentives),
     first_half_paid: toAmount(tr?.dataset.firstHalfPaid),
     carry_in: toAmount(tr?.dataset.carryIn),
+    cash_advance: toAmount(tr?.dataset.cashAdvance),
   };
 
   const netPay = computeBatchRowNetPay(row);
@@ -1442,7 +1474,10 @@ function loadBatchPayrollTable() {
     const basic = basicDefaultFor(employee);
     const info = employeePayInfo(employee.id);
     const half = semiHalf();
-    const extras = half === 'second' ? semiExtras(info) : { other: 0, overloadHours: 0, firstHalfPaid: 0, carryIn: 0 };
+    // Per-half (the school's payroll sheet): the month's incentives / overload
+    // ride on the 2nd half too, with nothing settled against a 1st half.
+    const extras = half === 'second' || info.row?.defaults?.per_half ? semiExtras(info) : { other: 0, overloadHours: 0, firstHalfPaid: 0, carryIn: 0 };
+    const cashAdvance = toAmount(info.row?.defaults?.cash_advance || 0);
     // A 1st half counts no attendance: it is settled in the 2nd half.
     const counts = half === 'first' ? {} : info.pay?.counts || {};
     const amounts = half === 'first' ? {} : info.pay?.amounts || {};
@@ -1477,6 +1512,7 @@ function loadBatchPayrollTable() {
       other_incentives: extras.other,
       first_half_paid: extras.firstHalfPaid,
       carry_in: extras.carryIn,
+      cash_advance: cashAdvance,
     });
     const incentiveLabel = [
       counts.early_bird_days ? `${counts.early_bird_days} day${counts.early_bird_days === 1 ? '' : 's'}` : '',
@@ -1485,12 +1521,13 @@ function loadBatchPayrollTable() {
     ].filter(Boolean).join(' · ') || '0';
     const lockInput = blocking.length || half === 'first';
     const numberInput = (field, value, width, step) => `<input class="fc" type="number" id="batch-${field}-${id}" value="${value}" data-default="${value}" min="0" step="${step}" inputmode="${step === '1' ? 'numeric' : 'decimal'}" style="width:${width}px;" oninput="recalcBatchRow('${employee.id}','${field}')"${lockInput ? ' disabled' : ''}>`;
-    const netNote = half === 'second'
+    const netNote = (half === 'second'
       ? `<div style="font-size:11px;color:var(--t3);font-weight:400;white-space:normal;" title="Monthly net less what the 1st half paid">less 1st half ${formatMoney(extras.firstHalfPaid)}${extras.carryIn ? ` and carried ${formatMoney(extras.carryIn)}` : ''}</div>`
-      : '';
+      : '')
+      + (cashAdvance ? `<div style="font-size:11px;color:var(--red);font-weight:400;white-space:normal;" title="Cash advance installment (Cash Advances page)">less cash advance ${formatMoney(cashAdvance)}</div>` : '');
 
     const mainRow = `
-      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}" data-earnings="${earnings}" data-legal="${legal ? '1' : '0'}" data-other-incentives="${extras.other}" data-first-half-paid="${extras.firstHalfPaid}" data-carry-in="${extras.carryIn}"${blocking.length ? ' style="opacity:.75;"' : ''}>
+      <tr data-employee-id="${escapeHtml(employee.id)}" data-blocked="${blocking.length ? '1' : '0'}" data-daily-rate="${info.unit.daily}" data-attendance-deductions="${attendanceDeductions}" data-incentives="${incentives}" data-earnings="${earnings}" data-legal="${legal ? '1' : '0'}" data-other-incentives="${extras.other}" data-first-half-paid="${extras.firstHalfPaid}" data-carry-in="${extras.carryIn}" data-cash-advance="${cashAdvance}"${blocking.length ? ' style="opacity:.75;"' : ''}>
         <td class="nm">${escapeHtml(employee.full_name)}</td>
         <td class="mn"><span>${formatMoney(basic)}</span><input type="hidden" id="batch-basic-${id}" value="${basic}">${earnings ? `<div style="font-size:11px;color:var(--green);" title="Approved overtime and holiday pay">+ ${formatMoney(earnings)} OT/holiday</div>` : ''}</td>
         <td class="mn">${numberInput('sss', sss, 75, '0.01')}</td>
@@ -2234,6 +2271,371 @@ async function archiveMonthlyItem(itemId) {
   }
 }
 
+/* ── CASH ADVANCES (GET ?view=cash_advances) ──
+   Deducted in installments from the payslips they apply to until repaid;
+   repayments are read from Final payslips (src/lib/payroll/cash-advance.js). */
+
+const acctCash = { data: null, cancelling: '' };
+
+const CASH_DEDUCT_ON_LABELS = { both: 'Every payslip', first: '1–15 only', second: '16–end only' };
+
+/** The next pay periods as { value: first day, label }, for "First Pay Period to Deduct". */
+function cashAdvancePeriodOptions() {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+  const [year, month] = today.split('-').map(Number);
+  const names = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const options = [];
+  for (let offset = 0; offset < 4; offset += 1) {
+    const index = (month - 1) + offset;
+    const y = year + Math.floor(index / 12);
+    const m = (index % 12) + 1;
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const mm = String(m).padStart(2, '0');
+    // Deducted on the 16-end payslip only, like every deduction.
+    options.push({ value: `${y}-${mm}-16`, label: `${names[m - 1]} 16-${last}, ${y}` });
+  }
+  return options;
+}
+
+function renderCashAdvanceForm() {
+  const select = document.getElementById('ac-ca-employee');
+  if (select) {
+    const previous = select.value;
+    select.innerHTML = acctState.employees.length
+      ? acctState.employees.map((e) => `<option value="${escapeHtml(e.id)}">${escapeHtml(`${e.full_name} — ${e.employee_id}`)}</option>`).join('')
+      : '<option value="">No employees found</option>';
+    if (previous && acctState.employees.some((e) => e.id === previous)) select.value = previous;
+  }
+  const start = document.getElementById('ac-ca-start');
+  if (start && !start.options.length) {
+    start.innerHTML = cashAdvancePeriodOptions().map((p) => `<option value="${escapeHtml(p.value)}">${escapeHtml(p.label)}</option>`).join('');
+  }
+  const granted = document.getElementById('ac-ca-granted');
+  if (granted && !granted.value) granted.value = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+}
+
+async function loadCashAdvances() {
+  renderCashAdvanceForm();
+  const tbody = document.getElementById('ac-ca-body');
+  if (!tbody) return;
+  tbody.innerHTML = skeletonRows(9);
+  try {
+    const response = await fetch('/api/accountant/payroll?view=cash_advances');
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to load cash advances.');
+    if (!data.available) throw new Error(data.error || 'Cash advances are not set up yet.');
+    acctCash.data = data;
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set('ac-ca-open', String(data.summary?.open_count || 0));
+    set('ac-ca-outstanding', formatMoneyCompact(data.summary?.outstanding || 0));
+    set('ac-ca-repaid', formatMoneyCompact(data.summary?.repaid || 0));
+    renderCashAdvances();
+  } catch (error) {
+    acctCash.data = null;
+    tbody.innerHTML = `<tr><td colspan="9" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+function cashAdvanceStatusBadge(advance) {
+  if (advance.status === 'cancelled') return '<span class="badge br"><span class="bd"></span>Cancelled</span>';
+  if (advance.fully_paid) return '<span class="badge bg"><span class="bd"></span>Repaid</span>';
+  if (advance.status === 'on_hold') return '<span class="badge ba"><span class="bd"></span>On Hold</span>';
+  return '<span class="badge bt2"><span class="bd"></span>Active</span>';
+}
+
+function renderCashAdvances() {
+  const tbody = document.getElementById('ac-ca-body');
+  if (!tbody || !acctCash.data) return;
+  const filter = document.getElementById('ac-ca-filter')?.value || 'open';
+  const rows = (acctCash.data.advances || []).filter((a) => {
+    if (filter === 'all') return true;
+    if (filter === 'cancelled') return a.status === 'cancelled';
+    if (filter === 'repaid') return a.status !== 'cancelled' && a.fully_paid;
+    return a.status !== 'cancelled' && !a.fully_paid;
+  });
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="color:var(--t3);">No cash advances here.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((a) => {
+    const id = escapeJsAttr(a.id);
+    const open = a.status !== 'cancelled' && !a.fully_paid;
+    const actions = open
+      ? `<div style="display:flex;gap:6px;">
+          <button class="btn btn-outline" type="button" style="padding:4px 10px;font-size:12px;" onclick="setCashAdvanceStatus('${id}','${a.status === 'on_hold' ? 'active' : 'on_hold'}')">${a.status === 'on_hold' ? 'Resume' : 'Hold'}</button>
+          <button class="btn btn-outline" type="button" style="padding:4px 10px;font-size:12px;" onclick="startCancelCashAdvance('${id}')">Cancel</button>
+        </div>`
+      : '';
+    const payments = (a.payments || []).map((p) => `${escapeHtml(p.pay_period)}: ${formatMoney(p.amount)}`).join('<br>');
+    const main = `
+      <tr>
+        <td class="nm">${escapeHtml(a.employee_name)}<div style="font-size:11px;color:var(--t3);">${escapeHtml(a.employee_code || '')}${a.description ? ` · ${escapeHtml(a.description)}` : ''}</div></td>
+        <td class="mn">${escapeHtml(acctDateLabel(a.date_granted))}</td>
+        <td class="mn">${formatMoney(a.principal)}</td>
+        <td class="mn">${formatMoney(a.installment_amount)}</td>
+        <td>${escapeHtml(CASH_DEDUCT_ON_LABELS[a.deduct_on] || a.deduct_on)}<div style="font-size:11px;color:var(--t3);">from ${escapeHtml(acctDateLabel(a.start_date))}</div></td>
+        <td class="mn"${payments ? ` title="${escapeHtml(payments.replace(/<br>/g, '\n'))}"` : ''}>${formatMoney(a.repaid)}</td>
+        <td class="mn" style="font-weight:600;">${formatMoney(a.balance)}</td>
+        <td>${cashAdvanceStatusBadge(a)}${a.status_reason ? `<div style="font-size:11px;color:var(--t3);white-space:normal;">${escapeHtml(a.status_reason)}</div>` : ''}</td>
+        <td>${actions}</td>
+      </tr>`;
+    const cancelRow = acctCash.cancelling === a.id ? `
+      <tr>
+        <td colspan="9" style="background:var(--red-s);white-space:normal;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input class="fc" type="text" id="ac-ca-cancel-reason" maxlength="300" placeholder="Reason for cancelling (required)" style="flex:1;min-width:200px;">
+            <button class="btn btn-primary" type="button" onclick="confirmCancelCashAdvance('${id}')">Cancel Advance</button>
+            <button class="btn btn-outline" type="button" onclick="startCancelCashAdvance('')">Keep</button>
+          </div>
+        </td>
+      </tr>` : '';
+    return main + cancelRow;
+  }).join('');
+}
+
+async function submitCashAdvance() {
+  const feedback = document.getElementById('ac-ca-feedback');
+  const button = document.getElementById('ac-ca-submit');
+  const value = (id) => String(document.getElementById(id)?.value || '').trim();
+  const say = (text, kind = '') => { if (feedback) { feedback.textContent = text; feedback.className = `adm-feedback${kind ? ` ${kind}` : ''}`; } };
+  const payload = {
+    action: 'add_cash_advance',
+    employee_id: value('ac-ca-employee'),
+    principal: value('ac-ca-principal'),
+    installment_amount: value('ac-ca-installment'),
+    date_granted: value('ac-ca-granted'),
+    deduct_on: value('ac-ca-deduct-on') || 'both',
+    start_date: value('ac-ca-start'),
+    description: value('ac-ca-description'),
+  };
+  if (!payload.employee_id) { showFieldError('ac-ca-employee', 'Select an employee.'); return; }
+  if (!(Number(payload.principal) > 0)) { showFieldError('ac-ca-principal', 'Enter the amount advanced.'); return; }
+  if (!(Number(payload.installment_amount) > 0)) { showFieldError('ac-ca-installment', 'Enter the amount deducted per payslip.'); return; }
+  if (Number(payload.installment_amount) > Number(payload.principal)) { showFieldError('ac-ca-installment', 'It cannot be more than the amount advanced.'); return; }
+  if (!payload.date_granted) { showFieldError('ac-ca-granted', 'Choose the date it was given.'); return; }
+
+  try {
+    if (button) button.disabled = true;
+    say('Saving...');
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to add the cash advance.');
+    say(`Added — deducted from ${data.start_period} on.`, 'ok');
+    ['ac-ca-principal', 'ac-ca-installment', 'ac-ca-description'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+    window.pushNotification?.('Cash Advance Added', `Deducted from the ${data.start_period} payslip on.`, 'success');
+    await loadCashAdvances();
+    loadAccountantData();
+  } catch (error) {
+    say(error.message, 'err');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function setCashAdvanceStatus(advanceId, status, reason = '') {
+  try {
+    const response = await fetch('/api/accountant/payroll', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_cash_advance_status', advance_id: advanceId, status, reason }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to update the cash advance.');
+    const words = { active: 'Resumed', on_hold: 'On Hold', cancelled: 'Cancelled' };
+    window.pushNotification?.(`Cash Advance ${words[status] || 'Updated'}`, status === 'on_hold' ? 'It is skipped until resumed.' : 'Payroll will use the change on the next payslip computed.', 'info');
+    acctCash.cancelling = '';
+    await loadCashAdvances();
+    loadAccountantData();
+  } catch (error) {
+    window.pushNotification?.('Not Updated', error.message, 'error');
+  }
+}
+
+function startCancelCashAdvance(advanceId) {
+  acctCash.cancelling = advanceId || '';
+  renderCashAdvances();
+  document.getElementById('ac-ca-cancel-reason')?.focus();
+}
+
+async function confirmCancelCashAdvance(advanceId) {
+  const reason = String(document.getElementById('ac-ca-cancel-reason')?.value || '').trim();
+  if (reason.length < 5) { showFieldError('ac-ca-cancel-reason', 'Give a reason (at least 5 characters).'); return; }
+  const confirmed = window.confirmDestructiveAction
+    ? await window.confirmDestructiveAction('cancel this cash advance', 'Nothing more will be deducted. What was already repaid stays on the payslips.')
+    : window.confirm('Cancel this cash advance?');
+  if (!confirmed) return;
+  await setCashAdvanceStatus(advanceId, 'cancelled', reason);
+}
+
+/* ── PAYROLL SHEET (School Format) (GET ?view=payroll_sheet) ──
+   The school's own payroll sheet: one table per branch, with Days, Reg. Hrs.,
+   Rate, Amount, OT, Cash Advance, SSS, Pag-IBIG, totals, a signature column
+   and the "Approved for payment" block. */
+
+let _sheetData = null;
+
+function onReportTypeChange() {
+  const sheet = document.getElementById('rpt-type')?.value === 'sheet';
+  const wrap = document.getElementById('rpt-branch-wrap');
+  if (wrap) wrap.style.display = sheet ? '' : 'none';
+}
+
+const sheetMoney = (value) => {
+  const n = toAmount(value);
+  return n ? n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-';
+};
+const sheetNumber = (value) => {
+  const n = Number(value) || 0;
+  return n ? n.toLocaleString('en-PH', { maximumFractionDigits: 2 }) : '-';
+};
+
+async function generatePayrollSheet() {
+  const period = document.getElementById('rpt-period')?.value || 'all';
+  const container = document.getElementById('rpt-sheet');
+  const tableCard = document.getElementById('rpt-table-card');
+  const summaryBox = document.getElementById('rpt-summary-box');
+  if (!container) return;
+  if (period === 'all') {
+    window.pushNotification?.('Choose a Period', 'The payroll sheet is for one pay period. Choose it under Pay Period.', 'info');
+    return;
+  }
+  container.style.display = '';
+  if (tableCard) tableCard.style.display = 'none';
+  container.innerHTML = '<div class="card"><div style="color:var(--t3);">Loading payroll sheet...</div></div>';
+  try {
+    const branch = document.getElementById('rpt-branch')?.value || 'all';
+    const response = await fetch(`/api/accountant/payroll?view=payroll_sheet&period=${encodeURIComponent(period)}&branch_id=${encodeURIComponent(branch)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to load the payroll sheet.');
+    _sheetData = data;
+    renderSheetBranchOptions(data.branch_options || []);
+    const totals = data.grand_totals || {};
+    if (summaryBox) {
+      summaryBox.innerHTML = `
+        <div class="sr"><span>Payslips</span><span style="font-family:var(--mono);">${(data.branches || []).reduce((n, b) => n + b.rows.length, 0)}${data.draft_count ? ` (${data.draft_count} draft)` : ''}</span></div>
+        <div class="sr"><span>Total Amount</span><span style="font-family:var(--mono);color:var(--teal);">${formatMoney(totals.total_amount || 0)}</span></div>
+        <div class="sr" style="color:var(--red);"><span>Total Deduction</span><span style="font-family:var(--mono);">- ${formatMoney(totals.total_deduction || 0)}</span></div>
+        <div class="sr tot"><span>Total Net Pay</span><span style="font-family:var(--mono);color:var(--amber);">${formatMoney(totals.net_pay || 0)}</span></div>
+        ${data.missing?.length ? `<div class="sr" style="color:var(--amber);white-space:normal;"><span>No payslip yet</span><span>${data.missing.length} employee${data.missing.length === 1 ? '' : 's'}</span></div>` : ''}`;
+    }
+    renderPayrollSheet(data);
+  } catch (error) {
+    _sheetData = null;
+    container.innerHTML = `<div class="card"><div style="color:var(--red);">${escapeHtml(error.message)}</div></div>`;
+  }
+}
+
+function renderSheetBranchOptions(options) {
+  const select = document.getElementById('rpt-branch');
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML = `<option value="all">All Branches</option>${options.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('')}`;
+  if (previous && [...select.options].some((o) => o.value === previous)) select.value = previous;
+}
+
+function renderPayrollSheet(data) {
+  const container = document.getElementById('rpt-sheet');
+  if (!container) return;
+  const header = data.header || {};
+  if (!(data.branches || []).length) {
+    container.innerHTML = '<div class="card"><div style="color:var(--t3);">No payslips for this period yet. Generate or process payroll first.</div></div>';
+    return;
+  }
+  const head = `<tr>
+    <th>Employees</th><th>Days</th><th>Reg. Hrs.</th><th>Rate</th><th>Amount</th><th>OT</th><th>Rate</th><th>Amount</th>
+    <th>Other Pay</th><th>Total Amount</th><th>Cash Advance</th><th>SSS</th><th>PhilHealth</th><th>Pag-IBIG</th><th>Tax</th>
+    <th>Late / Undertime</th><th>Total Deduction</th><th>Net Pay</th><th>Signature</th></tr>`;
+  const line = (r) => `
+    <tr>
+      <td class="nm">${escapeHtml(r.name)}${r.status === 'draft' ? ' <span class="badge bt2"><span class="bd"></span>Draft</span>' : ''}</td>
+      <td class="mn">${sheetNumber(r.days)}</td>
+      <td class="mn">${sheetNumber(r.regular_hours)}</td>
+      <td class="mn">${sheetMoney(r.rate)}</td>
+      <td class="mn">${sheetMoney(r.amount)}</td>
+      <td class="mn">${sheetNumber(r.ot_hours)}</td>
+      <td class="mn">${sheetMoney(r.ot_rate)}</td>
+      <td class="mn">${sheetMoney(r.ot_amount)}</td>
+      <td class="mn">${sheetMoney(r.other_pay)}</td>
+      <td class="mn">${sheetMoney(r.total_amount)}</td>
+      <td class="mn">${sheetMoney(r.cash_advance)}</td>
+      <td class="mn">${sheetMoney(r.sss)}</td>
+      <td class="mn">${sheetMoney(r.philhealth)}</td>
+      <td class="mn">${sheetMoney(r.pagibig)}</td>
+      <td class="mn">${sheetMoney(r.withholding_tax)}</td>
+      <td class="mn">${sheetMoney(r.late_undertime)}</td>
+      <td class="mn">${sheetMoney(r.total_deduction)}</td>
+      <td class="mn" style="font-weight:700;">${sheetMoney(r.net_pay)}${r.net_note ? `<div style="font-size:10px;color:var(--t3);font-weight:400;white-space:normal;">${escapeHtml(r.net_note)}</div>` : ''}</td>
+      <td style="min-width:110px;"></td>
+    </tr>`;
+  const totalRow = (t) => `
+    <tr class="pay-sheet-total" style="font-weight:700;background:var(--bg3);">
+      <td class="nm">TOTAL NET PAY</td><td></td><td></td>
+      <td class="mn">${sheetMoney(t.rate)}</td><td class="mn">${sheetMoney(t.amount)}</td>
+      <td class="mn">${sheetNumber(t.ot_hours)}</td><td></td><td class="mn">${sheetMoney(t.ot_amount)}</td>
+      <td class="mn">${sheetMoney(t.other_pay)}</td><td class="mn">${sheetMoney(t.total_amount)}</td>
+      <td class="mn">${sheetMoney(t.cash_advance)}</td><td class="mn">${sheetMoney(t.sss)}</td>
+      <td class="mn">${sheetMoney(t.philhealth)}</td><td class="mn">${sheetMoney(t.pagibig)}</td>
+      <td class="mn">${sheetMoney(t.withholding_tax)}</td><td class="mn">${sheetMoney(t.late_undertime)}</td>
+      <td class="mn">${sheetMoney(t.total_deduction)}</td><td class="mn">${sheetMoney(t.net_pay)}</td><td></td>
+    </tr>`;
+  const schoolName = header.school_name || 'Shepherd Angels Christian School';
+  container.innerHTML = data.branches.map((branch) => `
+    <div class="card pay-sheet" style="margin-bottom:14px;">
+      <div class="pay-sheet-head" style="text-align:center;margin-bottom:10px;">
+        <div style="font-weight:700;text-decoration:underline;color:var(--t1);">${escapeHtml(schoolName)}</div>
+        <div style="font-weight:700;text-decoration:underline;color:var(--t1);">PAYROLL — ${escapeHtml(String(branch.branch_name).toUpperCase())}</div>
+      </div>
+      <p style="font-size:12px;color:var(--t2);margin-bottom:10px;white-space:normal;">
+        FOR THE PERIOD OF <strong style="color:var(--red);">${escapeHtml(String(data.period?.label || '').toUpperCase())}</strong>, WE HEREBY ACKNOWLEDGE TO HAVE RECEIVED FROM ${escapeHtml(schoolName)}
+        the sum specified opposite our respective names, as full compensation for services rendered.
+      </p>
+      ${data.attendance_window ? `<p style="font-size:11px;color:var(--t3);margin:-4px 0 10px;white-space:normal;">Days, absences and deductions are from attendance ${escapeHtml(acctDateLabel(data.attendance_window.start_key))} – ${escapeHtml(acctDateLabel(data.attendance_window.end_key))}.</p>` : ''}
+      <div class="tw"><table class="pay-sheet-table">
+        <thead>${head}</thead>
+        <tbody>${branch.rows.map(line).join('')}${totalRow(branch.totals)}</tbody>
+      </table></div>
+      <div class="pay-sheet-approval" style="margin-top:14px;font-size:12px;color:var(--t1);">
+        <div style="font-weight:700;">APPROVED FOR PAYMENT</div>
+        <div style="margin-top:22px;font-weight:700;">${escapeHtml(header.approver_name || '______________________________')}</div>
+        <div>${escapeHtml(header.approver_title || '')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function exportPayrollSheetCSV() {
+  if (!_sheetData?.branches?.length) {
+    window.pushNotification?.('No Data', 'Generate the payroll sheet first before exporting.', 'info');
+    return;
+  }
+  const headers = ['Branch', 'Employee', 'Status', 'Days', 'Reg. Hrs.', 'Rate', 'Amount', 'OT Hours', 'OT Rate', 'OT Amount', 'Other Pay',
+    'Total Amount', 'Cash Advance', 'SSS', 'PhilHealth', 'Pag-IBIG', 'Tax', 'Late/Undertime', 'Total Deduction', 'Net Pay', 'Signature'];
+  const fields = ['days', 'regular_hours', 'rate', 'amount', 'ot_hours', 'ot_rate', 'ot_amount', 'other_pay', 'total_amount', 'cash_advance',
+    'sss', 'philhealth', 'pagibig', 'withholding_tax', 'late_undertime', 'total_deduction', 'net_pay'];
+  const rows = [];
+  _sheetData.branches.forEach((branch) => {
+    branch.rows.forEach((r) => rows.push([branch.branch_name, r.name, r.status, ...fields.map((f) => String(Number(r[f]) || 0)), '']));
+    rows.push([branch.branch_name, 'TOTAL NET PAY', '', '', '', ...['rate', 'amount', 'ot_hours'].map((f) => String(Number(branch.totals[f]) || 0)), '',
+      ...['ot_amount', 'other_pay', 'total_amount', 'cash_advance', 'sss', 'philhealth', 'pagibig', 'withholding_tax', 'late_undertime', 'total_deduction', 'net_pay']
+        .map((f) => String(Number(branch.totals[f]) || 0)), '']);
+  });
+  const csvText = (v) => {
+    const s = String(v);
+    return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+  };
+  const csv = [headers, ...rows].map((row) => row.map((v) => `"${csvText(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `payroll-sheet-${String(_sheetData.period?.label || 'period').replace(/[^\w-]+/g, '-')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ── 13TH MONTH PAY ── */
 
 const acct13th = { data: null };
@@ -2497,4 +2899,11 @@ window.submitMonthlyItem = submitMonthlyItem;
 window.archiveMonthlyItem = archiveMonthlyItem;
 window.loadThirteenthMonth = loadThirteenthMonth;
 window.processThirteenthMonth = processThirteenthMonth;
+window.loadCashAdvances = loadCashAdvances;
+window.renderCashAdvances = renderCashAdvances;
+window.submitCashAdvance = submitCashAdvance;
+window.setCashAdvanceStatus = setCashAdvanceStatus;
+window.startCancelCashAdvance = startCancelCashAdvance;
+window.confirmCancelCashAdvance = confirmCancelCashAdvance;
+window.onReportTypeChange = onReportTypeChange;
 window.downloadPayslipPdf = downloadPayslipPdf;

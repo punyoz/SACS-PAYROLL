@@ -45,6 +45,24 @@ import {
   withholdingTax as computeWithholdingTax,
 } from "@/lib/payroll/statutory";
 import { roundPeso } from "@/lib/payroll/money";
+import {
+  contributionsForHalf,
+  halfOfPeriod,
+  monthlyContributionsFor,
+  periodDaysFor,
+  sheetFigures,
+  sheetRowFromEntry,
+  sheetTotals,
+  usesPerHalfRule,
+  workingDaysIn,
+} from "@/lib/payroll/school-sheet";
+import {
+  CASH_ADVANCE_STATUSES,
+  advanceBalance,
+  repaidByAdvance,
+  scheduleCashAdvances,
+  validateCashAdvanceInput,
+} from "@/lib/payroll/cash-advance";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
@@ -230,12 +248,14 @@ function normalizePayrollEntry(row) {
         half_days: toAmount(payrollObj?.deductions?.half_days ?? 0),
         leave_with_pay_days: toAmount(payrollObj?.deductions?.leave_with_pay_days),
         leave_without_pay_days: toAmount(payrollObj?.deductions?.leave_without_pay_days),
+        cash_advance: toAmount(payrollObj?.deductions?.cash_advance ?? 0),
       },
       incentives: {
         early_bird_days: toAmount(payrollObj?.incentives?.early_bird_days ?? 0),
         perfect_attendance: payrollObj?.incentives?.perfect_attendance === true,
       },
       totals: {
+        cash_advance_deduction: toAmount(payrollObj?.totals?.cash_advance_deduction ?? 0),
         absence_deduction: toAmount(payrollObj?.totals?.absence_deduction ?? row.absence_deduction),
         late_deduction: toAmount(payrollObj?.totals?.late_deduction ?? 0),
         undertime_deduction: toAmount(payrollObj?.totals?.undertime_deduction ?? 0),
@@ -263,6 +283,11 @@ function normalizePayrollEntry(row) {
       // earned for the 13th month.
       monthly: payrollObj?.monthly && typeof payrollObj.monthly === "object" ? payrollObj.monthly : null,
       basic_earned: payrollObj?.basic_earned ?? null,
+      // The school's payroll sheet (src/lib/payroll/school-sheet.js): the
+      // sheet's columns for this payslip, and the cash advance installments
+      // it repaid (src/lib/payroll/cash-advance.js reads these back).
+      sheet: payrollObj?.sheet && typeof payrollObj.sheet === "object" ? payrollObj.sheet : null,
+      cash_advances: Array.isArray(payrollObj?.cash_advances) ? payrollObj.cash_advances : [],
     },
   };
 }
@@ -316,6 +341,8 @@ function computeTotals(payroll) {
     : toAmount(halfDays * peso(daily * (Number(rates.half_day_pct) || 0) / 100));
   // Leave Without Pay deducts one daily rate per day.
   const leaveWithoutPayDeduction = toAmount(leaveWithoutPayDays * daily);
+  // Cash advance installments (src/lib/payroll/cash-advance.js).
+  const cashAdvance = Math.max(0, toAmount(payroll.deductions?.cash_advance));
 
   const earlyBirdIncentive = amounts
     ? toAmount(amounts.early_bird)
@@ -335,7 +362,7 @@ function computeTotals(payroll) {
   const totalDeductions = toAmount(
     sss + philhealth + pagibig + withholdingTax
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
-    + leaveWithoutPayDeduction,
+    + leaveWithoutPayDeduction + cashAdvance,
   );
   const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive + otherIncentive + overloadPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
@@ -367,12 +394,14 @@ function computeTotals(payroll) {
       half_days: halfDays,
       leave_with_pay_days: leaveWithPayDays,
       leave_without_pay_days: leaveWithoutPayDays,
+      cash_advance: cashAdvance,
     },
     incentives: {
       early_bird_days: earlyBirdDays,
       perfect_attendance: perfectAttendance,
     },
     totals: {
+      cash_advance_deduction: cashAdvance,
       absence_deduction: absenceDeduction,
       late_deduction: lateDeduction,
       undertime_deduction: undertimeDeduction,
@@ -797,7 +826,7 @@ async function readHolidays(supabase, periodStart, periodEnd) {
   return new Map((result.data || []).map((row) => [String(row.holiday_date).slice(0, 10), row.type === "special" ? "special" : "holiday"]));
 }
 
-const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql and 20261003010000_semi_monthly_payroll.sql) first.";
+const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql, 20261003010000_semi_monthly_payroll.sql and 20261006010000_school_payroll_sheet.sql) first.";
 
 /** Zero amounts for a 1st half with no Final payslip. */
 const NO_FIRST_HALF = Object.freeze({ gross_pay: 0, total_deductions: 0, total_incentives: 0, net_pay: 0, basic_earned: 0 });
@@ -819,7 +848,10 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   const previous = monthInfo(shiftMonth(month.month_key, -1));
   // The lock day in force for a month's 2nd half.
   const lockDayFor = (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
-  const window = monthlyWindow(month.month_key, lockDayFor);
+  // Off (the school): days after the lock day are never deducted, so the
+  // month reads only its own 1st to the lock day.
+  const carryOver = Number(resolveRate(configs, "carry_after_lock", {}, `${month.month_key}-16`).value) !== 0;
+  const window = monthlyWindow(month.month_key, lockDayFor, { carryOver });
   const base = {
     half,
     month_key: month.month_key,
@@ -828,6 +860,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     second_half_label: month.second_half_label,
     window,
     lock_day: lockDayFor(month.month_key),
+    carry_over: carryOver,
     lockDayFor,
   };
 
@@ -847,7 +880,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     return { ...base, ready: true, tax_table: [], byEmployee };
   }
 
-  const [taxResult, contributionResult, itemResult] = await Promise.all([
+  const [taxResult, contributionResult, itemResult, cash] = await Promise.all([
     supabase.from("payroll_tax_brackets")
       .select("id,version_id,effective_date,bracket_over,base_tax,rate_pct,created_at")
       .lte("effective_date", period.start_key),
@@ -861,8 +894,10 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       .lte("item_date", window.end_key)
       .order("item_date", { ascending: true })
       .order("id", { ascending: true })),
+    // Cash advance installments: deducted on the 2nd half with everything else.
+    loadCashAdvanceContext(supabase, employees.map((employee) => employee.id), period),
   ]);
-  const failed = taxResult.error || contributionResult.error || itemResult.error;
+  const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready;
   const taxTable = failed ? [] : taxTableFromRows(resolveTaxTableRows(taxResult.data, period.start_key));
   if (failed || !taxTable.length) {
     return { ...base, ready: false, tax_table: [], byEmployee };
@@ -907,10 +942,106 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       contribution_amounts: contributionAmounts,
       items,
       tax_table: taxTable,
+      advances: cash.advances.filter((row) => row.employee_id === employee.id),
+      repaid: cash.repaid,
+      working_days: workingDaysIn(period.start_key, period.end_key),
     });
   });
 
   return { ...base, ready: true, tax_table: taxTable, byEmployee };
+}
+
+/**
+ * Each half paid on its own attendance (payroll_per_half, the school's payroll
+ * sheet: src/lib/payroll/school-sheet.js). Per employee: the contribution
+ * amounts set for them, the incentives and overload hours counted in the
+ * month (paid on the 2nd half, by the lock day, as in the semi-monthly rule),
+ * and their active cash advances with what Final payslips of other periods
+ * already repaid.
+ *
+ * `ready` is false when a table it needs is missing (migrations
+ * 20261003010000_semi_monthly_payroll.sql / 20261006010000_school_payroll_sheet.sql
+ * not applied); payroll then refuses to process.
+ */
+async function loadPerHalfContext(supabase, employees, period, configs, holidays) {
+  const half = halfOfPeriod(period.start_key);
+  const month = monthInfo(monthKeyOf(period.start_key));
+  const lockDayFor = (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
+  const employeeIds = employees.map((employee) => employee.id);
+  const none = { data: [], error: null };
+
+  const [contributionResult, itemResult, cash] = await Promise.all([
+    supabase.from("payroll_contribution_amounts")
+      .select("employee_id,effective_date,sss,philhealth,pagibig,created_at")
+      .lte("effective_date", period.start_key),
+    half === "second"
+      ? fetchAllRows(() => supabase.from("payroll_monthly_incentives")
+        .select("id,employee_id,item_date,kind,description,amount,hours,created_at")
+        .eq("archived", false)
+        .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
+        .lte("item_date", month.end_key)
+        .order("item_date", { ascending: true })
+        .order("id", { ascending: true }))
+      : none,
+    loadCashAdvanceContext(supabase, employeeIds, period),
+  ]);
+  const failed = contributionResult.error || itemResult.error || !cash.ready;
+  const { advances, repaid } = cash;
+
+  const workingDays = workingDaysIn(period.start_key, period.end_key, holidays);
+  const byEmployee = new Map();
+  employees.forEach((employee) => {
+    const fixed = (contributionResult.data || [])
+      .filter((row) => row.employee_id === employee.id)
+      .sort((a, b) => (String(b.effective_date).localeCompare(String(a.effective_date)) || String(b.created_at || "").localeCompare(String(a.created_at || ""))))[0] || null;
+    const contributionAmounts = {};
+    ["sss", "philhealth", "pagibig"].forEach((type) => {
+      if (fixed && fixed[type] !== null && fixed[type] !== undefined) contributionAmounts[type] = toAmount(fixed[type]);
+    });
+    const items = (itemResult.data || []).filter((item) => item.employee_id === employee.id
+      && payrollMonthFor(String(item.item_date).slice(0, 10), manilaDateKey(new Date(item.created_at || Date.now())), lockDayFor) === month.month_key);
+    byEmployee.set(employee.id, {
+      half,
+      month_key: month.month_key,
+      working_days: workingDays,
+      contribution_amounts: contributionAmounts,
+      items,
+      advances: advances.filter((row) => row.employee_id === employee.id),
+      repaid,
+    });
+  });
+
+  return { ready: !failed, half, working_days: workingDays, byEmployee };
+}
+
+/**
+ * Active cash advances of these employees that a period may deduct, and what
+ * Final payslips of OTHER periods already repaid (src/lib/payroll/cash-advance.js).
+ * `ready` is false when the table is missing (20261006010000_school_payroll_sheet.sql).
+ */
+async function loadCashAdvanceContext(supabase, employeeIds, period) {
+  const advanceResult = await fetchAllRows(() => supabase.from("payroll_cash_advances")
+    .select("id,employee_id,date_granted,principal,installment_amount,deduct_on,start_date,status,description,created_at")
+    .eq("status", "active")
+    .lte("start_date", period.start_key)
+    .order("date_granted", { ascending: true })
+    .order("id", { ascending: true }));
+  if (advanceResult.error) return { ready: false, advances: [], repaid: new Map() };
+
+  const advances = (advanceResult.data || []).filter((row) => employeeIds.includes(row.employee_id));
+  const borrowers = [...new Set(advances.map((row) => row.employee_id))];
+  const paidResult = borrowers.length
+    ? await fetchAllRows(() => supabase.from("payroll_entries")
+      .select("id,employee_id,pay_period,status,payroll")
+      .eq("status", "paid")
+      .in("employee_id", borrowers)
+      .order("id", { ascending: true }))
+    : { data: [], error: null };
+  return {
+    ready: !paidResult.error,
+    advances,
+    repaid: repaidByAdvance(paidResult.data || [], { excludePeriod: period.label }),
+  };
 }
 
 /**
@@ -925,25 +1056,31 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
 async function loadPeriodPayContext(supabase, employees, period, { through = null } = {}) {
   const employeeIds = employees.map((employee) => employee.id);
   const rateResult = await loadRateConfigs(supabase);
+  // The school's payroll sheet: each half paid on its own attendance
+  // (payroll_per_half), so neither half settles the month.
+  const perHalf = usesPerHalfRule(rateResult.configs, period.start_key);
   // Semi-monthly payroll: the 2nd half counts the month's attendance window
   // (from the day after last month's lock day to this month's), and leave
   // filed after the lock is counted next month.
-  const semi = usesSemiMonthlyRules(period.start_key)
+  const semi = usesSemiMonthlyRules(period.start_key) && !perHalf
     ? await loadSemiMonthlyContext(supabase, employees, period, rateResult.configs)
     : null;
   const settling = semi?.half === "second";
   const span = settling ? semi.window : period;
   const lastDay = through && through >= span.start_key && through < span.end_key ? through : span.end_key;
-  const leaveFrom = settling ? SEMI_MONTHLY_RULES_EFFECTIVE : span.start_key;
-  const includeLeaveDay = settling
+  // Without carry-over only leave days inside the window count; a leave day
+  // after the lock day is never deducted, like an absence.
+  const leaveFrom = settling && semi.carry_over ? SEMI_MONTHLY_RULES_EFFECTIVE : span.start_key;
+  const includeLeaveDay = settling && semi.carry_over
     ? (day, request) => payrollMonthFor(day, manilaDateKey(new Date(request.submitted_at || Date.now())), semi.lockDayFor) === semi.month_key
     : null;
   // Holidays first: leave days are counted on working days only.
   const holidays = await readHolidays(supabase, leaveFrom < span.start_key ? leaveFrom : span.start_key, period.end_key);
-  const [leaveContext, attendance, overtimeResult] = await Promise.all([
+  const [leaveContext, attendance, overtimeResult, school] = await Promise.all([
     buildLeaveContext(employees, leaveFrom, lastDay, holidays, includeLeaveDay),
     readPeriodAttendance(supabase, span.start_key, lastDay, employeeIds),
     readApprovedOvertime(supabase, span.start_key, lastDay),
+    perHalf ? loadPerHalfContext(supabase, employees, period, rateResult.configs, holidays) : null,
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 
@@ -987,7 +1124,13 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       holidays,
     });
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
-    byEmployee.set(employee.id, { resolved, auto, leave, semi: semi?.byEmployee.get(employee.id) || null });
+    byEmployee.set(employee.id, {
+      resolved,
+      auto,
+      leave,
+      semi: semi?.byEmployee.get(employee.id) || null,
+      school: school?.byEmployee.get(employee.id) || null,
+    });
   });
 
   // What the batch table and the Single Entry form show and pre-fill.
@@ -1031,8 +1174,9 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     period,
     through: lastDay,
     engineReady: attendance.engineReady && overtimeResult.available,
-    ratesReady: rateResult.available && (!semi || semi.ready),
+    ratesReady: rateResult.available && (!semi || semi.ready) && (!school || school.ready),
     semi,
+    school,
     leaveSummary,
     attendanceRows: enrichedRows,
     byEmployee,
@@ -1093,6 +1237,16 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     monthly_salary: toAmount(employee.basic_salary),
     semi_monthly_pay: toAmount(basic),
     net_pay: payroll.totals.net_pay,
+  };
+  // The school's payroll sheet, 1-15: the full Rate, nothing deducted.
+  payroll.sheet = {
+    ...sheetFigures({
+      basic,
+      daily: rates.daily,
+      hourly: rates.hourly,
+      periodDays: periodDaysFor(rates.working_days_per_year, workingDaysIn(period.start_key, period.end_key)),
+    }),
+    half: "first",
   };
 
   const nowIso = new Date().toISOString();
@@ -1204,6 +1358,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const semi = context.semi || null;
   if (semi?.half === "first") return buildFirstHalfPayroll({ employee, context, input, period, actor });
   const settling = semi?.half === "second";
+  // The school's payroll sheet (payroll_per_half): this half on its own
+  // attendance, with fixed / exempt contributions and cash advances.
+  const school = context.school || null;
   const rates = rateValues(resolved);
   const deductionsIn = input.deductions || {};
   const incentivesIn = input.incentives || {};
@@ -1225,10 +1382,20 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const legal = usesLegalRules(period?.start_key);
   // The 2nd half deducts the whole month's share once, or the fixed amounts
   // set for the employee (Super Admin -> Contribution Amounts).
+  // Per-half: the month's amounts (fixed, legal, or the employee's own; 0 =
+  // exempt), deducted on the payslip contribution_half names.
+  // Either way the month's amounts come from the legal tables, or the fixed
+  // amounts when "Contributions as fixed amounts" is on (the school's sheet:
+  // SSS ₱400, Pag-IBIG ₱200), and an employee's own amounts win (0 = exempt).
+  const schoolMonthly = school || (legal && settling)
+    ? monthlyContributionsFor(employee.basic_salary, rates, (school || semi).contribution_amounts)
+    : null;
   const legalContributions = legal
     ? (settling
-      ? { ...monthlyContributions(employee.basic_salary, rates), ...(semi.contribution_amounts || {}) }
-      : periodContributions(employee.basic_salary, rates))
+      ? { ...monthlyContributions(employee.basic_salary, rates), ...schoolMonthly }
+      : school
+        ? contributionsForHalf(schoolMonthly, school.half, rates.contribution_half)
+        : periodContributions(employee.basic_salary, rates))
     : null;
   const contributionDefault = (type) => (legal
     ? legalContributions[type]
@@ -1291,8 +1458,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const overtimePay = toAmount(auto.amounts.overtime || 0);
   const holidayPay = toAmount(auto.amounts.holiday_premium || 0);
 
-  // Semi-monthly 2nd half: incentives and overload hours filed for the month.
-  const items = settling ? semi.items || [] : [];
+  // Semi-monthly 2nd half: incentives and overload hours filed for the month
+  // (per-half: also on the 2nd half).
+  const items = settling ? semi.items || [] : school?.items || [];
   const overloadRate = peso((Number(rates.hourly) || 0) * (1 + (Number(rates.overload_premium_pct) || 0) / 100));
   const itemAmount = (item) => (item.kind === "overload"
     ? overloadPayFor(rates.hourly, item.hours, rates.overload_premium_pct)
@@ -1305,7 +1473,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // Withholding tax on this period's taxable compensation.
   const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
   // 2nd half: once, on the month's taxable income, from the monthly table.
-  const settle = (tax) => computeSecondHalf({
+  const settle = (tax, cashAdvanceTotal = 0) => computeSecondHalf({
     monthlySalary: basic,
     dailyRate: rates.daily,
     absentDays: used.absences_days,
@@ -1317,6 +1485,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     overloadHours,
     overloadPay,
     otherEarnings: overtimePay + holidayPay,
+    cashAdvance: cashAdvanceTotal,
     contributions: { sss, philhealth, pagibig },
     taxTable: semi?.tax_table || [],
     withholdingTax: tax,
@@ -1336,7 +1505,32 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     : 0;
   const withholdingTax = pickAmount(deductionsIn.withholding_tax, taxDefault);
   if (legal) note("withholding_tax", taxDefault, withholdingTax);
-  const settlement = settling ? settle(withholdingTax) : null;
+  // Cash advance installments, from what this payslip can still pay. The 2nd
+  // half of a settled month deducts them with every other deduction; the 1st
+  // half deducts nothing.
+  const cashAdvance = settling
+    ? scheduleCashAdvances({
+      advances: semi.advances || [],
+      repaid: semi.repaid || new Map(),
+      period,
+      available: settle(withholdingTax).second_half_net,
+    })
+    : school
+    ? scheduleCashAdvances({
+      advances: school.advances,
+      repaid: school.repaid,
+      period,
+      available: toAmount(
+        basic + overtimePay + holidayPay
+        + finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive + overloadPay
+        - (sss + philhealth + pagibig + withholdingTax
+          + finalAmounts.absent + finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day
+          + leaveWithoutPayAmount),
+      ),
+    })
+    : { lines: [], total: 0 };
+  const settlement = settling ? settle(withholdingTax, cashAdvance.total) : null;
+  const contributionPct = (type) => (schoolMonthly && schoolMonthly.source[type] !== "legal" ? null : rates[`${type}_pct`]);
 
   const adjustment = (type, finalAmount, autoAmount, quantity, unitName) => {
     const amount = peso(finalAmount - autoAmount);
@@ -1359,9 +1553,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     adjustment("late", finalAmounts.late, auto.amounts.late, toAmount(used.late_days - computed.late_days), "late day"),
     adjustment("undertime", finalAmounts.undertime, auto.amounts.undertime, toAmount(used.undertime_minutes - computed.undertime_minutes), "minute"),
     adjustment("half_day", finalAmounts.half_day, auto.amounts.half_day, toAmount(used.half_days - computed.half_days), "day"),
-    statutory("sss", sss, rates.sss_pct, differs(sss, contributionDefault("sss"))),
-    statutory("philhealth", philhealth, rates.philhealth_pct, differs(philhealth, contributionDefault("philhealth"))),
-    statutory("pagibig", pagibig, rates.pagibig_pct, differs(pagibig, contributionDefault("pagibig"))),
+    statutory("sss", sss, contributionPct("sss"), differs(sss, contributionDefault("sss"))),
+    statutory("philhealth", philhealth, contributionPct("philhealth"), differs(philhealth, contributionDefault("philhealth"))),
+    statutory("pagibig", pagibig, contributionPct("pagibig"), differs(pagibig, contributionDefault("pagibig"))),
     statutory("withholding_tax", withholdingTax, null, legal && differs(withholdingTax, taxDefault)),
     leaveWithoutPayDays > 0 ? {
       type: "leave_without_pay", quantity: leaveWithoutPayDays, unit: "day", rate: rates.daily,
@@ -1375,6 +1569,13 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       amount: settlement.carry_in, source_log_id: null, is_override: false,
       note: `Balance carried over from ${semi.carry_from || "last month"}`, log_date: null,
     } : null,
+    // Cash advance installments, one line per advance.
+    ...cashAdvance.lines.filter((line) => line.amount > 0).map((line) => ({
+      type: "cash_advance", quantity: 1, unit: "installment", rate: line.installment, rate_config_id: null,
+      amount: line.amount, source_log_id: null, is_override: false,
+      note: `${line.description ? `${line.description}: ` : ""}balance ${money(line.balance_before)} → ${money(line.balance_after)}`,
+      log_date: null,
+    })),
   ].filter(Boolean);
 
   const incentiveLines = [
@@ -1412,6 +1613,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       half_days: used.half_days,
       leave_with_pay_days: leaveWithPayDays,
       leave_without_pay_days: leaveWithoutPayDays,
+      cash_advance: cashAdvance.total,
     },
     incentives: {
       early_bird_days: used.early_bird_days,
@@ -1441,6 +1643,95 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     computed_by_name: actor?.name || null,
   };
   if (settling) applySecondHalfSettlement(payroll, { settlement, semi, rates });
+  if (settling) {
+    const t = payroll.totals;
+    // The school's payroll sheet, 16-end: Rate (monthly ÷ 2) less the missed
+    // days, plus OT, less every deduction. Net Pay is what this payslip pays;
+    // in the rare case the 1-15 payslip did not pay exactly Rate (or a balance
+    // was carried in) the row says so in a note instead of an extra column.
+    const sheet = sheetFigures({
+      basic: toAmount(basic / 2),
+      daily: rates.daily,
+      hourly: rates.hourly,
+      periodDays: periodDaysFor(rates.working_days_per_year, semi.working_days),
+      absenceDeduction: t.absence_deduction,
+      halfDayDeduction: t.half_day_deduction,
+      leaveWithoutPayDeduction: t.leave_without_pay_deduction,
+      lateDeduction: t.late_deduction,
+      undertimeDeduction: t.undertime_deduction,
+      overtimeMinutes: auto.counts.overtime_minutes,
+      overtimePay: t.overtime_pay,
+      overtimePremiumPct: rates.overtime_premium_pct,
+      holidayPay: t.holiday_pay,
+      incentives: payroll.monthly.month_totals.total_incentives,
+      cashAdvance: cashAdvance.total,
+      sss,
+      philhealth,
+      pagibig,
+      withholdingTax,
+    });
+    const difference = toAmount(sheet.net_pay - settlement.second_half_net);
+    payroll.sheet = {
+      ...sheet,
+      half: "second",
+      net_pay: settlement.second_half_net,
+      ...(Math.abs(difference) >= 0.01 ? {
+        net_note: settlement.carry_in
+          ? `Less ${money(settlement.carry_in)} carried over from last month`
+          : `1-15 payslip paid ${money(semi.first_half?.net_pay || 0)} instead of ${money(sheet.rate)}`,
+      } : {}),
+    };
+    payroll.cash_advances = cashAdvance.lines.filter((line) => line.amount > 0)
+      .map((line) => ({ advance_id: line.advance_id, amount: line.amount, balance_after: line.balance_after, description: line.description }));
+    payroll.audit.school_sheet = {
+      rule: "semi_monthly",
+      contribution_method: Number(rates.contribution_method) === 1 ? "fixed" : "legal",
+      monthly_contributions: { sss: schoolMonthly.sss, philhealth: schoolMonthly.philhealth, pagibig: schoolMonthly.pagibig },
+      contribution_source: schoolMonthly.source,
+      cash_advances: cashAdvance.lines,
+    };
+  }
+  if (school) {
+    const t = payroll.totals;
+    // The school's payroll sheet columns, from the amounts just charged.
+    payroll.sheet = sheetFigures({
+      basic,
+      daily: rates.daily,
+      hourly: rates.hourly,
+      periodDays: periodDaysFor(rates.working_days_per_year, school.working_days),
+      absenceDeduction: t.absence_deduction,
+      halfDayDeduction: t.half_day_deduction,
+      leaveWithoutPayDeduction: t.leave_without_pay_deduction,
+      lateDeduction: t.late_deduction,
+      undertimeDeduction: t.undertime_deduction,
+      overtimeMinutes: auto.counts.overtime_minutes,
+      overtimePay: t.overtime_pay,
+      overtimePremiumPct: rates.overtime_premium_pct,
+      holidayPay: t.holiday_pay,
+      incentives: t.total_incentives,
+      cashAdvance: t.cash_advance_deduction,
+      sss,
+      philhealth,
+      pagibig,
+      withholdingTax,
+    });
+    payroll.sheet.half = school.half;
+    // Repaid by this payslip once it is Final (src/lib/payroll/cash-advance.js).
+    payroll.cash_advances = cashAdvance.lines.filter((line) => line.amount > 0)
+      .map((line) => ({ advance_id: line.advance_id, amount: line.amount, balance_after: line.balance_after, description: line.description }));
+    // 13th month: basic pay less unpaid absences.
+    payroll.basic_earned = Math.max(0, toAmount(basic - t.absence_deduction - t.leave_without_pay_deduction));
+    payroll.audit.school_sheet = {
+      rule: "per_half",
+      half: school.half,
+      working_days: school.working_days,
+      contribution_half: Number(rates.contribution_half) || 3,
+      contribution_method: Number(rates.contribution_method) === 1 ? "fixed" : "legal",
+      monthly_contributions: { sss: schoolMonthly.sss, philhealth: schoolMonthly.philhealth, pagibig: schoolMonthly.pagibig },
+      contribution_source: schoolMonthly.source,
+      cash_advances: cashAdvance.lines,
+    };
+  }
 
   return {
     payroll,
@@ -1461,7 +1752,23 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         first_half_status: semi.first_half.status,
         carry_in: semi.carry_in,
         monthly: payroll.monthly,
+        sheet: payroll.sheet,
       } : {}),
+      ...(school ? {
+        per_half: school.half,
+        other_incentive: otherIncentive,
+        overload_hours: overloadHours,
+        overload_pay: overloadPay,
+        contribution_source: schoolMonthly.source,
+        sheet: payroll.sheet,
+      } : {}),
+      // Where each contribution comes from: legal table, fixed amount, or
+      // the employee's own (the form's hints).
+      ...(schoolMonthly ? { contribution_source: schoolMonthly.source } : {}),
+      // Cash advance installments this payslip deducts (not editable here:
+      // put an advance On Hold in Cash Advances to skip it).
+      cash_advance: cashAdvance.total,
+      cash_advances: cashAdvance.lines,
       sss: contributionDefault("sss"),
       philhealth: contributionDefault("philhealth"),
       pagibig: contributionDefault("pagibig"),
@@ -1702,8 +2009,12 @@ function buildPayslipDetails(entry) {
       undertime_deduction: entry.payroll.totals.undertime_deduction ?? 0,
       half_days: entry.payroll.deductions.half_days ?? 0,
       half_day_deduction: entry.payroll.totals.half_day_deduction ?? 0,
+      cash_advance: entry.payroll.deductions.cash_advance ?? 0,
       total_deductions: entry.payroll.totals.total_deductions,
     },
+    // The school's payroll sheet columns and the cash advances repaid.
+    sheet: entry.payroll.sheet || null,
+    cash_advances: entry.payroll.cash_advances || [],
     incentives: {
       early_bird_days: entry.payroll.incentives?.early_bird_days ?? 0,
       early_bird_incentive: entry.payroll.totals.early_bird_incentive ?? 0,
@@ -1919,7 +2230,9 @@ async function handleMonthlyItemsView(supabase, employees, url) {
     available: true,
     month,
     lock_day: lockDay,
-    window: monthlyWindow(monthKey, lockDayFor),
+    window: monthlyWindow(monthKey, lockDayFor, {
+      carryOver: Number(resolveRate((await loadRateConfigs(supabase)).configs, "carry_after_lock", {}, `${monthKey}-16`).value) !== 0,
+    }),
     items,
   });
 }
@@ -2029,6 +2342,262 @@ async function handleArchiveMonthlyItem(supabase, body, guard) {
   return NextResponse.json({ success: true });
 }
 
+/* ── The school's payroll sheet (src/lib/payroll/school-sheet.js) ─────────── */
+
+const SHEET_CONFIG_KEYS = ["sheet_school_name", "sheet_approver_name", "sheet_approver_title"];
+
+/** "Benitez, Jane Marinel D." from the name parts, or the full name. */
+function sheetName(profile, fallback) {
+  const last = normalizeText(profile?.last_name);
+  const first = normalizeText(profile?.first_name);
+  if (!last || !first) return normalizeText(fallback);
+  const middle = normalizeText(profile?.middle_name);
+  return `${last}, ${first}${middle ? ` ${middle.charAt(0)}.` : ""}`;
+}
+
+/**
+ * GET ?view=payroll_sheet&period=<label>[&branch_id=<uuid>]: the period's
+ * payslips laid out like the school's payroll sheet, one table per branch,
+ * with totals, and the header / approval block from System Configuration.
+ * Drafts are included and marked, so the sheet can be checked before the
+ * payslips are Final.
+ */
+async function handlePayrollSheetView(supabase, employees, entries, url) {
+  const label = normalizeText(url.searchParams.get("period"));
+  const period = periodFromLabel(label) || findPeriodRangeByLabel(label);
+  if (!period) return NextResponse.json({ error: "Choose a pay period." }, { status: 400 });
+  const branchFilter = normalizeText(url.searchParams.get("branch_id"));
+
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+  const periodEntries = entries.filter((entry) => entry.pay_period === period.label && byId.has(entry.employee_id));
+  const ids = periodEntries.map((entry) => entry.employee_id);
+
+  const [branchResult, profileResult, configResult] = await Promise.all([
+    supabase.from("branches").select("id,name"),
+    ids.length
+      ? supabase.from("profiles").select("id,first_name,middle_name,last_name").in("id", ids)
+      : { data: [], error: null },
+    supabase.from("system_config").select("key,value").eq("section", "payroll").in("key", SHEET_CONFIG_KEYS),
+  ]);
+  const branchNames = new Map((branchResult.data || []).map((row) => [row.id, row.name]));
+  const profiles = new Map((profileResult.data || []).map((row) => [row.id, row]));
+  const config = Object.fromEntries((configResult.data || []).map((row) => [row.key, row.value]));
+
+  const groups = new Map();
+  periodEntries.forEach((entry) => {
+    const employee = byId.get(entry.employee_id);
+    const branchId = employee.branch_id || "";
+    if (branchFilter && branchFilter !== "all" && branchFilter !== branchId) return;
+    if (!groups.has(branchId)) {
+      groups.set(branchId, { branch_id: branchId || null, branch_name: branchNames.get(branchId) || "Unassigned", rows: [] });
+    }
+    groups.get(branchId).rows.push({
+      entry_id: entry.id,
+      employee_id: entry.employee_id,
+      employee_code: entry.employee_code,
+      name: sheetName(profiles.get(entry.employee_id), entry.employee_name).toUpperCase(),
+      status: entry.status === "draft" ? "draft" : "final",
+      payslip_no: entry.payslip_no || null,
+      ...sheetRowFromEntry(entry),
+    });
+  });
+
+  const branches = [...groups.values()]
+    .map((group) => {
+      const rows = group.rows.sort((a, b) => a.name.localeCompare(b.name));
+      return { ...group, rows, totals: sheetTotals(rows) };
+    })
+    .sort((a, b) => a.branch_name.localeCompare(b.branch_name));
+  const allRows = branches.flatMap((group) => group.rows);
+
+  // A 16-end payslip deducts the attendance read up to the lock day (the 15th
+  // for the school), not the 16-end days themselves; the sheet says which.
+  const attendanceWindow = periodEntries.map((entry) => entry.payroll?.monthly?.window).find((w) => w?.start_key) || null;
+
+  return NextResponse.json({
+    period: { label: period.label, start_key: period.start_key, end_key: period.end_key },
+    attendance_window: attendanceWindow,
+    header: {
+      school_name: config.sheet_school_name || "",
+      approver_name: config.sheet_approver_name || "",
+      approver_title: config.sheet_approver_title || "",
+    },
+    branches,
+    grand_totals: sheetTotals(allRows),
+    draft_count: allRows.filter((row) => row.status === "draft").length,
+    missing: employees
+      .filter((employee) => !periodEntries.some((entry) => entry.employee_id === employee.id))
+      .filter((employee) => !branchFilter || branchFilter === "all" || (employee.branch_id || "") === branchFilter)
+      .map((employee) => ({ employee_id: employee.id, employee_name: employee.full_name })),
+    branch_options: [...branchNames.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+  });
+}
+
+/* ── Cash advances (src/lib/payroll/cash-advance.js) ─────────────────────── */
+
+const CASH_ADVANCE_NOT_READY = "Cash advances are not set up yet: apply supabase/migrations/20261006010000_school_payroll_sheet.sql first.";
+
+/** GET ?view=cash_advances: every advance of the caller's employees, with its balance and repayments. */
+async function handleCashAdvancesView(supabase, employees, entries) {
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+  const result = await fetchAllRows(() => supabase
+    .from("payroll_cash_advances")
+    .select("*")
+    .order("date_granted", { ascending: false })
+    .order("id", { ascending: true }));
+  if (result.error) return NextResponse.json({ available: false, error: CASH_ADVANCE_NOT_READY, advances: [] });
+
+  const repaid = repaidByAdvance(entries);
+  const paymentsFor = (advanceId) => entries
+    .filter((entry) => entry.status === "paid")
+    .flatMap((entry) => (entry.payroll?.cash_advances || [])
+      .filter((line) => String(line.advance_id) === String(advanceId))
+      .map((line) => ({ pay_period: entry.pay_period, payslip_no: entry.payslip_no || null, amount: toAmount(line.amount) })));
+
+  const advances = (result.data || [])
+    .filter((row) => byId.has(row.employee_id))
+    .map((row) => {
+      const balance = advanceBalance(row, repaid);
+      return {
+        ...row,
+        principal: toAmount(row.principal),
+        installment_amount: toAmount(row.installment_amount),
+        employee_name: byId.get(row.employee_id).full_name,
+        employee_code: byId.get(row.employee_id).employee_id,
+        repaid: toAmount(repaid.get(String(row.id)) || 0),
+        balance,
+        fully_paid: balance <= 0,
+        payments: paymentsFor(row.id),
+      };
+    });
+
+  const open = advances.filter((row) => row.status !== "cancelled" && !row.fully_paid);
+  return NextResponse.json({
+    available: true,
+    advances,
+    summary: {
+      open_count: open.length,
+      outstanding: toAmount(open.reduce((sum, row) => sum + row.balance, 0)),
+      repaid: toAmount(advances.reduce((sum, row) => sum + row.repaid, 0)),
+    },
+  });
+}
+
+/**
+ * POST { action: "add_cash_advance", employee_id, principal, installment_amount,
+ *        deduct_on, date_granted, start_date, description }
+ */
+async function handleAddCashAdvance(supabase, body, guard) {
+  const employees = await fetchEmployees(supabase, guard);
+  const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
+  if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+
+  const input = {
+    principal: body.principal,
+    installment_amount: body.installment_amount,
+    deduct_on: normalizeText(body.deduct_on, "both").toLowerCase(),
+    date_granted: normalizeText(body.date_granted),
+    start_date: normalizeText(body.start_date),
+  };
+  const invalid = validateCashAdvanceInput(input);
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+
+  // A period already Final for this employee cannot take a new deduction.
+  const startPeriod = getPayPeriodRange(new Date(`${input.start_date}T00:00:00`));
+  const finalExists = await supabase
+    .from("payroll_entries")
+    .select("id")
+    .eq("employee_id", employee.id)
+    .eq("pay_period", startPeriod.label)
+    .eq("status", "paid")
+    .maybeSingle();
+  if (finalExists.data) {
+    return NextResponse.json({ error: `${employee.full_name}'s ${startPeriod.label} payslip is already Final. Start the deduction on a later pay period.` }, { status: 409 });
+  }
+
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const row = {
+    employee_id: employee.id,
+    branch_id: employee.branch_id || null,
+    date_granted: input.date_granted,
+    principal: toAmount(input.principal),
+    installment_amount: toAmount(input.installment_amount),
+    deduct_on: input.deduct_on,
+    start_date: input.start_date,
+    status: "active",
+    description: normalizeText(body.description).slice(0, 200) || null,
+    created_by: guard.userId || null,
+    created_by_name: actorName || null,
+    created_at: new Date().toISOString(),
+  };
+  const result = await supabase.from("payroll_cash_advances").insert(row).select("id").maybeSingle();
+  if (result.error) {
+    return NextResponse.json({ error: isInternalDbSchemaError(result.error.message) ? CASH_ADVANCE_NOT_READY : sanitizeError(result.error) }, { status: 500 });
+  }
+
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action: "cash_advance_add",
+    entity_type: "payroll_cash_advance",
+    entity_id: result.data?.id || employee.id,
+    description: `Cash advance ₱${money(row.principal)} for ${employee.full_name}, ₱${money(row.installment_amount)} per payslip from ${startPeriod.label}.`,
+    status: "success",
+    source: "api",
+    metadata: row,
+  });
+
+  return NextResponse.json({ success: true, id: result.data?.id || null, start_period: startPeriod.label });
+}
+
+/** PATCH { action: "set_cash_advance_status", advance_id, status: active | on_hold | cancelled, reason } */
+async function handleSetCashAdvanceStatus(supabase, body, guard) {
+  const advanceId = normalizeText(body.advance_id);
+  const status = normalizeText(body.status).toLowerCase();
+  const reason = normalizeText(body.reason).slice(0, 300);
+  if (!advanceId) return NextResponse.json({ error: "advance_id is required." }, { status: 400 });
+  if (!CASH_ADVANCE_STATUSES.includes(status)) return NextResponse.json({ error: "Status must be active, on_hold or cancelled." }, { status: 400 });
+  if (status === "cancelled" && reason.length < 5) return NextResponse.json({ error: "Give a reason for cancelling the advance." }, { status: 400 });
+
+  const found = await supabase.from("payroll_cash_advances").select("*").eq("id", advanceId).maybeSingle();
+  if (found.error) return NextResponse.json({ error: CASH_ADVANCE_NOT_READY }, { status: 503 });
+  const advance = found.data;
+  if (!advance) return NextResponse.json({ error: "Cash advance not found." }, { status: 404 });
+  if (advance.status === "cancelled") return NextResponse.json({ error: "A cancelled advance cannot be changed." }, { status: 409 });
+
+  const employees = await fetchEmployees(supabase, guard);
+  const employee = employees.find((row) => row.id === advance.employee_id);
+  if (!employee) return NextResponse.json({ error: "That cash advance belongs to another branch." }, { status: 403 });
+
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const result = await supabase
+    .from("payroll_cash_advances")
+    .update({
+      status,
+      status_reason: reason || null,
+      status_changed_by: guard.userId || null,
+      status_changed_by_name: actorName || null,
+      status_changed_at: new Date().toISOString(),
+    })
+    .eq("id", advanceId);
+  if (result.error) throw new Error(result.error.message);
+
+  const words = { active: "resumed", on_hold: "put on hold", cancelled: "cancelled" };
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action: "cash_advance_status",
+    entity_type: "payroll_cash_advance",
+    entity_id: advanceId,
+    description: `Cash advance ₱${money(advance.principal)} for ${employee.full_name} ${words[status]}${reason ? `: ${reason}` : ""}.`,
+    status: "success",
+    source: "api",
+    metadata: { advance_id: advanceId, from: advance.status, to: status, reason: reason || null },
+  });
+
+  return NextResponse.json({ success: true });
+}
+
 export async function GET(request) {
   try {
     const guard = await requirePermission(request, "process_payroll", "read");
@@ -2048,6 +2617,8 @@ export async function GET(request) {
     const view = normalizeText(url.searchParams.get("view")).toLowerCase();
     if (view === "thirteenth_month") return await handleThirteenthMonthView(supabase, employees, entriesResult.entries, url, guard);
     if (view === "monthly_items") return await handleMonthlyItemsView(supabase, employees, url);
+    if (view === "payroll_sheet") return await handlePayrollSheetView(supabase, employees, entriesResult.entries, url);
+    if (view === "cash_advances") return await handleCashAdvancesView(supabase, employees, entriesResult.entries);
 
     // ?format=pdf&entry_id=… : the payslip as a PDF download.
     if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
@@ -2161,6 +2732,10 @@ export async function GET(request) {
           window: payContext.semi.window,
           lock_day: payContext.semi.lock_day,
         }
+        : null,
+      // The school's payroll sheet: each half paid on its own attendance.
+      per_half: payContext.school
+        ? { half: payContext.school.half, working_days: payContext.school.working_days }
         : null,
     });
   } catch (error) {
@@ -2343,6 +2918,7 @@ export async function POST(request) {
     const action = normalizeText(body.action, "save_draft").toLowerCase();
 
     if (action === "add_monthly_item") return await handleAddMonthlyItem(getAdminClient(), body, guard);
+    if (action === "add_cash_advance") return await handleAddCashAdvance(getAdminClient(), body, guard);
 
     if (action !== "save_draft" && action !== "submit" && action !== "batch_submit") {
       return NextResponse.json({ error: "Action must be save_draft, submit, or batch_submit." }, { status: 400 });
@@ -2673,6 +3249,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       taxBasis: built.payroll.monthly?.half === "second"
         ? `BIR monthly withholding table on taxable income ${money(built.payroll.monthly.taxable_income)}`
         : undefined,
+      contributionSource: built.payroll.audit?.school_sheet?.contribution_source,
     }),
     branch_name: branch?.data?.name || null,
     position_title: employee.position_title || employee.position,
@@ -2778,9 +3355,10 @@ export async function PATCH(request) {
     if (action === "override_final") return await handleGenerate(getAdminClient(), body, guard, { override: true });
     if (action === "archive_monthly_item") return await handleArchiveMonthlyItem(getAdminClient(), body, guard);
     if (action === "process_13th_month") return await handleProcessThirteenthMonth(getAdminClient(), body, guard);
+    if (action === "set_cash_advance_status") return await handleSetCashAdvanceStatus(getAdminClient(), body, guard);
 
     if (action !== "cancel_draft") {
-      return NextResponse.json({ error: "Action must be generate, override_final, archive_monthly_item, process_13th_month or cancel_draft." }, { status: 400 });
+      return NextResponse.json({ error: "Action must be generate, override_final, archive_monthly_item, process_13th_month, set_cash_advance_status or cancel_draft." }, { status: 400 });
     }
 
     const entryId = normalizeText(body.entry_id);

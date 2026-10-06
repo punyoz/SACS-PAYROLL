@@ -301,6 +301,32 @@
     margin-bottom: 6px !important;
   }
 
+  /* Payroll Sheet (School Format): one branch per sheet of paper, every
+     column on the page (landscape reads best), room to sign. */
+  body[data-print="report"] .pay-sheet {
+    break-after: page;
+    page-break-after: always;
+    border: none !important;
+    padding: 0 !important;
+  }
+  body[data-print="report"] .pay-sheet:last-child { break-after: auto; page-break-after: auto; }
+  body[data-print="report"] .pay-sheet-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 7.5pt !important;
+  }
+  body[data-print="report"] .pay-sheet-table th,
+  body[data-print="report"] .pay-sheet-table td {
+    padding: 3px 4px !important;
+    white-space: normal !important;
+  }
+  body[data-print="report"] .pay-sheet-table td { height: 22px; }
+  body[data-print="report"] .pay-sheet-total td {
+    font-weight: 700 !important;
+    background: var(--amber-s) !important;
+  }
+  body[data-print="report"] .pay-sheet-approval { break-inside: avoid; }
+
   body[data-print="report"] #rpt-table,
   body[data-print="payslip"] table,
   body[data-print="timesheet"] table {

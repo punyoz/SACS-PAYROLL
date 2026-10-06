@@ -899,6 +899,10 @@ async function loadSAConfig() {
     set('cfg-sss', p.sss);
     set('cfg-philhealth', p.philhealth);
     set('cfg-pagibig', p.pagibig);
+    // The school's payroll sheet header and approval block (Accountant → Reports).
+    set('cfg-sheet-school', p.sheet_school_name);
+    set('cfg-sheet-approver', p.sheet_approver_name);
+    set('cfg-sheet-approver-title', p.sheet_approver_title);
 
     saPayCal.dates.clear();
     try {
@@ -928,6 +932,8 @@ function saRateDisplay(rate, value) {
   if (rate.unit === 'count') return amount > 0 ? `${amount} late = 1 absent` : 'Off';
   if (rate.unit === 'day_of_month') return amount > 0 ? `Day ${amount}` : 'Month end';
   if (rate.unit === 'days') return `${amount} days`;
+  if (rate.unit === 'switch') return amount === 1 ? 'On' : 'Off';
+  if (rate.unit === 'half') return ({ 1: '1–15 payslip', 2: '16–end payslip', 3: 'Half on each' })[amount] || String(amount);
   return `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
@@ -1060,11 +1066,14 @@ async function openSARateModal(rateType, preset = null) {
     ? 'New value (%)'
     : rate.unit === 'count' ? 'Late days per absence (0 = off)'
       : rate.unit === 'day_of_month' ? 'Day of the month (0 = month end)'
-        : rate.unit === 'days' ? 'Working days (per year, or per month if 31 or less)' : 'New value (₱)';
+        : rate.unit === 'days' ? 'Working days (per year, or per month if 31 or less)'
+          : rate.unit === 'switch' ? '1 = On, 0 = Off'
+            : rate.unit === 'half' ? '1 = 1–15 payslip, 2 = 16–end payslip, 3 = half on each' : 'New value (₱)';
   const valueInput = document.getElementById('sa-rate-value');
   valueInput.value = '';
-  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' || rate.unit === 'day_of_month' ? '31' : rate.unit === 'days' ? '366' : '';
-  valueInput.step = rate.unit === 'count' || rate.unit === 'days' || rate.unit === 'day_of_month' ? '1' : '0.01';
+  valueInput.max = rate.unit === 'percent' ? '100' : rate.unit === 'count' || rate.unit === 'day_of_month' ? '31' : rate.unit === 'days' ? '366'
+    : rate.unit === 'switch' ? '1' : rate.unit === 'half' ? '3' : '';
+  valueInput.step = rate.unit === 'count' || rate.unit === 'days' || rate.unit === 'day_of_month' || rate.unit === 'switch' || rate.unit === 'half' ? '1' : '0.01';
   const effective = document.getElementById('sa-rate-effective');
   effective.value = saRatesState.data?.default_effective_date || '';
   effective.oninput = saRateEffectiveHint;
@@ -1171,6 +1180,8 @@ async function submitSARate(event) {
   if (rate?.unit === 'count' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a whole number from 0 to 31.', 'sa-rate-value');
   if (rate?.unit === 'days' && (!Number.isInteger(Number(value)) || Number(value) < 1 || Number(value) > 366)) return fail('Enter a whole number of days from 1 to 366.', 'sa-rate-value');
   if (rate?.unit === 'day_of_month' && (!Number.isInteger(Number(value)) || Number(value) > 31)) return fail('Enter a day of the month from 0 (month end) to 31.', 'sa-rate-value');
+  if (rate?.unit === 'switch' && Number(value) !== 0 && Number(value) !== 1) return fail('Enter 1 (on) or 0 (off).', 'sa-rate-value');
+  if (rate?.unit === 'half' && ![1, 2, 3].includes(Number(value))) return fail('Enter 1, 2 or 3.', 'sa-rate-value');
   if (!effectiveDate) return fail('Choose the date the new value takes effect.', 'sa-rate-effective');
   if (scope !== 'global' && !scopeRef) return fail('Choose who this rate applies to.', refField);
 
@@ -1585,6 +1596,12 @@ async function saveSAConfig(section) {
 
   if (section === 'payroll') {
     values.pay_calendar = JSON.stringify(Array.from(saPayCal.dates).sort());
+    // Optional: the payroll sheet's header and "Approved for payment" block.
+    [['sheet_school_name', 'cfg-sheet-school'], ['sheet_approver_name', 'cfg-sheet-approver'], ['sheet_approver_title', 'cfg-sheet-approver-title']]
+      .forEach(([key, id]) => {
+        const el = document.getElementById(id);
+        if (el) values[key] = el.value.trim();
+      });
   }
 
   if (fb) { fb.textContent = 'Saving...'; fb.style.color = 'var(--t3)'; }

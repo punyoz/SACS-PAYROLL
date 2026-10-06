@@ -52,8 +52,9 @@ export function buildAttendanceSummary({ auto, leave, through }) {
  * @param {object} args.rates    rate values in force (rateValues())
  * @param {boolean} args.legal   legal contribution tables in force
  * @param {string} [args.taxBasis]  how the withholding tax was computed, when not the semi-monthly table
+ * @param {object} [args.contributionSource]  per type "legal" | "fixed" | "employee" (school payroll sheet)
  */
-export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis }) {
+export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis, contributionSource }) {
   const d = payroll?.deductions || {};
   const t = payroll?.totals || {};
   const unit = auto?.unit_amounts || {};
@@ -86,14 +87,22 @@ export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis }) {
   add("half_day", "Half Day", t.half_day_deduction, `${plural(d.half_days || 0, "day")} × ${money(unit.half_day ?? daily / 2)}`);
   add("leave_without_pay", "Leave without pay", t.leave_without_pay_deduction, `${plural(d.leave_without_pay_days || 0, "day")} × ${money(daily)}`);
 
-  const statutoryBasis = (type) => (legal
-    ? "employee share per the contribution table"
-    : `${Number(rates?.[`${type}_pct`]) || 0}% of basic ${money(payroll?.basic_salary)}`);
+  const statutoryBasis = (type) => (contributionSource?.[type] === "fixed"
+    ? "fixed monthly amount"
+    : contributionSource?.[type] === "employee"
+      ? "amount set for this employee"
+      : legal
+        ? "employee share per the contribution table"
+        : `${Number(rates?.[`${type}_pct`]) || 0}% of basic ${money(payroll?.basic_salary)}`);
   add("sss", "SSS", d.sss, statutoryBasis("sss"));
   add("philhealth", "PhilHealth", d.philhealth, statutoryBasis("philhealth"));
   add("pagibig", "Pag-IBIG", d.pagibig, statutoryBasis("pagibig"));
   add("withholding_tax", "Withholding tax", d.withholding_tax, taxBasis || (legal ? "BIR semi-monthly withholding table" : "as entered"));
   add("carry_over", "Balance carried over", t.carry_over_deduction, "negative 2nd half net pay of the previous month");
+  const advances = Array.isArray(payroll?.cash_advances) ? payroll.cash_advances : [];
+  add("cash_advance", "Cash advance", d.cash_advance, advances.length
+    ? advances.map((line) => `${money(line.amount)}${line.description ? ` (${line.description})` : ""}, balance ${money(line.balance_after)}`).join("; ")
+    : "installment");
 
   return lines;
 }

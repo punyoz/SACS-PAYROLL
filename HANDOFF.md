@@ -71,8 +71,8 @@ Migrations are applied by hand through the dashboard. If you prefer
 `role_permissions`, `attendance_holidays`, `attendance_corrections`,
 `attendance_overtime_approvals`, `payroll_rate_configs`, `payroll_deductions`,
 `payroll_incentives`, `payroll_tax_brackets`, `payroll_contribution_amounts`,
-`payroll_monthly_incentives`, `payroll_thirteenth_month`, plus the read-only
-view `employee_info_view`.
+`payroll_monthly_incentives`, `payroll_thirteenth_month`,
+`payroll_cash_advances`, plus the read-only view `employee_info_view`.
 
 That covers every table the application queries. If a page errors with
 "relation does not exist", a migration was skipped.
@@ -183,6 +183,51 @@ function.
 - **13th month** (Accountant → 13th Month Pay): basic pay earned in the year
   (less Absent days and Leave Without Pay) ÷ 12, from Final payslips.
   Processed from December 1 and recorded once per employee.
+
+### The school's payroll (two payslips a month) and the payroll sheet
+
+`20261006010000_school_payroll_sheet.sql` (run after the semi-monthly file),
+`src/lib/payroll/school-sheet.js` and `src/lib/payroll/cash-advance.js` set the
+semi-monthly rule above to the school's own amounts:
+
+- **1–15 payslip:** the full Rate (monthly ÷ 2). Nothing is deducted.
+- **16–end payslip:** every deduction: days missed (Daily = monthly ÷ 24,
+  i.e. Rate ÷ 12), SSS ₱400, Pag-IBIG ₱200 (no PhilHealth), withholding tax,
+  cash advance installments; plus approved OT at 125%.
+- **Which attendance:** the 16–end payslip deducts the attendance read up to
+  the 15th (Attendance lock day = 15, Deduct days after the lock day next
+  month = On). October 16–31 deducts October 1–15 (the first month starts on
+  the 1st); November 16–30 deducts October 16 – November 15. The Payroll
+  Sheet prints the attendance dates under the period.
+
+| Sheet column (16–end) | Rule |
+|---|---|
+| Rate | Monthly salary ÷ 2 |
+| Days / Reg. Hrs. | 12 − days missed from the 16th of last month to the 15th (Absent, Leave Without Pay, Half Day = ½); hours = days × 8 |
+| Amount | Rate − Daily × days missed |
+| OT / Rate / Amount | Approved OT hours × hourly × 125% |
+| Cash Advance | One installment per month until repaid (Accountant → Cash Advances) |
+| SSS / PhilHealth / Pag-IBIG | Fixed monthly amounts; per-employee amounts (0 = exempt) in Super Admin → Contribution Amounts |
+| Late / Undertime | Off (`late_days_per_absent` = 0) unless the school sets a rule |
+| Net Pay | Total Amount − Total Deduction |
+
+All values are effective-dated rates in Super Admin → Payroll Rates, from
+2026-10-01: **Contributions as fixed amounts** = On, **SSS / PhilHealth /
+Pag-IBIG fixed amount** = 400 / 0 / 200, Working days per year = 24, Late days
+per absence = 0, Attendance lock day = 15, Deduct days after the lock day
+next month = On. **Pay each half on its own attendance** is Off (the school's
+way); turning it On pays each half on its own attendance instead.
+
+Cash advance repayments are read from Final payslips
+(`payroll_entries.payroll.cash_advances`), so a Draft repays nothing and an
+overridden payslip replaces its own repayment. An installment never pushes
+net pay below zero; the rest stays on the balance.
+
+**Accountant → Payroll Reports → Payroll Sheet (School Format)** prints the
+sheet per branch (Days, Reg. Hrs., Rate, Amount, OT, Cash Advance,
+contributions, totals row, signature column and the "Approved for payment"
+block from Super Admin → Payroll Configuration). Print in landscape. Every
+column is in centavos, so the columns always add up to the totals row.
 
 Security settings (Super Admin → System Configuration → Security) are
 enforced: Session Timeout is an idle timeout (8 hours after sign-in at most),

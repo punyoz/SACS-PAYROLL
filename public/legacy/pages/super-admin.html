@@ -467,6 +467,20 @@
               <option value="weekly">Weekly</option>
             </select>
           </div>
+          <!-- The school's payroll sheet (Accountant → Payroll Reports → Payroll Sheet):
+               its title line and "Approved for payment" signatory. -->
+          <div class="fg" style="margin:0;">
+            <label for="cfg-sheet-school">Payroll Sheet — School Name</label>
+            <input id="cfg-sheet-school" class="fc" type="text" maxlength="200" placeholder="e.g. Shepherd Angels Christian School of Antipolo, Inc." />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="cfg-sheet-approver">Payroll Sheet — Approved By</label>
+            <input id="cfg-sheet-approver" class="fc" type="text" maxlength="120" placeholder="Name of the approver" />
+          </div>
+          <div class="fg" style="margin:0;">
+            <label for="cfg-sheet-approver-title">Approver's Title</label>
+            <input id="cfg-sheet-approver-title" class="fc" type="text" maxlength="120" placeholder="e.g. Owner / Manager" />
+          </div>
           <!-- Effective-dated payroll rates (loadSAPayrollRates in js/super-admin.js).
                SSS / PhilHealth / Pag-IBIG live here now, as versioned rates
                payroll actually uses; each change is a new version with the

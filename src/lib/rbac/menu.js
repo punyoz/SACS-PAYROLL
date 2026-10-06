@@ -56,6 +56,9 @@ export const ICONS = {
   plus: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   records: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M4 4h8M4 8h6M4 12h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>',
   payslip: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="2" y="1" width="12" height="14" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 8h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  star: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3l-3.8 2 .7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>',
+  cash: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="3.5" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>',
+  calendar: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="11.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   chart: '<svg width="14" height="14" fill="none" viewBox="0 0 16 16"><polyline points="2,11 5,7 8,10 12,5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><rect x="1" y="1" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg>',
 };
 
@@ -101,6 +104,22 @@ const SECTION_OVERRIDE = {
   },
   accountant: {
     attendance: "Reference",
+  },
+};
+
+/**
+ * Pages that are part of one module's work, shown as their own sidebar rows
+ * at the end of that module's section and allowed exactly when the module's
+ * row is (same permission): the Accountant's Incentives & Overload, Cash
+ * Advances and 13th Month Pay screens are all Process Payroll.
+ */
+const MODULE_EXTRA_PAGES = {
+  process_payroll: {
+    accountant: [
+      { page: "ac-incentives", label: "Incentives & Overload", icon: "star" },
+      { page: "ac-cash-advances", label: "Cash Advances", icon: "cash" },
+      { page: "ac-13th", label: "13th Month Pay", icon: "calendar" },
+    ],
   },
 };
 
@@ -165,6 +184,21 @@ export function buildMenu(role) {
       page: item.page,
       icon: item.icon,
       handler: item.handler,
+    });
+  });
+
+  // Each module's extra pages, after the last row of its section.
+  deduped.forEach((item) => {
+    (MODULE_EXTRA_PAGES[item.module]?.[normalized] || []).forEach((extra) => {
+      if (seenPages.has(extra.page)) return;
+      seenPages.add(extra.page);
+      bySection.get(item.section).push({
+        module: item.module,
+        label: extra.label,
+        page: extra.page,
+        icon: ICONS[extra.icon] || "",
+        handler: item.handler,
+      });
     });
   });
 

@@ -42,7 +42,16 @@ export const RATE_TYPES = Object.freeze({
   working_days_per_year: { label: "Working days per year", unit: "days", hint: "Daily rate = monthly salary × 12 ÷ this (261 or 313; from Oct 1, 2026). 31 or less is working days per month: monthly salary ÷ this (e.g. 22)" },
   // Semi-monthly payroll (src/lib/payroll/semi-monthly.js).
   attendance_lock_day: { label: "Attendance lock day", unit: "day_of_month", hint: "Day of the month attendance is locked for the 2nd half (0 = month end). Anything dated or filed after it goes to next month's payroll" },
+  carry_after_lock: { label: "Deduct days after the lock day next month", unit: "switch", hint: "On: absences, lates and leave without pay after the lock day are deducted on next month's 16-end payslip. Off: they are never deducted, and each 16-end payslip reads only its own month's 1st to the lock day (the school: 1-15)" },
   overload_premium_pct: { label: "Overload premium", unit: "percent", hint: "Overload pay = hourly rate × overload hours × (100% + this %)" },
+  // The school's payroll sheet (src/lib/payroll/school-sheet.js,
+  // 20261006010000_school_payroll_sheet.sql).
+  payroll_per_half: { label: "Pay each half on its own attendance", unit: "switch", hint: "On: each half pays Rate (monthly ÷ 2) less the days missed in that half, like the school's payroll sheet. Off: the 1st half pays Rate with no deductions and the 2nd half settles the month. Read on the 1st of the month" },
+  contribution_method: { label: "Contributions as fixed amounts", unit: "switch", hint: "On: SSS, PhilHealth and Pag-IBIG are the fixed monthly amounts below. Off: computed from the legal tables. An employee's own Contribution Amounts (0 = exempt) always win" },
+  contribution_half: { label: "Payslip that deducts contributions", unit: "half", hint: "1 = the 1-15 payslip, 2 = the 16-end payslip, 3 = half on each" },
+  sss_fixed: { label: "SSS fixed amount", unit: "peso", hint: "Monthly SSS when contributions are fixed amounts" },
+  philhealth_fixed: { label: "PhilHealth fixed amount", unit: "peso", hint: "Monthly PhilHealth when contributions are fixed amounts (0 = none)" },
+  pagibig_fixed: { label: "Pag-IBIG fixed amount", unit: "peso", hint: "Monthly Pag-IBIG when contributions are fixed amounts" },
 });
 
 export const RATE_TYPE_KEYS = Object.freeze(Object.keys(RATE_TYPES));
@@ -74,7 +83,14 @@ export const DEFAULT_RATES = Object.freeze({
   special_holiday_premium_pct: 30,
   working_days_per_year: 261,
   attendance_lock_day: 0,
+  carry_after_lock: 1,
   overload_premium_pct: 0,
+  payroll_per_half: 0,
+  contribution_method: 0,
+  contribution_half: 3,
+  sss_fixed: 0,
+  philhealth_fixed: 0,
+  pagibig_fixed: 0,
 });
 
 export const RATE_SCOPES = Object.freeze(["employee", "position", "branch", "global"]);
@@ -259,6 +275,8 @@ export function validateRateInput({ rate_type: rateType, scope, scope_ref: scope
   if (RATE_TYPES[rateType].unit === "count" && (!Number.isInteger(amount) || amount > 31)) return "Enter a whole number from 0 to 31.";
   if (RATE_TYPES[rateType].unit === "days" && (!Number.isInteger(amount) || amount < 1 || amount > 366)) return "Enter a whole number of days from 1 to 366.";
   if (RATE_TYPES[rateType].unit === "day_of_month" && (!Number.isInteger(amount) || amount > 31)) return "Enter a day of the month from 0 (month end) to 31.";
+  if (RATE_TYPES[rateType].unit === "switch" && amount !== 0 && amount !== 1) return "Enter 1 (on) or 0 (off).";
+  if (RATE_TYPES[rateType].unit === "half" && ![1, 2, 3].includes(amount)) return "Enter 1 (1-15 payslip), 2 (16-end payslip) or 3 (half on each).";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate || ""))) return "Choose the date the new value takes effect.";
   return null;
 }

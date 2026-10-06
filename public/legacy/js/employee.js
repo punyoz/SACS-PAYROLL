@@ -326,6 +326,7 @@ function renderPayslipCard(payslip) {
     if (payslip.perfect_attendance_incentive) rows += `<div class="ps-row" style="color:var(--green);"><span>Perfect Attendance</span><span class="mn">+ ${fmtPeso(payslip.perfect_attendance_incentive)}</span></div>`;
     if (payslip.leave_with_pay_days) rows += `<div class="ps-row"><span>Leave With Pay (${payslip.leave_with_pay_days}d)</span><span class="mn">—</span></div>`;
     if (payslip.leave_without_pay_deduction) rows += `<div class="ps-row" style="color:var(--red);"><span>Leave Without Pay (${payslip.leave_without_pay_days}d)</span><span class="mn">- ${fmtPeso(payslip.leave_without_pay_deduction)}</span></div>`;
+    if (payslip.cash_advance) rows += `<div class="ps-row" style="color:var(--red);"><span>Cash Advance</span><span class="mn">- ${fmtPeso(payslip.cash_advance)}</span></div>`;
   } else {
     rows += `<div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">${fmtPeso(payslip.gross_pay)}</span></div>`;
     rows += `<div class="ps-row" style="color:var(--red);"><span>Total Deductions</span><span class="mn">- ${fmtPeso(payslip.total_deductions)}</span></div>`;

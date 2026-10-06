@@ -38,6 +38,10 @@
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><path d="M8 1.5l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.3l-3.8 2 .7-4.3-3.1-3 4.3-.6z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
       Incentives &amp; Overload
     </div>
+    <div class="ni" onclick="acctNav('ac-cash-advances',this)">
+      <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1" y="3.5" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
+      Cash Advances
+    </div>
     <div class="ni" onclick="acctNav('ac-13th',this)">
       <svg width="14" height="14" fill="none" viewBox="0 0 16 16"><rect x="1.5" y="3" width="13" height="11.5" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 6.5h13M5 1.5v3M11 1.5v3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       13th Month Pay
@@ -261,6 +265,7 @@
               <div class="sr" style="color:var(--red);"><span>Half Day</span><span style="font-family:var(--mono);" id="sum-half-day">- ₱ 0.00</span></div>
               <div class="sr"><span>Leave With Pay</span><span style="font-family:var(--mono);" id="sum-leave-with-pay">0 days</span></div>
               <div class="sr" style="color:var(--red);"><span>Leave Without Pay</span><span style="font-family:var(--mono);" id="sum-leave-without-pay">- ₱ 0.00</span></div>
+              <div class="sr" style="color:var(--red);" title="Installments from Cash Advances; put an advance On Hold there to skip it"><span>Cash Advance</span><span style="font-family:var(--mono);" id="sum-cash-advance">- ₱ 0.00</span></div>
               <div class="sr" style="color:var(--green);"><span>Early Bird / Attendance Incentive</span><span style="font-family:var(--mono);" id="sum-incentives">+ ₱ 0.00</span></div>
               <!-- Semi-monthly 2nd half: the month less the 1st half (recalc). -->
               <div id="sum-semi-wrap" style="display:none;">
@@ -369,6 +374,7 @@
             <div class="pf-row"><span id="ac-pf-half-day-label">Half Day</span><span class="mn" id="ac-pf-half-day">₱ 0.00</span></div>
             <div class="pf-row"><span>Leave With Pay</span><span class="mn" id="ac-pf-leave-with-pay">0 days</span></div>
             <div class="pf-row"><span>Leave Without Pay</span><span class="mn" id="ac-pf-leave-without-pay">₱ 0.00</span></div>
+            <div class="pf-row"><span>Cash Advance</span><span class="mn" id="ac-pf-cash-advance">₱ 0.00</span></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Total Deductions</span><span class="mn" style="color:var(--red);" id="ac-pf-total-deductions">₱ 0.00</span></div>
           </div>
         </div>
@@ -442,6 +448,86 @@
         <div class="tw"><table>
           <thead><tr><th>Employee</th><th>Date</th><th>Type</th><th>Description</th><th>Amount / Hours</th><th>Counted In</th><th>Added By</th><th></th></tr></thead>
           <tbody id="ac-items-body"><tr><td colspan="8" style="color:var(--t3);">Loading...</td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <!-- ──────────────────────────────
+         PAGE: Cash Advances (js/accountant.js loadCashAdvances)
+    ────────────────────────────── -->
+    <div class="page" id="ac-cash-advances">
+      <div class="ph"><h2>Cash Advances</h2><p>Deducted from payslips in installments until repaid</p></div>
+      <div class="sg3">
+        <div class="card"><div class="ct">Open Advances</div><div class="cv t" id="ac-ca-open">0</div><div class="cch">Active or on hold, not yet repaid</div></div>
+        <div class="card"><div class="ct">Outstanding Balance</div><div class="cv r" id="ac-ca-outstanding">₱ 0</div><div class="cch">Still to be deducted</div></div>
+        <div class="card"><div class="ct">Repaid</div><div class="cv a" id="ac-ca-repaid">₱ 0</div><div class="cch">From Final payslips</div></div>
+      </div>
+      <div class="sg2">
+        <div class="card">
+          <div class="stitle" style="margin-bottom:14px;">Add Cash Advance</div>
+          <div class="form-grid">
+            <div class="fg" style="grid-column:1/-1;">
+              <label for="ac-ca-employee">Employee</label>
+              <select class="fc" id="ac-ca-employee"><option value="">Loading employees...</option></select>
+            </div>
+            <div class="fg">
+              <label for="ac-ca-principal">Amount Advanced (₱)</label>
+              <input class="fc" type="number" id="ac-ca-principal" min="0" max="9999999.99" step="0.01" inputmode="decimal">
+            </div>
+            <div class="fg">
+              <label for="ac-ca-installment">Deduct per Payslip (₱)</label>
+              <input class="fc" type="number" id="ac-ca-installment" min="0" max="9999999.99" step="0.01" inputmode="decimal">
+            </div>
+            <div class="fg">
+              <label for="ac-ca-granted">Date Given</label>
+              <input class="fc" type="date" id="ac-ca-granted">
+            </div>
+            <div class="fg">
+              <label for="ac-ca-deduct-on">Deduct From</label>
+              <select class="fc" id="ac-ca-deduct-on">
+                <option value="second">16–end payslip</option>
+              </select>
+            </div>
+            <div class="fg" style="grid-column:1/-1;">
+              <label for="ac-ca-start">First Payslip to Deduct</label>
+              <select class="fc" id="ac-ca-start"></select>
+            </div>
+            <div class="fg" style="grid-column:1/-1;">
+              <label for="ac-ca-description">Description <span style="color:var(--t3);font-weight:400;">(optional)</span></label>
+              <input class="fc" type="text" id="ac-ca-description" maxlength="200" placeholder="e.g. Emergency cash advance">
+            </div>
+          </div>
+          <button class="btn btn-primary" id="ac-ca-submit" style="width:100%;padding:11px;font-size:13px;margin-top:6px;" onclick="submitCashAdvance()">Add Cash Advance →</button>
+          <p id="ac-ca-feedback" class="adm-feedback" style="margin-top:10px;"></p>
+        </div>
+        <div class="card">
+          <div class="stitle" style="margin-bottom:10px;">How it is deducted</div>
+          <div class="sum-box">
+            <div class="sr"><span>1–15 payslip</span><span>Nothing deducted</span></div>
+            <div class="sr"><span>16–end payslip</span><span>− installment</span></div>
+            <div class="sr"><span>Last installment</span><span>Only the balance left</span></div>
+            <div class="sr"><span>Net pay too low</span><span>Deducts what it can; the rest stays</span></div>
+            <div class="sr"><span>On Hold</span><span>Skipped until resumed</span></div>
+            <div class="sr"><span>Repaid</span><span>From Final payslips only</span></div>
+          </div>
+          <p style="font-size:12px;color:var(--t3);margin-top:10px;">The deduction shows on the payslip and in the Cash Advance column of the Payroll Sheet report. A Draft payslip repays nothing until it is Final.</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div class="sh" style="flex-wrap:wrap;gap:10px;">
+          <span class="stitle">Advances</span>
+          <span class="sp"></span>
+          <select class="fc" id="ac-ca-filter" style="max-width:180px;" onchange="renderCashAdvances()">
+            <option value="open">Open</option>
+            <option value="all">All</option>
+            <option value="repaid">Repaid</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button class="btn btn-outline" onclick="loadCashAdvances()">Refresh</button>
+        </div>
+        <div class="tw"><table>
+          <thead><tr><th>Employee</th><th>Date Given</th><th>Amount</th><th>Per Payslip</th><th>Deduct From</th><th>Repaid</th><th>Balance</th><th>Status</th><th></th></tr></thead>
+          <tbody id="ac-ca-body"><tr><td colspan="9" style="color:var(--t3);">Loading...</td></tr></tbody>
         </table></div>
       </div>
     </div>
@@ -570,9 +656,16 @@
             </div>
             <div class="fg">
               <label for="rpt-type">Report Type</label>
-              <select class="fc" id="rpt-type">
+              <select class="fc" id="rpt-type" onchange="onReportTypeChange()">
                 <option value="summary">Payroll Summary</option>
                 <option value="deductions">Deductions Report</option>
+                <option value="sheet">Payroll Sheet (School Format)</option>
+              </select>
+            </div>
+            <div class="fg" id="rpt-branch-wrap" style="display:none;">
+              <label for="rpt-branch">Branch</label>
+              <select class="fc" id="rpt-branch">
+                <option value="all">All Branches</option>
               </select>
             </div>
           </div>
@@ -591,7 +684,11 @@
         </div>
       </div>
 
-      <div class="card">
+      <!-- Payroll Sheet (School Format): one table per branch, filled by
+           js/accountant.js renderPayrollSheet(). -->
+      <div id="rpt-sheet" style="display:none;"></div>
+
+      <div class="card" id="rpt-table-card">
         <div class="sh">
           <span class="stitle" id="rpt-table-title">Report</span>
         </div>
