@@ -140,7 +140,20 @@ night delays the Incomplete queue but never produces a wrong payroll.
 
 Absences are now recorded for every active Employee/Accountant who does not
 tap on a working day (weekends and the holidays in `attendance_holidays` are
-skipped). Add next year's holidays to that table before January.
+skipped). Super Admin → System Configuration → **Holidays** adds them
+(`/api/admin/holidays`). The days fixed by law (Aug 21, Dec 8, Dec 31) are
+seeded by `20261006020000_holidays_fixed_by_law.sql`; add each year's
+proclaimed days (Eid'l Fitr, Eid'l Adha, Chinese New Year, Black Saturday,
+All Souls' Day, Christmas Eve) as soon as they are announced. Payroll never
+deducts an Absent record dated on a holiday, even one added after the day.
+
+**RFID terminal.** Unlocking the terminal starts its own kiosk session
+(`src/lib/auth/kiosk-session.js`): 16 hours, used only for taps, not ended by
+the Admin signing in elsewhere, ended by Exit Terminal or by archiving /
+demoting the account. Taps that cannot reach the server are kept on the
+terminal and sent later with their tap time (accepted up to a day late). A
+second tap within 5 minutes of one already recorded is ignored, so it can
+never become a 0-hour Time Out.
 
 ---
 

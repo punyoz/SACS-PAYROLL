@@ -12,7 +12,8 @@
  *   Half Day      half_day_pct % of the daily rate
  *   Absent        absent_pct % of the daily rate (not on a day covered by
  *                 approved leave -- leave is paid or deducted on its own line;
- *                 On Leave days are skipped entirely for the same reason)
+ *                 On Leave days are skipped entirely for the same reason --
+ *                 and not on a date in attendance_holidays)
  *   Early Bird    early_bird_bonus per Early Bird day
  *   Perfect       perfect_attendance_bonus when the period has no Late,
  *   Attendance    Undertime, Absent or Half Day and at least one day attended
@@ -124,6 +125,9 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       // Approved leave already accounts for the day (paid, or deducted once
       // as Leave Without Pay) -- never also an absence.
       if (onLeave) return;
+      // Nor a holiday: an Absent the nightly close wrote before the day was
+      // added to attendance_holidays is not a day missed.
+      if (holidays?.has?.(date)) return;
       counts.absent_days += 1;
       deductions.push({
         type: "absent", quantity: 1, unit: "day", rate: absentAmount,

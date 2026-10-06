@@ -1,8 +1,9 @@
 /**
  * RFID attendance: the FIRST tap of a day is Time In, the LAST is Time Out.
  *
- * Every tap is accepted, however soon after the previous one (there is no
- * cooldown), and every tap is kept as its own row in public.attendance_taps.
+ * A tap within REPEAT_TAP_WINDOW_MS (5 minutes) of one already recorded that
+ * day is the same tap repeated and changes nothing (findRepeatedTap below).
+ * Every other tap is kept as its own row in public.attendance_taps.
  * The day's attendance_logs row is rebuilt from them on each tap:
  *
  *   - one tap:   Time In only (Incomplete once the shift is over);
@@ -114,6 +115,32 @@ export function firstAndLastTap(times) {
     time_out: last > first ? new Date(last).toISOString() : null,
     tap_count: sorted.length,
   };
+}
+
+/**
+ * A tap this close to one already recorded that day is the same tap twice
+ * (a card held on the reader, or tapped again to be sure), not a Time Out.
+ * Counting it made a Time Out seconds after the Time In: 0.00 hours, which
+ * the status engine reads as a Half Day, so a forgotten tap-out became a pay
+ * deduction instead of an Incomplete day for HR to resolve.
+ */
+export const REPEAT_TAP_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * The recorded tap `tapIso` repeats, or null. `dayRows` are the day's
+ * attendance_logs rows, `rawTaps` its attendance_taps.tapped_at values.
+ * Either side of the tap counts, so a tap sent late from the terminal's
+ * offline queue is judged the same way.
+ */
+export function findRepeatedTap(dayRows, rawTaps, tapIso, windowMs = REPEAT_TAP_WINDOW_MS) {
+  const at = toTime(tapIso);
+  if (at === null) return null;
+  const times = [
+    ...(dayRows || []).flatMap(tapTimes),
+    ...(rawTaps || []).map(toTime).filter((t) => t !== null),
+  ];
+  const near = times.find((t) => Math.abs(at - t) < windowMs);
+  return near === undefined ? null : new Date(near).toISOString();
 }
 
 /**

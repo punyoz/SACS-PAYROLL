@@ -58,6 +58,21 @@ describe("payroll settings", () => {
     expect(body.contributions).toEqual([expect.objectContaining({ employee_id: "u-emp", monthly_salary: 32000, fixed: null })]);
   });
 
+  it("shows the default payroll actually deducts: the school's fixed amounts when that switch is on", async () => {
+    const rate = (rateType, value) => ({
+      id: `cfg-${rateType}`, rate_type: rateType, scope: "global", scope_ref: null, value,
+      effective_date: "2026-01-01", created_at: "2026-01-01T00:00:00Z",
+    });
+    table("payroll_rate_configs").push(
+      rate("contribution_method", 1), rate("sss_fixed", 400), rate("philhealth_fixed", 0), rate("pagibig_fixed", 200),
+    );
+    const body = await (await GET(requestAs(SUPER))).json();
+    expect(body.contributions[0]).toMatchObject({
+      default_source: "fixed",
+      computed: { sss: 400, philhealth: 0, pagibig: 200 },
+    });
+  });
+
   it("saves a new tax table version and refuses an invalid one", async () => {
     const bad = await POST(requestAs(SUPER, "POST", { kind: "tax_table", effective_date: "2026-11-01", rows: [{ bracket_over: 100, base_tax: 0, rate_pct: 10 }] }));
     expect(bad.status).toBe(400);

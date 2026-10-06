@@ -16,6 +16,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
+import { attachKioskSession, clearKioskSession } from "@/lib/auth/kiosk-session";
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -104,7 +105,14 @@ export async function POST(request) {
       recordFailure(guard.userId);
     }
 
-    return NextResponse.json({ valid });
+    // Unlocking the terminal starts its own kiosk session, so taps keep
+    // recording after this sign-in ends (src/lib/auth/kiosk-session.js);
+    // exiting it ends that session.
+    const purpose = String(body.purpose || "").toLowerCase();
+    const response = NextResponse.json({ valid });
+    if (valid && purpose === "unlock") return attachKioskSession(response, guard.session);
+    if (valid && purpose === "exit") return clearKioskSession(response);
+    return response;
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

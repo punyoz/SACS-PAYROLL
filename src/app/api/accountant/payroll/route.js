@@ -64,9 +64,28 @@ import {
   validateCashAdvanceInput,
 } from "@/lib/payroll/cash-advance";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
+
+/**
+ * Nobody processes, adjusts or adds to their own pay. Accountants are on the
+ * payroll they run, so without this an Accountant could finalize their own
+ * payslip with a raised basic salary, or file incentives and overload hours
+ * for themselves. Another Accountant of the branch, or a Super Admin
+ * (Generate / Override), handles an Accountant's own payroll.
+ */
+const OWN_PAYROLL_MESSAGE = "You cannot process or change your own payroll. Another Accountant of your branch or a Super Admin handles it.";
+
+function isOwnPayroll(guard, employeeId) {
+  return guard?.scope !== SCOPE_ALL && Boolean(guard?.userId) && String(employeeId || "") === String(guard.userId);
+}
+
+function refuseOwnPayroll(guard, employeeId) {
+  if (!isOwnPayroll(guard, employeeId)) return null;
+  return NextResponse.json({ error: OWN_PAYROLL_MESSAGE, code: "own_payroll" }, { status: 403 });
+}
 
 function parseEmployeeIdNumber(employeeId) {
   const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
@@ -156,8 +175,13 @@ function shapeEmployee(user, profile, index) {
     position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),
     archived: Boolean(metadata.archived),
-    // For position- and branch-scoped payroll rates (src/lib/payroll/rates.js).
+    // Printed on the payslip.
     position_title: normalizeText(metadata.position),
+    // For position-scoped payroll rates (src/lib/payroll/rates.js):
+    // profiles.position, which only the server writes. user_metadata.position
+    // is editable by the account holder, who could otherwise take on another
+    // position's rates.
+    rate_position: normalizeText(profile?.position),
     branch_id: profile?.branch_id || metadata.branch_id || null,
   };
 }
@@ -179,7 +203,7 @@ async function fetchEmployees(supabase, guard = null) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,branch_id")
+      .select("id,email,full_name,branch_id,position")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -1108,7 +1132,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       {
         employeeId: employee.id,
         branchId: employee.branch_id,
-        position: employee.position_title,
+        position: employee.rate_position,
         // From LEGAL_RULES_EFFECTIVE the daily rate is the employee's own salary.
         monthlySalary: employee.basic_salary,
       },
@@ -2123,6 +2147,10 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
   const skipped = [];
   const rows = [];
   employees.filter((employee) => !wanted || wanted.has(employee.id)).forEach((employee) => {
+    if (isOwnPayroll(guard, employee.id)) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: OWN_PAYROLL_MESSAGE, code: "own_payroll" });
+      return;
+    }
     if (already.has(employee.id)) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Already processed." });
       return;
@@ -2242,6 +2270,8 @@ async function handleAddMonthlyItem(supabase, body, guard) {
   const employees = await fetchEmployees(supabase, guard);
   const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
   if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  const own = refuseOwnPayroll(guard, employee.id);
+  if (own) return own;
 
   const kind = normalizeText(body.kind).toLowerCase();
   const itemDate = normalizeText(body.item_date);
@@ -2307,6 +2337,8 @@ async function handleArchiveMonthlyItem(supabase, body, guard) {
   const employees = await fetchEmployees(supabase, guard);
   const employee = employees.find((row) => row.id === item.employee_id);
   if (!employee) return NextResponse.json({ error: "That item belongs to another branch." }, { status: 403 });
+  const own = refuseOwnPayroll(guard, employee.id);
+  if (own) return own;
 
   const payrollMonth = itemPayrollMonth(item, await loadLockDayFor(supabase));
   const secondHalf = monthInfo(payrollMonth).second_half_label;
@@ -2491,6 +2523,8 @@ async function handleAddCashAdvance(supabase, body, guard) {
   const employees = await fetchEmployees(supabase, guard);
   const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
   if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  const own = refuseOwnPayroll(guard, employee.id);
+  if (own) return own;
 
   const input = {
     principal: body.principal,
@@ -2568,6 +2602,8 @@ async function handleSetCashAdvanceStatus(supabase, body, guard) {
   const employees = await fetchEmployees(supabase, guard);
   const employee = employees.find((row) => row.id === advance.employee_id);
   if (!employee) return NextResponse.json({ error: "That cash advance belongs to another branch." }, { status: 403 });
+  const own = refuseOwnPayroll(guard, employee.id);
+  if (own) return own;
 
   const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
   const result = await supabase
@@ -2663,9 +2699,15 @@ export async function GET(request) {
       ? sortedEntries.filter((entry) => entry.pay_period === selectedPeriod)
       : sortedEntries;
 
-    const payrollRecords = filteredByPeriod
-      .filter((entry) => entry.status !== "draft")
-      .map(mapEntryToRecord);
+    // Final payslips whose attendance was corrected after they were
+    // finalized: they no longer match the records until a Super Admin
+    // overrides them (src/lib/payroll/final-payslips.js).
+    const finalEntries = filteredByPeriod.filter((entry) => entry.status !== "draft");
+    const changedAfterFinal = await attendanceChangesAfterFinal(supabase, finalEntries);
+    const payrollRecords = finalEntries.map((entry) => ({
+      ...mapEntryToRecord(entry),
+      attendance_changed: changedAfterFinal.get(entry.id) || null,
+    }));
 
     const payslipSource = requestedEntryId
       ? sortedEntries.find((entry) => entry.id === requestedEntryId)
@@ -2787,6 +2829,11 @@ async function handleBatchSubmit(supabase, body, guard) {
 
     if (!employee) {
       skipped.push({ employee_id: employeeId, reason: "Employee not found." });
+      continue;
+    }
+
+    if (isOwnPayroll(guard, employee.id)) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: OWN_PAYROLL_MESSAGE, code: "own_payroll" });
       continue;
     }
 
@@ -2938,6 +2985,8 @@ export async function POST(request) {
     if (!employee) {
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
+    const own = refuseOwnPayroll(guard, employee.id);
+    if (own) return own;
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
@@ -3179,6 +3228,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const employees = await fetchEmployees(supabase, guard);
   const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
   if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  const own = refuseOwnPayroll(guard, employee.id);
+  if (own) return own;
 
   const genWindow = await periodWindow(supabase, period);
   if (override) {
@@ -3384,6 +3435,9 @@ export async function PATCH(request) {
         return NextResponse.json({ error: "That record belongs to another branch." }, { status: 403 });
       }
     }
+
+    const own = refuseOwnPayroll(guard, entry.employee_id);
+    if (own) return own;
 
     if (entry.status !== "draft") {
       return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });

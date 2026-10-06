@@ -871,6 +871,7 @@ async function loadSAConfig() {
   renderSAPayCalendar();
   loadSAPayrollRates();
   loadSAPayrollSettings();
+  loadSAHolidays();
   loadSAPayslipOverrides();
   try {
     const res = await fetch('/api/admin/config');
@@ -1389,7 +1390,8 @@ function renderSAContributions() {
     };
     const cells = ['sss', 'philhealth', 'pagibig'].map(value);
     const total = cells.reduce((sum, c) => sum + c.amount, 0);
-    const cell = (c) => `${escapeHtml(saPeso(c.amount))}<div style="font-size:11px;color:${c.fixed ? 'var(--amber)' : 'var(--t3)'};">${c.fixed ? 'Fixed' : 'Legal table'}</div>`;
+    const defaultLabel = row.default_source === 'fixed' ? 'Payroll Rates' : 'Legal table';
+    const cell = (c) => `${escapeHtml(saPeso(c.amount))}<div style="font-size:11px;color:${c.fixed ? 'var(--amber)' : 'var(--t3)'};">${c.fixed ? 'Fixed' : defaultLabel}</div>`;
     const scheduled = row.scheduled
       ? `<div style="font-size:11px;color:var(--amber);">Changes ${escapeHtml(saRateDate(row.scheduled.effective_date))}</div>`
       : '';
@@ -1412,7 +1414,8 @@ function openSAContributionModal(employeeId) {
   if (!row || !modal) return;
   document.getElementById('sa-contrib-employee').value = employeeId;
   document.getElementById('sa-contrib-modal-title').textContent = `Contribution Amounts — ${row.employee_name}`;
-  document.getElementById('sa-contrib-current').innerHTML = `Legal table: SSS <strong class="mn">${escapeHtml(saPeso(row.computed.sss))}</strong>, PhilHealth <strong class="mn">${escapeHtml(saPeso(row.computed.philhealth))}</strong>, Pag-IBIG <strong class="mn">${escapeHtml(saPeso(row.computed.pagibig))}</strong> a month on ${escapeHtml(saPeso(row.monthly_salary))}.<div style="font-size:11px;color:var(--t3);">Leave an amount blank to use the legal table.</div>`;
+  const defaultLabel = row.default_source === 'fixed' ? 'Payroll Rates (fixed amounts)' : 'Legal table';
+  document.getElementById('sa-contrib-current').innerHTML = `${defaultLabel}: SSS <strong class="mn">${escapeHtml(saPeso(row.computed.sss))}</strong>, PhilHealth <strong class="mn">${escapeHtml(saPeso(row.computed.philhealth))}</strong>, Pag-IBIG <strong class="mn">${escapeHtml(saPeso(row.computed.pagibig))}</strong> a month on ${escapeHtml(saPeso(row.monthly_salary))}.<div style="font-size:11px;color:var(--t3);">Leave an amount blank to use ${row.default_source === 'fixed' ? 'the fixed amounts in Payroll Rates' : 'the legal table'}. 0 = exempt.</div>`;
   ['sss', 'philhealth', 'pagibig'].forEach((type) => {
     const input = document.getElementById(`sa-contrib-${type}`);
     const fixed = row.fixed && row.fixed[type] !== null && row.fixed[type] !== undefined ? row.fixed[type] : '';
@@ -1630,6 +1633,116 @@ async function saveSAConfig(section) {
   }
 }
 
+/* ── HOLIDAYS ──
+   Regular holidays and special non-working days (/api/admin/holidays).
+   Nobody is marked Absent on them and payroll never deducts them; a day that
+   has already started cannot be removed. */
+const saHolidays = { year: null, today: '' };
+
+function saHolidayDate(key) {
+  const date = new Date(`${key}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return key;
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+}
+
+async function loadSAHolidays(year) {
+  const body = document.getElementById('sa-hol-body');
+  const select = document.getElementById('sa-hol-year');
+  if (!body) return;
+  const thisYear = Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric' }).format(new Date()));
+  if (year) saHolidays.year = Number(year);
+  if (!saHolidays.year) saHolidays.year = thisYear;
+  if (select && !select.options.length) {
+    select.innerHTML = [thisYear - 1, thisYear, thisYear + 1, thisYear + 2]
+      .map((y) => `<option value="${y}">${y}</option>`).join('');
+  }
+  if (select) select.value = String(saHolidays.year);
+  body.innerHTML = skeletonRows(5, 3);
+
+  try {
+    const res = await fetch(`/api/admin/holidays?year=${encodeURIComponent(saHolidays.year)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to load holidays.');
+    saHolidays.today = data.today || '';
+    const rows = data.holidays || [];
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="5" style="color:var(--t3);">No holidays saved for ${escapeHtml(String(saHolidays.year))}. Add them from the year's proclamation.</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map((row) => {
+      const upcoming = row.holiday_date > saHolidays.today;
+      return `
+        <tr>
+          <td class="mn">${escapeHtml(saHolidayDate(row.holiday_date))}</td>
+          <td class="nm">${escapeHtml(row.name || '')}</td>
+          <td>${row.type === 'special' ? 'Special Non-Working Day' : 'Regular Holiday'}</td>
+          <td style="font-size:12px;color:var(--t3);">${escapeHtml(row.created_by_name || 'System')}</td>
+          <td>${upcoming
+            ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="removeSAHoliday('${escapeJsArg(row.holiday_date)}')">Remove</button>`
+            : '<span style="font-size:11px;color:var(--t3);">Passed</span>'}</td>
+        </tr>`;
+    }).join('');
+  } catch (error) {
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+async function addSAHoliday() {
+  const fb = document.getElementById('sa-hol-feedback');
+  const button = document.getElementById('sa-hol-submit');
+  const date = String(document.getElementById('sa-hol-date')?.value || '').trim();
+  const name = String(document.getElementById('sa-hol-name')?.value || '').trim();
+  const type = String(document.getElementById('sa-hol-type')?.value || 'holiday');
+  const ok = requireFields([
+    { field: 'sa-hol-date', check: (value) => (!value ? 'Choose the date.' : '') },
+    { field: 'sa-hol-name', check: (value) => (!value ? 'Enter the name.' : '') },
+  ]);
+  if (!ok) {
+    if (fb) { fb.textContent = 'Fill in the highlighted fields.'; fb.className = 'adm-feedback err'; }
+    return;
+  }
+
+  if (button) button.disabled = true;
+  try {
+    const res = await fetch('/api/admin/holidays', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ holiday_date: date, name, type }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to add the holiday.');
+
+    const absentNote = data.absent_records
+      ? ` ${data.absent_records} Absent record${data.absent_records === 1 ? '' : 's'} already on that day ${data.absent_records === 1 ? 'is' : 'are'} no longer deducted by payroll.`
+      : '';
+    if (fb) { fb.textContent = `Added ${name} (${saHolidayDate(date)}).${absentNote}`; fb.className = 'adm-feedback ok'; }
+    document.getElementById('sa-hol-date').value = '';
+    document.getElementById('sa-hol-name').value = '';
+    await loadSAHolidays(date.slice(0, 4));
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function removeSAHoliday(date) {
+  const fb = document.getElementById('sa-hol-feedback');
+  const proceed = window.confirmApproveAction
+    ? await window.confirmApproveAction(`remove the holiday on ${saHolidayDate(date)}`, 'Employees will be expected to tap in that day.', { title: 'Remove Holiday', confirmLabel: 'Remove' })
+    : window.confirm(`Remove the holiday on ${date}?`);
+  if (!proceed) return;
+  try {
+    const res = await fetch(`/api/admin/holidays?date=${encodeURIComponent(date)}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to remove the holiday.');
+    if (fb) { fb.textContent = `Removed the holiday on ${saHolidayDate(date)}.`; fb.className = 'adm-feedback ok'; }
+    await loadSAHolidays();
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  }
+}
+
 /* ── FINAL PAYSLIP OVERRIDE ──
    A Final payslip is locked. A Super Admin can recompute it from the latest
    attendance and corrections, with a reason (PATCH /api/accountant/payroll
@@ -1668,7 +1781,7 @@ async function loadSAPayslipOverrides(period) {
         <td class="nm">${escapeHtml(record.employee_name || '—')}<div style="font-size:11px;color:var(--t3);font-weight:400;">${escapeHtml(record.employee_code || '')}</div></td>
         <td class="mn">${escapeHtml(record.payslip_no || '—')}</td>
         <td class="mn">${typeof formatMoney === 'function' ? formatMoney(record.net_pay) : escapeHtml(String(record.net_pay))}</td>
-        <td>${escapeHtml(record.submitted_at ? new Date(record.submitted_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }) : '—')}${record.payroll?.generation?.override ? '<div style="font-size:11px;color:var(--warn);">Overridden</div>' : ''}</td>
+        <td>${escapeHtml(record.submitted_at ? new Date(record.submitted_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'medium', timeStyle: 'short' }) : '—')}${record.payroll?.generation?.override ? '<div style="font-size:11px;color:var(--warn);">Overridden</div>' : ''}${record.attendance_changed ? `<div style="font-size:11px;color:var(--warn);" title="${escapeHtml((record.attendance_changed.days || []).join(', '))}">Attendance changed after Final (${escapeHtml(String(record.attendance_changed.count))}). Override to update.</div>` : ''}</td>
         <td><button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="openSAPayslipOverride('${escapeJsArg(record.id)}')">Override</button></td>
       </tr>`).join('');
   } catch (error) {
@@ -1952,7 +2065,6 @@ function exportSAAuditCsv() {
 
 /* ── BACKUP & RECOVERY ── */
 async function loadSABackupStatus() {
-  const now = new Date().toLocaleString('en-PH');
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
 
   try {
@@ -1970,9 +2082,12 @@ async function loadSABackupStatus() {
       const stats = d.system_stats || {};
       const dbOk = dbStatus.connection === 'ok';
 
-      set('sa-backup-last', now);
+      // Backups themselves are not visible to the app (Supabase manages
+      // them); this page reports only what it actually checks: the
+      // connection and whether the core tables answer.
+      const tablesOk = ['attendance_logs', 'payroll_records', 'system_config'].every((key) => dbStatus[key] === 'ok');
       set('sa-backup-db-status', dbOk ? 'Connected' : 'Error');
-      set('sa-backup-integrity', dbOk ? 'Healthy' : 'Unknown');
+      set('sa-backup-integrity', !dbOk ? 'Unknown' : tablesOk ? 'All reachable' : 'Missing');
 
       updateSABackupPill('sa-bk-db-meta', 'sa-bk-db-pill', dbOk ? 'Connection verified' : 'Connection error', dbOk ? 'Online' : 'Error', dbOk ? 'sa-pill-online' : 'sa-pill-offline');
       updateSABackupPill('sa-bk-att-meta', 'sa-bk-att-pill', dbStatus.attendance_logs === 'ok' ? 'Table available' : 'Table missing', dbStatus.attendance_logs === 'ok' ? 'Active' : 'Missing', dbStatus.attendance_logs === 'ok' ? 'sa-pill-online' : 'sa-pill-warning');
@@ -3287,4 +3402,7 @@ async function submitSAStaffAccount(event) {
   return true;
 }
 window.loadSAPayslipOverrides = loadSAPayslipOverrides;
+window.loadSAHolidays = loadSAHolidays;
+window.addSAHoliday = addSAHoliday;
+window.removeSAHoliday = removeSAHoliday;
 window.openSAPayslipOverride = openSAPayslipOverride;

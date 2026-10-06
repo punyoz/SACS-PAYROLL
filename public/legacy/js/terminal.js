@@ -55,8 +55,40 @@
   // boot() from the signed-in role.
   let homePath = '/admin';
   let scanInFlight = false;
-  let queuedCode = null;
+  // Taps that arrive while one is being sent, in order.
+  const queuedCodes = [];
   let resultTimer = null;
+
+  // Taps that could not reach the server (network down, server error), kept
+  // with the time they were tapped and sent again once it answers. Kept in
+  // localStorage so a reload does not lose them. The server accepts them only
+  // on this terminal's kiosk session, up to a day late.
+  const PENDING_KEY = 'sacs-kiosk-pending';
+  const PENDING_MAX = 500;
+  let flushing = false;
+
+  function readPending() {
+    try {
+      const list = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writePending(list) {
+    try { localStorage.setItem(PENDING_KEY, JSON.stringify(list.slice(-PENDING_MAX))); } catch { /* storage blocked */ }
+    updateIdleText();
+  }
+
+  function idleText() {
+    const waiting = readPending().length;
+    return waiting ? `${IDLE_TEXT} · ${waiting} tap${waiting === 1 ? '' : 's'} waiting to send` : IDLE_TEXT;
+  }
+
+  function updateIdleText() {
+    if (statusEl.dataset.state === 'idle') statusText.textContent = idleText();
+  }
 
   function formatTime(value) {
     if (!value) return '—';
@@ -138,12 +170,19 @@
     focusScanInput();
   }
 
-  async function verifyPassword(password) {
+  // purpose "unlock" also starts the terminal's own kiosk session, so taps
+  // keep recording after the Administrator's sign-in ends; "exit" ends it.
+  async function verifyPassword(password, purpose) {
     const res = await fetch(API_VERIFY, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ password, purpose }),
     });
+    if (res.status === 401) {
+      // The Administrator's own sign-in has ended: sign in again first.
+      window.location.href = '/login';
+      throw new Error('Your session has ended. Please sign in again.');
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Could not verify password.');
     return Boolean(data.valid);
@@ -158,10 +197,11 @@
     lockSubmit.textContent = 'Checking...';
     showLockFeedback('', false);
     try {
-      const valid = await verifyPassword(password);
+      const valid = await verifyPassword(password, 'unlock');
       if (!valid) { showLockFeedback('Incorrect password.', true); return; }
       lockPassword.value = '';
       unlockScreen();
+      flushPending();
     } catch (err) {
       showLockFeedback(err.message, true);
     } finally {
@@ -200,7 +240,7 @@
     exitConfirm.disabled = true;
     exitConfirm.textContent = 'Checking...';
     try {
-      const valid = await verifyPassword(password);
+      const valid = await verifyPassword(password, 'exit');
       if (!valid) { showExitFeedback('Incorrect password.', true); return; }
       // admin.js / super-admin.js navigate the tab to this page rather than
       // opening a popup (popups are too easily blocked), so window.close()
@@ -246,7 +286,68 @@
     clearTimeout(resultTimer);
     resultEl.hidden = true;
     setStatus(ok ? 'in' : 'error', message);
-    resultTimer = setTimeout(() => setStatus('idle', IDLE_TEXT), message ? MESSAGE_MS : LIGHT_MS);
+    resultTimer = setTimeout(() => setStatus('idle', idleText()), message ? MESSAGE_MS : LIGHT_MS);
+  }
+
+  // Amber: the tap is kept on this terminal and will be sent later.
+  function showSaved() {
+    clearTimeout(resultTimer);
+    resultEl.hidden = true;
+    setStatus('scanning', 'Tap saved. It will be sent when the connection is back.');
+    resultTimer = setTimeout(() => setStatus('idle', idleText()), MESSAGE_MS);
+  }
+
+  // The kiosk session ended (expired, or the account was changed): back to
+  // the lock screen, so it never sits there refusing every tap in red.
+  function lockAgain(message) {
+    mainScreen.hidden = true;
+    lockScreen.hidden = false;
+    showLockFeedback(message || 'The terminal was signed out. Enter your password to continue.', true);
+    lockPassword.focus();
+  }
+
+  function sendTap(code, offlineTappedAt) {
+    return fetch(API_SCAN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sacs-kiosk': '1' },
+      // Every tap is stored with the reader it came from (Tap History).
+      body: JSON.stringify({
+        rfid_code: code,
+        device: `RFID Terminal · ${branchName}`,
+        ...(offlineTappedAt ? { offline_tapped_at: offlineTappedAt } : {}),
+      }),
+    });
+  }
+
+  function keepForLater(code, tappedAt) {
+    const list = readPending();
+    list.push({ code, tapped_at: tappedAt });
+    writePending(list);
+  }
+
+  // Sends the saved taps oldest first. A tap the server answered (recorded
+  // or refused) is done; one it could not answer stays for the next try.
+  async function flushPending() {
+    if (flushing || mainScreen.hidden) return;
+    if (!readPending().length) return;
+    flushing = true;
+    try {
+      for (;;) {
+        const list = readPending();
+        if (!list.length) break;
+        let res;
+        try {
+          res = await sendTap(list[0].code, list[0].tapped_at);
+        } catch {
+          break; // still offline
+        }
+        if (res.status === 401) { lockAgain(); break; }
+        if (res.status >= 500) break;
+        writePending(readPending().slice(1));
+      }
+    } finally {
+      flushing = false;
+    }
   }
 
   // Detailed card, kept for reference; the kiosk now uses showLight().
@@ -269,7 +370,7 @@
     }, 8000);
   }
 
-  async function submitScan(code) {
+  async function submitScan(code, tappedAt = null) {
     if (!code) return;
 
     if (scanInFlight) {
@@ -278,8 +379,8 @@
       // value (not cleared until the first request's `finally`), producing a
       // mangled concatenated code that then got silently wiped — losing this
       // tap entirely with no feedback. Queuing it instead runs it right after
-      // the in-flight one finishes.
-      queuedCode = code;
+      // the in-flight one finishes (every queued tap, in order).
+      queuedCodes.push({ code, tappedAt: new Date().toISOString() });
       return;
     }
 
@@ -288,27 +389,35 @@
     // keystrokes land in an empty field instead of appending to this one's.
     scanInput.value = '';
 
+    const at = tappedAt || new Date().toISOString();
+    // A tap that waited in the queue more than a moment is sent with its time.
+    const late = Date.now() - new Date(at).getTime() > 30 * 1000 ? at : null;
     try {
-      const res = await fetch(API_SCAN, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Every tap is stored with the reader it came from (Tap History).
-        body: JSON.stringify({ rfid_code: code, device: `RFID Terminal · ${branchName}` }),
-      });
+      const res = await sendTap(code, late);
       const data = await res.json().catch(() => ({}));
 
-      showLight(res.ok && Boolean(data.record), !res.ok && data.on_leave ? data.error : '');
+      if (res.status === 401) {
+        keepForLater(code, at);
+        lockAgain();
+      } else if (res.status >= 500) {
+        keepForLater(code, at);
+        showSaved();
+      } else {
+        showLight(res.ok && Boolean(data.record), !res.ok && data.on_leave ? data.error : '');
+        flushPending();
+      }
     } catch {
-      showLight(false);
+      // No connection: kept on this terminal and sent when it is back.
+      keepForLater(code, at);
+      showSaved();
     } finally {
       scanInFlight = false;
       scanInput.value = '';
       focusScanInput();
 
-      if (queuedCode) {
-        const next = queuedCode;
-        queuedCode = null;
-        submitScan(next);
+      if (queuedCodes.length) {
+        const next = queuedCodes.shift();
+        submitScan(next.code, next.tappedAt);
       }
     }
   }
@@ -371,6 +480,10 @@
     if (mainScreen.hidden) return;
     fetch('/api/legacy-auth/session', { headers: { 'x-sacs-activity': '1' }, cache: 'no-store' }).catch(() => {});
   }, 4 * 60 * 1000);
+
+  // Saved taps go out as soon as the connection is back.
+  window.addEventListener('online', () => flushPending());
+  setInterval(() => flushPending(), 20 * 1000);
 
   tickClock();
   setInterval(tickClock, 1000);

@@ -1,6 +1,7 @@
 /**
  * RFID taps (20261002020000_attendance_raw_taps.sql): every tap is accepted
- * (no cooldown) and kept in attendance_taps; the day's one attendance_logs row
+ * and kept in attendance_taps, except one within 5 minutes of a tap already
+ * recorded that day (the same tap repeated); the day's one attendance_logs row
  * is Time In = first tap, Time Out = last tap. A day HR / Admin corrected keeps
  * its corrected times and is flagged "New tap after correction". Only a real
  * reason refuses a tap: unregistered card, inactive employee, another branch.
@@ -70,20 +71,30 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("Every tap counts", () => {
-  it("2 taps a few seconds apart: both accepted, the day is complete", async () => {
+describe("Every tap counts (but a repeat within 5 minutes)", () => {
+  it("2 taps a few seconds apart: the repeat is not a Time Out (the day stays open)", async () => {
     const first = await tapAt("08:00:00");
     const second = await tapAt("08:00:04");
     expect(first.response.status).toBe(200);
     expect(second.response.status).toBe(200);
-    expect(second.body.tap).toBe("time_out");
+    // Answered as a success, so the terminal shows green, but nothing changes:
+    // counting it made a 0.00-hour day the status engine reads as a Half Day.
+    expect(second.body).toMatchObject({ tap: "duplicate", persisted: false });
+    expect(second.body.record).toMatchObject({ time_in: manila("08:00:00") });
     expect(dayRows()).toHaveLength(1);
-    expect(dayRows()[0]).toMatchObject({ time_in: manila("08:00:00"), time_out: manila("08:00:04") });
-    expect(table("attendance_taps")).toHaveLength(2);
+    expect(dayRows()[0]).toMatchObject({ time_in: manila("08:00:00"), time_out: null });
+    expect(table("attendance_taps")).toHaveLength(1);
     expect(table("attendance_blocked_taps")).toHaveLength(0);
   });
 
-  it("5 taps in one day: Time In = first, Time Out = last, every tap stored", async () => {
+  it("a tap 5 minutes or more after the last one counts again", async () => {
+    await tapAt("08:00:00");
+    const later = await tapAt("08:05:00");
+    expect(later.body.tap).toBe("time_out");
+    expect(dayRows()[0]).toMatchObject({ time_in: manila("08:00:00"), time_out: manila("08:05:00") });
+  });
+
+  it("5 taps in one day: Time In = first, Time Out = last, every tap stored but the repeat", async () => {
     for (const hms of ["07:55:00", "07:55:02", "12:00:00", "13:00:00", "17:05:00"]) {
       const { response } = await tapAt(hms);
       expect(response.status, hms).toBe(200);
@@ -91,7 +102,8 @@ describe("Every tap counts", () => {
     expect(dayRows()).toHaveLength(1);
     expect(dayRows()[0]).toMatchObject({ time_in: manila("07:55:00"), time_out: manila("17:05:00") });
     const raw = table("attendance_taps");
-    expect(raw).toHaveLength(5);
+    // 07:55:02 repeats 07:55:00 and is not stored.
+    expect(raw).toHaveLength(4);
     expect(raw[0]).toMatchObject({ employee_id: EMP, branch_id: BRANCH, log_date: DAY, rfid_uid: CARD, device: "RFID Terminal · Main Branch", source: "rfid_tap" });
   });
 

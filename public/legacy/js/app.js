@@ -4022,6 +4022,12 @@ async function attFetchJson(url, options) {
   return data;
 }
 
+// A correction on a day a Final payslip counted: the payslip does not change
+// by itself (src/lib/payroll/final-payslips.js), so the reviewer is told.
+function attPayrollNotice(result) {
+  if (result?.payroll_notice) window.pushNotification?.('Final Payslip Not Updated', result.payroll_notice, 'info');
+}
+
 /* ── STATUS BOARD (Admin / HR / Super Admin) ── */
 const attendanceBoards = new Map();
 
@@ -4837,7 +4843,7 @@ async function submitAttendanceCorrection(row) {
     throw new Error('The new times are the same as the current ones.');
   }
 
-  await attFetchJson('/api/attendance/corrections', {
+  const corrected = await attFetchJson('/api/attendance/corrections', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -4852,6 +4858,7 @@ async function submitAttendanceCorrection(row) {
     }),
   });
   window.pushNotification?.('Attendance Corrected', `${row.employee_name || 'The employee'}'s ${attFormatDate(row.log_date)} record is updated and marked Corrected.`, 'success');
+  attPayrollNotice(corrected);
   await attAfterCorrection();
 }
 
@@ -5540,7 +5547,7 @@ async function submitOvertimeReview(rootId, logId, decision) {
 }
 
 async function submitAttendanceReview(rootId, correctionId, decision) {
-  await attFetchJson('/api/attendance/corrections', {
+  const reviewed = await attFetchJson('/api/attendance/corrections', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -5555,6 +5562,7 @@ async function submitAttendanceReview(rootId, correctionId, decision) {
     decision === 'approve' ? 'The time out was updated and the day is marked Corrected.' : 'The request was rejected.',
     decision === 'approve' ? 'success' : 'info',
   );
+  attPayrollNotice(reviewed);
   await refreshAttendanceBoard(rootId);
 }
 
@@ -5593,7 +5601,7 @@ function openAttendanceResolve(rootId, logId) {
           ...(attDialogValue('att-resolve-resolution') === 'time_out' ? [{ field: 'att-resolve-time', label: 'Time out' }] : []),
           { field: 'att-resolve-note', check: attReasonCheck },
         ]);
-        await attFetchJson('/api/attendance/corrections', {
+        const resolved = await attFetchJson('/api/attendance/corrections', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -5605,6 +5613,7 @@ function openAttendanceResolve(rootId, logId) {
           }),
         });
         window.pushNotification?.('Record Resolved', 'The attendance record is resolved and can now be included in payroll.', 'success');
+        attPayrollNotice(resolved);
         await refreshAttendanceBoard(rootId);
       },
     }],
@@ -5651,7 +5660,7 @@ function openAttendanceAbsenceCorrection(rootId, employeeId, logDate) {
           },
           { field: 'att-absence-note', check: attReasonCheck },
         ]);
-        await attFetchJson('/api/attendance/corrections', {
+        const absenceCorrected = await attFetchJson('/api/attendance/corrections', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -5664,6 +5673,7 @@ function openAttendanceAbsenceCorrection(rootId, employeeId, logDate) {
           }),
         });
         window.pushNotification?.('Absence Corrected', `${row.employee_name || 'The employee'}'s day is recorded and marked Corrected.`, 'success');
+        attPayrollNotice(absenceCorrected);
         await refreshAttendanceBoard(rootId);
       },
     }],
