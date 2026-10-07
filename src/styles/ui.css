@@ -22,6 +22,7 @@
 @source "../app/employee";
 @source "../app/admin";
 @source "../app/hr";
+@source "../app/accountant";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -218,5 +219,26 @@ body.sacs-ui-portal.dark {
   body.sacs-ui-portal [data-slot="dialog-content"],
   body.sacs-ui-portal [data-slot="alert-dialog-content"] {
     color: var(--foreground);
+  }
+}
+
+/* Printing from a React portal: only the element marked data-print-area
+   (a payslip, a report) goes on paper, in the light theme. */
+@media print {
+  body.sacs-ui-portal * {
+    visibility: hidden;
+  }
+  body.sacs-ui-portal [data-print-area],
+  body.sacs-ui-portal [data-print-area] * {
+    visibility: visible;
+  }
+  body.sacs-ui-portal [data-print-area] {
+    position: absolute;
+    inset: 0 0 auto 0;
+    box-shadow: none;
+    print-color-adjust: exact;
+  }
+  .sacs-ui.dark {
+    color-scheme: light;
   }
 }

@@ -35,7 +35,7 @@ function Section({ icon: Icon, title, children }) {
   );
 }
 
-export function StaffProfilePage({ roleLabel, showPosition = false, showBank = false }) {
+export function StaffProfilePage({ roleLabel, showPosition = false, showBank = false, employeeIdLabel = false }) {
   const { ctx, updateContext } = usePortalSession();
   const { open } = useAccountDialogs();
 
@@ -82,10 +82,11 @@ export function StaffProfilePage({ roleLabel, showPosition = false, showBank = f
         <Section icon={UserRoundIcon} title="Personal information">
           <InfoList items={[
             { label: "Full name", value: ctx?.full_name },
-            { label: "ID", value: ctx?.staff_id },
+            // Staff portals carry a STAFF-### ID; the Accountant has an employee ID.
+            employeeIdLabel ? { label: "Employee ID", value: ctx?.employee_id } : { label: "ID", value: ctx?.staff_id },
             ...(showPosition ? [{ label: "Position", value: ctx?.position }, { label: "Employee type", value: ctx?.employee_type }] : []),
             { label: "Email address", value: ctx?.email, wide: true },
-            { label: "Account role", value: ctx?.role },
+            ...(employeeIdLabel ? [] : [{ label: "Account role", value: ctx?.role }]),
             { label: "Contact number", value: formatContactNumber(ctx?.cp_number) },
             { label: "Home address", value: ctx?.address, wide: true },
           ]} />

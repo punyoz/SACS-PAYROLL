@@ -43,11 +43,11 @@ const NOTES = {
 
 const ALL = "__all__";
 
-export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0 }) {
+export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, initialTab = "all" }) {
   const { version } = useAttendanceActions();
   const periods = React.useMemo(() => payPeriodLabels(6), []);
   const [period, setPeriod] = React.useState(periods[0]);
-  const [tab, setTab] = React.useState("all");
+  const [tab, setTab] = React.useState(initialTab);
   const [status, setStatus] = React.useState("all");
   const [day, setDay] = React.useState("all");
   const [branch, setBranch] = React.useState("");
