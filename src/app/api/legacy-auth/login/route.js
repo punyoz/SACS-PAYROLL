@@ -8,6 +8,7 @@ import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
 import { recordCodeSent } from "@/lib/auth/otp-throttle";
 import { loginRetryAfter, otpReset, recordLoginFailure, recordLoginSuccess } from "@/lib/auth/persistent-throttle";
 import { requiresLoginOtp } from "@/lib/auth/otp-policy";
+import { sendEmailOtp, EMAIL_OTP_LENGTH, EMAIL_OTP_RESEND_SECONDS } from "@/lib/auth/email-otp";
 import { completeLogin, isArchivedProfile, profileRefusal, ARCHIVED_ACCOUNT_MESSAGE } from "@/lib/auth/complete-login";
 import { loadSecuritySettings, isPasswordExpired } from "@/lib/auth/security-settings";
 import { sanitizeError } from "@/lib/api-error";
@@ -27,9 +28,9 @@ import {
  *
  *   Employee / Accountant  -> two-factor. A correct password does NOT issue
  *       the session cookie. It issues a short-lived, signed "pending login"
- *       cookie (src/lib/auth/pending-login.js) and emails a one-time code via
- *       Supabase's own Email OTP (supabase.auth.signInWithOtp), the same
- *       sender the password-reset flow uses. The browser goes to the
+ *       cookie (src/lib/auth/pending-login.js) and emails a 6-digit one-time
+ *       code through Gmail (src/lib/auth/email-otp.js), the same sender the
+ *       password-reset flow uses. The browser goes to the
  *       verify-code screen and POST /api/legacy-auth/verify-login-otp is
  *       step 2.
  *
@@ -256,8 +257,7 @@ async function handleLogin(request) {
   // and the session is issued now. Everything after this block -- the OTP
   // send, the pending cookie, the verify round trip -- applies only to the
   // roles src/lib/auth/otp-policy.js still gates. Note this returns BEFORE
-  // signInWithOtp is called, so an exempt sign-in never asks Supabase to send
-  // anything.
+  // sendEmailOtp is called, so an exempt sign-in never has a code emailed.
   //
   // Decided on resolvedRole (profiles.role), not actualRole: actualRole comes
   // from user_metadata, which the account holder can edit, and an Employee
@@ -271,43 +271,37 @@ async function handleLogin(request) {
     });
   }
 
-  // data.user.email, not resolvedEmail: this is Supabase's own canonical,
-  // stored casing for the address signInWithOtp/verifyOtp key off of.
+  // data.user.email: the account's stored address, the one the code goes to.
   const accountEmail = normalizeText(data.user.email);
 
-  const { error: otpError } = await supabase.auth.signInWithOtp({
+  // The app's own 6-digit code, emailed through Gmail (src/lib/auth/email-otp.js).
+  const sent = await sendEmailOtp({
+    purpose: "login",
+    subject: data.user.id,
     email: accountEmail,
-    options: {
-      // The account was just proven to exist and belong to this caller via a
-      // correct password — but signInWithOtp is a separate Supabase call that
-      // doesn't know that. Without this, an OTP request for an email with no
-      // account would silently create one; this app's accounts are always
-      // provisioned by HR/Admin, never self-signup.
-      shouldCreateUser: false,
-    },
+    name: resolved.resolvedFullName,
   });
 
-  if (otpError) {
-    const rateLimited = Number(otpError.status) === 429
-      || String(otpError.code || "").toLowerCase().includes("rate_limit");
-    return NextResponse.json(
-      {
-        error: rateLimited
-          ? "Too many verification codes requested. Please wait a few minutes and try again."
-          : "Unable to send your verification code right now. Please try again.",
-      },
-      { status: rateLimited ? 429 : 503 },
-    );
+  // A code sent under a minute ago is still in the inbox and still valid:
+  // signing in again (e.g. after "Use a different account") goes back to the
+  // code screen without mailing a second one.
+  const alreadySent = !sent.ok && sent.code === "otp_cooldown";
+  if (!sent.ok && !alreadySent) {
+    return NextResponse.json({ error: sent.error, code: sent.code }, { status: sent.status });
   }
 
-  recordCodeSent(data.user.id);
-  // A new code starts a new wrong-guess budget, as the in-memory one does.
-  await otpReset(data.user.id);
+  if (!alreadySent) {
+    recordCodeSent(data.user.id);
+    // A new code starts a new wrong-guess budget, as the in-memory one does.
+    await otpReset(data.user.id);
+  }
 
   const response = NextResponse.json({
     success: true,
     otp_required: true,
     masked_email: maskEmail(accountEmail),
+    resend_after: alreadySent ? sent.retryAfter : EMAIL_OTP_RESEND_SECONDS,
+    code_length: EMAIL_OTP_LENGTH,
   });
 
   // The ONLY cookie this route issues. No sacs-session cookie exists past

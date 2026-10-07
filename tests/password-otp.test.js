@@ -1,21 +1,26 @@
 /**
  * Password reset (login page) and password change (logged in) by email OTP.
  *
- * The routes run for real here; only @supabase/supabase-js is replaced, by an
- * in-memory stand-in whose verifyOtp accepts one known code. That is enough
- * to check the rules that matter: the steps cannot be skipped, the reply does
- * not reveal whether an account exists, five wrong codes lock the flow, the
- * code window is five minutes, and a verification sets a password only once.
+ * The routes run for real here; only @supabase/supabase-js and the Gmail
+ * sender are replaced, by in-memory stand-ins (tests/helpers/fake-email-otp.js
+ * keeps the code rows and the sent emails). Each test reads the real 6-digit
+ * code out of the email it "received". That is enough to check the rules that
+ * matter: the steps cannot be skipped, the reply does not reveal whether an
+ * account exists, five wrong codes lock the flow, the code window is five
+ * minutes, and a verification sets a password only once.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { emailOtpRpc, lastCode, wrongCode, outbox, resetEmailOtpFakes } from "./helpers/fake-email-otp.js";
 
-const GOOD_CODE = "12345678";
 const OLD_PASSWORD = "OldPass1!";
 
 /* ── A fake Supabase ────────────────────────────────────────────────────── */
 
-const db = { users: [], sent: [], updates: [] };
+const db = { users: [], updates: [] };
+
+/** Addresses emailed so far, in order. */
+const sentTo = () => outbox.map((m) => m.to);
 
 function makeUser(id, email, role, extra = {}) {
   return {
@@ -50,12 +55,8 @@ function fakeClient() {
   };
   return {
     from: () => makeChain(),
-    rpc: async () => ({ data: 0, error: null }),
+    rpc: async (name, args) => emailOtpRpc(name, args) || { data: 0, error: null },
     auth: {
-      signInWithOtp: async ({ email }) => { db.sent.push(email); return { error: null }; },
-      verifyOtp: async ({ email, token }) => (token === GOOD_CODE && byEmail(email)
-        ? { data: { user: byEmail(email) }, error: null }
-        : { data: {}, error: { status: 403, code: "otp_expired", message: "Token has expired or is invalid" } }),
       signInWithPassword: async ({ email, password }) => {
         const user = byEmail(email);
         return user && user.password === password
@@ -79,6 +80,7 @@ function fakeClient() {
 }
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => fakeClient() }));
+vi.mock("@/lib/mail/gmail", async () => (await import("./helpers/fake-email-otp.js")).gmailModule);
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
@@ -125,8 +127,8 @@ beforeEach(async () => {
     makeUser("u-acct", "acct@example.com", "accountant"),
     makeUser("u-admin", "admin@example.com", "admin"),
   ];
-  db.sent = [];
   db.updates = [];
+  resetEmailOtpFakes();
 
   ({ POST: resetRoute } = await import("@/app/api/legacy-auth/reset-password/route"));
   ({ POST: otpRoute } = await import("@/app/api/legacy-auth/change-password-otp/route"));
@@ -140,17 +142,26 @@ afterEach(() => {
 
 const RESET = "/api/legacy-auth/reset-password";
 
-/* ── describeOtpError ───────────────────────────────────────────────────── */
+/* ── The emailed code ───────────────────────────────────────────────────── */
 
-describe("describeOtpError", () => {
-  it("reads Supabase's cooldown, the hourly cap, a send failure and a bad code apart", async () => {
-    const { describeOtpError, OTP_CODE_ERROR } = await import("@/lib/auth/otp-errors");
-    expect(describeOtpError({ status: 429, message: "For security purposes, you can only request this after 42 seconds." }, "send"))
-      .toMatchObject({ code: "otp_cooldown", retryAfter: 42 });
-    expect(describeOtpError({ status: 429, code: "over_email_send_rate_limit", message: "Email rate limit exceeded" }, "send").code)
-      .toBe("email_rate_limit");
-    expect(describeOtpError({ status: 500, message: "Error sending magic link email" }, "send").code).toBe("email_send_failed");
-    expect(describeOtpError({ status: 403, code: "otp_expired" }, "verify")).toMatchObject({ code: "otp_invalid", error: OTP_CODE_ERROR });
+describe("The reset email", () => {
+  it("carries a 6-digit code, in the HTML and the plain text", async () => {
+    await browser().post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    expect(outbox).toHaveLength(1);
+    const [mail] = outbox;
+    expect(mail.to).toBe("emp@example.com");
+    expect(mail.subject).toMatch(/password reset code/i);
+    expect(lastCode()).toMatch(/^\d{6}$/);
+    expect(mail.html).toContain(lastCode().split("").join("&#8202;"));
+    expect(mail.text).toContain("5 minutes");
+  });
+
+  it("reports a failed send instead of claiming the code went out", async () => {
+    const { failNextSend } = await import("./helpers/fake-email-otp.js");
+    failNextSend();
+    const reply = await browser().post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    expect(reply.body.code).toBe("email_send_failed");
+    expect(reply.status).toBe(502);
   });
 });
 
@@ -167,7 +178,7 @@ describe("Reset password by OTP", () => {
     expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
     expect(replies[0].message).toMatch(/If the account exists/);
     // Only the Employee was actually emailed; the Admin is told to contact the administrator.
-    expect(db.sent).toEqual(["emp@example.com"]);
+    expect(sentTo()).toEqual(["emp@example.com"]);
     expect(replies[0].message).toMatch(/contact the administrator/i);
   });
 
@@ -193,13 +204,13 @@ describe("Reset password by OTP", () => {
     const b = browser();
     await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
     for (let i = 1; i <= 4; i += 1) {
-      expect((await b.post(resetRoute, RESET, { action: "verify", code: "00000000" })).status).toBe(400);
+      expect((await b.post(resetRoute, RESET, { action: "verify", code: wrongCode() })).status).toBe(400);
     }
-    const fifth = await b.post(resetRoute, RESET, { action: "verify", code: "00000000" });
+    const fifth = await b.post(resetRoute, RESET, { action: "verify", code: wrongCode() });
     expect(fifth.status).toBe(429);
     expect(fifth.body.code).toBe("otp_locked_out");
     // Even the right code is refused now: the flow has to start again.
-    const after = await b.post(resetRoute, RESET, { action: "verify", code: GOOD_CODE });
+    const after = await b.post(resetRoute, RESET, { action: "verify", code: lastCode() });
     expect(after.body.code).toBe("otp_expired");
   });
 
@@ -208,15 +219,20 @@ describe("Reset password by OTP", () => {
     const b = browser();
     await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
     vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1000);
-    const late = await b.post(resetRoute, RESET, { action: "verify", code: GOOD_CODE });
+    const late = await b.post(resetRoute, RESET, { action: "verify", code: lastCode() });
     expect(late.body.code).toBe("otp_expired");
   });
 
   it("verifies, then sets the password once, then signs in to the portal", async () => {
     const b = browser();
     await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
-    const verified = await b.post(resetRoute, RESET, { action: "verify", code: GOOD_CODE });
+    // An 8-digit code (the old Supabase OTP length) is refused by format.
+    expect((await b.post(resetRoute, RESET, { action: "verify", code: "12345678" })).body.code).toBe("otp_format");
+    const verified = await b.post(resetRoute, RESET, { action: "verify", code: lastCode() });
     expect(verified.body.verified).toBe(true);
+    // Single use: the same code cannot verify a second time.
+    const { verifyEmailOtp } = await import("@/lib/auth/email-otp");
+    expect(await verifyEmailOtp({ purpose: "reset", subject: "u-emp", code: lastCode() })).toBe("expired");
 
     const weak = await b.post(resetRoute, RESET, { action: "reset", password: "nouppercase1!", confirm_password: "nouppercase1!" });
     expect(weak.body.error).toMatch(/uppercase/);
@@ -255,7 +271,7 @@ describe("Change password by OTP", () => {
     const b = signedIn("u-emp", "employee", "emp@example.com");
     const wrong = await b.post(otpRoute, OTP, { action: "start", current_password: "Wrong1!" });
     expect(wrong.body.code).toBe("current_incorrect");
-    expect(db.sent).toHaveLength(0);
+    expect(outbox).toHaveLength(0);
   });
 
   it("refuses the new password until the OTP is verified", async () => {
@@ -270,12 +286,12 @@ describe("Change password by OTP", () => {
     const b = signedIn("u-emp", "employee", "emp@example.com");
     const started = await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD });
     expect(started.body).toMatchObject({ otp_required: true, resend_after: 60 });
-    expect(db.sent).toEqual(["emp@example.com"]);
+    expect(sentTo()).toEqual(["emp@example.com"]);
 
     const tooSoon = await b.post(otpRoute, OTP, { action: "resend" });
     expect(tooSoon.status).toBe(429);
 
-    expect((await b.post(otpRoute, OTP, { action: "verify", code: GOOD_CODE })).body.verified).toBe(true);
+    expect((await b.post(otpRoute, OTP, { action: "verify", code: lastCode() })).body.verified).toBe(true);
 
     const same = await b.post(changeRoute, CHANGE, { current_password: OLD_PASSWORD, new_password: OLD_PASSWORD, confirm_password: OLD_PASSWORD });
     expect(same.body.error).toMatch(/different/);
@@ -289,9 +305,9 @@ describe("Change password by OTP", () => {
     const b = signedIn("u-acct", "accountant", "acct@example.com");
     await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD });
     let last;
-    for (let i = 0; i < 5; i += 1) last = await b.post(otpRoute, OTP, { action: "verify", code: "00000000" });
+    for (let i = 0; i < 5; i += 1) last = await b.post(otpRoute, OTP, { action: "verify", code: wrongCode() });
     expect(last.body.code).toBe("otp_locked_out");
-    expect((await b.post(otpRoute, OTP, { action: "verify", code: GOOD_CODE })).body.code).toBe("otp_expired");
+    expect((await b.post(otpRoute, OTP, { action: "verify", code: lastCode() })).body.code).toBe("otp_expired");
   });
 
   it("asks for no second OTP on the first sign-in change (the sign-in OTP already passed)", async () => {
@@ -303,7 +319,7 @@ describe("Change password by OTP", () => {
     const done = await b.post(changeRoute, CHANGE, { current_password: OLD_PASSWORD, new_password: "NewPass9!", confirm_password: "NewPass9!" });
     expect(done.status).toBe(200);
     expect(done.body.must_change_password).toBe(false);
-    expect(db.sent).toHaveLength(0);
+    expect(outbox).toHaveLength(0);
     expect(db.updates).toHaveLength(1);
   });
 
@@ -312,6 +328,6 @@ describe("Change password by OTP", () => {
     expect((await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD })).body.otp_required).toBe(false);
     const done = await b.post(changeRoute, CHANGE, { current_password: OLD_PASSWORD, new_password: "NewPass9!", confirm_password: "NewPass9!" });
     expect(done.status).toBe(200);
-    expect(db.sent).toHaveLength(0);
+    expect(outbox).toHaveLength(0);
   });
 });

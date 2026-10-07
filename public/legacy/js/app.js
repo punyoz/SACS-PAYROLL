@@ -1612,7 +1612,7 @@ function scrollWebsiteTo(position = 'top') {
 
 /* ── RESET PASSWORD (LOGIN PAGE) ── */
 // Three steps in one dialog, all through POST /api/legacy-auth/reset-password:
-//   1. "send"    Employee ID or email -> an 8-digit OTP (valid 5 minutes)
+//   1. "send"    Employee ID or email -> a 6-digit OTP (valid 5 minutes)
 //   2. "verify"  the OTP; only when it checks out does step 3 appear
 //   3. "reset"   new password + confirmation
 // The server keeps which step you are on in a signed cookie, so the email
@@ -1781,9 +1781,9 @@ async function verifyResetOtp() {
   if (resetRequestInFlight) return;
   const els = resetDialogElements();
   const code = String(els.otp?.value || '').trim();
-  if (!/^\d{8}$/.test(code)) {
-    showResetFeedback('Enter the 8-digit OTP from your email.', false);
-    showFieldError(els.otp, 'Enter the 8-digit OTP from your email.');
+  if (!/^\d{6}$/.test(code)) {
+    showResetFeedback('Enter the 6-digit code from your email.', false);
+    showFieldError(els.otp, 'Enter the 6-digit code from your email.');
     return;
   }
 
@@ -2072,7 +2072,7 @@ async function resendLoginOtp() {
     if (!response.ok) {
       showVotpFeedback(result.error || 'Unable to send a new code.', false);
       if (response.status === 429) {
-        const retryAfter = Number(response.headers.get('Retry-After')) || 45;
+        const retryAfter = Number(response.headers.get('Retry-After')) || 60;
         startOtpResendCooldown(retryAfter);
       } else if (btn) {
         btn.disabled = false;
@@ -2084,7 +2084,7 @@ async function resendLoginOtp() {
     showVotpFeedback(result.message || 'A new code has been sent.', true);
     const codeInput = document.getElementById('votp-code-input');
     if (codeInput) { codeInput.value = ''; codeInput.focus(); }
-    startOtpResendCooldown(45);
+    startOtpResendCooldown(Number(result.resend_after) || 60);
   } catch {
     showVotpFeedback('Unable to reach the server. Check your connection and try again.', false);
     if (btn) btn.disabled = false;
@@ -2637,7 +2637,7 @@ function bindNumericOtpInput(input) {
   if (!input || input.dataset.otpBound === '1') return;
   input.dataset.otpBound = '1';
   input.addEventListener('input', () => {
-    const digits = input.value.replace(/\D/g, '').slice(0, 8);
+    const digits = input.value.replace(/\D/g, '').slice(0, 6);
     if (digits !== input.value) input.value = digits;
   });
 }
@@ -2672,7 +2672,7 @@ function startOtpButtonCountdown(button, seconds, idleLabel) {
 // Employee and Accountant accounts change their password in three steps, on
 // the same form, through POST /api/legacy-auth/change-password-otp:
 //   1. current password  -> "Send OTP" (the server checks it, then emails a
-//                            8-digit code valid for 5 minutes)
+//                            6-digit code valid for 5 minutes)
 //   2. the OTP           -> "Verify OTP"
 //   3. new + confirm     -> the form's own Update button
 // The new-password fields stay hidden until step 2 passes, and the server
@@ -2706,7 +2706,7 @@ function mountPasswordChangeSteps({ key, current, next, confirm, rules, submit, 
   if (wrapperClass === 'fg') otpWrap.style.margin = '0';
   otpWrap.innerHTML = `
     <label for="${otpId}">Email OTP</label>
-    <input id="${otpId}" class="${inputClass}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="8" placeholder="8-digit code" style="letter-spacing:.2em;text-align:center;" />
+    <input id="${otpId}" class="${inputClass}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" style="letter-spacing:.2em;text-align:center;" />
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
       <span style="font-size:12px;color:var(--t3);line-height:1.5;">Sent to your registered email. It expires in 5 minutes.</span>
       <button type="button" id="${otpId}-resend" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;white-space:nowrap;">Resend OTP</button>
@@ -2833,9 +2833,9 @@ async function advancePasswordChangeFlow(flow) {
 
   if (flow.stage === 'otp') {
     const code = flow.otp.value.trim();
-    if (!/^\d{8}$/.test(code)) {
-      flow.report('Enter the 8-digit OTP from your email.', 'err');
-      showFieldError(flow.otp, 'Enter the 8-digit OTP from your email.');
+    if (!/^\d{6}$/.test(code)) {
+      flow.report('Enter the 6-digit code from your email.', 'err');
+      showFieldError(flow.otp, 'Enter the 6-digit code from your email.');
       flow.otp.focus();
       return;
     }

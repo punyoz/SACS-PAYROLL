@@ -2,11 +2,10 @@
  * Password reset (logged out) and password change (logged in) by email OTP.
  *
  * Built on the sign-in OTP system rather than beside it:
- *   - the code      Supabase Auth's email OTP, the one sign-in uses
- *                   (signInWithOtp to send, verifyOtp to check). Supabase
- *                   generates it, stores only its hash, expires it and
- *                   consumes it on first successful use; the custom SMTP
- *                   (Brevo) delivers it.
+ *   - the code      the app's own 6-digit emailed code, the one sign-in uses
+ *                   (src/lib/auth/email-otp.js). Only its hash is stored, it
+ *                   expires after 5 minutes and is consumed on first
+ *                   successful use; Gmail (Nodemailer) delivers it.
  *   - the throttle  src/lib/auth/otp-throttle.js: at most 5 wrong codes per
  *                   code sent, then the flow locks until a new OTP is
  *                   requested; 60 s between sends.

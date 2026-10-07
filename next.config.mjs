@@ -22,6 +22,11 @@ const nextConfig = {
   // Next 16 writes AGENTS.md and CLAUDE.md into the project root on every dev
   // run. Nothing here reads them, so keep the tree free of generated files.
   agentRules: false,
+  // The code emails attach the school seal from disk (src/lib/mail/otp-email.js);
+  // ship that file with the API functions that send them.
+  outputFileTracingIncludes: {
+    "/api/legacy-auth/**": ["./public/legacy/assets/logo-160.png"],
+  },
   async rewrites() {
     return [
       { source: "/rfid-terminal", destination: "/legacy/rfid-terminal.html" },
