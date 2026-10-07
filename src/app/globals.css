@@ -38,7 +38,9 @@ body {
   color: var(--t1);
 }
 
-a {
+/* Not inside the shadcn/ui screens either: this unlayered rule beats every
+   Tailwind text colour on a link there (e.g. a Button rendered as <a>). */
+a:not(.sacs-ui a, .sacs-ui-portal a) {
   color: inherit;
 }
 
