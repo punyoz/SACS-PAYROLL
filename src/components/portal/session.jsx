@@ -174,7 +174,7 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
   if (!ready || !ctx) return null;
 
   if (ctx.must_change_password && Gate) {
-    return <Gate role={role} />;
+    return <Gate role={role} ctx={ctx} updateContext={updateContext} logout={logout} />;
   }
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

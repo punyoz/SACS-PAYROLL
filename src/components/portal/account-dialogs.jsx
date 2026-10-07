@@ -361,7 +361,7 @@ const RESTART_CODES = ["otp_expired", "otp_locked_out", "otp_not_verified"];
 const DEFAULT_PASSWORD_SYMBOL = "!";
 const NETWORK_ERROR = "Unable to reach the server. Check your connection and try again.";
 
-const PASSWORD_RULES = [
+export const PASSWORD_RULES = [
   ["length", `At least ${PASSWORD_MIN_LENGTH} characters`],
   ["mix", "Contains both letters and numbers"],
   ["upper", "At least one uppercase letter"],
@@ -391,7 +391,7 @@ function looksLikeDefaultPassword(password, ctx) {
   return Boolean(prefix) && lastNameCandidates(ctx?.full_name).includes(prefix);
 }
 
-function evaluateRules(current, next, confirm, ctx) {
+export function evaluateRules(current, next, confirm, ctx) {
   return {
     length: next.length >= PASSWORD_MIN_LENGTH && next.length <= 72,
     mix: /[A-Za-z]/.test(next) && /\d/.test(next),
@@ -405,7 +405,7 @@ function evaluateRules(current, next, confirm, ctx) {
 }
 
 /** The first unmet rule's message, in requestPasswordChange()'s order. */
-function firstRuleError(rules) {
+export function firstRuleError(rules) {
   if (!rules.length) return `New password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
   if (!rules.spaces) return "New password cannot contain spaces.";
   if (!rules.mix) return "New password must contain both letters and numbers.";

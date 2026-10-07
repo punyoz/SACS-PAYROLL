@@ -75,7 +75,7 @@ function formatClock(seconds) {
 
 /* ── Brand panel ───────────────────────────────────────────────────────── */
 
-function BrandPanel() {
+export function BrandPanel() {
   return (
     <aside className="relative hidden overflow-hidden bg-brand-green text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
       <div
@@ -112,7 +112,7 @@ function BrandPanel() {
   );
 }
 
-function MobileBrand() {
+export function MobileBrand() {
   return (
     <div className="mb-6 flex flex-col items-center text-center lg:hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
