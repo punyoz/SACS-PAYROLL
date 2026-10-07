@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChangePasswordDialog, EditAccountDialog } from "@/components/portal/account-dialogs";
+import { useConfirm } from "@/components/portal/confirm-dialog";
 import { usePortalSession } from "@/components/portal/session";
 import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
@@ -137,7 +138,19 @@ function UserMenu({ onProfile }) {
   const { ctx, role, logout } = usePortalSession();
   const { open } = useAccountDialogs();
   const { isMobile } = useSidebar();
+  const [confirmDialog, confirm] = useConfirm();
   const name = ctx?.full_name || ROLE_LABEL[role];
+
+  // Asked once the menu has closed, so the dialog takes focus cleanly.
+  const signOut = () => setTimeout(async () => {
+    const ok = await confirm({
+      title: "Sign out?",
+      description: "You will need your password (and an emailed code, if your account uses one) to sign in again. Anything you have not saved on this page will be lost.",
+      confirmLabel: "Sign out",
+      destructive: true,
+    });
+    if (ok) logout();
+  }, 0);
 
   return (
     <SidebarMenu>
@@ -177,9 +190,10 @@ function UserMenu({ onProfile }) {
               </DropdownMenuSub>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={logout}><LogOutIcon aria-hidden="true" />Sign out</DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={signOut}><LogOutIcon aria-hidden="true" />Sign out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+        {confirmDialog}
       </SidebarMenuItem>
     </SidebarMenu>
   );
