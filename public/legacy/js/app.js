@@ -2632,7 +2632,7 @@ function evaluatePasswordShape(next) {
   };
 }
 
-/** Digits only, at most eight (the Supabase Email OTP length), for every OTP field. */
+/** Digits only, at most six (the emailed code's length), for every OTP field. */
 function bindNumericOtpInput(input) {
   if (!input || input.dataset.otpBound === '1') return;
   input.dataset.otpBound = '1';

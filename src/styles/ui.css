@@ -1,0 +1,169 @@
+/*
+ * shadcn/ui theme for the React screens (today: /login), in the Shepherd
+ * Angels Christian School palette — the same tokens as
+ * public/legacy/css/theme.css and src/app/globals.css:
+ *   green #1B5E3C / #0F3D28, gold #C9A227 / #E8C766, red #8B1A1A.
+ *
+ * Imported only by the routes that use these components (src/app/login/layout.js),
+ * so Tailwind's base reset never reaches the legacy portals or the 404/error
+ * pages. Tailwind scans only the folders listed with @source below.
+ *
+ * Dark mode is a `.dark` class on the screen's root element (see
+ * src/components/theme-toggle.jsx), starting from the device setting.
+ */
+
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+
+@source "../components";
+@source "../app/login";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* body.sacs-ui-portal: dialogs and toasts render in a portal on <body>,
+   outside .sacs-ui; the theme toggle mirrors the classes onto <body>. */
+.sacs-ui,
+body.sacs-ui-portal {
+  --radius: 0.75rem;
+
+  --background: #f6f7f3;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #1b5e3c;
+  --primary-foreground: #ffffff;
+  --secondary: #fbf6e6;
+  --secondary-foreground: #0f3d28;
+  --muted: #f2f4ef;
+  --muted-foreground: #5e6470;
+  --accent: #fbf6e6;
+  --accent-foreground: #0f3d28;
+  --destructive: #8b1a1a;
+  --border: #e0d5ae;
+  --input: #d6cca3;
+  --ring: #c9a227;
+
+  /* Brand extras, for the hero panel and accents. */
+  --brand-green: #1b5e3c;
+  --brand-green-dark: #0f3d28;
+  --brand-gold: #c9a227;
+  --brand-gold-light: #e8c766;
+  --success: #1b5e3c;
+  /* Gold for TEXT on light surfaces: #C9A227 is under 3:1 on white. */
+  --gold-text: #7a5f0c;
+
+  /* Charts: green / gold first, then neutrals that stay legible on both themes. */
+  --chart-1: #1b5e3c;
+  --chart-2: #c9a227;
+  --chart-3: #3f8f66;
+  --chart-4: #8a6d12;
+  --chart-5: #6b7280;
+}
+
+.sacs-ui.dark,
+body.sacs-ui-portal.dark {
+  --background: #0b1611;
+  --foreground: #eef2ec;
+  --card: #11211a;
+  --card-foreground: #eef2ec;
+  --popover: #11211a;
+  --popover-foreground: #eef2ec;
+  --primary: #e8c766;
+  --primary-foreground: #0f3d28;
+  --secondary: #1a3327;
+  --secondary-foreground: #f3e4ad;
+  --muted: #16291f;
+  --muted-foreground: #a9b4ad;
+  --accent: #1a3327;
+  --accent-foreground: #f3e4ad;
+  --destructive: #e26d6d;
+  --border: #2b4436;
+  --input: #35513f;
+  --ring: #e8c766;
+
+  --success: #7fd1a3;
+  --gold-text: #e8c766;
+
+  --chart-1: #5fbf8a;
+  --chart-2: #e8c766;
+  --chart-3: #9ad8b4;
+  --chart-4: #c9a227;
+  --chart-5: #a9b4ad;
+}
+
+@theme inline {
+  --font-sans: var(--font-dm-sans), "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), "DM Mono", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-gold-text: var(--gold-text);
+  --color-brand-green: var(--brand-green);
+  --color-brand-green-dark: var(--brand-green-dark);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-gold-light: var(--brand-gold-light);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --animate-caret-blink: caret-blink 1.25s ease-out infinite;
+
+  @keyframes caret-blink {
+    0%, 70%, 100% { opacity: 1; }
+    20%, 50% { opacity: 0; }
+  }
+}
+
+@layer base {
+  .sacs-ui *,
+  .sacs-ui ::before,
+  .sacs-ui ::after,
+  body.sacs-ui-portal [data-slot],
+  body.sacs-ui-portal [data-slot] * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+  }
+
+  .sacs-ui {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    color-scheme: light;
+  }
+
+  .sacs-ui.dark {
+    color-scheme: dark;
+  }
+
+  /* <body> keeps globals.css's text colour; portal content takes the theme's. */
+  body.sacs-ui-portal [data-slot="dialog-content"] {
+    font-family: var(--font-sans);
+    color: var(--foreground);
+  }
+}
