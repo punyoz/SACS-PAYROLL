@@ -82,30 +82,51 @@ That covers every table the application queries. If a page errors with
 
 ---
 
-## 2a. Email OTP: SMTP, template and expiry
+## 2a. Emailed codes: Gmail (Nodemailer) and mail.tm
 
-Sign-in (Employee / Accountant), **Forgot Password** and **Change Password**
-(Employee / Accountant) all use Supabase Auth's own email OTP
-(`signInWithOtp` / `verifyOtp`). Supabase generates the 8-digit code, stores
-only its hash, expires it and consumes it on first use; Brevo only delivers
-the email. The app adds the rest in `src/lib/auth/otp-throttle.js` and
-`src/lib/auth/password-otp.js`: 5 wrong codes lock the flow until a new OTP
-is requested, 60 seconds between sends, and a 5-minute window per code.
-There is no Edge Function to deploy.
+Sign-in, **Forgot Password** and **Change Password** for **every role**
+(Super Admin, Admin, HR, Accountant, Employee; `src/lib/auth/otp-policy.js`)
+use the app's own 6-digit code
+(`src/lib/auth/email-otp.js`), emailed through Gmail SMTP with Nodemailer
+(`src/lib/mail/gmail.js`, template `src/lib/mail/otp-email.js`). Only an
+HMAC of the code is stored, in `public.auth_email_otps`
+(`20261007020000_email_otp_codes.sql`). The database enforces, under a row
+lock: 5-minute expiry, single use, 5 wrong codes then a new code is needed,
+60 seconds between sends. Each flow has its own code (a sign-in code cannot
+reset a password). Supabase Auth no longer sends any email for this app.
 
-1. **Authentication → Emails → SMTP Settings**: turn on custom SMTP with the
-   Brevo SMTP relay (`smtp-relay.brevo.com`, port 587, your Brevo SMTP login
-   and SMTP key, a sender address verified in Brevo).
-2. **Authentication → Emails → Templates → Magic link or OTP**: the body must
-   show the code with `{{ .Token }}`. The default template sends a link
-   instead. Example body:
-   `<p>Your SACS Payroll code is <strong>{{ .Token }}</strong>. It expires in 5 minutes.</p>`
-3. **Authentication → Providers → Email**: set **Email OTP Length** to 8 and
-   **Email OTP Expiration** to 300 seconds (5 minutes). This also applies to
-   the sign-in code. It must be 8: the Forgot Password and Change Password
-   screens only accept an 8-digit code, so a 6-digit setting breaks them.
-4. **Authentication → Rate Limits**: raise **Emails sent per hour** to suit the
-   staff count. Supabase also allows one email per address every 60 seconds.
+> [!IMPORTANT]
+> **Every account needs a real, reachable email address.** The code goes to
+> the address on the account; an account whose address cannot receive mail
+> (for example a seeded `@example.com` address) cannot sign in. Fix every
+> Super Admin, Admin and HR address before deploying.
+
+1. On the Google account that sends the mail, turn on **2-Step Verification**,
+   then create an **App password** (Google Account → Security → App
+   passwords). Put the address in `GMAIL_USER` and the 16-character App
+   password in `GMAIL_APP_PASSWORD`. Never the account's real password.
+2. Gmail limits a personal account to about 500 recipients a day (Google
+   Workspace: about 2,000). Enough for staff sign-ins; check it if every
+   employee signs in several times a day.
+3. The old Supabase setup (custom SMTP with Brevo, the "Magic link or OTP"
+   template, Email OTP Length) is no longer used and can be left as it is.
+
+**Testing delivery without a real inbox (development only).** Set
+`USE_MAILTM=true` in `.env.local`, run `npm run mailtm -- create`, and set a
+TEST account's email (any role) to the printed address. An inbox made on
+mail.tm's own website is added with `npm run mailtm -- add <address> <password>`.
+The five seeded accounts use mail.tm inboxes (`SEED_*_EMAIL`); real staff
+accounts use their own Gmail. Sign in as
+that account: the code screen shows **Read code from test inbox (mail.tm, dev
+only)**, and `npm run mailtm -- otp <address>` prints the code in a terminal.
+`src/lib/mail/mailtm.service.mjs` and `/api/dev/mailtm` are off whenever
+`NODE_ENV=production`, whatever `USE_MAILTM` says.
+
+**The sign-in screen** (`/login`) is React with shadcn/ui and Tailwind CSS v4
+(`src/app/login/`, `src/components/ui/`, theme in `src/styles/ui.css`, light
+and dark). The Tailwind styles load only on that route; the portals and their
+CSS are unchanged. The legacy sign-in screen still exists inside
+`public/legacy/` but nothing links to it.
 
 ---
 
@@ -140,12 +161,24 @@ night delays the Incomplete queue but never produces a wrong payroll.
 
 Absences are now recorded for every active Employee/Accountant who does not
 tap on a working day (weekends and the holidays in `attendance_holidays` are
-skipped). Super Admin → System Configuration → **Holidays** adds them
-(`/api/admin/holidays`). The days fixed by law (Aug 21, Dec 8, Dec 31) are
-seeded by `20261006020000_holidays_fixed_by_law.sql`; add each year's
-proclaimed days (Eid'l Fitr, Eid'l Adha, Chinese New Year, Black Saturday,
-All Souls' Day, Christmas Eve) as soon as they are announced. Payroll never
-deducts an Absent record dated on a holiday, even one added after the day.
+skipped). Super Admin → System Configuration → **Holidays** manages them
+(`/api/admin/holidays`). Each year's holidays fixed by law plus Holy Week
+(from Easter) and National Heroes Day are generated by
+`attendance_seed_holidays(year)`: a pg_cron job (`holiday-calendar-next-year`)
+runs it every December 1 for the next year, and **Generate Year** runs it on
+demand. Add the proclaimed days (Eid'l Fitr, Eid'l Adha, Chinese New Year,
+All Souls' Day, Christmas Eve, declared days) by hand when announced.
+
+**Suspensions** (`20261007010000_holiday_calendar.sql`): HR → Attendance
+Monitoring → Suspensions (or Super Admin) declares a typhoon / LGU day, even
+the same morning. A whole-day suspension is a day off with no premium; a
+morning / afternoon one keeps the day a working day with the schedule cut
+at the given time (leaving at the cutoff is not undertime; an absence costs
+half a day). A day with no tap on a holiday or whole-day suspension reads
+**Holiday**, not Absent; adding one after the day recomputes that day's
+records (`attendance_apply_holiday`). Payroll never deducts an Absent on a
+holiday, and each payslip, its PDF and Accountant → Payroll Reports →
+**Holiday Work** name every holiday worked with its hours and premium.
 
 **RFID terminal.** Unlocking the terminal starts its own kiosk session
 (`src/lib/auth/kiosk-session.js`): 16 hours, used only for taps, not ended by
@@ -266,7 +299,10 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable key. Safe to expose to the browser. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret key. Server-only — never send to the browser. |
 | `SESSION_SECRET` | Signs the login session cookie. See below. |
-| `APP_URL` | No longer used. Password reset is OTP-based (see section 2a), so no reset links are built. |
+| `GMAIL_USER` | Gmail address the code emails are sent from (section 2a). Server-only. |
+| `GMAIL_APP_PASSWORD` | A Google **App password** for that account, not its real password. Server-only. |
+| `MAIL_FROM_NAME` | Optional sender name (default "SACS Payroll"). |
+| `USE_MAILTM` | Development only: `true` turns on the mail.tm test inbox reader. Ignored in production. Leave `false` in Vercel. |
 
 `SEED_*` variables set the default account credentials created in step 4.
 Change every seeded password before going anywhere near real data.
@@ -324,11 +360,12 @@ Trap 1.
 1. Push the repo to the new GitHub remote, then import it in Vercel. The
    framework preset auto-detects as Next.js — no `vercel.json` is needed.
 2. Add every variable from `.env.local` under
-   **Settings → Environment Variables**. (`APP_URL` and `APP_URL_ALLOWLIST`
-   are no longer read and can be left out.)
+   **Settings → Environment Variables**, including `GMAIL_USER` and
+   `GMAIL_APP_PASSWORD` (without them no code email can be sent, so
+   sign-in stops at the code step for every role).
 3. In Supabase, go to **Authentication → URL Configuration** and set the
-   **Site URL** to the production domain. Password reset no longer uses
-   redirect links (it is an 8-digit OTP, section 2a), so the old
+   **Site URL** to the production domain. Password reset does not use
+   redirect links (it is a 6-digit emailed code, section 2a), so the old
    `/reset-password` redirect URL can be removed.
 
 `.env.local` is never deployed. Anything missing from the Vercel dashboard is
@@ -347,6 +384,7 @@ missing in production.
 | `npm run supabase:check` | Connectivity check against the anon key |
 | `npm run supabase:seed-users` | Create/refresh the five role accounts |
 | `npm run supabase:purge-archived` | **Hard-deletes** archived employees — see below |
+| `npm run mailtm -- create [address]|add <address> <password>|list|messages|otp|delete` | mail.tm test inboxes for checking code emails (development only, section 2a) |
 
 > [!CAUTION]
 > **Two scripts destroy data irreversibly. Neither asks for confirmation.**

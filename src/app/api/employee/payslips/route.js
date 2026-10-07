@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { floorNetPay } from "@/lib/payroll/net-pay";
+import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 function toAmount(value) {
@@ -82,6 +83,8 @@ function mapEntryToPayslip(row) {
     cash_advance: toAmount(deductions.cash_advance),
     // Semi-monthly payroll: the month behind a 1st / 2nd half payslip.
     monthly: payroll.monthly && typeof payroll.monthly === "object" ? payroll.monthly : null,
+    // Each holiday worked: name, day, hours and premium.
+    holiday_lines: holidayPayLines(payroll),
   };
 }
 

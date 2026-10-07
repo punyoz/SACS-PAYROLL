@@ -8,6 +8,7 @@
  */
 
 import { money } from "@/lib/payroll/payslip-summary";
+import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -90,7 +91,12 @@ class Page {
  * the monthly salary with nothing deducted; the 2nd half shows the month less
  * what the 1st half paid.
  */
-function semiMonthlyRows(p, m) {
+/** One indented row per holiday worked, under Holiday pay. */
+function holidayRows(p, lines) {
+  (lines || []).forEach((line) => p.row(`   ${describeHolidayLine(line)}`, line.amount));
+}
+
+function semiMonthlyRows(p, m, holidayLines = []) {
   if (m.half === "first") {
     p.heading("Earnings - 1st half");
     p.row("Monthly salary", m.monthly_salary || 0);
@@ -114,6 +120,7 @@ function semiMonthlyRows(p, m) {
   plus(`Overload pay (${m.overload_hours} h)`, m.overload_pay);
   plus("Overtime", m.overtime_pay);
   plus("Holiday pay", m.holiday_pay);
+  holidayRows(p, holidayLines);
   p.row("Monthly gross", m.monthly_gross || 0, { bold: true });
 
   p.heading("Contributions and tax");
@@ -160,12 +167,13 @@ export function buildPayslipPdf(details) {
 
   const monthly = details?.monthly || null;
   const earnings = details?.earnings || {};
-  if (monthly) semiMonthlyRows(p, monthly);
+  if (monthly) semiMonthlyRows(p, monthly, details?.holiday_lines);
   if (!monthly) {
     p.heading("Earnings");
     p.row("Basic pay", earnings.basic_salary || 0);
     if (Number(earnings.overtime) > 0) p.row("Overtime", earnings.overtime);
     if (Number(earnings.holiday_pay) > 0) p.row("Holiday pay", earnings.holiday_pay);
+    holidayRows(p, details?.holiday_lines);
     if (Number(details?.incentives?.total_incentives) > 0) p.row("Allowances / incentives", details.incentives.total_incentives);
     p.row("Gross pay", earnings.gross_pay || 0, { bold: true });
 

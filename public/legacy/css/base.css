@@ -1408,3 +1408,71 @@ body.scroll-locked {
   .att-history-grid { grid-template-columns: 1fr; }
   .att-emp-filters .fg { min-width: 0; flex: 1 1 140px; }
 }
+
+/* ── 6-digit code boxes (change password) ──
+   Same shape as the sign-in screen's code input (src/app/login): two groups
+   of three boxes, gold focus ring. One real <input> sits transparent over the
+   boxes and takes the typing, paste and autofill; js/app.js draws the digits
+   into the boxes (mountOtpBoxes). */
+.otp-boxes {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+}
+.otp-boxes-group { display: flex; }
+.otp-box {
+  width: 44px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-left-width: 0;
+  color: var(--t1);
+  font-family: 'DM Mono', monospace;
+  font-size: 20px;
+  font-weight: 500;
+  transition: border-color .15s, box-shadow .15s;
+}
+.otp-box:first-child { border-left-width: 1px; border-radius: 8px 0 0 8px; }
+.otp-box:last-child { border-radius: 0 8px 8px 0; }
+.otp-box.is-active {
+  position: relative;
+  z-index: 1;
+  border-color: var(--gold);
+  border-left-width: 1px;
+  margin-left: -1px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 30%, transparent);
+}
+.otp-box:first-child.is-active { margin-left: 0; }
+.otp-box.is-active:empty::after {
+  content: '';
+  width: 1px;
+  height: 20px;
+  background: var(--t1);
+  animation: otp-caret 1.1s step-end infinite;
+}
+@keyframes otp-caret { 50% { opacity: 0; } }
+.otp-boxes.is-invalid .otp-box { border-color: var(--red); }
+.otp-boxes-dash { width: 10px; height: 2px; border-radius: 1px; background: var(--t3); }
+.otp-boxes-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  font-size: 16px; /* keeps iOS from zooming in */
+  cursor: text;
+  caret-color: transparent;
+}
+.otp-boxes-input:disabled { cursor: not-allowed; }
+.otp-boxes:has(.otp-boxes-input:disabled) { opacity: .6; }
+@media (max-width: 380px) {
+  .otp-box { width: 38px; height: 46px; font-size: 18px; }
+  .otp-boxes { gap: 6px; }
+}

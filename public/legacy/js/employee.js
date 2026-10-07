@@ -77,7 +77,7 @@ function formatPhTime(isoString) {
   }
 }
 
-function renderAttendanceCalendar(records, monthLabel, todayKey) {
+function renderAttendanceCalendar(records, monthLabel, todayKey, holidays = []) {
   const titleEl = document.getElementById('emp-att-month-title');
   if (titleEl) titleEl.textContent = `My Attendance — ${monthLabel}`;
 
@@ -90,6 +90,9 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
     statusMap[rec.date] = rec.status;
     if (rec.leave) leaveMap[rec.date] = rec.leave;
   }
+  // Holidays and suspensions (a whole day off shows as a holiday).
+  const holidayMap = {};
+  for (const holiday of holidays || []) holidayMap[holiday.date] = holiday;
   leaveCalendarDetails.clear();
 
   const [year, month] = todayKey.split('-').map(Number);
@@ -110,11 +113,14 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
     const isToday = dateKey === todayKey;
     const isFuture = day > todayDay;
     const status = statusMap[dateKey];
+    const holiday = holidayMap[dateKey];
 
     // On Time / Early Bird / Corrected: present; Late / Undertime / Half
     // Day: late; Absent: absent; On Leave: leave (attendanceCalendarClass in
     // app.js).
-    const dayClass = status ? attendanceCalendarClass(status) : '';
+    let dayClass = status ? attendanceCalendarClass(status) : '';
+    // A holiday off with no work recorded reads as a holiday, not a blank day.
+    if (holiday && !dayClass && (holiday.day_part || 'whole') === 'whole') dayClass = 'hol';
     let cls = 'ad';
     if (dayClass) cls += ` ${dayClass}`;
     else if (isFuture) cls += ' future';  // upcoming — faded number
@@ -130,7 +136,8 @@ function renderAttendanceCalendar(records, monthLabel, todayKey) {
       continue;
     }
 
-    html += `<div class="${cls}">${day}</div>`;
+    const holidayTitle = holiday ? `${holiday.name}${holiday.note ? ` · ${holiday.note}` : ''}` : '';
+    html += `<div class="${cls}"${holidayTitle ? ` title="${escapeHtml(holidayTitle)}"` : ''}>${day}</div>`;
   }
 
   grid.innerHTML = html;
@@ -198,17 +205,34 @@ async function loadEmployeeStats(options = {}) {
     if (leaveEl) leaveEl.textContent = data.on_leave ?? '—';
 
     renderUpcomingLeave(data.upcoming_leave || null);
+    renderNextHoliday(data.next_holiday || null, data.today_key);
 
     const netpayEl = document.getElementById('emp-stat-netpay');
     if (netpayEl) netpayEl.textContent = data.basic_salary || '—';
 
     if (data.today_key && data.month_label) {
-      renderAttendanceCalendar(data.records || [], data.month_label, data.today_key);
+      renderAttendanceCalendar(data.records || [], data.month_label, data.today_key, data.holidays || []);
     }
     updateTodayLog(data.today || null);
   } catch {
     // Stats are supplementary — fail silently
   }
+}
+
+function renderNextHoliday(holiday, todayKey) {
+  const el = document.getElementById('emp-next-holiday');
+  if (!el) return;
+  if (!holiday) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  const date = new Date(`${holiday.date}T00:00:00+08:00`);
+  const when = holiday.date === todayKey
+    ? 'Today'
+    : new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric' }).format(date);
+  el.textContent = `Next holiday: ${holiday.name} · ${when}${holiday.note ? ` (${holiday.note})` : ''}`;
+  el.style.display = '';
 }
 
 function renderUpcomingLeave(leave) {
@@ -246,7 +270,12 @@ function fmtPesoShort(amount) {
  * salary with nothing deducted; the 2nd half shows the whole month less what
  * the 1st half paid.
  */
-function semiMonthlyPayslipRows(m) {
+/** One indented row per holiday worked, under Holiday Pay. */
+function holidayPayslipRows(lines) {
+  return (lines || []).map((line) => `<div class="ps-row" style="color:var(--t3);font-size:12px;"><span style="padding-left:12px;">${escapeHtml(window.holidayLineLabel ? window.holidayLineLabel(line) : line.name)}</span><span class="mn">+ ${fmtPeso(line.amount)}</span></div>`).join('');
+}
+
+function semiMonthlyPayslipRows(m, holidayLines = []) {
   const row = (label, value, style = '') => `<div class="ps-row"${style ? ` style="${style}"` : ''}><span>${escapeHtml(label)}</span><span class="mn">${value}</span></div>`;
   const minus = (label, amount) => (Number(amount) > 0 ? row(label, `- ${fmtPeso(amount)}`, 'color:var(--red);') : '');
   const plus = (label, amount) => (Number(amount) > 0 ? row(label, `+ ${fmtPeso(amount)}`, 'color:var(--green);') : '');
@@ -270,6 +299,7 @@ function semiMonthlyPayslipRows(m) {
     + plus(`Overload Pay (${m.overload_hours} h)`, m.overload_pay)
     + plus('Overtime', m.overtime_pay)
     + plus('Holiday Pay', m.holiday_pay)
+    + (Number(m.holiday_pay) > 0 ? holidayPayslipRows(holidayLines) : '')
     + `<div class="ps-row tot"><span>Monthly Gross</span><span class="mn" style="color:var(--teal);">${fmtPeso(m.monthly_gross)}</span></div>`
     + minus('SSS', m.sss)
     + minus('PhilHealth', m.philhealth)
@@ -305,13 +335,13 @@ function renderPayslipCard(payslip) {
   let rows = '';
   const m = payslip.monthly || null;
   if (m) {
-    rows += semiMonthlyPayslipRows(m);
+    rows += semiMonthlyPayslipRows(m, payslip.holiday_lines);
   } else if (payslip.has_breakdown) {
     rows += `<div class="ps-row"><span>Basic Salary</span><span class="mn">${fmtPeso(payslip.basic_salary)}</span></div>`;
     if (payslip.transportation) rows += `<div class="ps-row"><span>Transportation</span><span class="mn">${fmtPeso(payslip.transportation)}</span></div>`;
     if (payslip.rice) rows += `<div class="ps-row"><span>Rice Allowance</span><span class="mn">${fmtPeso(payslip.rice)}</span></div>`;
     if (payslip.overtime) rows += `<div class="ps-row"><span>Overtime</span><span class="mn">${fmtPeso(payslip.overtime)}</span></div>`;
-    if (payslip.holiday_pay) rows += `<div class="ps-row"><span>Holiday Pay</span><span class="mn">${fmtPeso(payslip.holiday_pay)}</span></div>`;
+    if (payslip.holiday_pay) rows += `<div class="ps-row"><span>Holiday Pay</span><span class="mn">${fmtPeso(payslip.holiday_pay)}</span></div>${holidayPayslipRows(payslip.holiday_lines)}`;
     if (payslip.bonus) rows += `<div class="ps-row"><span>Bonus</span><span class="mn">${fmtPeso(payslip.bonus)}</span></div>`;
     rows += `<div class="ps-row tot"><span>Gross Pay</span><span class="mn" style="color:var(--teal);">${fmtPeso(payslip.gross_pay)}</span></div>`;
     if (payslip.sss) rows += `<div class="ps-row" style="color:var(--red);"><span>SSS</span><span class="mn">- ${fmtPeso(payslip.sss)}</span></div>`;

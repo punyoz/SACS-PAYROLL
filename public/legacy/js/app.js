@@ -1612,7 +1612,7 @@ function scrollWebsiteTo(position = 'top') {
 
 /* ── RESET PASSWORD (LOGIN PAGE) ── */
 // Three steps in one dialog, all through POST /api/legacy-auth/reset-password:
-//   1. "send"    Employee ID or email -> an 8-digit OTP (valid 5 minutes)
+//   1. "send"    Employee ID or email -> a 6-digit OTP (valid 5 minutes)
 //   2. "verify"  the OTP; only when it checks out does step 3 appear
 //   3. "reset"   new password + confirmation
 // The server keeps which step you are on in a signed cookie, so the email
@@ -1781,9 +1781,9 @@ async function verifyResetOtp() {
   if (resetRequestInFlight) return;
   const els = resetDialogElements();
   const code = String(els.otp?.value || '').trim();
-  if (!/^\d{8}$/.test(code)) {
-    showResetFeedback('Enter the 8-digit OTP from your email.', false);
-    showFieldError(els.otp, 'Enter the 8-digit OTP from your email.');
+  if (!/^\d{6}$/.test(code)) {
+    showResetFeedback('Enter the 6-digit code from your email.', false);
+    showFieldError(els.otp, 'Enter the 6-digit code from your email.');
     return;
   }
 
@@ -2072,7 +2072,7 @@ async function resendLoginOtp() {
     if (!response.ok) {
       showVotpFeedback(result.error || 'Unable to send a new code.', false);
       if (response.status === 429) {
-        const retryAfter = Number(response.headers.get('Retry-After')) || 45;
+        const retryAfter = Number(response.headers.get('Retry-After')) || 60;
         startOtpResendCooldown(retryAfter);
       } else if (btn) {
         btn.disabled = false;
@@ -2084,7 +2084,7 @@ async function resendLoginOtp() {
     showVotpFeedback(result.message || 'A new code has been sent.', true);
     const codeInput = document.getElementById('votp-code-input');
     if (codeInput) { codeInput.value = ''; codeInput.focus(); }
-    startOtpResendCooldown(45);
+    startOtpResendCooldown(Number(result.resend_after) || 60);
   } catch {
     showVotpFeedback('Unable to reach the server. Check your connection and try again.', false);
     if (btn) btn.disabled = false;
@@ -2632,14 +2632,64 @@ function evaluatePasswordShape(next) {
   };
 }
 
-/** Digits only, at most eight (the Supabase Email OTP length), for every OTP field. */
+/** Digits only, at most six (the emailed code's length), for every OTP field. */
 function bindNumericOtpInput(input) {
   if (!input || input.dataset.otpBound === '1') return;
   input.dataset.otpBound = '1';
   input.addEventListener('input', () => {
-    const digits = input.value.replace(/\D/g, '').slice(0, 8);
+    const digits = input.value.replace(/\D/g, '').slice(0, 6);
     if (digits !== input.value) input.value = digits;
   });
+}
+
+/**
+ * Draw a code <input> as the six boxes around it (.otp-boxes, css/base.css),
+ * like the sign-in screen's code field. The input stays the real field —
+ * typing, paste, autofill and every `input.value` read or write work as
+ * before; the boxes only mirror it. Writes made in code (`input.value = ''`)
+ * redraw too. `onComplete` runs when the sixth digit is typed.
+ */
+function mountOtpBoxes(input, { onComplete } = {}) {
+  const root = input?.closest('[data-otp-boxes]');
+  if (!root || input.dataset.otpBoxes === '1') return;
+  input.dataset.otpBoxes = '1';
+  const boxes = [...root.querySelectorAll('.otp-box')];
+
+  let completed = ''; // the full code onComplete last ran for
+  const render = () => {
+    const value = String(input.value || '');
+    if (value.length < boxes.length) completed = '';
+    const focused = document.activeElement === input;
+    boxes.forEach((box, i) => {
+      box.textContent = value[i] || '';
+      box.classList.toggle('is-active', focused && i === Math.min(value.length, boxes.length - 1));
+    });
+    root.classList.toggle('is-invalid', input.getAttribute('aria-invalid') === 'true');
+  };
+
+  const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get() { return native.get.call(this); },
+    set(next) { native.set.call(this, next); render(); },
+  });
+
+  input.addEventListener('input', () => {
+    render();
+    const value = input.value;
+    if (value.length === boxes.length && value !== completed && typeof onComplete === 'function') {
+      completed = value;
+      onComplete();
+    }
+  });
+  // Always type at the end, like the sign-in boxes.
+  const toEnd = () => { const n = input.value.length; input.setSelectionRange(n, n); render(); };
+  input.addEventListener('focus', toEnd);
+  input.addEventListener('click', toEnd);
+  input.addEventListener('keyup', render);
+  input.addEventListener('blur', render);
+  new MutationObserver(render).observe(input, { attributes: true, attributeFilter: ['aria-invalid'] });
+  render();
 }
 
 /**
@@ -2669,16 +2719,17 @@ function startOtpButtonCountdown(button, seconds, idleLabel) {
 }
 
 /* ── CHANGE PASSWORD: EMAIL OTP STEPS ── */
-// Employee and Accountant accounts change their password in three steps, on
+// Every account changes its password in three steps, on
 // the same form, through POST /api/legacy-auth/change-password-otp:
 //   1. current password  -> "Send OTP" (the server checks it, then emails a
-//                            8-digit code valid for 5 minutes)
+//                            6-digit code valid for 5 minutes)
 //   2. the OTP           -> "Verify OTP"
 //   3. new + confirm     -> the form's own Update button
 // The new-password fields stay hidden until step 2 passes, and the server
 // refuses step 3 without it. Same roles as sign-in's second factor
-// (src/lib/auth/otp-policy.js); other roles keep the one-step form.
-const PASSWORD_CHANGE_OTP_ROLES = ['employee', 'accountant'];
+// (src/lib/auth/otp-policy.js): every role since 2026-10-07. A role the server
+// exempts again answers { otp_required: false } and gets the one-step form.
+const PASSWORD_CHANGE_OTP_ROLES = ['super_admin', 'admin', 'hr', 'accountant', 'employee'];
 const PASSWORD_CHANGE_RESTART_CODES = ['otp_expired', 'otp_locked_out', 'otp_not_verified'];
 const passwordChangeFlows = new Map();
 
@@ -2704,11 +2755,21 @@ function mountPasswordChangeSteps({ key, current, next, confirm, rules, submit, 
   const otpWrap = document.createElement('div');
   otpWrap.className = wrapperClass;
   if (wrapperClass === 'fg') otpWrap.style.margin = '0';
+  // inputClass is no longer applied to the code field: it is drawn as six
+  // boxes, like the sign-in screen's (mountOtpBoxes below).
+  void inputClass;
   otpWrap.innerHTML = `
-    <label for="${otpId}">Email OTP</label>
-    <input id="${otpId}" class="${inputClass}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="8" placeholder="8-digit code" style="letter-spacing:.2em;text-align:center;" />
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
-      <span style="font-size:12px;color:var(--t3);line-height:1.5;">Sent to your registered email. It expires in 5 minutes.</span>
+    <label for="${otpId}">Code from your email</label>
+    <div style="display:flex;justify-content:center;">
+      <div class="otp-boxes" data-otp-boxes>
+        <div class="otp-boxes-group"><div class="otp-box"></div><div class="otp-box"></div><div class="otp-box"></div></div>
+        <div class="otp-boxes-dash" aria-hidden="true"></div>
+        <div class="otp-boxes-group"><div class="otp-box"></div><div class="otp-box"></div><div class="otp-box"></div></div>
+        <input id="${otpId}" class="otp-boxes-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" aria-describedby="${otpId}-expiry" />
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+      <span id="${otpId}-expiry" style="font-size:12px;color:var(--t3);line-height:1.5;" aria-live="polite">Sent to your registered email. It expires in 5 minutes.</span>
       <button type="button" id="${otpId}-resend" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;white-space:nowrap;">Resend OTP</button>
     </div>
   `;
@@ -2731,8 +2792,14 @@ function mountPasswordChangeSteps({ key, current, next, confirm, rules, submit, 
     otpWrap,
     otp: document.getElementById(otpId),
     resend: document.getElementById(`${otpId}-resend`),
+    expiry: document.getElementById(`${otpId}-expiry`),
+    expiryTimer: null,
   };
   bindNumericOtpInput(flow.otp);
+  mountOtpBoxes(flow.otp, {
+    // The sixth digit verifies at once, as on the sign-in screen.
+    onComplete: () => { if (flow.stage === 'otp' && !flow.busy) advancePasswordChangeFlow(flow); },
+  });
   flow.resend.addEventListener('click', () => resendPasswordChangeOtp(flow));
 
   passwordChangeFlows.set(key, flow);
@@ -2759,6 +2826,7 @@ function setPasswordChangeStage(flow, stage, { focus = true } = {}) {
 
   if (stage !== 'otp') {
     clearInterval(flow.timer);
+    clearInterval(flow.expiryTimer);
     flow.otp.value = '';
   }
   if (stage === 'current') {
@@ -2775,6 +2843,22 @@ function setPasswordChangeStage(flow, stage, { focus = true } = {}) {
 function startPasswordChangeCountdown(flow, seconds) {
   clearInterval(flow.timer);
   flow.timer = startOtpButtonCountdown(flow.resend, seconds, 'Resend OTP');
+}
+
+/** "Code expires in 4:59", counting down from a fresh send, as on the sign-in screen. */
+function startPasswordChangeExpiry(flow, seconds = 5 * 60) {
+  clearInterval(flow.expiryTimer);
+  if (!flow.expiry) return;
+  const endsAt = Date.now() + seconds * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    flow.expiry.textContent = left > 0
+      ? `Sent to your registered email. Code expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`
+      : 'This code has expired. Request a new one.';
+    if (left <= 0) clearInterval(flow.expiryTimer);
+  };
+  tick();
+  flow.expiryTimer = setInterval(tick, 1000);
 }
 
 async function postPasswordChangeStep(flow, payload) {
@@ -2828,14 +2912,15 @@ async function advancePasswordChangeFlow(flow) {
     setPasswordChangeStage(flow, 'otp');
     flow.report(result.message || 'An OTP has been sent to your email.', 'ok');
     startPasswordChangeCountdown(flow, Number(result.resend_after) || 60);
+    startPasswordChangeExpiry(flow);
     return;
   }
 
   if (flow.stage === 'otp') {
     const code = flow.otp.value.trim();
-    if (!/^\d{8}$/.test(code)) {
-      flow.report('Enter the 8-digit OTP from your email.', 'err');
-      showFieldError(flow.otp, 'Enter the 8-digit OTP from your email.');
+    if (!/^\d{6}$/.test(code)) {
+      flow.report('Enter the 6-digit code from your email.', 'err');
+      showFieldError(flow.otp, 'Enter the 6-digit code from your email.');
       flow.otp.focus();
       return;
     }
@@ -2884,6 +2969,7 @@ async function resendPasswordChangeOtp(flow) {
   flow.otp.value = '';
   flow.otp.focus();
   startPasswordChangeCountdown(flow, Number(result.resend_after) || 60);
+  startPasswordChangeExpiry(flow);
 }
 
 /** Back to step 1 (after a change, or when the form is closed). */
@@ -2895,6 +2981,7 @@ function resetPasswordChangeFlow(key) {
 /** For an account the server exempts: show the plain one-step form again. */
 function removePasswordChangeSteps(flow) {
   clearInterval(flow.timer);
+  clearInterval(flow.expiryTimer);
   flow.otpWrap.remove();
   [flow.nextWrap, flow.confirmWrap, flow.rules].forEach((el) => { if (el) el.style.display = ''; });
   flow.current.readOnly = false;
@@ -3863,12 +3950,13 @@ function attachLoginPasswordToggle() {
 
 const ATTENDANCE_STATUS_LIST = [
   'On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent',
-  'Incomplete', 'Pending Correction', 'Corrected', 'On Leave',
+  'Incomplete', 'Pending Correction', 'Corrected', 'On Leave', 'Holiday',
 ];
 
 // green: On Time / Early Bird, yellow: Late / Undertime, orange: Half Day,
 // red: Absent, gray: Incomplete (and awaiting review), blue: Corrected and
-// On Leave (a working day covered by approved leave).
+// On Leave (a working day covered by approved leave), teal: Holiday (no tap
+// on a holiday or whole-day suspension).
 const ATTENDANCE_STATUS_TONE = {
   'On Time': 'var(--green)',
   'Early Bird': 'var(--green)',
@@ -3880,6 +3968,7 @@ const ATTENDANCE_STATUS_TONE = {
   'Pending Correction': 'var(--t2)',
   Corrected: 'var(--blue)',
   'On Leave': 'var(--blue)',
+  Holiday: 'var(--teal)',
 };
 
 const ATTENDANCE_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -3908,6 +3997,7 @@ function attendanceCalendarClass(status) {
   const label = normalizeAttendanceStatusLabel(status);
   if (label === 'Absent') return 'ab';
   if (label === 'On Leave') return 'lv';
+  if (label === 'Holiday') return 'hol';
   if (label === 'Late' || label === 'Undertime' || label === 'Half Day') return 'lt';
   if (label === 'On Time' || label === 'Early Bird' || label === 'Corrected') return 'pr';
   return '';
@@ -3915,9 +4005,63 @@ function attendanceCalendarClass(status) {
 
 function attendanceStatusLegend() {
   return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">${
-    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected', 'On Leave']
+    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected', 'On Leave', 'Holiday']
       .map((s) => attendanceStatusBadge(s)).join('')
   }</div>`;
+}
+
+/* ── UPCOMING HOLIDAYS (dashboards) ──
+   The next holidays and suspensions from /api/admin/holidays?upcoming=5,
+   kept for five minutes so a dashboard refresh does not refetch them. */
+const upcomingHolidaysCache = { at: 0, data: null };
+
+async function mountUpcomingHolidays(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    if (!upcomingHolidaysCache.data || Date.now() - upcomingHolidaysCache.at > 5 * 60 * 1000) {
+      const res = await fetch('/api/admin/holidays?upcoming=5', { headers: { 'x-sacs-background': '1' } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Unable to load holidays.');
+      upcomingHolidaysCache.data = data;
+      upcomingHolidaysCache.at = Date.now();
+    }
+    const { holidays = [], today = '' } = upcomingHolidaysCache.data;
+    if (!holidays.length) {
+      el.innerHTML = '<div class="ai-item"><div class="ai2"><div class="s">No upcoming holidays saved.</div></div></div>';
+      return;
+    }
+    const todayTime = today ? new Date(`${today}T00:00:00+08:00`).getTime() : Date.now();
+    el.innerHTML = holidays.map((holiday) => {
+      const date = new Date(`${holiday.holiday_date}T00:00:00+08:00`);
+      const day = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', day: 'numeric' }).format(date);
+      const when = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+      const daysAway = Math.round((date.getTime() - todayTime) / 86400000);
+      const away = daysAway <= 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`;
+      const kind = [holiday.type_label, holiday.day_part_label].filter(Boolean).join(' · ');
+      return `
+        <div class="ai-item">
+          <div class="av" style="width:32px;height:32px;font-size:11px;background:var(--teal);">${escapeHtml(day)}</div>
+          <div class="ai2">
+            <div class="n">${escapeHtml(holiday.name || 'Holiday')}</div>
+            <div class="s">${escapeHtml(when)} · ${escapeHtml(kind)}</div>
+          </div>
+          <div class="air"><div class="st" style="font-size:11px;color:var(--t3);">${escapeHtml(away)}</div></div>
+        </div>`;
+    }).join('');
+  } catch (error) {
+    el.innerHTML = `<div class="ai-item"><div class="ai2"><div class="s">${escapeHtml(error.message)}</div></div></div>`;
+  }
+}
+
+/** "Bonifacio Day, Nov 30 (8 h)": one holiday worked, from a payslip's holiday_lines. */
+function holidayLineLabel(line) {
+  const date = line?.date ? new Date(`${line.date}T00:00:00+08:00`) : null;
+  const when = date && !Number.isNaN(date.getTime())
+    ? new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }).format(date)
+    : '';
+  const hours = line?.hours !== null && line?.hours !== undefined ? ` (${line.hours} h)` : '';
+  return `${line?.name || 'Holiday'}${when ? `, ${when}` : ''}${hours}`;
 }
 
 /** "Sick Leave · Sep 28 – Sep 29, 2026 · With pay · Approved by …" for an On Leave day. */
@@ -4617,8 +4761,8 @@ function attendanceStatusChips(board, rows) {
   const counts = new Map();
   (rows || []).forEach((row) => counts.set(row.status, (counts.get(row.status) || 0) + 1));
   const key = escapeJsArg(board.rootId);
-  const statuses = ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Pending Correction', 'Corrected', 'On Leave']
-    .filter((s) => s !== 'Pending Correction' || counts.get(s) || board.status === s);
+  const statuses = ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Pending Correction', 'Corrected', 'On Leave', 'Holiday']
+    .filter((s) => (s !== 'Pending Correction' && s !== 'Holiday') || counts.get(s) || board.status === s);
   return `<div class="att-chips" role="group" aria-label="Filter by status">${statuses.map((s) => {
     const n = counts.get(s) || 0;
     const active = board.status === s;
@@ -4662,7 +4806,7 @@ function attTapFlagNote(row) {
 }
 
 function attStatusCell(row) {
-  return `${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div class="att-row-note">No tap yet today</div>' : ''}${normalizeAttendanceStatusLabel(row.status) === 'On Leave' ? `<div class="att-row-note">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}${attCorrectedNote(row)}${attTapFlagNote(row)}`;
+  return `${attendanceStatusBadge(row.status)}${row.holiday_name ? `<div class="att-row-note">${escapeHtml(row.holiday_name)}</div>` : ''}${row.not_yet_tapped ? '<div class="att-row-note">No tap yet today</div>' : ''}${normalizeAttendanceStatusLabel(row.status) === 'On Leave' ? `<div class="att-row-note">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}${attCorrectedNote(row)}${attTapFlagNote(row)}`;
 }
 
 /** One record row: Employee, Date, Time In, Time Out, Hours, Late, Undertime, Status, Action. */
@@ -5781,6 +5925,8 @@ window.attendanceStatusBadge = attendanceStatusBadge;
 window.attendanceStatusColor = attendanceStatusColor;
 window.attendanceCalendarClass = attendanceCalendarClass;
 window.attendanceLeaveSummary = attendanceLeaveSummary;
+window.holidayLineLabel = holidayLineLabel;
+window.mountUpcomingHolidays = mountUpcomingHolidays;
 window.normalizeAttendanceStatusLabel = normalizeAttendanceStatusLabel;
 window.mountAttendanceBoard = mountAttendanceBoard;
 window.openOvertimeReview = openOvertimeReview;

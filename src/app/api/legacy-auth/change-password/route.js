@@ -10,9 +10,9 @@
  * which would have left an Admin created with a default password unable to
  * ever get past the mandatory change.
  *
- * Employee and Accountant accounts (src/lib/auth/otp-policy.js) must first
+ * Accounts of the roles src/lib/auth/otp-policy.js gates (every role) must first
  * clear the emailed-code steps at POST /api/legacy-auth/change-password-otp
- * (current password, then the 8-digit OTP). This route checks the signed
+ * (current password, then the 6-digit OTP). This route checks the signed
  * "verified" cookie those steps leave (src/lib/auth/password-otp.js) and
  * refuses without it. The grant is tied to the account's password_changed_at,
  * which this route updates, so one verification changes the password once.

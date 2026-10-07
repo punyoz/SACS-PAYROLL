@@ -1,9 +1,9 @@
 /**
  * POST /api/legacy-auth/change-password-otp: the emailed-code steps of a
  * logged-in password change, for the roles src/lib/auth/otp-policy.js gates
- * (Employee, Accountant).
+ * (every role).
  *
- *   { action: "start",  current_password }  check it, then email an 8-digit OTP
+ *   { action: "start",  current_password }  check it, then email a 6-digit OTP
  *   { action: "resend" }                    another OTP (60 s apart)
  *   { action: "verify", code }              check the OTP
  *
@@ -16,8 +16,8 @@
  * Supabase checks a reauthentication code (the `nonce` passed to updateUser)
  * only when "Secure password change" is on AND the session is more than 24
  * hours old; otherwise it ignores it. This app keeps no Supabase session in
- * the browser, so the code would never be checked. The email OTP that sign-in
- * uses (signInWithOtp / verifyOtp) is always checked.
+ * the browser, so the code would never be checked. The app's own emailed code
+ * (src/lib/auth/email-otp.js), the one sign-in uses, is always checked.
  *
  * The address comes from the auth user for the session's user id, never from
  * the request body.
@@ -29,7 +29,14 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { requiresLoginOtp } from "@/lib/auth/otp-policy";
-import { describeOtpError, OTP_CODE_ERROR } from "@/lib/auth/otp-errors";
+import {
+  sendEmailOtp,
+  verifyEmailOtp,
+  isOtpFormat,
+  normalizeOtpInput,
+  OTP_CODE_ERROR,
+  OTP_FORMAT_ERROR,
+} from "@/lib/auth/email-otp";
 import {
   checkResendAllowed,
   checkVerifyAllowed,
@@ -63,7 +70,7 @@ function fail(error, status, code, headers) {
   return NextResponse.json({ error, code }, { status, headers });
 }
 
-async function sendCode(email, key) {
+async function sendCode(email, key, userId) {
   const cooldown = checkResendAllowed(key, Date.now(), PASSWORD_OTP_RESEND_MS);
   if (!cooldown.allowed) {
     return fail(
@@ -74,14 +81,10 @@ async function sendCode(email, key) {
     );
   }
 
-  const { error } = await createClient(projectUrl, anonKey, clientOptions).auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false },
-  });
-  if (error) {
-    const described = describeOtpError(error, "send");
-    return fail(described.error, described.status, described.code,
-      described.retryAfter ? { "Retry-After": String(described.retryAfter) } : undefined);
+  const sent = await sendEmailOtp({ purpose: "pwchange", subject: userId, email });
+  if (!sent.ok) {
+    return fail(sent.error, sent.status, sent.code,
+      sent.retryAfter ? { "Retry-After": String(sent.retryAfter) } : undefined);
   }
 
   // Starts the 60 s cooldown and resets the wrong-code count.
@@ -128,7 +131,7 @@ export async function POST(request) {
       }
       await probe.auth.signOut({ scope: "local" }).catch(() => {});
 
-      const sendFailure = await sendCode(email, key);
+      const sendFailure = await sendCode(email, key, guard.userId);
       if (sendFailure) return sendFailure;
 
       return attachPasswordOtpState(
@@ -149,7 +152,7 @@ export async function POST(request) {
     if (action === "resend") {
       if (!inOtpStage) return clearPasswordOtpState(fail(START_AGAIN, 400, "otp_expired"), "change");
 
-      const sendFailure = await sendCode(email, key);
+      const sendFailure = await sendCode(email, key, guard.userId);
       if (sendFailure) return sendFailure;
 
       return attachPasswordOtpState(
@@ -169,32 +172,26 @@ export async function POST(request) {
         return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "change");
       }
 
-      const code = normalizeText(body.code).replace(/\s+/g, "");
-      if (!/^\d{8}$/.test(code)) return fail("Enter the 8-digit OTP from your email.", 400, "otp_format");
+      const code = normalizeOtpInput(normalizeText(body.code));
+      if (!isOtpFormat(code)) return fail(OTP_FORMAT_ERROR, 400, "otp_format");
 
-      const verifier = createClient(projectUrl, anonKey, clientOptions);
-      const { data, error } = await verifier.auth.verifyOtp({ email, token: code, type: "email" });
-      if (error || !data?.user || data.user.id !== guard.userId) {
-        const described = describeOtpError(error, "verify");
-        if (described.code === "otp_invalid") {
-          const memoryAllowed = recordVerifyFailure(key).allowed;
-          const sharedAllowed = await otpFailure(key);
-          if (!memoryAllowed || !sharedAllowed) {
-            return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "change");
-          }
-          return fail(OTP_CODE_ERROR, 400, "otp_invalid");
+      const outcome = await verifyEmailOtp({ purpose: "pwchange", subject: guard.userId, code });
+      if (outcome !== "ok") {
+        const memoryAllowed = recordVerifyFailure(key).allowed;
+        const sharedAllowed = await otpFailure(key);
+        if (outcome === "locked" || !memoryAllowed || !sharedAllowed) {
+          return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "change");
         }
-        return fail(described.error, described.status, described.code);
+        return fail(OTP_CODE_ERROR, 400, "otp_invalid");
       }
 
-      await verifier.auth.signOut({ scope: "local" }).catch(() => {});
       resetVerifyAttempts(key);
       await otpReset(key);
 
       return attachPasswordOtpState(
         NextResponse.json({ success: true, verified: true, message: "OTP verified. Enter your new password." }),
         "change",
-        { stage: "verified", sub: guard.userId, pca: passwordChangedMarker(data.user) },
+        { stage: "verified", sub: guard.userId, pca: passwordChangedMarker(user) },
       );
     }
 

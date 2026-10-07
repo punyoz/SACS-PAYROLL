@@ -21,9 +21,10 @@ import { OTP_REQUIRED_ROLES, requiresLoginOtp } from "@/lib/auth/otp-policy";
  * real network call the moment its POST handler runs.
  *
  * What this does NOT cover: an actual email arriving and a real code being
- * typed in. That needs a live pass once Supabase's Email OTP dashboard
- * settings are confirmed (see the migration/PR notes) — the same category of
- * manual check already flagged for the RFID endpoint's device key.
+ * typed in. tests/password-otp.test.js runs the code store and email for the
+ * reset/change flows; a real Gmail delivery needs GMAIL_USER /
+ * GMAIL_APP_PASSWORD and a live pass (mail.tm makes that checkable in
+ * development: src/lib/mail/mailtm.service.mjs).
  */
 
 const loginRoute = readFileSync("src/app/api/legacy-auth/login/route.js", "utf8");
@@ -74,7 +75,7 @@ describe("Scenario: correct password + correct OTP -> normal login", () => {
 });
 
 describe("Scenario: correct password + wrong OTP -> no access, generic error", () => {
-  it("verifyOtp errors map to one generic message, not Supabase's own wording", () => {
+  it("a wrong code maps to one generic message", () => {
     expect(verifyRoute).toMatch(/GENERIC_CODE_ERROR\s*=\s*"Incorrect or expired code\."/);
   });
 
@@ -111,13 +112,17 @@ describe("Scenario: correct password + expired OTP -> no access, same generic er
     expect(linesMentioningExpired).toEqual([
       expect.stringContaining("GENERIC_CODE_ERROR"),
       expect.stringContaining("Your sign-in session has expired"),
+      // The account vanished between the password and the code: the same
+      // "start again" answer, after the code was already accepted.
+      expect.stringContaining("Your sign-in session has expired"),
     ]);
   });
 
-  it("Supabase's verifyOtp is the sole authority on expiry — the app stores no expiry of its own", () => {
-    // Confirms the design decision plainly: no login_otps-style table, no
-    // app-computed expiry timestamp for the code exists in this route.
-    expect(verifyRoute).not.toMatch(/code_hash|login_otps/);
+  it("expiry is decided by the code store, not computed in the route", () => {
+    // src/lib/auth/email-otp.js and the database function own the 5-minute
+    // expiry and single use; the route only asks for the outcome.
+    expect(verifyRoute).toMatch(/verifyEmailOtp\(/);
+    expect(verifyRoute).not.toMatch(/code_hash|expires_at/);
   });
 });
 
@@ -152,23 +157,20 @@ describe("Scenario: no session cookie exists before OTP verification succeeds", 
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   OTP is scoped to Employee and Accountant
+   OTP applies to every role (Super Admin, Admin and HR since 2026-10-07)
    ══════════════════════════════════════════════════════════════════════════ */
 
-describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
-  it("only Employee and Accountant are behind the second factor", () => {
-    expect(OTP_REQUIRED_ROLES).toEqual(["employee", "accountant"]);
-    for (const role of ["employee", "accountant"]) {
+describe("Scenario: every role signs in with the emailed code", () => {
+  it("all five roles are behind the second factor", () => {
+    expect([...OTP_REQUIRED_ROLES].sort()).toEqual(["accountant", "admin", "employee", "hr", "super_admin"]);
+    for (const role of ["super_admin", "admin", "hr", "accountant", "employee"]) {
       expect(requiresLoginOtp(role)).toBe(true);
-    }
-    for (const role of ["super_admin", "admin", "hr"]) {
-      expect(requiresLoginOtp(role)).toBe(false);
     }
   });
 
   it("is decided on the role string alone, whatever its casing", () => {
     expect(requiresLoginOtp("Employee")).toBe(true);
-    expect(requiresLoginOtp("SUPER_ADMIN")).toBe(false);
+    expect(requiresLoginOtp("SUPER_ADMIN")).toBe(true);
     // An unknown or empty role is not in the set, but never reaches this
     // question: both routes reject an unroutable role before asking.
     expect(requiresLoginOtp("")).toBe(false);
@@ -176,12 +178,12 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
   });
 
   it("the exempt branch returns BEFORE any code is emailed", () => {
-    // The whole point: an exempt sign-in must never ask Supabase to send a
-    // code. Source order proves it for this single linear async function --
-    // the early return sits above signInWithOtp, so that call is unreachable
-    // for an exempt role.
+    // The whole point: an exempt sign-in must never have a code emailed.
+    // Source order proves it for this single linear async function -- the
+    // early return sits above sendEmailOtp, so that call is unreachable for
+    // an exempt role.
     const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(resolved.resolvedRole))");
-    const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
+    const sendIdx = loginRoute.indexOf("await sendEmailOtp({");
     const pendingIdx = loginRoute.indexOf("attachPendingLogin(response");
     expect(branchIdx).toBeGreaterThan(-1);
     expect(sendIdx).toBeGreaterThan(branchIdx);
@@ -191,7 +193,7 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
   it("the exempt branch finishes the sign-in through the shared helper", () => {
     const branchIdx = loginRoute.indexOf("if (!requiresLoginOtp(resolved.resolvedRole))");
     const completeIdx = loginRoute.indexOf("return completeLogin(", branchIdx);
-    const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
+    const sendIdx = loginRoute.indexOf("await sendEmailOtp({");
     // completeLogin is called inside the branch, i.e. before the OTP send.
     expect(completeIdx).toBeGreaterThan(branchIdx);
     expect(completeIdx).toBeLessThan(sendIdx);
@@ -210,9 +212,9 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
     // This was a routing change. The verify and resend routes, the throttle
     // and the pending-login cookie all still have to work for the roles that
     // remain gated.
-    expect(verifyRoute).toMatch(/verifyOtp/);
-    expect(resendRoute).toMatch(/signInWithOtp/);
-    expect(loginRoute).toMatch(/signInWithOtp/);
+    expect(verifyRoute).toMatch(/verifyEmailOtp/);
+    expect(resendRoute).toMatch(/sendEmailOtp/);
+    expect(loginRoute).toMatch(/sendEmailOtp/);
     expect(loginRoute).toMatch(/attachPendingLogin/);
   });
 
@@ -226,7 +228,7 @@ describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
 
   it("an archived profile is refused before any code is emailed", () => {
     const archivedIdx = loginRoute.indexOf("if (isArchivedProfile(resolved))");
-    const sendIdx = loginRoute.indexOf("await supabase.auth.signInWithOtp({");
+    const sendIdx = loginRoute.indexOf("await sendEmailOtp({");
     expect(archivedIdx).toBeGreaterThan(-1);
     expect(archivedIdx).toBeLessThan(sendIdx);
   });

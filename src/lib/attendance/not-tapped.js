@@ -24,6 +24,8 @@ async function isHoliday(supabase, dateKey) {
       .from("attendance_holidays")
       .select("holiday_date")
       .eq("holiday_date", dateKey)
+      // A morning / afternoon suspension is still a working day.
+      .eq("day_part", "whole")
       .limit(1);
     return !result.error && (result.data || []).length > 0;
   } catch {

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { normalizeText } from "@/lib/auth/normalize";
 import { readPendingLogin, clearPendingLogin } from "@/lib/auth/pending-login";
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
@@ -7,12 +6,14 @@ import { completeLogin, ROLE_ROUTES as roleRoutes } from "@/lib/auth/complete-lo
 import { checkVerifyAllowed, recordVerifyFailure, resetVerifyAttempts } from "@/lib/auth/otp-throttle";
 import { otpAllowed, otpFailure, otpReset } from "@/lib/auth/persistent-throttle";
 import { sanitizeError } from "@/lib/api-error";
+import { getServiceClient } from "@/lib/supabase/admin";
+import { verifyEmailOtp, normalizeOtpInput } from "@/lib/auth/email-otp";
 
 /**
  * POST /api/legacy-auth/verify-login-otp — step 2 of 2 (code).
  *
- * Reached only by the roles src/lib/auth/otp-policy.js still gates -- today
- * Employee and Accountant. Everything the pre-2FA login route used to do
+ * Reached by the roles src/lib/auth/otp-policy.js gates -- every role since
+ * 2026-10-07. Everything the pre-2FA login route used to do
  * after "credentials are genuine" happens here instead, gated on the emailed
  * code also checking out: fetch the full profile, then hand off to
  * completeLogin() to register the active session and issue the signed
@@ -25,7 +26,6 @@ import { sanitizeError } from "@/lib/api-error";
  */
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 /** Never distinguish wrong-code from expired-code, or "used" from either —
@@ -33,7 +33,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GENERIC_CODE_ERROR = "Incorrect or expired code.";
 
 async function handleVerify(request) {
-  if (!url || !anonKey) {
+  if (!url || !serviceRoleKey) {
     return NextResponse.json({ error: "Supabase env values are missing." }, { status: 500 });
   }
 
@@ -45,9 +45,8 @@ async function handleVerify(request) {
     );
   }
 
-  // Independent of Supabase's own per-IP throttle on /auth/v1/verify — this
-  // caps wrong-code guesses against THIS pending sign-in specifically, which
-  // a generic IP-wide limit does not (src/lib/auth/otp-throttle.js).
+  // Caps wrong-code guesses against THIS pending sign-in (src/lib/auth/otp-throttle.js);
+  // the code's own row enforces the same 5 in the database (email-otp.js).
   const gate = checkVerifyAllowed(pending.sub);
   // Shared across server instances (src/lib/auth/persistent-throttle.js).
   if (gate.allowed && !(await otpAllowed(pending.sub))) gate.allowed = false;
@@ -64,26 +63,18 @@ async function handleVerify(request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const code = normalizeText(body?.code).replace(/\s+/g, "");
+  const code = normalizeOtpInput(normalizeText(body?.code));
 
   if (!code) {
     return NextResponse.json({ error: "Enter the code from your email." }, { status: 400 });
   }
 
-  const supabase = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const outcome = await verifyEmailOtp({ purpose: "login", subject: pending.sub, code });
 
-  const { data, error } = await supabase.auth.verifyOtp({
-    email: pending.email,
-    token: code,
-    type: "email",
-  });
-
-  if (error || !data?.user) {
+  if (outcome !== "ok") {
     const result = recordVerifyFailure(pending.sub);
     const sharedAllowed = await otpFailure(pending.sub);
-    if (!result.allowed || !sharedAllowed) {
+    if (outcome === "locked" || !result.allowed || !sharedAllowed) {
       return clearPendingLogin(
         NextResponse.json(
           {
@@ -97,13 +88,20 @@ async function handleVerify(request) {
     return NextResponse.json({ error: GENERIC_CODE_ERROR }, { status: 400 });
   }
 
-  // verifyOtp() handed back a real Supabase session — discarded immediately,
-  // exactly as the password step already discards signInWithPassword's.
-  // Authorization runs on the signed sacs-session cookie alone (see
-  // src/lib/rbac/session.js), never on a Supabase session the browser holds.
-  await supabase.auth.signOut();
   resetVerifyAttempts(pending.sub);
   await otpReset(pending.sub);
+
+  // The code checked out; read the account it was sent for, fresh. Which
+  // account that is comes from the signed pending cookie, never the browser.
+  const { data, error: userError } = await getServiceClient().auth.admin.getUserById(pending.sub);
+  if (userError || !data?.user) {
+    return clearPendingLogin(
+      NextResponse.json(
+        { error: "Your sign-in session has expired. Please sign in again.", code: "pending_login_expired" },
+        { status: 401 },
+      ),
+    );
+  }
 
   // Check the raw role string, not resolvedRole's normalized fallback — same
   // reasoning as the password step: an unrecognized role must reject, not

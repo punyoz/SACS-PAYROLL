@@ -2,12 +2,10 @@
  * Login-OTP throttling: attempts per code, and a resend cooldown.
  *
  * WHY THIS EXISTS
- * supabase.auth.verifyOtp() is itself rate-limited by Supabase (a per-IP
- * throttle on its /auth/v1/verify endpoint), but that is not the same
- * guarantee as "this specific code is invalidated after 5 wrong tries" — it
- * is a general abuse brake, not a per-code attempt counter the app can rely
- * on or surface a specific message from. This is that counter, enforced
- * app-side before ever calling Supabase, mirroring src/lib/auth/login-throttle.js.
+ * The emailed code (src/lib/auth/email-otp.js) is also limited in the
+ * database (5 wrong tries per code, 60 s between sends). These in-memory
+ * counters answer first, before any database round trip, mirroring
+ * src/lib/auth/login-throttle.js; the two agree on the limits.
  *
  * Two independent jobs, one module because they share a lifecycle (both are
  * reset when a fresh code is requested):
@@ -26,7 +24,7 @@
 const MAX_VERIFY_ATTEMPTS = 5;
 
 /** Minimum gap between "Resend code" presses, per pending sign-in. */
-const RESEND_COOLDOWN_MS = 45 * 1000;
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 /** Stop the maps growing without bound on a long-running process. */
 const MAX_TRACKED_KEYS = 10_000;

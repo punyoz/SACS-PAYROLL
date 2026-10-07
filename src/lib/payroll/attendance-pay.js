@@ -13,7 +13,11 @@
  *   Absent        absent_pct % of the daily rate (not on a day covered by
  *                 approved leave -- leave is paid or deducted on its own line;
  *                 On Leave days are skipped entirely for the same reason --
- *                 and not on a date in attendance_holidays)
+ *                 and not on a date in attendance_holidays). On a morning /
+ *                 afternoon suspension only half the day was a working day,
+ *                 so an absence there costs half (holidays.partialDays).
+ *   Holiday       a no-tap day on a holiday or whole-day suspension: neither
+ *                 attended nor absent.
  *   Early Bird    early_bird_bonus per Early Bird day
  *   Perfect       perfect_attendance_bonus when the period has no Late,
  *   Attendance    Undertime, Absent or Half Day and at least one day attended
@@ -25,7 +29,9 @@
  *   Holiday pay   a day with both taps on a date in attendance_holidays:
  *                 regular holiday + regular_holiday_premium_pct % of the
  *                 daily rate, special day + special_holiday_premium_pct %,
- *                 prorated by hours worked up to 8.
+ *                 prorated by hours worked up to 8. Each line names the
+ *                 holiday and the hours it paid for (holidays.names). A
+ *                 whole-day suspension ("suspension") pays no premium.
  *
  * The minutes and flags are the ones the database engine stored on each row
  * (late_minutes, undertime_minutes, is_half_day, is_early_bird), so a status
@@ -63,7 +69,9 @@ const HOLIDAY_FULL_DAY_HOURS = 8;
  * @param {string}   args.periodStart  "YYYY-MM-DD"
  * @param {string}   args.periodEnd    "YYYY-MM-DD"
  * @param {Map}      [args.overtime]   log id -> approved overtime minutes
- * @param {Map}      [args.holidays]   date key -> "holiday" | "special"
+ * @param {Map}      [args.holidays]   date key -> "holiday" | "special" | "suspension"
+ *                                    (days off only), with optional .names
+ *                                    (date key -> name) and .partialDays (Set)
  */
 export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays }) {
   const hourly = valueOf(rates, "hourly");
@@ -119,7 +127,8 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
 
     // An On Leave day is paid, or deducted once as Leave Without Pay, on the
     // leave line -- never an absence, and not an attended day either.
-    if (status === "On Leave") return;
+    // A Holiday (no tap on a day off) is neither too.
+    if (status === "On Leave" || status === "Holiday") return;
 
     if (status === "Absent") {
       // Approved leave already accounts for the day (paid, or deducted once
@@ -128,11 +137,14 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       // Nor a holiday: an Absent the nightly close wrote before the day was
       // added to attendance_holidays is not a day missed.
       if (holidays?.has?.(date)) return;
-      counts.absent_days += 1;
+      // A morning / afternoon suspension: only half the day was work.
+      const share = holidays?.partialDays?.has?.(date) ? 0.5 : 1;
+      counts.absent_days += share;
       deductions.push({
-        type: "absent", quantity: 1, unit: "day", rate: absentAmount,
+        type: "absent", quantity: share, unit: "day", rate: absentAmount,
         rate_config_id: configOf(rates, "absent_pct") || configOf(rates, "daily"),
-        amount: absentAmount, source_log_id: logId, log_date: date,
+        amount: peso(absentAmount * share), source_log_id: logId, log_date: date,
+        ...(share < 1 ? { note: `${holidays?.names?.get?.(date) || "Suspension"}: half day` } : {}),
       });
       return;
     }
@@ -164,6 +176,9 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
           type: "holiday_premium", quantity: Math.round(share * 100) / 100, unit: "day", rate: peso(daily * pct / 100),
           rate_config_id: configOf(rates, holidayType === "special" ? "special_holiday_premium_pct" : "regular_holiday_premium_pct"),
           amount, source_log_id: logId, log_date: date, holiday_type: holidayType,
+          holiday_name: holidays?.names?.get?.(date) || null,
+          hours: Math.round(Math.min(worked, HOLIDAY_FULL_DAY_HOURS) * 100) / 100,
+          note: `${holidays?.names?.get?.(date) || (holidayType === "special" ? "Special day" : "Regular holiday")} · ${Math.round(Math.min(worked, HOLIDAY_FULL_DAY_HOURS) * 100) / 100} hrs`,
         });
       }
     }

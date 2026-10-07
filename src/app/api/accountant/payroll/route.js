@@ -65,6 +65,7 @@ import {
 } from "@/lib/payroll/cash-advance";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
+import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
@@ -608,6 +609,7 @@ function normalizeAttendanceStatus(value) {
   if (status === "Late") return "late";
   if (status === "Absent") return "absent";
   if (status === "On Leave") return "leave";
+  if (status === "Holiday") return "holiday";
   if (isUnresolvedStatus(status)) return "unresolved";
   return "present";
 }
@@ -839,15 +841,36 @@ async function readApprovedOvertime(supabase, periodStart, periodEnd) {
   };
 }
 
-/** Holidays in the period: date key -> "holiday" (regular) | "special". */
+/**
+ * Days off in the period: date key -> "holiday" (regular) | "special" |
+ * "suspension" (a whole-day class / work suspension: no premium). Only days
+ * nobody works are in the map, so has() means "not a working day".
+ *
+ * Two companions ride on the map:
+ *   .names        date key -> the holiday's name (payslip lines, reports)
+ *   .partialDays  morning / afternoon suspensions: still working days, but
+ *                 an Absent on one missed only half a day.
+ */
 async function readHolidays(supabase, periodStart, periodEnd) {
   const result = await supabase
     .from("attendance_holidays")
-    .select("holiday_date,type")
+    .select("holiday_date,type,name,day_part")
     .gte("holiday_date", periodStart)
     .lte("holiday_date", periodEnd);
-  if (result.error) return new Map();
-  return new Map((result.data || []).map((row) => [String(row.holiday_date).slice(0, 10), row.type === "special" ? "special" : "holiday"]));
+  const map = new Map();
+  map.names = new Map();
+  map.partialDays = new Set();
+  if (result.error) return map;
+  (result.data || []).forEach((row) => {
+    const key = String(row.holiday_date).slice(0, 10);
+    map.names.set(key, String(row.name || "Holiday"));
+    if (row.day_part && row.day_part !== "whole") {
+      map.partialDays.add(key);
+      return;
+    }
+    map.set(key, row.type === "special" ? "special" : row.type === "suspension" ? "suspension" : "holiday");
+  });
+  return map;
 }
 
 const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql, 20261003010000_semi_monthly_payroll.sql and 20261006010000_school_payroll_sheet.sql) first.";
@@ -2016,6 +2039,8 @@ function buildPayslipDetails(entry) {
       holiday_pay: entry.payroll.totals.holiday_pay ?? 0,
       gross_pay: entry.payroll.totals.gross_pay,
     },
+    // Each holiday worked: name, day, hours and premium (src/lib/payroll/holiday-lines.js).
+    holiday_lines: holidayPayLines(entry.payroll),
     deductions: {
       sss: entry.payroll.deductions.sss,
       philhealth: entry.payroll.deductions.philhealth,
@@ -2465,6 +2490,46 @@ async function handlePayrollSheetView(supabase, employees, entries, url) {
   });
 }
 
+/* ── Holiday Work report ─────────────────────────────────────────────────── */
+
+/**
+ * GET ?view=holiday_work&period=<label | all>: every holiday worked, one row
+ * per employee and day, with the hours and premium each payslip paid
+ * (src/lib/payroll/holiday-lines.js). Drafts are included and marked, like
+ * the payroll sheet, so the report can be checked before payslips are Final.
+ */
+function handleHolidayWorkView(employees, entries, url) {
+  const label = normalizeText(url.searchParams.get("period"), "all");
+  const byId = new Map(employees.map((employee) => [employee.id, employee]));
+  const rows = entries
+    .filter((entry) => byId.has(entry.employee_id) && (label === "all" || entry.pay_period === label))
+    .flatMap((entry) => holidayPayLines(entry.payroll).map((line) => ({
+      employee_id: entry.employee_id,
+      employee_name: entry.employee_name,
+      employee_code: entry.employee_code,
+      pay_period: entry.pay_period,
+      payslip_no: entry.payslip_no || null,
+      status: entry.status === "draft" ? "draft" : "final",
+      date: line.date,
+      holiday: line.name,
+      type: line.type,
+      hours: line.hours,
+      amount: line.amount,
+    })))
+    .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.employee_name.localeCompare(b.employee_name));
+
+  return NextResponse.json({
+    period: label,
+    rows,
+    totals: {
+      employees: new Set(rows.map((row) => row.employee_id)).size,
+      days: rows.length,
+      hours: Math.round(rows.reduce((sum, row) => sum + (Number(row.hours) || 0), 0) * 100) / 100,
+      amount: toAmount(rows.reduce((sum, row) => sum + row.amount, 0)),
+    },
+  });
+}
+
 /* ── Cash advances (src/lib/payroll/cash-advance.js) ─────────────────────── */
 
 const CASH_ADVANCE_NOT_READY = "Cash advances are not set up yet: apply supabase/migrations/20261006010000_school_payroll_sheet.sql first.";
@@ -2655,6 +2720,7 @@ export async function GET(request) {
     if (view === "monthly_items") return await handleMonthlyItemsView(supabase, employees, url);
     if (view === "payroll_sheet") return await handlePayrollSheetView(supabase, employees, entriesResult.entries, url);
     if (view === "cash_advances") return await handleCashAdvancesView(supabase, employees, entriesResult.entries);
+    if (view === "holiday_work") return handleHolidayWorkView(employees, entriesResult.entries, url);
 
     // ?format=pdf&entry_id=… : the payslip as a PDF download.
     if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {

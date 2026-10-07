@@ -1,29 +1,22 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { attachPendingLogin, readPendingLogin } from "@/lib/auth/pending-login";
 import { checkResendAllowed, recordCodeSent } from "@/lib/auth/otp-throttle";
 import { sanitizeError } from "@/lib/api-error";
 import { otpReset } from "@/lib/auth/persistent-throttle";
+import { sendEmailOtp, EMAIL_OTP_RESEND_SECONDS } from "@/lib/auth/email-otp";
 
 /**
  * POST /api/legacy-auth/resend-login-otp
  *
  * Requests a fresh code for the sign-in already mid-flight, identified the
  * same way verify-login-otp is: the signed pending-login cookie, never a
- * client-supplied email. Supabase supersedes the previously issued code when
- * a new one is requested for the same address, so this is also how "the old
- * code stops working" (requirement 2.3) is satisfied — the app does not (and
- * cannot) hold or invalidate that code itself.
+ * client-supplied email. The new code replaces the old one in
+ * public.auth_email_otps (src/lib/auth/email-otp.js), so the old code stops
+ * working the moment this succeeds. At most one send per 60 seconds, checked
+ * here and again in the database.
  */
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 async function handleResend(request) {
-  if (!url || !anonKey) {
-    return NextResponse.json({ error: "Supabase env values are missing." }, { status: 500 });
-  }
-
   const pending = readPendingLogin(request);
   if (!pending) {
     return NextResponse.json(
@@ -35,30 +28,19 @@ async function handleResend(request) {
   const throttle = checkResendAllowed(pending.sub);
   if (!throttle.allowed) {
     return NextResponse.json(
-      { error: `Please wait ${throttle.retryAfterSeconds}s before requesting another code.` },
+      { error: `Please wait ${throttle.retryAfterSeconds}s before requesting another code.`, code: "otp_cooldown" },
       { status: 429, headers: { "Retry-After": String(throttle.retryAfterSeconds) } },
     );
   }
 
-  const supabase = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { error } = await supabase.auth.signInWithOtp({
-    email: pending.email,
-    options: { shouldCreateUser: false },
-  });
-
-  if (error) {
-    const rateLimited = Number(error.status) === 429
-      || String(error.code || "").toLowerCase().includes("rate_limit");
+  const sent = await sendEmailOtp({ purpose: "login", subject: pending.sub, email: pending.email });
+  if (!sent.ok) {
     return NextResponse.json(
+      { error: sent.error, code: sent.code },
       {
-        error: rateLimited
-          ? "Too many verification codes requested. Please wait a few minutes and try again."
-          : "Unable to send a new code right now. Please try again.",
+        status: sent.status,
+        headers: sent.retryAfter ? { "Retry-After": String(sent.retryAfter) } : undefined,
       },
-      { status: rateLimited ? 429 : 503 },
     );
   }
 
@@ -70,7 +52,7 @@ async function handleResend(request) {
   // Fresh 10-minute window to match the fresh code, without disturbing which
   // account or must_change_password state this pending sign-in belongs to.
   return attachPendingLogin(
-    NextResponse.json({ success: true, message: "A new code has been sent." }),
+    NextResponse.json({ success: true, message: "A new code has been sent.", resend_after: EMAIL_OTP_RESEND_SECONDS }),
     { user_id: pending.sub, email: pending.email, must_change_password: pending.pwd },
   );
 }

@@ -787,6 +787,7 @@ function renderDashboard(data) {
 }
 
 async function loadDashboard() {
+  window.mountUpcomingHolidays?.('adm-upcoming-holidays');
   try {
     const payload = await fetchDashboardCached();
     renderDashboard(payload);

@@ -11,6 +11,7 @@ import {
 } from "@/lib/attendance/status";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
+import { readHolidayMap } from "@/lib/attendance/holidays";
 import { readApprovedLeave, readBlockedTaps } from "@/lib/attendance/leave";
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
@@ -143,6 +144,9 @@ export async function GET(request) {
     const counts = {};
     logs.forEach((row) => { counts[row.status] = (counts[row.status] || 0) + 1; });
 
+    // Which holiday or suspension each Holiday / partial-suspension day is.
+    const holidayNames = await readHolidayMap(supabase, range.from, range.to) || new Map();
+
     // What each On Leave day is (type, dates, approver).
     const leaveFor = logs.some((row) => row.status === "On Leave")
       ? await readApprovedLeave(supabase, { employeeIds, from: range.from, to: range.to })
@@ -158,6 +162,7 @@ export async function GET(request) {
       logs: labelled.map((row) => ({
         ...row,
         leave: row.status === "On Leave" ? leaveFor(row.employee_id, row.log_date) : null,
+        holiday_name: holidayNames.get(row.log_date)?.name || null,
         correction: pendingByLog.get(row.id) || null,
         can_request_correction: selfOnly
           && CORRECTABLE_STATUSES.includes(row.status)

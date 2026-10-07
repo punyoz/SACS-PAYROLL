@@ -6,7 +6,14 @@ import { listUsersCached, invalidateUsersCache, getTrustedUserById } from "@/lib
 import { validateNewPassword } from "@/lib/auth/password-policy";
 import { breachedPasswordError } from "@/lib/auth/breached-password";
 import { loadSecuritySettings } from "@/lib/auth/security-settings";
-import { describeOtpError, OTP_CODE_ERROR } from "@/lib/auth/otp-errors";
+import {
+  sendEmailOtp,
+  verifyEmailOtp,
+  isOtpFormat,
+  normalizeOtpInput,
+  OTP_CODE_ERROR,
+  OTP_FORMAT_ERROR,
+} from "@/lib/auth/email-otp";
 import {
   checkResendAllowed,
   checkVerifyAllowed,
@@ -33,23 +40,24 @@ import { completeLogin, isRoutableRole } from "@/lib/auth/complete-login";
  * POST /api/legacy-auth/reset-password: the login page's "Forgot Password?"
  * dialog, in three steps.
  *
- *   { action: "send",   identity }                  email an 8-digit OTP
+ *   { action: "send",   identity }                  email a 6-digit OTP
  *   { action: "verify", code }                      check it
  *   { action: "reset",  password, confirm_password } set the new password
  *
- * Uses the sign-in OTP system (see src/lib/auth/password-otp.js): Supabase's
- * email OTP, the otp-throttle counters, and a signed step cookie. The new
- * password can only be set after the code has checked out. The link-based
- * reset (resetPasswordForEmail + the /reset-password recovery page) has been
+ * Uses the sign-in OTP system (see src/lib/auth/password-otp.js): the app's
+ * own emailed code (src/lib/auth/email-otp.js, sent through Gmail), the
+ * otp-throttle counters, and a signed step cookie. The new password can only
+ * be set after the code has checked out. The link-based reset
+ * (resetPasswordForEmail + the /reset-password recovery page) has been
  * removed.
  *
  * ENUMERATION
  * "send" answers every identity the same way -- found or not, Employee or
  * Admin -- including the 60-second cooldown, which is keyed on what was typed.
- * Only Employee and Accountant accounts are ever sent a code. The one
- * difference that can show is a Supabase mail failure or its hourly cap,
- * which only happens when a real email was attempted; those are reported
- * because a user needs to know the email did not go out.
+ * Every active account with a role can be sent a code. The one
+ * difference that can show is the email failing to send, which only happens
+ * when a real email was attempted; that is reported because a user needs to
+ * know the email did not go out.
  */
 
 const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -57,8 +65,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const GENERIC_SENT =
-  "If the account exists, an OTP has been sent to its registered email address. "
-  + "Admin, HR and Super Admin accounts: contact the administrator.";
+  "If the account exists, an OTP has been sent to its registered email address.";
 
 const START_AGAIN = "Your OTP has expired or was not requested. Request a new OTP.";
 const LOCKED_OUT = "Too many incorrect attempts. Request a new OTP.";
@@ -99,18 +106,21 @@ async function handleSend(body) {
     );
   }
 
-  const { admin, anon } = clients();
+  const { admin } = clients();
   const user = await resolveUser(admin, identity);
 
   if (canResetPassword(user)) {
-    const { error } = await anon().auth.signInWithOtp({
+    const sent = await sendEmailOtp({
+      purpose: "reset",
+      subject: user.id,
       email: user.email,
-      options: { shouldCreateUser: false },
+      name: normalizeText(user.user_metadata?.full_name),
     });
-    if (error) {
-      const described = describeOtpError(error, "send");
-      return fail(described.error, described.status, described.code,
-        described.retryAfter ? { "Retry-After": String(described.retryAfter) } : undefined);
+    // The database's own 60 s cooldown is keyed on the account, not on what
+    // was typed: typing the Employee ID after the email lands here. The code
+    // already sent is still valid, so answer exactly as for a fresh send.
+    if (!sent.ok && sent.code !== "otp_cooldown") {
+      return fail(sent.error, sent.status, sent.code);
     }
   }
 
@@ -137,8 +147,8 @@ async function handleVerify(request, body) {
     return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "reset");
   }
 
-  const code = normalizeText(body.code).replace(/\s+/g, "");
-  if (!/^\d{8}$/.test(code)) return fail("Enter the 8-digit OTP from your email.", 400, "otp_format");
+  const code = normalizeOtpInput(normalizeText(body.code));
+  if (!isOtpFormat(code)) return fail(OTP_FORMAT_ERROR, 400, "otp_format");
 
   const wrongCode = async () => {
     const memoryAllowed = recordVerifyFailure(key).allowed;
@@ -149,29 +159,28 @@ async function handleVerify(request, body) {
     return fail(OTP_CODE_ERROR, 400, "otp_invalid");
   };
 
-  const { admin, anon } = clients();
+  const { admin } = clients();
   const user = await resolveUser(admin, state.idn);
   // No code was ever sent to an ineligible identity: same answer as a wrong code.
   if (!canResetPassword(user)) return await wrongCode();
 
-  const verifier = anon();
-  const { data, error } = await verifier.auth.verifyOtp({ email: user.email, token: code, type: "email" });
-  if (error || !data?.user || data.user.id !== user.id) {
-    const described = describeOtpError(error, "verify");
-    if (described.code === "otp_invalid") return await wrongCode();
-    return fail(described.error, described.status, described.code);
+  const outcome = await verifyEmailOtp({ purpose: "reset", subject: user.id, code });
+  if (outcome === "locked") {
+    return clearPasswordOtpState(fail(LOCKED_OUT, 429, "otp_locked_out"), "reset");
   }
+  if (outcome !== "ok") return await wrongCode();
 
-  // verifyOtp signed the user in and used up the code; that session is never
-  // used, so end it.
-  await verifier.auth.signOut({ scope: "local" }).catch(() => {});
   resetVerifyAttempts(key);
   await otpReset(key);
+
+  // Read fresh, not from the users cache: the grant binds to the password's
+  // current change marker.
+  const { data: fresh } = await admin.auth.admin.getUserById(user.id);
 
   return attachPasswordOtpState(
     NextResponse.json({ success: true, verified: true, message: "OTP verified. Choose your new password." }),
     "reset",
-    { stage: "verified", sub: user.id, pca: passwordChangedMarker(data.user) },
+    { stage: "verified", sub: user.id, pca: passwordChangedMarker(fresh?.user || user) },
   );
 }
 

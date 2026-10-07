@@ -67,6 +67,10 @@ const PUBLIC_PATHS = [
   // inside the route itself, not here.
   "/api/legacy-auth/verify-login-otp",
   "/api/legacy-auth/resend-login-otp",
+  // Development-only mail.tm test inbox reader, used on the sign-in code
+  // screen before any session exists. The route answers 404 unless
+  // USE_MAILTM=true outside production (src/app/api/dev/mailtm/route.js).
+  "/api/dev/mailtm",
 ];
 
 /**
@@ -77,7 +81,7 @@ const API_MODULES = [
   ["/api/rbac/me", null],                                  // session-derived, self-guarding
   ["/api/legacy-auth/session", null],                      // session heartbeat
   ["/api/legacy-auth/change-password", "profile"],
-  // Emails the OTP the change above now needs (Employee / Accountant).
+  // Emails the OTP the change above now needs (every role).
   ["/api/legacy-auth/change-password-otp", "profile"],
   ["/api/legacy-auth/update-profile", "profile"],
   ["/api/admin/users", "user_management"],
@@ -98,8 +102,11 @@ const API_MODULES = [
   ["/api/admin/payroll-rates", "system_configuration"],
   // Monthly withholding tax table and contribution amounts (semi-monthly payroll).
   ["/api/admin/payroll-settings", "system_configuration"],
-  // Regular holidays and special non-working days (attendance_holidays).
-  ["/api/admin/holidays", "system_configuration"],
+  // Holidays and suspensions (attendance_holidays). Read by every portal's
+  // calendar and dashboard; the route itself decides who may change them
+  // (Super Admin every type, HR suspensions), so the session is the
+  // requirement here.
+  ["/api/admin/holidays", null],
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],
