@@ -2643,6 +2643,56 @@ function bindNumericOtpInput(input) {
 }
 
 /**
+ * Draw a code <input> as the six boxes around it (.otp-boxes, css/base.css),
+ * like the sign-in screen's code field. The input stays the real field —
+ * typing, paste, autofill and every `input.value` read or write work as
+ * before; the boxes only mirror it. Writes made in code (`input.value = ''`)
+ * redraw too. `onComplete` runs when the sixth digit is typed.
+ */
+function mountOtpBoxes(input, { onComplete } = {}) {
+  const root = input?.closest('[data-otp-boxes]');
+  if (!root || input.dataset.otpBoxes === '1') return;
+  input.dataset.otpBoxes = '1';
+  const boxes = [...root.querySelectorAll('.otp-box')];
+
+  let completed = ''; // the full code onComplete last ran for
+  const render = () => {
+    const value = String(input.value || '');
+    if (value.length < boxes.length) completed = '';
+    const focused = document.activeElement === input;
+    boxes.forEach((box, i) => {
+      box.textContent = value[i] || '';
+      box.classList.toggle('is-active', focused && i === Math.min(value.length, boxes.length - 1));
+    });
+    root.classList.toggle('is-invalid', input.getAttribute('aria-invalid') === 'true');
+  };
+
+  const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(input, 'value', {
+    configurable: true,
+    get() { return native.get.call(this); },
+    set(next) { native.set.call(this, next); render(); },
+  });
+
+  input.addEventListener('input', () => {
+    render();
+    const value = input.value;
+    if (value.length === boxes.length && value !== completed && typeof onComplete === 'function') {
+      completed = value;
+      onComplete();
+    }
+  });
+  // Always type at the end, like the sign-in boxes.
+  const toEnd = () => { const n = input.value.length; input.setSelectionRange(n, n); render(); };
+  input.addEventListener('focus', toEnd);
+  input.addEventListener('click', toEnd);
+  input.addEventListener('keyup', render);
+  input.addEventListener('blur', render);
+  new MutationObserver(render).observe(input, { attributes: true, attributeFilter: ['aria-invalid'] });
+  render();
+}
+
+/**
  * Disable `button` and count down on its label ("Resend OTP (42s)"), then
  * restore `idleLabel`. Returns the interval id so the caller can cancel it.
  */
@@ -2704,11 +2754,21 @@ function mountPasswordChangeSteps({ key, current, next, confirm, rules, submit, 
   const otpWrap = document.createElement('div');
   otpWrap.className = wrapperClass;
   if (wrapperClass === 'fg') otpWrap.style.margin = '0';
+  // inputClass is no longer applied to the code field: it is drawn as six
+  // boxes, like the sign-in screen's (mountOtpBoxes below).
+  void inputClass;
   otpWrap.innerHTML = `
-    <label for="${otpId}">Email OTP</label>
-    <input id="${otpId}" class="${inputClass}" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" style="letter-spacing:.2em;text-align:center;" />
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;">
-      <span style="font-size:12px;color:var(--t3);line-height:1.5;">Sent to your registered email. It expires in 5 minutes.</span>
+    <label for="${otpId}">Code from your email</label>
+    <div style="display:flex;justify-content:center;">
+      <div class="otp-boxes" data-otp-boxes>
+        <div class="otp-boxes-group"><div class="otp-box"></div><div class="otp-box"></div><div class="otp-box"></div></div>
+        <div class="otp-boxes-dash" aria-hidden="true"></div>
+        <div class="otp-boxes-group"><div class="otp-box"></div><div class="otp-box"></div><div class="otp-box"></div></div>
+        <input id="${otpId}" class="otp-boxes-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="6" aria-describedby="${otpId}-expiry" />
+      </div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+      <span id="${otpId}-expiry" style="font-size:12px;color:var(--t3);line-height:1.5;" aria-live="polite">Sent to your registered email. It expires in 5 minutes.</span>
       <button type="button" id="${otpId}-resend" style="background:none;border:none;cursor:pointer;color:var(--amber);font-size:12px;font-weight:500;text-decoration:underline;padding:2px 0;white-space:nowrap;">Resend OTP</button>
     </div>
   `;
@@ -2731,8 +2791,14 @@ function mountPasswordChangeSteps({ key, current, next, confirm, rules, submit, 
     otpWrap,
     otp: document.getElementById(otpId),
     resend: document.getElementById(`${otpId}-resend`),
+    expiry: document.getElementById(`${otpId}-expiry`),
+    expiryTimer: null,
   };
   bindNumericOtpInput(flow.otp);
+  mountOtpBoxes(flow.otp, {
+    // The sixth digit verifies at once, as on the sign-in screen.
+    onComplete: () => { if (flow.stage === 'otp' && !flow.busy) advancePasswordChangeFlow(flow); },
+  });
   flow.resend.addEventListener('click', () => resendPasswordChangeOtp(flow));
 
   passwordChangeFlows.set(key, flow);
@@ -2759,6 +2825,7 @@ function setPasswordChangeStage(flow, stage, { focus = true } = {}) {
 
   if (stage !== 'otp') {
     clearInterval(flow.timer);
+    clearInterval(flow.expiryTimer);
     flow.otp.value = '';
   }
   if (stage === 'current') {
@@ -2775,6 +2842,22 @@ function setPasswordChangeStage(flow, stage, { focus = true } = {}) {
 function startPasswordChangeCountdown(flow, seconds) {
   clearInterval(flow.timer);
   flow.timer = startOtpButtonCountdown(flow.resend, seconds, 'Resend OTP');
+}
+
+/** "Code expires in 4:59", counting down from a fresh send, as on the sign-in screen. */
+function startPasswordChangeExpiry(flow, seconds = 5 * 60) {
+  clearInterval(flow.expiryTimer);
+  if (!flow.expiry) return;
+  const endsAt = Date.now() + seconds * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((endsAt - Date.now()) / 1000));
+    flow.expiry.textContent = left > 0
+      ? `Sent to your registered email. Code expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`
+      : 'This code has expired. Request a new one.';
+    if (left <= 0) clearInterval(flow.expiryTimer);
+  };
+  tick();
+  flow.expiryTimer = setInterval(tick, 1000);
 }
 
 async function postPasswordChangeStep(flow, payload) {
@@ -2828,6 +2911,7 @@ async function advancePasswordChangeFlow(flow) {
     setPasswordChangeStage(flow, 'otp');
     flow.report(result.message || 'An OTP has been sent to your email.', 'ok');
     startPasswordChangeCountdown(flow, Number(result.resend_after) || 60);
+    startPasswordChangeExpiry(flow);
     return;
   }
 
@@ -2884,6 +2968,7 @@ async function resendPasswordChangeOtp(flow) {
   flow.otp.value = '';
   flow.otp.focus();
   startPasswordChangeCountdown(flow, Number(result.resend_after) || 60);
+  startPasswordChangeExpiry(flow);
 }
 
 /** Back to step 1 (after a change, or when the form is closed). */
@@ -2895,6 +2980,7 @@ function resetPasswordChangeFlow(key) {
 /** For an account the server exempts: show the plain one-step form again. */
 function removePasswordChangeSteps(flow) {
   clearInterval(flow.timer);
+  clearInterval(flow.expiryTimer);
   flow.otpWrap.remove();
   [flow.nextWrap, flow.confirmWrap, flow.rules].forEach((el) => { if (el) el.style.display = ''; });
   flow.current.readOnly = false;
