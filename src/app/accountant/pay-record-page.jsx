@@ -34,7 +34,7 @@ function portalPosition(position, role) {
 
 function Row({ label, value, tone, strong, muted, indent }) {
   return (
-    <div className={cn("flex items-baseline justify-between gap-4 py-1 text-sm", strong && "mt-1 border-t pt-2 font-semibold", muted && "text-muted-foreground", indent && "pl-3 text-xs")}>
+    <div className={cn("flex items-baseline justify-between gap-4 py-1 text-sm print:py-0.5", strong && "mt-1 border-t pt-2 font-semibold print:pt-1", muted && "text-muted-foreground", indent && "pl-3 text-xs")}>
       <span className="min-w-0">{label}</span>
       <span className={cn("shrink-0 tabular-nums", tone === "plus" && "text-success", tone === "minus" && "text-destructive", tone === "gold" && "text-gold-text", tone === "warn" && "text-warning")}>{value}</span>
     </div>
@@ -60,7 +60,7 @@ function SemiMonthly({ payslip }) {
   const m = payslip.monthly;
   if (m.half === "first") {
     return (
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
         <Section title="Earnings — 1st half">
           <Row label="Monthly salary" value={money(m.monthly_salary)} />
           <Row label="Semi-monthly pay (÷ 2)" value={money(m.semi_monthly_pay)} strong tone="gold" />
@@ -74,7 +74,7 @@ function SemiMonthly({ payslip }) {
   }
   const attendance = [["Late", m.late_deduction], ["Undertime", m.undertime_deduction], ["Half day", m.half_day_deduction]].filter(([, a]) => Number(a) > 0);
   return (
-    <div className="grid gap-6 md:grid-cols-2">
+    <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
       <Section title={`Month of ${m.month_label || ""}`}>
         {m.window ? <Row muted label={`Attendance ${shortDate(m.window.start_key)} – ${shortDate(m.window.end_key)}`} value={`Daily ${money(m.daily_rate)}`} /> : null}
         <Row label="Monthly salary" value={money(m.monthly_salary)} />
@@ -113,8 +113,8 @@ function Classic({ payslip }) {
   const eb = inc.early_bird_days || 0;
   const lwp = d.leave_with_pay_days || 0;
   return (
-    <div className="grid gap-6 md:grid-cols-2">
-      <div className="space-y-4">
+    <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
+      <div className="space-y-4 print:space-y-2">
         <Section title="Earnings">
           <Row label="Basic salary" value={money(e.basic_salary)} />
           <Row label="Overtime" value={money(e.overtime)} />
@@ -157,8 +157,8 @@ function PayslipDocument({ payslip }) {
   const m = payslip.monthly || null;
 
   return (
-    <Card data-print-area className="gap-0 overflow-hidden border-brand-gold/60 py-0 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-6 py-5 text-white">
+    <Card data-print-area className="gap-0 overflow-hidden border-brand-gold/60 py-0 shadow-sm print:break-inside-avoid">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-6 py-5 text-white print:py-3">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width={52} height={52} className="size-13 shrink-0 rounded-full bg-white/95 p-0.5" />
@@ -175,8 +175,8 @@ function PayslipDocument({ payslip }) {
           <div className="mt-1.5">{draft ? <StatusBadge tone="gold" className="bg-white/90">Draft</StatusBadge> : <StatusBadge tone="success" className="bg-white/90">Final</StatusBadge>}</div>
         </div>
       </div>
-      <CardContent className="space-y-5 px-6 py-5">
-        <dl className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+      <CardContent className="space-y-5 px-6 py-5 print:space-y-3 print:py-3">
+        <dl className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5 print:grid-cols-5 print:gap-3">
           {[
             ["Employee name", payslip.employee?.name || "N/A"],
             ["ID", payslip.employee?.id || "N/A"],
@@ -190,7 +190,7 @@ function PayslipDocument({ payslip }) {
         {notes.length ? <div className="space-y-1 rounded-lg border border-warning/40 bg-warning/8 p-3 text-sm text-warning">{notes.map((n) => <p key={n}>{n}</p>)}</div> : null}
         {summary ? (
           <Section title="Attendance summary">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6 print:grid-cols-6">
               {[["Days present", summary.days_present], ["Days absent", summary.days_absent], ["Half days", summary.half_days], ["Late minutes", summary.late_minutes], ["Undertime minutes", summary.undertime_minutes], ["Leave days", summary.leave_days]].map(([label, value]) => (
                 <div key={label} className="rounded-lg border bg-muted/40 px-3 py-2"><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold tabular-nums">{String(value ?? 0)}</p></div>
               ))}
@@ -204,7 +204,7 @@ function PayslipDocument({ payslip }) {
             <ul className="space-y-1 text-sm text-muted-foreground">{basis.map((line, i) => <li key={i}>{line.basis}</li>)}</ul>
           </Section>
         ) : null}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary/8 px-4 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary/8 px-4 py-4 print:break-inside-avoid print:py-2">
           <span className="font-semibold">{m ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay"}</span>
           <span className="text-2xl font-semibold text-primary tabular-nums">{money(payslip.net_pay)}</span>
         </div>

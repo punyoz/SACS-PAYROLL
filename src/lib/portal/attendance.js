@@ -196,6 +196,14 @@ export function statusBreakdown(statuses) {
   return ATTENDANCE_STATUS_LIST.filter((s) => statuses.get(s)).map((s) => `${statuses.get(s)} ${s}`);
 }
 
+/** Whether a row's employee matches the search text: name, employee code, type or RFID card. */
+export function matchesEmployee(row, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const text = [row?.employee_name, row?.employee_code, row?.employee_type, row?.rfid_code].filter(Boolean).join(" ").toLowerCase();
+  return q.split(/\s+/).every((part) => text.includes(part));
+}
+
 /** The selected range as { from, to } for the employee record page (attEmployeeRange). */
 export function employeeRange({ range, from, to }) {
   const today = todayKey();

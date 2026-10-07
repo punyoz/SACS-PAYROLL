@@ -7,10 +7,10 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { StatCard } from "@/components/portal/stat-card";
 import { usePortalSession } from "@/components/portal/session";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { GroupedAttendanceTable, recordColumns } from "@/components/portal/attendance/grouped-table";
+import { EmployeeSearch, GroupedAttendanceTable, recordColumns } from "@/components/portal/attendance/grouped-table";
 import { AttendanceStatusBoard } from "@/components/portal/attendance/status-board";
 import { fetchJson, hardNavigate } from "@/lib/portal/api";
-import { branchContext, branchCounts, countBy, downloadCsv, oneRowPerDay, rowBranchId, sortByBranchDay } from "@/lib/portal/attendance";
+import { branchContext, branchCounts, countBy, downloadCsv, matchesEmployee, oneRowPerDay, rowBranchId, sortByBranchDay } from "@/lib/portal/attendance";
 import { logAuditMovement } from "@/lib/portal/audit";
 
 /*
@@ -57,6 +57,7 @@ export function AttendancePage({
   const { version } = useAttendanceActions();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [collapsed, setCollapsed] = React.useState(() => new Set());
+  const [search, setSearch] = React.useState("");
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: !current.data, error: null }));
@@ -74,7 +75,7 @@ export function AttendancePage({
   const raw = state.data?.attendance_logs;
 
   const log = React.useMemo(() => {
-    const list = oneRowPerDay((raw || []).map((row) => ({ ...row, log_date: row.log_date || row.date })));
+    const list = oneRowPerDay((raw || []).map((row) => ({ ...row, log_date: row.log_date || row.date }))).filter((row) => matchesEmployee(row, search));
     const ctx = branchContext(list);
     const rows = sortByBranchDay(ctx, list);
     return {
@@ -87,7 +88,7 @@ export function AttendancePage({
         statusBreakdown: true,
       },
     };
-  }, [raw]);
+  }, [raw, search]);
 
   function exportCsv() {
     const rows = raw || [];
@@ -142,7 +143,8 @@ export function AttendancePage({
             <Button variant="outline" size="sm" onClick={exportCsv} disabled={!raw?.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
           </CardAction>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <EmployeeSearch value={search} onChange={setSearch} />
           <GroupedAttendanceTable
             columns={COLUMNS}
             rows={log.rows}
@@ -159,7 +161,7 @@ export function AttendancePage({
             error={!state.data ? state.error : null}
             onRetry={load}
             pageSize={15}
-            empty="No attendance records found for today."
+            empty={search.trim() ? `No employees match "${search.trim()}".` : "No attendance records found for today."}
             caption="Today's attendance log"
             minWidth={1000}
           />

@@ -13,10 +13,10 @@ import { DatePicker } from "@/components/portal/date-picker";
 import { StatCard } from "@/components/portal/stat-card";
 import { usePortalSession } from "@/components/portal/session";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { GroupedAttendanceTable, recordColumns } from "@/components/portal/attendance/grouped-table";
+import { EmployeeSearch, GroupedAttendanceTable, recordColumns } from "@/components/portal/attendance/grouped-table";
 import { AttendanceStatusBoard } from "@/components/portal/attendance/status-board";
 import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
-import { branchContext, branchCounts, countBy, downloadCsv, oneRowPerDay, rowBranchId, sortByBranchDay } from "@/lib/portal/attendance";
+import { branchContext, branchCounts, countBy, downloadCsv, matchesEmployee, oneRowPerDay, rowBranchId, sortByBranchDay } from "@/lib/portal/attendance";
 import { cn } from "@/lib/utils";
 
 /*
@@ -198,6 +198,7 @@ export function AttendancePage({ refreshKey }) {
   const [state, setState] = React.useState({ loading: true, error: null, logs: [], summary: {} });
   const [collapsed, setCollapsed] = React.useState(() => new Set());
   const [reloadKey, setReloadKey] = React.useState(0);
+  const [search, setSearch] = React.useState("");
   const seq = React.useRef(0);
 
   const load = React.useCallback(async () => {
@@ -216,11 +217,11 @@ export function AttendancePage({ refreshKey }) {
   React.useEffect(() => { load(); }, [load, refreshKey, version, reloadKey]);
 
   const log = React.useMemo(() => {
-    const list = oneRowPerDay(state.logs.map((row) => ({ ...row, log_date: row.log_date || row.date })));
+    const list = oneRowPerDay(state.logs.map((row) => ({ ...row, log_date: row.log_date || row.date }))).filter((row) => matchesEmployee(row, search));
     const ctx = branchContext(list);
     const rows = sortByBranchDay(ctx, list);
     return { rows, ctx, branchCounts: branchCounts(ctx, list), dayCounts: countBy(rows, (row) => `${rowBranchId(ctx, row)}|${row.log_date}`) };
-  }, [state.logs]);
+  }, [state.logs, search]);
 
   function exportCsv() {
     if (!state.logs.length) { notify("Nothing to export", "No attendance data to export.", "info"); return; }
@@ -263,6 +264,7 @@ export function AttendancePage({ refreshKey }) {
               <DatePicker id="hr-att-date" value={view.mode === "date" ? view.date : ""} placeholder="Pick a date" onChange={(date) => setView({ mode: "date", date: date || today })} />
             </div>
             <Button variant={view.mode === "all" ? "secondary" : "outline"} onClick={() => setView({ mode: "all", date: view.date })} aria-pressed={view.mode === "all"}>View all records</Button>
+            <EmployeeSearch value={search} onChange={setSearch} className="sm:ml-auto" />
           </div>
           <GroupedAttendanceTable
             columns={COLUMNS}
@@ -283,7 +285,7 @@ export function AttendancePage({ refreshKey }) {
             loading={state.loading}
             error={state.error}
             onRetry={load}
-            empty="No attendance records found."
+            empty={search.trim() ? `No employees match "${search.trim()}".` : "No attendance records found."}
             caption="Attendance log"
             minWidth={1000}
           />

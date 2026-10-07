@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttendanceBadge, StatusBadge, attendanceTone } from "@/components/portal/status-badge";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { EmployeeCell, GroupedAttendanceTable, RecordActions, StatusCell, recordColumns } from "@/components/portal/attendance/grouped-table";
+import { EmployeeCell, EmployeeSearch, GroupedAttendanceTable, RecordActions, StatusCell, recordColumns } from "@/components/portal/attendance/grouped-table";
 import { apiFetch, fetchJson } from "@/lib/portal/api";
 import {
   branchContext,
@@ -16,6 +16,7 @@ import {
   countBy,
   formatDateTime,
   formatMinutes,
+  matchesEmployee,
   oneRowPerDay,
   payPeriodLabels,
   rowBranchId,
@@ -51,6 +52,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
   const [status, setStatus] = React.useState("all");
   const [day, setDay] = React.useState("all");
   const [branch, setBranch] = React.useState("");
+  const [search, setSearch] = React.useState("");
   const [collapsed, setCollapsed] = React.useState(() => new Set());
   const [knownBranches, setKnownBranches] = React.useState(() => new Map());
   const [state, setState] = React.useState({ loading: true, error: null, logs: [], corrections: [], overtime: [], blocked: [], canReview: false, overtimeCanReview: false, overtimeMin: 30, scope: "", engineReady: true });
@@ -97,7 +99,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
 
   const groupByBranch = state.scope !== "self";
   const ctx = React.useMemo(() => branchContext(state.logs, knownBranches), [state.logs, knownBranches]);
-  const inBranch = React.useCallback((row) => !branch || rowBranchId(ctx, row) === branch, [branch, ctx]);
+  const inBranch = React.useCallback((row) => (!branch || rowBranchId(ctx, row) === branch) && matchesEmployee(row, search), [branch, ctx, search]);
 
   const logs = state.logs.filter(inBranch);
   const corrections = state.corrections.filter(inBranch);
@@ -199,6 +201,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
       : tab === "incomplete" ? "Nothing to resolve."
         : tab === "overtime" ? "No overtime in this period."
           : effectiveDay !== "all" ? "No attendance records for this day." : "No attendance records for this period.";
+  const emptyText = search.trim() ? `No employees match "${search.trim()}".` : empty;
 
   const tabCount = (n) => (n ? <span className="ml-1 rounded-full bg-primary/12 px-1.5 text-[11px] font-semibold text-primary tabular-nums">{n}</span> : null);
   const branchOptions = [...ctx.names.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
@@ -232,37 +235,36 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
           </div>
         </Tabs>
 
-        {tab === "all" || showBranch ? (
-          <div className="flex flex-wrap gap-2">
-            {showBranch ? (
-              <Select value={branch || ALL} onValueChange={(value) => setBranch(value === ALL ? "" : value)}>
-                <SelectTrigger size="sm" className="w-48" aria-label="Branch"><SelectValue /></SelectTrigger>
+        <div className="flex flex-wrap gap-2">
+          <EmployeeSearch value={search} onChange={setSearch} />
+          {showBranch ? (
+            <Select value={branch || ALL} onValueChange={(value) => setBranch(value === ALL ? "" : value)}>
+              <SelectTrigger size="sm" className="w-48" aria-label="Branch"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All branches</SelectItem>
+                {branchOptions.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {tab === "all" ? (
+            <>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger size="sm" className="w-44" aria-label="Status"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>All branches</SelectItem>
-                  {branchOptions.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {ATTENDANCE_STATUS_LIST.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                 </SelectContent>
               </Select>
-            ) : null}
-            {tab === "all" ? (
-              <>
-                <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger size="sm" className="w-44" aria-label="Status"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    {ATTENDANCE_STATUS_LIST.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={effectiveDay} onValueChange={setDay}>
-                  <SelectTrigger size="sm" className="w-52" aria-label="Day"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All days</SelectItem>
-                    {days.map((key) => <SelectItem key={key} value={key}>{formatDateKey(key)} ({dayCountsAll.get(key).total})</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </>
-            ) : null}
-          </div>
-        ) : null}
+              <Select value={effectiveDay} onValueChange={setDay}>
+                <SelectTrigger size="sm" className="w-52" aria-label="Day"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All days</SelectItem>
+                  {days.map((key) => <SelectItem key={key} value={key}>{formatDateKey(key)} ({dayCountsAll.get(key).total})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </>
+          ) : null}
+        </div>
 
         {tab === "all" ? (
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
@@ -304,7 +306,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
           loading={state.loading}
           error={state.error}
           onRetry={load}
-          empty={empty}
+          empty={emptyText}
           caption="Attendance status"
           minWidth={tab === "all" ? 960 : 760}
           rowKey={(r, i) => r.id || r.log_id || `${r.employee_id}|${r.log_date}|${i}`}
