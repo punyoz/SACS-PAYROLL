@@ -67,6 +67,10 @@ const PUBLIC_PATHS = [
   // inside the route itself, not here.
   "/api/legacy-auth/verify-login-otp",
   "/api/legacy-auth/resend-login-otp",
+  // Development-only mail.tm test inbox reader, used on the sign-in code
+  // screen before any session exists. The route answers 404 unless
+  // USE_MAILTM=true outside production (src/app/api/dev/mailtm/route.js).
+  "/api/dev/mailtm",
 ];
 
 /**

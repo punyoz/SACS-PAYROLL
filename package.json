@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "supabase:check": "node scripts/check-supabase-connection.mjs",
     "supabase:seed-users": "node scripts/seed-auth-users.mjs",
-    "supabase:purge-archived": "node scripts/purge-archived-employees.mjs"
+    "supabase:purge-archived": "node scripts/purge-archived-employees.mjs",
+    "mailtm": "node scripts/mailtm-inbox.mjs"
   },
   "keywords": [
     "nextjs",

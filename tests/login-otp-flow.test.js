@@ -24,7 +24,7 @@ import { OTP_REQUIRED_ROLES, requiresLoginOtp } from "@/lib/auth/otp-policy";
  * typed in. tests/password-otp.test.js runs the code store and email for the
  * reset/change flows; a real Gmail delivery needs GMAIL_USER /
  * GMAIL_APP_PASSWORD and a live pass (mail.tm makes that checkable in
- * development: src/lib/mail/mailtm.service.js).
+ * development: src/lib/mail/mailtm.service.mjs).
  */
 
 const loginRoute = readFileSync("src/app/api/legacy-auth/login/route.js", "utf8");
