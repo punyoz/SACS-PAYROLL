@@ -5,8 +5,7 @@ import { CheckIcon, CircleIcon, KeyRoundIcon, Loader2Icon, LogOutIcon, ShieldAle
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ThemeToggle } from "@/components/theme";
-import { BrandPanel, MobileBrand } from "@/app/login/login-screen";
+import { GreenAuthLayout } from "@/app/login/login-screen";
 import { PASSWORD_MIN_LENGTH } from "@/app/login/auth-context";
 import { PASSWORD_RULES, PasswordInput, evaluateRules, firstRuleError } from "@/components/portal/account-dialogs";
 import { apiFetch, hardNavigate, jsonBody } from "@/lib/portal/api";
@@ -88,99 +87,82 @@ export function PasswordGate({ ctx, updateContext, logout }) {
   }
 
   return (
-    <main className="grid min-h-dvh bg-background lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-      <BrandPanel />
-      <section
-        className="relative flex min-h-dvh flex-col px-4 py-6 sm:px-8"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--brand-gold) 14%, transparent), transparent 45%), radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--brand-green) 10%, transparent), transparent 50%)",
-        }}
-      >
-        <div className="flex justify-end">
-          <ThemeToggle />
-        </div>
-        <div className="flex flex-1 items-center justify-center py-6">
-          <div className="w-full max-w-md">
-            <MobileBrand />
-            <Card className="shadow-lg">
-              <CardHeader>
-                <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-gold-text uppercase">
-                  <KeyRoundIcon className="size-3.5" aria-hidden="true" />First sign-in · Secure your account
-                </p>
-                <CardTitle className="text-2xl">Change your password</CardTitle>
-                <CardDescription>
-                  {firstName ? `Welcome, ${firstName}! ` : "Welcome! "}Before you continue, set a new password for your account.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={submit} noValidate className="space-y-4">
-                  <Alert className="border-warning/40 bg-warning/5">
-                    <ShieldAlertIcon className="text-warning" aria-hidden="true" />
-                    <AlertDescription>
-                      You signed in with the default password you were given (your last name and date of birth). Anyone who knows those details could use it, so it must be replaced before you can use the system.
-                    </AlertDescription>
-                  </Alert>
+    <GreenAuthLayout>
+      <Card className="shadow-lg">
+        <CardHeader>
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-gold-text uppercase">
+            <KeyRoundIcon className="size-3.5" aria-hidden="true" />First sign-in · Secure your account
+          </p>
+          <CardTitle className="text-2xl">Change your password</CardTitle>
+          <CardDescription>
+            {firstName ? `Welcome, ${firstName}! ` : "Welcome! "}Before you continue, set a new password for your account.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} noValidate className="space-y-4">
+            <Alert className="border-warning/40 bg-warning/5">
+              <ShieldAlertIcon className="text-warning" aria-hidden="true" />
+              <AlertDescription>
+                You signed in with the default password you were given (your last name and date of birth). Anyone who knows those details could use it, so it must be replaced before you can use the system.
+              </AlertDescription>
+            </Alert>
 
-                  <PasswordInput
-                    id="cp-current"
-                    label="Current password"
-                    autoComplete="current-password"
-                    placeholder="Password you signed in with"
-                    value={current}
-                    onChange={edit(setCurrent)}
-                    invalid={feedback.field === "current"}
-                    readOnly={done}
-                    autoFocus
-                  />
-                  <PasswordInput
-                    id="cp-new"
-                    label="New password"
-                    placeholder={`At least ${PASSWORD_MIN_LENGTH} characters, with uppercase, number and symbol`}
-                    value={next}
-                    onChange={edit(setNext)}
-                    invalid={feedback.field === "new"}
-                    readOnly={done}
-                  />
-                  <PasswordInput
-                    id="cp-confirm"
-                    label="Confirm new password"
-                    placeholder="Type the new password again"
-                    value={confirm}
-                    onChange={edit(setConfirm)}
-                    invalid={feedback.field === "confirm"}
-                    readOnly={done}
-                  />
+            <PasswordInput
+              id="cp-current"
+              label="Current password"
+              autoComplete="current-password"
+              placeholder="Password you signed in with"
+              value={current}
+              onChange={edit(setCurrent)}
+              invalid={feedback.field === "current"}
+              readOnly={done}
+              autoFocus
+            />
+            <PasswordInput
+              id="cp-new"
+              label="New password"
+              placeholder={`At least ${PASSWORD_MIN_LENGTH} characters, with uppercase, number and symbol`}
+              value={next}
+              onChange={edit(setNext)}
+              invalid={feedback.field === "new"}
+              readOnly={done}
+            />
+            <PasswordInput
+              id="cp-confirm"
+              label="Confirm new password"
+              placeholder="Type the new password again"
+              value={confirm}
+              onChange={edit(setConfirm)}
+              invalid={feedback.field === "confirm"}
+              readOnly={done}
+            />
 
-                  <ul className="grid gap-1 rounded-md border bg-muted/40 p-3 text-xs" aria-label="Password requirements">
-                    {PASSWORD_RULES.map(([key, text]) => (
-                      <li key={key} className={cn("flex items-center gap-1.5", rules[key] ? "text-success" : "text-muted-foreground")}>
-                        {rules[key] ? <CheckIcon className="size-3.5" aria-hidden="true" /> : <CircleIcon className="size-3" aria-hidden="true" />}
-                        {text}
-                        <span className="sr-only">{rules[key] ? "(met)" : "(not met)"}</span>
-                      </li>
-                    ))}
-                  </ul>
+            <ul className="grid gap-1 rounded-md border bg-muted/40 p-3 text-xs" aria-label="Password requirements">
+              {PASSWORD_RULES.map(([key, text]) => (
+                <li key={key} className={cn("flex items-center gap-1.5", rules[key] ? "text-success" : "text-muted-foreground")}>
+                  {rules[key] ? <CheckIcon className="size-3.5" aria-hidden="true" /> : <CircleIcon className="size-3" aria-hidden="true" />}
+                  {text}
+                  <span className="sr-only">{rules[key] ? "(met)" : "(not met)"}</span>
+                </li>
+              ))}
+            </ul>
 
-                  {feedback.text ? (
-                    <Alert variant={feedback.ok ? "default" : "destructive"} className={cn(feedback.ok && "border-success/40")} role={feedback.ok ? "status" : "alert"}>
-                      <AlertDescription className={cn(feedback.ok && "text-success")}>{feedback.text}</AlertDescription>
-                    </Alert>
-                  ) : null}
+            {feedback.text ? (
+              <Alert variant={feedback.ok ? "default" : "destructive"} className={cn(feedback.ok && "border-success/40")} role={feedback.ok ? "status" : "alert"}>
+                <AlertDescription className={cn(feedback.ok && "text-success")}>{feedback.text}</AlertDescription>
+              </Alert>
+            ) : null}
 
-                  <Button type="submit" size="lg" className="w-full" disabled={busy || done}>
-                    {done ? <><CheckIcon aria-hidden="true" />Done</> : busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Updating…</> : "Update password & continue"}
-                  </Button>
-                </form>
-              </CardContent>
-              <CardFooter className="flex flex-wrap items-center justify-between gap-2 border-t text-xs text-muted-foreground">
-                <span className="truncate">{ctx?.email ? `Signed in as ${ctx.email}` : ""}</span>
-                <Button type="button" variant="ghost" size="sm" onClick={logout}><LogOutIcon aria-hidden="true" />Sign out</Button>
-              </CardFooter>
-            </Card>
-          </div>
-        </div>
-      </section>
-    </main>
+            <Button type="submit" size="lg" className="w-full" disabled={busy || done}>
+              {done ? <><CheckIcon aria-hidden="true" />Done</> : busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Updating…</> : "Update password & continue"}
+            </Button>
+          </form>
+        </CardContent>
+        <CardFooter className="flex flex-wrap items-center justify-between gap-2 border-t text-xs text-muted-foreground">
+          <span className="truncate">{ctx?.email ? `Signed in as ${ctx.email}` : ""}</span>
+          <Button type="button" variant="ghost" size="sm" onClick={logout}><LogOutIcon aria-hidden="true" />Sign out</Button>
+        </CardFooter>
+      </Card>
+    </GreenAuthLayout>
   );
 }
