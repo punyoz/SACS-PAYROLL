@@ -116,7 +116,7 @@ function SectionLabel({ children, note }) {
   );
 }
 
-export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, titleCaseName = false }) {
+export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, titleCaseName = false, showBank = true }) {
   const { ctx, updateContext, notify } = usePortalSession();
   const [masks, setMasks] = React.useState({});
   const [serverError, setServerError] = React.useState("");
@@ -169,6 +169,8 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
     const extra = {};
     ACCOUNT_FIELDS.forEach((field) => {
       if (field.payroll && payrollReadOnly) return;
+      // A box this portal's dialog does not show is left out, so nothing on file is wiped.
+      if (!showBank && (field.key === "bank_name" || field.key === "bank_account_number")) return;
       const value = values[field.key];
       if (masks[field.key] && value === masks[field.key]) return; // unchanged mask
       extra[field.key] = field.spec ? digitsOnly(value) : String(value || "").trim();
@@ -317,8 +319,8 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
               {digitField("tin_number", "TIN", "e.g. 123-456-789-000", payrollReadOnly)}
             </div>
 
-            <SectionLabel note={payrollNote}>Bank information</SectionLabel>
-            <div className="grid items-start gap-4 sm:grid-cols-2">
+            {showBank ? <SectionLabel note={payrollNote}>Bank information</SectionLabel> : null}
+            {showBank ? <div className="grid items-start gap-4 sm:grid-cols-2">
               {textField("bank_name", "Bank name", {
                 maxLength: 50,
                 placeholder: "e.g. BPI, BDO, Landbank",
@@ -326,7 +328,7 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
                 className: payrollReadOnly ? "bg-muted text-muted-foreground" : undefined,
               })}
               {digitField("bank_account_number", "Bank account number", "Bank account number", payrollReadOnly)}
-            </div>
+            </div> : null}
 
             {serverError ? <p role="alert" className="text-sm text-destructive">{serverError}</p> : null}
 

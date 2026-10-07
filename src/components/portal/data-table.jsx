@@ -86,6 +86,8 @@ export function DataTable({
   }, [filtered, sort, columns]);
 
   const total = sorted.length;
+  // The table's own page size is always one of the choices.
+  const sizes = [...new Set([initialPageSize, ...PAGE_SIZES])].sort((a, b) => a - b);
   const pageCount = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1;
   const currentPage = Math.min(page, pageCount);
   const start = paginate ? (currentPage - 1) * pageSize : 0;
@@ -215,7 +217,7 @@ export function DataTable({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PAGE_SIZES.map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}
+                {sizes.map((size) => <SelectItem key={size} value={String(size)}>{size}</SelectItem>)}
               </SelectContent>
             </Select>
             <span className="tabular-nums">Page {currentPage} of {pageCount}</span>

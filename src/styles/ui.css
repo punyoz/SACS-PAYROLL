@@ -20,6 +20,7 @@
 @source "../hooks";
 @source "../app/login";
 @source "../app/employee";
+@source "../app/admin";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

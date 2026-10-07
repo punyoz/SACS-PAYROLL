@@ -44,6 +44,11 @@ const ATTENDANCE_TONE = {
   Holiday: "gold",
 };
 
+/** The badge tone for an attendance status. */
+export function attendanceTone(status) {
+  return ATTENDANCE_TONE[normalizeAttendanceStatus(status)] || "muted";
+}
+
 export function AttendanceBadge({ status, className }) {
   const label = normalizeAttendanceStatus(status);
   if (label === "—") return <StatusBadge tone="muted" className={className}>No data</StatusBadge>;
