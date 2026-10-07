@@ -1,22 +1,30 @@
 /*
- * shadcn/ui theme for the React screens (today: /login), in the Shepherd
- * Angels Christian School palette — the same tokens as
- * public/legacy/css/theme.css and src/app/globals.css:
+ * shadcn/ui theme for the React screens (/login and the portals rebuilt in
+ * React, starting with /employee), in the Shepherd Angels Christian School
+ * palette — the same tokens as public/legacy/css/theme.css and
+ * src/app/globals.css:
  *   green #1B5E3C / #0F3D28, gold #C9A227 / #E8C766, red #8B1A1A.
  *
- * Imported only by the routes that use these components (src/app/login/layout.js),
+ * Imported only by the routes that use these components (their layout.js),
  * so Tailwind's base reset never reaches the legacy portals or the 404/error
  * pages. Tailwind scans only the folders listed with @source below.
  *
  * Dark mode is a `.dark` class on the screen's root element (see
- * src/components/theme-toggle.jsx), starting from the device setting.
+ * src/components/theme.jsx), starting from the device setting.
  */
 
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
 
 @source "../components";
+@source "../hooks";
 @source "../app/login";
+@source "../app/employee";
+@source "../app/admin";
+@source "../app/hr";
+@source "../app/accountant";
+@source "../app/super-admin";
+@source "../app/rfid-terminal";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -60,6 +68,21 @@ body.sacs-ui-portal {
   --chart-3: #3f8f66;
   --chart-4: #8a6d12;
   --chart-5: #6b7280;
+
+  /* Status tones for badges (attendance, leave, payslips). Text-safe shades:
+     each reads at 4.5:1 or better on its own 12% tint. */
+  --warning: #a8520b;
+  --info: #2f6690;
+
+  /* Sidebar: the portals' green chrome with the gold edge and accent. */
+  --sidebar: #1b5e3c;
+  --sidebar-foreground: #d5e3da;
+  --sidebar-primary: #e8c766;
+  --sidebar-primary-foreground: #0f3d28;
+  --sidebar-accent: #0f3d28;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: color-mix(in srgb, #c9a227 55%, transparent);
+  --sidebar-ring: #e8c766;
 }
 
 .sacs-ui.dark,
@@ -91,6 +114,18 @@ body.sacs-ui-portal.dark {
   --chart-3: #9ad8b4;
   --chart-4: #c9a227;
   --chart-5: #a9b4ad;
+
+  --warning: #f5a35c;
+  --info: #8ec5e6;
+
+  --sidebar: #0d1d16;
+  --sidebar-foreground: #a9b4ad;
+  --sidebar-primary: #e8c766;
+  --sidebar-primary-foreground: #0f3d28;
+  --sidebar-accent: #1a3327;
+  --sidebar-accent-foreground: #f3e4ad;
+  --sidebar-border: #2b4436;
+  --sidebar-ring: #e8c766;
 }
 
 @theme inline {
@@ -134,6 +169,18 @@ body.sacs-ui-portal.dark {
 
   --animate-caret-blink: caret-blink 1.25s ease-out infinite;
 
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
   @keyframes caret-blink {
     0%, 70%, 100% { opacity: 1; }
     20%, 50% { opacity: 0; }
@@ -162,8 +209,38 @@ body.sacs-ui-portal.dark {
   }
 
   /* <body> keeps globals.css's text colour; portal content takes the theme's. */
-  body.sacs-ui-portal [data-slot="dialog-content"] {
+  body.sacs-ui-portal [data-slot="dialog-content"],
+  body.sacs-ui-portal [data-slot="alert-dialog-content"],
+  body.sacs-ui-portal [data-slot="sheet-content"],
+  body.sacs-ui-portal [data-slot="dropdown-menu-content"],
+  body.sacs-ui-portal [data-slot="select-content"],
+  body.sacs-ui-portal [data-slot="popover-content"],
+  body.sacs-ui-portal [data-slot="tooltip-content"] {
     font-family: var(--font-sans);
+  }
+  body.sacs-ui-portal [data-slot="dialog-content"],
+  body.sacs-ui-portal [data-slot="alert-dialog-content"] {
     color: var(--foreground);
+  }
+}
+
+/* Printing from a React portal: only the element marked data-print-area
+   (a payslip, a report) goes on paper, in the light theme. */
+@media print {
+  body.sacs-ui-portal * {
+    visibility: hidden;
+  }
+  body.sacs-ui-portal [data-print-area],
+  body.sacs-ui-portal [data-print-area] * {
+    visibility: visible;
+  }
+  body.sacs-ui-portal [data-print-area] {
+    position: absolute;
+    inset: 0 0 auto 0;
+    box-shadow: none;
+    print-color-adjust: exact;
+  }
+  .sacs-ui.dark {
+    color-scheme: light;
   }
 }

@@ -38,7 +38,9 @@ body {
   color: var(--t1);
 }
 
-a {
+/* Not inside the shadcn/ui screens either: this unlayered rule beats every
+   Tailwind text colour on a link there (e.g. a Button rendered as <a>). */
+a:not(.sacs-ui a, .sacs-ui-portal a) {
   color: inherit;
 }
 
@@ -56,7 +58,9 @@ a {
   padding: 20px;
 }
 
-.grid {
+/* Not inside the shadcn/ui screens (src/styles/ui.css): there `grid` is
+   Tailwind's utility, and this unlayered rule would override its columns. */
+.grid:not(.sacs-ui .grid, .sacs-ui-portal .grid) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
