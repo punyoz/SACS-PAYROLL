@@ -146,7 +146,7 @@ export function findUserByIdentity(users, identity) {
   }) || null;
 }
 
-/** Only active Employee / Accountant accounts may reset on the login page. */
+/** Active accounts of the roles otp-policy.js gates (every role) may reset on the login page. */
 export function canResetPassword(user) {
   if (!user?.email) return false;
   if (user.user_metadata?.archived === true) return false;

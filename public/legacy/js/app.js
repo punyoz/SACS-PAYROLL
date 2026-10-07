@@ -2719,7 +2719,7 @@ function startOtpButtonCountdown(button, seconds, idleLabel) {
 }
 
 /* ── CHANGE PASSWORD: EMAIL OTP STEPS ── */
-// Employee and Accountant accounts change their password in three steps, on
+// Every account changes its password in three steps, on
 // the same form, through POST /api/legacy-auth/change-password-otp:
 //   1. current password  -> "Send OTP" (the server checks it, then emails a
 //                            6-digit code valid for 5 minutes)
@@ -2727,8 +2727,9 @@ function startOtpButtonCountdown(button, seconds, idleLabel) {
 //   3. new + confirm     -> the form's own Update button
 // The new-password fields stay hidden until step 2 passes, and the server
 // refuses step 3 without it. Same roles as sign-in's second factor
-// (src/lib/auth/otp-policy.js); other roles keep the one-step form.
-const PASSWORD_CHANGE_OTP_ROLES = ['employee', 'accountant'];
+// (src/lib/auth/otp-policy.js): every role since 2026-10-07. A role the server
+// exempts again answers { otp_required: false } and gets the one-step form.
+const PASSWORD_CHANGE_OTP_ROLES = ['super_admin', 'admin', 'hr', 'accountant', 'employee'];
 const PASSWORD_CHANGE_RESTART_CODES = ['otp_expired', 'otp_locked_out', 'otp_not_verified'];
 const passwordChangeFlows = new Map();
 

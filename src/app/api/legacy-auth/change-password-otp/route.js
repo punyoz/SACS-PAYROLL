@@ -1,7 +1,7 @@
 /**
  * POST /api/legacy-auth/change-password-otp: the emailed-code steps of a
  * logged-in password change, for the roles src/lib/auth/otp-policy.js gates
- * (Employee, Accountant).
+ * (every role).
  *
  *   { action: "start",  current_password }  check it, then email a 6-digit OTP
  *   { action: "resend" }                    another OTP (60 s apart)

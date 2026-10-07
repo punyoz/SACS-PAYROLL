@@ -81,7 +81,7 @@ const API_MODULES = [
   ["/api/rbac/me", null],                                  // session-derived, self-guarding
   ["/api/legacy-auth/session", null],                      // session heartbeat
   ["/api/legacy-auth/change-password", "profile"],
-  // Emails the OTP the change above now needs (Employee / Accountant).
+  // Emails the OTP the change above now needs (every role).
   ["/api/legacy-auth/change-password-otp", "profile"],
   ["/api/legacy-auth/update-profile", "profile"],
   ["/api/admin/users", "user_management"],

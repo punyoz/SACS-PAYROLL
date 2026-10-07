@@ -236,8 +236,8 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
 
         <form onSubmit={submit} noValidate className="space-y-4">
           <p className="rounded-lg border bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            Only <strong className="text-foreground">Employee</strong> and <strong className="text-foreground">Accountant</strong> accounts
-            can reset their password here. Contact the administrator for other accounts.
+            The code goes to the email address registered on your account. If that address is wrong or
+            you can no longer open it, contact the administrator.
           </p>
 
           <div className="space-y-2">

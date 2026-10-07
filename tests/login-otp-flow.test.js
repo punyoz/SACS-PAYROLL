@@ -157,23 +157,20 @@ describe("Scenario: no session cookie exists before OTP verification succeeds", 
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   OTP is scoped to Employee and Accountant
+   OTP applies to every role (Super Admin, Admin and HR since 2026-10-07)
    ══════════════════════════════════════════════════════════════════════════ */
 
-describe("Scenario: Super Admin / Admin / HR sign in without an OTP", () => {
-  it("only Employee and Accountant are behind the second factor", () => {
-    expect(OTP_REQUIRED_ROLES).toEqual(["employee", "accountant"]);
-    for (const role of ["employee", "accountant"]) {
+describe("Scenario: every role signs in with the emailed code", () => {
+  it("all five roles are behind the second factor", () => {
+    expect([...OTP_REQUIRED_ROLES].sort()).toEqual(["accountant", "admin", "employee", "hr", "super_admin"]);
+    for (const role of ["super_admin", "admin", "hr", "accountant", "employee"]) {
       expect(requiresLoginOtp(role)).toBe(true);
-    }
-    for (const role of ["super_admin", "admin", "hr"]) {
-      expect(requiresLoginOtp(role)).toBe(false);
     }
   });
 
   it("is decided on the role string alone, whatever its casing", () => {
     expect(requiresLoginOtp("Employee")).toBe(true);
-    expect(requiresLoginOtp("SUPER_ADMIN")).toBe(false);
+    expect(requiresLoginOtp("SUPER_ADMIN")).toBe(true);
     // An unknown or empty role is not in the set, but never reaches this
     // question: both routes reject an unroutable role before asking.
     expect(requiresLoginOtp("")).toBe(false);

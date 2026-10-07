@@ -84,8 +84,9 @@ That covers every table the application queries. If a page errors with
 
 ## 2a. Emailed codes: Gmail (Nodemailer) and mail.tm
 
-Sign-in (Employee / Accountant), **Forgot Password** and **Change Password**
-(Employee / Accountant) use the app's own 6-digit code
+Sign-in, **Forgot Password** and **Change Password** for **every role**
+(Super Admin, Admin, HR, Accountant, Employee; `src/lib/auth/otp-policy.js`)
+use the app's own 6-digit code
 (`src/lib/auth/email-otp.js`), emailed through Gmail SMTP with Nodemailer
 (`src/lib/mail/gmail.js`, template `src/lib/mail/otp-email.js`). Only an
 HMAC of the code is stored, in `public.auth_email_otps`
@@ -93,6 +94,12 @@ HMAC of the code is stored, in `public.auth_email_otps`
 lock: 5-minute expiry, single use, 5 wrong codes then a new code is needed,
 60 seconds between sends. Each flow has its own code (a sign-in code cannot
 reset a password). Supabase Auth no longer sends any email for this app.
+
+> [!IMPORTANT]
+> **Every account needs a real, reachable email address.** The code goes to
+> the address on the account; an account whose address cannot receive mail
+> (for example a seeded `@example.com` address) cannot sign in. Fix every
+> Super Admin, Admin and HR address before deploying.
 
 1. On the Google account that sends the mail, turn on **2-Step Verification**,
    then create an **App password** (Google Account → Security → App
@@ -106,7 +113,7 @@ reset a password). Supabase Auth no longer sends any email for this app.
 
 **Testing delivery without a real inbox (development only).** Set
 `USE_MAILTM=true` in `.env.local`, run `npm run mailtm -- create`, and set a
-TEST Employee or Accountant account's email to the printed address. Sign in as
+TEST account's email (any role) to the printed address. Sign in as
 that account: the code screen shows **Read code from test inbox (mail.tm, dev
 only)**, and `npm run mailtm -- otp <address>` prints the code in a terminal.
 `src/lib/mail/mailtm.service.mjs` and `/api/dev/mailtm` are off whenever
@@ -352,7 +359,7 @@ Trap 1.
 2. Add every variable from `.env.local` under
    **Settings → Environment Variables**, including `GMAIL_USER` and
    `GMAIL_APP_PASSWORD` (without them no code email can be sent, so
-   Employee / Accountant sign-in stops at the code step).
+   sign-in stops at the code step for every role).
 3. In Supabase, go to **Authentication → URL Configuration** and set the
    **Site URL** to the production domain. Password reset does not use
    redirect links (it is a 6-digit emailed code, section 2a), so the old

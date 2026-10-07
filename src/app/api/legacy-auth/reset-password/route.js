@@ -54,7 +54,7 @@ import { completeLogin, isRoutableRole } from "@/lib/auth/complete-login";
  * ENUMERATION
  * "send" answers every identity the same way -- found or not, Employee or
  * Admin -- including the 60-second cooldown, which is keyed on what was typed.
- * Only Employee and Accountant accounts are ever sent a code. The one
+ * Every active account with a role can be sent a code. The one
  * difference that can show is the email failing to send, which only happens
  * when a real email was attempted; that is reported because a user needs to
  * know the email did not go out.
@@ -65,8 +65,7 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const GENERIC_SENT =
-  "If the account exists, an OTP has been sent to its registered email address. "
-  + "Admin, HR and Super Admin accounts: contact the administrator.";
+  "If the account exists, an OTP has been sent to its registered email address.";
 
 const START_AGAIN = "Your OTP has expired or was not requested. Request a new OTP.";
 const LOCKED_OUT = "Too many incorrect attempts. Request a new OTP.";

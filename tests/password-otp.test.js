@@ -177,9 +177,9 @@ describe("Reset password by OTP", () => {
     }
     expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
     expect(replies[0].message).toMatch(/If the account exists/);
-    // Only the Employee was actually emailed; the Admin is told to contact the administrator.
-    expect(sentTo()).toEqual(["emp@example.com"]);
-    expect(replies[0].message).toMatch(/contact the administrator/i);
+    // The Employee and the Admin (every role resets by code) were emailed;
+    // the unknown address was not, and the reply did not say so.
+    expect(sentTo()).toEqual(["emp@example.com", "admin@example.com"]);
   });
 
   it("enforces a 60-second cooldown, identically for unknown identities", async () => {
@@ -323,11 +323,13 @@ describe("Change password by OTP", () => {
     expect(db.updates).toHaveLength(1);
   });
 
-  it("leaves Admin, HR and Super Admin on the one-step change", async () => {
+  it("puts Admin (like every role) through the emailed code too", async () => {
     const b = signedIn("u-admin", "admin", "admin@example.com");
-    expect((await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD })).body.otp_required).toBe(false);
+    const started = await b.post(otpRoute, OTP, { action: "start", current_password: OLD_PASSWORD });
+    expect(started.body.otp_required).toBe(true);
+    expect(sentTo()).toEqual(["admin@example.com"]);
+    expect((await b.post(otpRoute, OTP, { action: "verify", code: lastCode() })).body.verified).toBe(true);
     const done = await b.post(changeRoute, CHANGE, { current_password: OLD_PASSWORD, new_password: "NewPass9!", confirm_password: "NewPass9!" });
     expect(done.status).toBe(200);
-    expect(outbox).toHaveLength(0);
   });
 });

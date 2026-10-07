@@ -26,7 +26,8 @@ import {
  * password is checked the same way for everyone; then
  * src/lib/auth/otp-policy.js decides:
  *
- *   Employee / Accountant  -> two-factor. A correct password does NOT issue
+ *   Gated roles (every role since 2026-10-07) -> two-factor. A correct
+ *       password does NOT issue
  *       the session cookie. It issues a short-lived, signed "pending login"
  *       cookie (src/lib/auth/pending-login.js) and emails a 6-digit one-time
  *       code through Gmail (src/lib/auth/email-otp.js), the same sender the
@@ -34,10 +35,10 @@ import {
  *       verify-code screen and POST /api/legacy-auth/verify-login-otp is
  *       step 2.
  *
- *   Super Admin / Admin / HR -> single-factor, at the operator's request. No
- *       code is emailed and no pending cookie is set; the sign-in finishes
- *       here via completeLogin(). See otp-policy.js for why, and for the
- *       one-line change that puts a role back behind the second factor.
+ *   A role removed from otp-policy.js's list -> single-factor. No code is
+ *       emailed and no pending cookie is set; the sign-in finishes here via
+ *       completeLogin(). No role is exempt today; the branch is kept so that
+ *       exempting one again stays a one-line change in otp-policy.js.
  *
  * Either way the session cookie is minted in exactly one function,
  * src/lib/auth/complete-login.js, so the two paths cannot drift apart. This

@@ -12,8 +12,8 @@ import { verifyEmailOtp, normalizeOtpInput } from "@/lib/auth/email-otp";
 /**
  * POST /api/legacy-auth/verify-login-otp — step 2 of 2 (code).
  *
- * Reached only by the roles src/lib/auth/otp-policy.js still gates -- today
- * Employee and Accountant. Everything the pre-2FA login route used to do
+ * Reached by the roles src/lib/auth/otp-policy.js gates -- every role since
+ * 2026-10-07. Everything the pre-2FA login route used to do
  * after "credentials are genuine" happens here instead, gated on the emailed
  * code also checking out: fetch the full profile, then hand off to
  * completeLogin() to register the active session and issue the signed
