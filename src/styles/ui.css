@@ -24,6 +24,7 @@
 @source "../app/hr";
 @source "../app/accountant";
 @source "../app/super-admin";
+@source "../app/rfid-terminal";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
