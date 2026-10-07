@@ -119,3 +119,17 @@ describe("waitForOtp", () => {
     expect(calls.some((c) => c.key === "GET /messages/old")).toBe(false);
   });
 });
+
+describe("inboxes at a chosen address", () => {
+  it("refuses a domain mail.tm does not serve", async () => {
+    routes["GET /domains"] = () => [200, { "hydra:member": [{ domain: "maxxspace.com", isActive: true, isPrivate: false }] }];
+    await expect(svc.createInbox({ address: "someone@gmail.com" })).rejects.toThrow(/not a live mail\.tm domain/);
+    expect(calls.some((c) => c.key === "POST /accounts")).toBe(false);
+  });
+
+  it("explains how to save an address that already exists", async () => {
+    routes["GET /domains"] = () => [200, { "hydra:member": [{ domain: "maxxspace.com", isActive: true, isPrivate: false }] }];
+    routes["POST /accounts"] = () => [422, { detail: "address: This value is already used." }];
+    await expect(svc.createInbox({ address: "Taken@MaxxSpace.com" })).rejects.toThrow(/npm run mailtm -- add taken@maxxspace\.com/);
+  });
+});

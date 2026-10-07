@@ -158,23 +158,56 @@ export async function getDomains() {
 
 /**
  * Create a new inbox and remember its password locally.
- * @param {{ prefix?: string }} [options] start of the address's local part
+ * @param {{ prefix?: string, address?: string }} [options]
+ *   `address`: this exact address (its domain must be a live mail.tm domain);
+ *   otherwise `prefix` plus random characters on the first live domain.
  * @returns {Promise<{ address: string, password: string, id: string }>}
  */
-export async function createInbox({ prefix = "sacs" } = {}) {
+export async function createInbox({ prefix = "sacs", address: wanted } = {}) {
   assertEnabled();
-  const [domain] = await getDomains();
-  if (!domain) throw new MailtmError("mail.tm has no active domain right now.", 503);
-
-  const local = `${String(prefix).toLowerCase().replace(/[^a-z0-9]/g, "") || "sacs"}${crypto.randomBytes(4).toString("hex")}`;
-  const address = `${local}@${domain}`;
+  const domains = await getDomains();
+  let address;
+  if (wanted) {
+    address = normalizeAddress(wanted);
+    const domain = address.split("@")[1] || "";
+    if (!domains.includes(domain)) {
+      throw new MailtmError(`${domain || "That address"} is not a live mail.tm domain (live: ${domains.join(", ") || "none"}).`, 400);
+    }
+  } else {
+    if (!domains[0]) throw new MailtmError("mail.tm has no active domain right now.", 503);
+    const local = `${String(prefix).toLowerCase().replace(/[^a-z0-9]/g, "") || "sacs"}${crypto.randomBytes(4).toString("hex")}`;
+    address = `${local}@${domains[0]}`;
+  }
   const password = crypto.randomBytes(18).toString("base64url");
-  const account = await request("POST", "/accounts", { body: { address, password } });
+  let account;
+  try {
+    account = await request("POST", "/accounts", { body: { address, password } });
+  } catch (error) {
+    if (error instanceof MailtmError && error.status === 422) {
+      throw new MailtmError(`${address} is already taken on mail.tm. If it is yours, save its password with: npm run mailtm -- add ${address} <password>`, 422);
+    }
+    throw error;
+  }
 
   const store = readStore();
   store[address] = { password, id: account?.id || "", createdAt: new Date().toISOString() };
   writeStore(store);
   return { address, password, id: account?.id || "" };
+}
+
+/**
+ * Remember an inbox that already exists on mail.tm (created on its website,
+ * or on another machine). Checks the password by fetching a token first.
+ */
+export async function addInbox(address, password) {
+  assertEnabled();
+  const inbox = { address: normalizeAddress(address), password: String(password || "") };
+  const token = await getToken(inbox, { refresh: true });
+  const me = await request("GET", "/me", { token });
+  const store = readStore();
+  store[inbox.address] = { password: inbox.password, id: me?.id || "", createdAt: new Date().toISOString() };
+  writeStore(store);
+  return { address: inbox.address, id: me?.id || "" };
 }
 
 /**

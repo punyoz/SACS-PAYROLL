@@ -113,7 +113,10 @@ reset a password). Supabase Auth no longer sends any email for this app.
 
 **Testing delivery without a real inbox (development only).** Set
 `USE_MAILTM=true` in `.env.local`, run `npm run mailtm -- create`, and set a
-TEST account's email (any role) to the printed address. Sign in as
+TEST account's email (any role) to the printed address. An inbox made on
+mail.tm's own website is added with `npm run mailtm -- add <address> <password>`.
+The five seeded accounts use mail.tm inboxes (`SEED_*_EMAIL`); real staff
+accounts use their own Gmail. Sign in as
 that account: the code screen shows **Read code from test inbox (mail.tm, dev
 only)**, and `npm run mailtm -- otp <address>` prints the code in a terminal.
 `src/lib/mail/mailtm.service.mjs` and `/api/dev/mailtm` are off whenever
@@ -381,7 +384,7 @@ missing in production.
 | `npm run supabase:check` | Connectivity check against the anon key |
 | `npm run supabase:seed-users` | Create/refresh the five role accounts |
 | `npm run supabase:purge-archived` | **Hard-deletes** archived employees — see below |
-| `npm run mailtm -- create|list|messages|otp|delete` | mail.tm test inboxes for checking code emails (development only, section 2a) |
+| `npm run mailtm -- create [address]|add <address> <password>|list|messages|otp|delete` | mail.tm test inboxes for checking code emails (development only, section 2a) |
 
 > [!CAUTION]
 > **Two scripts destroy data irreversibly. Neither asks for confirmation.**

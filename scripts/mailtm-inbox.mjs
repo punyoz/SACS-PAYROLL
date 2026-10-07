@@ -1,7 +1,8 @@
 /**
  * mail.tm test inboxes from the command line (development only).
  *
- *   npm run mailtm -- create              new inbox; prints address + password
+ *   npm run mailtm -- create [address]    new inbox (random, or that exact address); prints address + password
+ *   npm run mailtm -- add <address> <pw>  remember an inbox made elsewhere (e.g. on mail.tm's site)
  *   npm run mailtm -- list                inboxes created on this machine
  *   npm run mailtm -- messages <address>  what arrived
  *   npm run mailtm -- otp <address>       wait (up to 90 s) for a code and print it
@@ -18,6 +19,7 @@
 
 import dotenv from "dotenv";
 import {
+  addInbox,
   createInbox,
   deleteInbox,
   findInbox,
@@ -29,7 +31,7 @@ import {
 
 dotenv.config({ path: ".env.local" });
 
-const [command = "help", address] = process.argv.slice(2);
+const [command = "help", address, secret] = process.argv.slice(2);
 
 /**
  * Stops the command with a message and an exit code. Thrown rather than
@@ -59,9 +61,15 @@ async function main() {
   }
 
   if (command === "create") {
-    const inbox = await createInbox();
+    const inbox = await createInbox({ address });
     console.log(`Address:  ${inbox.address}\nPassword: ${inbox.password}`);
     console.log("Set a TEST account's email to this address, then sign in as it.");
+    return;
+  }
+  if (command === "add") {
+    if (!address || !secret) throw new Stop("Usage: npm run mailtm -- add <address> <password>");
+    const inbox = await addInbox(address, secret);
+    console.log(`Saved ${inbox.address}. Its codes can now be read here.`);
     return;
   }
   if (command === "list") {
@@ -89,7 +97,7 @@ async function main() {
     return;
   }
 
-  console.log("Usage: npm run mailtm -- create | list | messages <address> | otp <address> | delete <address>");
+  console.log("Usage: npm run mailtm -- create [address] | add <address> <password> | list | messages <address> | otp <address> | delete <address>");
 }
 
 main().catch((error) => {
