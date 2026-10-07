@@ -475,21 +475,30 @@ export default function LoginScreen() {
   const onResent = React.useCallback(() => setOtp((o) => ({ ...o, sentAt: Date.now() })), []);
 
   return (
-    <main className="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-      <BrandPanel />
-      <section
-        className="relative flex min-h-dvh flex-col px-4 py-6 sm:px-8"
+    <main className="relative flex min-h-dvh flex-col overflow-hidden bg-brand-green px-4 py-6 text-white sm:px-8">
+      {/* The school green, with a soft gold glow, behind a centred sign-in card. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(circle at 100% 0%, color-mix(in oklab, var(--brand-gold) 14%, transparent), transparent 45%), radial-gradient(circle at 0% 100%, color-mix(in oklab, var(--brand-green) 10%, transparent), transparent 50%)",
+            "radial-gradient(circle at 15% 10%, rgba(232,199,102,.22), transparent 40%), radial-gradient(circle at 90% 85%, rgba(201,162,39,.18), transparent 45%), linear-gradient(160deg, #1B5E3C 0%, #0F3D28 100%)",
         }}
-      >
-        <div className="flex justify-end">
-          <ThemeToggle />
-        </div>
-        <div className="flex flex-1 items-center justify-center py-6">
-          <div className="w-full max-w-md">
-            <MobileBrand />
+      />
+      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1.5 bg-brand-gold" />
+
+      <div className="relative flex justify-end">
+        <ThemeToggle className="text-white hover:bg-white/10 hover:text-white" />
+      </div>
+      <div className="relative flex flex-1 items-center justify-center py-6">
+        <div className="w-full max-w-md">
+          <div className="mb-6 flex flex-col items-center text-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="80" height="80" className="size-20 rounded-full bg-white/95 p-1 shadow-lg ring-4 ring-brand-gold/40" />
+            <p className="mt-3 text-lg font-semibold">Shepherd Angels Christian School</p>
+            <p className="text-[11px] font-semibold tracking-[0.18em] text-brand-gold-light uppercase">Payroll Management System</p>
+          </div>
+          <div className="text-foreground">
             {step === "otp" ? (
               <CodeStep
                 maskedEmail={otp.maskedEmail}
@@ -501,12 +510,13 @@ export default function LoginScreen() {
             ) : (
               <PasswordStep notice={notice} onOtpRequired={onOtpRequired} onForgot={() => setResetOpen(true)} />
             )}
-            <p className="mt-6 text-center text-xs text-muted-foreground">
-              Trouble signing in? Contact your branch administrator.
-            </p>
           </div>
+          <p className="mt-6 text-center text-xs text-white/75">
+            Trouble signing in? Contact your branch administrator.
+          </p>
         </div>
-      </section>
+      </div>
+      <p className="relative text-center text-xs text-white/60">© {new Date().getFullYear()} Shepherd Angels Christian School · Antipolo City</p>
       <ResetPasswordDialog open={resetOpen} onOpenChange={setResetOpen} />
     </main>
   );
