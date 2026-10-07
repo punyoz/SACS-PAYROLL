@@ -56,7 +56,9 @@ a {
   padding: 20px;
 }
 
-.grid {
+/* Not inside the shadcn/ui screens (src/styles/ui.css): there `grid` is
+   Tailwind's utility, and this unlayered rule would override its columns. */
+.grid:not(.sacs-ui .grid, .sacs-ui-portal .grid) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
