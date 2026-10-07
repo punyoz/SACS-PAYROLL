@@ -113,6 +113,7 @@
 .ad.ab     { background: var(--red-s);   color: var(--red);   }
 .ad.lt     { background: var(--warn-s);  color: var(--warn);  }
 .ad.lv     { background: var(--blue-s);  color: var(--blue);  cursor: pointer; }
+.ad.hol    { background: var(--teal-s);  color: var(--teal);  }
 .ad.em     { color: transparent; }
 .ad.no-rec { color: var(--t3); }
 .ad.future { color: var(--t3); opacity: 0.4; }

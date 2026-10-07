@@ -11,6 +11,9 @@
  *
  * On Leave is a working day covered by approved leave
  * (20260928010000_leave_attendance_sync.sql): neither attended nor absent.
+ *
+ * Holiday is a day with no tap on a holiday or whole-day suspension
+ * (20261007010000_holiday_calendar.sql): neither attended nor absent either.
  */
 
 export const ATTENDANCE_STATUSES = Object.freeze([
@@ -24,6 +27,7 @@ export const ATTENDANCE_STATUSES = Object.freeze([
   "Pending Correction",
   "Corrected",
   "On Leave",
+  "Holiday",
 ]);
 
 /** Records payroll may not treat as worked or unworked until resolved. */
@@ -44,6 +48,7 @@ export const STATUS_TONES = Object.freeze({
   "Pending Correction": "gray",
   Corrected: "blue",
   "On Leave": "blue",
+  Holiday: "teal",
 });
 
 const BY_LOWER = new Map(ATTENDANCE_STATUSES.map((status) => [status.toLowerCase(), status]));
@@ -62,7 +67,7 @@ export function normalizeAttendanceStatus(value, fallback = "Absent") {
 export function isAttendedStatus(status) {
   const normalized = normalizeAttendanceStatus(status, "");
   return Boolean(normalized) && normalized !== "Absent" && normalized !== "On Leave"
-    && !UNRESOLVED_STATUSES.includes(normalized);
+    && normalized !== "Holiday" && !UNRESOLVED_STATUSES.includes(normalized);
 }
 
 export function isUnresolvedStatus(status) {
@@ -75,9 +80,9 @@ export function isCorrectableStatus(status) {
 
 /**
  * The present / late / absent buckets the dashboards and reports count in:
- * "late" for Late, "absent" for Absent, "leave" for On Leave, "unresolved" for
- * Incomplete and Pending Correction, and "present" for every other day the
- * employee came in.
+ * "late" for Late, "absent" for Absent, "leave" for On Leave, "holiday" for
+ * Holiday, "unresolved" for Incomplete and Pending Correction, and "present"
+ * for every other day the employee came in.
  * An unknown value counts as absent, as it always has.
  */
 export function attendanceBucket(status) {
@@ -85,6 +90,7 @@ export function attendanceBucket(status) {
   if (normalized === "Late") return "late";
   if (normalized === "Absent") return "absent";
   if (normalized === "On Leave") return "leave";
+  if (normalized === "Holiday") return "holiday";
   if (UNRESOLVED_STATUSES.includes(normalized)) return "unresolved";
   return "present";
 }

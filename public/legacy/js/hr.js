@@ -68,6 +68,7 @@ function hrNav(pageId, navEl) {
   else if (pageId === 'hr-transfers') loadHrBranchAssignment();
   else if (pageId === 'hr-attendance') {
     loadHRAttendance();
+    loadHRSuspensions();
     window.mountAttendanceBoard?.('hr-att-board');
   }
   else if (pageId === 'hr-att-employee') {
@@ -107,6 +108,7 @@ function applyHRIdentity() {
 
 /* ── DASHBOARD ── */
 async function loadHRDashboard() {
+  window.mountUpcomingHolidays?.('hr-upcoming-holidays');
   try {
     const res = await fetch('/api/hr/dashboard');
     const data = await res.json();
@@ -1753,3 +1755,124 @@ if (hrScreen?.classList.contains('active')) {
   });
   hrObserver.observe(hrScreen, { attributes: true });
 }
+
+
+/* ── SUSPENSIONS ──
+   HR declares class / work suspensions (typhoon, LGU-declared) from today on
+   (/api/admin/holidays, type "suspension"). Holidays themselves are the
+   Super Admin's (System Configuration -> Holidays). */
+const hrSuspensions = { today: '' };
+
+function hrSuspensionDate(key) {
+  const date = new Date(`${key}T00:00:00+08:00`);
+  if (Number.isNaN(date.getTime())) return key;
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+}
+
+function onHRSuspensionPartChange() {
+  const part = String(document.getElementById('hr-susp-part')?.value || 'whole');
+  const wrap = document.getElementById('hr-susp-cutoff-wrap');
+  if (wrap) wrap.style.display = part === 'whole' ? 'none' : '';
+  const label = document.getElementById('hr-susp-cutoff-label');
+  if (label) label.textContent = part === 'am' ? 'Work Resumes At' : 'Suspended From';
+}
+
+async function loadHRSuspensions() {
+  const body = document.getElementById('hr-susp-body');
+  if (!body) return;
+  try {
+    const res = await fetch('/api/admin/holidays?upcoming=20');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to load suspensions.');
+    hrSuspensions.today = data.today || '';
+    const dateInput = document.getElementById('hr-susp-date');
+    if (dateInput && hrSuspensions.today) {
+      dateInput.min = hrSuspensions.today;
+      if (!dateInput.value) dateInput.value = hrSuspensions.today;
+    }
+    const rows = (data.holidays || []).filter((row) => row.type === 'suspension');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="5" style="color:var(--t3);">No suspensions declared from today on.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((row) => {
+      const addedToday = row.created_at && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(row.created_at)) === hrSuspensions.today;
+      const removable = row.holiday_date > hrSuspensions.today || (row.holiday_date === hrSuspensions.today && addedToday);
+      return `
+        <tr>
+          <td class="mn">${escapeHtml(hrSuspensionDate(row.holiday_date))}</td>
+          <td class="nm">${escapeHtml(row.name || '')}</td>
+          <td>${escapeHtml(row.day_part_label || 'Whole day')}</td>
+          <td style="font-size:12px;color:var(--t3);">${escapeHtml(row.created_by_name || 'System')}</td>
+          <td>${removable
+            ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="removeHRSuspension('${escapeJsArg(row.holiday_date)}')">Remove</button>`
+            : '<span style="font-size:11px;color:var(--t3);">Started</span>'}</td>
+        </tr>`;
+    }).join('');
+  } catch (error) {
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+async function addHRSuspension() {
+  const fb = document.getElementById('hr-susp-feedback');
+  const button = document.getElementById('hr-susp-submit');
+  const date = String(document.getElementById('hr-susp-date')?.value || '').trim();
+  const name = String(document.getElementById('hr-susp-name')?.value || '').trim();
+  const dayPart = String(document.getElementById('hr-susp-part')?.value || 'whole');
+  const cutoff = dayPart === 'whole' ? '' : String(document.getElementById('hr-susp-cutoff')?.value || '');
+  const ok = requireFields([
+    { field: 'hr-susp-date', check: (value) => (!value ? 'Choose the date.' : '') },
+    { field: 'hr-susp-name', check: (value) => (!value ? 'Enter the reason.' : '') },
+    ...(dayPart === 'whole' ? [] : [{ field: 'hr-susp-cutoff', check: (value) => (!value ? 'Enter the time.' : '') }]),
+  ]);
+  if (!ok) {
+    if (fb) { fb.textContent = 'Fill in the highlighted fields.'; fb.className = 'adm-feedback err'; }
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const res = await fetch('/api/admin/holidays', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ holiday_date: date, name, type: 'suspension', day_part: dayPart, cutoff }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to add the suspension.');
+    const updated = data.remarked_records
+      ? ` ${data.remarked_records} attendance record${data.remarked_records === 1 ? '' : 's'} for that day ${data.remarked_records === 1 ? 'was' : 'were'} updated.`
+      : '';
+    if (fb) { fb.textContent = `Suspension added for ${hrSuspensionDate(date)}.${updated}`; fb.className = 'adm-feedback ok'; }
+    document.getElementById('hr-susp-name').value = '';
+    window.pushNotification?.('Suspension Added', `${name} · ${hrSuspensionDate(date)}`, 'success');
+    await loadHRSuspensions();
+    loadHRAttendance();
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function removeHRSuspension(date) {
+  const fb = document.getElementById('hr-susp-feedback');
+  const proceed = window.confirmApproveAction
+    ? await window.confirmApproveAction(`remove the suspension on ${hrSuspensionDate(date)}`, 'Employees will be expected to work the full day.', { title: 'Remove Suspension', confirmLabel: 'Remove' })
+    : window.confirm(`Remove the suspension on ${date}?`);
+  if (!proceed) return;
+  try {
+    const res = await fetch(`/api/admin/holidays?date=${encodeURIComponent(date)}`, { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to remove the suspension.');
+    if (fb) { fb.textContent = `Removed the suspension on ${hrSuspensionDate(date)}.`; fb.className = 'adm-feedback ok'; }
+    await loadHRSuspensions();
+    loadHRAttendance();
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  }
+}
+
+window.loadHRSuspensions = loadHRSuspensions;
+window.addHRSuspension = addHRSuspension;
+window.removeHRSuspension = removeHRSuspension;
+window.onHRSuspensionPartChange = onHRSuspensionPartChange;

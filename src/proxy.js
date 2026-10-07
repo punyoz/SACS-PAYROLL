@@ -98,8 +98,11 @@ const API_MODULES = [
   ["/api/admin/payroll-rates", "system_configuration"],
   // Monthly withholding tax table and contribution amounts (semi-monthly payroll).
   ["/api/admin/payroll-settings", "system_configuration"],
-  // Regular holidays and special non-working days (attendance_holidays).
-  ["/api/admin/holidays", "system_configuration"],
+  // Holidays and suspensions (attendance_holidays). Read by every portal's
+  // calendar and dashboard; the route itself decides who may change them
+  // (Super Admin every type, HR suspensions), so the session is the
+  // requirement here.
+  ["/api/admin/holidays", null],
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],

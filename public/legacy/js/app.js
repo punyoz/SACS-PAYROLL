@@ -3863,12 +3863,13 @@ function attachLoginPasswordToggle() {
 
 const ATTENDANCE_STATUS_LIST = [
   'On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent',
-  'Incomplete', 'Pending Correction', 'Corrected', 'On Leave',
+  'Incomplete', 'Pending Correction', 'Corrected', 'On Leave', 'Holiday',
 ];
 
 // green: On Time / Early Bird, yellow: Late / Undertime, orange: Half Day,
 // red: Absent, gray: Incomplete (and awaiting review), blue: Corrected and
-// On Leave (a working day covered by approved leave).
+// On Leave (a working day covered by approved leave), teal: Holiday (no tap
+// on a holiday or whole-day suspension).
 const ATTENDANCE_STATUS_TONE = {
   'On Time': 'var(--green)',
   'Early Bird': 'var(--green)',
@@ -3880,6 +3881,7 @@ const ATTENDANCE_STATUS_TONE = {
   'Pending Correction': 'var(--t2)',
   Corrected: 'var(--blue)',
   'On Leave': 'var(--blue)',
+  Holiday: 'var(--teal)',
 };
 
 const ATTENDANCE_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -3908,6 +3910,7 @@ function attendanceCalendarClass(status) {
   const label = normalizeAttendanceStatusLabel(status);
   if (label === 'Absent') return 'ab';
   if (label === 'On Leave') return 'lv';
+  if (label === 'Holiday') return 'hol';
   if (label === 'Late' || label === 'Undertime' || label === 'Half Day') return 'lt';
   if (label === 'On Time' || label === 'Early Bird' || label === 'Corrected') return 'pr';
   return '';
@@ -3915,9 +3918,63 @@ function attendanceCalendarClass(status) {
 
 function attendanceStatusLegend() {
   return `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;">${
-    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected', 'On Leave']
+    ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Corrected', 'On Leave', 'Holiday']
       .map((s) => attendanceStatusBadge(s)).join('')
   }</div>`;
+}
+
+/* ── UPCOMING HOLIDAYS (dashboards) ──
+   The next holidays and suspensions from /api/admin/holidays?upcoming=5,
+   kept for five minutes so a dashboard refresh does not refetch them. */
+const upcomingHolidaysCache = { at: 0, data: null };
+
+async function mountUpcomingHolidays(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  try {
+    if (!upcomingHolidaysCache.data || Date.now() - upcomingHolidaysCache.at > 5 * 60 * 1000) {
+      const res = await fetch('/api/admin/holidays?upcoming=5', { headers: { 'x-sacs-background': '1' } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Unable to load holidays.');
+      upcomingHolidaysCache.data = data;
+      upcomingHolidaysCache.at = Date.now();
+    }
+    const { holidays = [], today = '' } = upcomingHolidaysCache.data;
+    if (!holidays.length) {
+      el.innerHTML = '<div class="ai-item"><div class="ai2"><div class="s">No upcoming holidays saved.</div></div></div>';
+      return;
+    }
+    const todayTime = today ? new Date(`${today}T00:00:00+08:00`).getTime() : Date.now();
+    el.innerHTML = holidays.map((holiday) => {
+      const date = new Date(`${holiday.holiday_date}T00:00:00+08:00`);
+      const day = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', day: 'numeric' }).format(date);
+      const when = new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+      const daysAway = Math.round((date.getTime() - todayTime) / 86400000);
+      const away = daysAway <= 0 ? 'Today' : daysAway === 1 ? 'Tomorrow' : `In ${daysAway} days`;
+      const kind = [holiday.type_label, holiday.day_part_label].filter(Boolean).join(' · ');
+      return `
+        <div class="ai-item">
+          <div class="av" style="width:32px;height:32px;font-size:11px;background:var(--teal);">${escapeHtml(day)}</div>
+          <div class="ai2">
+            <div class="n">${escapeHtml(holiday.name || 'Holiday')}</div>
+            <div class="s">${escapeHtml(when)} · ${escapeHtml(kind)}</div>
+          </div>
+          <div class="air"><div class="st" style="font-size:11px;color:var(--t3);">${escapeHtml(away)}</div></div>
+        </div>`;
+    }).join('');
+  } catch (error) {
+    el.innerHTML = `<div class="ai-item"><div class="ai2"><div class="s">${escapeHtml(error.message)}</div></div></div>`;
+  }
+}
+
+/** "Bonifacio Day, Nov 30 (8 h)": one holiday worked, from a payslip's holiday_lines. */
+function holidayLineLabel(line) {
+  const date = line?.date ? new Date(`${line.date}T00:00:00+08:00`) : null;
+  const when = date && !Number.isNaN(date.getTime())
+    ? new Intl.DateTimeFormat('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }).format(date)
+    : '';
+  const hours = line?.hours !== null && line?.hours !== undefined ? ` (${line.hours} h)` : '';
+  return `${line?.name || 'Holiday'}${when ? `, ${when}` : ''}${hours}`;
 }
 
 /** "Sick Leave · Sep 28 – Sep 29, 2026 · With pay · Approved by …" for an On Leave day. */
@@ -4617,8 +4674,8 @@ function attendanceStatusChips(board, rows) {
   const counts = new Map();
   (rows || []).forEach((row) => counts.set(row.status, (counts.get(row.status) || 0) + 1));
   const key = escapeJsArg(board.rootId);
-  const statuses = ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Pending Correction', 'Corrected', 'On Leave']
-    .filter((s) => s !== 'Pending Correction' || counts.get(s) || board.status === s);
+  const statuses = ['On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Incomplete', 'Pending Correction', 'Corrected', 'On Leave', 'Holiday']
+    .filter((s) => (s !== 'Pending Correction' && s !== 'Holiday') || counts.get(s) || board.status === s);
   return `<div class="att-chips" role="group" aria-label="Filter by status">${statuses.map((s) => {
     const n = counts.get(s) || 0;
     const active = board.status === s;
@@ -4662,7 +4719,7 @@ function attTapFlagNote(row) {
 }
 
 function attStatusCell(row) {
-  return `${attendanceStatusBadge(row.status)}${row.not_yet_tapped ? '<div class="att-row-note">No tap yet today</div>' : ''}${normalizeAttendanceStatusLabel(row.status) === 'On Leave' ? `<div class="att-row-note">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}${attCorrectedNote(row)}${attTapFlagNote(row)}`;
+  return `${attendanceStatusBadge(row.status)}${row.holiday_name ? `<div class="att-row-note">${escapeHtml(row.holiday_name)}</div>` : ''}${row.not_yet_tapped ? '<div class="att-row-note">No tap yet today</div>' : ''}${normalizeAttendanceStatusLabel(row.status) === 'On Leave' ? `<div class="att-row-note">${escapeHtml(attendanceLeaveSummary(row.leave))}</div>` : ''}${attCorrectedNote(row)}${attTapFlagNote(row)}`;
 }
 
 /** One record row: Employee, Date, Time In, Time Out, Hours, Late, Undertime, Status, Action. */
@@ -5781,6 +5838,8 @@ window.attendanceStatusBadge = attendanceStatusBadge;
 window.attendanceStatusColor = attendanceStatusColor;
 window.attendanceCalendarClass = attendanceCalendarClass;
 window.attendanceLeaveSummary = attendanceLeaveSummary;
+window.holidayLineLabel = holidayLineLabel;
+window.mountUpcomingHolidays = mountUpcomingHolidays;
 window.normalizeAttendanceStatusLabel = normalizeAttendanceStatusLabel;
 window.mountAttendanceBoard = mountAttendanceBoard;
 window.openOvertimeReview = openOvertimeReview;

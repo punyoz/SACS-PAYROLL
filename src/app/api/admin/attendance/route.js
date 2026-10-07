@@ -13,6 +13,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { LEAVE_TAP_MESSAGE, isEmployeeOnLeave, recordBlockedTap } from "@/lib/attendance/leave";
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
+import { isDayOff, readHolidayMap } from "@/lib/attendance/holidays";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -212,6 +213,10 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey, branchSco
     if (row.employee_id) byEmployee.set(row.employee_id, row);
   });
 
+  // On a holiday or whole-day suspension nobody who has not tapped is absent.
+  const holiday = (await readHolidayMap(supabase, dateKey, dateKey))?.get(dateKey) || null;
+  const untappedStatus = isDayOff(holiday) ? "Holiday" : "Absent";
+
   activeEmployees.forEach((employee) => {
     if (byEmployee.has(employee.id)) return;
     byEmployee.set(employee.id, {
@@ -222,11 +227,12 @@ async function fetchAttendanceRows(supabase, activeEmployees, dateKey, branchSco
       time_in: null,
       time_out: null,
       total_hours: 0,
-      status: "Absent",
+      status: untappedStatus,
       log_date: dateKey,
       created_at: null,
       branch_id: employee.branch_id || null,
       not_yet_tapped: true,
+      holiday_name: holiday && isDayOff(holiday) ? holiday.name : null,
     });
   });
 

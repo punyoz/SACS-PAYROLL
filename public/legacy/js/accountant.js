@@ -926,6 +926,7 @@ function renderAttendanceTable(rows) {
 
 /* ── DASHBOARD ── */
 function renderDashboard() {
+  window.mountUpcomingHolidays?.('ac-upcoming-holidays');
   const employees = acctState.employees || [];
   const records = acctState.records || [];
   const drafts = acctState.draftEntries || [];
@@ -1088,6 +1089,11 @@ function generateReport() {
     generatePayrollSheet();
     return;
   }
+  // Holiday Work: every holiday worked, from the payslips' own lines.
+  if (reportType === 'holidays') {
+    generateHolidayWorkReport();
+    return;
+  }
   const sheetEl = document.getElementById('rpt-sheet');
   if (sheetEl) sheetEl.style.display = 'none';
   const tableCard = document.getElementById('rpt-table-card');
@@ -1161,6 +1167,10 @@ function renderReportTable(reportType) {
 function exportReportCSV() {
   if (document.getElementById('rpt-type')?.value === 'sheet') {
     exportPayrollSheetCSV();
+    return;
+  }
+  if (document.getElementById('rpt-type')?.value === 'holidays') {
+    exportHolidayWorkCSV();
     return;
   }
   if (!_reportData.length) {
@@ -1257,6 +1267,9 @@ function renderPayslipDetails() {
   assign('ac-pf-rice', formatMoney(payslip.earnings?.rice || 0));
   assign('ac-pf-overtime', formatMoney(payslip.earnings?.overtime || 0));
   assign('ac-pf-holiday', formatMoney(payslip.earnings?.holiday_pay || 0));
+  // Each holiday worked, under Holiday Pay.
+  const holidayLinesEl = document.getElementById('ac-pf-holiday-lines');
+  if (holidayLinesEl) holidayLinesEl.innerHTML = acctHolidayRows(payslip.holiday_lines);
   assign('ac-pf-bonus', formatMoney(payslip.earnings?.bonus || 0));
   assign('ac-pf-gross', formatMoney(payslip.earnings?.gross_pay || 0));
 
@@ -2080,6 +2093,15 @@ function renderSemiMonthlyBanner() {
     : `<strong>2nd half settles ${escapeHtml(semi.month_label)}:</strong> attendance ${escapeHtml(acctShortDate(semi.window?.start_key))} – ${escapeHtml(acctDateLabel(semi.window?.end_key))}${semi.lock_day ? ` (locked on day ${escapeHtml(String(semi.lock_day))}; later items go to next month)` : ''}, approved leave, incentives and overload, the month's SSS / PhilHealth / Pag-IBIG and withholding tax from the monthly table. Net pay is the month's net less what the 1st half paid.`;
 }
 
+/** One indented, muted row per holiday worked (payslip.holiday_lines). */
+function acctHolidayRows(lines) {
+  return (lines || []).map((line) => `
+    <div class="pf-row" style="color:var(--t3);font-size:12px;">
+      <span style="padding-left:12px;">${escapeHtml(window.holidayLineLabel ? window.holidayLineLabel(line) : line.name)}</span>
+      <span class="mn">+ ${formatMoney(line.amount)}</span>
+    </div>`).join('');
+}
+
 /** Payslip page: the month behind a semi-monthly payslip, in place of the per-period breakdown. */
 function renderSemiMonthlyPayslip(payslip) {
   const monthlyEl = document.getElementById('ac-pf-monthly');
@@ -2129,7 +2151,7 @@ function renderSemiMonthlyPayslip(payslip) {
       ${row('Incentives', toAmount(Number(m.other_incentive || 0) + Number(m.attendance_incentives || 0)), { sign: '+ ', color: 'green' })}
       ${Number(m.overload_pay) > 0 ? row(`Overload Pay (${m.overload_hours} h)`, Number(m.overload_pay), { sign: '+ ', color: 'green' }) : ''}
       ${Number(m.overtime_pay) > 0 ? row('Overtime', Number(m.overtime_pay), { sign: '+ ', color: 'green' }) : ''}
-      ${Number(m.holiday_pay) > 0 ? row('Holiday Pay', Number(m.holiday_pay), { sign: '+ ', color: 'green' }) : ''}
+      ${Number(m.holiday_pay) > 0 ? row('Holiday Pay', Number(m.holiday_pay), { sign: '+ ', color: 'green' }) + acctHolidayRows(payslip.holiday_lines) : ''}
       ${row('Monthly Gross', Number(m.monthly_gross || 0), { bold: true, color: 'teal' })}
     </div>
     <div>
@@ -2477,6 +2499,82 @@ async function confirmCancelCashAdvance(advanceId) {
    and the "Approved for payment" block. */
 
 let _sheetData = null;
+
+/* ── Holiday Work report (GET ?view=holiday_work) ── */
+let _holidayWorkData = null;
+
+async function generateHolidayWorkReport() {
+  const period = document.getElementById('rpt-period')?.value || 'all';
+  const sheetEl = document.getElementById('rpt-sheet');
+  if (sheetEl) sheetEl.style.display = 'none';
+  const tableCard = document.getElementById('rpt-table-card');
+  if (tableCard) tableCard.style.display = '';
+  const thead = document.getElementById('rpt-thead');
+  const tbody = document.getElementById('rpt-tbody');
+  const titleEl = document.getElementById('rpt-table-title');
+  const summaryBox = document.getElementById('rpt-summary-box');
+  if (thead) thead.innerHTML = '<tr><th>Date</th><th>Holiday</th><th>Employee</th><th>Hours</th><th>Premium</th><th>Payslip</th></tr>';
+  if (tbody) tbody.innerHTML = skeletonRows(6, 3);
+  if (titleEl) titleEl.textContent = `Holiday Work — ${period === 'all' ? 'All Periods' : period}`;
+
+  try {
+    const response = await fetch(`/api/accountant/payroll?view=holiday_work&period=${encodeURIComponent(period)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to load the holiday work report.');
+    _holidayWorkData = data;
+    const totals = data.totals || {};
+    if (summaryBox) {
+      summaryBox.innerHTML = `
+        <div class="sr"><span>Employees</span><span style="font-family:var(--mono);">${Number(totals.employees || 0)}</span></div>
+        <div class="sr"><span>Holiday Days Worked</span><span style="font-family:var(--mono);">${Number(totals.days || 0)}</span></div>
+        <div class="sr"><span>Hours</span><span style="font-family:var(--mono);">${Number(totals.hours || 0)}</span></div>
+        <div class="sr tot"><span>Total Holiday Premium</span><span style="font-family:var(--mono);color:var(--green);">${formatMoney(totals.amount || 0)}</span></div>`;
+    }
+    const rows = data.rows || [];
+    if (!tbody) return;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--t3);">No holiday work paid in this period.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map((row) => `
+      <tr>
+        <td class="mn">${escapeHtml(acctDateLabel(row.date))}</td>
+        <td>${escapeHtml(row.holiday)}<div style="font-size:11px;color:var(--t3);">${row.type === 'special' ? 'Special day' : 'Regular holiday'}</div></td>
+        <td class="nm">${escapeHtml(row.employee_name)}<div style="font-size:11px;color:var(--t3);font-weight:400;">${escapeHtml(row.employee_code || '')}</div></td>
+        <td class="mn">${row.hours === null || row.hours === undefined ? '—' : escapeHtml(String(row.hours))}</td>
+        <td class="mn">${formatMoney(row.amount)}</td>
+        <td>${escapeHtml(row.payslip_no || '—')}${row.status === 'draft' ? '<div style="font-size:11px;color:var(--warn);">Draft</div>' : ''}</td>
+      </tr>`).join('');
+  } catch (error) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);">${escapeHtml(error.message)}</td></tr>`;
+  }
+}
+
+function exportHolidayWorkCSV() {
+  const rows = _holidayWorkData?.rows || [];
+  if (!rows.length) {
+    window.pushNotification?.('No Data', 'Generate the Holiday Work report first before exporting.', 'info');
+    return;
+  }
+  const csvText = (v) => {
+    const s = String(v ?? '');
+    return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s;
+  };
+  const headers = ['Date', 'Holiday', 'Type', 'Employee', 'Employee ID', 'Pay Period', 'Hours', 'Premium', 'Payslip No.', 'Status'];
+  const lines = rows.map((row) => [
+    row.date || '', row.holiday || '', row.type === 'special' ? 'Special day' : 'Regular holiday',
+    row.employee_name || '', row.employee_code || '', row.pay_period || '',
+    row.hours ?? '', String(toAmount(row.amount)), row.payslip_no || '', row.status || '',
+  ]);
+  const csv = [headers, ...lines].map((line) => line.map((v) => `"${csvText(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `holiday-work-${_holidayWorkData.period || 'all'}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function onReportTypeChange() {
   const sheet = document.getElementById('rpt-type')?.value === 'sheet';

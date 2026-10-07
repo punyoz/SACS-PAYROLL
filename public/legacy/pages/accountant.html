@@ -139,6 +139,14 @@
         </div>
       </div>
 
+      <!-- Upcoming holidays and suspensions (mountUpcomingHolidays in js/app.js). -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="sh"><span class="stitle">Upcoming Holidays</span></div>
+        <div class="ai-list" id="ac-upcoming-holidays">
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:60%"></div></div></div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="sh">
           <span class="stitle">Recent Payroll Activity</span>
@@ -357,6 +365,7 @@
             <div class="pf-row"><span>Basic Salary</span><span class="mn" id="ac-pf-basic">₱ 0.00</span></div>
             <div class="pf-row"><span>Overtime</span><span class="mn" id="ac-pf-overtime">₱ 0.00</span></div>
             <div class="pf-row"><span>Holiday Pay</span><span class="mn" id="ac-pf-holiday">₱ 0.00</span></div>
+            <div id="ac-pf-holiday-lines"></div>
             <div class="pf-row" style="font-weight:600;color:var(--t1);border-top:1px solid var(--border);margin-top:4px;padding-top:8px;"><span>Gross Pay</span><span class="mn" style="color:var(--teal);" id="ac-pf-gross">₱ 0.00</span></div>
             <div class="pf-stitle" style="margin-top:12px;">Incentives</div>
             <div class="pf-row"><span id="ac-pf-early-bird-label">Early Bird</span><span class="mn" style="color:var(--green);" id="ac-pf-early-bird">₱ 0.00</span></div>
@@ -660,6 +669,7 @@
                 <option value="summary">Payroll Summary</option>
                 <option value="deductions">Deductions Report</option>
                 <option value="sheet">Payroll Sheet (School Format)</option>
+                <option value="holidays">Holiday Work</option>
               </select>
             </div>
             <div class="fg" id="rpt-branch-wrap" style="display:none;">

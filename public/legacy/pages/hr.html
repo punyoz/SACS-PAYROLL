@@ -130,6 +130,14 @@
         </div>
       </div>
 
+      <!-- Upcoming holidays and suspensions (mountUpcomingHolidays in js/app.js). -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="sh"><span class="stitle">Upcoming Holidays</span></div>
+        <div class="ai-list" id="hr-upcoming-holidays">
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:60%"></div></div></div>
+        </div>
+      </div>
+
       <!-- Recent attendance -->
       <div class="card">
         <div class="sh"><span class="stitle">Recent Attendance Activity</span></div>
@@ -187,6 +195,42 @@
           </div>
           <button class="btn btn-outline" onclick="loadHRAllAttendance()">View All Records</button>
         </div>
+      </div>
+
+      <!-- Class / work suspensions (loadHRSuspensions in js/hr.js,
+           /api/admin/holidays). A whole-day suspension is a day off; a
+           morning or afternoon one shortens the day's schedule. -->
+      <div class="card" style="margin-bottom:14px;">
+        <div class="sh" style="margin-bottom:6px;"><span class="stitle">Suspensions</span><span class="sp"></span><button class="btn btn-outline" type="button" onclick="loadHRSuspensions()">Refresh</button></div>
+        <p style="font-size:12px;color:var(--t3);margin:0 0 10px;">Declare a typhoon or LGU suspension, even the same morning. Nobody is marked Absent on a whole-day suspension; on a half day, leaving at the cutoff is not undertime.</p>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+          <div class="fg" style="margin:0;min-width:160px;">
+            <label for="hr-susp-date">Date</label>
+            <input id="hr-susp-date" class="fc" type="date" />
+          </div>
+          <div class="fg" style="margin:0;min-width:200px;flex:1;">
+            <label for="hr-susp-name">Reason</label>
+            <input id="hr-susp-name" class="fc" type="text" maxlength="100" placeholder="e.g. Typhoon Kristine (LGU suspension)" />
+          </div>
+          <div class="fg" style="margin:0;min-width:180px;">
+            <label for="hr-susp-part">Part of the Day</label>
+            <select id="hr-susp-part" class="fc" onchange="onHRSuspensionPartChange()">
+              <option value="whole">Whole day</option>
+              <option value="pm">Afternoon (work ends early)</option>
+              <option value="am">Morning (work starts late)</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;min-width:140px;display:none;" id="hr-susp-cutoff-wrap">
+            <label for="hr-susp-cutoff" id="hr-susp-cutoff-label">Suspended From</label>
+            <input id="hr-susp-cutoff" class="fc" type="time" />
+          </div>
+          <button class="btn btn-primary" type="button" id="hr-susp-submit" onclick="addHRSuspension()">Add Suspension</button>
+        </div>
+        <p id="hr-susp-feedback" class="adm-feedback" style="margin-top:8px;"></p>
+        <div class="tw" style="margin-top:8px;"><table aria-label="Upcoming suspensions">
+          <thead><tr><th>Date</th><th>Reason</th><th>Part of the Day</th><th>Added by</th><th></th></tr></thead>
+          <tbody id="hr-susp-body"><tr><td colspan="5" style="color:var(--t3);">Loading...</td></tr></tbody>
+        </table></div>
       </div>
 
       <div class="sh"><span class="stitle" id="hr-att-title">Attendance Log — Today</span><span class="sp"></span><button class="btn btn-outline" onclick="exportHRAttendanceCsv()">Export CSV</button></div>

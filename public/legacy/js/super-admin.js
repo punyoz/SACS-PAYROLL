@@ -128,6 +128,7 @@ function loadSAProfile() {
 
 /* ── DASHBOARD ── */
 async function loadSADashboard() {
+  window.mountUpcomingHolidays?.('sa-upcoming-holidays');
   try {
     // Both payloads come from the shared short-TTL caches, so returning to
     // the dashboard from another page renders from memory instead of
@@ -1670,12 +1671,14 @@ async function loadSAHolidays(year) {
       return;
     }
     body.innerHTML = rows.map((row) => {
-      const upcoming = row.holiday_date > saHolidays.today;
+      // Not yet happened, or added by mistake today for today.
+      const addedToday = row.created_at && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(row.created_at)) === saHolidays.today;
+      const upcoming = row.holiday_date > saHolidays.today || (row.holiday_date === saHolidays.today && addedToday);
       return `
         <tr>
           <td class="mn">${escapeHtml(saHolidayDate(row.holiday_date))}</td>
-          <td class="nm">${escapeHtml(row.name || '')}</td>
-          <td>${row.type === 'special' ? 'Special Non-Working Day' : 'Regular Holiday'}</td>
+          <td class="nm">${escapeHtml(row.name || '')}${row.day_part_label ? `<div style="font-size:11px;color:var(--t3);font-weight:400;">${escapeHtml(row.day_part_label)}</div>` : ''}</td>
+          <td>${escapeHtml(row.type_label || (row.type === 'special' ? 'Special Non-Working Day' : 'Regular Holiday'))}</td>
           <td style="font-size:12px;color:var(--t3);">${escapeHtml(row.created_by_name || 'System')}</td>
           <td>${upcoming
             ? `<button class="btn btn-outline" type="button" style="padding:5px 12px;font-size:12px;" onclick="removeSAHoliday('${escapeJsArg(row.holiday_date)}')">Remove</button>`
@@ -1693,9 +1696,12 @@ async function addSAHoliday() {
   const date = String(document.getElementById('sa-hol-date')?.value || '').trim();
   const name = String(document.getElementById('sa-hol-name')?.value || '').trim();
   const type = String(document.getElementById('sa-hol-type')?.value || 'holiday');
+  const dayPart = type === 'suspension' ? String(document.getElementById('sa-hol-part')?.value || 'whole') : 'whole';
+  const cutoff = dayPart === 'whole' ? '' : String(document.getElementById('sa-hol-cutoff')?.value || '');
   const ok = requireFields([
     { field: 'sa-hol-date', check: (value) => (!value ? 'Choose the date.' : '') },
     { field: 'sa-hol-name', check: (value) => (!value ? 'Enter the name.' : '') },
+    ...(dayPart === 'whole' ? [] : [{ field: 'sa-hol-cutoff', check: (value) => (!value ? 'Enter the time.' : '') }]),
   ]);
   if (!ok) {
     if (fb) { fb.textContent = 'Fill in the highlighted fields.'; fb.className = 'adm-feedback err'; }
@@ -1707,18 +1713,62 @@ async function addSAHoliday() {
     const res = await fetch('/api/admin/holidays', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ holiday_date: date, name, type }),
+      body: JSON.stringify({ holiday_date: date, name, type, day_part: dayPart, cutoff }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Unable to add the holiday.');
 
-    const absentNote = data.absent_records
-      ? ` ${data.absent_records} Absent record${data.absent_records === 1 ? '' : 's'} already on that day ${data.absent_records === 1 ? 'is' : 'are'} no longer deducted by payroll.`
+    const absentNote = data.remarked_records
+      ? ` ${data.remarked_records} attendance record${data.remarked_records === 1 ? '' : 's'} for that day ${data.remarked_records === 1 ? 'was' : 'were'} updated.`
       : '';
     if (fb) { fb.textContent = `Added ${name} (${saHolidayDate(date)}).${absentNote}`; fb.className = 'adm-feedback ok'; }
     document.getElementById('sa-hol-date').value = '';
     document.getElementById('sa-hol-name').value = '';
     await loadSAHolidays(date.slice(0, 4));
+  } catch (error) {
+    if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/** Suspension: choose whole day / afternoon / morning; a part needs its time. */
+function onSAHolidayTypeChange() {
+  const suspension = document.getElementById('sa-hol-type')?.value === 'suspension';
+  const partWrap = document.getElementById('sa-hol-part-wrap');
+  const cutoffWrap = document.getElementById('sa-hol-cutoff-wrap');
+  const part = suspension ? String(document.getElementById('sa-hol-part')?.value || 'whole') : 'whole';
+  if (partWrap) partWrap.style.display = suspension ? '' : 'none';
+  if (cutoffWrap) cutoffWrap.style.display = part === 'whole' ? 'none' : '';
+  const label = document.getElementById('sa-hol-cutoff-label');
+  if (label) label.textContent = part === 'am' ? 'Work Resumes At' : 'Suspended From';
+}
+
+/** Adds the selected year's holidays fixed by law and Holy Week (existing days are kept). */
+async function generateSAHolidays() {
+  const fb = document.getElementById('sa-hol-feedback');
+  const button = document.getElementById('sa-hol-generate');
+  const year = Number(document.getElementById('sa-hol-year')?.value || saHolidays.year);
+  const proceed = window.confirmApproveAction
+    ? await window.confirmApproveAction(`generate the ${year} holidays`, 'Adds the holidays fixed by law and Holy Week for the year. Days already saved are kept as they are.', { title: 'Generate Holidays', confirmLabel: 'Generate' })
+    : window.confirm(`Generate the ${year} holidays?`);
+  if (!proceed) return;
+  if (button) button.disabled = true;
+  try {
+    const res = await fetch('/api/admin/holidays', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'generate', year }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to generate the holidays.');
+    if (fb) {
+      fb.textContent = data.added
+        ? `Added ${data.added} holiday${data.added === 1 ? '' : 's'} for ${year}. Add the proclaimed days (Eid, Chinese New Year, declared days) by hand.`
+        : `${year} already has every holiday fixed by law.`;
+      fb.className = 'adm-feedback ok';
+    }
+    await loadSAHolidays(year);
   } catch (error) {
     if (fb) { fb.textContent = error.message; fb.className = 'adm-feedback err'; }
   } finally {
@@ -3405,4 +3455,6 @@ window.loadSAPayslipOverrides = loadSAPayslipOverrides;
 window.loadSAHolidays = loadSAHolidays;
 window.addSAHoliday = addSAHoliday;
 window.removeSAHoliday = removeSAHoliday;
+window.onSAHolidayTypeChange = onSAHolidayTypeChange;
+window.generateSAHolidays = generateSAHolidays;
 window.openSAPayslipOverride = openSAPayslipOverride;

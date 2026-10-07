@@ -96,6 +96,14 @@
         <div class="card"><div class="ct">Pending Actions</div><div class="cv w" id="sa-dash-pending">—</div><div class="cch">Across all modules</div></div>
       </div>
 
+      <!-- Upcoming holidays and suspensions (mountUpcomingHolidays in js/app.js). -->
+      <div class="card" style="margin-bottom:16px;">
+        <div class="sh"><span class="stitle">Upcoming Holidays</span></div>
+        <div class="ai-list" id="sa-upcoming-holidays">
+          <div class="ai-item"><div class="ai2"><div class="sk-bar" style="width:60%"></div></div></div>
+        </div>
+      </div>
+
       <div class="sg2">
         <!-- System health -->
         <div class="card">
@@ -586,10 +594,13 @@
         <div class="config-section-head">
           <div>
             <div class="config-section-title">Holidays</div>
-            <div class="config-section-sub">Regular holidays and special non-working days. Nobody is marked Absent on them, and work on them earns the holiday premium in Payroll Rates.</div>
-            <div class="config-applies">Add each year's proclaimed days (Eid'l Fitr, Eid'l Adha, Chinese New Year, Black Saturday, All Souls' Day, Christmas Eve, declared days) as soon as they are announced.</div>
+            <div class="config-section-sub">Regular holidays, special non-working days and suspensions. Nobody is marked Absent on them (the day reads Holiday), and work on a holiday earns the holiday premium in Payroll Rates; a suspension earns none.</div>
+            <div class="config-applies">Each year's holidays fixed by law and Holy Week are added automatically every December 1 (or with Generate Year). Add the proclaimed days (Eid'l Fitr, Eid'l Adha, Chinese New Year, All Souls' Day, Christmas Eve, declared days) as soon as they are announced. HR can add suspensions too.</div>
           </div>
-          <button class="btn btn-outline" type="button" onclick="loadSAHolidays()">Refresh</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-outline" type="button" id="sa-hol-generate" onclick="generateSAHolidays()">Generate Year</button>
+            <button class="btn btn-outline" type="button" onclick="loadSAHolidays()">Refresh</button>
+          </div>
         </div>
         <div class="config-section-body">
           <div class="fg" style="margin:0;">
@@ -612,10 +623,23 @@
           </div>
           <div class="fg" style="margin:0;">
             <label for="sa-hol-type">Type</label>
-            <select id="sa-hol-type" class="fc">
+            <select id="sa-hol-type" class="fc" onchange="onSAHolidayTypeChange()">
               <option value="holiday">Regular Holiday</option>
               <option value="special">Special Non-Working Day</option>
+              <option value="suspension">Suspension (typhoon / declared)</option>
             </select>
+          </div>
+          <div class="fg" style="margin:0;display:none;" id="sa-hol-part-wrap">
+            <label for="sa-hol-part">Part of the Day</label>
+            <select id="sa-hol-part" class="fc" onchange="onSAHolidayTypeChange()">
+              <option value="whole">Whole day</option>
+              <option value="pm">Afternoon (work ends early)</option>
+              <option value="am">Morning (work starts late)</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;display:none;" id="sa-hol-cutoff-wrap">
+            <label for="sa-hol-cutoff" id="sa-hol-cutoff-label">Suspended From</label>
+            <input id="sa-hol-cutoff" class="fc" type="time" />
           </div>
           <div style="grid-column:1 / -1;">
             <button class="btn btn-primary" type="button" id="sa-hol-submit" onclick="addSAHoliday()">Add Holiday</button>

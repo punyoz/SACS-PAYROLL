@@ -6,13 +6,14 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import {
   formatPolicyTime12,
+  timeToMinutes,
   loadAttendanceConfig,
   resolveAttendancePolicy,
   tardinessMinutes,
   undertimeMinutes,
 } from "@/lib/attendance/policy";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { readHolidayMap } from "@/lib/attendance/holidays";
+import { cutoffMinutes, describeDayPart, readHolidayMap } from "@/lib/attendance/holidays";
 
 /* ── Philippine national holidays (2024-2027) ── */
 const PH_HOLIDAYS = {
@@ -50,8 +51,8 @@ const PH_HOLIDAYS = {
   "2026-12-25": { name: "Christmas Day",        type: "holiday" },
   "2026-12-30": { name: "Rizal Day",            type: "holiday" },
   "2027-01-01": { name: "New Year's Day",       type: "holiday" },
-  "2027-04-01": { name: "Maundy Thursday",      type: "holiday" },
-  "2027-04-02": { name: "Good Friday",          type: "holiday" },
+  "2027-03-25": { name: "Maundy Thursday",      type: "holiday" },
+  "2027-03-26": { name: "Good Friday",          type: "holiday" },
   "2027-04-09": { name: "Araw ng Kagitingan",   type: "holiday" },
   "2027-05-01": { name: "Labor Day",            type: "holiday" },
   "2027-06-12": { name: "Independence Day",     type: "holiday" },
@@ -164,7 +165,8 @@ function generateDateRange(startDate, endDate) {
 }
 
 // `holidays` is attendance_holidays for the range (Super Admin -> Holidays);
-// PH_HOLIDAYS covers a database that cannot be read.
+// PH_HOLIDAYS covers a database that cannot be read (holidays null). A
+// morning / afternoon suspension is a working day on a shorter schedule.
 function getShiftInfo(dateStr, policy = null, holidays = null) {
   const dow = getDayOfWeek(dateStr);
 
@@ -178,8 +180,30 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
     };
   }
 
-  const holiday = holidays?.get?.(dateStr) || PH_HOLIDAYS[dateStr];
-  if (holiday) {
+  const holiday = holidays ? holidays.get(dateStr) : PH_HOLIDAYS[dateStr];
+  const partial = holiday && holiday.day_part && holiday.day_part !== "whole";
+  if (partial && policy) {
+    const cutoff = cutoffMinutes(holiday.cutoff);
+    const start = timeToMinutes(policy.work_start);
+    const end = timeToMinutes(policy.work_end);
+    if (cutoff !== null && start !== null && end !== null && cutoff > start && cutoff < end) {
+      const span = Math.max(end - start, 1);
+      const hours = Number(policy.work_hours) || REQ_HOURS;
+      const cutoffText = String(holiday.cutoff).slice(0, 5);
+      const shortened = holiday.day_part === "pm"
+        ? { ...policy, work_end: cutoffText, work_hours: hours * (cutoff - start) / span }
+        : { ...policy, work_start: cutoffText, work_hours: hours * (end - cutoff) / span };
+      return {
+        row_type: "regular",
+        shift_type: `${holiday.name} (${describeDayPart(holiday)})`,
+        shift_in: formatPolicyTime12(shortened.work_start),
+        shift_out: formatPolicyTime12(shortened.work_end),
+        required_hours: Math.round(shortened.work_hours * 100) / 100,
+        policy: shortened,
+      };
+    }
+  }
+  if (holiday && !partial) {
     return {
       row_type: holiday.type,
       shift_type: holiday.name,
@@ -357,8 +381,10 @@ export async function GET(request) {
       let tardiness = 0;
       let undertime = 0;
       if (shift.row_type === "regular" && att?.time_in) {
-        tardiness = calcTardiness(att.time_in, policy);
-        if (att.time_out) undertime = calcUndertime(att.time_out, policy);
+        // A partial suspension's shorter schedule, when the day has one.
+        const dayPolicy = shift.policy || policy;
+        tardiness = calcTardiness(att.time_in, dayPolicy);
+        if (att.time_out) undertime = calcUndertime(att.time_out, dayPolicy);
       }
 
       return {

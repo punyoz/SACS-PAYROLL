@@ -6,6 +6,7 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { readApprovedLeave } from "@/lib/attendance/leave";
+import { describeDayPart, readHolidayMap } from "@/lib/attendance/holidays";
 
 function getCurrentPhilippineMonth() {
   const now = new Date();
@@ -155,6 +156,29 @@ export async function GET(request) {
       // Supplementary: the dashboard loads without it.
     }
 
+    // This month's holidays and suspensions (the calendar marks them), and
+    // the next one from today (the dashboard says what it is).
+    const holidayList = [];
+    const monthHolidays = await readHolidayMap(supabase, monthStart, monthEnd) || new Map();
+    monthHolidays.forEach((holiday, date) => {
+      if (date < monthEnd) holidayList.push({ date, name: holiday.name, type: holiday.type, day_part: holiday.day_part, note: describeDayPart(holiday) });
+    });
+    let nextHoliday = null;
+    try {
+      const next = await supabase
+        .from("attendance_holidays")
+        .select("holiday_date,name,type,day_part,cutoff")
+        .gte("holiday_date", todayKey)
+        .order("holiday_date", { ascending: true })
+        .limit(1);
+      const row = next.error ? null : (next.data || [])[0];
+      if (row) {
+        nextHoliday = { date: String(row.holiday_date).slice(0, 10), name: row.name, type: row.type, note: describeDayPart(row) };
+      }
+    } catch {
+      // Supplementary: the dashboard loads without it.
+    }
+
     // Basic salary from user metadata
     const basicSalary = Number(user.user_metadata?.basic_salary || 0) || null;
 
@@ -167,6 +191,8 @@ export async function GET(request) {
       basic_salary: formatPeso(basicSalary),
       today,
       records,
+      holidays: holidayList,
+      next_holiday: nextHoliday,
       month_label: monthLabel,
       today_key: todayKey,
     });
