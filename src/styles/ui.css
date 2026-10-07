@@ -21,6 +21,7 @@
 @source "../app/login";
 @source "../app/employee";
 @source "../app/admin";
+@source "../app/hr";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

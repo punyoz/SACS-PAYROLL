@@ -6,6 +6,7 @@ import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
 import { logAuditMovement } from "@/lib/portal/audit";
@@ -49,22 +50,9 @@ const DESCRIPTIONS = {
   "adm-profile": null,
 };
 
-// The employee whose record page is open: ?employee= in the URL, then this
-// session (attEmployeeStoredId, app.js), so a refresh reopens it.
-const EMPLOYEE_KEY = "sacs-att-employee";
-
-function storedEmployeeId() {
-  try {
-    return new URLSearchParams(window.location.search).get("employee") || sessionStorage.getItem(EMPLOYEE_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
 function AdminScreens() {
   const { can, me } = usePortalSession();
   const [page, setPage] = usePersistedPage("admin", PAGE_IDS, "adm-dashboard");
-  const [employeeId, setEmployeeId] = React.useState("");
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const [summary, setSummary] = React.useState([]);
@@ -76,13 +64,7 @@ function AdminScreens() {
   };
   const current = allowed(page) ? page : "adm-dashboard";
 
-  React.useEffect(() => {
-    if (current === EMPLOYEE_PAGE && !employeeId) {
-      const stored = storedEmployeeId();
-      if (stored) setEmployeeId(stored);
-      else setPage("adm-attendance");
-    }
-  }, [current, employeeId, setPage]);
+  const { employeeId, openEmployee, navigate } = useEmployeeRecordPage(current, setPage, EMPLOYEE_PAGE, "adm-attendance");
 
   // Every page opened is recorded in the audit trail, as before.
   React.useEffect(() => {
@@ -97,28 +79,6 @@ function AdminScreens() {
       metadata: { page_id: current },
     });
   }, [current, me]);
-
-  const openEmployee = React.useCallback((id) => {
-    const value = String(id || "");
-    if (!value) return;
-    setEmployeeId(value);
-    try { sessionStorage.setItem(EMPLOYEE_KEY, value); } catch { /* private mode */ }
-    setPage(EMPLOYEE_PAGE);
-    const params = new URLSearchParams(window.location.search);
-    params.set("employee", value);
-    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
-  }, [setPage]);
-
-  const navigate = React.useCallback((id) => {
-    if (id !== EMPLOYEE_PAGE) {
-      const params = new URLSearchParams(window.location.search);
-      if (params.has("employee")) {
-        params.delete("employee");
-        window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
-      }
-    }
-    setPage(id);
-  }, [setPage]);
 
   const refresh = React.useCallback(() => {
     setRefreshing(true);

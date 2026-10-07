@@ -28,7 +28,7 @@ export function StatCard({ label, value, hint, icon: Icon, tone = "primary", loa
           ) : (
             <p className="mt-0.5 truncate text-xl font-semibold tabular-nums tracking-tight">{value ?? "—"}</p>
           )}
-          {hint ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p> : null}
+          {hint ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{hint}</p> : null}
         </div>
       </CardContent>
     </Card>

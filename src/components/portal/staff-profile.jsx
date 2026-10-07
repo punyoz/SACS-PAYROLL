@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { HeartHandshakeIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
+import { HeartHandshakeIcon, LandmarkIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,7 @@ function Section({ icon: Icon, title, children }) {
   );
 }
 
-export function StaffProfilePage({ roleLabel }) {
+export function StaffProfilePage({ roleLabel, showPosition = false, showBank = false }) {
   const { ctx, updateContext } = usePortalSession();
   const { open } = useAccountDialogs();
 
@@ -72,7 +72,7 @@ export function StaffProfilePage({ roleLabel }) {
               <h2 className="truncate text-xl font-semibold">{name}</h2>
               <Badge variant="secondary">{roleLabel}</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">{ctx?.position || roleLabel} · Shepherd Angels Christian School</p>
+            <p className="text-sm text-muted-foreground">{ctx?.position || ctx?.employee_type || roleLabel} · Shepherd Angels Christian School</p>
           </div>
           <Button variant="outline" onClick={() => open("profile")}><PencilIcon aria-hidden="true" />Edit account</Button>
         </CardContent>
@@ -83,6 +83,7 @@ export function StaffProfilePage({ roleLabel }) {
           <InfoList items={[
             { label: "Full name", value: ctx?.full_name },
             { label: "ID", value: ctx?.staff_id },
+            ...(showPosition ? [{ label: "Position", value: ctx?.position }, { label: "Employee type", value: ctx?.employee_type }] : []),
             { label: "Email address", value: ctx?.email, wide: true },
             { label: "Account role", value: ctx?.role },
             { label: "Contact number", value: formatContactNumber(ctx?.cp_number) },
@@ -105,6 +106,14 @@ export function StaffProfilePage({ roleLabel }) {
             { label: "TIN", value: formatPiiForDisplay(ctx?.tin_number, DIGIT_FIELD_SPECS.tin_number.groups) },
           ]} />
         </Section>
+        {showBank ? (
+          <Section icon={LandmarkIcon} title="Bank information">
+            <InfoList items={[
+              { label: "Bank name", value: ctx?.bank_name },
+              { label: "Bank account number", value: ctx?.bank_account_number },
+            ]} />
+          </Section>
+        ) : null}
       </div>
     </>
   );
