@@ -38,7 +38,21 @@ function hoursText(value) {
 
 const COLUMNS = recordColumns({ canReview: true, showType: true });
 
-export function AttendancePage({ refreshKey, onNavigate }) {
+const ADMIN_TERMINAL_TEXT = "Open the dedicated tap-in/tap-out screen for your branch's RFID reader. It replaces this view and is locked behind your Administration password.";
+
+/**
+ * Also the Super Admin's Attendance page (public/legacy/js/super-admin.js
+ * loadSAAttendanceData): every branch, a branch filter on the status board,
+ * and its CSV export is not written to the audit trail (auditActor null).
+ */
+export function AttendancePage({
+  refreshKey,
+  onNavigate,
+  maintenancePage = "adm-maintenance",
+  terminalText = ADMIN_TERMINAL_TEXT,
+  branchFilter = false,
+  auditActor = "Admin",
+}) {
   const { notify } = usePortalSession();
   const { version } = useAttendanceActions();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
@@ -87,12 +101,13 @@ export function AttendancePage({ refreshKey, onNavigate }) {
       ["Employee", "Type", "Time In", "Time Out", "Hours", "Status"],
       rows.map((row) => [row.employee_name || "", row.employee_type || "", timeOnly(row.time_in), timeOnly(row.time_out), hoursText(row.total_hours), row.status || ""]),
     );
+    if (!auditActor) return;
     logAuditMovement({
       module: "ui",
       action: "export_csv",
       entity_type: "attendance",
       entity_id: dateKey,
-      description: "Admin exported attendance CSV.",
+      description: `${auditActor} exported attendance CSV.`,
       source: "ui",
       metadata: { row_count: rows.length },
     });
@@ -107,7 +122,7 @@ export function AttendancePage({ refreshKey, onNavigate }) {
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><RadioTowerIcon className="size-5" aria-hidden="true" /></span>
           <div className="flex-1">
             <p className="font-semibold">RFID Terminal</p>
-            <p className="text-sm text-muted-foreground">Open the dedicated tap-in/tap-out screen for your branch&apos;s RFID reader. It replaces this view and is locked behind your Administration password.</p>
+            <p className="text-sm text-muted-foreground">{terminalText}</p>
           </div>
           <Button onClick={() => hardNavigate("/rfid-terminal")}>Open RFID Terminal</Button>
         </CardContent>
@@ -151,11 +166,11 @@ export function AttendancePage({ refreshKey, onNavigate }) {
         </CardContent>
       </Card>
 
-      <AttendanceStatusBoard refreshKey={refreshKey} />
+      <AttendanceStatusBoard refreshKey={refreshKey} branchFilter={branchFilter} />
 
       <p className="text-sm text-muted-foreground">
         Need to record a tap manually? Use the RFID scan input under{" "}
-        <Button variant="link" className="h-auto p-0" onClick={() => onNavigate("adm-maintenance")}>System Maintenance</Button>.
+        <Button variant="link" className="h-auto p-0" onClick={() => onNavigate(maintenancePage)}>System Maintenance</Button>.
       </p>
     </>
   );

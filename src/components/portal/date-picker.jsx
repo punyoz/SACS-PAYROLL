@@ -20,14 +20,18 @@ function dateToKey(date) {
 
 /**
  * A date field: a button that opens the shadcn Calendar in a popover. The
- * value is a "YYYY-MM-DD" string, the same as an <input type="date">.
+ * value is a "YYYY-MM-DD" string, the same as an <input type="date">; `min`
+ * and `max` (also date keys) limit the days that can be picked.
  */
 export const DatePicker = React.forwardRef(function DatePicker(
-  { id, value, onChange, placeholder = "Pick a date", disabled, className, "aria-invalid": invalid, ...props },
+  { id, value, onChange, placeholder = "Pick a date", disabled, className, min, max, "aria-invalid": invalid, ...props },
   ref,
 ) {
   const [open, setOpen] = React.useState(false);
   const selected = keyToDate(value);
+  const minDate = keyToDate(min);
+  const maxDate = keyToDate(max);
+  const limits = [minDate ? { before: minDate } : null, maxDate ? { after: maxDate } : null].filter(Boolean);
   const label = selected
     ? selected.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })
     : placeholder;
@@ -53,8 +57,11 @@ export const DatePicker = React.forwardRef(function DatePicker(
         <Calendar
           mode="single"
           selected={selected}
-          defaultMonth={selected}
+          defaultMonth={selected || maxDate}
           captionLayout="dropdown"
+          disabled={limits.length ? limits : undefined}
+          startMonth={minDate}
+          endMonth={maxDate}
           onSelect={(date) => {
             onChange?.(dateToKey(date));
             setOpen(false);

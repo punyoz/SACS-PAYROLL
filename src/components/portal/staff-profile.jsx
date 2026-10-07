@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { HeartHandshakeIcon, LandmarkIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
+import { HeartHandshakeIcon, KeyRoundIcon, LandmarkIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,12 @@ function Section({ icon: Icon, title, children }) {
   );
 }
 
-export function StaffProfilePage({ roleLabel, showPosition = false, showBank = false, employeeIdLabel = false }) {
+/**
+ * accountOnly: the Super Admin's account has no employee record (loadSAProfile,
+ * super-admin.js) — name, role, email, ID and emergency contact only, with
+ * Change Password in place of Edit Account.
+ */
+export function StaffProfilePage({ roleLabel, showPosition = false, showBank = false, employeeIdLabel = false, accountOnly = false }) {
   const { ctx, updateContext } = usePortalSession();
   const { open } = useAccountDialogs();
 
@@ -74,7 +79,9 @@ export function StaffProfilePage({ roleLabel, showPosition = false, showBank = f
             </div>
             <p className="text-sm text-muted-foreground">{ctx?.position || ctx?.employee_type || roleLabel} · Shepherd Angels Christian School</p>
           </div>
-          <Button variant="outline" onClick={() => open("profile")}><PencilIcon aria-hidden="true" />Edit account</Button>
+          {accountOnly
+            ? <Button variant="outline" onClick={() => open("password")}><KeyRoundIcon aria-hidden="true" />Change password</Button>
+            : <Button variant="outline" onClick={() => open("profile")}><PencilIcon aria-hidden="true" />Edit account</Button>}
         </CardContent>
       </Card>
 
@@ -87,8 +94,10 @@ export function StaffProfilePage({ roleLabel, showPosition = false, showBank = f
             ...(showPosition ? [{ label: "Position", value: ctx?.position }, { label: "Employee type", value: ctx?.employee_type }] : []),
             { label: "Email address", value: ctx?.email, wide: true },
             ...(employeeIdLabel ? [] : [{ label: "Account role", value: ctx?.role }]),
-            { label: "Contact number", value: formatContactNumber(ctx?.cp_number) },
-            { label: "Home address", value: ctx?.address, wide: true },
+            ...(accountOnly ? [] : [
+              { label: "Contact number", value: formatContactNumber(ctx?.cp_number) },
+              { label: "Home address", value: ctx?.address, wide: true },
+            ]),
           ]} />
         </Section>
         <Section icon={HeartHandshakeIcon} title="Emergency contact">
@@ -99,14 +108,16 @@ export function StaffProfilePage({ roleLabel, showPosition = false, showBank = f
             { label: "Address", value: ctx?.emergency_contact_address, wide: true },
           ]} />
         </Section>
-        <Section icon={ShieldCheckIcon} title="Government contributions">
-          <InfoList items={[
-            { label: "SSS number", value: ctx?.sss_number },
-            { label: "PhilHealth number", value: ctx?.philhealth_number },
-            { label: "Pag-IBIG number", value: ctx?.pagibig_number },
-            { label: "TIN", value: formatPiiForDisplay(ctx?.tin_number, DIGIT_FIELD_SPECS.tin_number.groups) },
-          ]} />
-        </Section>
+        {accountOnly ? null : (
+          <Section icon={ShieldCheckIcon} title="Government contributions">
+            <InfoList items={[
+              { label: "SSS number", value: ctx?.sss_number },
+              { label: "PhilHealth number", value: ctx?.philhealth_number },
+              { label: "Pag-IBIG number", value: ctx?.pagibig_number },
+              { label: "TIN", value: formatPiiForDisplay(ctx?.tin_number, DIGIT_FIELD_SPECS.tin_number.groups) },
+            ]} />
+          </Section>
+        )}
         {showBank ? (
           <Section icon={LandmarkIcon} title="Bank information">
             <InfoList items={[

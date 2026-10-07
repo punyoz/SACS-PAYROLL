@@ -64,7 +64,12 @@ export const AUDIT_COLUMNS = [
   { key: "source", header: "Source", cell: (l) => l.source || "api" },
 ];
 
-export function AuditLogsPage({ refreshKey }) {
+/**
+ * Also the Super Admin's Audit & Monitoring (loadSAAuditLogs /
+ * exportSAAuditCsv, public/legacy/js/super-admin.js): 200 rows, its own CSV
+ * name, and the export is not written to the audit trail (auditActor null).
+ */
+export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-audit-logs.csv", auditActor = "Admin" }) {
   const { notify } = usePortalSession();
   const [search, setSearch] = React.useState("");
   const [query, setQuery] = React.useState("");
@@ -83,7 +88,7 @@ export function AuditLogsPage({ refreshKey }) {
     const mine = ++seq.current;
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
-      const params = new URLSearchParams({ module, action, search: query, limit: "250" });
+      const params = new URLSearchParams({ module, action, search: query, limit: String(limit) });
       const payload = await fetchJson(`/api/admin/audit-logs?${params}`);
       if (mine !== seq.current) return;
       setState({ loading: false, error: null, logs: payload.logs || [], summary: payload.summary || { total: 0, success: 0, failed: 0 } });
@@ -91,7 +96,7 @@ export function AuditLogsPage({ refreshKey }) {
       if (mine !== seq.current) return;
       setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load audit logs" }));
     }
-  }, [module, action, query]);
+  }, [module, action, query, limit]);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
@@ -101,16 +106,17 @@ export function AuditLogsPage({ refreshKey }) {
       return;
     }
     downloadCsv(
-      "sacs-audit-logs.csv",
+      csvName(),
       ["Timestamp", "Module", "Action", "Entity Type", "Entity ID", "Description", "Status", "Source"],
       state.logs.map((l) => [formatAuditTime(l.created_at), l.module || "", l.action || "", l.entity_type || "", l.entity_id || "", l.description || "", l.status || "", l.source || ""]),
     );
+    if (!auditActor) return;
     logAuditMovement({
       module: "ui",
       action: "export_csv",
       entity_type: "audit_logs",
       entity_id: "audit_logs",
-      description: "Admin exported audit logs CSV.",
+      description: `${auditActor} exported audit logs CSV.`,
       source: "ui",
       metadata: { row_count: state.logs.length },
     });

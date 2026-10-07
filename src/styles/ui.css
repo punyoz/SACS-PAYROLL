@@ -23,6 +23,7 @@
 @source "../app/admin";
 @source "../app/hr";
 @source "../app/accountant";
+@source "../app/super-admin";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

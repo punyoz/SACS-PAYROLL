@@ -100,7 +100,7 @@ function AssignDialog({ device, onOpenChange, onSaved }) {
   );
 }
 
-function ScanCard() {
+function ScanCard({ auditActor }) {
   const [value, setValue] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -127,15 +127,17 @@ function ScanCard() {
       const payload = await fetchJson("/api/admin/attendance", jsonBody("POST", { rfid_code: code, manual_entry: true }));
       setValue("");
       setFeedback({ text: scanMessage(payload.record, payload.tap) || payload.message || "RFID scan recorded.", ok: true });
-      logAuditMovement({
-        module: "ui",
-        action: "rfid_scan",
-        entity_type: "attendance",
-        entity_id: code,
-        description: "Admin submitted RFID attendance scan.",
-        source: "ui",
-        metadata: { persisted: Boolean(payload.persisted) },
-      });
+      if (auditActor) {
+        logAuditMovement({
+          module: "ui",
+          action: "rfid_scan",
+          entity_type: "attendance",
+          entity_id: code,
+          description: `${auditActor} submitted RFID attendance scan.`,
+          source: "ui",
+          metadata: { persisted: Boolean(payload.persisted) },
+        });
+      }
     } catch (error) {
       setFeedback({ text: error.message || "Failed to process RFID scan", ok: false });
     } finally {
@@ -143,7 +145,7 @@ function ScanCard() {
       setBusy(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
-  }, []);
+  }, [auditActor]);
 
   function onChange(event) {
     // Numbers only: drop anything else typed or pasted.
@@ -178,7 +180,14 @@ function ScanCard() {
   );
 }
 
-export function MaintenancePage({ refreshKey }) {
+const ADMIN_REGISTRATION_TEXT = "Assign or update RFID UIDs for employees in your branch. The UID matches card taps to attendance records. Void a card that is lost or no longer in use.";
+
+/**
+ * Also the Super Admin's System Maintenance (loadSASystemData and friends,
+ * public/legacy/js/super-admin.js): every branch, and a scan is not written
+ * to the audit trail (auditActor null).
+ */
+export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin" }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, devices: [] });
   const [editing, setEditing] = React.useState(null);
@@ -245,7 +254,7 @@ export function MaintenancePage({ refreshKey }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><CreditCardIcon className="size-4 text-gold-text" aria-hidden="true" />RFID device registration</CardTitle>
-          <CardDescription>Assign or update RFID UIDs for employees in your branch. The UID matches card taps to attendance records. Void a card that is lost or no longer in use.</CardDescription>
+          <CardDescription>{registrationText}</CardDescription>
           <CardAction>
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
@@ -266,7 +275,7 @@ export function MaintenancePage({ refreshKey }) {
         </CardContent>
       </Card>
 
-      <ScanCard />
+      <ScanCard auditActor={auditActor} />
 
       <AssignDialog device={editing} onOpenChange={(open) => { if (!open) setEditing(null); }} onSaved={load} />
       {confirmDialog}
