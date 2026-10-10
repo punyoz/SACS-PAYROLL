@@ -3,7 +3,7 @@
  *
  * Confirms the signed-in Admin's own password, without creating or changing
  * any session. This is the lock/unlock check for the RFID Terminal
- * (public/legacy/rfid-terminal.html): opening the terminal and leaving it
+ * (src/app/rfid-terminal/rfid-terminal.jsx): opening the terminal and leaving it
  * both require the same Admin who opened it to re-type their password, so a
  * kiosk left unattended near the RFID reader cannot be walked away from or
  * closed by anyone else who happens to be at the desk.

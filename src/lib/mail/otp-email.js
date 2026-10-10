@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const LOGO_FILE = path.join(process.cwd(), "public", "legacy", "assets", "logo-160.png");
+const LOGO_FILE = path.join(process.cwd(), "public", "brand", "logo-160.png");
 const LOGO_CID = "sacs-logo@sacs-payroll";
 
 const GREEN = "#1B5E3C";

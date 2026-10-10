@@ -30,13 +30,13 @@ function semiMonthlyRows(m, holidayLines = []) {
 
   if (m.half === "first") {
     row("Monthly Salary", formatPeso(m.monthly_salary));
-    row("1st Half Pay (÷ 2)", formatPeso(m.semi_monthly_pay), "total");
+    row(m.new_hire ? `Paid from Hire Date (${days(m.new_hire.days)} × ${formatPeso(m.new_hire.daily_rate)})` : "1st Half Pay (÷ 2)", formatPeso(m.semi_monthly_pay), "total");
     row("Deductions", "None this half", "note");
     row(`Absences, leave, incentives, contributions and tax for ${m.month_label || "the month"} are settled on the ${m.second_half_label || "2nd half"} payslip.`, "", "note");
     return rows;
   }
 
-  row(`Monthly Salary — ${m.month_label || ""}`, formatPeso(m.monthly_salary));
+  row(m.new_hire ? `Paid from Hire Date (${days(m.new_hire.days)} × ${formatPeso(m.new_hire.daily_rate)})` : `Monthly Salary — ${m.month_label || ""}`, formatPeso(m.monthly_salary));
   minus(`Absences without pay (${days(m.absent_days || 0)})`, m.absent_deduction);
   minus(`Leave Without Pay (${days(m.leave_without_pay_days || 0)})`, m.leave_without_pay_deduction);
   minus("Late", m.late_deduction);
@@ -125,7 +125,7 @@ function PayslipCard({ payslip }) {
     <Card className="gap-0 overflow-hidden py-0 shadow-xs">
       <div className="flex items-center gap-3 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-5 py-4 text-white">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/legacy/assets/logo-160.png" alt="" width={40} height={40} className="size-10 shrink-0 rounded-full bg-white/95 p-0.5" />
+        <img src="/brand/logo-160.png" alt="" width={40} height={40} className="size-10 shrink-0 rounded-full bg-white/95 p-0.5" />
         <div className="min-w-0">
           <h3 className="truncate font-semibold">Shepherd Angels Christian School</h3>
           <p className="truncate text-sm text-white/80">{issued ? `${payslip.period_label} · Issued ${issued}` : payslip.period_label}</p>

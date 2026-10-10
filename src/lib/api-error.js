@@ -1,3 +1,5 @@
+import { captureException } from '@sentry/nextjs';
+
 const TECHNICAL_PATTERNS = [
   'duplicate key value violates',
   'unique constraint',
@@ -24,6 +26,12 @@ const TECHNICAL_PATTERNS = [
 ];
 
 export function sanitizeError(error, fallback = 'Something went wrong. Please try again.') {
+  // The real error goes to error monitoring (off until SENTRY_DSN is set,
+  // src/instrumentation.js); the caller only ever sees the friendly text.
+  // Plain strings are messages written for people, not failures.
+  if (error && typeof error === 'object') {
+    try { captureException(error); } catch { /* monitoring must never break a response */ }
+  }
   const msg = typeof error === 'string' ? error : (error?.message || String(error || ''));
   if (!msg) return fallback;
   const lower = msg.toLowerCase();

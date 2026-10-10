@@ -137,11 +137,25 @@ describe("taps on the kiosk session", () => {
     expect(table("attendance_taps")[0]).toMatchObject({ tapped_at: manila("07:52:00"), device: "RFID Terminal (sent late)" });
   });
 
-  it("refuses a saved tap more than a day old", async () => {
+  it("refuses a saved tap more than a day old, and keeps it in Blocked Taps for HR", async () => {
     vi.setSystemTime(new Date(manila("09:30:00", "2026-10-04")));
     const { response } = await tap({ rfid_code: CARD, offline_tapped_at: manila("07:52:00") });
     expect(response.status).toBe(422);
     expect(table("attendance_logs")).toHaveLength(0);
+    // Not lost silently: filed under the day it was tapped, with who and why.
+    const blocked = table("attendance_blocked_taps");
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]).toMatchObject({ log_date: DAY, source: "rfid_tap" });
+    expect(blocked[0].employee_id).toBeTruthy();
+    expect(blocked[0].reason).toMatch(/^Saved offline tap refused \(tapped .*7:52 AM\): The saved tap is more than a day old/);
+  });
+
+  it("refuses a saved tap from the future, and keeps it in Blocked Taps", async () => {
+    vi.setSystemTime(new Date(manila("07:00:00")));
+    const { response } = await tap({ rfid_code: CARD, offline_tapped_at: manila("09:00:00") });
+    expect(response.status).toBe(422);
+    expect(table("attendance_logs")).toHaveLength(0);
+    expect(table("attendance_blocked_taps")[0].reason).toMatch(/in the future/);
   });
 
   it("ignores an offline time sent on an ordinary session (only the kiosk may back-date)", async () => {

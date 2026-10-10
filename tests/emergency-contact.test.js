@@ -103,19 +103,26 @@ describe("the Edit dialogs and Profile pages carry it", () => {
     expect(source).toMatch(/emergency_contact_name,emergency_contact_relationship/);
   });
 
-  it.each([
-    ["employee", "ep-ec"],
-    ["accountant", "ac-ep-ec"],
-    ["admin", "adm-ep-ec"],
-    ["hr", "hr-ep-ec"],
-    ["super-admin", "sa-ep-ec"],
-  ])("%s Profile page shows the card", (page, prefix) => {
-    const html = readFileSync(`public/legacy/pages/${page}.html`, "utf8");
-    const js = readFileSync(`public/legacy/js/${page}.js`, "utf8");
+  it("employee Profile page shows the card", () => {
+    const page = readFileSync("src/app/employee/profile-page.jsx", "utf8");
     ["name", "relationship", "number", "address"].forEach((field) => {
-      expect(html).toContain(`id="${prefix}-${field}"`);
+      expect(page).toContain(`emergency_contact_${field}`);
     });
-    expect(js).toContain(`loadOwnEmergencyContact('${prefix}')`);
+  });
+
+  it.each([
+    ["accountant", "ac-profile"],
+    ["admin", "adm-profile"],
+    ["hr", "hr-profile"],
+    ["super-admin", "sa-profile"],
+  ])("%s Profile page shows the card", (portal, pageId) => {
+    // The four staff portals share one Profile page.
+    const shell = readFileSync(`src/app/${portal}/${portal}-portal.jsx`, "utf8");
+    expect(shell).toContain(`current === "${pageId}" ? <StaffProfilePage`);
+    const profile = readFileSync("src/components/portal/staff-profile.jsx", "utf8");
+    ["name", "relationship", "number", "address"].forEach((field) => {
+      expect(profile).toContain(`ctx?.emergency_contact_${field}`);
+    });
   });
 });
 
@@ -135,15 +142,13 @@ describe("every account-creation path collects it", () => {
   });
 
   it.each([
-    ["public/legacy/pages/hr.html", "public/legacy/js/hr.js"],
-    ["public/legacy/pages/super-admin.html", "public/legacy/js/super-admin.js"],
-  ])("%s has the fields and its script sends them", (page, script) => {
-    const html = readFileSync(page, "utf8");
-    const js = readFileSync(script, "utf8");
+    "src/app/hr/employee-form-dialog.jsx",
+    "src/app/super-admin/staff-account-dialogs.jsx",
+  ])("%s has the fields", (path) => {
+    const source = readFileSync(path, "utf8");
     ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_address", "emergency_contact_number"]
       .forEach((name) => {
-        expect(html).toContain(`name="${name}"`);
-        expect(js).toContain(`${name}`);
+        expect(source).toContain(`"${name}"`);
       });
   });
 });

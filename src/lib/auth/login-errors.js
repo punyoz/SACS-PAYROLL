@@ -3,8 +3,7 @@
  *
  * Supabase Auth returns its own wording ("Invalid login credentials", "Email
  * not confirmed", "For security purposes, you can only request this after 27
- * seconds"), which the login screen used to show verbatim — see
- * public/legacy/js/app.js, which alerts `result.error` as it arrives. This maps
+ * seconds"), which the login screen used to show verbatim. This maps
  * those onto messages a payroll clerk can act on.
  *
  * ENUMERATION

@@ -1,12 +1,11 @@
 /**
- * The browser-side display context the legacy portals read after sign-in.
+ * The browser-side display context the portals read after sign-in.
  *
- * public/legacy/js/app.js's saveAuthContext() writes this object to
- * localStorage["sacs-auth-context"] and every portal reads it for names,
- * the role and the must-change-password gate (public/legacy/index.html). The
- * React sign-in screen has to leave exactly the same thing behind, so this is
- * a line-for-line port of that function and its two name helpers. Keep the
- * two in step.
+ * The sign-in screen writes this object to localStorage["sacs-auth-context"]
+ * and every portal reads it for names, the role and the must-change-password
+ * gate (src/components/portal/session.jsx, password-gate.jsx). It began as a
+ * line-for-line port of the retired legacy portal's saveAuthContext() and its
+ * two name helpers.
  *
  * Display only: the signed HttpOnly session cookie is what authorizes
  * anything (src/proxy.js).

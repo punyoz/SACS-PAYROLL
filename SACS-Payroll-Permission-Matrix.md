@@ -23,11 +23,11 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 1 | Dashboard (role-specific view) | F (all branches) | P (own branch) | P (all branches) | P (own branch) | P (own record) |
 | 2 | Attendance | F (all branches, edit/override) | P (own branch, edit/correct) | P (all branches, monitor + correct) | V (reference only, no edit) | V (own record only) |
 | **MANAGEMENT** |
-| 3 | User/Account Management | F — can create/archive Admin, HR, Accountant, Employee accounts, any branch (no permanent delete) | P — can create/edit/archive HR, Accountant, Employee accounts, own branch only. Cannot create Admin/Super Admin | P — can view/edit Employee accounts in own branch | — | — |
-| 4 | Employee Information (records, 201 files) | F (all branches) | P (own branch) | F (own branch — primary owner of this module) | V (for payroll reference) | V (own profile only) |
+| 3 | User/Account Management | F — can create/archive Admin, HR, Accountant, Employee accounts, any branch (no permanent delete) | P — can create/edit/archive HR, Accountant, Employee accounts, own branch only. Cannot create Admin/Super Admin | F — can create/edit/archive Employee and Accountant accounts, all branches. Cannot create Admin/HR/Super Admin | — | — |
+| 4 | Employee Information (records, 201 files) | F (all branches) | P (own branch) | F (all branches — primary owner of this module) | V (for payroll reference) | V (own profile only) |
 | 4a | Licensed-teacher fields (licensed switch, PRC no., expiry, PRC ID, verification) | V (all branches) | V (own branch) | F (edit + verify, all branches) — only role that can change them | — | — |
 | 5 | Branch Management (create/edit/close branches) | F | — | — | — | — |
-| 6 | Branch Assignment (assign staff to a branch) | F (any staff, any branch) | P (within own branch only) | P (within own branch only) | — | — |
+| 6 | Branch Assignment (assign staff to a branch) | F (any staff, any branch) | P (within own branch only) | P (any branch) | — | — |
 | 7 | Roles & Permissions (define what each role can do) | F — exclusive | — | — | — | — |
 | 8 | Leave Approval | F (override any decision) | V | F (all branches) | — | Submit only (own requests) |
 | **ATTENDANCE / RFID** |
@@ -49,6 +49,8 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | **ACCOUNT** |
 | 20 | Profile | F (own) | F (own) | F (own) | F (own) | F (own) |
 | 21 | Timesheet | F (all, view/adjust) | V (own branch) | V (all branches) | V (reference) | F (own — view/print) |
+
+HR serves **every branch** (decision of Sep 24, 2026, `supabase/migrations/20260924020000_hr_all_branches.sql`; updated here Oct 10, 2026): HR accounts carry no branch, every module HR can reach is all-branches, and the account ceiling is Employee and Accountant only. The executable matrix is `src/lib/rbac/permissions.js`.
 
 ---
 

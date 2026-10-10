@@ -270,7 +270,7 @@ export function ReportsPage() {
       <Card data-print-area className="min-w-0 shadow-xs">
         <div className="hidden items-center gap-3 px-6 print:flex">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/legacy/assets/logo.png" alt="" width={56} height={56} className="size-14" />
+          <img src="/brand/logo.png" alt="" width={56} height={56} className="size-14" />
           <div>
             <p className="font-semibold">Shepherd Angels Christian School</p>
             <p className="text-sm">SACS Payroll Management System — Payroll report</p>

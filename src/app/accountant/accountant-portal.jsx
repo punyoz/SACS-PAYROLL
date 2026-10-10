@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
 import {
   ActivityIcon,
@@ -23,7 +25,6 @@ import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/com
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { AccountantDataProvider, useAccountant } from "./accountant-data";
-import { DashboardPage } from "./dashboard-page";
 import { ProcessPage } from "./process-page";
 import { RecordsPage } from "./records-page";
 import { PayRecordPage } from "./pay-record-page";
@@ -36,6 +37,9 @@ import { ThirteenthMonthPage } from "./thirteenth-month-page";
 import { AttendancePage } from "./attendance-page";
 import { MonitoringPage } from "./monitoring-page";
 import { ReportsPage } from "./reports-page";
+
+// Charts (recharts) load with this page, not with the portal.
+const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
 
 /*
  * Page ids are the legacy portal's (public/legacy/js/accountant.js

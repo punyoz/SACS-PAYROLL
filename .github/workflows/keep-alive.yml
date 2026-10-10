@@ -1,0 +1,37 @@
+# Keeps the Supabase Free project from pausing during school breaks
+# (docs/backup-and-restore.md section 5). Calls /api/health once a day; that
+# endpoint makes one tiny database read. The uptime monitor is the main
+# keep-alive; this is the backup.
+#
+# Setup: GitHub → Settings → Secrets and variables → Actions → Variables →
+# New repository variable HEALTH_URL = https://<payroll-domain>/api/health
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "17 1 * * *"   # 09:17 Asia/Manila, daily
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /api/health
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+        run: |
+          if [ -z "$HEALTH_URL" ]; then
+            echo "::warning::Set the HEALTH_URL repository variable (docs/backup-and-restore.md)."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "$HEALTH_URL" || true)
+            echo "attempt $attempt: HTTP $status"
+            [ "$status" = "200" ] && exit 0
+            sleep 30
+          done
+          echo "::error::$HEALTH_URL did not answer 200"
+          exit 1

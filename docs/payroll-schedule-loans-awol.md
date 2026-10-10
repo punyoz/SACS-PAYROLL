@@ -169,8 +169,10 @@ The pay date still comes from the Pay Calendar and is unchanged.
 ### 1st half (1–15)
 
 1. Skip employees on **payroll hold** (AWOL / Separated, §5) and list them as "Held".
-2. Earnings = Rate (monthly ÷ 2).
-3. Deductions = none. Net pay = Rate.
+2. Earnings = Rate (monthly ÷ 2). **New hire** (hired after the 1st): Daily ×
+   paid days from the hire date to the 15th, never more than Rate; hired
+   after the 15th: no 1st-half payslip (§7.6).
+3. Deductions = none. Net pay = earnings.
 4. Save as Final and lock it.
 
 ### 2nd half (16–end)
@@ -180,11 +182,16 @@ The pay date still comes from the Pay Calendar and is unchanged.
    lates, undertime, half days, unpaid holidays.
 3. Attendance deductions = their sum, **capped at the monthly salary**.
 4. Monthly gross = monthly salary − attendance deductions + incentives / overload / premiums.
+   **New hire** (hired after the 1st): the month's salary is Daily × paid
+   days from the hire date to month end, never more than the monthly salary
+   (§7.6); the rest of the flow is the same.
 5. **Subsidy (licensed teachers, §6):**
    - in the month an advance was released: memo line only, not deducted;
    - in the payout month: earning "Licensed teacher subsidy" = entitlement − advances;
    - any Admin-approved missed-month adjustment (§6.8): earning, paid once.
 6. Government contributions (SSS, PhilHealth, Pag-IBIG, employee share).
+   **None when the month's gross is ₱0** (no earnings; decision of Oct 10,
+   2026, §5.3). The Accountant can still enter an amount, logged as an override.
 7. Withholding tax from the monthly table, on gross − contributions (plus any taxable subsidy part).
 8. Room = gross + subsidy payout − contributions − tax − 1st half paid − carry-in.
 9. If room < 0: net ₱0, carry-over = −room, and no loan is deducted. Stop.
@@ -212,6 +219,7 @@ Attendance deds    = min(Absences + Lates + Undertime + Half days, Monthly)   �
 
 Monthly gross      = Monthly − Attendance deds + Incentives + Overload + Premiums
 Contributions      = SSS + PhilHealth + Pag-IBIG    (school: 400 + 0 + 200)
+                     = 0 when Monthly gross = 0 (no earnings, §5.3)
 Taxable            = Monthly gross − Contributions (+ taxable subsidy, §6.5)
 Tax                = base + rate × (Taxable − bracket_over)   (BIR monthly table)
 
@@ -220,6 +228,12 @@ Room               = Monthly gross + Subsidy payout − Contributions − Tax
 Loan deduction     = min(amortization, remaining balance, max(0, room))
 2nd half net       = max(0, Room − Loans − Other)
 Carry-over out     = max(0, −Room)
+
+New hire (hired after the 1st of the month, decision of Oct 10, 2026):
+Paid days         = Mon–Fri from the hire date to the span's end (Mon–Sat if
+                    the divisor is 300+); holidays count, as in the 261 divisor
+1st half          = min(Rate, Daily × paid days to the 15th); none if hired after the 15th
+Month salary      = min(Monthly, Daily × paid days to month end)  → used in place of Monthly above
 ```
 
 ### Divisor and cap (decision 3)
@@ -267,8 +281,15 @@ deduction by surprise.
 
 ### Moving cash advances into Loans (decision 5)
 
+> **Done (October 10, 2026).** The live `payroll_cash_advances` table had no
+> rows, so nothing needed moving, and step 3's lock is live
+> (`20261009030000_cash_advances_read_only.sql`), so no new advance can be
+> added. The one-off script from step 2 was deleted; it is in git history
+> (tag `before-legacy-removal`) if ever needed. The steps below are kept as
+> the record of what it did.
+
 1. **Schema** (§8 part A) adds `payroll_loans.legacy_cash_advance_id`.
-2. **Script** `scripts/migrate-cash-advances-to-loans.mjs`. Run it right
+2. **Script** `scripts/migrate-cash-advances-to-loans.mjs` (deleted). Run it right
    after a 2nd-half batch is Final. For each `active` / `on_hold` advance:
    - repaid so far = `repaidByAdvance()` from Final payslips (the existing logic);
    - balance = principal − repaid; skip it if ₱0;
@@ -742,6 +763,39 @@ no. ••••4521, expiry Mar 3, 2030, and the ID scan; the status shows
 *Pending HR verification*. HR verifies on **Wed Jul 14**, before the 15th,
 so July counts: Jul–Dec = 6 months → **₱12,000**, paid on the Dec 16–31,
 2027 payslip. Both entries appear in the change log.
+
+### 7.6 New hires in October 2026 (decision of Oct 10, 2026)
+
+Monthly ₱30,000, school settings (Daily ₱1,379.31, SSS ₱400 + Pag-IBIG ₱200).
+Each half pays **Daily × paid days from the hire date**; deductions are on
+the 2nd half only. Paid days are Monday to Friday; holidays count.
+
+**Paolo Diaz, hired Wed Oct 7.**
+
+| | ₱ |
+|---|---:|
+| **Oct 1–15** (generated Thu Oct 15): Oct 7, 8, 9, 12, 13, 14, 15 = 7 days × 1,379.31 | **9,655.17** |
+| Month salary: Oct 7–31 = 18 paid days × 1,379.31 | 24,827.58 |
+| − SSS + Pag-IBIG | 600.00 |
+| − Tax: (24,227.58 − 20,833) × 15% | 509.19 |
+| Monthly net | 23,718.39 |
+| − 1st half paid | 9,655.17 |
+| **Oct 16–31** (generated Fri Oct 30) | **14,063.22** |
+
+**Liza Cruz, hired Tue Oct 20.**
+
+| | ₱ |
+|---|---:|
+| Oct 1–15 | no payslip (hired after the 15th) |
+| Month salary: Oct 20, 21, 22, 23, 26, 27, 28, 29, 30 = 9 days × 1,379.31 | 12,413.79 |
+| − SSS + Pag-IBIG | 600.00 |
+| − Tax (taxable 11,813.79 is under 20,833) | 0.00 |
+| **Oct 16–31** | **11,813.79** |
+
+The payslip shows "Paid from hire date (9 days)" with the note "Hired Oct 20,
+2026: 9 days × 1,379.31". Absences after the hire date are deducted as for
+everyone; days before it are never marked Absent (the nightly close starts at
+the hire date). Someone hired before October is paid as in §7.1.
 
 ---
 
@@ -2603,7 +2657,7 @@ flowchart TD
 |---|---|
 | `supabase/migrations/<date>_payslip_schedule_loans_awol_subsidy.sql` | §8 Part A |
 | `supabase/migrations/<date>_cash_advances_read_only.sql` | §8 Part B (after the script) |
-| `scripts/migrate-cash-advances-to-loans.mjs` | one-off move of active cash advances (§4) |
+| ~~`scripts/migrate-cash-advances-to-loans.mjs`~~ | one-off move of active cash advances (§4); done and deleted Oct 10, 2026 (nothing to move) |
 | `src/lib/payroll/schedule.js` | reads `payroll_schedule_for()`, banner text |
 | `src/lib/payroll/loans.js` | loan scheduling, mirroring `cash-advance.js` |
 | `src/lib/payroll/teacher-subsidy.js` | eligibility months, entitlement, payout, separation settlement, tax flag |
@@ -2652,4 +2706,4 @@ flowchart TD
 | `src/app/admin/admin-portal.jsx`, `src/app/hr/hr-portal.jsx`, `src/lib/rbac/menu.js` | AWOL, loan-decision and Approvals menu entries (no Licensed Teachers page) |
 | `src/app/accountant/loans-page.jsx` (new, above) | a Subsidy adjustments tab |
 | `SACS-Payroll-Permission-Matrix.md` | new row "Licensed-teacher fields": Super Admin V · Admin V (own branch) · HR F · Accountant — · Employee — |
-| `public/` legacy files, `index.html` `window._bv` | only if a legacy file changes; bump `_bv` |
+| ~~`public/` legacy files, `index.html` `window._bv`~~ | not applicable: the legacy portal was retired on 2026-10-10 |

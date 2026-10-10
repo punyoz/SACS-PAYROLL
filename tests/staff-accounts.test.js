@@ -23,9 +23,22 @@ import { buildDefaultPassword, isDefaultPassword } from "@/lib/auth/password-pol
 
 const staffRoute = readFileSync("src/app/api/admin/staff-accounts/route.js", "utf8");
 const proxySource = readFileSync("src/proxy.js", "utf8");
-const superAdminPage = readFileSync("public/legacy/pages/super-admin.html", "utf8");
-const superAdminScript = readFileSync("public/legacy/js/super-admin.js", "utf8");
+const staffDialogs = readFileSync("src/app/super-admin/staff-account-dialogs.jsx", "utf8");
 const usersRoute = readFileSync("src/app/api/admin/users/route.js", "utf8");
+
+/**
+ * The field names a Super Admin dialog collects: the quoted names in its
+ * `const <NAME> = [...]` list, with ...EC_FIELDS expanded.
+ */
+function dialogFields(listName) {
+  const list = (name) => {
+    const match = staffDialogs.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\];`));
+    expect(match, name).not.toBeNull();
+    return match[1];
+  };
+  const body = list(listName).replace(/\.\.\.EC_FIELDS/g, list("EC_FIELDS"));
+  return [...body.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+}
 
 /** A complete, valid staff record, so each test can vary one field. */
 function validBody(overrides = {}) {
@@ -146,17 +159,14 @@ describe("Staff accounts carry no payroll or statutory fields", () => {
     // title from the role regardless of what was stored.
     expect(normalizeStaffFields(validBody({ position: "HR Officer" }))).not.toHaveProperty("position");
     expect(STAFF_REQUIRED_FIELDS).not.toContain("position");
-    const formStart = superAdminPage.indexOf('id="sa-staff-account-form"');
-    const form = superAdminPage.slice(formStart, superAdminPage.indexOf("</form>", formStart));
-    expect(form).not.toContain('name="position"');
+    expect(dialogFields("ADD_FIELDS")).not.toContain("position");
   });
 
   it("the Super Admin form has no input for them", () => {
-    const formStart = superAdminPage.indexOf('id="sa-staff-account-form"');
-    expect(formStart).toBeGreaterThan(-1);
-    const form = superAdminPage.slice(formStart, superAdminPage.indexOf("</form>", formStart));
+    const fields = dialogFields("ADD_FIELDS");
+    expect(fields.length).toBeGreaterThan(0);
     for (const field of forbidden) {
-      expect(form).not.toContain('name="' + field + '"');
+      expect(fields).not.toContain(field);
     }
   });
 });
@@ -321,13 +331,12 @@ describe("Staff names are stored split, with a composed full name", () => {
   });
 
   it("both Super Admin forms collect four name fields instead of one", () => {
-    for (const formId of ["sa-staff-account-form", "sa-admin-user-form"]) {
-      const start = superAdminPage.indexOf(`id="${formId}"`);
-      const form = superAdminPage.slice(start, superAdminPage.indexOf("</form>", start));
+    for (const list of ["ADD_FIELDS", "EDIT_FIELDS"]) {
+      const fields = dialogFields(list);
       for (const name of ["first_name", "middle_name", "last_name", "suffix"]) {
-        expect(form, `${formId} ${name}`).toContain(`name="${name}"`);
+        expect(fields, `${list} ${name}`).toContain(name);
       }
-      expect(form, formId).not.toContain('name="full_name"');
+      expect(fields, list).not.toContain("full_name");
     }
   });
 });
@@ -336,9 +345,11 @@ describe("Staff names are stored split, with a composed full name", () => {
 
 describe("Quick Add has been removed", () => {
   it("has no button, and the Edit dialog no longer creates accounts", () => {
-    expect(superAdminPage).not.toMatch(/Quick Add/i);
-    expect(superAdminPage).not.toContain("openSAAdminUserModal()");
-    expect(superAdminScript).not.toMatch(/method:\s*'POST',[^}]*\n[^}]*\/api\/admin\/users|fetch\('\/api\/admin\/users',\s*\{\s*method:\s*'POST'/);
+    expect(staffDialogs).not.toMatch(/Quick Add/i);
+    // Accounts are created only through /api/admin/staff-accounts; the Edit
+    // dialog only PATCHes /api/admin/users.
+    expect(staffDialogs).toMatch(/"\/api\/admin\/staff-accounts", jsonBody\("POST"/);
+    expect(staffDialogs).not.toMatch(/"\/api\/admin\/users", jsonBody\("POST"/);
   });
 
   it("/api/admin/users no longer has a POST handler", () => {

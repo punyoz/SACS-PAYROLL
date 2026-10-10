@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
 import { CalendarCheckIcon, ClipboardCheckIcon, LayoutDashboardIcon, ScrollTextIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
@@ -10,12 +12,14 @@ import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
 import { logAuditMovement } from "@/lib/portal/audit";
-import { DashboardPage } from "./dashboard-page";
 import { AttendancePage } from "./attendance-page";
 import { AuditLogsPage } from "./audit-logs-page";
 import { MaintenancePage } from "./maintenance-page";
-import { BranchReportsPage } from "./branch-reports-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
+
+// Charts (recharts) load with these pages, not with the portal.
+const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
+const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m) => m.BranchReportsPage), { loading: PageSkeleton });
 
 /*
  * Page ids are the legacy portal's (public/legacy/js/admin.js ADMIN_PAGES),

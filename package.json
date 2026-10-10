@@ -14,7 +14,8 @@
     "supabase:check": "node scripts/check-supabase-connection.mjs",
     "supabase:seed-users": "node scripts/seed-auth-users.mjs",
     "supabase:purge-archived": "node scripts/purge-archived-employees.mjs",
-    "mailtm": "node scripts/mailtm-inbox.mjs"
+    "mailtm": "node scripts/mailtm-inbox.mjs",
+    "db:backup": "node scripts/backup/backup-db.mjs"
   },
   "keywords": [
     "nextjs",
@@ -23,13 +24,13 @@
   ],
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
+    "@sentry/nextjs": "^10.75.3",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.102.0",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "date-fns": "^4.4.0",
     "dotenv": "^17.4.1",
     "input-otp": "^1.5.0",
     "lucide-react": "^1.52.0",

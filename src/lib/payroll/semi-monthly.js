@@ -168,6 +168,43 @@ export function resolveTaxTableRows(rows, dateKey) {
   return inForce.filter((row) => row.version_id === newest.version_id);
 }
 
+/**
+ * Paid days from `fromKey` to `toKey` (inclusive): Monday to Friday, or
+ * Monday to Saturday when the divisor counts Saturdays (300 or more working
+ * days a year, e.g. 313). Holidays are included: they are part of what a
+ * monthly salary pays, and the 261 divisor counts them.
+ */
+export function paidDaysBetween(fromKey, toKey, divisor = 261) {
+  const withSaturday = Number(divisor) >= 300;
+  let count = 0;
+  const day = new Date(`${fromKey}T00:00:00Z`);
+  const end = new Date(`${toKey}T00:00:00Z`);
+  if (Number.isNaN(day.getTime()) || Number.isNaN(end.getTime())) return 0;
+  while (day <= end) {
+    const weekday = day.getUTCDay();
+    if (weekday >= 1 && (weekday <= 5 || (withSaturday && weekday === 6))) count += 1;
+    day.setUTCDate(day.getUTCDate() + 1);
+  }
+  return count;
+}
+
+/**
+ * A new hire's pay for a span (docs/payroll-schedule-loans-awol.md §7.6):
+ * daily rate × paid days from the hire date to the span's end, never more
+ * than `cap` (the span's normal pay). Returns null when the employee was
+ * hired on or before the span's first day (paid normally), and
+ * { not_hired: true } when hired after its last day.
+ */
+export function hireProration({ dateHired, startKey, endKey, dailyRate, cap, divisor = 261 }) {
+  const hired = String(dateHired || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(hired) || hired <= startKey) return null;
+  if (hired > endKey) return { hired_on: hired, not_hired: true, days: 0, amount: 0 };
+  const days = paidDaysBetween(hired, endKey, divisor);
+  const daily = peso(dailyRate);
+  const amount = Math.min(peso(daily * days), peso(cap));
+  return { hired_on: hired, not_hired: false, days, daily_rate: daily, amount, capped: amount < peso(daily * days) };
+}
+
 /** 1st half: the full semi-monthly salary, nothing deducted. */
 export function computeFirstHalf({ monthlySalary }) {
   const pay = peso((Number(monthlySalary) || 0) / 2);

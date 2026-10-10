@@ -14,7 +14,6 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { PH_BARANGAYS, PH_CITIES, PH_PROVINCES, PH_REGIONS } from "@/lib/portal/ph-locations";
 import { cn } from "@/lib/utils";
 
 /*
@@ -44,8 +43,20 @@ const REGION_LABELS = {
   BARMM: "BARMM – Bangsamoro Autonomous Region",
 };
 
+// The Philippine address lists (~75 KB) load the first time the Branch dialog
+// opens, not with the Super Admin portal.
+const NO_LOCATIONS = { PH_REGIONS: [], PH_PROVINCES: {}, PH_CITIES: {}, PH_BARANGAYS: {} };
+let phLocationsPromise = null;
+function loadPhLocations() {
+  phLocationsPromise ??= import("@/lib/portal/ph-locations").catch((error) => {
+    phLocationsPromise = null;
+    throw error;
+  });
+  return phLocationsPromise;
+}
+
 /** The selects for a stored location string (populateSABranchLocationSelects). */
-function parseLocation(location) {
+function parseLocation(location, { PH_REGIONS, PH_PROVINCES, PH_CITIES, PH_BARANGAYS } = NO_LOCATIONS) {
   const text = String(location || "");
   const parts = text.split(",").map((s) => s.trim()).filter(Boolean);
   const find = (list, startsWith = false) => (list || []).find((v) => parts.includes(v))
@@ -63,15 +74,32 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
+  const [ph, setPh] = React.useState(NO_LOCATIONS);
+  const { PH_REGIONS, PH_PROVINCES, PH_CITIES, PH_BARANGAYS } = ph;
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
+    let cancelled = false;
     setErrors({});
     setFeedback({ text: "", ok: false });
     setBusy(false);
     setValues(branch
-      ? { name: branch.name || "", code: branch.code || "", status: branch.status || "Active", ...parseLocation(branch.location) }
+      ? { name: branch.name || "", code: branch.code || "", status: branch.status || "Active", ...parseLocation(branch.location, ph) }
       : { name: "", code: nextCode, status: "Active", region: "", province: "", city: "", barangay: "" });
+    // First opening: fetch the address lists, then fill an edited branch's
+    // location (the selects stay disabled until they have options).
+    if (ph === NO_LOCATIONS) {
+      loadPhLocations()
+        .then((lists) => {
+          if (cancelled) return;
+          setPh(lists);
+          if (branch) setValues((current) => ({ ...current, ...parseLocation(branch.location, lists) }));
+        })
+        .catch(() => { if (!cancelled) setFeedback({ text: "Could not load the address lists. Close and reopen the dialog.", ok: false }); });
+    }
+    return () => { cancelled = true; };
+    // ph is read only to know whether the lists are loaded yet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, branch, nextCode]);
 
   const set = (key, value) => {

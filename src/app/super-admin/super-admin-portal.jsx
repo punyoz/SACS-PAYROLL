@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
 import {
   BuildingIcon,
@@ -24,12 +26,14 @@ import { manilaDateKey } from "@/lib/portal/format";
 import { AttendancePage } from "../admin/attendance-page";
 import { AuditLogsPage } from "../admin/audit-logs-page";
 import { MaintenancePage } from "../admin/maintenance-page";
-import { DashboardPage } from "./dashboard-page";
 import { BranchesPage } from "./branches-page";
 import { AccountsPage } from "./accounts-page";
 import { RolesPage } from "./roles-page";
 import { ConfigPage } from "./config-page";
 import { BackupPage } from "./backup-page";
+
+// Charts (recharts) load with this page, not with the portal.
+const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
 
 /*
  * Page ids are the legacy portal's (SA_PAGES, public/legacy/js/super-admin.js),

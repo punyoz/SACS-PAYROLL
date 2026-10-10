@@ -63,7 +63,7 @@ function SemiMonthly({ payslip }) {
       <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
         <Section title="Earnings — 1st half">
           <Row label="Monthly salary" value={money(m.monthly_salary)} />
-          <Row label="Semi-monthly pay (÷ 2)" value={money(m.semi_monthly_pay)} strong tone="gold" />
+          <Row label={m.new_hire ? `Paid from hire date (${plural(m.new_hire.days, "day")} × ${money(m.new_hire.daily_rate)})` : "Semi-monthly pay (÷ 2)"} value={money(m.semi_monthly_pay)} strong tone="gold" />
         </Section>
         <Section title="Deductions">
           <Row label="None this half" value={money(0)} />
@@ -77,7 +77,7 @@ function SemiMonthly({ payslip }) {
     <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
       <Section title={`Month of ${m.month_label || ""}`}>
         {m.window ? <Row muted label={`Attendance ${shortDate(m.window.start_key)} – ${shortDate(m.window.end_key)}`} value={`Daily ${money(m.daily_rate)}`} /> : null}
-        <Row label="Monthly salary" value={money(m.monthly_salary)} />
+        <Row label={m.new_hire ? `Paid from hire date (${plural(m.new_hire.days, "day")} × ${money(m.new_hire.daily_rate)})` : "Monthly salary"} value={money(m.monthly_salary)} />
         <Row label={`Absences without pay (${plural(m.absent_days || 0, "day")})`} value={`- ${money(m.absent_deduction)}`} tone="minus" />
         <Row label={`Leave without pay (${plural(m.leave_without_pay_days || 0, "day")})`} value={`- ${money(m.leave_without_pay_deduction)}`} tone="minus" />
         {attendance.map(([label, amount]) => <Row key={label} label={label} value={`- ${money(amount)}`} tone="minus" />)}
@@ -161,7 +161,7 @@ function PayslipDocument({ payslip }) {
       <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-6 py-5 text-white print:py-3">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width={52} height={52} className="size-13 shrink-0 rounded-full bg-white/95 p-0.5" />
+          <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width={52} height={52} className="size-13 shrink-0 rounded-full bg-white/95 p-0.5" />
           <div>
             <p className="font-semibold">Shepherd Angels Christian School</p>
             <p className="text-sm text-white/80">SACS Payroll Management System</p>

@@ -1,7 +1,7 @@
 /**
  * The RFID kiosk's own session.
  *
- * The terminal (public/legacy/rfid-terminal.html) used to post taps on the
+ * The terminal (src/app/rfid-terminal) used to post taps on the
  * unlocking Admin's ordinary sign-in. That sign-in lasts 8 hours at most and
  * is replaced the moment the same Admin signs in anywhere else, and every tap
  * after that was refused with a red light: a kiosk unlocked at 7:00 stopped

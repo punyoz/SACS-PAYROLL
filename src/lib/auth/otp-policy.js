@@ -12,7 +12,7 @@
  *
  * The same answer decides who uses the emailed code for Forgot Password
  * (src/lib/auth/password-otp.js canResetPassword) and Change Password
- * (/api/legacy-auth/change-password-otp, public/legacy/js/app.js).
+ * (/api/legacy-auth/change-password-otp, src/components/portal/account-dialogs.jsx).
  *
  * EVERY ROLE. Since 2026-10-07 Super Admin, Admin and HR sign in with the
  * emailed code too (the operator lifted the earlier exemption). Every account

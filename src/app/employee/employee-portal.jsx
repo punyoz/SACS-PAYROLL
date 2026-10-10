@@ -1,17 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
 import { CalendarCheckIcon, CalendarDaysIcon, ClockIcon, LayoutDashboardIcon, ReceiptTextIcon, UserRoundIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { useEmployeeStats, useLeaveRequests, usePayslips } from "./use-employee-data";
-import { DashboardPage } from "./dashboard-page";
 import { AttendancePage } from "./attendance-page";
 import { TimesheetPage } from "./timesheet-page";
 import { PayslipsPage } from "./payslips-page";
 import { LeavePage } from "./leave-page";
 import { ProfilePage } from "./profile-page";
+
+// Charts (recharts) load with this page, not with the portal.
+const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
 
 /*
  * Page ids are the legacy portal's (public/legacy/js/employee.js EMP_PAGES),

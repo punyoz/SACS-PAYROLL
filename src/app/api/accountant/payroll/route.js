@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
@@ -21,6 +23,7 @@ import {
   computeFirstHalf,
   computeSecondHalf,
   halfOf,
+  hireProration,
   monthInfo,
   monthKeyOf,
   monthlyWindow,
@@ -187,6 +190,8 @@ function shapeEmployee(user, profile, index) {
     // position's rates.
     rate_position: normalizeText(profile?.position),
     branch_id: profile?.branch_id || metadata.branch_id || null,
+    // New hires are paid by the day from this date (hireProration, §7.6).
+    date_hired: profile?.date_hired || null,
   };
 }
 
@@ -239,7 +244,7 @@ async function fetchEmployees(supabase, guard = null) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,branch_id,position")
+      .select("id,email,full_name,branch_id,position,date_hired")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -933,6 +938,40 @@ async function readHolidays(supabase, periodStart, periodEnd) {
 
 const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql, 20261003010000_semi_monthly_payroll.sql and 20261006010000_school_payroll_sheet.sql) first.";
 
+/**
+ * The school seal printed on payslip PDFs. Replace the file to change it
+ * (JPEG, square, about 300 x 300 px); shipped with this route by
+ * next.config.mjs outputFileTracingIncludes. Missing -> no seal.
+ */
+const SEAL_FILE = path.join(process.cwd(), "public", "brand", "seal-payslip.jpg");
+let sealCache;
+function payslipSeal() {
+  if (sealCache === undefined) {
+    try {
+      sealCache = readFileSync(SEAL_FILE);
+    } catch {
+      sealCache = null;
+    }
+  }
+  return sealCache;
+}
+
+/** A new hire's paid days on the payslip (docs/payroll-schedule-loans-awol.md §7.6). */
+function newHireNote(hire) {
+  return {
+    hired_on: hire.hired_on,
+    days: hire.days,
+    daily_rate: hire.daily_rate,
+    amount: hire.amount,
+    text: `Hired ${formatDateKey(hire.hired_on)}: ${hire.days} day${hire.days === 1 ? "" : "s"} × ${money(hire.daily_rate)}`,
+  };
+}
+
+/** Why a new hire has no payslip for a period that ended before the hire date. */
+function notHiredRefusal(hire, periodLabel) {
+  return `Hired ${formatDateKey(hire.hired_on)}, after ${periodLabel}: there is no payslip for this period.`;
+}
+
 /** Zero amounts for a 1st half with no Final payslip. */
 const NO_FIRST_HALF = Object.freeze({ gross_pay: 0, total_deductions: 0, total_incentives: 0, net_pay: 0, basic_earned: 0 });
 
@@ -1335,7 +1374,17 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
   const semi = context.semi;
   const rates = rateValues(resolved);
   const reason = normalizeText(input.override_reason);
-  const defaultBasic = computeFirstHalf({ monthlySalary: employee.basic_salary }).semi_monthly_pay;
+  const halfPay = computeFirstHalf({ monthlySalary: employee.basic_salary }).semi_monthly_pay;
+  // A new hire is paid by the day from the hire date (§7.6), not the full Rate.
+  const hire = hireProration({
+    dateHired: employee.date_hired,
+    startKey: period.start_key,
+    endKey: period.end_key,
+    dailyRate: rates.daily,
+    cap: halfPay,
+    divisor: rates.working_days_per_year,
+  });
+  const defaultBasic = hire ? hire.amount : halfPay;
   const basic = pickAmount(input.basic_salary, defaultBasic);
   const deviations = differs(defaultBasic, basic)
     ? [{ field: "basic_salary", default: toAmount(defaultBasic), value: toAmount(basic) }]
@@ -1353,6 +1402,7 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     monthly_salary: toAmount(employee.basic_salary),
     semi_monthly_pay: toAmount(basic),
     net_pay: payroll.totals.net_pay,
+    ...(hire && !hire.not_hired ? { new_hire: newHireNote(hire) } : {}),
   };
   // The school's payroll sheet, 1-15: the full Rate, nothing deducted.
   payroll.sheet = {
@@ -1390,9 +1440,12 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     reason,
     // Attendance is counted in the 2nd half, so nothing here waits on it.
     blocking: [],
-    refusal: semi.second_half_final
-      ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
-      : null,
+    refusal: hire?.not_hired
+      ? notHiredRefusal(hire, period.label)
+      : semi.second_half_final
+        ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
+        : null,
+    refusal_code: hire?.not_hired ? "not_hired_yet" : "month_settled",
     defaults: {
       statutory_method: "semi_monthly_first",
       semi_monthly: "first",
@@ -1491,7 +1544,16 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   };
 
   // The 2nd half computes the whole month on the monthly salary.
-  const defaultBasic = settling ? toAmount(employee.basic_salary) : toAmount(Number(employee.basic_salary || 0) / 2);
+  const normalBasic = settling ? toAmount(employee.basic_salary) : toAmount(Number(employee.basic_salary || 0) / 2);
+  // A new hire is paid by the day from the hire date (§7.6): the 2nd half
+  // settles the month on hire date → month end; a per-half payslip, its half.
+  const hireSpan = settling
+    ? (() => { const month = monthInfo(semi.month_key); return { startKey: month.start_key, endKey: month.end_key }; })()
+    : { startKey: period.start_key, endKey: period.end_key };
+  const hire = (settling || school)
+    ? hireProration({ dateHired: employee.date_hired, ...hireSpan, dailyRate: rates.daily, cap: normalBasic, divisor: rates.working_days_per_year })
+    : null;
+  const defaultBasic = hire ? hire.amount : normalBasic;
   const basic = pickAmount(input.basic_salary, defaultBasic);
   note("basic_salary", defaultBasic, basic);
 
@@ -1517,15 +1579,14 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         ? contributionsForHalf(schoolMonthly, school.half, rates.contribution_half)
         : periodContributions(employee.basic_salary, rates))
     : null;
-  const contributionDefault = (type) => (legal
-    ? legalContributions[type]
-    : peso(basic * (rates[`${type}_pct`] || 0) / 100));
-  const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
-  const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
-  const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
-  note("sss", contributionDefault("sss"), sss);
-  note("philhealth", contributionDefault("philhealth"), philhealth);
-  note("pagibig", contributionDefault("pagibig"), pagibig);
+  // A month with no earnings has no contributions (§5.3, decision of Oct
+  // 10, 2026): set below, once the month's gross is known.
+  let noEarnings = false;
+  const contributionDefault = (type) => (noEarnings
+    ? 0
+    : legal
+      ? legalContributions[type]
+      : peso(basic * (rates[`${type}_pct`] || 0) / 100));
 
   // Leave comes from approved leave requests. With Pay is never editable.
   const leaveWithPayDays = toAmount(leave?.with_pay_days || 0);
@@ -1596,6 +1657,26 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // in its payout month, approved missed-month adjustments, and the part of
   // them that is taxable (exempt ceiling shared with the 13th month).
   const subsidy = subsidyForPayslip(settling ? semi.subsidy : null, period, semi?.benefits_ceiling);
+  // 2nd half: the month's gross (contributions do not change it). Nothing
+  // earned -> no SSS / PhilHealth / Pag-IBIG by default.
+  if (settling) {
+    noEarnings = computeSecondHalf({
+      monthlySalary: basic,
+      dailyRate: rates.daily,
+      absenceDeduction: finalAmounts.absent + leaveWithoutPayAmount,
+      otherAttendanceDeductions: finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day,
+      incentives: finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive,
+      overloadHours,
+      overloadPay,
+      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
+    }).monthly_gross <= 0;
+  }
+  const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
+  const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
+  const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
+  note("sss", contributionDefault("sss"), sss);
+  note("philhealth", contributionDefault("philhealth"), philhealth);
+  note("pagibig", contributionDefault("pagibig"), pagibig);
   // 2nd half: once, on the month's taxable income, from the monthly table.
   const settle = (tax, cashAdvanceTotal = 0) => computeSecondHalf({
     monthlySalary: basic,
@@ -1797,7 +1878,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     // in the rare case the 1-15 payslip did not pay exactly Rate (or a balance
     // was carried in) the row says so in a note instead of an extra column.
     const sheet = sheetFigures({
-      basic: toAmount(basic / 2),
+      // Rate is monthly ÷ 2 even for a new hire; the note below says why the
+      // net differs.
+      basic: toAmount((hire ? normalBasic : basic) / 2),
       daily: rates.daily,
       hourly: rates.hourly,
       periodDays: periodDaysFor(rates.working_days_per_year, semi.working_days),
@@ -1824,11 +1907,14 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       half: "second",
       net_pay: settlement.second_half_net,
       ...(Math.abs(difference) >= 0.01 ? {
-        net_note: settlement.carry_in
-          ? `Less ${money(settlement.carry_in)} carried over from last month`
-          : `1-15 payslip paid ${money(semi.first_half?.net_pay || 0)} instead of ${money(sheet.rate)}`,
+        net_note: hire && !hire.not_hired
+          ? newHireNote(hire).text
+          : settlement.carry_in
+            ? `Less ${money(settlement.carry_in)} carried over from last month`
+            : `1-15 payslip paid ${money(semi.first_half?.net_pay || 0)} instead of ${money(sheet.rate)}`,
       } : {}),
     };
+    if (hire && !hire.not_hired) payroll.monthly.new_hire = newHireNote(hire);
     payroll.cash_advances = cashAdvance.lines.filter((line) => line.amount > 0)
       .map((line) => ({ advance_id: line.advance_id, amount: line.amount, balance_after: line.balance_after, description: line.description }));
     // Repaid when this payslip is committed (payroll_commit_entries writes
@@ -1907,7 +1993,8 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     deviations,
     reason,
     blocking: auto.blocking,
-    refusal: null,
+    refusal: hire?.not_hired ? notHiredRefusal(hire, period.label) : null,
+    refusal_code: hire?.not_hired ? "not_hired_yet" : null,
     // What the form and the batch table pre-fill (GET).
     defaults: {
       statutory_method: legal ? "legal" : "flat",
@@ -2879,7 +2966,7 @@ export async function GET(request) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
       const details = buildPayslipDetails(entry);
-      const pdf = buildPayslipPdf(details);
+      const pdf = buildPayslipPdf(details, { seal: payslipSeal() });
       const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "draft").replace(/[^\w-]/g, "")}-${entry.pay_period.replace(/[^\w-]+/g, "-")}${details.status === "draft" ? "-DRAFT" : ""}.pdf`;
       return new NextResponse(pdf, {
         status: 200,
@@ -3086,7 +3173,7 @@ async function handleBatchSubmit(supabase, body, guard) {
     });
 
     if (built.refusal) {
-      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: built.refusal, code: "month_settled" });
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: built.refusal, code: built.refusal_code || "month_settled" });
       continue;
     }
     // Only this employee waits; everyone else in the batch is processed.
@@ -3235,7 +3322,7 @@ export async function POST(request) {
     });
 
     if (built.refusal) {
-      return NextResponse.json({ error: built.refusal, code: "month_settled" }, { status: 422 });
+      return NextResponse.json({ error: built.refusal, code: built.refusal_code || "month_settled" }, { status: 422 });
     }
     if (action === "submit" && built.blocking.length) {
       // 422, not 409: the portal reads 409 as "already processed".
@@ -3489,7 +3576,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
   const built = buildEmployeePayroll({ employee, context, input: {}, allowAttendanceOverrides: false, period, actor });
   if (built.refusal) {
-    return NextResponse.json({ error: built.refusal, code: "month_settled" }, { status: 422 });
+    return NextResponse.json({ error: built.refusal, code: built.refusal_code || "month_settled" }, { status: 422 });
   }
 
   if (built.blocking.length && body.confirm_incomplete !== true) {

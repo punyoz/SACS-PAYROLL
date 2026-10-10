@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs/config";
+
 const isProduction = process.env.NODE_ENV === "production";
 
 // Development needs eval (React refresh) and a websocket for hot reload.
@@ -25,24 +27,18 @@ const nextConfig = {
   // The code emails attach the school seal from disk (src/lib/mail/otp-email.js);
   // ship that file with the API functions that send them.
   outputFileTracingIncludes: {
-    "/api/legacy-auth/**": ["./public/legacy/assets/logo-160.png"],
-  },
-  async rewrites() {
-    return [
-      { source: "/rfid-terminal", destination: "/legacy/rfid-terminal.html" },
-    ];
+    "/api/legacy-auth/**": ["./public/brand/logo-160.png"],
+    // The seal on payslip PDFs (src/app/api/accountant/payroll/route.js).
+    "/api/accountant/payroll": ["./public/brand/seal-payslip.jpg"],
   },
   async headers() {
     return [
       {
-        // Baseline browser protections on every response. The legacy portals
-        // rely on inline <script> and onclick="" handlers, so script-src has
-        // to allow 'unsafe-inline' for now; the rest still blocks plugins,
-        // foreign scripts/frames, <base> hijacking, framing by other sites
-        // and forms posting elsewhere. frame-ancestors is 'self' because the
-        // Next pages embed the legacy portal in a same-origin iframe
-        // (src/app/_components/LegacyRoleFrame.js). data:/blob: frames are
-        // the leave-proof PDF viewer.
+        // Baseline browser protections on every response. script-src allows
+        // 'unsafe-inline' because Next's own inline bootstrap scripts carry no
+        // nonce; the rest still blocks plugins, foreign scripts/frames, <base>
+        // hijacking, framing by other sites and forms posting elsewhere.
+        // data:/blob: frames are the leave-proof PDF viewer.
         source: "/:path*",
         headers: [
           { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
@@ -55,26 +51,21 @@ const nextConfig = {
             : []),
         ],
       },
-      {
-        // Legacy HTML pages must always revalidate so the cache-busting
-        // ?v= query string they generate at runtime stays fresh.
-        source: "/legacy/:path*.html",
-        headers: [
-          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
-          { key: "Pragma", value: "no-cache" },
-          { key: "Expires", value: "0" },
-        ],
-      },
-      {
-        // CSS/JS bundles are already fingerprinted by the ?v= query string
-        // emitted from legacy/index.html, so the browser can cache them.
-        source: "/legacy/:dir(css|js)/:file*",
-        headers: [
-          { key: "Cache-Control", value: "public, max-age=3600, must-revalidate" },
-        ],
-      },
     ];
   },
 };
 
-export default nextConfig;
+// Error monitoring (src/instrumentation.js, docs/monitoring.md). Browser
+// reports go through /monitoring on this site, so the Content-Security-Policy
+// above needs no Sentry host and ad blockers do not drop them. Source maps
+// upload only when SENTRY_AUTH_TOKEN (+ SENTRY_ORG, SENTRY_PROJECT) is set
+// on the host; otherwise the build is unchanged.
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  tunnelRoute: "/monitoring",
+  silent: !process.env.CI,
+  telemetry: false,
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+});

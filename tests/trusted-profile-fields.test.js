@@ -177,9 +177,20 @@ describe("RFID scan matching", () => {
   });
 
   it("only the portal manual boxes send manual_entry, never the kiosk", () => {
-    const terminal = readFileSync("public/legacy/js/terminal.js", "utf8");
+    const terminal = readFileSync("src/app/rfid-terminal/rfid-terminal.jsx", "utf8");
     expect(terminal).not.toMatch(/manual_entry/);
-    expect(readFileSync("public/legacy/js/admin.js", "utf8")).toMatch(/rfid_code: rfidCode, manual_entry: true/);
-    expect(readFileSync("public/legacy/js/super-admin.js", "utf8")).toMatch(/rfid_code: rfidCode, manual_entry: true/);
+    // The Admin and Super Admin portals share one maintenance page.
+    expect(readFileSync("src/app/admin/maintenance-page.jsx", "utf8")).toMatch(/rfid_code: code, manual_entry: true/);
+  });
+
+  it("the RFID terminal posts kiosk taps, and resends saved ones with their time", () => {
+    const terminal = readFileSync("src/app/rfid-terminal/rfid-terminal.jsx", "utf8");
+    expect(terminal).toMatch(/fetch\("\/api\/admin\/attendance",/);
+    expect(terminal).toMatch(/"x-sacs-kiosk": "1"/);
+    expect(terminal).toMatch(/offline_tapped_at: offlineTappedAt/);
+    expect(terminal).toContain('"sacs-kiosk-pending"');
+    expect(terminal).toMatch(/purpose: "unlock"|verifyPassword\(password, "unlock"\)/);
+    // Nothing is loaded from the retired legacy portal.
+    expect(terminal).not.toMatch(/\/legacy\//);
   });
 });

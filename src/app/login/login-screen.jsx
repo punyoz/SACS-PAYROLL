@@ -90,7 +90,7 @@ export function BrandPanel() {
 
       <div className="relative flex items-center gap-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/legacy/assets/logo-160.png" alt="" width="64" height="64" className="size-16 rounded-full bg-white/95 p-1 shadow-lg" />
+        <img src="/brand/logo-160.png" alt="" width="64" height="64" className="size-16 rounded-full bg-white/95 p-1 shadow-lg" />
         <div>
           <p className="text-lg font-semibold leading-tight">Shepherd Angels Christian School</p>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-gold-light">Antipolo City</p>
@@ -116,7 +116,7 @@ export function MobileBrand() {
   return (
     <div className="mb-6 flex flex-col items-center text-center lg:hidden">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="72" height="72" className="size-18 rounded-full shadow-md ring-4 ring-brand-gold/40" />
+      <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width="72" height="72" className="size-18 rounded-full shadow-md ring-4 ring-brand-gold/40" />
       <p className="mt-3 text-base font-semibold text-foreground">Shepherd Angels Christian School</p>
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold-text">Payroll Management System</p>
     </div>
@@ -457,7 +457,7 @@ export function GreenAuthLayout({ children, footnote }) {
         <div className="w-full max-w-md">
           <div className="mb-6 flex flex-col items-center text-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width="80" height="80" className="size-20 rounded-full bg-white/95 p-1 shadow-lg ring-4 ring-brand-gold/40" />
+            <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width="80" height="80" className="size-20 rounded-full bg-white/95 p-1 shadow-lg ring-4 ring-brand-gold/40" />
             <p className="mt-3 text-lg font-semibold">Shepherd Angels Christian School</p>
             <p className="text-[11px] font-semibold tracking-[0.18em] text-brand-gold-light uppercase">Payroll Management System</p>
           </div>
