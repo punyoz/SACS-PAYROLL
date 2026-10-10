@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs/config";
+
 const isProduction = process.env.NODE_ENV === "production";
 
 // Development needs eval (React refresh) and a websocket for hot reload.
@@ -53,4 +55,17 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+// Error monitoring (src/instrumentation.js, docs/monitoring.md). Browser
+// reports go through /monitoring on this site, so the Content-Security-Policy
+// above needs no Sentry host and ad blockers do not drop them. Source maps
+// upload only when SENTRY_AUTH_TOKEN (+ SENTRY_ORG, SENTRY_PROJECT) is set
+// on the host; otherwise the build is unchanged.
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  tunnelRoute: "/monitoring",
+  silent: !process.env.CI,
+  telemetry: false,
+  sourcemaps: { disable: !process.env.SENTRY_AUTH_TOKEN },
+});
