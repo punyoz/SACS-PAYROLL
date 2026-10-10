@@ -20,6 +20,8 @@ import { RatesSection } from "./rates-section";
 import { PayrollSettingsSection } from "./tax-section";
 import { HolidaysSection } from "./holidays-section";
 import { OverrideSection } from "./override-section";
+import { PayslipScheduleSection } from "./payslip-schedule-section";
+import { TeacherSubsidySection } from "./teacher-subsidy-section";
 
 /*
  * System Configuration (loadSAConfig / saveSAConfig and the per-branch
@@ -448,6 +450,8 @@ export function ConfigPage({ refreshKey }) {
         </TabsContent>
         <TabsContent value="payroll" className="flex flex-col gap-4">
           {state.config ? <PayrollSection key={`pay-${state.version}`} config={config} onConfig={onConfig} /> : null}
+          <PayslipScheduleSection refreshKey={refreshKey} />
+          <TeacherSubsidySection refreshKey={refreshKey} />
         </TabsContent>
         <TabsContent value="rates" className="flex flex-col gap-4"><RatesSection refreshKey={refreshKey} /></TabsContent>
         <TabsContent value="tax" className="flex flex-col gap-4"><PayrollSettingsSection refreshKey={refreshKey} /></TabsContent>

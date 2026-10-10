@@ -25,6 +25,7 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | **MANAGEMENT** |
 | 3 | User/Account Management | F — can create/archive Admin, HR, Accountant, Employee accounts, any branch (no permanent delete) | P — can create/edit/archive HR, Accountant, Employee accounts, own branch only. Cannot create Admin/Super Admin | P — can view/edit Employee accounts in own branch | — | — |
 | 4 | Employee Information (records, 201 files) | F (all branches) | P (own branch) | F (own branch — primary owner of this module) | V (for payroll reference) | V (own profile only) |
+| 4a | Licensed-teacher fields (licensed switch, PRC no., expiry, PRC ID, verification) | V (all branches) | V (own branch) | F (edit + verify, all branches) — only role that can change them | — | — |
 | 5 | Branch Management (create/edit/close branches) | F | — | — | — | — |
 | 6 | Branch Assignment (assign staff to a branch) | F (any staff, any branch) | P (within own branch only) | P (within own branch only) | — | — |
 | 7 | Roles & Permissions (define what each role can do) | F — exclusive | — | — | — | — |
@@ -33,6 +34,7 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 9 | RFID Device Registration/Config | F | V | — | — | — |
 | **PAYROLL** |
 | 10 | Process Payroll | V (oversight/approval only) | — | — | F (own branch) | — |
+| 10a | Payroll approvals (Approvals page) | V | P — view + approve/reject only (own branch): refused-consent loan decisions and missed-month subsidy adjustments. No other payroll edits | P — recommends refused-consent loan decisions | P — requests subsidy adjustments; cannot approve own request | — |
 | 11 | Payroll Records | F (all branches) | V (own branch) | — | F (own branch) | — |
 | 12 | Payslips | F (view/reissue, all branches) | V (own branch) | — | F (generate, own branch) | V (own payslip only) |
 | 13 | Payroll Monitoring | F (all branches) | V (own branch) | — | F (own branch) | — |

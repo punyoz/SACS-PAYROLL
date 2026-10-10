@@ -121,6 +121,7 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   plus("Overtime", m.overtime_pay);
   plus("Holiday pay", m.holiday_pay);
   holidayRows(p, holidayLines);
+  plus("Licensed teacher subsidy", m.subsidy_pay);
   p.row("Monthly gross", m.monthly_gross || 0, { bold: true });
 
   p.heading("Contributions and tax");
@@ -128,6 +129,8 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   p.row("PhilHealth", m.philhealth || 0);
   p.row("Pag-IBIG", m.pagibig || 0);
   p.row("Withholding tax (monthly table)", m.withholding_tax || 0, { note: `Taxable income ${money(m.taxable_income)}` });
+  minus("Loans and cash advances", m.cash_advance);
+  (m.subsidy_memos || []).forEach((memo) => p.row(memo, null));
   p.row("Monthly net", m.monthly_net || 0, { bold: true });
   p.row(m.first_half_status === "final" ? "Less: paid in 1st half" : "Less: paid in 1st half (not processed)", m.first_half_paid || 0);
   minus(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);

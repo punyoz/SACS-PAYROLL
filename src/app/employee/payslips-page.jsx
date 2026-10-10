@@ -48,11 +48,14 @@ function semiMonthlyRows(m, holidayLines = []) {
   plus("Overtime", m.overtime_pay);
   plus("Holiday Pay", m.holiday_pay);
   if (Number(m.holiday_pay) > 0) rows.push(...holidayRows(holidayLines));
+  plus("Licensed Teacher Subsidy", m.subsidy_pay);
   row("Monthly Gross", formatPeso(m.monthly_gross), "total");
   minus("SSS", m.sss);
   minus("PhilHealth", m.philhealth);
   minus("Pag-IBIG", m.pagibig);
   minus("Withholding Tax (monthly)", m.withholding_tax);
+  minus("Loans and Cash Advances", m.cash_advance);
+  (m.subsidy_memos || []).forEach((memo) => row(memo, "", "note"));
   row("Monthly Net", formatPeso(m.monthly_net), "total");
   row("Paid in 1st Half", `- ${formatPeso(m.first_half_paid)}`);
   minus(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);

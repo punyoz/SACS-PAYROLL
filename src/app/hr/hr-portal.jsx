@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeftRightIcon, CalendarCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, UserRoundIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, CalendarCheckIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -15,6 +15,8 @@ import { TransfersPage } from "./transfers-page";
 import { AttendancePage } from "./attendance-page";
 import { LeavesPage } from "./leaves-page";
 import { ReportsPage } from "./reports-page";
+import { AwolCasesPage } from "./awol-cases-page";
+import { ApprovalsPage } from "@/components/portal/approvals-page";
 
 /*
  * Page ids are the legacy portal's (public/legacy/js/hr.js HR_PAGES), so the
@@ -31,7 +33,14 @@ const NAV = [
     ],
   },
   { section: "Attendance", items: [{ id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" }] },
-  { section: "Leave", items: [{ id: "hr-leaves", label: "Leave Approval", icon: CalendarDaysIcon, module: "leave_approval" }] },
+  {
+    section: "Leave",
+    items: [
+      { id: "hr-leaves", label: "Leave Approval", icon: CalendarDaysIcon, module: "leave_approval" },
+      { id: "hr-awol", label: "AWOL Cases", icon: UserXIcon, module: "awol_cases" },
+      { id: "hr-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
+    ],
+  },
   { section: "Reports", items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
   { section: "Account", items: [{ id: "hr-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
@@ -46,6 +55,8 @@ const TITLES = {
   "hr-attendance": "Attendance Monitoring",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
+  "hr-awol": "AWOL Cases",
+  "hr-approvals": "Approvals",
   "hr-reports": "HR Reports",
   "hr-profile": "Profile",
 };
@@ -56,6 +67,8 @@ const DESCRIPTIONS = {
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
+  "hr-approvals": "Recommend a decision for excess subsidy advances the teacher refused to sign for; follow AWOL separations waiting for the Admin.",
+  "hr-awol": "Unexcused absences flagged by the nightly check: confirm, send the notices, and recommend or close each case.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-profile": null,
 };
@@ -103,6 +116,8 @@ function HrScreens() {
           <EmployeeAttendanceRecord key={`${employeeId}-${refreshKey}`} employeeId={employeeId} onBack={() => navigate("hr-attendance")} />
         ) : null}
         {current === "hr-leaves" ? <LeavesPage refreshKey={refreshKey} /> : null}
+        {current === "hr-awol" ? <AwolCasesPage refreshKey={refreshKey} /> : null}
+        {current === "hr-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition showBank /> : null}
       </AppShell>

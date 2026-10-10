@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DatePicker } from "@/components/portal/date-picker";
+import { LicenseSection } from "@/components/portal/license-section";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField } from "@/lib/portal/format";
@@ -118,7 +119,7 @@ function valuesFromEmployee(e) {
     position: e.position || positionForRole(e.role),
     employment_type: pick(EMPLOYMENT_TYPES, e.employment_type),
     employment_status: pick(EMPLOYMENT_STATUSES, e.employment_status),
-    employee_status: pick(["Active", "Pending", "On Leave", "Inactive"], e.employee_status || "Active") || "Active",
+    employee_status: pick(["Active", "Pending", "On Leave", "Inactive", "AWOL", "Separated"], e.employee_status || "Active") || "Active",
     date_hired: e.date_hired || "",
     address: e.address || "",
     bank_name: e.bank_name || "",
@@ -413,7 +414,13 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
             {field("date_hired", date("date_hired"), { required: true })}
             {creating
               ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: "9999999.99", step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
-              : field("employee_status", select("employee_status", ["Active", "Pending", "On Leave", "Inactive"], "Select status"), { required: true })}
+              : ["AWOL", "Separated"].includes(values.employee_status)
+                // Set by the AWOL case flow only (HR → AWOL Cases).
+                ? field("employee_status", readOnly("employee_status", values.employee_status), { required: true, hint: "Changed only through the AWOL case." })
+                : field("employee_status", select("employee_status", ["Active", "Pending", "On Leave", "Inactive"], "Select status"), { required: true })}
+            {values.employee_type === "Teaching" ? (creating
+              ? <p className="text-xs text-muted-foreground sm:col-span-2">Licensed teacher: save the employee first, then turn it on here. HR verifies the PRC license before the subsidy starts.</p>
+              : employee?.id ? <LicenseSection employeeId={employee.id} /> : null) : null}
 
             <Section>Address &amp; contact</Section>
             {field("address", <Textarea {...aria("address")} rows={2} maxLength={200} placeholder="House no., street, barangay, city/municipality, province" value={values.address} onChange={(e) => set("address", e.target.value)} />, { wide: true, required: true })}

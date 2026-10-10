@@ -10,6 +10,9 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_ALL } from "@/lib/rbac/permissions";
 import { formatDateKey, generationWindow, loadPayCalendar } from "@/lib/payroll/generation-window";
+import { loadPayslipSchedule } from "@/lib/payroll/schedule";
+import { loadLoanContext, scheduleLoans } from "@/lib/payroll/loans";
+import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from "@/lib/payroll/teacher-subsidy";
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import {
@@ -187,6 +190,38 @@ function shapeEmployee(user, profile, index) {
   };
 }
 
+/**
+ * Employees whose pay is held (AWOL / Separated, 20261009010000): id ->
+ * reason. Their payslips are not generated; a Separated employee is paid
+ * only through final pay. Empty until the migration adds the column.
+ */
+async function readPayrollHolds(supabase, userIds) {
+  const held = new Map();
+  if (!userIds.length) return held;
+  const result = await supabase
+    .from("profiles")
+    .select("id,payroll_hold,payroll_hold_reason")
+    .in("id", userIds)
+    .eq("payroll_hold", true);
+  if (result.error) {
+    if (isInternalDbSchemaError(result.error.message)) return held;
+    throw new Error(`Failed to read payroll holds: ${result.error.message}`);
+  }
+  (result.data || []).forEach((row) => held.set(row.id, row.payroll_hold_reason || "Pay held"));
+  return held;
+}
+
+const PAYROLL_HOLD_CODE = "payroll_hold";
+
+function payrollHoldMessage(employee) {
+  return `${employee.full_name}'s pay is on hold (${employee.payroll_hold_reason}). No payslip is generated until HR closes the case; a separated employee is paid through final pay.`;
+}
+
+function refusePayrollHold(employee) {
+  if (!employee?.payroll_hold) return null;
+  return NextResponse.json({ error: payrollHoldMessage(employee), code: PAYROLL_HOLD_CODE }, { status: 409 });
+}
+
 async function fetchEmployees(supabase, guard = null) {
   const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
@@ -216,8 +251,14 @@ async function fetchEmployees(supabase, guard = null) {
     });
   }
 
+  const held = await readPayrollHolds(supabase, userIds);
+
   return employeeUsers
-    .map((user, index) => shapeEmployee(user, profileMap.get(user.id), index))
+    .map((user, index) => ({
+      ...shapeEmployee(user, profileMap.get(user.id), index),
+      payroll_hold: held.has(user.id),
+      payroll_hold_reason: held.get(user.id) || null,
+    }))
     .filter((employee) => !employee.archived)
     .filter((employee) => {
       if (!guard || guard.branchExempt) return true;
@@ -368,6 +409,8 @@ function computeTotals(payroll) {
   const leaveWithoutPayDeduction = toAmount(leaveWithoutPayDays * daily);
   // Cash advance installments (src/lib/payroll/cash-advance.js).
   const cashAdvance = Math.max(0, toAmount(payroll.deductions?.cash_advance));
+  // Loan amortizations, 2nd half only (src/lib/payroll/loans.js).
+  const loanDeduction = Math.max(0, toAmount(payroll.deductions?.loan));
 
   const earlyBirdIncentive = amounts
     ? toAmount(amounts.early_bird)
@@ -379,6 +422,8 @@ function computeTotals(payroll) {
   // (payroll_monthly_incentives).
   const otherIncentive = Math.max(0, toAmount(payroll.extra?.incentive));
   const overloadPay = Math.max(0, toAmount(payroll.extra?.overload));
+  // Licensed-teacher subsidy payout + approved adjustments (2nd half).
+  const subsidyPay = Math.max(0, toAmount(payroll.extra?.subsidy));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -387,9 +432,9 @@ function computeTotals(payroll) {
   const totalDeductions = toAmount(
     sss + philhealth + pagibig + withholdingTax
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
-    + leaveWithoutPayDeduction + cashAdvance,
+    + leaveWithoutPayDeduction + cashAdvance + loanDeduction,
   );
-  const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive + otherIncentive + overloadPay);
+  const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -420,6 +465,7 @@ function computeTotals(payroll) {
       leave_with_pay_days: leaveWithPayDays,
       leave_without_pay_days: leaveWithoutPayDays,
       cash_advance: cashAdvance,
+      loan: loanDeduction,
     },
     incentives: {
       early_bird_days: earlyBirdDays,
@@ -427,6 +473,8 @@ function computeTotals(payroll) {
     },
     totals: {
       cash_advance_deduction: cashAdvance,
+      loan_deduction: loanDeduction,
+      subsidy_pay: subsidyPay,
       absence_deduction: absenceDeduction,
       late_deduction: lateDeduction,
       undertime_deduction: undertimeDeduction,
@@ -575,6 +623,16 @@ async function commitPayrollEntries(supabase, entries) {
       entry: buildEntryPayload(entry),
       deductions: lines.deductions,
       incentives: lines.incentives,
+      // 20261009020000: written in the same transaction; a regenerated
+      // payslip reverses its earlier repayments first.
+      loan_payments: [
+        ...(entry.payroll?.loans || [])
+          .filter((line) => Number(line.amount) > 0)
+          .map((line) => ({ loan_id: line.loan_id, kind: "payroll", amount: line.amount, amount_due: line.due })),
+        ...(entry.payroll?.subsidy_loan_payments || []),
+      ],
+      ...(entry.payroll?.subsidy_settlement ? { subsidy: entry.payroll.subsidy_settlement } : {}),
+      ...(entry.payroll?.subsidy_adjustment_ids?.length ? { subsidy_adjustments: entry.payroll.subsidy_adjustment_ids } : {}),
     };
   });
 
@@ -893,8 +951,9 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   const half = halfOf(period.start_key);
   const month = monthInfo(monthKeyOf(period.start_key));
   const previous = monthInfo(shiftMonth(month.month_key, -1));
-  // The lock day in force for a month's 2nd half.
-  const lockDayFor = (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
+  // The lock day in force for a month's 2nd half (the payslip schedule's
+  // attendance cut-off, or the attendance_lock_day rate before it exists).
+  const lockDayFor = await resolveLockDayFor(supabase, configs);
   // Off (the school): days after the lock day are never deducted, so the
   // month reads only its own 1st to the lock day.
   const carryOver = Number(resolveRate(configs, "carry_after_lock", {}, `${month.month_key}-16`).value) !== 0;
@@ -944,7 +1003,14 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     // Cash advance installments: deducted on the 2nd half with everything else.
     loadCashAdvanceContext(supabase, employees.map((employee) => employee.id), period),
   ]);
-  const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready;
+  // Loans (payroll_loans): amortized on the 2nd half (src/lib/payroll/loans.js).
+  const loanContext = await loadLoanContext(supabase, employees.map((employee) => employee.id), period);
+  // Licensed-teacher subsidy (src/lib/payroll/teacher-subsidy.js) and the
+  // exempt ceiling it shares with the 13th month (a Payroll Rate).
+  const subsidyContext = await loadSubsidyContext(supabase, employees.map((employee) => employee.id), period);
+  const ceilingRate = resolveRate(configs, "benefits_exempt_ceiling", {}, period.start_key);
+  const benefitsCeiling = ceilingRate.source === "config" ? Number(ceilingRate.value) : DEFAULT_BENEFITS_CEILING;
+  const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready || !loanContext.ready || !subsidyContext.ready;
   const taxTable = failed ? [] : taxTableFromRows(resolveTaxTableRows(taxResult.data, period.start_key));
   if (failed || !taxTable.length) {
     return { ...base, ready: false, tax_table: [], byEmployee };
@@ -991,6 +1057,9 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       tax_table: taxTable,
       advances: cash.advances.filter((row) => row.employee_id === employee.id),
       repaid: cash.repaid,
+      loans: loanContext.byEmployee.get(employee.id) || [],
+      subsidy: subsidyContext.byEmployee.get(employee.id) || null,
+      benefits_ceiling: benefitsCeiling,
       working_days: workingDaysIn(period.start_key, period.end_key),
     });
   });
@@ -1013,7 +1082,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
 async function loadPerHalfContext(supabase, employees, period, configs, holidays) {
   const half = halfOfPeriod(period.start_key);
   const month = monthInfo(monthKeyOf(period.start_key));
-  const lockDayFor = (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
+  const lockDayFor = await resolveLockDayFor(supabase, configs);
   const employeeIds = employees.map((employee) => employee.id);
   const none = { data: [], error: null };
 
@@ -1384,6 +1453,10 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates }) {
     other_incentive: toAmount(month.other_incentive),
     overtime_pay: toAmount(month.overtime_pay),
     holiday_pay: toAmount(month.holiday_pay),
+    // Licensed-teacher subsidy paid on this payslip, and the loan / cash
+    // advance repayments it takes (both already inside the month's net).
+    subsidy_pay: toAmount(month.subsidy_pay || 0),
+    loan_deduction: toAmount(month.loan_deduction || 0),
     month_totals: { gross_pay: month.gross_pay, total_deductions: month.total_deductions, total_incentives: month.total_incentives, net_pay: month.net_pay },
   };
 }
@@ -1519,6 +1592,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
 
   // Withholding tax on this period's taxable compensation.
   const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
+  // Licensed-teacher subsidy (src/lib/payroll/teacher-subsidy.js): the payout
+  // in its payout month, approved missed-month adjustments, and the part of
+  // them that is taxable (exempt ceiling shared with the 13th month).
+  const subsidy = subsidyForPayslip(settling ? semi.subsidy : null, period, semi?.benefits_ceiling);
   // 2nd half: once, on the month's taxable income, from the monthly table.
   const settle = (tax, cashAdvanceTotal = 0) => computeSecondHalf({
     monthlySalary: basic,
@@ -1531,7 +1608,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     incentives: finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive,
     overloadHours,
     overloadPay,
-    otherEarnings: overtimePay + holidayPay,
+    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
+    nonTaxableEarnings: subsidy.non_taxable,
+    extraTaxable: subsidy.extra_taxable,
     cashAdvance: cashAdvanceTotal,
     contributions: { sss, philhealth, pagibig },
     taxTable: semi?.tax_table || [],
@@ -1552,6 +1631,13 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     : 0;
   const withholdingTax = pickAmount(deductionsIn.withholding_tax, taxDefault);
   if (legal) note("withholding_tax", taxDefault, withholdingTax);
+  // Loans first, oldest first, from what this payslip can still pay after
+  // contributions, tax and any carry-over: partial when pay is short, the
+  // rest stays on the balance (src/lib/payroll/loans.js). 2nd half only.
+  // A prior-year excess subsidy advance approved for offset comes off first.
+  const loanSchedule = settling
+    ? scheduleLoans({ loans: semi.loans || [], period, available: toAmount(settle(withholdingTax).second_half_net - subsidy.prior_offset) })
+    : { lines: [], total: 0 };
   // Cash advance installments, from what this payslip can still pay. The 2nd
   // half of a settled month deducts them with every other deduction; the 1st
   // half deducts nothing.
@@ -1560,7 +1646,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       advances: semi.advances || [],
       repaid: semi.repaid || new Map(),
       period,
-      available: settle(withholdingTax).second_half_net,
+      available: toAmount(settle(withholdingTax).second_half_net - subsidy.prior_offset - loanSchedule.total),
     })
     : school
     ? scheduleCashAdvances({
@@ -1576,7 +1662,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       ),
     })
     : { lines: [], total: 0 };
-  const settlement = settling ? settle(withholdingTax, cashAdvance.total) : null;
+  const settlement = settling ? settle(withholdingTax, toAmount(cashAdvance.total + loanSchedule.total + subsidy.prior_offset)) : null;
   const contributionPct = (type) => (schoolMonthly && schoolMonthly.source[type] !== "legal" ? null : rates[`${type}_pct`]);
 
   const adjustment = (type, finalAmount, autoAmount, quantity, unitName) => {
@@ -1616,6 +1702,16 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       amount: settlement.carry_in, source_log_id: null, is_override: false,
       note: `Balance carried over from ${semi.carry_from || "last month"}`, log_date: null,
     } : null,
+    // Loan amortizations, one line per loan (a partial one says so).
+    ...loanSchedule.lines.filter((line) => line.amount > 0).map((line) => ({
+      type: "loan", quantity: 1, unit: "payroll", rate: line.amortization, rate_config_id: null,
+      amount: line.amount, source_log_id: null, is_override: false,
+      note: `${line.description}: balance ${money(line.balance_before)} → ${money(line.balance_after)}`
+        + (line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""),
+      log_date: null,
+    })),
+    // A prior-year excess subsidy advance offset against this year's subsidy.
+    ...subsidy.deductions.map((line) => ({ ...line, rate_config_id: null, source_log_id: null, is_override: false, log_date: null })),
     // Cash advance installments, one line per advance.
     ...cashAdvance.lines.filter((line) => line.amount > 0).map((line) => ({
       type: "cash_advance", quantity: 1, unit: "installment", rate: line.installment, rate_config_id: null,
@@ -1631,6 +1727,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     ...(auto.earnings || []),
     adjustment("early_bird", finalAmounts.early_bird, auto.amounts.early_bird, toAmount(used.early_bird_days - computed.early_bird_days), "day"),
     adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
+    // Licensed-teacher subsidy payout and approved missed-month adjustments.
+    ...subsidy.earnings.filter((line) => line.amount > 0)
+      .map((line) => ({ ...line, rate_config_id: null, source_log_id: null, is_override: false, log_date: null })),
     // Incentives and overload hours filed for the month (payroll_monthly_incentives).
     ...items.map((item) => (item.kind === "overload"
       ? {
@@ -1661,6 +1760,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       leave_with_pay_days: leaveWithPayDays,
       leave_without_pay_days: leaveWithoutPayDays,
       cash_advance: cashAdvance.total,
+      loan: toAmount(loanSchedule.total + subsidy.prior_offset),
     },
     incentives: {
       early_bird_days: used.early_bird_days,
@@ -1668,7 +1768,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
-    extra: { incentive: otherIncentive, overload: overloadPay },
+    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total },
   });
 
   const nowIso = new Date().toISOString();
@@ -1711,7 +1811,8 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       overtimePremiumPct: rates.overtime_premium_pct,
       holidayPay: t.holiday_pay,
       incentives: payroll.monthly.month_totals.total_incentives,
-      cashAdvance: cashAdvance.total,
+      // The sheet's cash advance column carries every loan repayment too.
+      cashAdvance: toAmount(cashAdvance.total + loanSchedule.total),
       sss,
       philhealth,
       pagibig,
@@ -1730,6 +1831,27 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     };
     payroll.cash_advances = cashAdvance.lines.filter((line) => line.amount > 0)
       .map((line) => ({ advance_id: line.advance_id, amount: line.amount, balance_after: line.balance_after, description: line.description }));
+    // Repaid when this payslip is committed (payroll_commit_entries writes
+    // the payroll_loan_payments rows in the same transaction).
+    payroll.loans = loanSchedule.lines.map((line) => ({
+      loan_id: line.loan_id, loan_type: line.loan_type, description: line.description,
+      due: line.due, amount: line.amount, shortfall: line.shortfall,
+      balance_before: line.balance_before, balance_after: line.balance_after,
+    }));
+    // Licensed-teacher subsidy, settled in the same commit (20261009020000):
+    // the year's balance marked paid, its advances (and any approved
+    // prior-year excess) closed by 'subsidy_offset', adjustments applied.
+    if (subsidy.earnings_total > 0 || subsidy.memos.length || subsidy.loan_payments.length) {
+      payroll.subsidy = {
+        payout: subsidy.payout, adjustments: subsidy.adjustments_total, prior_offset: subsidy.prior_offset,
+        taxable: subsidy.taxable, non_taxable: subsidy.non_taxable, tax_treatment: subsidy.tax_treatment, memos: subsidy.memos,
+      };
+      payroll.monthly.subsidy_memos = subsidy.memos.map((memo) => memo.text);
+      payroll.subsidy_settlement = subsidy.settlement;
+      payroll.subsidy_adjustment_ids = subsidy.adjustment_ids;
+      payroll.subsidy_loan_payments = subsidy.loan_payments;
+      payroll.benefits_excess_taxed = subsidy.benefits_excess_taxed;
+    }
     payroll.audit.school_sheet = {
       rule: "semi_monthly",
       contribution_method: Number(rates.contribution_method) === 1 ? "fixed" : "legal",
@@ -1798,6 +1920,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         first_half_paid: semi.first_half.net_pay,
         first_half_status: semi.first_half.status,
         carry_in: semi.carry_in,
+        // Licensed-teacher subsidy this payslip pays, and the part of it that
+        // is taxable income (the preview's net and tax estimate).
+        subsidy_pay: subsidy.earnings_total,
+        subsidy_taxable: toAmount(subsidy.earnings_total - subsidy.non_taxable + subsidy.extra_taxable),
         monthly: payroll.monthly,
         sheet: payroll.sheet,
       } : {}),
@@ -1816,6 +1942,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       // put an advance On Hold in Cash Advances to skip it).
       cash_advance: cashAdvance.total,
       cash_advances: cashAdvance.lines,
+      // Loan amortizations this payslip deducts (suspend a loan in Loans to skip it).
+      // (plus subsidy advances still open from a year already paid out).
+      loan: toAmount(loanSchedule.total + subsidy.prior_offset),
+      loans: loanSchedule.lines,
       sss: contributionDefault("sss"),
       philhealth: contributionDefault("philhealth"),
       pagibig: contributionDefault("pagibig"),
@@ -1960,9 +2090,17 @@ function formatManilaDateTime(iso) {
   }).format(date);
 }
 
-/** The generation window for a period, from the Pay Calendar (Asia/Manila dates). */
+/**
+ * The generation window for a period (Asia/Manila dates): the payslip
+ * schedule's generation day and window once 20261009010000 is applied,
+ * otherwise the original window, opening on the period's last day. The pay date comes from the Pay Calendar.
+ */
 async function periodWindow(supabase, period) {
-  return generationWindow(period, { payCalendar: await loadPayCalendar(supabase) });
+  const [payCalendar, schedule] = await Promise.all([loadPayCalendar(supabase), loadPayslipSchedule(supabase)]);
+  return generationWindow(period, {
+    payCalendar,
+    schedule: schedule ? schedule.forPeriod(period.start_key) : null,
+  });
 }
 
 /**
@@ -2231,6 +2369,17 @@ const MONTHLY_ITEM_KINDS = new Set(["incentive", "overload"]);
 /** Lock days in force, from the rate versions (semi-monthly payroll). */
 async function loadLockDayFor(supabase) {
   const { configs } = await loadRateConfigs(supabase);
+  return resolveLockDayFor(supabase, configs);
+}
+
+/**
+ * The day each month's 2nd half reads attendance to: the payslip schedule's
+ * cut-off (the day before the 2nd-half generation day, src/lib/payroll/schedule.js)
+ * once 20261009010000 is applied; until then the attendance_lock_day rate.
+ */
+async function resolveLockDayFor(supabase, configs) {
+  const schedule = await loadPayslipSchedule(supabase);
+  if (schedule) return schedule.lockDayFor;
   return (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
 }
 
@@ -2903,6 +3052,11 @@ async function handleBatchSubmit(supabase, body, guard) {
       continue;
     }
 
+    if (employee.payroll_hold) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: payrollHoldMessage(employee), code: PAYROLL_HOLD_CODE });
+      continue;
+    }
+
     const existingForPeriod = entries.find(
       (entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod,
     );
@@ -3053,6 +3207,8 @@ export async function POST(request) {
     }
     const own = refuseOwnPayroll(guard, employee.id);
     if (own) return own;
+    const heldPay = refusePayrollHold(employee);
+    if (heldPay) return heldPay;
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
@@ -3258,7 +3414,7 @@ export async function POST(request) {
 /**
  * PATCH { action: "generate", employee_id, pay_period, confirm_incomplete? }
  *   One employee's payslip, computed from the period's attendance records:
- *     - from 3 days before the period ends to its last day: a Draft counting
+ *     - on the period's last day (the generation day): a Draft counting
  *       attendance up to today (Regenerate recomputes it from the latest
  *       records and corrections);
  *     - after the period ends, up to the pay date: the Final payslip, written
@@ -3296,6 +3452,10 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
   const own = refuseOwnPayroll(guard, employee.id);
   if (own) return own;
+  // Held pay is never generated, not even by an override: HR closes the case
+  // first (returned / excused), then the held payslip can be generated.
+  const heldPay = refusePayrollHold(employee);
+  if (heldPay) return heldPay;
 
   const genWindow = await periodWindow(supabase, period);
   if (override) {

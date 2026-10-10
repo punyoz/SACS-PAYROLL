@@ -1,7 +1,7 @@
 /**
  * When a payslip may be generated for a pay period (all dates Asia/Manila).
  *
- *   opens_on   3 days before the period's last day (Oct 1-15 -> Oct 12)
+ *   opens_on   the period's last day (Oct 1-15 -> Oct 15): the generation day
  *   pay_date   the first Pay Calendar date (System Configuration -> Payroll)
  *              on or after the period's last day, within PAY_CALENDAR_SEARCH_DAYS;
  *              without one, DEFAULT_PAY_DATE_OFFSET_DAYS after the last day
@@ -17,7 +17,7 @@
 
 import { manilaDateKey } from "@/lib/payroll/periods";
 
-export const GENERATION_LEAD_DAYS = 3;
+export const GENERATION_LEAD_DAYS = 0;
 export const DEFAULT_PAY_DATE_OFFSET_DAYS = 5;
 export const PAY_CALENDAR_SEARCH_DAYS = 20;
 
@@ -48,10 +48,63 @@ export function payDateFor(endKey, payCalendar = []) {
 }
 
 /**
- * @param {{ start_key: string, end_key: string, label?: string }} period
- * @param {{ today?: string, payCalendar?: string[] }} [options]
+ * With the payslip schedule (src/lib/payroll/schedule.js): generation opens
+ * on the period's generation date and stays open window_days. The attendance
+ * a payslip counts is complete on that day (the generation day itself
+ * carries to the next window), so every payslip generated is Final.
+ *
+ *   before generation_date     "not_open"  "Payslip generation on Oct 15, 2026."
+ *   generation_date..closes_on "final"     Final payslip, locked once written
+ *   after closes_on            "closed"    only a Super Admin override
  */
-export function generationWindow(period, { today = manilaDateKey(), payCalendar = [] } = {}) {
+export function scheduledGenerationWindow(period, schedule, { today = manilaDateKey(), payCalendar = [] } = {}) {
+  const { pay_date: payDate, scheduled } = payDateFor(period.end_key, payCalendar);
+  const opensOn = schedule.generation_date;
+  const closesOn = schedule.closes_on;
+  const range = `${formatDateKey(opensOn)}${closesOn !== opensOn ? ` – ${formatDateKey(closesOn)}` : ""}`;
+
+  let state;
+  let message;
+  if (today < opensOn) {
+    state = "not_open";
+    message = `Payslip generation on ${formatDateKey(opensOn)} (open until ${formatDateKey(closesOn)}).`;
+  } else if (today <= closesOn) {
+    state = "final";
+    message = `Payslip generation is open ${range}: generating creates the Final payslip, locked once saved.`;
+  } else {
+    state = "closed";
+    message = `Payslip generation closed on ${formatDateKey(closesOn)}. A Super Admin override is needed.`;
+  }
+
+  return {
+    state,
+    can_generate: state === "final",
+    scheduled: true,
+    opens_on: opensOn,
+    closes_on: closesOn,
+    generation_date: opensOn,
+    period_start: period.start_key,
+    period_end: period.end_key,
+    pay_date: payDate,
+    pay_date_scheduled: scheduled,
+    // 2nd half: the cut-off before the generation day; 1st half deducts nothing.
+    attendance_through: schedule.attendance_cutoff || (today < period.end_key ? today : period.end_key),
+    attendance_cutoff: schedule.attendance_cutoff || null,
+    today,
+    message,
+    // "October 1-15, 2026: Payslip generation on Oct 15, 2026 · open until Oct 19, 2026"
+    banner: `${period.label || `${formatDateKey(period.start_key)} – ${formatDateKey(period.end_key)}`}: Payslip generation on ${formatDateKey(opensOn)} · open until ${formatDateKey(closesOn)}`,
+  };
+}
+
+/**
+ * @param {{ start_key: string, end_key: string, label?: string }} period
+ * @param {{ today?: string, payCalendar?: string[], schedule?: object|null }} [options]
+ *   schedule: payslipSchedule.forPeriod(period.start_key); without it (the
+ *   migration not applied yet) the original window below (opens on the period's last day).
+ */
+export function generationWindow(period, { today = manilaDateKey(), payCalendar = [], schedule = null } = {}) {
+  if (schedule) return scheduledGenerationWindow(period, schedule, { today, payCalendar });
   const opensOn = addDays(period.end_key, -GENERATION_LEAD_DAYS);
   const { pay_date: payDate, scheduled } = payDateFor(period.end_key, payCalendar);
 

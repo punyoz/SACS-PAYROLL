@@ -15,6 +15,19 @@ export const db = state.db;
 export const users = state.users;
 export const rpc = state.rpc;
 
+// Tables added by a migration that the code must also work without: they
+// answer like PostgreSQL does before the migration ("relation does not
+// exist") until a test calls setMissingTables([]) — or seeds them.
+// payroll_schedule_settings: 20261009010000 (src/lib/payroll/schedule.js
+// falls back to the attendance_lock_day rate and the old window).
+const DEFAULT_MISSING_TABLES = ["payroll_schedule_settings"];
+state.missing ??= new Set(DEFAULT_MISSING_TABLES);
+
+/** Tables that behave as not created yet. [] = every table exists. */
+export function setMissingTables(names = []) {
+  state.missing = new Set(names);
+}
+
 /** Cap every select at n rows, like PostgREST's max-rows (1000 by default). null = no cap. */
 export function setMaxRows(n) {
   state.maxRows = n;
@@ -26,6 +39,7 @@ export function resetDb() {
   rpc.calls = [];
   rpc.results = {};
   state.maxRows = null;
+  state.missing = new Set(DEFAULT_MISSING_TABLES);
 }
 
 export function table(name) {
@@ -45,6 +59,9 @@ function query(name) {
 
   const matches = (row) => filters.every((f) => f(row));
   const run = () => {
+    if (state.missing.has(name) && !db[name]) {
+      return { data: null, error: { code: "42P01", message: `relation "public.${name}" does not exist` } };
+    }
     const rows = table(name);
     if (op === "insert") {
       const list = (Array.isArray(payload) ? payload : [payload]).map((row) => ({
@@ -93,6 +110,8 @@ function query(name) {
     delete() { op = "delete"; return builder; },
     eq(column, value) { filters.push((row) => row[column] === value); return builder; },
     neq(column, value) { filters.push((row) => row[column] !== value); return builder; },
+    // .is(column, null): a missing value counts as NULL, as in SQL.
+    is(column, value) { filters.push((row) => (value === null ? row[column] === null || row[column] === undefined : row[column] === value)); return builder; },
     in(column, values) { filters.push((row) => values.includes(row[column])); return builder; },
     gte(column, value) { filters.push((row) => String(row[column]) >= String(value)); return builder; },
     lte(column, value) { filters.push((row) => String(row[column]) <= String(value)); return builder; },
@@ -147,6 +166,41 @@ function commitPayrollEntries({ p_items: items = [] } = {}) {
     const base = { payroll_record_id: recordId, payroll_entry_id: entryId, employee_id: entry.employee_id, pay_period: entry.pay_period };
     (item.deductions || []).forEach((line) => table("payroll_deductions").push({ ...base, ...line }));
     (item.incentives || []).forEach((line) => table("payroll_incentives").push({ ...base, ...line }));
+
+    // 20261009020000: loan repayments, reversing this period's earlier ones
+    // first; the loan's balance and status follow (payroll_loan_payments_apply).
+    const loans = table("payroll_loans");
+    const payments = table("payroll_loan_payments");
+    const applyToLoan = (loanId, amount) => {
+      const loan = loans.find((l) => l.id === loanId);
+      if (!loan) return;
+      loan.remaining_balance = Math.round((Number(loan.remaining_balance) - amount) * 100) / 100;
+      if (loan.remaining_balance === 0) loan.status = "paid";
+      else if (loan.status === "paid") loan.status = "active";
+    };
+    payments
+      .filter((p) => p.employee_id === entry.employee_id && p.kind === "payroll" && p.period_start === record.period_start && !p.reversed)
+      .forEach((p) => {
+        p.reversed = true;
+        payments.push({ id: `pay-${payments.length}`, loan_id: p.loan_id, employee_id: entry.employee_id, kind: "reversal", amount: -p.amount, reverses_payment_id: p.id });
+        applyToLoan(p.loan_id, -p.amount);
+      });
+    (item.loan_payments || []).filter((line) => Number(line.amount) > 0).forEach((line) => {
+      payments.push({
+        id: `pay-${payments.length}`, loan_id: line.loan_id, employee_id: entry.employee_id, kind: line.kind || "payroll",
+        period_start: (line.kind || "payroll") === "payroll" ? record.period_start : null,
+        pay_period: entry.pay_period, payroll_entry_id: entryId, amount: Number(line.amount), amount_due: Number(line.amount_due ?? line.amount), reversed: false,
+      });
+      applyToLoan(line.loan_id, Number(line.amount));
+    });
+    if (item.subsidy?.balance_id) {
+      const balance = table("payroll_subsidy_balances").find((b) => b.id === item.subsidy.balance_id);
+      if (balance) Object.assign(balance, { paid_out: Number(item.subsidy.payout), paid_out_on: item.subsidy.paid_on, status: "paid_out", payout_entry_id: entryId });
+    }
+    (item.subsidy_adjustments || []).forEach((id) => {
+      const adjustment = table("payroll_subsidy_adjustments").find((a) => a.id === id && a.status === "approved");
+      if (adjustment) Object.assign(adjustment, { status: "applied", payroll_entry_id: entryId, applied_period_start: record.period_start });
+    });
 
     return { employee_id: entry.employee_id, ok: true, record_id: recordId, entry_id: entryId, payslip_no: payslipNo };
   });

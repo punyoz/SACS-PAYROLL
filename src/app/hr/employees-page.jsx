@@ -49,6 +49,17 @@ export function EmployeesPage({ refreshKey }) {
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
+  // Licensed-teacher status per Teaching employee (/api/hr/teacher-license);
+  // empty before 20261009010000, when the column just shows a dash.
+  const [licenses, setLicenses] = React.useState(() => new Map());
+  React.useEffect(() => {
+    let alive = true;
+    fetchJson("/api/hr/teacher-license")
+      .then((data) => { if (alive) setLicenses(new Map((data.teachers || []).map((t) => [t.employee_id, t.status]))); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [refreshKey, dialog]);
+
   const branchName = React.useCallback((id) => {
     if (!id) return "";
     return branches.find((b) => String(b.id) === String(id))?.name || "Unknown branch";
@@ -76,6 +87,14 @@ export function EmployeesPage({ refreshKey }) {
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (e) => e.employee_id || "—", searchValue: (e) => e.employee_id },
     { key: "employee_type", header: "Type", cell: (e) => e.employee_type || "—" },
     { key: "position", header: "Position", cell: (e) => e.position || "—", searchValue: (e) => e.position },
+    {
+      key: "license",
+      header: "License",
+      cell: (e) => {
+        const status = licenses.get(e.id);
+        return status && status.code !== "not_licensed" ? <StatusBadge tone={status.tone}>{status.label}</StatusBadge> : <span className="text-muted-foreground">—</span>;
+      },
+    },
     { key: "cp_number", header: "Contact number", className: "tabular-nums whitespace-nowrap", cell: (e) => formatContactNumber(e.cp_number) || "—" },
     { key: "branch", header: "Branch", sortValue: (e) => branchName(e.branch_id), cell: (e) => branchName(e.branch_id) || "—", searchValue: (e) => branchName(e.branch_id) },
     { key: "date_hired", header: "Date hired", sortable: true, className: "whitespace-nowrap", cell: (e) => e.date_hired || "—" },
@@ -88,7 +107,7 @@ export function EmployeesPage({ refreshKey }) {
     },
     { key: "email", header: "Email", className: "text-xs text-muted-foreground", cell: (e) => e.email || "—", searchValue: (e) => e.email },
     { key: "edit", header: <span className="sr-only">Edit</span>, align: "right", cell: (e) => <Button variant="outline" size="sm" onClick={() => setDialog({ mode: "edit", employee: e })}>Edit</Button> },
-  ], [branchName]);
+  ], [branchName, licenses]);
 
   return (
     <>

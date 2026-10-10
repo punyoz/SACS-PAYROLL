@@ -7,11 +7,14 @@ import {
   CalculatorIcon,
   CalendarCheckIcon,
   CalendarIcon,
+  ClipboardCheckIcon,
   FileTextIcon,
+  HandCoinsIcon,
   LayoutDashboardIcon,
   ReceiptTextIcon,
   StarIcon,
   TableIcon,
+  UserMinusIcon,
   UserRoundIcon,
 } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
@@ -26,6 +29,9 @@ import { RecordsPage } from "./records-page";
 import { PayRecordPage } from "./pay-record-page";
 import { IncentivesPage } from "./incentives-page";
 import { CashAdvancesPage } from "./cash-advances-page";
+import { LoansPage } from "./loans-page";
+import { ApprovalsPage } from "@/components/portal/approvals-page";
+import { FinalPayPage } from "./final-pay-page";
 import { ThirteenthMonthPage } from "./thirteenth-month-page";
 import { AttendancePage } from "./attendance-page";
 import { MonitoringPage } from "./monitoring-page";
@@ -45,9 +51,12 @@ const NAV = [
       { id: "ac-process", label: "Process Payroll", icon: CalculatorIcon, module: "process_payroll" },
       { id: "ac-records", label: "Payroll Records", icon: TableIcon, module: "payroll_records" },
       { id: "ac-payslips", label: "Payslips", icon: ReceiptTextIcon, module: "payslips" },
+      { id: "ac-loans", label: "Loans", icon: HandCoinsIcon, module: "loans" },
       { id: "ac-incentives", label: "Incentives & Overload", icon: StarIcon, module: "process_payroll" },
       { id: "ac-cash-advances", label: "Cash Advances", icon: BanknoteIcon, module: "process_payroll" },
       { id: "ac-13th", label: "13th Month Pay", icon: CalendarIcon, module: "process_payroll" },
+      { id: "ac-approvals", label: "Subsidy Adjustments", icon: ClipboardCheckIcon, module: "payroll_approvals" },
+      { id: "ac-final-pay", label: "Final Pay", icon: UserMinusIcon, module: "process_payroll" },
     ],
   },
   { section: "Reference", items: [{ id: "ac-attendance", label: "View Attendance", icon: CalendarCheckIcon, module: "attendance" }] },
@@ -65,7 +74,10 @@ const DESCRIPTIONS = {
   "ac-records": "All processed payroll entries for reference.",
   "ac-payslips": "Generate and print pay records for employees.",
   "ac-incentives": "Added to the 2nd half payroll of the month they are counted in.",
-  "ac-cash-advances": "Deducted from payslips in installments until repaid.",
+  "ac-loans": "Salary loans, cash advances and licensed-teacher subsidy advances. Deducted on the 16–end payslip until repaid.",
+  "ac-cash-advances": "Cash advances recorded before Loans. New cash advances are added under Loans.",
+  "ac-final-pay": "Final pay for separated employees: unpaid salary, pro-rated 13th month, subsidy, less contributions, tax and loan balances. Release within 30 days.",
+  "ac-approvals": "Request missed-month licensed-teacher subsidy adjustments; the branch Admin approves them.",
   "ac-13th": "Total basic salary earned in the year ÷ 12 — a separate payout in December.",
   "ac-attendance": "View-only — for payroll deduction reference.",
   "ac-monitoring": "Monitor all payroll status and history across all periods.",
@@ -102,8 +114,11 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-records" ? <RecordsPage /> : null}
       {current === "ac-payslips" ? <PayRecordPage /> : null}
       {current === "ac-incentives" ? <IncentivesPage refreshKey={refreshKey} /> : null}
-      {current === "ac-cash-advances" ? <CashAdvancesPage refreshKey={refreshKey} /> : null}
+      {current === "ac-loans" ? <LoansPage refreshKey={refreshKey} /> : null}
+      {current === "ac-cash-advances" ? <CashAdvancesPage refreshKey={refreshKey} onNavigate={navigate} /> : null}
       {current === "ac-13th" ? <ThirteenthMonthPage refreshKey={refreshKey} /> : null}
+      {current === "ac-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
+      {current === "ac-final-pay" ? <FinalPayPage refreshKey={refreshKey} /> : null}
       {current === "ac-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}

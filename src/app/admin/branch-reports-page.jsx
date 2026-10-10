@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
+import { LicensedTeachersCard } from "@/components/portal/licensed-teachers-card";
 import { fetchJson } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "./dashboard-page";
@@ -124,6 +125,7 @@ export function BranchReportsPage({ refreshKey }) {
           </CardContent>
         </Card>
       </div>
+      <LicensedTeachersCard refreshKey={refreshKey} />
     </>
   );
 }
