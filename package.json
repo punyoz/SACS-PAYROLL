@@ -14,7 +14,8 @@
     "supabase:check": "node scripts/check-supabase-connection.mjs",
     "supabase:seed-users": "node scripts/seed-auth-users.mjs",
     "supabase:purge-archived": "node scripts/purge-archived-employees.mjs",
-    "mailtm": "node scripts/mailtm-inbox.mjs"
+    "mailtm": "node scripts/mailtm-inbox.mjs",
+    "db:backup": "node scripts/backup/backup-db.mjs"
   },
   "keywords": [
     "nextjs",

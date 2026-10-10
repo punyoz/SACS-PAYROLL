@@ -35,3 +35,6 @@ next-env.d.ts
 # Claude Code MCP server config (token comes from $SUPABASE_ACCESS_TOKEN)
 .mcp.json
 .claude/settings.local.json
+
+# Database backups (npm run db:backup): payroll data, never commit
+/backups/
