@@ -190,6 +190,8 @@ The pay date still comes from the Pay Calendar and is unchanged.
    - in the payout month: earning "Licensed teacher subsidy" = entitlement − advances;
    - any Admin-approved missed-month adjustment (§6.8): earning, paid once.
 6. Government contributions (SSS, PhilHealth, Pag-IBIG, employee share).
+   **None when the month's gross is ₱0** (no earnings; decision of Oct 10,
+   2026, §5.3). The Accountant can still enter an amount, logged as an override.
 7. Withholding tax from the monthly table, on gross − contributions (plus any taxable subsidy part).
 8. Room = gross + subsidy payout − contributions − tax − 1st half paid − carry-in.
 9. If room < 0: net ₱0, carry-over = −room, and no loan is deducted. Stop.
@@ -217,6 +219,7 @@ Attendance deds    = min(Absences + Lates + Undertime + Half days, Monthly)   �
 
 Monthly gross      = Monthly − Attendance deds + Incentives + Overload + Premiums
 Contributions      = SSS + PhilHealth + Pag-IBIG    (school: 400 + 0 + 200)
+                     = 0 when Monthly gross = 0 (no earnings, §5.3)
 Taxable            = Monthly gross − Contributions (+ taxable subsidy, §6.5)
 Tax                = base + rate × (Taxable − bracket_over)   (BIR monthly table)
 

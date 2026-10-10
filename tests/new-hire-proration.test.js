@@ -188,3 +188,44 @@ describe("Worked example 7.6: new hires in October 2026", () => {
 function toCents(value) {
   return Math.round(value * 100) / 100;
 }
+
+// ── A month with no earnings (decision of Oct 10, 2026; doc §5.3) ──────────
+
+describe("A month with no earnings deducts no contributions", () => {
+  const absentEveryWorkday = (employeeId, fromKey, toKey) => {
+    const day = new Date(`${fromKey}T00:00:00Z`);
+    const end = new Date(`${toKey}T00:00:00Z`);
+    for (; day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
+      if (day.getUTCDay() === 0 || day.getUTCDay() === 6) continue;
+      const key = day.toISOString().slice(0, 10);
+      table("attendance_logs").push({
+        id: `abs-${employeeId}-${key}`, employee_id: employeeId, log_date: key, time_in: null, time_out: null,
+        created_at: `${key}T00:00:00Z`, status: "Absent", late_minutes: 0, undertime_minutes: 0,
+        is_half_day: false, is_early_bird: false, branch_id: BRANCH, archived_duplicate: false,
+      });
+    }
+  };
+
+  it("absent all of December (23 days ≥ the salary): gross ₱0, no SSS / Pag-IBIG, carry-over = the 1st half only", async () => {
+    const first = await generate("2026-12-15", "u-old", "December 1-15, 2026");
+    expect(first.entry.payroll.totals.net_pay).toBe(15000);
+    // December's window here: Nov 30 – Dec 30 (no holidays in this test calendar).
+    absentEveryWorkday("u-old", "2026-11-30", "2026-12-30");
+
+    const { response, entry } = await generate("2026-12-31", "u-old", "December 16-31, 2026");
+    expect(response.status).toBe(200);
+    expect(entry.payroll.monthly).toMatchObject({
+      attendance_cap_applied: true, monthly_gross: 0,
+      sss: 0, philhealth: 0, pagibig: 0, contributions: 0, withholding_tax: 0,
+      net_pay: 0, carry_over_out: 15000,
+    });
+    const lines = table("payroll_deductions").filter((l) => l.employee_id === "u-old" && ["sss", "philhealth", "pagibig"].includes(l.type));
+    expect(lines).toHaveLength(0);
+  });
+
+  it("a month with any earnings still deducts them (worked example 7.1 unchanged)", async () => {
+    absentEveryWorkday("u-old", "2026-10-29", "2026-10-29");
+    const { entry } = await generate("2026-10-30", "u-old", OCT_16);
+    expect(entry.payroll.monthly).toMatchObject({ monthly_gross: 28620.69, sss: 400, pagibig: 200, contributions: 600 });
+  });
+});

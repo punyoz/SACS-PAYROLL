@@ -1559,15 +1559,14 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         ? contributionsForHalf(schoolMonthly, school.half, rates.contribution_half)
         : periodContributions(employee.basic_salary, rates))
     : null;
-  const contributionDefault = (type) => (legal
-    ? legalContributions[type]
-    : peso(basic * (rates[`${type}_pct`] || 0) / 100));
-  const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
-  const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
-  const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
-  note("sss", contributionDefault("sss"), sss);
-  note("philhealth", contributionDefault("philhealth"), philhealth);
-  note("pagibig", contributionDefault("pagibig"), pagibig);
+  // A month with no earnings has no contributions (§5.3, decision of Oct
+  // 10, 2026): set below, once the month's gross is known.
+  let noEarnings = false;
+  const contributionDefault = (type) => (noEarnings
+    ? 0
+    : legal
+      ? legalContributions[type]
+      : peso(basic * (rates[`${type}_pct`] || 0) / 100));
 
   // Leave comes from approved leave requests. With Pay is never editable.
   const leaveWithPayDays = toAmount(leave?.with_pay_days || 0);
@@ -1638,6 +1637,26 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // in its payout month, approved missed-month adjustments, and the part of
   // them that is taxable (exempt ceiling shared with the 13th month).
   const subsidy = subsidyForPayslip(settling ? semi.subsidy : null, period, semi?.benefits_ceiling);
+  // 2nd half: the month's gross (contributions do not change it). Nothing
+  // earned -> no SSS / PhilHealth / Pag-IBIG by default.
+  if (settling) {
+    noEarnings = computeSecondHalf({
+      monthlySalary: basic,
+      dailyRate: rates.daily,
+      absenceDeduction: finalAmounts.absent + leaveWithoutPayAmount,
+      otherAttendanceDeductions: finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day,
+      incentives: finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive,
+      overloadHours,
+      overloadPay,
+      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
+    }).monthly_gross <= 0;
+  }
+  const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
+  const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
+  const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
+  note("sss", contributionDefault("sss"), sss);
+  note("philhealth", contributionDefault("philhealth"), philhealth);
+  note("pagibig", contributionDefault("pagibig"), pagibig);
   // 2nd half: once, on the month's taxable income, from the monthly table.
   const settle = (tax, cashAdvanceTotal = 0) => computeSecondHalf({
     monthlySalary: basic,
