@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
+import readline from "node:readline/promises";
 import { createClient } from "@supabase/supabase-js";
+import { confirmationPhrase, isConfirmed, resetRefusal } from "./clean-reset-guard.mjs";
 
 dotenv.config({ path: ".env.local" });
 
@@ -9,6 +11,30 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!projectUrl || !serviceRoleKey) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env.local");
   process.exit(1);
+}
+
+// Never the live project, and never without a person typing the target
+// (scripts/clean-reset-guard.mjs).
+const refusal = resetRefusal(projectUrl, process.env);
+if (refusal) {
+  console.error(refusal);
+  process.exit(1);
+}
+if (!process.stdin.isTTY) {
+  console.error("clean-reset needs typed confirmation: run it in an interactive terminal.");
+  process.exit(1);
+}
+{
+  const phrase = confirmationPhrase(projectUrl);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(
+    `This permanently deletes payroll, attendance, leave, transfer and audit rows and every non-seed account on ${projectUrl}.\nType "${phrase}" to continue: `,
+  );
+  rl.close();
+  if (!isConfirmed(answer, projectUrl)) {
+    console.error("Not confirmed. Nothing was changed.");
+    process.exit(1);
+  }
 }
 
 const supabase = createClient(projectUrl, serviceRoleKey, {
