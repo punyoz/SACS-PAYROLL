@@ -8,13 +8,12 @@ Live project: `swtlmaupaarrppypxsip` (Supabase, region ap-south-1 Mumbai).
 
 ## 0. Before the day
 
-- [ ] **Supabase plan.** The Free plan has no downloadable or restorable
-      backups and pauses a project after 7 days of low activity (a school
-      break is enough). Upgrade the organization to **Pro** (Dashboard →
-      Organization → Billing). Pro keeps 7 days of daily backups; add
-      Point-in-Time Recovery later if a day of lost data is too much.
-- [ ] **Vercel plan.** Hobby is for personal, non-commercial use. A school's
-      payroll should run on **Pro**.
+- [ ] **Supabase plan.** Staying on Free (decision of Oct 10, 2026): own
+      backups, a tested restore and the keep-alive in
+      [backup-and-restore.md](backup-and-restore.md) are required **before
+      real payroll data goes in**.
+- [ ] **Hosting.** Vercel Hobby is for testing only (non-commercial). Production:
+      the Oracle Cloud Always Free VM in [hosting.md](hosting.md).
 - [ ] **Accounts.** Turn on MFA for the Supabase, Vercel, GitHub and Gmail
       accounts. Add a second owner to the Supabase organization and the Vercel
       team, so one lost phone does not lock the school out.
@@ -117,7 +116,10 @@ Do **not** set on the host: `USE_MAILTM`, any `SEED_*_PASSWORD`,
 `SEED_SUPER_ADMIN_EMAIL` (and the Admin / HR pairs) only if the school wants a
 username shortcut at sign-in.
 
-## 4. Deploy (Vercel)
+## 4. Deploy
+
+**Production goes on the Oracle VM: follow [hosting.md](hosting.md).** The
+Vercel steps below are for a test deployment (Hobby, non-commercial).
 
 1. Merge the release branch into `ehdd` and tag it: `git tag v1.0.0 && git push --tags`.
 2. Vercel → Add New → Project → import the GitHub repo. Framework: Next.js

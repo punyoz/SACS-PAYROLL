@@ -78,6 +78,8 @@ tries and 60 seconds between sends. Supabase Auth sends no email for this app.
 
 ## Deploy to Vercel
 
+Vercel Hobby is for **testing only** (non-commercial). Production runs on a free Oracle Cloud VM: see [docs/hosting.md](docs/hosting.md).
+
 1. Import the GitHub repo in Vercel (Next.js is auto-detected).
 2. Add every variable from `.env.local` under Settings → Environment
    Variables. Without `GMAIL_USER` / `GMAIL_APP_PASSWORD` no one can get past
@@ -213,6 +215,9 @@ The schema has 39 tables and 2 read-only views:
 | `SACS-Payroll-Permission-Matrix.md` | The role and permission matrix |
 | `docs/payroll-schedule-loans-awol.md` | Payroll design, formulas and worked examples |
 | `docs/local-migration-replay.md` | Testing migrations locally; repairing the migration history |
+| `docs/hosting.md` | Free hosting options compared; moving to an Oracle Cloud VM step by step |
+| `docs/backup-and-restore.md` | Free-plan limits, backups, restore test, keep-alive |
+| `docs/monitoring.md` | Sentry error monitoring set-up |
 | `docs/go-live.md` | Going live: backup, clearing test data, host variables, deploy, rollback, smoke test, RFID kits |
 | `docs/super-admin-settings.md` | Payslip schedule, subsidy, rates, tax table, holidays, security |
 | `docs/user-guide-outline.md` | Outline of the staff guide for each role |
