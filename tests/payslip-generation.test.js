@@ -1,7 +1,7 @@
 /**
  * Payslip generation (PATCH /api/accountant/payroll { action: "generate" }):
  *
- *   - only from 3 days before the period ends up to its pay date (Manila
+ *   - only from the period's last day (the generation day) up to its pay date (Manila
  *     dates), enforced by the API;
  *   - before the period ends: a Draft counting attendance up to today, which
  *     can be regenerated; after: the Final payslip, locked;
@@ -105,25 +105,25 @@ afterEach(() => {
 
 describe("Generation window", () => {
   it("rejects a request before the window opens, and says when it opens", async () => {
-    const { response, body } = await generate("2026-09-26");
+    const { response, body } = await generate("2026-09-29");
     expect(response.status).toBe(403);
-    expect(body).toMatchObject({ code: "generation_window", error: "Payslip generation opens on Sep 27, 2026." });
+    expect(body).toMatchObject({ code: "generation_window", error: "Payslip generation opens on Sep 30, 2026." });
     expect(entry()).toBeUndefined();
 
-    vi.setSystemTime(new Date("2026-09-26T10:00:00+08:00"));
+    vi.setSystemTime(new Date("2026-09-29T10:00:00+08:00"));
     const page = await (await GET(request(ACCOUNTANT, "GET", null, `?period=${encodeURIComponent(PERIOD)}`))).json();
-    expect(page.generation_window).toMatchObject({ state: "not_open", opens_on: "2026-09-27", pay_date: "2026-10-05" });
+    expect(page.generation_window).toMatchObject({ state: "not_open", opens_on: "2026-09-30", pay_date: "2026-10-05" });
   });
 
-  it("on the first day of the window: a Draft counting attendance up to today only", async () => {
+  it("on the generation day (the period's last day): a Draft counting attendance up to today only", async () => {
     // A day that has not happened yet must not count, even if a row exists.
-    table("attendance_logs").push(absent("future", "2026-09-28"));
-    const { response, body } = await generate("2026-09-27");
+    table("attendance_logs").push(absent("future", "2026-10-01"));
+    const { response, body } = await generate("2026-09-30");
     expect(response.status).toBe(200);
     expect(body.status).toBe("draft");
     expect(entry()).toMatchObject({ status: "draft" });
     expect(entry().payroll.generation).toMatchObject({
-      status: "draft", attendance_through: "2026-09-27", attendance_through_label: "Sep 27, 2026", generated_by_name: "Ana Accountant",
+      status: "draft", attendance_through: "2026-09-30", attendance_through_label: "Sep 30, 2026", generated_by_name: "Ana Accountant",
     });
     expect(entry().payroll.generation.attendance_summary.days_absent).toBe(0);
     expect(body.payslip).toMatchObject({ status: "draft", employee: { branch: "Main Branch", position: "Teacher I" } });
@@ -184,13 +184,13 @@ describe("Computed from attendance", () => {
 
   it("does not count an Incomplete record silently: refused until confirmed", async () => {
     table("attendance_logs").push(log("i1", "2026-09-22", { status: "Incomplete", time_out: null }));
-    const first = await generate("2026-09-28");
+    const first = await generate("2026-09-30");
     expect(first.response.status).toBe(422);
     expect(first.body).toMatchObject({ code: "unresolved_attendance" });
     expect(first.body.error).toMatch(/Sep 22, 2026 \(Incomplete\)/);
     expect(entry()).toBeUndefined();
 
-    const confirmed = await generate("2026-09-28", { confirm_incomplete: true });
+    const confirmed = await generate("2026-09-30", { confirm_incomplete: true });
     expect(confirmed.response.status).toBe(200);
     expect(entry().payroll.generation.confirmed_incomplete).toEqual([expect.objectContaining({ log_id: "i1", status: "Incomplete" })]);
     expect(entry().payroll.generation.attendance_summary).toMatchObject({ incomplete_days: 1, days_absent: 0 });
@@ -229,17 +229,17 @@ describe("Computed from attendance", () => {
 describe("Draft, regenerate, Final", () => {
   it("regenerating a Draft after a new correction recomputes from the latest records", async () => {
     table("attendance_logs").push(absent("a1", "2026-09-24"));
-    await generate("2026-09-28");
+    await generate("2026-09-30");
     expect(entry().payroll.totals.absence_deduction).toBe(500);
 
     // HR corrects the absence: worked 08:00-17:00.
     Object.assign(table("attendance_logs").find((row) => row.id === "a1"), {
       status: "Corrected", time_in: "2026-09-24T00:00:00Z", time_out: "2026-09-24T09:00:00Z",
     });
-    const again = await generate("2026-09-29");
+    const again = await generate("2026-09-30");
     expect(again.body.status).toBe("draft");
     expect(entry().payroll.totals.absence_deduction).toBe(0);
-    expect(entry().payroll.generation).toMatchObject({ regenerations: 1, attendance_through: "2026-09-29" });
+    expect(entry().payroll.generation).toMatchObject({ regenerations: 1, attendance_through: "2026-09-30" });
     expect(table("payroll_entries").filter((row) => row.employee_id === EMP)).toHaveLength(1);
     expect(table("audit_logs").some((row) => row.action === "payslip_regenerate")).toBe(true);
   });

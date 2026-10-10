@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarCheckIcon, LayoutDashboardIcon, ScrollTextIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
+import { CalendarCheckIcon, ClipboardCheckIcon, LayoutDashboardIcon, ScrollTextIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -15,6 +15,7 @@ import { AttendancePage } from "./attendance-page";
 import { AuditLogsPage } from "./audit-logs-page";
 import { MaintenancePage } from "./maintenance-page";
 import { BranchReportsPage } from "./branch-reports-page";
+import { ApprovalsPage } from "@/components/portal/approvals-page";
 
 /*
  * Page ids are the legacy portal's (public/legacy/js/admin.js ADMIN_PAGES),
@@ -24,6 +25,7 @@ import { BranchReportsPage } from "./branch-reports-page";
 const NAV = [
   { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
   { section: "Attendance", items: [{ id: "adm-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" }] },
+  { section: "Payroll", items: [{ id: "adm-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" }] },
   { section: "Reports", items: [{ id: "adm-branch-reports", label: "Branch Reports", icon: TrendingUpIcon, module: "branch_reports" }] },
   {
     section: "System",
@@ -47,6 +49,7 @@ const DESCRIPTIONS = {
   "adm-audit-logs": "Track admin and system movements across payroll operations.",
   "adm-maintenance": "Register, replace and void RFID cards, and record RFID card scans for your branch.",
   "adm-branch-reports": "Attendance, headcount and payroll status for your branch.",
+  "adm-approvals": "AWOL separations, excess subsidy advances and missed-month subsidy adjustments waiting for your decision.",
   "adm-profile": null,
 };
 
@@ -108,6 +111,7 @@ function AdminScreens() {
         {current === "adm-audit-logs" ? <AuditLogsPage refreshKey={refreshKey} /> : null}
         {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} /> : null}
         {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
+        {current === "adm-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "adm-profile" ? <StaffProfilePage roleLabel="Administrator" /> : null}
       </AppShell>
     </AttendanceActionsProvider>

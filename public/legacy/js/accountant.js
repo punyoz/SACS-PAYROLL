@@ -1876,7 +1876,7 @@ async function cancelDraft(entryId) {
 
 /* ── PAYSLIP GENERATION (per employee, inside the generation window) ──
    The server decides the window (src/lib/payroll/generation-window.js):
-   from 3 days before the period ends a Draft counting attendance up to
+   on the period's last day a Draft counting attendance up to
    today; after it ends, up to the pay date, the Final payslip (locked).
    These only mirror it on the buttons. */
 

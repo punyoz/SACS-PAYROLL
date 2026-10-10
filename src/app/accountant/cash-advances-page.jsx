@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { BanknoteIcon, CoinsIcon, HandCoinsIcon, Loader2Icon, RefreshCwIcon, WalletIcon } from "lucide-react";
+import { BanknoteIcon, CoinsIcon, HandCoinsIcon, InfoIcon, Loader2Icon, RefreshCwIcon, WalletIcon } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -48,7 +49,11 @@ function statusBadge(a) {
   return <StatusBadge tone="info">Active</StatusBadge>;
 }
 
-export function CashAdvancesPage({ refreshKey }) {
+// One loan system (docs/payroll-schedule-loans-awol.md decision 5): new cash
+// advances are Loans; this page keeps the earlier ones as history.
+const NEW_ADVANCES_IN_LOANS = true;
+
+export function CashAdvancesPage({ refreshKey, onNavigate }) {
   const { data: payroll, load: reloadPayroll } = useAccountant();
   const { notify } = usePortalSession();
   const employees = React.useMemo(() => payroll?.employees || [], [payroll]);
@@ -180,6 +185,15 @@ export function CashAdvancesPage({ refreshKey }) {
         <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips" icon={CoinsIcon} tone="success" loading={first} />
       </section>
 
+      {NEW_ADVANCES_IN_LOANS ? (
+        <Alert className="border-info/40 bg-info/8">
+          <InfoIcon aria-hidden="true" />
+          <AlertDescription>
+            <p><strong className="text-foreground">New cash advances are recorded under Loans</strong> (one loan system). This page keeps the cash advances recorded before, with their repayments.</p>
+            {onNavigate ? <Button variant="outline" size="sm" className="mt-2" onClick={() => onNavigate("ac-loans")}>Open Loans →</Button> : null}
+          </AlertDescription>
+        </Alert>
+      ) : (
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card className="shadow-xs">
           <CardHeader><CardTitle>Add cash advance</CardTitle></CardHeader>
@@ -213,6 +227,7 @@ export function CashAdvancesPage({ refreshKey }) {
           note="The deduction shows on the payslip and in the Cash Advance column of the Payroll Sheet report. A Draft payslip repays nothing until it is Final."
         />
       </div>
+      )}
 
       <Card className="min-w-0 shadow-xs">
         <CardHeader>

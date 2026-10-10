@@ -10,7 +10,9 @@
  *     Absence Deduction = Daily Rate × (days absent + days leave without pay)
  *     Overload Pay      = Hourly Rate × overload hours × (1 + premium %)
  *     Monthly Gross     = Monthly Salary − Absence Deduction + Incentives + Overload Pay
- *                         (− late / undertime / half day, + overtime / holiday pay)
+ *                         (− late / undertime / half day, + overtime / holiday pay);
+ *                         attendance deductions together are capped at the
+ *                         Monthly Salary, so gross never goes below the earnings
  *     Taxable Income    = Monthly Gross − (SSS + PhilHealth + Pag-IBIG)
  *     Withholding Tax   = MONTHLY tax table on Taxable Income, once
  *     Monthly Net       = Monthly Gross − contributions − tax
@@ -18,7 +20,9 @@
  *   A negative 2nd half is paid as 0 and the balance carries to next month.
  *
  * Attendance lock: month M's payroll covers attendance from the day after
- * last month's lock day to M's lock day. A leave or incentive belongs to the
+ * last month's lock day to M's lock day. With the payslip schedule
+ * (src/lib/payroll/schedule.js) the lock day is the day before the 2nd-half
+ * generation day, so the generation day carries to the next month. A leave or incentive belongs to the
  * first month whose lock date is on or after both its date and the day it was
  * filed, so anything filed after the lock moves to the next month.
  *
@@ -191,6 +195,12 @@ export function computeSecondHalf({
   overloadPremiumPct = 0,
   overloadPay,
   otherEarnings = 0,
+  // Part of otherEarnings that is not taxable (the licensed-teacher subsidy
+  // under the exempt ceiling, src/lib/payroll/teacher-subsidy.js).
+  nonTaxableEarnings = 0,
+  // Taxable income already paid in cash (a subsidy advance under the
+  // "taxable" flag): taxed here, not paid again.
+  extraTaxable = 0,
   // Cash advance installments: taken from the net only, never from taxable income.
   cashAdvance = 0,
   contributions = {},
@@ -209,12 +219,19 @@ export function computeSecondHalf({
     ? peso(overloadPay)
     : overloadPayFor(hourly, overloadHours, overloadPremiumPct);
 
-  const monthlyGross = peso(salary - absence - peso(otherAttendanceDeductions) + peso(incentives) + overload + peso(otherEarnings));
+  // Attendance deductions (absences, leave without pay, late, undertime,
+  // half day) never take more than the monthly salary, so gross is never
+  // pushed below the earnings (e.g. a whole month absent at 261 working days
+  // a year would otherwise deduct 22 × daily > salary).
+  const attendanceRaw = peso(absence + peso(otherAttendanceDeductions));
+  const attendanceTotal = Math.min(attendanceRaw, salary);
+  const attendanceCapped = attendanceRaw > salary;
+  const monthlyGross = peso(salary - attendanceTotal + peso(incentives) + overload + peso(otherEarnings));
   const sss = peso(contributions.sss);
   const philhealth = peso(contributions.philhealth);
   const pagibig = peso(contributions.pagibig);
   const contributionTotal = peso(sss + philhealth + pagibig);
-  const taxable = Math.max(0, peso(monthlyGross - contributionTotal));
+  const taxable = Math.max(0, peso(monthlyGross - peso(nonTaxableEarnings) + peso(extraTaxable) - contributionTotal));
   const tableTax = monthlyWithholdingTax(taxable, taxTable);
   const tax = withholdingTax !== undefined && withholdingTax !== null ? peso(withholdingTax) : tableTax;
   const cashAdvanceTotal = peso(cashAdvance);
@@ -232,6 +249,8 @@ export function computeSecondHalf({
     leave_with_pay_days: Number(leaveWithPayDays) || 0,
     absence_deduction: absence,
     other_attendance_deductions: peso(otherAttendanceDeductions),
+    attendance_deductions: peso(attendanceTotal),
+    attendance_cap_applied: attendanceCapped,
     incentives: peso(incentives),
     overload_hours: Number(overloadHours) || 0,
     overload_pay: overload,

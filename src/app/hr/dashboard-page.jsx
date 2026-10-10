@@ -12,6 +12,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { AttendanceBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { fetchJson } from "@/lib/portal/api";
+import { LicenseAlertsCard } from "./license-alerts-card";
 
 /*
  * HR Dashboard (loadHRDashboard / renderHRDashboardLeaves /
@@ -123,6 +124,8 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
           <UpcomingHolidaysCard refreshKey={refreshKey} />
         </div>
       </div>
+
+      <LicenseAlertsCard refreshKey={refreshKey} onNavigate={onNavigate} />
 
       <Card className="min-w-0 shadow-xs">
         <CardHeader>

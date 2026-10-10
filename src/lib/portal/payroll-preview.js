@@ -74,6 +74,9 @@ export function semiExtras(info) {
     firstHalfPaid: toAmount(d.first_half_paid || 0),
     firstHalfStatus: d.first_half_status || "not_processed",
     carryIn: toAmount(d.carry_in || 0),
+    // Licensed-teacher subsidy (2nd half): paid, and its taxable part.
+    subsidy: toAmount(d.subsidy_pay || 0),
+    subsidyTaxable: toAmount(d.subsidy_taxable || 0),
   };
 }
 
@@ -233,21 +236,22 @@ export function computeSummary(data, employee, rawForm) {
   const earnings = earningsFor(info);
   const gross = toAmount(basic + earnings.overtime + earnings.holiday);
   const settling = semiHalf(data) === "second";
-  const extras = settling ? semiExtras(info) : { other: 0, firstHalfPaid: 0, carryIn: 0, firstHalfStatus: "not_processed" };
+  const extras = settling ? semiExtras(info) : { other: 0, firstHalfPaid: 0, carryIn: 0, firstHalfStatus: "not_processed", subsidy: 0, subsidyTaxable: 0 };
   if (!settling && info.row?.defaults?.per_half) extras.other = semiExtras(info).other;
-  const cashAdvance = toAmount(info.row?.defaults?.cash_advance || 0);
+  // Cash advance installments plus loan amortizations (both net-only).
+  const cashAdvance = toAmount(Number(info.row?.defaults?.cash_advance || 0) + Number(info.row?.defaults?.loan || 0));
 
   const taxDefault = taxDefaultFor(data, info, {
     basic,
     earnings: earnings.overtime + earnings.holiday,
     attendanceDeductions: amounts.absent + amounts.late + amounts.undertime + amounts.half_day + lwopDeduct,
     contributions: sss + philhealth + pagibig,
-    incentives: incentives + extras.other,
+    incentives: incentives + extras.other + (extras.subsidyTaxable || 0),
   });
   // The tax follows the figures until the accountant types one.
   const tax = form.taxEdited ? g("tax") : taxDefault;
   const totalDeductions = toAmount(sss + philhealth + pagibig + tax + amounts.absent + amounts.late + amounts.undertime + amounts.half_day + lwopDeduct + cashAdvance);
-  const monthNet = toAmount(gross - totalDeductions + incentives + extras.other);
+  const monthNet = toAmount(gross - totalDeductions + incentives + extras.other + (extras.subsidy || 0));
   const secondHalfNet = toAmount(monthNet - extras.firstHalfPaid - extras.carryIn);
   const net = Math.max(0, settling ? secondHalfNet : monthNet);
   return {
@@ -336,7 +340,8 @@ export function batchRowBase(data, employee) {
   const info = employeePayInfo(data, employee.id);
   const half = semiHalf(data);
   const extras = half === "second" || info.row?.defaults?.per_half ? semiExtras(info) : { other: 0, overloadHours: 0, firstHalfPaid: 0, carryIn: 0 };
-  const cashAdvance = toAmount(info.row?.defaults?.cash_advance || 0);
+  // Cash advance installments plus loan amortizations (both net-only).
+  const cashAdvance = toAmount(Number(info.row?.defaults?.cash_advance || 0) + Number(info.row?.defaults?.loan || 0));
   const counts = half === "first" ? {} : info.pay?.counts || {};
   const amounts = half === "first" ? {} : info.pay?.amounts || {};
   const blocking = half === "first" ? [] : info.pay?.blocking || [];
@@ -359,7 +364,7 @@ export function batchTaxDefault(data, base, { sss, philhealth, pagibig, lwop }) 
     earnings: base.earnings,
     attendanceDeductions: base.attendanceDeductions + toAmount(lwop * base.info.unit.daily),
     contributions: sss + philhealth + pagibig,
-    incentives: base.incentives + base.extras.other,
+    incentives: base.incentives + base.extras.other + (base.extras.subsidyTaxable || 0),
   });
 }
 

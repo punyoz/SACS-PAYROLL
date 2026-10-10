@@ -39,9 +39,9 @@ export const RATE_TYPES = Object.freeze({
   overtime_premium_pct: { label: "Overtime premium", unit: "percent", hint: "Approved overtime is paid at the hourly rate plus this % (25 = 125%)" },
   regular_holiday_premium_pct: { label: "Regular holiday premium", unit: "percent", hint: "Added % of the daily rate for working on a regular holiday (100 = double pay)" },
   special_holiday_premium_pct: { label: "Special day premium", unit: "percent", hint: "Added % of the daily rate for working on a special (non-working) day" },
-  working_days_per_year: { label: "Working days per year", unit: "days", hint: "Daily rate = monthly salary × 12 ÷ this (261 or 313; from Oct 1, 2026). 31 or less is working days per month: monthly salary ÷ this (e.g. 22)" },
+  working_days_per_year: { label: "Working days per year", unit: "days", hint: "Daily rate = monthly salary × 12 ÷ this (261 = Monday to Friday, the school's real working days; 313 if Saturdays are school days). 31 or less is working days per month: monthly salary ÷ this (e.g. 22). Attendance deductions never exceed the monthly salary" },
   // Semi-monthly payroll (src/lib/payroll/semi-monthly.js).
-  attendance_lock_day: { label: "Attendance lock day", unit: "day_of_month", hint: "Day of the month attendance is locked for the 2nd half (0 = month end). Anything dated or filed after it goes to next month's payroll" },
+  attendance_lock_day: { label: "Attendance lock day", unit: "day_of_month", hint: "Replaced by the Payslip Schedule once it is set up (System Configuration → Payroll): the 2nd half then reads attendance to the day before its generation day. Before that: day of the month attendance is locked for the 2nd half (0 = month end); anything dated or filed after it goes to next month's payroll" },
   carry_after_lock: { label: "Deduct days after the lock day next month", unit: "switch", hint: "On: absences, lates and leave without pay after the lock day are deducted on next month's 16-end payslip. Off: they are never deducted, and each 16-end payslip reads only its own month's 1st to the lock day (the school: 1-15)" },
   overload_premium_pct: { label: "Overload premium", unit: "percent", hint: "Overload pay = hourly rate × overload hours × (100% + this %)" },
   // The school's payroll sheet (src/lib/payroll/school-sheet.js,
@@ -52,6 +52,8 @@ export const RATE_TYPES = Object.freeze({
   sss_fixed: { label: "SSS fixed amount", unit: "peso", hint: "Monthly SSS when contributions are fixed amounts" },
   philhealth_fixed: { label: "PhilHealth fixed amount", unit: "peso", hint: "Monthly PhilHealth when contributions are fixed amounts (0 = none)" },
   pagibig_fixed: { label: "Pag-IBIG fixed amount", unit: "peso", hint: "Monthly Pag-IBIG when contributions are fixed amounts" },
+  // Licensed-teacher subsidy tax (src/lib/payroll/teacher-subsidy.js, 20261009010000).
+  benefits_exempt_ceiling: { label: "Other benefits exempt ceiling", unit: "peso", hint: "13th month + the licensed-teacher subsidy (when its tax treatment is 'other benefit') are tax-exempt up to this amount a calendar year; only the part above it is taxed (TRAIN law: 90,000)" },
 });
 
 export const RATE_TYPE_KEYS = Object.freeze(Object.keys(RATE_TYPES));
@@ -91,6 +93,7 @@ export const DEFAULT_RATES = Object.freeze({
   sss_fixed: 0,
   philhealth_fixed: 0,
   pagibig_fixed: 0,
+  benefits_exempt_ceiling: 90000,
 });
 
 export const RATE_SCOPES = Object.freeze(["employee", "position", "branch", "global"]);

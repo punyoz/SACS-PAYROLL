@@ -99,6 +99,10 @@ export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis, con
   add("pagibig", "Pag-IBIG", d.pagibig, statutoryBasis("pagibig"));
   add("withholding_tax", "Withholding tax", d.withholding_tax, taxBasis || (legal ? "BIR semi-monthly withholding table" : "as entered"));
   add("carry_over", "Balance carried over", t.carry_over_deduction, "negative 2nd half net pay of the previous month");
+  const loans = Array.isArray(payroll?.loans) ? payroll.loans.filter((line) => Number(line.amount) > 0) : [];
+  add("loan", "Loans", d.loan, loans.length
+    ? loans.map((line) => `${money(line.amount)} (${line.description}), balance ${money(line.balance_after)}${Number(line.shortfall) > 0 ? `, partial` : ""}`).join("; ")
+    : "amortization");
   const advances = Array.isArray(payroll?.cash_advances) ? payroll.cash_advances : [];
   add("cash_advance", "Cash advance", d.cash_advance, advances.length
     ? advances.map((line) => `${money(line.amount)}${line.description ? ` (${line.description})` : ""}, balance ${money(line.balance_after)}`).join("; ")

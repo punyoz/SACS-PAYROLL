@@ -86,7 +86,19 @@ function Banners({ data }) {
           {win.state === "final" || win.state === "draft" ? <InfoIcon aria-hidden="true" /> : <AlertTriangleIcon aria-hidden="true" />}
           <AlertDescription>
             <p><strong className="text-foreground">{period}:</strong> {win.message}</p>
-            <p className="text-xs">Window {dateLabel(win.opens_on)} – {dateLabel(win.pay_date)}{win.pay_date_scheduled ? " (pay date from the Pay Calendar)" : ""}.</p>
+            {win.scheduled ? (
+              <p className="text-xs">{win.banner}. Pay date {dateLabel(win.pay_date)}{win.pay_date_scheduled ? " (from the Pay Calendar)" : ""}.</p>
+            ) : (
+              <p className="text-xs">Window {dateLabel(win.opens_on)} – {dateLabel(win.pay_date)}{win.pay_date_scheduled ? " (pay date from the Pay Calendar)" : ""}.</p>
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {(data?.employees || []).some((e) => e.payroll_hold) ? (
+        <Alert className="border-warning/40 bg-warning/10">
+          <AlertTriangleIcon aria-hidden="true" />
+          <AlertDescription>
+            <p><strong className="text-foreground">Pay on hold:</strong> {(data.employees || []).filter((e) => e.payroll_hold).map((e) => e.full_name).join(", ")}. Their payslips are not generated: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay.</p>
           </AlertDescription>
         </Alert>
       ) : null}
@@ -175,7 +187,7 @@ function BatchCard({ onNavigate }) {
     const net = batchRowNet({
       basic_salary: base.basic, sss: nums.sss, philhealth: nums.philhealth, pagibig: nums.pagibig, tax: toAmount(tax),
       leave_without_pay_days: nums.lwop, daily_rate: base.info.unit.daily, attendance_deductions: base.attendanceDeductions,
-      incentives: base.incentives, earnings: base.earnings, other_incentives: base.extras.other,
+      incentives: base.incentives, earnings: base.earnings, other_incentives: base.extras.other + (base.extras.subsidy || 0),
       first_half_paid: base.extras.firstHalfPaid, carry_in: base.extras.carryIn, cash_advance: base.cashAdvance,
     });
     const defaults = { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop, tax: taxDefault };
@@ -366,7 +378,7 @@ function BatchCard({ onNavigate }) {
                     <TableCell className="font-semibold tabular-nums">
                       {money(row.net)}
                       {base.half === "second" ? <p className="text-xs font-normal whitespace-normal text-muted-foreground" title="Monthly net less what the 1st half paid">less 1st half {money(base.extras.firstHalfPaid)}{base.extras.carryIn ? ` and carried ${money(base.extras.carryIn)}` : ""}</p> : null}
-                      {base.cashAdvance ? <p className="text-xs font-normal whitespace-normal text-destructive">less cash advance {money(base.cashAdvance)}</p> : null}
+                      {base.cashAdvance ? <p className="text-xs font-normal whitespace-normal text-destructive">less loans / cash advance {money(base.cashAdvance)}</p> : null}
                     </TableCell>
                     <TableCell><PayslipCell data={data} employee={employee} onGenerate={generate} onView={openPayslip} busy={generating === employee.id} /></TableCell>
                   </TableRow>,
@@ -643,7 +655,8 @@ function SingleEntry({ onNavigate }) {
               <SummaryRow label="Half day" value={`- ${money(summary.amounts.half_day)}`} tone="minus" />
               <SummaryRow label="Leave with pay" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} />
               <SummaryRow label="Leave without pay" value={`- ${money(summary.lwopDeduct)}`} tone="minus" />
-              <SummaryRow label="Cash advance" value={`- ${money(summary.cashAdvance)}`} tone="minus" />
+              <SummaryRow label="Loans / cash advance" value={`- ${money(summary.cashAdvance)}`} tone="minus" />
+              {summary.extras.subsidy ? <SummaryRow label="Licensed teacher subsidy" value={`+ ${money(summary.extras.subsidy)}`} tone="plus" /> : null}
               <SummaryRow label="Early bird / attendance incentive" value={`+ ${money(summary.shownIncentives)}`} tone="plus" />
               {summary.settling ? (
                 <>

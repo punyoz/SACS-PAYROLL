@@ -183,6 +183,32 @@ export const MODULES = {
     order: 22, label: "Timesheet", section: "Account",
     page: {},
   },
+  // Payslip schedule, loans, AWOL and the licensed-teacher subsidy
+  // (docs/payroll-schedule-loans-awol.md; 20261009010000 / 20261009020000).
+  // Loans replace cash advances: deducted on the 2nd half, partial when pay is short.
+  loans: {
+    order: 12.5, label: "Loans", section: "Payroll",
+    page: { accountant: "ac-loans" },
+  },
+  // AWOL cases: HR confirms and sends the notices; the branch Admin decides
+  // separation (on the Approvals page); the Accountant sees who is held.
+  awol_cases: {
+    order: 8.5, label: "AWOL Cases", section: "Leave",
+    page: { hr: "hr-awol" },
+  },
+  // Admin's one approval queue (SACS-Payroll-Permission-Matrix.md row 10a):
+  // AWOL separations, refused-consent loan decisions and missed-month subsidy
+  // adjustments. HR recommends loan decisions; the Accountant requests adjustments.
+  payroll_approvals: {
+    order: 13.5, label: "Approvals", section: "Payroll",
+    page: { admin: "adm-approvals", hr: "hr-approvals", accountant: "ac-approvals" },
+  },
+  // Licensed-teacher fields (row 4a): HR edits and verifies inside the
+  // employee form; Admin and Super Admin view; Accountant / Employee none.
+  teacher_license: {
+    order: 4.6, label: "Licensed Teachers", section: "Management",
+    page: {},
+  },
   // Missed tap-out corrections: an employee asks for a corrected time out,
   // HR or Admin approves or rejects it. No sidebar row of its own -- it lives
   // on each role's Attendance page (and the employee's My Attendance tab).
@@ -227,6 +253,11 @@ export const ROLE_PERMISSIONS = {
     profile: full(SCOPE_SELF),
     timesheet: full(SCOPE_ALL),
     attendance_corrections: full(SCOPE_ALL),
+    loans: full(SCOPE_ALL),
+    awol_cases: full(SCOPE_ALL),
+    payroll_approvals: view(SCOPE_ALL),
+    // View only (SACS-Payroll-Permission-Matrix.md row 4a): HR alone edits.
+    teacher_license: view(SCOPE_ALL),
   },
 
   admin: {
@@ -260,6 +291,12 @@ export const ROLE_PERMISSIONS = {
     timesheet: view(SCOPE_BRANCH),
     // Approves or rejects its own branch's correction requests.
     attendance_corrections: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    loans: view(SCOPE_BRANCH),
+    // Decides AWOL separations for its branch (on the Approvals page).
+    awol_cases: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    // View + approve loan decisions and subsidy adjustments only (row 10a).
+    payroll_approvals: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    teacher_license: view(SCOPE_BRANCH),
   },
 
   hr: {
@@ -296,6 +333,12 @@ export const ROLE_PERMISSIONS = {
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_ALL),
     attendance_corrections: { scope: SCOPE_ALL, actions: READ_WRITE },
+    loans: none(),
+    awol_cases: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
+    // Recommends refused-consent loan decisions (the Admin approves).
+    payroll_approvals: { scope: SCOPE_ALL, actions: READ_WRITE },
+    // The only role that edits and verifies licensed-teacher fields.
+    teacher_license: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
   },
 
   accountant: {
@@ -329,6 +372,12 @@ export const ROLE_PERMISSIONS = {
     timesheet: view(SCOPE_BRANCH),
     // Accountants tap in too: they may ask to correct their own records.
     attendance_corrections: { scope: SCOPE_SELF, actions: ["create", "read"] },
+    loans: full(SCOPE_BRANCH),
+    // Sees who is AWOL / separated (payroll hold, final pay).
+    awol_cases: view(SCOPE_BRANCH),
+    // Requests subsidy adjustments and records refused consent.
+    payroll_approvals: { scope: SCOPE_BRANCH, actions: ["create", "read"] },
+    teacher_license: none(),
   },
 
   employee: {
@@ -357,6 +406,10 @@ export const ROLE_PERMISSIONS = {
     timesheet: view(SCOPE_SELF),
     // View own statuses; ask to correct an Incomplete / disputed record.
     attendance_corrections: { scope: SCOPE_SELF, actions: ["create", "read"] },
+    loans: view(SCOPE_SELF),
+    awol_cases: none(),
+    payroll_approvals: none(),
+    teacher_license: none(),
   },
 };
 

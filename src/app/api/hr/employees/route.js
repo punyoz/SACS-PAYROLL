@@ -166,7 +166,7 @@ export async function PATCH(request) {
 
     const profileResult = await supabase
       .from("profiles")
-      .select("branch_id,emergency_contact_name")
+      .select("branch_id,emergency_contact_name,employee_status")
       .eq("id", id)
       .maybeSingle();
     const targetBranch = profileResult.data?.branch_id || currentMeta.branch_id || null;
@@ -179,6 +179,10 @@ export async function PATCH(request) {
     }
 
     const record = normalizeEmployeeFields(body);
+    // AWOL / Separated are set only by the AWOL case flow (/api/hr/awol-cases,
+    // which also holds and releases pay): editing other details keeps them.
+    const caseStatus = ["AWOL", "Separated"].includes(profileResult.data?.employee_status) ? profileResult.data.employee_status : null;
+    if (caseStatus) record.employee_status = caseStatus;
     const invalid = validateEmployeeRecord(record, { creating: false });
     if (invalid) {
       return NextResponse.json({ error: invalid }, { status: 400 });
