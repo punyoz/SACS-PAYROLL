@@ -271,7 +271,7 @@ export async function DELETE(request) {
       .eq("user_id", userId);
 
     if (deleteResult.error) {
-      return NextResponse.json({ error: deleteResult.error.message }, { status: 400 });
+      return NextResponse.json({ error: sanitizeError(deleteResult.error) }, { status: 400 });
     }
 
     await supabase
