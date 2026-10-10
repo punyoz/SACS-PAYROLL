@@ -40,7 +40,7 @@ This project has been migrated to Next.js and prepared for Supabase integration.
 
 ## Supabase Migration
 
-The active migrations live in `supabase/migrations/`. Apply any new SQL files there via the Supabase Dashboard SQL Editor, then restart `npm run dev`.
+The active migrations live in `supabase/migrations/`. Test a new file on a local replay first (Docker + Supabase CLI, [docs/local-migration-replay.md](docs/local-migration-replay.md)), then apply it to the live project and restart `npm run dev`. The same doc has the one-time `supabase migration repair` that lines the live history up with the file names.
 
 Tables used by the APIs (20 tables and 1 view):
 
