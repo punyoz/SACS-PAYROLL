@@ -26,15 +26,17 @@ This project has been migrated to Next.js and prepared for Supabase integration.
 
 ## Project Structure
 
-- `src/app` - Next.js App Router pages and API routes
-- `src/lib/supabase` - Supabase client utilities
-- `public/legacy` - Primary UI design (HTML/CSS/JS) used by login and role portals
+- `src/app` - Next.js App Router pages (sign-in, the five role portals, the RFID terminal) and API routes
+- `src/components` - shared portal components and shadcn/ui primitives
+- `src/lib` - payroll, attendance, auth and RBAC logic shared by the routes
+- `src/lib/supabase` - Supabase server/service clients
+- `public/brand` - the school seal images
 - `.vscode/extensions.json` - Recommended VS Code extensions
 
 ## Notes
 
-- The old static implementation is preserved in `public/legacy` and rendered through `src/app/_components/LegacyRoleFrame.js`.
-- You can migrate each legacy role screen into React route pages incrementally.
+- The old HTML/JS portals (`public/legacy`, and the `?classic=1` route that opened them) were retired on 2026-10-10. Git tag `before-legacy-removal` is the last commit that has them; code comments that say a function was "ported from public/legacy/js/..." refer to files at that tag.
+- The `/api/legacy-auth/*` routes are the current sign-in and session API; only the name is historical.
 
 ## Supabase Migration
 

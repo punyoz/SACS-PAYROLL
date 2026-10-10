@@ -1,7 +1,6 @@
 /*
  * Philippine regions, provinces, cities / municipalities and barangays for the
- * Branch dialog (copied from SA_PH_* in public/legacy/js/super-admin.js, which
- * keeps its own copy for the classic portal).
+ * Branch dialog (originally SA_PH_* in the retired legacy Super Admin portal).
  */
 
 export const PH_REGIONS = [

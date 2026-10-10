@@ -122,11 +122,12 @@ only)**, and `npm run mailtm -- otp <address>` prints the code in a terminal.
 `src/lib/mail/mailtm.service.mjs` and `/api/dev/mailtm` are off whenever
 `NODE_ENV=production`, whatever `USE_MAILTM` says.
 
-**The sign-in screen** (`/login`) is React with shadcn/ui and Tailwind CSS v4
-(`src/app/login/`, `src/components/ui/`, theme in `src/styles/ui.css`, light
-and dark). The Tailwind styles load only on that route; the portals and their
-CSS are unchanged. The legacy sign-in screen still exists inside
-`public/legacy/` but nothing links to it.
+**The sign-in screen and every portal** (`/login`, `/super-admin`, `/admin`,
+`/hr`, `/accountant`, `/employee`, `/rfid-terminal`) are React with shadcn/ui
+and Tailwind CSS v4 (`src/app/`, `src/components/ui/`, theme in
+`src/styles/ui.css`, light and dark). The old HTML/JS portals
+(`public/legacy/`) were retired on 2026-10-10; git tag
+`before-legacy-removal` is the last commit that has them.
 
 ---
 
@@ -447,14 +448,10 @@ any client that talks to Postgres directly.
   bank account number.
 - "Delete" means **archive** everywhere in this system. Payroll and attendance
   history must stay referentially intact; no role gets a hard delete.
-- Anything that renders stored text into the legacy portals must pass it
-  through `escapeHtml()` (defined in `public/legacy/js/app.js`). Employee-typed
-  values — a leave reason, a name, a branch label — reach HR and Super Admin
-  screens, and interpolating them raw into `innerHTML` is how an employee ends
-  up running script in a privileged session. For a value going into an
-  `onclick`, escaping is **not** enough: HTML entity decoding happens before
-  the JS is parsed, so pass it by lookup key instead (see `window._hrProofUrls`
-  in `hr.js`).
+- Render stored text through React (JSX escapes it). Employee-typed values —
+  a leave reason, a name, a branch label — reach HR and Super Admin screens,
+  and putting them into `dangerouslySetInnerHTML` or an `innerHTML` string is
+  how an employee ends up running script in a privileged session.
 
 ### Sign-in throttling
 

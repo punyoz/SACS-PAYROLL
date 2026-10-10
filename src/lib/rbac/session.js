@@ -3,7 +3,7 @@
  *
  * WHY THIS EXISTS
  * The portals identify the signed-in user from `sacs-auth-context` in
- * localStorage (see public/legacy/js/app.js). That is fine for rendering a
+ * localStorage (see src/app/login/auth-context.js). That is fine for rendering a
  * name in the topbar, but it is user-editable, so it can never be the basis
  * for an authorization decision — anyone could set role:"super_admin" and
  * call an API route directly.

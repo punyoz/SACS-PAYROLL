@@ -2652,4 +2652,4 @@ flowchart TD
 | `src/app/admin/admin-portal.jsx`, `src/app/hr/hr-portal.jsx`, `src/lib/rbac/menu.js` | AWOL, loan-decision and Approvals menu entries (no Licensed Teachers page) |
 | `src/app/accountant/loans-page.jsx` (new, above) | a Subsidy adjustments tab |
 | `SACS-Payroll-Permission-Matrix.md` | new row "Licensed-teacher fields": Super Admin V · Admin V (own branch) · HR F · Accountant — · Employee — |
-| `public/` legacy files, `index.html` `window._bv` | only if a legacy file changes; bump `_bv` |
+| ~~`public/` legacy files, `index.html` `window._bv`~~ | not applicable: the legacy portal was retired on 2026-10-10 |

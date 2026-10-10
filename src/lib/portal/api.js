@@ -1,6 +1,5 @@
 /**
- * fetch() for the React portals, with the session handling the legacy
- * portals get from public/legacy/js/rbac.js's fetch wrapper:
+ * fetch() for the React portals, with their session handling:
  *
  *   401 "session_replaced"         signed in on another device -> /login?reason=signed_in_elsewhere
  *   401 (anything else)            the session lapsed          -> /login?reason=session_expired

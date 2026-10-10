@@ -49,7 +49,7 @@ export async function POST(request) {
     // module and source used to be taken from the body, so an Admin could
     // write an entry that read exactly like a server-side "payroll" /
     // "process" event with source "api". The portals only ever send
-    // module "ui" (public/legacy/js/admin.js), so nothing they log changes.
+    // module "ui" (src/lib/portal/audit.js), so nothing they log changes.
     const status = normalizeText(body.status, "success").toLowerCase() === "failed" ? "failed" : "success";
     const log = await appendAuditLog({
       actor: guard,

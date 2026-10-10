@@ -30,8 +30,8 @@ export const DEFAULT_PASSWORD_SYMBOL = "!";
 
 /**
  * A "symbol" is anything that is not a letter, a digit or whitespace. The
- * browser checklists (public/legacy/js/app.js, the reset-password dialog and
- * the Super Admin staff forms) use this same definition.
+ * browser checklists (the change-password and reset-password dialogs and the
+ * Super Admin staff forms) use this same definition.
  */
 export const PASSWORD_SYMBOL_PATTERN = /[^A-Za-z0-9\s]/;
 

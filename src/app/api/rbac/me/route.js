@@ -1,8 +1,8 @@
 /**
  * GET /api/rbac/me
  *
- * The browser's view of the signed-in caller's permissions. The legacy portals
- * call this on boot (public/legacy/js/rbac.js) to render the sidebar and to
+ * The browser's view of the signed-in caller's permissions. The portals
+ * call this on boot (src/components/portal/session.jsx) to render the sidebar and to
  * decide which pages may open, so the matrix in src/lib/rbac/permissions.js
  * stays the only definition of who can do what — the frontend holds no copy.
  *
