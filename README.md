@@ -9,10 +9,11 @@ This project has been migrated to Next.js and prepared for Supabase integration.
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY` (required for automated role user seeding)
-3. Optional seed values for default login accounts:
-   - `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`
-   - `SEED_ACCOUNTANT_EMAIL`, `SEED_ACCOUNTANT_PASSWORD`
-   - `SEED_EMPLOYEE_EMAIL`, `SEED_EMPLOYEE_PASSWORD`
+   - `SESSION_SECRET` (required in production; signs the session cookie)
+   - `GMAIL_USER`, `GMAIL_APP_PASSWORD` (sign-in and password codes by email)
+3. Optional seed values for default login accounts (`SEED_SUPER_ADMIN_*`,
+   `SEED_ADMIN_*`, `SEED_HR_*`, `SEED_ACCOUNTANT_*`, `SEED_EMPLOYEE_*`).
+   `.env.example` lists every variable with a short note.
 4. Install dependencies:
    - `npm install`
 5. Start development server:
