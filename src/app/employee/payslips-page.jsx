@@ -30,13 +30,13 @@ function semiMonthlyRows(m, holidayLines = []) {
 
   if (m.half === "first") {
     row("Monthly Salary", formatPeso(m.monthly_salary));
-    row("1st Half Pay (÷ 2)", formatPeso(m.semi_monthly_pay), "total");
+    row(m.new_hire ? `Paid from Hire Date (${days(m.new_hire.days)} × ${formatPeso(m.new_hire.daily_rate)})` : "1st Half Pay (÷ 2)", formatPeso(m.semi_monthly_pay), "total");
     row("Deductions", "None this half", "note");
     row(`Absences, leave, incentives, contributions and tax for ${m.month_label || "the month"} are settled on the ${m.second_half_label || "2nd half"} payslip.`, "", "note");
     return rows;
   }
 
-  row(`Monthly Salary — ${m.month_label || ""}`, formatPeso(m.monthly_salary));
+  row(m.new_hire ? `Paid from Hire Date (${days(m.new_hire.days)} × ${formatPeso(m.new_hire.daily_rate)})` : `Monthly Salary — ${m.month_label || ""}`, formatPeso(m.monthly_salary));
   minus(`Absences without pay (${days(m.absent_days || 0)})`, m.absent_deduction);
   minus(`Leave Without Pay (${days(m.leave_without_pay_days || 0)})`, m.leave_without_pay_deduction);
   minus("Late", m.late_deduction);

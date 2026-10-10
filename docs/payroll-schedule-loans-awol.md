@@ -169,8 +169,10 @@ The pay date still comes from the Pay Calendar and is unchanged.
 ### 1st half (1–15)
 
 1. Skip employees on **payroll hold** (AWOL / Separated, §5) and list them as "Held".
-2. Earnings = Rate (monthly ÷ 2).
-3. Deductions = none. Net pay = Rate.
+2. Earnings = Rate (monthly ÷ 2). **New hire** (hired after the 1st): Daily ×
+   paid days from the hire date to the 15th, never more than Rate; hired
+   after the 15th: no 1st-half payslip (§7.6).
+3. Deductions = none. Net pay = earnings.
 4. Save as Final and lock it.
 
 ### 2nd half (16–end)
@@ -180,6 +182,9 @@ The pay date still comes from the Pay Calendar and is unchanged.
    lates, undertime, half days, unpaid holidays.
 3. Attendance deductions = their sum, **capped at the monthly salary**.
 4. Monthly gross = monthly salary − attendance deductions + incentives / overload / premiums.
+   **New hire** (hired after the 1st): the month's salary is Daily × paid
+   days from the hire date to month end, never more than the monthly salary
+   (§7.6); the rest of the flow is the same.
 5. **Subsidy (licensed teachers, §6):**
    - in the month an advance was released: memo line only, not deducted;
    - in the payout month: earning "Licensed teacher subsidy" = entitlement − advances;
@@ -220,6 +225,12 @@ Room               = Monthly gross + Subsidy payout − Contributions − Tax
 Loan deduction     = min(amortization, remaining balance, max(0, room))
 2nd half net       = max(0, Room − Loans − Other)
 Carry-over out     = max(0, −Room)
+
+New hire (hired after the 1st of the month, decision of Oct 10, 2026):
+Paid days         = Mon–Fri from the hire date to the span's end (Mon–Sat if
+                    the divisor is 300+); holidays count, as in the 261 divisor
+1st half          = min(Rate, Daily × paid days to the 15th); none if hired after the 15th
+Month salary      = min(Monthly, Daily × paid days to month end)  → used in place of Monthly above
 ```
 
 ### Divisor and cap (decision 3)
@@ -749,6 +760,39 @@ no. ••••4521, expiry Mar 3, 2030, and the ID scan; the status shows
 *Pending HR verification*. HR verifies on **Wed Jul 14**, before the 15th,
 so July counts: Jul–Dec = 6 months → **₱12,000**, paid on the Dec 16–31,
 2027 payslip. Both entries appear in the change log.
+
+### 7.6 New hires in October 2026 (decision of Oct 10, 2026)
+
+Monthly ₱30,000, school settings (Daily ₱1,379.31, SSS ₱400 + Pag-IBIG ₱200).
+Each half pays **Daily × paid days from the hire date**; deductions are on
+the 2nd half only. Paid days are Monday to Friday; holidays count.
+
+**Paolo Diaz, hired Wed Oct 7.**
+
+| | ₱ |
+|---|---:|
+| **Oct 1–15** (generated Thu Oct 15): Oct 7, 8, 9, 12, 13, 14, 15 = 7 days × 1,379.31 | **9,655.17** |
+| Month salary: Oct 7–31 = 18 paid days × 1,379.31 | 24,827.58 |
+| − SSS + Pag-IBIG | 600.00 |
+| − Tax: (24,227.58 − 20,833) × 15% | 509.19 |
+| Monthly net | 23,718.39 |
+| − 1st half paid | 9,655.17 |
+| **Oct 16–31** (generated Fri Oct 30) | **14,063.22** |
+
+**Liza Cruz, hired Tue Oct 20.**
+
+| | ₱ |
+|---|---:|
+| Oct 1–15 | no payslip (hired after the 15th) |
+| Month salary: Oct 20, 21, 22, 23, 26, 27, 28, 29, 30 = 9 days × 1,379.31 | 12,413.79 |
+| − SSS + Pag-IBIG | 600.00 |
+| − Tax (taxable 11,813.79 is under 20,833) | 0.00 |
+| **Oct 16–31** | **11,813.79** |
+
+The payslip shows "Paid from hire date (9 days)" with the note "Hired Oct 20,
+2026: 9 days × 1,379.31". Absences after the hire date are deducted as for
+everyone; days before it are never marked Absent (the nightly close starts at
+the hire date). Someone hired before October is paid as in §7.1.
 
 ---
 

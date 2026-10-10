@@ -100,14 +100,16 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   if (m.half === "first") {
     p.heading("Earnings - 1st half");
     p.row("Monthly salary", m.monthly_salary || 0);
-    p.row("Semi-monthly pay (monthly salary / 2)", m.semi_monthly_pay || 0, { bold: true });
+    if (m.new_hire) p.row(`Paid from hire date (${m.new_hire.days} days)`, m.semi_monthly_pay || 0, { bold: true, note: m.new_hire.text });
+    else p.row("Semi-monthly pay (monthly salary / 2)", m.semi_monthly_pay || 0, { bold: true });
     p.heading("Deductions");
     p.row("None this half", 0, { note: `Absences, leave, incentives, contributions and tax are settled on the ${m.second_half_label || "2nd half"} payslip.` });
     return;
   }
   const window = m.window ? ` (attendance ${m.window.start_key} to ${m.window.end_key})` : "";
   p.heading(`Month of ${m.month_label || ""}${window}`);
-  p.row("Monthly salary", m.monthly_salary || 0, { note: `Daily rate ${money(m.daily_rate)}, hourly ${money(m.hourly_rate)}` });
+  if (m.new_hire) p.row(`Paid from hire date (${m.new_hire.days} days)`, m.monthly_salary || 0, { note: m.new_hire.text });
+  else p.row("Monthly salary", m.monthly_salary || 0, { note: `Daily rate ${money(m.daily_rate)}, hourly ${money(m.hourly_rate)}` });
   const minus = (label, amount, note) => { if (Number(amount) > 0) p.row(`Less: ${label}`, amount, { note }); };
   const plus = (label, amount, note) => { if (Number(amount) > 0) p.row(`Add: ${label}`, amount, { note }); };
   minus(`Absences without pay (${m.absent_days || 0} days)`, m.absent_deduction);
