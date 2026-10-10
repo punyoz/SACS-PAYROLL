@@ -178,7 +178,8 @@ Do this at each of the 4 branches:
 - [ ] **Kiosk mode** (optional): `msedge --kiosk https://payroll.<school-domain>/rfid-terminal --edge-kiosk-type=fullscreen`.
 - [ ] **Network**: wired or strong Wi-Fi; outbound HTTPS to the payroll domain
       allowed; a backup (mobile hotspot) for long outages. Taps made offline
-      are accepted for **24 hours**, then refused.
+      are accepted for **24 hours**; older ones are refused and listed in
+      Attendance → Blocked Taps ("Saved offline tap refused") for HR to correct.
 - [ ] **Daily**: the branch Admin unlocks the terminal each morning (the kiosk
       session lasts 16 hours) and checks "taps waiting to send" is not stuck.
 - [ ] **Cards**: every employee's card number entered in HR → Employees;

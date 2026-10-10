@@ -492,15 +492,26 @@ async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode,
 const OFFLINE_TAP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const OFFLINE_TAP_MAX_SKEW_MS = 2 * 60 * 1000;
 
-/** { at: Date } for a usable offline tap time, { error } for an unusable one, null when none was sent. */
+/**
+ * { at: Date } for a usable offline tap time, { error, savedAt } for an
+ * unusable one (savedAt: the time it carried, when it had one), null when
+ * none was sent.
+ */
 function offlineTapTime(value, now = new Date()) {
   if (value === undefined || value === null || value === "") return null;
   const at = new Date(String(value));
-  if (Number.isNaN(at.getTime())) return { error: "The saved tap has no valid time." };
+  if (Number.isNaN(at.getTime())) return { error: "The saved tap has no valid time.", savedAt: null };
   const age = now.getTime() - at.getTime();
-  if (age > OFFLINE_TAP_MAX_AGE_MS) return { error: "The saved tap is more than a day old and was not recorded. Ask HR to correct the day." };
-  if (age < -OFFLINE_TAP_MAX_SKEW_MS) return { error: "The saved tap's time is in the future." };
+  if (age > OFFLINE_TAP_MAX_AGE_MS) return { error: "The saved tap is more than a day old and was not recorded. Ask HR to correct the day.", savedAt: at };
+  if (age < -OFFLINE_TAP_MAX_SKEW_MS) return { error: "The saved tap's time is in the future.", savedAt: at };
   return { at: age < 0 ? now : at };
+}
+
+/** "Oct 3, 2026, 7:52 AM" in Manila time, for a refused offline tap's reason. */
+function manilaDateTime(date) {
+  return new Intl.DateTimeFormat("en-PH", {
+    timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true,
+  }).format(date);
 }
 
 /**
@@ -609,12 +620,11 @@ export async function POST(request) {
     // The kiosk session (src/lib/auth/kiosk-session.js) is never manual entry.
     const manualEntry = body.manual_entry === true && !guard.kiosk;
 
-    // A tap the terminal saved while offline carries its own time.
+    // A tap the terminal saved while offline carries its own time. One that
+    // cannot be used (over a day old, in the future, no valid time) is
+    // refused below, and kept in Blocked Taps so HR can correct the day.
     const offline = guard.kiosk ? offlineTapTime(body.offline_tapped_at) : null;
-    if (offline?.error) {
-      return NextResponse.json({ error: offline.error, persisted: false, refused: true }, { status: 422 });
-    }
-    const tappedAt = offline?.at || new Date();
+    const tappedAt = offline?.at || offline?.savedAt || new Date();
 
     const supabase = getAdminClient();
     const activeEmployees = await fetchEmployees(supabase);
@@ -649,6 +659,17 @@ export async function POST(request) {
       });
       return NextResponse.json({ error, persisted: false, refused: true }, { status });
     };
+
+    if (offline?.error) {
+      const owner = employee || (await unmatchedCardReason(supabase, rfidCode)).employee || null;
+      const when = offline.savedAt ? ` (tapped ${manilaDateTime(offline.savedAt)})` : "";
+      return refuse({
+        refusedEmployee: owner,
+        reason: `Saved offline tap refused${when}: ${offline.error}`,
+        status: 422,
+        error: offline.error,
+      });
+    }
 
     if (!employee) {
       const unmatched = await unmatchedCardReason(supabase, rfidCode);
