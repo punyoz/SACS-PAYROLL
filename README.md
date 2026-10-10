@@ -213,3 +213,7 @@ The schema has 39 tables and 2 read-only views:
 | `SACS-Payroll-Permission-Matrix.md` | The role and permission matrix |
 | `docs/payroll-schedule-loans-awol.md` | Payroll design, formulas and worked examples |
 | `docs/local-migration-replay.md` | Testing migrations locally; repairing the migration history |
+| `docs/go-live.md` | Going live: backup, clearing test data, host variables, deploy, rollback, smoke test, RFID kits |
+| `docs/super-admin-settings.md` | Payslip schedule, subsidy, rates, tax table, holidays, security |
+| `docs/user-guide-outline.md` | Outline of the staff guide for each role |
+| `scripts/go-live/clear-test-data.sql` | Clears test data while keeping settings (dry run by default) |
