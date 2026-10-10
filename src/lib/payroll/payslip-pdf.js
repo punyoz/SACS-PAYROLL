@@ -5,6 +5,9 @@
  *
  * Text uses the PDF's built-in Helvetica in WinAnsi encoding, which has no
  * peso sign; amounts are written "PHP 1,300.00".
+ *
+ * The school seal, when given, is a JPEG embedded as it is (DCTDecode, no
+ * decoding needed): public/brand/seal-payslip.jpg, read by the payroll route.
  */
 
 import { money } from "@/lib/payroll/payslip-summary";
@@ -36,6 +39,26 @@ function pdfText(value) {
     .replace(/\)/g, "\\)");
 }
 
+/**
+ * Width, height and colour components of a baseline or progressive JPEG,
+ * from its start-of-frame marker; null for anything else.
+ */
+export function jpegInfo(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8) return null;
+  let at = 2;
+  while (at + 9 < buffer.length) {
+    if (buffer[at] !== 0xff) return null;
+    const marker = buffer[at + 1];
+    const size = buffer.readUInt16BE(at + 2);
+    // SOF0-SOF15 except DHT (C4), JPG (C8) and DAC (CC).
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      return { height: buffer.readUInt16BE(at + 5), width: buffer.readUInt16BE(at + 7), components: buffer[at + 9] };
+    }
+    at += 2 + size;
+  }
+  return null;
+}
+
 function clip(value, max) {
   const text = String(value ?? "");
   return text.length > max ? `${text.slice(0, max - 1)}…`.replace("…", "...") : text;
@@ -45,6 +68,11 @@ class Page {
   constructor() {
     this.ops = [];
     this.y = PAGE_H - MARGIN;
+  }
+
+  /** Draws image /Im1 with its lower-left corner at (x, y). */
+  image(x, y, width, height) {
+    this.ops.push(`q ${width} 0 0 ${height} ${x} ${y} cm /Im1 Do Q`);
   }
 
   text(x, y, value, { size = 10, bold = false, gray = 0 } = {}) {
@@ -139,17 +167,28 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   if (Number(m.carry_over_out) > 0) p.row("Balance carried to next month", m.carry_over_out);
 }
 
-/** The payslip (buildPayslipDetails() in the payroll route) as PDF bytes. */
-export function buildPayslipPdf(details) {
+const SEAL_SIZE = 40;
+
+/**
+ * The payslip (buildPayslipDetails() in the payroll route) as PDF bytes.
+ * options.seal: the school seal as JPEG bytes; left out (or not a usable
+ * RGB / grayscale JPEG), the header is text only.
+ */
+export function buildPayslipPdf(details, { seal = null } = {}) {
   const p = new Page();
   const final = details?.status === "final";
   const generation = details?.generation || {};
   const summary = details?.attendance_summary || null;
+  const sealInfo = jpegInfo(seal);
+  const sealUsable = Boolean(sealInfo && sealInfo.width > 0 && sealInfo.height > 0 && [1, 3].includes(sealInfo.components));
 
-  p.text(MARGIN, p.y, "Shepherd Angels Christian School", { size: 15, bold: true });
+  // Seal to the left of the school name and the subtitle under it.
+  const titleX = sealUsable ? MARGIN + SEAL_SIZE + 10 : MARGIN;
+  if (sealUsable) p.image(MARGIN, p.y - 16 - 12, SEAL_SIZE, SEAL_SIZE);
+  p.text(titleX, p.y, "Shepherd Angels Christian School", { size: 15, bold: true });
   p.right(PAGE_W - MARGIN, p.y, final ? "FINAL" : "DRAFT", { size: 13, bold: true, gray: final ? 0 : 0.45 });
   p.y -= 16;
-  p.text(MARGIN, p.y, "Payslip - SACS Payroll Management System", { size: 10, gray: 0.35 });
+  p.text(titleX, p.y, "Payslip - SACS Payroll Management System", { size: 10, gray: 0.35 });
   p.right(PAGE_W - MARGIN, p.y, `Payslip No. ${details?.payslip_no || "-"}`, { size: 9, gray: 0.35 });
   p.y -= 18;
   p.rule();
@@ -222,7 +261,7 @@ export function buildPayslipPdf(details) {
   const objects = [
     "<< /Type /Catalog /Pages 2 0 R >>",
     "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>`,
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 4 0 R /F2 5 0 R >>${sealUsable ? " /XObject << /Im1 7 0 R >>" : ""} >> /Contents 6 0 R >>`,
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
   ];
@@ -242,6 +281,15 @@ export function buildPayslipPdf(details) {
     content,
     Buffer.from("\nendstream\nendobj\n", "latin1"),
   ]));
+  if (sealUsable) {
+    offsets.push(length);
+    const colorSpace = sealInfo.components === 1 ? "/DeviceGray" : "/DeviceRGB";
+    push(Buffer.concat([
+      Buffer.from(`7 0 obj\n<< /Type /XObject /Subtype /Image /Width ${sealInfo.width} /Height ${sealInfo.height} /ColorSpace ${colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length ${seal.length} >>\nstream\n`, "latin1"),
+      seal,
+      Buffer.from("\nendstream\nendobj\n", "latin1"),
+    ]));
+  }
 
   const xrefAt = length;
   const xref = ["xref", `0 ${offsets.length + 1}`, "0000000000 65535 f "]

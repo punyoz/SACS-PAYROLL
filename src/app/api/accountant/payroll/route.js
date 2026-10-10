@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
@@ -935,6 +937,24 @@ async function readHolidays(supabase, periodStart, periodEnd) {
 }
 
 const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql, 20261003010000_semi_monthly_payroll.sql and 20261006010000_school_payroll_sheet.sql) first.";
+
+/**
+ * The school seal printed on payslip PDFs. Replace the file to change it
+ * (JPEG, square, about 300 x 300 px); shipped with this route by
+ * next.config.mjs outputFileTracingIncludes. Missing -> no seal.
+ */
+const SEAL_FILE = path.join(process.cwd(), "public", "brand", "seal-payslip.jpg");
+let sealCache;
+function payslipSeal() {
+  if (sealCache === undefined) {
+    try {
+      sealCache = readFileSync(SEAL_FILE);
+    } catch {
+      sealCache = null;
+    }
+  }
+  return sealCache;
+}
 
 /** A new hire's paid days on the payslip (docs/payroll-schedule-loans-awol.md §7.6). */
 function newHireNote(hire) {
@@ -2946,7 +2966,7 @@ export async function GET(request) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
       const details = buildPayslipDetails(entry);
-      const pdf = buildPayslipPdf(details);
+      const pdf = buildPayslipPdf(details, { seal: payslipSeal() });
       const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "draft").replace(/[^\w-]/g, "")}-${entry.pay_period.replace(/[^\w-]+/g, "-")}${details.status === "draft" ? "-DRAFT" : ""}.pdf`;
       return new NextResponse(pdf, {
         status: 200,

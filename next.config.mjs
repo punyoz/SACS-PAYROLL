@@ -26,6 +26,8 @@ const nextConfig = {
   // ship that file with the API functions that send them.
   outputFileTracingIncludes: {
     "/api/legacy-auth/**": ["./public/brand/logo-160.png"],
+    // The seal on payslip PDFs (src/app/api/accountant/payroll/route.js).
+    "/api/accountant/payroll": ["./public/brand/seal-payslip.jpg"],
   },
   async headers() {
     return [
