@@ -27,22 +27,14 @@ const nextConfig = {
   outputFileTracingIncludes: {
     "/api/legacy-auth/**": ["./public/brand/logo-160.png"],
   },
-  async rewrites() {
-    return [
-      { source: "/rfid-terminal", destination: "/legacy/rfid-terminal.html" },
-    ];
-  },
   async headers() {
     return [
       {
-        // Baseline browser protections on every response. The legacy portals
-        // rely on inline <script> and onclick="" handlers, so script-src has
-        // to allow 'unsafe-inline' for now; the rest still blocks plugins,
-        // foreign scripts/frames, <base> hijacking, framing by other sites
-        // and forms posting elsewhere. frame-ancestors is 'self' because the
-        // Next pages embed the legacy portal in a same-origin iframe
-        // (src/app/_components/LegacyRoleFrame.js). data:/blob: frames are
-        // the leave-proof PDF viewer.
+        // Baseline browser protections on every response. script-src allows
+        // 'unsafe-inline' because Next's own inline bootstrap scripts carry no
+        // nonce; the rest still blocks plugins, foreign scripts/frames, <base>
+        // hijacking, framing by other sites and forms posting elsewhere.
+        // data:/blob: frames are the leave-proof PDF viewer.
         source: "/:path*",
         headers: [
           { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
@@ -53,24 +45,6 @@ const nextConfig = {
           ...(isProduction
             ? [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]
             : []),
-        ],
-      },
-      {
-        // Legacy HTML pages must always revalidate so the cache-busting
-        // ?v= query string they generate at runtime stays fresh.
-        source: "/legacy/:path*.html",
-        headers: [
-          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
-          { key: "Pragma", value: "no-cache" },
-          { key: "Expires", value: "0" },
-        ],
-      },
-      {
-        // CSS/JS bundles are already fingerprinted by the ?v= query string
-        // emitted from legacy/index.html, so the browser can cache them.
-        source: "/legacy/:dir(css|js)/:file*",
-        headers: [
-          { key: "Cache-Control", value: "public, max-age=3600, must-revalidate" },
         ],
       },
     ];

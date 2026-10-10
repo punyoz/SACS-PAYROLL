@@ -190,5 +190,7 @@ describe("RFID scan matching", () => {
     expect(terminal).toMatch(/offline_tapped_at: offlineTappedAt/);
     expect(terminal).toContain('"sacs-kiosk-pending"');
     expect(terminal).toMatch(/purpose: "unlock"|verifyPassword\(password, "unlock"\)/);
+    // Nothing is loaded from the retired legacy portal.
+    expect(terminal).not.toMatch(/\/legacy\//);
   });
 });

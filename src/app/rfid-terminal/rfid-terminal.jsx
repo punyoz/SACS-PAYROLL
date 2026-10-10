@@ -12,8 +12,7 @@ import { cn } from "@/lib/utils";
 
 /*
  * RFID Attendance Terminal, the kiosk page opened from Attendance in the
- * Administrator and Super Admin portals (public/legacy/js/terminal.js, kept
- * at /rfid-terminal?classic=1). It shares the signed-in user's session but
+ * Administrator and Super Admin portals. It shares the signed-in user's session but
  * adds its own password lock: opening and leaving the terminal both need
  * that user's password again.
  *   GET  /api/rbac/me, /api/admin/branches

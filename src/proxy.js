@@ -9,8 +9,8 @@
  *      the caller's role has no such permission in the matrix.
  *
  *   2. Portal pages — keep a signed-in user out of another role's portal
- *      (/admin, /super-admin, ...). Until now this was enforced only in
- *      public/legacy/js/app.js from a localStorage value the user can edit.
+ *      (/admin, /super-admin, ...) on the server, not from anything the
+ *      browser could edit.
  *
  * This is the coarse, uniform layer: "may this role touch this module at all".
  * Branch scoping and the User Management role ceiling need to look at the
@@ -49,9 +49,6 @@ export const config = {
     "/accountant/:path*",
     "/employee/:path*",
     "/rfid-terminal/:path*",
-    // The same kiosk page served by its static path, which would otherwise
-    // skip the Admin-only check below.
-    "/legacy/rfid-terminal.html",
   ],
 };
 
@@ -165,7 +162,7 @@ const POST_IS_UPDATE = [
 /**
  * Appending to your own activity trail is not a privileged write — every role
  * that can see the Audit Logs module also records into it as it navigates
- * (public/legacy/js/admin.js). Requiring "read" keeps that working while the
+ * (src/lib/portal/audit.js). Requiring "read" keeps that working while the
  * matrix still decides who has the module at all.
  */
 const POST_IS_READ = [
@@ -339,7 +336,7 @@ export async function proxy(request) {
   const session = readSession(request);
 
   // ── RFID Terminal (Admin / Super Admin kiosk page) ──
-  if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/") || pathname === "/legacy/rfid-terminal.html") {
+  if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/")) {
     if (!session || !isKnownRole(session.role)) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
