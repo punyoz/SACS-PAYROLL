@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
 import { ArrowLeftRightIcon, CalendarCheckIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
@@ -9,14 +11,16 @@ import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
-import { DashboardPage } from "./dashboard-page";
 import { EmployeesPage } from "./employees-page";
 import { TransfersPage } from "./transfers-page";
 import { AttendancePage } from "./attendance-page";
 import { LeavesPage } from "./leaves-page";
-import { ReportsPage } from "./reports-page";
 import { AwolCasesPage } from "./awol-cases-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
+
+// Charts (recharts) load with these pages, not with the portal.
+const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
+const ReportsPage = dynamic(() => import("./reports-page").then((m) => m.ReportsPage), { loading: PageSkeleton });
 
 /*
  * Page ids are the legacy portal's (public/legacy/js/hr.js HR_PAGES), so the

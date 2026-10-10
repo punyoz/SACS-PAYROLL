@@ -25,7 +25,11 @@ import { fetchJson } from "@/lib/portal/api";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { manilaDateKey } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
-import { HealthList } from "./dashboard-page";
+import dynamic from "next/dynamic";
+
+// From the dashboard page, which carries the chart library: loaded on demand
+// so this page does not pull recharts into the portal's first download.
+const HealthList = dynamic(() => import("./dashboard-page").then((m) => m.HealthList));
 
 /*
  * Backup & Recovery (loadSABackupStatus / exportSAData,
