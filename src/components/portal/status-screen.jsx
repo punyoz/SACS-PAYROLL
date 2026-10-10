@@ -33,7 +33,7 @@ export function StatusScreen({ icon: Icon, code, title, description, primary, di
         <CardHeader className="space-y-4">
           <div className="flex items-center gap-3">
             {/* eslint-disable-next-line @next/next/no-img-element -- static public asset */}
-            <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width={44} height={44} className="size-11 rounded-full" />
+            <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width={44} height={44} className="size-11 rounded-full" />
             <div className="leading-tight">
               <p className="font-semibold">SACS Payroll</p>
               <p className="text-xs text-muted-foreground">Shepherd Angels Christian School</p>

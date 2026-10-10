@@ -25,7 +25,7 @@ const nextConfig = {
   // The code emails attach the school seal from disk (src/lib/mail/otp-email.js);
   // ship that file with the API functions that send them.
   outputFileTracingIncludes: {
-    "/api/legacy-auth/**": ["./public/legacy/assets/logo-160.png"],
+    "/api/legacy-auth/**": ["./public/brand/logo-160.png"],
   },
   async rewrites() {
     return [

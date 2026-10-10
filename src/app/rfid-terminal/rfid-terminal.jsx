@@ -56,7 +56,7 @@ function Brand({ inverse = false }) {
   return (
     <div className="flex items-center gap-3">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width={48} height={48} className="size-12 rounded-full bg-white/95 p-0.5 shadow" />
+      <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width={48} height={48} className="size-12 rounded-full bg-white/95 p-0.5 shadow" />
       <div className="leading-tight">
         <p className={cn("font-semibold", inverse ? "text-white" : "text-foreground")}>Shepherd Angels Christian School</p>
         <p className={cn("text-xs font-semibold tracking-[0.16em] uppercase", inverse ? "text-brand-gold-light" : "text-gold-text")}>RFID Attendance Terminal</p>

@@ -304,7 +304,7 @@ export function AppShell({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src="/legacy/assets/logo-160.png"
+                      src="/brand/logo-160.png"
                       alt="Shepherd Angels Christian School seal"
                       width={32}
                       height={32}

@@ -161,7 +161,7 @@ function PayslipDocument({ payslip }) {
       <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-6 py-5 text-white print:py-3">
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/legacy/assets/logo-160.png" alt="Shepherd Angels Christian School seal" width={52} height={52} className="size-13 shrink-0 rounded-full bg-white/95 p-0.5" />
+          <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width={52} height={52} className="size-13 shrink-0 rounded-full bg-white/95 p-0.5" />
           <div>
             <p className="font-semibold">Shepherd Angels Christian School</p>
             <p className="text-sm text-white/80">SACS Payroll Management System</p>

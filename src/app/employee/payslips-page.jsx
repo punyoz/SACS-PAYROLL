@@ -125,7 +125,7 @@ function PayslipCard({ payslip }) {
     <Card className="gap-0 overflow-hidden py-0 shadow-xs">
       <div className="flex items-center gap-3 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-5 py-4 text-white">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/legacy/assets/logo-160.png" alt="" width={40} height={40} className="size-10 shrink-0 rounded-full bg-white/95 p-0.5" />
+        <img src="/brand/logo-160.png" alt="" width={40} height={40} className="size-10 shrink-0 rounded-full bg-white/95 p-0.5" />
         <div className="min-w-0">
           <h3 className="truncate font-semibold">Shepherd Angels Christian School</h3>
           <p className="truncate text-sm text-white/80">{issued ? `${payslip.period_label} · Issued ${issued}` : payslip.period_label}</p>
