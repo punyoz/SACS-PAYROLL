@@ -267,8 +267,15 @@ deduction by surprise.
 
 ### Moving cash advances into Loans (decision 5)
 
+> **Done (October 10, 2026).** The live `payroll_cash_advances` table had no
+> rows, so nothing needed moving, and step 3's lock is live
+> (`20261009030000_cash_advances_read_only.sql`), so no new advance can be
+> added. The one-off script from step 2 was deleted; it is in git history
+> (tag `before-legacy-removal`) if ever needed. The steps below are kept as
+> the record of what it did.
+
 1. **Schema** (§8 part A) adds `payroll_loans.legacy_cash_advance_id`.
-2. **Script** `scripts/migrate-cash-advances-to-loans.mjs`. Run it right
+2. **Script** `scripts/migrate-cash-advances-to-loans.mjs` (deleted). Run it right
    after a 2nd-half batch is Final. For each `active` / `on_hold` advance:
    - repaid so far = `repaidByAdvance()` from Final payslips (the existing logic);
    - balance = principal − repaid; skip it if ₱0;
@@ -2603,7 +2610,7 @@ flowchart TD
 |---|---|
 | `supabase/migrations/<date>_payslip_schedule_loans_awol_subsidy.sql` | §8 Part A |
 | `supabase/migrations/<date>_cash_advances_read_only.sql` | §8 Part B (after the script) |
-| `scripts/migrate-cash-advances-to-loans.mjs` | one-off move of active cash advances (§4) |
+| ~~`scripts/migrate-cash-advances-to-loans.mjs`~~ | one-off move of active cash advances (§4); done and deleted Oct 10, 2026 (nothing to move) |
 | `src/lib/payroll/schedule.js` | reads `payroll_schedule_for()`, banner text |
 | `src/lib/payroll/loans.js` | loan scheduling, mirroring `cash-advance.js` |
 | `src/lib/payroll/teacher-subsidy.js` | eligibility months, entitlement, payout, separation settlement, tax flag |
