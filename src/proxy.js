@@ -68,6 +68,9 @@ const PUBLIC_PATHS = [
   // screen before any session exists. The route answers 404 unless
   // USE_MAILTM=true outside production (src/app/api/dev/mailtm/route.js).
   "/api/dev/mailtm",
+  // Liveness check for the uptime monitor / keep-alive: up or down only,
+  // no data (src/app/api/health/route.js).
+  "/api/health",
 ];
 
 /**
