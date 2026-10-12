@@ -86,8 +86,7 @@ Database). `db diff --linked` builds a shadow database from the local
 migration files and diffs it against the live schema. It only reads the live
 project.
 
-**Pass:** no output, or only the two `payroll_*` functions' search_path (that
-migration is not live yet). Anything else is drift: stop and send it to me.
+**Pass:** no output. Anything else is drift: stop and send it to me.
 
 ## 6. Repair the live history (only after steps 3–5 pass)
 
@@ -110,20 +109,21 @@ Mark the 35 repo files whose changes are already live as applied:
 npx supabase migration repair --status applied 20260924010000 20260924020000 20260924150000 20260926010000 20260926020000 20260926030000 20260926040000 20260926050000 20260926060000 20260926070000 20260926080000 20260926090000 20260926100000 20260926110000 20260927010000 20260927020000 20260927030000 20260927040000 20260927050000 20260927060000 20260927070000 20260927080000 20260927090000 20260928010000 20261003010000 20261006010000 20261006020000 20261006030000 20261007010000 20261007020000 20261009010000 20261009020000 20261009030000 20261010010000 20261010020000
 ```
 
-Do **not** include `20261010030000`: it is not live yet.
+`20261010030000` is not in either list: it was applied on Oct 12, 2026 and
+recorded under its file name (section 7).
 
-**Pass:** `npx supabase migration list` shows the same versions in both columns,
-except `20261010030000` (local only).
+**Pass:** `npx supabase migration list` shows the same versions in both columns.
+`npx supabase db push --dry-run` then reports nothing to push.
 
-## 7. Apply the search_path fix to live (your decision)
+## 7. The search_path fix (done Oct 12, 2026)
 
-```
-npx supabase db push --dry-run
-```
-
-It must list exactly one file, `20261010030000_payroll_trigger_functions_search_path.sql`.
-Then run `npx supabase db push` and re-run the Security Advisor (Dashboard →
-Advisors): the two "Function Search Path Mutable" warnings should be gone.
+`20261010030000_payroll_trigger_functions_search_path.sql` was applied to the
+live project with your approval before the replay (Docker was not available):
+first in a rolled-back transaction, checking that `payroll_append_only` and
+`payroll_cash_advances_read_only` still block writes, then for real, with
+its history row written as version `20261010030000`. The Security Advisor's
+two "Function Search Path Mutable" warnings are gone. The local replay (step
+3) still runs this file like every other.
 
 ## Stop the local stack
 
