@@ -85,21 +85,31 @@ Use a **second free project** as the target; never the live one.
   `session_replication_role = replica` keeps the triggers from firing on the
   restored rows (no double encryption, no append-only refusals). If `psql`
   stops on an `ALTER ... OWNER TO "supabase_admin"` line in `schema.sql`, or
-  on `GRANT "postgres" TO "cli_login_postgres"` in `roles.sql`, comment that
-  line out and run again (Supabase's guide lists both).
+  on `GRANT "postgres" TO "cli_login_postgres"` or
+  `ALTER ROLE "supabase_admin" SET ...` in `roles.sql`, comment that
+  line out and run again (Supabase's guide lists the first two; the third
+  stopped the Oct 12, 2026 test).
 - **R5.** In the restore project's SQL Editor open
   [scripts/backup/after-restore.sql](../scripts/backup/after-restore.sql),
   paste the saved key, and run it. It puts the key back, recreates the four
-  scheduled jobs and prints the checks.
+  scheduled jobs, removes the anon / authenticated grants the dump brings
+  back (step 3 of the script) and prints the checks.
 - **R6.** Pass when:
   - the counts match the live project's at backup time;
   - "scheduled jobs" is 4;
+  - "client table grants" and "client-callable functions" are both 0;
   - "ID numbers that decrypt" equals "ID numbers stored";
   - pointing a local copy of the app at the restore project
     (`.env.local` with its URL and keys, `npm run dev`) lets the Super Admin
     sign in and open a payslip.
 - **R7.** Pause or delete the restore project afterwards (Free allows two
   active projects). Write the date and result in the backup log.
+
+### Restore test log
+
+| Date | Backup | Target | Result |
+|---|---|---|---|
+| 2026-10-12 | `backups/2026-10-12_audit` (taken with `supabase db dump --linked`) | fresh local Supabase stack (Docker, CLI 2.118.0) | **Pass, except the decrypt check.** Rows restored, with counts equal to live (12 accounts, 12 profiles, 4 branches, 130 attendance logs, 1105 audit logs, 2 payroll entries, 41 rate configs, 51 holidays, 84 migrations, 6 stored ID numbers); 4 jobs recreated; passwords for all five roles verify; service-role reads and RPCs work. The decrypt check was not run (the real `pii_encryption_key` was not used). The test found that the dump restores full anon/authenticated grants, so step 3 was added to after-restore.sql. |
 
 ## 4. Restore for real (the live project is lost or damaged)
 
