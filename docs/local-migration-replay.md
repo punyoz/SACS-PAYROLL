@@ -112,7 +112,12 @@ comparing checksums per object kind. All 13 kinds match: 638 columns,
 whitespace: the live copies were applied without comments, and on Windows
 `core.autocrlf` gives the local copies CRLF line ends.
 
-## 6. Repair the live history (only after steps 3–5 pass)
+## 6. Repair the live history (done Oct 12, 2026)
+
+Done after the replay passed: one transaction through the Management API
+deleted the 38 live-only versions and recorded the 38 files below as applied.
+The live history now has 84 rows whose version and name match the 84 files
+exactly. The CLI commands below are the equivalent, kept for reference.
 
 Preview first. `migration list` shows the local and remote columns:
 
