@@ -12,7 +12,7 @@ Live project ref: `swtlmaupaarrppypxsip`.
 
 ## 0. Why the history needs repairing
 
-The live history lists 83 migrations and the repo has 81 files. The changes
+The live history lists 84 migrations and the repo has 84 files. The changes
 match, but the version numbers don't: many migrations were applied through the
 dashboard / MCP and stamped with the time they ran, not their file name. Three
 small live fixes (`block_history_rewrite_search_path`,
@@ -56,6 +56,21 @@ npx supabase db reset
 **Pass:** it ends with `Finished supabase db reset` and prints no `ERROR:`.
 **Fail:** note the file name it stops at and the error, and stop here.
 
+### Result of the Oct 12, 2026 replay (Docker Desktop, CLI 2.118.0)
+
+The first runs failed, because the oldest tables were made in the dashboard
+and no file created them in their live shape. Three files fixed that; all
+84 files now apply cleanly to an empty database:
+
+| File | Why |
+| --- | --- |
+| `20260331000000_baseline_dashboard_tables.sql` | Creates `profiles`, `attendance_logs`, `audit_logs`, `payroll_records`, `leave_requests`, `payroll_entries` and their enum types as they are on live. Without it `leave_requests.id` came out `uuid` (live: `text`) and `payroll_entries` lacked `approved_by` and 18 other columns. |
+| `20260923091528_backfill_set_updated_at.sql` | `set_updated_at()` and its six triggers existed only on live; `20260923091529_drop_dead_db_objects.sql` failed without them. |
+| `20261012010000_reconcile_with_live.sql` | 20 constraints and 5 indexes made in the dashboard, 2 indexes dropped there, and `attendance_logs_log_date_idx` sorted `DESC` on live. |
+
+All three are guarded (`IF NOT EXISTS` / existence checks), so on live they
+change nothing; step 6 only records them as applied.
+
 ## 4. Check the new search_path fix locally
 
 Open local Studio at http://127.0.0.1:54323 → SQL Editor and run:
@@ -86,10 +101,23 @@ Database). `db diff --linked` builds a shadow database from the local
 migration files and diffs it against the live schema. It only reads the live
 project.
 
-**Pass:** no output, or only the two `payroll_*` functions' search_path (that
-migration is not live yet). Anything else is drift: stop and send it to me.
+**Pass:** no output. Anything else is drift: stop and send it to me.
 
-## 6. Repair the live history (only after steps 3–5 pass)
+On Oct 12, 2026 the comparison was done without the password, by running the
+same catalog query on both databases (live through the read-only SQL tool) and
+comparing checksums per object kind. All 13 kinds match: 638 columns,
+287 constraints, 152 indexes, 75 functions, 58 triggers, 33 policies,
+39 RLS settings, 58 table grants, 120 function grants, 6 enums, 6 extensions,
+4 cron jobs, 2 views. Function bodies are compared without comments and
+whitespace: the live copies were applied without comments, and on Windows
+`core.autocrlf` gives the local copies CRLF line ends.
+
+## 6. Repair the live history (done Oct 12, 2026)
+
+Done after the replay passed: one transaction through the Management API
+deleted the 38 live-only versions and recorded the 38 files below as applied.
+The live history now has 84 rows whose version and name match the 84 files
+exactly. The CLI commands below are the equivalent, kept for reference.
 
 Preview first. `migration list` shows the local and remote columns:
 
@@ -104,26 +132,32 @@ their file names):
 npx supabase migration repair --status reverted 20260926003307 20260926003337 20260926005559 20260926005628 20260926005631 20260926005741 20260926012310 20260926012738 20260926100558 20260926104057 20260926104137 20260926111147 20260926112128 20260926112300 20260927055247 20260927055249 20260927055251 20260927055252 20260927061048 20260927061406 20260927061428 20260927061537 20260927061641 20260927145321 20260927150149 20260928032332 20261006083452 20261006083453 20261006092133 20261006092913 20261007074056 20261007074217 20261007084440 20261009144903 20261009150007 20261009150913 20261010000138 20261010003259
 ```
 
-Mark the 35 repo files whose changes are already live as applied:
+Mark the 38 repo files whose changes are already live as applied (the 35
+renamed ones plus the three guarded files from step 3):
 
 ```
-npx supabase migration repair --status applied 20260924010000 20260924020000 20260924150000 20260926010000 20260926020000 20260926030000 20260926040000 20260926050000 20260926060000 20260926070000 20260926080000 20260926090000 20260926100000 20260926110000 20260927010000 20260927020000 20260927030000 20260927040000 20260927050000 20260927060000 20260927070000 20260927080000 20260927090000 20260928010000 20261003010000 20261006010000 20261006020000 20261006030000 20261007010000 20261007020000 20261009010000 20261009020000 20261009030000 20261010010000 20261010020000
+npx supabase migration repair --status applied 20260331000000 20260923091528 20261012010000 20260924010000 20260924020000 20260924150000 20260926010000 20260926020000 20260926030000 20260926040000 20260926050000 20260926060000 20260926070000 20260926080000 20260926090000 20260926100000 20260926110000 20260927010000 20260927020000 20260927030000 20260927040000 20260927050000 20260927060000 20260927070000 20260927080000 20260927090000 20260928010000 20261003010000 20261006010000 20261006020000 20261006030000 20261007010000 20261007020000 20261009010000 20261009020000 20261009030000 20261010010000 20261010020000
 ```
 
-Do **not** include `20261010030000`: it is not live yet.
+`20261010030000` is not in either list: it was applied on Oct 12, 2026 and
+recorded under its file name (section 7).
 
-**Pass:** `npx supabase migration list` shows the same versions in both columns,
-except `20261010030000` (local only).
+**Pass:** `npx supabase migration list` shows the same versions in both columns.
+`npx supabase db push --dry-run` then reports nothing to push.
 
-## 7. Apply the search_path fix to live (your decision)
+Afterwards the live history holds exactly 84 rows, one per file. Save a copy
+of the history table before repairing
+(`select * from supabase_migrations.schema_migrations order by version`).
 
-```
-npx supabase db push --dry-run
-```
+## 7. The search_path fix (done Oct 12, 2026)
 
-It must list exactly one file, `20261010030000_payroll_trigger_functions_search_path.sql`.
-Then run `npx supabase db push` and re-run the Security Advisor (Dashboard →
-Advisors): the two "Function Search Path Mutable" warnings should be gone.
+`20261010030000_payroll_trigger_functions_search_path.sql` was applied to the
+live project with your approval before the replay (Docker was not available):
+first in a rolled-back transaction, checking that `payroll_append_only` and
+`payroll_cash_advances_read_only` still block writes, then for real, with
+its history row written as version `20261010030000`. The Security Advisor's
+two "Function Search Path Mutable" warnings are gone. The local replay (step
+3) still runs this file like every other.
 
 ## Stop the local stack
 
