@@ -91,6 +91,7 @@ const MODULE_ICON = {
   work_schedules: { default: "calendar" },
   early_bird_incentive: { default: "star" },
   payroll_run_approval: { default: "check" },
+  tenure_protection: { default: "check" },
 };
 
 /**

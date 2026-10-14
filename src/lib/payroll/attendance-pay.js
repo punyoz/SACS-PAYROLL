@@ -42,6 +42,12 @@
  * Incomplete and Pending Correction records are never counted either way:
  * they are returned in `blocking`, and payroll refuses to process the
  * employee until they are resolved.
+ *
+ * Tenure Pay Protection (src/lib/payroll/tenure-protection.js): with a
+ * `protection` check, an Absent / Half Day / Late / Undertime the employee's
+ * granted protection covers is NOT deducted (nor counted, nor part of the
+ * N-late rule); it is returned in `protected`, tied to its log and the grant,
+ * and still rules out Perfect Attendance. Without one nothing changes.
  */
 
 import { isUnresolvedStatus, normalizeAttendanceStatus } from "@/lib/attendance/status";
@@ -73,8 +79,11 @@ const HOLIDAY_FULL_DAY_HOURS = 8;
  * @param {Map}      [args.holidays]   date key -> "holiday" | "special" | "suspension"
  *                                    (days off only), with optional .names
  *                                    (date key -> name) and .partialDays (Set)
+ * @param {Function} [args.protection] (dateKey, "absent" | "half_day" | "late" | "undertime")
+ *                                    -> { grant_id, category, ... } when Tenure Pay
+ *                                    Protection waives it (buildProtection())
  */
-export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays }) {
+export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection }) {
   const hourly = valueOf(rates, "hourly");
   const daily = valueOf(rates, "daily");
   const halfDayAmount = peso(daily * valueOf(rates, "half_day_pct") / 100);
@@ -105,6 +114,34 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
   const blocking = [];
   const attendedLogIds = [];
   const lateLogs = [];
+
+  // Tenure Pay Protection: deductions waived, each with its grant.
+  const protects = typeof protection === "function";
+  const waivedLines = [];
+  if (protects) {
+    Object.assign(counts, {
+      protected_absent_days: 0,
+      protected_half_days: 0,
+      protected_late_days: 0,
+      protected_late_minutes: 0,
+      protected_undertime_minutes: 0,
+    });
+  }
+  /** Records the line as waived and returns true when protection covers it. */
+  const waive = (date, line) => {
+    if (!protects) return false;
+    const hit = protection(date, line.type);
+    if (!hit) return false;
+    waivedLines.push({
+      ...line,
+      amount: peso(line.amount),
+      category: hit.category,
+      grant_id: hit.grant_id,
+      policy_source: hit.policy_source || null,
+      min_tenure_years: hit.min_tenure_years ?? null,
+    });
+    return true;
+  };
 
   const rows = (logs || [])
     .filter((row) => {
@@ -138,13 +175,18 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       if (holidays?.has?.(date)) return;
       // A morning / afternoon suspension: only half the day was work.
       const share = holidays?.partialDays?.has?.(date) ? 0.5 : 1;
-      counts.absent_days += share;
-      deductions.push({
+      const absentLine = {
         type: "absent", quantity: share, unit: "day", rate: absentAmount,
         rate_config_id: configOf(rates, "absent_pct") || configOf(rates, "daily"),
         amount: peso(absentAmount * share), source_log_id: logId, log_date: date,
         ...(share < 1 ? { note: `${holidays?.names?.get?.(date) || "Suspension"}: half day` } : {}),
-      });
+      };
+      if (waive(date, absentLine)) {
+        counts.protected_absent_days += share;
+        return;
+      }
+      counts.absent_days += share;
+      deductions.push(absentLine);
       return;
     }
 
@@ -184,19 +226,38 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
 
     if (row.is_half_day === true) {
       if (onLeave) return;
-      counts.half_days += 1;
-      deductions.push({
+      const halfDayLine = {
         type: "half_day", quantity: 1, unit: "day", rate: halfDayAmount,
         rate_config_id: configOf(rates, "half_day_pct") || configOf(rates, "daily"),
         amount: halfDayAmount, source_log_id: logId, log_date: date,
-      });
+      };
+      if (waive(date, halfDayLine)) {
+        counts.protected_half_days += 1;
+        return;
+      }
+      counts.half_days += 1;
+      deductions.push(halfDayLine);
       return;
     }
 
     // Late days are charged in groups (N late = 1 absent) after the loop;
     // the per-minute charge, when switched on, per day here.
     const lateMinutes = Math.max(0, Math.round(Number(row.late_minutes) || 0));
-    if (lateMinutes > 0) {
+    // A protected late day is not charged by the minute and does not count
+    // toward the N-late-days rule.
+    const lateWaived = lateMinutes > 0 && waive(date, {
+      type: "late", quantity: lateMinutes, unit: "minute", rate: peso(hourly * lateMinutePct / 100),
+      rate_config_id: configOf(rates, lateMinutePct > 0 ? "late_minute_charge_pct" : "late_days_per_absent"),
+      amount: lateMinutePct > 0 ? peso((lateMinutes / 60) * hourly * lateMinutePct / 100) : 0,
+      source_log_id: logId, log_date: date,
+      charge: lateMinutePct > 0 ? "minute" : "days",
+      ...(lateMinutePct > 0 ? {} : { note: "Not counted toward the late-days rule" }),
+    });
+    if (lateWaived) {
+      counts.protected_late_days += 1;
+      counts.protected_late_minutes += lateMinutes;
+    }
+    if (lateMinutes > 0 && !lateWaived) {
       counts.late_minutes += lateMinutes;
       counts.late_days += 1;
       lateLogs.push({ logId, date });
@@ -212,13 +273,18 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
 
     const undertimeMinutes = Math.max(0, Math.round(Number(row.undertime_minutes) || 0));
     if (undertimeMinutes > 0) {
-      counts.undertime_minutes += undertimeMinutes;
-      counts.undertime_days += 1;
-      deductions.push({
+      const undertimeLine = {
         type: "undertime", quantity: undertimeMinutes, unit: "minute", rate: hourly,
         rate_config_id: configOf(rates, "hourly"),
         amount: peso((undertimeMinutes / 60) * hourly), source_log_id: logId, log_date: date,
-      });
+      };
+      if (waive(date, undertimeLine)) {
+        counts.protected_undertime_minutes += undertimeMinutes;
+      } else {
+        counts.undertime_minutes += undertimeMinutes;
+        counts.undertime_days += 1;
+        deductions.push(undertimeLine);
+      }
     }
   });
 
@@ -243,7 +309,9 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
     && counts.absent_days === 0
     && counts.half_days === 0
     && counts.late_minutes === 0
-    && counts.undertime_minutes === 0;
+    && counts.undertime_minutes === 0
+    // A waived absence, half day, late or undertime is still not perfect attendance.
+    && waivedLines.length === 0;
 
   if (perfectAttendance && perfectBonus > 0) {
     incentives.push({
@@ -287,5 +355,10 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
     earnings,
     blocking,
     source_log_ids: rows.map((row) => row.id).filter(Boolean),
+    // Tenure Pay Protection: what was waived, and the total.
+    ...(protects ? {
+      protected: waivedLines,
+      protected_amount: peso(waivedLines.reduce((s, l) => s + l.amount, 0)),
+    } : {}),
   };
 }

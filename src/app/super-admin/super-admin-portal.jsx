@@ -11,6 +11,7 @@ import {
   ScrollTextIcon,
   SettingsIcon,
   ShieldCheckIcon,
+  ShieldIcon,
   UserRoundIcon,
   UsersRoundIcon,
   WrenchIcon,
@@ -31,6 +32,7 @@ import { AccountsPage } from "./accounts-page";
 import { RolesPage } from "./roles-page";
 import { ConfigPage } from "./config-page";
 import { BackupPage } from "./backup-page";
+import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -54,6 +56,7 @@ const NAV = [
       { id: "sa-accounts", label: "Admin & HR Accounts", icon: UsersRoundIcon, module: "user_management" },
       { id: "sa-branches", label: "Branch Management", icon: BuildingIcon, module: "branch_management" },
       { id: "sa-roles", label: "Roles & Permissions", icon: ShieldCheckIcon, module: "roles_permissions" },
+      { id: "sa-tenure", label: "Tenure Pay Protection", icon: ShieldIcon, module: "tenure_protection" },
     ],
   },
   {
@@ -80,6 +83,7 @@ const DESCRIPTIONS = {
   "sa-accounts": "Create and maintain the login accounts of Super Admin, Admin and HR staff. Employee and Accountant accounts are managed by HR.",
   "sa-branches": "Manage branch information and status across all branches.",
   "sa-roles": "What each role can reach across the system.",
+  "sa-tenure": "Who is not deducted for absence, lateness, holidays, suspensions and school breaks under a tenure contract clause: the policy, the break dates and each grant.",
   "sa-maintenance": "Manage RFID device registration and record RFID card scans.",
   "sa-config": "System-wide settings, payroll rules, attendance policies and holidays.",
   "sa-audit": "System-wide audit trails, login activity and transaction history across all branches.",
@@ -140,6 +144,7 @@ function SuperAdminScreens() {
         {current === "sa-accounts" ? <AccountsPage refreshKey={refreshKey} /> : null}
         {current === "sa-branches" ? <BranchesPage refreshKey={refreshKey} /> : null}
         {current === "sa-roles" ? <RolesPage /> : null}
+        {current === "sa-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "sa-maintenance" ? (
           <MaintenancePage
             refreshKey={refreshKey}
