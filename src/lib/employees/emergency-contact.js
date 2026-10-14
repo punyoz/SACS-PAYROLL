@@ -24,6 +24,7 @@
  */
 
 import { normalizeDigits, normalizeText } from "@/lib/auth/normalize";
+import { PERSON_NAME_PATTERN } from "@/lib/person-name";
 
 export const EMERGENCY_RELATIONSHIP_OPTIONS = [
   "Spouse", "Parent", "Child", "Sibling", "Guardian", "Relative", "Partner", "Friend", "Other",
@@ -41,7 +42,8 @@ export const EMERGENCY_NAME_MAX = 100;
 export const EMERGENCY_ADDRESS_MIN = 5;
 export const EMERGENCY_ADDRESS_MAX = 200;
 
-const NAME_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'-]*$/;
+// The shared rule for a person's name (src/lib/person-name.js).
+const NAME_PATTERN = PERSON_NAME_PATTERN;
 const MOBILE_PATTERN = /^09\d{9}$/;
 
 function collapseSpaces(value) {
