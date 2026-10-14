@@ -21,6 +21,7 @@ import {
 } from "@/lib/employees/emergency-contact";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_LAST4_COLUMNS, maskedPii, withoutPiiMetadata } from "@/lib/employees/pii";
+import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -133,7 +134,8 @@ function buildNamePartsFromBody(body) {
 
 function isValidEmployeeName(nameInput) {
   const withoutSuffix = stripAllowedSuffix(normalizeText(nameInput));
-  return withoutSuffix.length > 0 && /^[A-Za-z\s]+$/.test(withoutSuffix);
+  // The shared rule for a person's name (src/lib/person-name.js).
+  return withoutSuffix.length > 0 && isPersonName(withoutSuffix);
 }
 
 function shapeEmployee(user, profile, index) {
@@ -167,10 +169,9 @@ function shapeEmployee(user, profile, index) {
     // see supabase/migrations/20260914010000_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
     address: normalizeText(profile?.address, normalizeText(metadata.address, "")),
-    // Government IDs and bank account, masked ("••••1234"); the full numbers
-    // are only served to HR's Edit Employee (src/lib/employees/pii.js).
+    // Government IDs, masked ("••••1234"); the full numbers are only served
+    // to HR's Edit Employee (src/lib/employees/pii.js).
     ...maskedPii(profile),
-    bank_name: normalizeText(profile?.bank_name, normalizeText(metadata.bank_name, "")),
     // Live on profiles, not user_metadata (see
     // supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql).
     cp_number: normalizeText(profile?.cp_number, ""),
@@ -213,7 +214,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select(`id,email,full_name,role,branch_id,cp_number,date_hired,address,bank_name,${PII_LAST4_COLUMNS}`)
+      .select(`id,email,full_name,role,branch_id,cp_number,date_hired,address,${PII_LAST4_COLUMNS}`)
       .in("id", userIds);
 
     // Degrade to auth-metadata-only (matching /api/admin/users and
@@ -320,7 +321,7 @@ export async function POST(request) {
 
     if (!isValidEmployeeName(fullName)) {
       return NextResponse.json(
-        { error: "Full name must contain letters and spaces only." },
+        { error: `Full name may contain ${PERSON_NAME_RULE}.` },
         { status: 400 },
       );
     }
@@ -347,9 +348,8 @@ export async function POST(request) {
       address: record.address,
       cp_number: record.cp_number,
       date_hired: record.date_hired,
-      // Government IDs and the bank account number are stored on profiles
-      // only (encrypted there); user_metadata travels in the access token.
-      bank_name: record.bank_name,
+      // Government IDs are stored on profiles only (encrypted there);
+      // user_metadata travels in the access token.
     };
 
     const createUserResult = await supabase.auth.admin.createUser({
@@ -398,8 +398,6 @@ export async function POST(request) {
           pagibig_number: record.pagibig_number,
           philhealth_number: record.philhealth_number,
           tin_number: record.tin_number,
-          bank_name: normalizeText(body.bank_name, "") || null,
-          bank_account_number: record.bank_account_number,
           ...emergencyContactColumns(emergencyContact),
         },
         {
@@ -448,8 +446,6 @@ export async function POST(request) {
       pagibig_number_last4: record.pagibig_number.slice(-4),
       philhealth_number_last4: record.philhealth_number.slice(-4),
       tin_number_last4: record.tin_number.slice(-4),
-      bank_name: normalizeText(body.bank_name, ""),
-      bank_account_number_last4: record.bank_account_number.slice(-4),
     }, employeesBefore.length);
 
     await appendAuditLog({
@@ -549,7 +545,7 @@ export async function PATCH(request) {
 
       if (!isValidEmployeeName(nextMetadata.full_name)) {
         return NextResponse.json(
-          { error: "Full name must contain letters and spaces only." },
+          { error: `Full name may contain ${PERSON_NAME_RULE}.` },
           { status: 400 },
         );
       }
@@ -581,7 +577,6 @@ export async function PATCH(request) {
         nextMetadata.archived = false;
       }
       if (body.address !== undefined) nextMetadata.address = normalizeText(body.address, normalizeText(currentMetadata.address, ""));
-      if (body.bank_name !== undefined) nextMetadata.bank_name = normalizeText(body.bank_name, normalizeText(currentMetadata.bank_name, ""));
       if (body.cp_number !== undefined) nextMetadata.cp_number = normalizeDigits(body.cp_number, 11);
       if (body.date_hired !== undefined) nextMetadata.date_hired = normalizeText(body.date_hired, "");
     }
@@ -634,14 +629,12 @@ export async function PATCH(request) {
       if (body.cp_number !== undefined) profilePatch.cp_number = normalizeDigits(body.cp_number, 11) || null;
       if (body.date_hired !== undefined) profilePatch.date_hired = normalizeText(body.date_hired, "") || null;
       if (body.address !== undefined) profilePatch.address = normalizeText(body.address, "") || null;
-      // Government IDs / bank account: '' clears (the profiles_protect_pii
+      // Government IDs: '' clears (the profiles_protect_pii
       // trigger stores NULL), whereas NULL would keep the encrypted value.
       if (body.sss_number !== undefined) profilePatch.sss_number = normalizeDigits(body.sss_number, 10);
       if (body.pagibig_number !== undefined) profilePatch.pagibig_number = normalizeDigits(body.pagibig_number, 12);
       if (body.philhealth_number !== undefined) profilePatch.philhealth_number = normalizeDigits(body.philhealth_number, 12);
       if (body.tin_number !== undefined) profilePatch.tin_number = normalizeDigits(body.tin_number, 12);
-      if (body.bank_name !== undefined) profilePatch.bank_name = normalizeText(body.bank_name, "") || null;
-      if (body.bank_account_number !== undefined) profilePatch.bank_account_number = normalizeDigits(body.bank_account_number, 20);
       // Position-scoped payroll rates read profiles.position, never user_metadata.
       if (nextMetadata.position) profilePatch.position = nextMetadata.position;
       // profiles holds the trusted salary payroll reads (src/lib/auth/users-cache.js).
@@ -673,7 +666,6 @@ export async function PATCH(request) {
       cp_number: nextMetadata.cp_number,
       date_hired: nextMetadata.date_hired,
       address: nextMetadata.address,
-      bank_name: nextMetadata.bank_name,
     }, 0);
 
     const actionLabel = action === "archive"

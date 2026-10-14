@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BriefcaseIcon, HeartHandshakeIcon, LandmarkIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
+import { BriefcaseIcon, HeartHandshakeIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -119,14 +119,7 @@ export function ProfilePage() {
             { label: "Pag-IBIG number", value: ctx?.pagibig_number },
             { label: "TIN", value: formatPiiForDisplay(ctx?.tin_number, DIGIT_FIELD_SPECS.tin_number.groups) },
           ]} />
-        </Section>
-
-        <Section icon={LandmarkIcon} title="Bank information">
-          <InfoList items={[
-            { label: "Bank name", value: ctx?.bank_name },
-            { label: "Bank account number", value: ctx?.bank_account_number },
-          ]} />
-          <p className="mt-4 text-xs text-muted-foreground">Government numbers and bank details are set by HR for payroll. Contact HR to change them.</p>
+          <p className="mt-4 text-xs text-muted-foreground">Government numbers are set by HR for payroll. Contact HR to change them.</p>
         </Section>
       </div>
     </>

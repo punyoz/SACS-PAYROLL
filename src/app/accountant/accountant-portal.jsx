@@ -126,7 +126,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
-      {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition showBank employeeIdLabel /> : null}
+      {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}
     </AppShell>
   );
 }

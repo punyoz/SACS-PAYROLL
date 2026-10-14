@@ -71,7 +71,7 @@ export async function resolveLoginProfile({ url, serviceRoleKey, user, actualRol
 
     const profileResult = await adminClient
       .from("profiles")
-      .select(`id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,role,archived,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,bank_name,${PII_LAST4_COLUMNS}`)
+      .select(`id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,role,archived,employee_id,employee_type,position,branch_id,cp_number,date_hired,address,${PII_LAST4_COLUMNS}`)
       .eq("id", user.id)
       .maybeSingle();
 
@@ -168,8 +168,7 @@ export function buildProfilePayload(resolved, passwordChangeRequired) {
     cp_number: normalizeText(profileRow?.cp_number, normalizeText(metadata.cp_number, "")),
     date_hired: normalizeText(profileRow?.date_hired, normalizeText(metadata.date_hired, "")),
     address: normalizeText(profileRow?.address, normalizeText(metadata.address, "")),
-    bank_name: normalizeText(profileRow?.bank_name, normalizeText(metadata.bank_name, "")),
-    // Government IDs and bank account, masked ("••••1234"): this context is
+    // Government IDs, masked ("••••1234"): this context is
     // kept in the browser, so the full numbers never go into it
     // (src/lib/employees/pii.js).
     ...maskedPii(profileRow),

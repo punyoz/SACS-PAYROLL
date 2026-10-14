@@ -24,7 +24,7 @@ export function normalizeRoleEmail(emailInput) {
 /**
  * Strips everything but digits (a client may send a dash-formatted value like
  * "12-3456789-0") and caps the result at maxLength. Used for the numeric-only
- * ID/account fields (SSS, Pag-IBIG, PhilHealth, bank account) — the stored
+ * ID fields (SSS, Pag-IBIG, PhilHealth, TIN) — the stored
  * value is always digits-only; dashes are a display/input-mask concern only.
  * Server-side defense in depth alongside each field's DB CHECK constraint —
  * never trust client-side input masking alone.

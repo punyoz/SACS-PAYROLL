@@ -53,8 +53,8 @@ connection string from Dashboard → Connect → Session pooler:
 pg_dump "postgresql://postgres.swtlmaupaarrppypxsip:<DB-PASSWORD>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres" -Fc -f sacs-before-go-live.dump
 ```
 
-**Save the PII encryption key separately.** SSS, TIN, PhilHealth, Pag-IBIG,
-bank and PRC numbers are encrypted with a Vault key that only exists in this
+**Save the PII encryption key separately.** SSS, TIN, PhilHealth, Pag-IBIG
+and PRC numbers are encrypted with a Vault key that only exists in this
 project. A backup restored into a *new* project cannot decrypt them without
 it. In the SQL Editor run:
 

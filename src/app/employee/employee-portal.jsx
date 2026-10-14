@@ -45,7 +45,7 @@ const DESCRIPTIONS = {
   "emp-timesheet": "Daily work hours, tardiness and undertime for any date range.",
   "emp-payslips": "Your latest payslip and earlier ones, with the full breakdown.",
   "emp-leave": "Request leave and follow its approval.",
-  "emp-profile": "Your personal, contact, government and bank details on file.",
+  "emp-profile": "Your personal, contact and government details on file.",
 };
 
 function EmployeeScreens() {

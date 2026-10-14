@@ -153,7 +153,7 @@ function HrScreens() {
         {current === "hr-awol" ? <AwolCasesPage refreshKey={refreshKey} /> : null}
         {current === "hr-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
-        {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition showBank /> : null}
+        {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
       </AppShell>
     </AttendanceActionsProvider>
   );

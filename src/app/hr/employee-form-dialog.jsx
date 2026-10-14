@@ -16,6 +16,7 @@ import { LicenseSection } from "@/components/portal/license-section";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField } from "@/lib/portal/format";
+import { cleanNameInput, NAME_TYPING_HINT, PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
 import { cn } from "@/lib/utils";
 
 /*
@@ -31,7 +32,8 @@ import { cn } from "@/lib/utils";
 
 const MIN_WORKING_AGE = 15;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const NAME = /^[A-Za-z\s]+$/;
+// The shared rule for a person's name (src/lib/person-name.js): no digits.
+const NAME = PERSON_NAME_PATTERN;
 
 const SUFFIXES = ["Jr.", "Sr.", "II", "III", "IV", "V"];
 const SEXES = ["Male", "Female"];
@@ -49,7 +51,6 @@ const DIGIT_SPEC = {
   philhealth_number: "philhealth_number",
   pagibig_number: "pagibig_number",
   tin_number: "tin_number",
-  bank_account_number: "bank_account_number",
 };
 
 const LABELS = {
@@ -60,13 +61,12 @@ const LABELS = {
   cp_number: "Contact number", emergency_contact_name: "Contact person", emergency_contact_relationship: "Relationship",
   emergency_contact_number: "Emergency contact number", emergency_contact_address: "Emergency contact address",
   sss_number: "SSS number", philhealth_number: "PhilHealth number", pagibig_number: "Pag-IBIG number", tin_number: "TIN",
-  bank_name: "Bank name", bank_account_number: "Bank account number",
 };
 
 const REQUIRED_COMMON = [
   "first_name", "last_name", "email", "employee_status", "date_of_birth", "sex", "civil_status", "employee_type", "position",
   "employment_type", "employment_status", "date_hired", "address", "cp_number", "sss_number", "philhealth_number",
-  "pagibig_number", "tin_number", "bank_name", "bank_account_number",
+  "pagibig_number", "tin_number",
 ];
 const REQUIRED_CREATE = [
   ...REQUIRED_COMMON, "role", "branch_id", "basic_salary",
@@ -100,7 +100,7 @@ function emptyValues() {
     date_of_birth: "", sex: "", civil_status: "", employee_type: "", position: "Employee", employment_type: "", employment_status: "",
     date_hired: "", basic_salary: "", address: "", cp_number: "", emergency_contact_name: "", emergency_contact_relationship: "",
     emergency_contact_number: "", emergency_contact_address: "", sss_number: "", philhealth_number: "", pagibig_number: "",
-    tin_number: "", bank_name: "", bank_account_number: "",
+    tin_number: "",
   };
 }
 
@@ -122,7 +122,6 @@ function valuesFromEmployee(e) {
     employee_status: pick(["Active", "Pending", "On Leave", "Inactive", "AWOL", "Separated"], e.employee_status || "Active") || "Active",
     date_hired: e.date_hired || "",
     address: e.address || "",
-    bank_name: e.bank_name || "",
     emergency_contact_name: e.emergency_contact_name || "",
     emergency_contact_relationship: pick(RELATIONSHIPS, e.emergency_contact_relationship),
     emergency_contact_address: e.emergency_contact_address || "",
@@ -151,9 +150,9 @@ function validate(values, { creating, ecOnFile }) {
   const v = (key) => String(values[key] ?? "").trim();
   const fail = (key, message) => ({ errors: { [key]: message }, summary: message });
 
-  if (!NAME.test(v("first_name"))) return fail("first_name", "First name must contain letters and spaces only.");
-  if (v("middle_initial") && !NAME.test(v("middle_initial"))) return fail("middle_initial", "Middle name must contain letters and spaces only.");
-  if (!NAME.test(v("last_name"))) return fail("last_name", "Last name must contain letters and spaces only.");
+  if (!NAME.test(v("first_name"))) return fail("first_name", `First name may contain ${PERSON_NAME_RULE}.`);
+  if (v("middle_initial") && !NAME.test(v("middle_initial"))) return fail("middle_initial", `Middle name may contain ${PERSON_NAME_RULE}.`);
+  if (!NAME.test(v("last_name"))) return fail("last_name", `Last name may contain ${PERSON_NAME_RULE}.`);
   if (!EMAIL.test(v("email"))) return fail("email", "Enter a valid email address.");
 
   const now = new Date();
@@ -183,8 +182,6 @@ function validate(values, { creating, ecOnFile }) {
   if (pagibig.length !== 12) return fail("pagibig_number", "Pag-IBIG number must be exactly 12 digits.");
   const tin = digitsOnly(v("tin_number"));
   if (tin.length !== 9 && tin.length !== 12) return fail("tin_number", "TIN must be 9 digits, or 12 digits including the branch code.");
-  const bank = digitsOnly(v("bank_account_number"));
-  if (bank.length < 6 || bank.length > 20) return fail("bank_account_number", "Bank account number must be 6 to 20 digits.");
 
   // Required on Add. On Edit a record with none on file may stay blank, but
   // once any field is filled, or one is already on file, all four must be valid.
@@ -192,7 +189,7 @@ function validate(values, { creating, ecOnFile }) {
   const ecTouched = ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_address"].some((k) => v(k)) || Boolean(ecNumber);
   if (creating || ecTouched || ecOnFile) {
     if (!v("emergency_contact_name")) return fail("emergency_contact_name", "Emergency contact person is required.");
-    if (!NAME.test(v("emergency_contact_name"))) return fail("emergency_contact_name", "Emergency contact name must contain letters and spaces only.");
+    if (!NAME.test(v("emergency_contact_name"))) return fail("emergency_contact_name", `Emergency contact name may contain ${PERSON_NAME_RULE}.`);
     if (!v("emergency_contact_relationship")) return fail("emergency_contact_relationship", "Select the emergency contact's relationship.");
     if (v("emergency_contact_address").length < 5) return fail("emergency_contact_address", "Enter the emergency contact's complete address.");
     if (!/^09\d{9}$/.test(ecNumber)) return fail("emergency_contact_number", "Emergency contact number must be an 11-digit PH mobile number starting with 09.");
@@ -204,8 +201,7 @@ function validate(values, { creating, ecOnFile }) {
     date_of_birth: v("date_of_birth"), sex: v("sex"), civil_status: v("civil_status"), employee_type: v("employee_type"),
     position: v("position"), employment_type: v("employment_type"), employment_status: v("employment_status"),
     employee_status: v("employee_status"), date_hired: v("date_hired"), address: v("address"), cp_number: cp,
-    sss_number: sss, philhealth_number: philhealth, pagibig_number: pagibig, tin_number: tin, bank_name: v("bank_name"),
-    bank_account_number: bank,
+    sss_number: sss, philhealth_number: philhealth, pagibig_number: pagibig, tin_number: tin,
   };
   if (creating) {
     payload.role = v("role");
@@ -273,8 +269,8 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   };
 
   const setName = (key, raw) => {
-    const cleaned = raw.replace(/[^A-Za-z\s]/g, "");
-    setHints((current) => ({ ...current, [key]: cleaned !== raw ? "Only letters and spaces are allowed." : "" }));
+    const { value: cleaned, removed } = cleanNameInput(raw);
+    setHints((current) => ({ ...current, [key]: removed ? NAME_TYPING_HINT : "" }));
     set(key, cleaned);
   };
 
@@ -440,10 +436,6 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
             {field("philhealth_number", digits("philhealth_number", { placeholder: "e.g. 12-345678901-2" }), { required: true })}
             {field("pagibig_number", digits("pagibig_number", { placeholder: "e.g. 1234-5678-9012" }), { required: true })}
             {field("tin_number", digits("tin_number", { placeholder: "e.g. 123-456-789-000" }), { required: true })}
-
-            <Section>Bank account (payroll)</Section>
-            {field("bank_name", text("bank_name", { maxLength: 50, placeholder: "e.g. BDO, BPI, Landbank", autoComplete: "off" }), { required: true })}
-            {field("bank_account_number", digits("bank_account_number", { placeholder: "e.g. 001234567890", autoComplete: "off" }), { required: true })}
 
             {feedback.text ? (
               <Alert variant={feedback.tone === "error" ? "destructive" : "default"} className={cn("sm:col-span-2", feedback.tone === "success" && "border-success/40 text-success")}>

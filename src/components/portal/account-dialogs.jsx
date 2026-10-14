@@ -19,6 +19,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { PASSWORD_MIN_LENGTH } from "@/app/login/auth-context";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField, isMaskedPii } from "@/lib/portal/format";
+import { cleanNameInput, NAME_TYPING_HINT, PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
 
 /* ════════════════════════════════════════════════════════════════════════
    Edit Account — the legacy Settings modal's "profile" view
@@ -33,7 +34,7 @@ const RELATIONSHIPS = ["Spouse", "Parent", "Child", "Sibling", "Guardian", "Rela
 const NONE = "__none__";
 
 // Profile key, its digit mask (DIGIT_FIELD_SPECS), and whether it is a
-// government / bank number (read-only where HR sets them).
+// government number (read-only where HR sets them).
 const ACCOUNT_FIELDS = [
   { key: "cp_number", spec: "cp_number" },
   { key: "address" },
@@ -45,8 +46,6 @@ const ACCOUNT_FIELDS = [
   { key: "philhealth_number", spec: "philhealth_number", payroll: true },
   { key: "pagibig_number", spec: "pagibig_number", payroll: true },
   { key: "tin_number", spec: "tin_number", payroll: true },
-  { key: "bank_name", payroll: true },
-  { key: "bank_account_number", spec: "bank_account_number", payroll: true },
 ];
 
 const namePart = (label, required) => z.string().trim().superRefine((value, issue) => {
@@ -54,7 +53,8 @@ const namePart = (label, required) => z.string().trim().superRefine((value, issu
     if (required) issue.addIssue({ code: "custom", message: `${label} is required.` });
     return;
   }
-  if (!/^[A-Za-z\s]+$/.test(value)) issue.addIssue({ code: "custom", message: `${label} must contain only letters.` });
+  // The shared rule for a person's name (src/lib/person-name.js): no digits.
+  if (!PERSON_NAME_PATTERN.test(value)) issue.addIssue({ code: "custom", message: `${label} may contain ${PERSON_NAME_RULE}.` });
 });
 
 const accountSchema = z.object({
@@ -63,6 +63,7 @@ const accountSchema = z.object({
   last_name: namePart("Last name", true),
   suffix: z.string(),
   ...Object.fromEntries(ACCOUNT_FIELDS.map(({ key }) => [key, z.string()])),
+  emergency_contact_name: namePart("Contact person", false),
 });
 
 function displayValue(field, raw) {
@@ -116,10 +117,12 @@ function SectionLabel({ children, note }) {
   );
 }
 
-export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, titleCaseName = false, showBank = true }) {
+export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, titleCaseName = false }) {
   const { ctx, updateContext, notify } = usePortalSession();
   const [masks, setMasks] = React.useState({});
   const [serverError, setServerError] = React.useState("");
+  // Name boxes refuse digits and symbols as they are typed; the hint says why.
+  const [nameHints, setNameHints] = React.useState({});
 
   const form = useForm({ resolver: zodResolver(accountSchema), defaultValues: valuesFrom(ctx) });
 
@@ -134,6 +137,7 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
   React.useEffect(() => {
     if (!open) return undefined;
     setServerError("");
+    setNameHints({});
     form.reset(valuesFrom(ctx));
     rememberMasks(ctx);
     let cancelled = false;
@@ -169,8 +173,6 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
     const extra = {};
     ACCOUNT_FIELDS.forEach((field) => {
       if (field.payroll && payrollReadOnly) return;
-      // A box this portal's dialog does not show is left out, so nothing on file is wiped.
-      if (!showBank && (field.key === "bank_name" || field.key === "bank_account_number")) return;
       const value = values[field.key];
       if (masks[field.key] && value === masks[field.key]) return; // unchanged mask
       extra[field.key] = field.spec ? digitsOnly(value) : String(value || "").trim();
@@ -188,8 +190,8 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "Failed to update profile.");
 
-      // What the server stored, not what was sent (an employee's bank fields
-      // are ignored server-side).
+      // What the server stored, not what was sent (an employee's government
+      // numbers are ignored server-side).
       const saved = result.profile || {};
       const patch = {
         full_name: saved.full_name || fullName,
@@ -207,14 +209,27 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
     }
   }
 
-  const textField = (name, label, props = {}) => (
+  // A person's name: what a name may not contain is dropped as it is typed
+  // or pasted ("Ana2" -> "Ana"), with a hint under the box.
+  const nameField = (name, label, props = {}) => (
     <FormField
       control={form.control}
       name={name}
       render={({ field }) => (
         <FormItem>
           <FormLabel>{label}</FormLabel>
-          <FormControl><Input {...field} {...props} /></FormControl>
+          <FormControl>
+            <Input
+              {...field}
+              {...props}
+              onChange={(event) => {
+                const { value, removed } = cleanNameInput(event.target.value);
+                setNameHints((current) => ({ ...current, [name]: removed }));
+                field.onChange(value);
+              }}
+            />
+          </FormControl>
+          {nameHints[name] && !form.getFieldState(name).error ? <p className="text-xs text-muted-foreground">{NAME_TYPING_HINT}</p> : null}
           <FormMessage />
         </FormItem>
       )}
@@ -273,9 +288,9 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
           <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-4">
             <SectionLabel>Personal information</SectionLabel>
             <div className="grid items-start gap-4 sm:grid-cols-2">
-              {textField("first_name", "First name", { placeholder: "e.g. Juan", autoComplete: "given-name" })}
-              {textField("middle_name", "Middle name", { placeholder: "e.g. Santos", autoComplete: "additional-name" })}
-              {textField("last_name", "Last name", { placeholder: "e.g. Dela Cruz", autoComplete: "family-name" })}
+              {nameField("first_name", "First name", { placeholder: "e.g. Juan", autoComplete: "given-name" })}
+              {nameField("middle_name", "Middle name", { placeholder: "e.g. Santos", autoComplete: "additional-name" })}
+              {nameField("last_name", "Last name", { placeholder: "e.g. Dela Cruz", autoComplete: "family-name" })}
               {selectField("suffix", "Suffix", SUFFIXES, "None")}
             </div>
             {digitField("cp_number", "Contact number", "e.g. 0917 123 4567", false)}
@@ -294,7 +309,7 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
             <Separator />
             <SectionLabel>Emergency contact</SectionLabel>
             <div className="grid items-start gap-4 sm:grid-cols-2">
-              {textField("emergency_contact_name", "Contact person", { maxLength: 100, placeholder: "e.g. Maria Dela Cruz", autoComplete: "off" })}
+              {nameField("emergency_contact_name", "Contact person", { maxLength: 100, placeholder: "e.g. Maria Dela Cruz", autoComplete: "off" })}
               {selectField("emergency_contact_relationship", "Relationship", RELATIONSHIPS, "Select relationship")}
             </div>
             {digitField("emergency_contact_number", "Contact number", "e.g. 0918 765 4321", false)}
@@ -318,17 +333,6 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
               {digitField("pagibig_number", "Pag-IBIG number", "e.g. 1234-5678-9012", payrollReadOnly)}
               {digitField("tin_number", "TIN", "e.g. 123-456-789-000", payrollReadOnly)}
             </div>
-
-            {showBank ? <SectionLabel note={payrollNote}>Bank information</SectionLabel> : null}
-            {showBank ? <div className="grid items-start gap-4 sm:grid-cols-2">
-              {textField("bank_name", "Bank name", {
-                maxLength: 50,
-                placeholder: "e.g. BPI, BDO, Landbank",
-                readOnly: payrollReadOnly,
-                className: payrollReadOnly ? "bg-muted text-muted-foreground" : undefined,
-              })}
-              {digitField("bank_account_number", "Bank account number", "Bank account number", payrollReadOnly)}
-            </div> : null}
 
             {serverError ? <p role="alert" className="text-sm text-destructive">{serverError}</p> : null}
 

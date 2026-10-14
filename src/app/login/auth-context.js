@@ -58,8 +58,6 @@ export function buildAuthContext(result, role, identityInput) {
     pagibig_number: text(profile.pagibig_number),
     philhealth_number: text(profile.philhealth_number),
     tin_number: text(profile.tin_number),
-    bank_name: text(profile.bank_name),
-    bank_account_number: text(profile.bank_account_number),
     cp_number: text(profile.cp_number),
     date_hired: text(profile.date_hired),
     date_of_birth: text(profile.date_of_birth),

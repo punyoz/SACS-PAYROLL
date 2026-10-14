@@ -125,7 +125,7 @@ function SuperAdminScreens() {
         refreshing={refreshing}
         notificationSummary={summary}
         profilePage="sa-profile"
-        accountOptions={{ payrollReadOnly: false, titleCaseName: true, showBank: false }}
+        accountOptions={{ payrollReadOnly: false, titleCaseName: true }}
       >
         {current === "sa-dashboard" ? <DashboardPage refreshKey={refreshKey} onSummary={setSummary} onNavigate={navigate} /> : null}
         {current === "sa-attendance" ? (

@@ -116,8 +116,6 @@ describe("Required employee fields", () => {
     philhealth_number: "12-345678901-2",
     pagibig_number: "1234-5678-9012",
     tin_number: "123-456-789-000",
-    bank_name: "BDO",
-    bank_account_number: "001234567890",
     branch_id: "11111111-1111-1111-1111-111111111111",
   };
   const today = new Date("2026-09-16T00:00:00Z");
@@ -126,6 +124,8 @@ describe("Required employee fields", () => {
 
   it("accepts a complete record", () => {
     expect(check({})).toBeNull();
+    // Real names: ñ, accents, hyphens, apostrophes and periods are letters enough.
+    expect(check({ first_name: "Ma. Niña", middle_initial: "Ibáñez", last_name: "Dela Peña-O'Brien" })).toBeNull();
     expect(check({ middle_initial: "", suffix: "" })).toBeNull();
     expect(check({ tin_number: "123456789" })).toBeNull();
   });
@@ -134,7 +134,7 @@ describe("Required employee fields", () => {
     "first_name", "last_name", "email", "date_of_birth", "sex", "civil_status", "employee_type",
     "employment_type", "employment_status", "employee_status", "position", "date_hired", "basic_salary",
     "address", "cp_number", "sss_number", "philhealth_number", "pagibig_number", "tin_number",
-    "bank_name", "bank_account_number", "branch_id",
+    "branch_id",
   ])("refuses to create an account without %s", (field) => {
     expect(check({ [field]: "" })).toMatch(/required field/);
   });
@@ -155,12 +155,13 @@ describe("Required employee fields", () => {
     [{ philhealth_number: "1234" }, /PhilHealth/],
     [{ pagibig_number: "1234" }, /Pag-IBIG/],
     [{ tin_number: "1234567890" }, /TIN/],
-    [{ bank_account_number: "123" }, /Bank account/],
     [{ basic_salary: "0" }, /Basic salary/],
     [{ date_of_birth: "2015-01-01" }, /at least 15/],
     [{ date_of_birth: "1995-02-31" }, /not a valid date/],
     [{ date_hired: "2000-01-01" }, /15th birthday/],
-    [{ first_name: "Juan2" }, /letters and spaces/],
+    [{ first_name: "Juan2" }, /letters, spaces, hyphens, apostrophes and periods only/],
+    [{ last_name: "Cruz 3rd" }, /Last name may contain letters/],
+    [{ middle_initial: "S4ntos" }, /Middle name may contain letters/],
     [{ email: "juan@" }, /valid email/],
     [{ address: "Q" }, /complete home address/],
   ])("rejects %o", (overrides, message) => {
