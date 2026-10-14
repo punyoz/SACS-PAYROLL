@@ -10,7 +10,7 @@ DELETE FROM vault.secrets WHERE name = 'pii_encryption_key';
 SELECT vault.create_secret(
   'PASTE-THE-SAVED-pii_encryption_key-HERE',
   'pii_encryption_key',
-  'AES-256 key for profiles government IDs and bank account numbers. Do not rotate without re-encrypting.'
+  'AES-256 key for profiles government ID numbers. Do not rotate without re-encrypting.'
 );
 
 -- 2. Recreate the scheduled jobs (the cron schema is not in the dump).

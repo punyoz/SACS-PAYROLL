@@ -15,6 +15,7 @@
  */
 
 import { normalizeDigits, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
+import { PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
 
 export const SEX_OPTIONS = ["Male", "Female"];
 export const CIVIL_STATUS_OPTIONS = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
@@ -26,7 +27,8 @@ export const ACCOUNT_STATUS_OPTIONS = ["Active", "Pending", "On Leave", "Inactiv
 export const MIN_WORKING_AGE = 15;
 export const SALARY_MAX = 9_999_999.99;
 
-const NAME_PATTERN = /^[A-Za-z\s]+$/;
+// The shared rule for a person's name (src/lib/person-name.js).
+const NAME_PATTERN = PERSON_NAME_PATTERN;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The case-insensitive match of `value` among `options`, or "". */
@@ -80,8 +82,6 @@ export function normalizeEmployeeFields(body = {}) {
     philhealth_number: normalizeDigits(body.philhealth_number),
     pagibig_number: normalizeDigits(body.pagibig_number),
     tin_number: normalizeDigits(body.tin_number),
-    bank_name: normalizeText(body.bank_name),
-    bank_account_number: normalizeDigits(body.bank_account_number),
     branch_id: normalizeText(body.branch_id),
   };
 }
@@ -106,8 +106,6 @@ const FIELD_LABELS = {
   philhealth_number: "PhilHealth number",
   pagibig_number: "Pag-IBIG number",
   tin_number: "TIN",
-  bank_name: "Bank name",
-  bank_account_number: "Bank account number",
   branch_id: "Branch",
 };
 
@@ -116,7 +114,7 @@ export const REQUIRED_FIELDS = [
   "first_name", "last_name", "email", "date_of_birth", "sex", "civil_status",
   "employee_type", "employment_type", "employment_status", "employee_status", "position",
   "date_hired", "address", "cp_number", "sss_number", "philhealth_number",
-  "pagibig_number", "tin_number", "bank_name", "bank_account_number",
+  "pagibig_number", "tin_number",
 ];
 
 /** Required only when the account is first created. */
@@ -143,10 +141,10 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
   }
 
   for (const [field, label] of [["first_name", "First name"], ["last_name", "Last name"]]) {
-    if (!NAME_PATTERN.test(record[field])) return `${label} must contain letters and spaces only.`;
+    if (!NAME_PATTERN.test(record[field])) return `${label} may contain ${PERSON_NAME_RULE}.`;
   }
   if (record.middle_initial && !NAME_PATTERN.test(record.middle_initial)) {
-    return "Middle name must contain letters and spaces only.";
+    return `Middle name may contain ${PERSON_NAME_RULE}.`;
   }
   if (!EMAIL_PATTERN.test(record.email) || !normalizeRoleEmail(record.email)) {
     return "Enter a valid email address.";
@@ -183,10 +181,6 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
   if (record.pagibig_number.length !== 12) return "Pag-IBIG number must be exactly 12 digits.";
   if (record.tin_number.length !== 9 && record.tin_number.length !== 12) {
     return "TIN must be 9 digits, or 12 digits including the branch code.";
-  }
-  if (record.bank_name.length > 50) return "Bank name must be at most 50 characters.";
-  if (record.bank_account_number.length < 6 || record.bank_account_number.length > 20) {
-    return "Bank account number must be 6 to 20 digits.";
   }
 
   return null;

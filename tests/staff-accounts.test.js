@@ -123,7 +123,7 @@ describe("Admin and HR cannot create a Super Admin account", () => {
 describe("Staff accounts carry no payroll or statutory fields", () => {
   const forbidden = [
     "basic_salary", "sss_number", "philhealth_number",
-    "pagibig_number", "tin_number", "bank_name", "bank_account_number",
+    "pagibig_number", "tin_number",
   ];
 
   it("the normaliser drops them even when a caller sends them", () => {
@@ -133,8 +133,6 @@ describe("Staff accounts carry no payroll or statutory fields", () => {
       philhealth_number: "1234567890",
       pagibig_number: "1234567890",
       tin_number: "123456789",
-      bank_name: "BDO",
-      bank_account_number: "1234567890",
     }));
     for (const field of forbidden) {
       expect(record).not.toHaveProperty(field);

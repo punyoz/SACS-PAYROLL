@@ -20,19 +20,18 @@ describe("employee PII helpers", () => {
   });
 
   it("masks every field of a profile row, tolerating a missing row", () => {
-    expect(maskedPii({ sss_number_last4: "1234", bank_account_number_last4: "5678" })).toEqual({
+    expect(maskedPii({ sss_number_last4: "1234", tin_number_last4: "5678" })).toEqual({
       sss_number: "••••1234",
       philhealth_number: "",
       pagibig_number: "",
-      tin_number: "",
-      bank_account_number: "••••5678",
+      tin_number: "••••5678",
     });
     expect(maskedPii(null).sss_number).toBe("");
   });
 
   it("strips every PII key from metadata and keeps the rest", () => {
-    const meta = { role: "employee", bank_name: "BDO", sss_number: "0123456789", tin_number: "123456789" };
-    expect(withoutPiiMetadata(meta)).toEqual({ role: "employee", bank_name: "BDO" });
+    const meta = { role: "employee", position: "Teacher", sss_number: "0123456789", tin_number: "123456789" };
+    expect(withoutPiiMetadata(meta)).toEqual({ role: "employee", position: "Teacher" });
     expect(meta.sss_number).toBe("0123456789");
   });
 
@@ -48,7 +47,6 @@ describe("employee PII helpers", () => {
       philhealth_number: "",
       pagibig_number: "",
       tin_number: "",
-      bank_account_number: "",
     });
   });
 

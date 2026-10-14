@@ -12,18 +12,15 @@ import {
   validateEmergencyContactUpdate,
 } from "@/lib/employees/emergency-contact";
 import { PII_FIELDS, PII_LAST4_COLUMNS, maskLast4, maskedPii, withoutPiiMetadata } from "@/lib/employees/pii";
+import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Employee and Accountant bank details and government numbers are set by HR
-// (payroll pays into the account and files contributions under the numbers),
-// so neither can change their own here; other roles' settings still can.
-const BANK_LOCKED_ROLES = ["employee", "accountant"];
-
-// Admin and Super Admin are operator logins, not payees: no bank details at
-// all (the profiles_protect_pii trigger strips them in the database too).
-const NO_BANK_ROLES = ["admin", "super_admin"];
+// Employee and Accountant government numbers are set by HR (payroll files
+// contributions under them), so neither can change their own here; other
+// roles' settings still can.
+const PAYROLL_LOCKED_ROLES = ["employee", "accountant"];
 
 const CONTACT_NUMBER_PATTERN = /^09\d{9}$/;
 const ADDRESS_MIN = 5;
@@ -39,14 +36,14 @@ const GOVERNMENT_ID_RULES = [
 
 const PROFILE_SELECT = [
   "full_name", "first_name", "middle_name", "last_name", "suffix",
-  "cp_number", "address", "bank_name", PII_LAST4_COLUMNS, ...EMERGENCY_CONTACT_FIELDS,
+  "cp_number", "address", PII_LAST4_COLUMNS, ...EMERGENCY_CONTACT_FIELDS,
 ].join(",");
 
 /**
  * GET: the caller's own stored name parts, contact details, emergency
- * contact, government numbers and bank details (the Profile page and its
- * Edit Account dialog) and, for staff accounts, the STAFF-### ID. Government
- * numbers and the bank account are masked ("••••1234"): they are encrypted
+ * contact and government numbers (the Profile page and its Edit Account
+ * dialog) and, for staff accounts, the STAFF-### ID. Government numbers are
+ * masked ("••••1234"): they are encrypted
  * at rest and never sent back in full (src/lib/employees/pii.js).
  */
 export async function GET(request) {
@@ -87,8 +84,7 @@ export async function POST(request) {
   // "profile" is SCOPE_SELF for every role in the matrix, so this always
   // resolves to the caller's own session email. Previously the account to edit
   // was taken from body.email with no check that it was the caller's, which
-  // let any signed-in user rewrite another employee's bank_account_number —
-  // i.e. redirect someone else's salary payment.
+  // let any signed-in user rewrite another employee's details.
   const guard = await requirePermission(request, "profile", "update");
   if (guard.denied) return guard.denied;
 
@@ -110,6 +106,10 @@ export async function POST(request) {
     }
   }
   const full_name = nameParts ? nameParts.full_name : normalizeText(body.full_name, "");
+  // A full name sent on its own follows the same rule as the parts.
+  if (!nameParts && full_name && !isPersonName(full_name)) {
+    return NextResponse.json({ error: `Full name may contain ${PERSON_NAME_RULE}.` }, { status: 400 });
+  }
 
   if (!email) {
     return NextResponse.json({ error: "Email is required." }, { status: 400 });
@@ -141,7 +141,7 @@ export async function POST(request) {
   }
 
   const currentMeta = user.user_metadata || {};
-  const bankLocked = BANK_LOCKED_ROLES.includes(guard.role);
+  const payrollLocked = PAYROLL_LOCKED_ROLES.includes(guard.role);
 
   const { data: currentProfile, error: currentError } = await supabase
     .from("profiles")
@@ -197,12 +197,11 @@ export async function POST(request) {
     }
   }
 
-  // Employee and Accountant bank details and government numbers stay HR's
-  // call, through the employee-management routes. Showing the fields
+  // Employee and Accountant government numbers stay HR's call, through the employee-management routes. Showing the fields
   // read-only on their form is not enough (a direct API call would bypass
   // it), so whatever the body sends is ignored for those roles.
   const payrollPatch = {};
-  if (!bankLocked) {
+  if (!payrollLocked) {
     for (const [key, lengths, message] of GOVERNMENT_ID_RULES) {
       if (body[key] === undefined) continue;
       const digits = normalizeDigits(body[key]);
@@ -211,33 +210,11 @@ export async function POST(request) {
       }
       payrollPatch[key] = digits;
     }
-    if (NO_BANK_ROLES.includes(guard.role)) {
-      // Nothing to store; also clear any copy left in metadata.
-      payrollPatch.bank_name = "";
-      payrollPatch.bank_account_number = "";
-    } else {
-      if (body.bank_name !== undefined) {
-        const bankName = normalizeText(body.bank_name, "");
-        if (bankName.length > 50) {
-          return NextResponse.json({ error: "Bank name must be at most 50 characters." }, { status: 400 });
-        }
-        payrollPatch.bank_name = bankName;
-      }
-      if (body.bank_account_number !== undefined) {
-        const account = normalizeDigits(body.bank_account_number);
-        if (account && (account.length < 6 || account.length > 20)) {
-          return NextResponse.json({ error: "Bank account number must be 6 to 20 digits." }, { status: 400 });
-        }
-        payrollPatch.bank_account_number = account;
-      }
-    }
   }
 
-  // Government IDs and the bank account number go to profiles only, where
-  // they are encrypted -- user_metadata travels in the access token. Any old
+  // Government IDs go to profiles only, where they are encrypted -- user_metadata travels in the access token. Any old
   // copy there is dropped.
   const updatedMeta = { ...withoutPiiMetadata(currentMeta), full_name };
-  if (payrollPatch.bank_name !== undefined) updatedMeta.bank_name = payrollPatch.bank_name;
   if (address !== undefined) updatedMeta.address = address;
   if (cp_number !== undefined) updatedMeta.cp_number = cp_number;
 
@@ -251,8 +228,8 @@ export async function POST(request) {
 
   invalidateUsersCache();
 
-  // profiles is authoritative for cp_number, address, the government numbers
-  // and bank details (see
+  // profiles is authoritative for cp_number, address and the government
+  // numbers (see
   // supabase/migrations/20260910010000_transfer_requests_and_employee_contact.sql
   // and 20260914010000_profile_id_fields_and_perf.sql) — every employee-listing
   // route and the sign-in context read them from there, not user_metadata.
@@ -266,7 +243,6 @@ export async function POST(request) {
   if (cp_number !== undefined) profilePatch.cp_number = cp_number || null;
   if (address !== undefined) profilePatch.address = address || null;
   if (emergencyContact) Object.assign(profilePatch, emergencyContactColumns(emergencyContact));
-  if (payrollPatch.bank_name !== undefined) profilePatch.bank_name = payrollPatch.bank_name || null;
   // Written as typed; the profiles_protect_pii trigger encrypts them. '' (not
   // NULL) is what clears one -- NULL would keep the stored value.
   for (const key of PII_FIELDS) {

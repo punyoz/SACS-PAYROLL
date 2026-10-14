@@ -1,11 +1,11 @@
 /**
- * Government IDs and bank account numbers -- the personal identifiers kept
+ * Government ID numbers -- the personal identifiers kept
  * encrypted in profiles (supabase/migrations/20260927080000_profiles_pii_encryption.sql
  * and 20260927090000_retire_plaintext_pii.sql).
  *
  * Writing: put the plain value in the profiles column of the same name
- * (sss_number, philhealth_number, pagibig_number, tin_number,
- * bank_account_number). The profiles_protect_pii trigger encrypts it into
+ * (sss_number, philhealth_number, pagibig_number, tin_number). The
+ * profiles_protect_pii trigger encrypts it into
  * <field>_enc, keeps the last four digits in <field>_last4 and discards the
  * plain text. An empty string clears the value; NULL (or leaving the column
  * out) keeps what is stored.
@@ -23,7 +23,6 @@ export const PII_FIELDS = [
   "philhealth_number",
   "pagibig_number",
   "tin_number",
-  "bank_account_number",
 ];
 
 /** The profiles columns maskedPii() reads, for a .select() list. */

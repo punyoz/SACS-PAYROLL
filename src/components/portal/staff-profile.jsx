@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { HeartHandshakeIcon, KeyRoundIcon, LandmarkIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
+import { HeartHandshakeIcon, KeyRoundIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,7 @@ function Section({ icon: Icon, title, children }) {
  * super-admin.js) — name, role, email, ID and emergency contact only, with
  * Change Password in place of Edit Account.
  */
-export function StaffProfilePage({ roleLabel, showPosition = false, showBank = false, employeeIdLabel = false, accountOnly = false }) {
+export function StaffProfilePage({ roleLabel, showPosition = false, employeeIdLabel = false, accountOnly = false }) {
   const { ctx, updateContext } = usePortalSession();
   const { open } = useAccountDialogs();
 
@@ -118,14 +118,6 @@ export function StaffProfilePage({ roleLabel, showPosition = false, showBank = f
             ]} />
           </Section>
         )}
-        {showBank ? (
-          <Section icon={LandmarkIcon} title="Bank information">
-            <InfoList items={[
-              { label: "Bank name", value: ctx?.bank_name },
-              { label: "Bank account number", value: ctx?.bank_account_number },
-            ]} />
-          </Section>
-        ) : null}
       </div>
     </>
   );

@@ -215,7 +215,7 @@ export function scopeListToBranch(rows, guard, pick = (row) => row?.branch_id) {
  * requests) and the profile update route used to take their target straight
  * out of a query string or request body. Nothing checked that the target was
  * the caller, so any signed-in user could read somebody else's payslip — or
- * rewrite their bank account number — just by changing the parameter.
+ * rewrite their profile — just by changing the parameter.
  *
  * The matrix already answers this: those modules are SCOPE_SELF, meaning
  * "rows belonging to the caller personally". So a self-scoped caller is pinned

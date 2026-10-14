@@ -156,7 +156,6 @@ export const DIGIT_FIELD_SPECS = {
   pagibig_number: { maxLength: 12, groups: [4, 4, 4] },
   philhealth_number: { maxLength: 12, groups: [2, 9, 1] },
   tin_number: { maxLength: 12, groups: [3, 3, 3, 3] },
-  bank_account_number: { maxLength: 20, groups: null },
   cp_number: { maxLength: 11, groups: [4, 3, 4], separator: " " },
   emergency_contact_number: { maxLength: 11, groups: [4, 3, 4], separator: " " },
 };
@@ -185,7 +184,7 @@ export function formatDigitField(value, specName) {
   return formatDigitGroups(digitsOnly(value).slice(0, spec.maxLength), spec.groups, spec.separator);
 }
 
-/** Government IDs and bank numbers reach the browser masked ("••••1234"). */
+/** Government IDs reach the browser masked ("••••1234"). */
 export function isMaskedPii(value) {
   return String(value || "").includes("•");
 }

@@ -21,8 +21,6 @@ const RESOLVED = {
     pagibig_number_last4: "9012",
     philhealth_number_last4: "9012",
     tin_number_last4: "6789",
-    bank_name: "BDO",
-    bank_account_number_last4: "7890",
   },
   metadata: {
     // A leftover copy in metadata must never reach the payload.
@@ -44,14 +42,12 @@ const RESOLVED = {
 };
 
 describe("buildProfilePayload", () => {
-  it("masks government IDs and the bank account number to their last four digits", () => {
+  it("masks government IDs to their last four digits", () => {
     const payload = buildProfilePayload(RESOLVED, false);
-    expect(payload.bank_account_number).toBe("••••7890");
     expect(payload.sss_number).toBe("••••6789");
     expect(payload.pagibig_number).toBe("••••9012");
     expect(payload.philhealth_number).toBe("••••9012");
     expect(payload.tin_number).toBe("••••6789");
-    expect(payload.bank_name).toBe("BDO");
   });
 
   it("never carries a full number from metadata, and falls back to it for other fields", () => {
@@ -64,7 +60,7 @@ describe("buildProfilePayload", () => {
   it("falls back to an empty string, not undefined, when a field is missing everywhere", () => {
     const sparse = { ...RESOLVED, profileRow: null, metadata: {} };
     const payload = buildProfilePayload(sparse, false);
-    expect(payload.bank_account_number).toBe("");
+    expect(payload.sss_number).toBe("");
     expect(payload.tin_number).toBe("");
   });
 

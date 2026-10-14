@@ -21,7 +21,7 @@
  * Only `sub` (user id) and `email` (where the sign-in code is resent, and the
  * dev mail.tm inbox reader's default address; src/lib/auth/email-otp.js)
  * plus the precomputed `must_change_password` boolean. Role, branch_id, and
- * the extended profile fields (bank details, government IDs, ...) are re-read
+ * the extended profile fields (government IDs, contact details, ...) are re-read
  * fresh from `profiles` at the moment OTP verification succeeds
  * (src/app/api/legacy-auth/verify-login-otp/route.js), rather than carried
  * through this cookie for up to 10 minutes. must_change_password is the one

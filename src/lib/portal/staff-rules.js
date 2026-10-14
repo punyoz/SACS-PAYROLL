@@ -7,6 +7,7 @@
  */
 
 import { digitsOnly } from "./format";
+import { PERSON_NAME_PATTERN } from "@/lib/person-name";
 
 export const STAFF_ROLES = ["super_admin", "admin", "hr"];
 export const STAFF_ROLE_LABELS = { super_admin: "Super Admin", admin: "Admin", hr: "HR" };
@@ -24,7 +25,8 @@ const EMERGENCY_NAME_MAX = 100;
 const EMERGENCY_ADDRESS_MAX = 200;
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 72;
-const NAME_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'-]*$/;
+// The shared rule for a person's name (src/lib/person-name.js).
+const NAME_PATTERN = PERSON_NAME_PATTERN;
 const NAME_BLOCKED = /[^A-Za-zÀ-ÖØ-öø-ÿ .'-]/g;
 const ADDRESS_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]+$/;
 const ADDRESS_BLOCKED = /[^A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]/g;

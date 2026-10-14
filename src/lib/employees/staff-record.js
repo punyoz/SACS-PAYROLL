@@ -8,7 +8,7 @@
  * payroll-specific:
  *
  *   excluded: basic_salary, sss_number, philhealth_number, pagibig_number,
- *             tin_number, bank_name, bank_account_number, position
+ *             tin_number, position
  *
  * Position is left out for a different reason than the rest. The role IS the
  * job for these accounts, and normalizePositionForRole() derives the title
@@ -20,7 +20,7 @@
  * Those exist so payroll can pay and report on a person. A Super Admin, Admin
  * or HR account is an operator login; if such a person is also on payroll,
  * that is an employee record, created by HR through the employee flow, and the
- * two are kept separate on purpose. Collecting a bank account or an SSS number
+ * two are kept separate on purpose. Collecting an SSS or TIN number
  * on an operator login would be storing regulated personal data with no
  * process that reads it.
  *
@@ -47,6 +47,7 @@
  */
 
 import { normalizeText, normalizeDigits } from "@/lib/auth/normalize";
+import { PERSON_NAME_PATTERN } from "@/lib/person-name";
 
 /** Roles this flow can mint. Super Admin only -- enforced in the route. */
 export const STAFF_ROLES = ["super_admin", "admin", "hr"];
@@ -72,8 +73,8 @@ export const STAFF_FIELD_LIMITS = Object.freeze({
   address_min: 5,
 });
 
-/** Letters (accented ones too), then letters, spaces, hyphens, apostrophes, periods. */
-export const NAME_PART_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ .'-]*$/;
+/** Letters (accented ones too), then letters, spaces, hyphens, apostrophes, periods (src/lib/person-name.js). */
+export const NAME_PART_PATTERN = PERSON_NAME_PATTERN;
 /** Letters, numbers, spaces and , . - # / only. */
 export const ADDRESS_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9 ,.#/-]+$/;
 /** Lowercase, no spaces, a dotted domain ending in a 2+ letter TLD. */

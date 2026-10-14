@@ -122,7 +122,7 @@ function AdminScreens() {
         refreshing={refreshing}
         notificationSummary={summary}
         profilePage="adm-profile"
-        accountOptions={{ payrollReadOnly: false, titleCaseName: true, showBank: false }}
+        accountOptions={{ payrollReadOnly: false, titleCaseName: true }}
       >
         {current === "adm-dashboard" ? <DashboardPage refreshKey={refreshKey} onSummary={setSummary} /> : null}
         {current === "adm-attendance" ? <AttendancePage refreshKey={refreshKey} onNavigate={navigate} /> : null}

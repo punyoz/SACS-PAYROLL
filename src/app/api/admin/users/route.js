@@ -30,6 +30,7 @@ import {
 } from "@/lib/employees/staff-record";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_LAST4_COLUMNS, maskedPii } from "@/lib/employees/pii";
+import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
 
 /**
  * GET lists accounts; PATCH edits, archives or restores one.
@@ -43,7 +44,7 @@ import { PII_LAST4_COLUMNS, maskedPii } from "@/lib/employees/pii";
 // Roles that serve every branch and are stored with no branch.
 const BRANCHLESS_ROLES = ["super_admin", "hr"];
 
-const PROFILE_COLUMNS = `id,email,full_name,role,branch_id,cp_number,date_hired,address,bank_name,${PII_LAST4_COLUMNS}`;
+const PROFILE_COLUMNS = `id,email,full_name,role,branch_id,cp_number,date_hired,address,${PII_LAST4_COLUMNS}`;
 // Added by 20260924010000_profiles_name_parts.sql.
 const NAME_PART_COLUMNS = "first_name,middle_name,last_name,suffix";
 // Added by 20260924134806_profiles_emergency_contact.sql.
@@ -88,10 +89,8 @@ function shapeUser(user, profile) {
     cp_number: normalizeText(profile?.cp_number, ""),
     date_hired: normalizeText(profile?.date_hired, ""),
     address: normalizeText(profile?.address, ""),
-    // Government IDs and bank account, masked ("••••1234"); see
-    // src/lib/employees/pii.js.
+    // Government IDs, masked ("••••1234"); see src/lib/employees/pii.js.
     ...maskedPii(profile),
-    bank_name: normalizeText(profile?.bank_name, ""),
   };
 }
 
@@ -316,6 +315,10 @@ export async function PATCH(request) {
           body.full_name,
           normalizeText(currentMetadata.full_name, existingUser.email),
         );
+        // A full name sent on its own follows the same rule as the parts.
+        if (body.full_name !== undefined && !isPersonName(nextMetadata.full_name)) {
+          return NextResponse.json({ error: `Full name may contain ${PERSON_NAME_RULE}.` }, { status: 400 });
+        }
       }
       // Super Admin and HR serve every branch and carry none.
       if (BRANCHLESS_ROLES.includes(nextMetadata.role)) {

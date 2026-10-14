@@ -35,7 +35,7 @@ Dashboard → Reports → Database each month.
    project's SQL Editor run
    `select decrypted_secret from vault.decrypted_secrets where name = 'pii_encryption_key';`
    and store the value as "SACS payroll – pii_encryption_key". Without it a
-   restored copy cannot read SSS, TIN, PhilHealth, Pag-IBIG, bank or PRC
+   restored copy cannot read SSS, TIN, PhilHealth, Pag-IBIG or PRC
    numbers. It never changes, so this is a one-time step.
 
 ### Each backup

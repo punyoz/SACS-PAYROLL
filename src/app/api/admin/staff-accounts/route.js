@@ -14,8 +14,7 @@
  * and are stored with none (shown as "—" and "All Branches").
  *
  * WHAT IT DELIBERATELY DOES NOT COLLECT
- * basic_salary, SSS, PhilHealth, Pag-IBIG, TIN, bank name, bank account
- * number, and position. See src/lib/employees/staff-record.js — these are operator logins,
+ * basic_salary, SSS, PhilHealth, Pag-IBIG, TIN, and position. See src/lib/employees/staff-record.js — these are operator logins,
  * not payroll records.
  *
  * ACCESS
