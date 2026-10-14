@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DataTable } from "@/components/portal/data-table";
+import { BranchLevelGroups } from "@/components/portal/branch-level-groups";
 import { DatePicker } from "@/components/portal/date-picker";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
@@ -258,17 +258,37 @@ export function WorkSchedulesPanel({ refreshKey }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><UsersIcon className="size-4 text-gold-text" aria-hidden="true" />Employees and their schedules</CardTitle>
-          <CardDescription>Employees in the same branch can follow different schedules. RFID Late, Undertime and Absent, timesheets and payroll deductions all use the schedule shown here for each day.</CardDescription>
+          <CardDescription>
+            Employees in the same branch can follow different schedules. RFID Late, Undertime and Absent, timesheets and payroll deductions all use the schedule shown here for each day.
+            {canEdit ? " Tick a branch or a level to select everyone in it, then Assign schedule or Set level." : ""}
+          </CardDescription>
           {canEdit && selected.size ? (
             <CardAction className="flex flex-wrap gap-2">
               <Button size="sm" onClick={() => open("employees", { employee_ids: [...selected], names: `${selected.size} employees`, schedule_key: FALLBACK })}>Assign schedule ({selected.size})</Button>
               <Button size="sm" variant="outline" onClick={() => open("set_level", { employee_ids: [...selected], names: `${selected.size} employees`, level: FALLBACK })}>Set level ({selected.size})</Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
             </CardAction>
           ) : null}
         </CardHeader>
         <CardContent>
-          <DataTable columns={employeeColumns} rows={data?.employees || []} loading={state.loading && !data} pageSize={15}
-            searchPlaceholder="Search employee, ID or schedule…" empty={{ title: "No employees" }} caption="Employees and their schedules" minWidth={canEdit ? 900 : 760} />
+          {/* Grouped by branch, then level, so a whole branch or one level of it is one click. */}
+          <BranchLevelGroups
+            columns={employeeColumns.filter((column) => column.key !== "branch_name")}
+            rows={data?.employees || []}
+            groupOf={(r) => String(r.branch_id || "none")}
+            groupLabel={(r) => r.branch_name || "No branch"}
+            subgroupOf={(r) => r.employee_level || "none"}
+            subgroupLabel={(key) => (data?.levels_list || []).find((l) => l.value === key)?.label || "Level not set"}
+            subgroupOrder={(data?.levels_list || []).map((l) => l.value)}
+            selectable={canEdit}
+            selected={selected}
+            onSelectedChange={setSelected}
+            search={(r) => `${r.full_name} ${r.employee_code || ""} ${r.follows?.name || ""} ${r.branch_name || ""}`}
+            searchPlaceholder="Search employee, ID, branch or schedule…"
+            loading={state.loading && !data}
+            caption="Employees and their schedules, by branch and level"
+            minWidth={canEdit ? 820 : 680}
+          />
         </CardContent>
       </Card>
 
