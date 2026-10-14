@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
+import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { collapseDailyTaps, findRepeatedTap, hoursBetween, planTap } from "@/lib/attendance/taps";
 import { maskCardCode, recordRawTap, recordRefusedTap, tapDevice } from "@/lib/attendance/raw-taps";
 import { isLateForPolicy } from "@/lib/attendance/policy";
@@ -554,6 +554,9 @@ async function unmatchedCardReason(supabase, code) {
 export async function GET(request) {
   const guard = await requirePermission(request, "attendance", "read");
   if (guard.denied) return guard.denied;
+  // Employees (own records only) never list colleagues here.
+  const selfDenied = denySelfScopeList(guard);
+  if (selfDenied) return selfDenied;
 
   try {
     const supabase = getAdminClient();

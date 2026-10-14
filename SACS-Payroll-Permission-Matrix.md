@@ -28,6 +28,7 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 3 | User/Account Management | F — can create/archive Admin, HR, Accountant, Employee accounts, any branch (no permanent delete) | P — can create/edit/archive HR, Accountant, Employee accounts, own branch only. Cannot create Admin/Super Admin | F — can create/edit/archive Employee and Accountant accounts, all branches. Cannot create Admin/HR/Super Admin | — | — |
 | 4 | Employee Information (records, 201 files) | F (all branches) | P (own branch) | F (all branches — primary owner of this module) | V (for payroll reference) | V (own profile only) |
 | 4a | Licensed-teacher fields (licensed switch, PRC no., expiry, PRC ID, verification) | V (all branches) | V (own branch) | F (edit + verify, all branches) — only role that can change them | — | — |
+| 4b | Tenure Pay Protection (policy, summer / Christmas break dates, grants) | P — all branches: policy, break dates, grant / revoke (never delete) | P (own branch) — grant / revoke for its employees and its branch's own policy; not the system-wide policy or break dates | P — all branches, same as Super Admin | — (payroll applies it; cannot see or grant it) | — (cannot see anyone's status) |
 | 5 | Branch Management (create/edit/close branches) | F | — | — | — | — |
 | 6 | Branch Assignment (assign staff to a branch) | F (any staff, any branch) | P (within own branch only) | P (any branch) | — | — |
 | 7 | Roles & Permissions (define what each role can do) | F — exclusive | — | — | — | — |

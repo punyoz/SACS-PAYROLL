@@ -8,13 +8,16 @@ import {
 } from "@/lib/leave-requests/store";
 import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
-import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
+import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { manilaDateKey } from "@/lib/payroll/periods";
 
 export async function GET(request) {
   try {
     const guard = await requirePermission(request, "leave_approval", "read");
     if (guard.denied) return guard.denied;
+    // Employees (own records only) never list colleagues here.
+    const selfDenied = denySelfScopeList(guard);
+    if (selfDenied) return selfDenied;
 
     const url = new URL(request.url);
     const status = String(url.searchParams.get("status") || "pending").trim().toLowerCase();

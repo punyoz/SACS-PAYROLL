@@ -139,6 +139,8 @@ const API_MODULES = [
   // Accountant submits through process_payroll.
   ["/api/hr/payroll-runs", "payroll_run_approval"],
   ["/api/accountant/payroll-runs", "process_payroll"],
+  // Tenure Pay Protection: policy, break dates, grants (HR, Admin, Super Admin).
+  ["/api/hr/tenure-protection", "tenure_protection"],
   // The session's own stored notifications (every role).
   ["/api/notifications", "profile"],
   ["/api/employee/payslips", "payslips"],

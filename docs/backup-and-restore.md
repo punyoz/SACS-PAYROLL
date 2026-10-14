@@ -110,6 +110,7 @@ Use a **second free project** as the target; never the live one.
 | Date | Backup | Target | Result |
 |---|---|---|---|
 | 2026-10-12 | `backups/2026-10-12_audit` (taken with `supabase db dump --linked`) | fresh local Supabase stack (Docker, CLI 2.118.0) | **Pass, except the decrypt check.** Rows restored, with counts equal to live (12 accounts, 12 profiles, 4 branches, 130 attendance logs, 1105 audit logs, 2 payroll entries, 41 rate configs, 51 holidays, 84 migrations, 6 stored ID numbers); 4 jobs recreated; passwords for all five roles verify; service-role reads and RPCs work. The decrypt check was not run (the real `pii_encryption_key` was not used). The test found that the dump restores full anon/authenticated grants, so step 3 was added to after-restore.sql. |
+| 2026-10-13 | same backup | fresh local Supabase stack | **Pass (R5 decrypt check).** Restored again; after-restore.sql steps 2–3: 4 jobs, 0 client grants; the live `pii_encryption_key` put into the restored Vault: 6 ID numbers stored = 6 that decrypt, 0 failures across all encrypted fields. The local stack and its volumes were deleted afterwards. |
 
 ## 4. Restore for real (the live project is lost or damaged)
 

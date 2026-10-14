@@ -4,7 +4,7 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
-import { requirePermission } from "@/lib/rbac/guard";
+import { requirePermission, denySelfScopeList } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 
@@ -21,6 +21,9 @@ export async function GET(request) {
   try {
     const guard = await requirePermission(request, "attendance", "read");
     if (guard.denied) return guard.denied;
+    // Employees (own records only) never list colleagues here.
+    const selfDenied = denySelfScopeList(guard);
+    if (selfDenied) return selfDenied;
 
     const supabase = getAdminClient();
     const url = new URL(request.url);

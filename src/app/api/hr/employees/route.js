@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { requirePermission, denyRoleEscalation, denyForeignBranch, scopeListToBranch } from "@/lib/rbac/guard";
+import { requirePermission, denyRoleEscalation, denyForeignBranch, scopeListToBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 import { normalizeSuffix } from "@/lib/employees/staff-record";
 import {
@@ -86,6 +86,9 @@ const MANAGED_ROLES = ["employee", "accountant"];
 export async function GET(request) {
   const guard = await requirePermission(request, "employee_information", "read");
   if (guard.denied) return guard.denied;
+  // Employees (own records only) never list colleagues here.
+  const selfDenied = denySelfScopeList(guard);
+  if (selfDenied) return selfDenied;
 
   try {
     const supabase = getAdminClient();

@@ -44,6 +44,8 @@ import {
   normalizeAttendanceStatus as normalizeEngineStatus,
 } from "@/lib/attendance/status";
 import { computeAttendancePay, peso } from "@/lib/payroll/attendance-pay";
+import { buildProtection } from "@/lib/payroll/tenure-protection";
+import { loadTenureProtection } from "@/lib/payroll/tenure-protection-store";
 import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { periodFromLabel, manilaDateKey } from "@/lib/payroll/periods";
 import {
@@ -930,6 +932,8 @@ async function readApprovedOvertime(supabase, periodStart, periodEnd) {
  *   .names        date key -> the holiday's name (payslip lines, reports)
  *   .partialDays  morning / afternoon suspensions: still working days, but
  *                 an Absent on one missed only half a day.
+ *   .types        date key -> "holiday" | "special" | "suspension" for every
+ *                 calendar day, partial ones too (Tenure Pay Protection).
  */
 async function readHolidays(supabase, periodStart, periodEnd) {
   const result = await supabase
@@ -940,10 +944,12 @@ async function readHolidays(supabase, periodStart, periodEnd) {
   const map = new Map();
   map.names = new Map();
   map.partialDays = new Set();
+  map.types = new Map();
   if (result.error) return map;
   (result.data || []).forEach((row) => {
     const key = String(row.holiday_date).slice(0, 10);
     map.names.set(key, String(row.name || "Holiday"));
+    map.types.set(key, row.type === "special" ? "special" : row.type === "suspension" ? "suspension" : "holiday");
     if (row.day_part && row.day_part !== "whole") {
       map.partialDays.add(key);
       return;
@@ -1296,11 +1302,13 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     : null;
   // Holidays first: leave days are counted on working days only.
   const holidays = await readHolidays(supabase, leaveFrom < span.start_key ? leaveFrom : span.start_key, period.end_key);
-  const [leaveContext, attendance, overtimeResult, school] = await Promise.all([
+  const [leaveContext, attendance, overtimeResult, school, tenure] = await Promise.all([
     buildLeaveContext(employees, leaveFrom, lastDay, holidays, includeLeaveDay),
     readPeriodAttendance(supabase, span.start_key, lastDay, employeeIds),
     readApprovedOvertime(supabase, span.start_key, lastDay),
     perHalf ? loadPerHalfContext(supabase, employees, period, rateResult.configs, holidays) : null,
+    // Tenure Pay Protection (20261015010000); none until the migration is applied.
+    loadTenureProtection(supabase, { employeeIds }),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 
@@ -1358,6 +1366,16 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       periodEnd: own.end_key,
       overtime: overtimeResult.minutes,
       holidays,
+      // Granted Tenure Pay Protection waives the covered deductions.
+      protection: tenure.available
+        ? buildProtection({
+          employee,
+          policies: tenure.policies,
+          grants: tenure.grants,
+          breaks: tenure.breaks,
+          holidayTypeOn: (key) => holidays.types?.get(key) || null,
+        }) || undefined
+        : undefined,
     });
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
     byEmployee.set(employee.id, {
@@ -1395,6 +1413,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
         unit_amounts: context.auto.unit_amounts,
         perfect_attendance: context.auto.perfect_attendance,
         blocking: context.auto.blocking,
+        ...(context.auto.protected ? { tenure_protection: context.auto.protected, tenure_protection_amount: context.auto.protected_amount } : {}),
       },
       rates: values,
       rate_versions: Object.fromEntries(Object.entries(context.resolved).map(([type, rate]) => [
@@ -1985,6 +2004,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       perfect_attendance: auto.perfect_attendance,
       source_log_ids: auto.source_log_ids,
       blocking: auto.blocking,
+      // Tenure Pay Protection: each waived deduction with its log and grant.
+      // The database copies these into tenure_protection_applications
+      // (20261015010000) when the payslip is saved.
+      ...(auto.protected?.length ? { tenure_protection: auto.protected, tenure_protection_amount: auto.protected_amount } : {}),
     },
     lines: { deductions: deductionLines, incentives: incentiveLines },
     deviations: deviations.length

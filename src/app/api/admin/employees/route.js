@@ -9,6 +9,7 @@ import {
   denyRoleEscalation,
   denyForeignBranch,
   scopeListToBranch,
+  denySelfScopeList,
 } from "@/lib/rbac/guard";
 import { hashTemporaryPassword, buildDefaultPassword } from "@/lib/auth/password-policy";
 import { normalizeEmployeeFields, validateEmployeeRecord, SALARY_MAX } from "@/lib/employees/record";
@@ -237,6 +238,9 @@ async function fetchEmployees(supabase) {
 export async function GET(request) {
   const guard = await requirePermission(request, "employee_information", "read");
   if (guard.denied) return guard.denied;
+  // Employees (own records only) never list colleagues here.
+  const selfDenied = denySelfScopeList(guard);
+  if (selfDenied) return selfDenied;
 
   try {
     const supabase = getAdminClient();

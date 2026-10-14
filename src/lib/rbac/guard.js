@@ -185,6 +185,20 @@ export function denyRoleEscalation(guard, targetRole) {
 }
 
 /**
+ * Refuse a self-scoped caller (an Employee on employee_information,
+ * attendance or leave_approval) on a route that lists OTHER people's rows.
+ * Those routes filter by branch, and a branch filter is wider than "own
+ * record": without this an Employee could read every colleague's record,
+ * attendance and leave in their branch. Employees reach their own data
+ * through /api/employee/* and /api/attendance/*, which pin them to themselves.
+ * Returns a NextResponse to send back, or null when access is fine.
+ */
+export function denySelfScopeList(guard) {
+  if (guard.scope !== SCOPE_SELF) return null;
+  return deny("You do not have permission to perform this action.", 403);
+}
+
+/**
  * Filter an in-memory array down to the caller's branch. Used by the routes
  * that read users out of Supabase Auth (where user_metadata.branch_id lives)
  * rather than from a table.

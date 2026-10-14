@@ -237,6 +237,15 @@ export const MODULES = {
     order: 10.5, label: "Payroll Approval", section: "Payroll",
     page: { hr: "hr-payroll-approval" },
   },
+  // Tenure Pay Protection (20261015010000): the policy (tenure threshold,
+  // covered categories, per branch or system-wide), the summer / Christmas
+  // break dates, and which employees HR has granted it to. Super Admin and HR
+  // everywhere; Admin its own branch (grants and the branch's own policy).
+  // Accountant and Employee: none.
+  tenure_protection: {
+    order: 4.7, label: "Tenure Pay Protection", section: "Employees",
+    page: { super_admin: "sa-tenure", admin: "adm-tenure", hr: "hr-tenure" },
+  },
 };
 
 /**
@@ -284,6 +293,8 @@ export const ROLE_PERMISSIONS = {
     early_bird_incentive: full(SCOPE_ALL),
     // Views every run and its history; HR alone approves.
     payroll_run_approval: view(SCOPE_ALL),
+    // Same power as HR: policy, break dates, grants for every branch.
+    tenure_protection: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
   },
 
   admin: {
@@ -327,6 +338,9 @@ export const ROLE_PERMISSIONS = {
     work_schedules: view(SCOPE_BRANCH),
     early_bird_incentive: view(SCOPE_BRANCH),
     payroll_run_approval: none(),
+    // Its own branch: grants / revokes for its employees and the branch's own
+    // policy. The system-wide policy and the break dates are HR / Super Admin.
+    tenure_protection: { scope: SCOPE_BRANCH, actions: ["create", "read", "update"] },
   },
 
   hr: {
@@ -376,6 +390,9 @@ export const ROLE_PERMISSIONS = {
     // Reviews every branch's run; approves or rejects ("update"). No create
     // or delete: HR never changes a computation.
     payroll_run_approval: { scope: SCOPE_ALL, actions: READ_WRITE },
+    // Sets the policy and break dates, grants and revokes (never deletes:
+    // a grant is revoked, history kept).
+    tenure_protection: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
   },
 
   accountant: {
@@ -421,6 +438,8 @@ export const ROLE_PERMISSIONS = {
     // Its own branch's runs and HR's decisions (it submits through
     // process_payroll, and never approves).
     payroll_run_approval: view(SCOPE_BRANCH),
+    // Payroll applies protection; the Accountant cannot see or grant it.
+    tenure_protection: none(),
   },
 
   employee: {
@@ -457,6 +476,7 @@ export const ROLE_PERMISSIONS = {
     // A winner sees the incentive on their own payslip, not this module.
     early_bird_incentive: none(),
     payroll_run_approval: none(),
+    tenure_protection: none(),
   },
 };
 

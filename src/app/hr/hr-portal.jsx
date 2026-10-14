@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -21,6 +21,7 @@ import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
 import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 import { usePendingRunCount } from "@/components/portal/use-live-payroll-runs";
 import { PayrollApprovalPage } from "./payroll-approval-page";
+import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -38,6 +39,7 @@ const NAV = [
     items: [
       { id: "hr-employees", label: "User Management", icon: UsersIcon, module: "user_management" },
       { id: "hr-transfers", label: "Transfer Requests", icon: ArrowLeftRightIcon, module: "transfer_requests" },
+      { id: "hr-tenure", label: "Tenure Pay Protection", icon: ShieldCheckIcon, module: "tenure_protection" },
     ],
   },
   {
@@ -67,6 +69,7 @@ const TITLES = {
   "hr-dashboard": "HR Dashboard",
   "hr-employees": "User Management",
   "hr-transfers": "Transfer Requests",
+  "hr-tenure": "Tenure Pay Protection",
   "hr-attendance": "Attendance Monitoring",
   "hr-schedules": "Work Schedules",
   "hr-payroll-approval": "Payroll Approval",
@@ -82,6 +85,7 @@ const DESCRIPTIONS = {
   "hr-employees": "Create and maintain Employee and Accountant accounts and their 201 records for every branch.",
   "hr-transfers": "See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.",
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
+  "hr-tenure": "Set who is not deducted for absence, lateness, holidays, suspensions and school breaks under a tenure contract clause, and grant or revoke it per employee. Every change is logged.",
   "hr-schedules": "Create, change and assign employee work schedules, and set the Early Bird incentive. Every change takes effect from a date and is logged.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
@@ -133,6 +137,7 @@ function HrScreens() {
         {current === "hr-dashboard" ? <DashboardPage refreshKey={refreshKey} onNavigate={navigate} onSummary={setSummary} /> : null}
         {current === "hr-employees" ? <EmployeesPage refreshKey={refreshKey} /> : null}
         {current === "hr-transfers" ? <TransfersPage refreshKey={refreshKey} /> : null}
+        {current === "hr-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
         {current === "hr-schedules" ? (

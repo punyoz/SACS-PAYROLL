@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, LayoutDashboardIcon, ScrollTextIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
+import { CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, LayoutDashboardIcon, ScrollTextIcon, ShieldCheckIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -18,6 +18,7 @@ import { MaintenancePage } from "./maintenance-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
 import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
 import { EarlyBirdCard } from "@/components/portal/early-bird-card";
+import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -37,7 +38,13 @@ const NAV = [
       { id: "adm-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
     ],
   },
-  { section: "Payroll", items: [{ id: "adm-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" }] },
+  {
+    section: "Payroll",
+    items: [
+      { id: "adm-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
+      { id: "adm-tenure", label: "Tenure Pay Protection", icon: ShieldCheckIcon, module: "tenure_protection" },
+    ],
+  },
   { section: "Reports", items: [{ id: "adm-branch-reports", label: "Branch Reports", icon: TrendingUpIcon, module: "branch_reports" }] },
   {
     section: "System",
@@ -63,6 +70,7 @@ const DESCRIPTIONS = {
   "adm-maintenance": "Register, replace and void RFID cards, and record RFID card scans for your branch.",
   "adm-branch-reports": "Attendance, headcount and payroll status for your branch.",
   "adm-approvals": "AWOL separations, excess subsidy advances and missed-month subsidy adjustments waiting for your decision.",
+  "adm-tenure": "Grant or revoke Tenure Pay Protection for your branch's employees and set your branch's own policy. The system-wide policy and break dates are set by HR.",
   "adm-profile": null,
 };
 
@@ -125,6 +133,7 @@ function AdminScreens() {
         {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} /> : null}
         {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
         {current === "adm-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
+        {current === "adm-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "adm-schedules" ? (
           <div className="flex flex-col gap-4">
             <WorkSchedulesPanel refreshKey={refreshKey} />
