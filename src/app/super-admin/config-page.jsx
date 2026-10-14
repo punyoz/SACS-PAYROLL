@@ -22,6 +22,8 @@ import { HolidaysSection } from "./holidays-section";
 import { OverrideSection } from "./override-section";
 import { PayslipScheduleSection } from "./payslip-schedule-section";
 import { TeacherSubsidySection } from "./teacher-subsidy-section";
+import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
+import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 
 /*
  * System Configuration (loadSAConfig / saveSAConfig and the per-branch
@@ -275,7 +277,7 @@ function AttendanceSection({ config, onConfig, branches }) {
     <SectionCard
       icon={CalendarClockIcon}
       title="Attendance policy"
-      description="Work hours and grace periods, set per branch. An RFID Time In is marked Late after the employee's branch start time plus the grace period; timesheets show that branch's shift, tardiness and undertime."
+      description="Work hours and grace periods, set per branch. Employees with no schedule of their own or for their level (Employee work schedules, below) follow their branch's: an RFID Time In is marked Late after that start time plus the grace period, and timesheets show that shift, tardiness and undertime."
       footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
     >
       <div className="space-y-2">
@@ -447,6 +449,9 @@ export function ConfigPage({ refreshKey }) {
         </TabsContent>
         <TabsContent value="attendance" className="flex flex-col gap-4">
           {state.config ? <AttendanceSection key={`att-${state.version}`} config={config} onConfig={onConfig} branches={state.branches} /> : null}
+          {/* Per-employee schedules: own → level → the branch schedule above → default. */}
+          <WorkSchedulesPanel refreshKey={refreshKey} />
+          <EarlyBirdCard refreshKey={refreshKey} />
         </TabsContent>
         <TabsContent value="payroll" className="flex flex-col gap-4">
           {state.config ? <PayrollSection key={`pay-${state.version}`} config={config} onConfig={onConfig} /> : null}

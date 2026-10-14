@@ -14,6 +14,7 @@ import {
 } from "@/lib/attendance/policy";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { cutoffMinutes, describeDayPart, readHolidayMap } from "@/lib/attendance/holidays";
+import { isOffDay, loadEmployeeScheduleDays } from "@/lib/attendance/work-schedules";
 
 /* ── Philippine national holidays (2024-2027) ── */
 const PH_HOLIDAYS = {
@@ -169,8 +170,11 @@ function generateDateRange(startDate, endDate) {
 // morning / afternoon suspension is a working day on a shorter schedule.
 function getShiftInfo(dateStr, policy = null, holidays = null) {
   const dow = getDayOfWeek(dateStr);
+  // The employee's own working days when their schedule sets them
+  // (src/lib/attendance/work-schedules.js); otherwise Monday to Friday.
+  const offDay = policy?.working_days ? isOffDay(dateStr, policy.working_days) : (dow === 0 || dow === 6);
 
-  if (dow === 0 || dow === 6) {
+  if (offDay) {
     return {
       row_type: "rest",
       shift_type: "Rest Day",
@@ -216,7 +220,8 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
   if (policy) {
     return {
       row_type: "regular",
-      shift_type: "Regular",
+      // The schedule profile's name ("Pre-school Teacher") when it has one.
+      shift_type: policy.schedule_name || "Regular",
       shift_in: formatPolicyTime12(policy.work_start),
       shift_out: formatPolicyTime12(policy.work_end),
       required_hours: Number(policy.work_hours) || REQ_HOURS,
@@ -339,16 +344,26 @@ export async function GET(request) {
       /* leave table may not exist — silently skip */
     }
 
-    /* Branch schedules: a day with a tap uses the branch that tap was recorded
-       at (attendance_logs.branch_id, stamped at insert), so a transfer does not
-       rewrite past days; a day with no tap uses the employee's current branch. */
+    /* The employee's own schedule for each day (own → level → branch →
+       default, src/lib/attendance/work-schedules.js). A day with a tap falls
+       back to the branch that tap was recorded at (attendance_logs.branch_id,
+       stamped at insert), so a transfer does not rewrite past days; a day with
+       no tap uses the employee's current branch. */
     const currentBranchId = await resolveCurrentBranchId(user.id, user.user_metadata?.branch_id || null);
+    const scheduleDays = await loadEmployeeScheduleDays(supabase, {
+      employeeId: user.id,
+      branchId: currentBranchId,
+      from: startDate,
+      to: endDate,
+      branchFor: (dateKey) => attMap[dateKey]?.branch_id || null,
+    });
     const attendanceConfig = await loadAttendanceConfig(supabase, [
       currentBranchId,
       ...Object.values(attMap).map((row) => row.branch_id),
     ]);
     const policyCache = new Map();
-    const policyFor = (branchId) => {
+    const policyFor = (branchId, dateStr) => {
+      if (dateStr && scheduleDays.has(dateStr)) return scheduleDays.get(dateStr);
       const key = String(branchId || "");
       if (!policyCache.has(key)) policyCache.set(key, resolveAttendancePolicy(attendanceConfig, branchId || null));
       return policyCache.get(key);
@@ -361,7 +376,7 @@ export async function GET(request) {
     const dates   = generateDateRange(startDate, endDate);
     const records = dates.map((dateStr) => {
       const att       = attMap[dateStr] || null;
-      const policy    = policyFor(att?.branch_id || currentBranchId);
+      const policy    = policyFor(att?.branch_id || currentBranchId, dateStr);
       let shift       = getShiftInfo(dateStr, policy, holidays);
       const hasLeave  = leaveDates.has(dateStr) ? 1 : 0;
       // A working day covered by approved leave, with no tap of its own.

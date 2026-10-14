@@ -22,9 +22,11 @@ const schedule = createPayslipSchedule({ holidays: HOLIDAYS });
 
 describe("Generation dates (1st half: next working day, 2nd half: previous, by default)", () => {
   it.each([
-    ["2026-10-01", "2026-10-15", null],
+    // Each half deducts attendance to the day before its generation day
+    // (per-cutoff attendance), never past its own period end.
+    ["2026-10-01", "2026-10-15", "2026-10-14"],
     ["2026-10-16", "2026-10-30", "2026-10-29"],   // Oct 31 is a Saturday
-    ["2026-11-01", "2026-11-16", null],           // Nov 15 is a Sunday: Mon Nov 16
+    ["2026-11-01", "2026-11-16", "2026-11-15"],   // Nov 15 is a Sunday: Mon Nov 16
     ["2026-11-16", "2026-11-27", "2026-11-26"],   // Nov 30 Bonifacio Day
     ["2026-12-16", "2026-12-29", "2026-12-28"],   // Dec 31 and Dec 30 holidays
     ["2027-02-16", "2027-02-26", "2027-02-25"],   // short month, Feb 28 a Sunday

@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, CalendarCheckIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -17,6 +17,10 @@ import { AttendancePage } from "./attendance-page";
 import { LeavesPage } from "./leaves-page";
 import { AwolCasesPage } from "./awol-cases-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
+import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
+import { EarlyBirdCard } from "@/components/portal/early-bird-card";
+import { usePendingRunCount } from "@/components/portal/use-live-payroll-runs";
+import { PayrollApprovalPage } from "./payroll-approval-page";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -36,7 +40,13 @@ const NAV = [
       { id: "hr-transfers", label: "Transfer Requests", icon: ArrowLeftRightIcon, module: "transfer_requests" },
     ],
   },
-  { section: "Attendance", items: [{ id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" }] },
+  {
+    section: "Attendance",
+    items: [
+      { id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
+      { id: "hr-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
+    ],
+  },
   {
     section: "Leave",
     items: [
@@ -45,6 +55,7 @@ const NAV = [
       { id: "hr-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
     ],
   },
+  { section: "Payroll", items: [{ id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" }] },
   { section: "Reports", items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
   { section: "Account", items: [{ id: "hr-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
@@ -57,6 +68,8 @@ const TITLES = {
   "hr-employees": "User Management",
   "hr-transfers": "Transfer Requests",
   "hr-attendance": "Attendance Monitoring",
+  "hr-schedules": "Work Schedules",
+  "hr-payroll-approval": "Payroll Approval",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
   "hr-awol": "AWOL Cases",
@@ -69,11 +82,13 @@ const DESCRIPTIONS = {
   "hr-employees": "Create and maintain Employee and Accountant accounts and their 201 records for every branch.",
   "hr-transfers": "See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.",
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
+  "hr-schedules": "Create, change and assign employee work schedules, and set the Early Bird incentive. Every change takes effect from a date and is logged.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
   "hr-approvals": "Recommend a decision for excess subsidy advances the teacher refused to sign for; follow AWOL separations waiting for the Admin.",
   "hr-awol": "Unexcused absences flagged by the nightly check: confirm, send the notices, and recommend or close each case.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
+  "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
   "hr-profile": null,
 };
 
@@ -83,6 +98,8 @@ function HrScreens() {
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const [summary, setSummary] = React.useState([]);
+  // Pending payroll runs, live (the sidebar badge).
+  const [pendingRuns, reloadPending] = usePendingRunCount(can("payroll_run_approval"));
 
   const allowed = (id) => {
     if (id === EMPLOYEE_PAGE) return can("attendance");
@@ -109,6 +126,7 @@ function HrScreens() {
         onRefresh={refresh}
         refreshing={refreshing}
         notificationSummary={summary}
+        badges={{ "hr-payroll-approval": pendingRuns }}
         profilePage="hr-profile"
         accountOptions={{ payrollReadOnly: false }}
       >
@@ -116,6 +134,13 @@ function HrScreens() {
         {current === "hr-employees" ? <EmployeesPage refreshKey={refreshKey} /> : null}
         {current === "hr-transfers" ? <TransfersPage refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
+        {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
+        {current === "hr-schedules" ? (
+          <div className="flex flex-col gap-4">
+            <WorkSchedulesPanel refreshKey={refreshKey} />
+            <EarlyBirdCard refreshKey={refreshKey} />
+          </div>
+        ) : null}
         {current === EMPLOYEE_PAGE && employeeId ? (
           <EmployeeAttendanceRecord key={`${employeeId}-${refreshKey}`} employeeId={employeeId} onBack={() => navigate("hr-attendance")} />
         ) : null}

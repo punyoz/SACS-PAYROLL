@@ -88,6 +88,9 @@ const MODULE_ICON = {
   branch_reports: { default: "trend" },
   profile: { default: "profile" },
   timesheet: { default: "document" },
+  work_schedules: { default: "calendar" },
+  early_bird_incentive: { default: "star" },
+  payroll_run_approval: { default: "check" },
 };
 
 /**

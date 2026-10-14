@@ -18,7 +18,8 @@
  *                 so an absence there costs half (holidays.partialDays).
  *   Holiday       a no-tap day on a holiday or whole-day suspension: neither
  *                 attended nor absent.
- *   Early Bird    early_bird_bonus per Early Bird day
+ *   (The per-day Early Bird bonus was retired on Oct 13, 2026: the Early
+ *   Bird incentive is one winner per period, src/lib/payroll/early-bird.js.)
  *   Perfect       perfect_attendance_bonus when the period has no Late,
  *   Attendance    Undertime, Absent or Half Day and at least one day attended
  *
@@ -34,7 +35,7 @@
  *                 whole-day suspension ("suspension") pays no premium.
  *
  * The minutes and flags are the ones the database engine stored on each row
- * (late_minutes, undertime_minutes, is_half_day, is_early_bird), so a status
+ * (late_minutes, undertime_minutes, is_half_day), so a status
  * label is never parsed to decide money. Rates are the versions in force on
  * the period's first day (src/lib/payroll/rates.js).
  *
@@ -80,7 +81,6 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
   const absentAmount = peso(daily * valueOf(rates, "absent_pct") / 100);
   const lateDaysPerAbsent = Math.max(0, Math.floor(valueOf(rates, "late_days_per_absent")));
   const lateMinutePct = valueOf(rates, "late_minute_charge_pct");
-  const earlyBirdBonus = valueOf(rates, "early_bird_bonus");
   const perfectBonus = valueOf(rates, "perfect_attendance_bonus");
   const overtimeHourly = hourly * (1 + valueOf(rates, "overtime_premium_pct") / 100);
   const holidayPct = {
@@ -93,7 +93,6 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
     undertime_minutes: 0,
     half_days: 0,
     absent_days: 0,
-    early_bird_days: 0,
     attended_days: 0,
     late_days: 0,
     undertime_days: 0,
@@ -221,17 +220,6 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
         amount: peso((undertimeMinutes / 60) * hourly), source_log_id: logId, log_date: date,
       });
     }
-
-    if (row.is_early_bird === true) {
-      counts.early_bird_days += 1;
-      if (earlyBirdBonus > 0) {
-        incentives.push({
-          type: "early_bird", quantity: 1, unit: "day", rate: earlyBirdBonus,
-          rate_config_id: configOf(rates, "early_bird_bonus"),
-          amount: peso(earlyBirdBonus), source_log_id: logId, log_date: date,
-        });
-      }
-    }
   });
 
   // N late = 1 absent. Each group is one line, traced to all its logs
@@ -280,7 +268,6 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       undertime: sum(deductions, "undertime"),
       half_day: sum(deductions, "half_day"),
       absent: sum(deductions, "absent"),
-      early_bird: sum(incentives, "early_bird"),
       perfect_attendance: sum(incentives, "perfect_attendance"),
       overtime: sum(earnings, "overtime"),
       holiday_premium: sum(earnings, "holiday_premium"),
@@ -292,7 +279,6 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       absent: absentAmount,
       late_days_per_absent: lateDaysPerAbsent,
       late_minute_pct: lateMinutePct,
-      early_bird: peso(earlyBirdBonus),
       perfect_attendance: peso(perfectBonus),
       overtime_hourly: peso(overtimeHourly),
     },

@@ -216,6 +216,27 @@ export const MODULES = {
     order: 2.5, label: "Attendance Corrections", section: "Overview",
     page: {},
   },
+  // Per-employee work schedule profiles and who follows them
+  // (20261013010000). Super Admin (System Configuration → Attendance) and HR
+  // (Work Schedules) have the same full power; Admin views its own branch.
+  work_schedules: {
+    order: 2.6, label: "Work Schedules", section: "Attendance",
+    page: { admin: "adm-schedules", hr: "hr-schedules" },
+  },
+  // Early Bird incentive: one winner per pay period. Super Admin or HR sets
+  // the threshold, the eligibility rule and the amount.
+  early_bird_incentive: {
+    order: 2.7, label: "Early Bird Incentive", section: "Attendance",
+    page: {},
+  },
+  // Payroll Approval (20261014010000): the Accountant submits each branch's
+  // run for a cutoff; HR reviews every branch and approves or rejects; Super
+  // Admin views. HR sees the payroll only through these snapshots: it still
+  // has no payroll_records / payslips access and cannot change a figure.
+  payroll_run_approval: {
+    order: 10.5, label: "Payroll Approval", section: "Payroll",
+    page: { hr: "hr-payroll-approval" },
+  },
 };
 
 /**
@@ -258,6 +279,11 @@ export const ROLE_PERMISSIONS = {
     payroll_approvals: view(SCOPE_ALL),
     // View only (SACS-Payroll-Permission-Matrix.md row 4a): HR alone edits.
     teacher_license: view(SCOPE_ALL),
+    // Creates, changes, deletes (archives) and assigns schedules, as HR does.
+    work_schedules: full(SCOPE_ALL),
+    early_bird_incentive: full(SCOPE_ALL),
+    // Views every run and its history; HR alone approves.
+    payroll_run_approval: view(SCOPE_ALL),
   },
 
   admin: {
@@ -297,6 +323,10 @@ export const ROLE_PERMISSIONS = {
     // View + approve loan decisions and subsidy adjustments only (row 10a).
     payroll_approvals: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     teacher_license: view(SCOPE_BRANCH),
+    // View only: its own branch's employees and the schedules they follow.
+    work_schedules: view(SCOPE_BRANCH),
+    early_bird_incentive: view(SCOPE_BRANCH),
+    payroll_run_approval: none(),
   },
 
   hr: {
@@ -339,6 +369,13 @@ export const ROLE_PERMISSIONS = {
     payroll_approvals: { scope: SCOPE_ALL, actions: READ_WRITE },
     // The only role that edits and verifies licensed-teacher fields.
     teacher_license: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
+    // Same full power over schedules as the Super Admin ("delete" archives).
+    work_schedules: full(SCOPE_ALL),
+    // Threshold, eligibility rule and amount.
+    early_bird_incentive: { scope: SCOPE_ALL, actions: READ_WRITE },
+    // Reviews every branch's run; approves or rejects ("update"). No create
+    // or delete: HR never changes a computation.
+    payroll_run_approval: { scope: SCOPE_ALL, actions: READ_WRITE },
   },
 
   accountant: {
@@ -378,6 +415,12 @@ export const ROLE_PERMISSIONS = {
     // Requests subsidy adjustments and records refused consent.
     payroll_approvals: { scope: SCOPE_BRANCH, actions: ["create", "read"] },
     teacher_license: none(),
+    work_schedules: none(),
+    // Sees the period's winner on the payroll page.
+    early_bird_incentive: view(SCOPE_BRANCH),
+    // Its own branch's runs and HR's decisions (it submits through
+    // process_payroll, and never approves).
+    payroll_run_approval: view(SCOPE_BRANCH),
   },
 
   employee: {
@@ -410,6 +453,10 @@ export const ROLE_PERMISSIONS = {
     awol_cases: none(),
     payroll_approvals: none(),
     teacher_license: none(),
+    work_schedules: none(),
+    // A winner sees the incentive on their own payslip, not this module.
+    early_bird_incentive: none(),
+    payroll_run_approval: none(),
   },
 };
 

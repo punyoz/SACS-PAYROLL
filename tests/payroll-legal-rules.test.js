@@ -270,18 +270,20 @@ beforeEach(async () => {
 });
 
 describe("October 1-15, 2026 (1st half)", () => {
-  it("GET pre-fills the full semi-monthly salary with nothing deducted", async () => {
+  it("GET pre-fills the semi-monthly salary with no contributions or tax", async () => {
     const body = await (await GET(request("GET", null, `?period=${encodeURIComponent(PERIOD)}`))).json();
     expect(body.legal_rules).toBe(true);
-    expect(body.semi_monthly).toMatchObject({ half: "first", month_label: "October 2026" });
+    expect(body.semi_monthly).toMatchObject({ half: "first", month_label: "October 2026", per_cutoff: true });
     expect(body.tax_table).toEqual([]);
     const row = body.attendance_rows.find((r) => r.employee_id === EMP);
+    // Per-cutoff attendance: this half's approved overtime (Oct 1) and
+    // holiday work (Oct 5) are paid on it.
     expect(row.defaults).toMatchObject({
-      semi_monthly: "first", basic_salary: 26100, sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, overtime: 0, holiday_pay: 0,
+      semi_monthly: "first", basic_salary: 26100, sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, overtime: 750, holiday_pay: 2400,
     });
   });
 
-  it("processes 26,100 with no deductions, contributions or tax", async () => {
+  it("processes 26,100 with no deductions, contributions or tax (and pays the half's overtime and holiday work)", async () => {
     const response = await POST(request("POST", {
       action: "batch_submit",
       pay_period: PERIOD,
@@ -293,10 +295,12 @@ describe("October 1-15, 2026 (1st half)", () => {
     expect(body.processed[0].payslip_no).toMatch(/^PS-\d{6}-0001$/);
 
     const record = table("payroll_records").find((r) => r.employee_id === EMP);
-    expect(record).toMatchObject({ gross_pay: 26100, total_deductions: 0, net_pay: 26100 });
+    expect(record).toMatchObject({ gross_pay: 29250, total_deductions: 0, net_pay: 29250 });
     const entry = table("payroll_entries").find((e) => e.employee_id === EMP);
     expect(entry.status).toBe("paid");
-    expect(entry.payroll.monthly).toMatchObject({ rule: "semi_monthly", half: "first", semi_monthly_pay: 26100 });
+    expect(entry.payroll.monthly).toMatchObject({
+      rule: "per_cutoff", half: "first", semi_monthly_pay: 26100, attendance_deductions: 0, extra_earnings: 3150,
+    });
     expect(entry.payroll.basic_earned).toBe(26100);
     expect(table("payroll_deductions")).toHaveLength(0);
   });

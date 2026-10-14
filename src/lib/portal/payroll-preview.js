@@ -33,7 +33,7 @@ export function moneyCompact(value) {
 const FALLBACK_RATES = {
   hourly: 68.75, daily: 550, half_day_pct: 50, absent_pct: 100,
   late_days_per_absent: 3, late_minute_charge_pct: 0,
-  early_bird_bonus: 0, perfect_attendance_bonus: 0, sss_pct: 2, philhealth_pct: 2, pagibig_pct: 2,
+  perfect_attendance_bonus: 0, sss_pct: 2, philhealth_pct: 2, pagibig_pct: 2,
 };
 
 /** 'first' | 'second' | null: the semi-monthly half of the active period. */
@@ -50,7 +50,6 @@ export function employeePayInfo(data, employeeId) {
     daily: rates.daily,
     half_day: toAmount(rates.daily * rates.half_day_pct / 100),
     absent: toAmount(rates.daily * rates.absent_pct / 100),
-    early_bird: rates.early_bird_bonus,
     perfect_attendance: rates.perfect_attendance_bonus,
     late_days_per_absent: rates.late_days_per_absent,
     late_minute_pct: rates.late_minute_charge_pct,
@@ -77,7 +76,21 @@ export function semiExtras(info) {
     // Licensed-teacher subsidy (2nd half): paid, and its taxable part.
     subsidy: toAmount(d.subsidy_pay || 0),
     subsidyTaxable: toAmount(d.subsidy_taxable || 0),
+    // After a per-cutoff 1st half: the attendance it deducted and what it
+    // paid beyond its Rate, both part of the month that is taxed.
+    priorAttendance: toAmount(d.prior_attendance || 0),
+    priorEarnings: toAmount(d.prior_earnings || 0),
   };
+}
+
+/** The period's Early Bird incentive when this employee won it (either half). */
+export function earlyBirdWinnerPay(info) {
+  return toAmount(info.row?.defaults?.early_bird_winner || 0);
+}
+
+/** True when the period's 1st half deducts its own attendance (per-cutoff). */
+export function perCutoffFirst(data) {
+  return semiHalf(data) === "first" && Boolean(data?.semi_monthly?.per_cutoff);
 }
 
 /**
@@ -102,7 +115,6 @@ export function computeAttendanceAmounts(info, q) {
       ),
     undertime: price(q.undertime_minutes, counts.undertime_minutes, amounts.undertime, unit.hourly / 60),
     half_day: price(q.half_days, counts.half_days, amounts.half_day, unit.half_day),
-    early_bird: price(q.early_bird_days, counts.early_bird_days, amounts.early_bird, unit.early_bird),
     perfect_attendance: pay && Boolean(q.perfect_attendance) === Boolean(pay.perfect_attendance)
       ? toAmount(amounts.perfect_attendance)
       : (q.perfect_attendance ? toAmount(unit.perfect_attendance) : 0),
@@ -147,7 +159,9 @@ export function earningsFor(info) {
 export function taxDefaultFor(data, info, { basic, earnings, attendanceDeductions, contributions, incentives = 0 }) {
   if (semiHalf(data) === "first" || !usesLegalTables(info)) return 0;
   const extra = semiHalf(data) === "second" ? toAmount(incentives) : 0;
-  const taxable = Math.max(0, toAmount(basic + earnings + extra - attendanceDeductions - contributions));
+  // A per-cutoff 1st half's attendance and extra earnings are part of the month.
+  const prior = semiHalf(data) === "second" ? semiExtras(info) : { priorAttendance: 0, priorEarnings: 0 };
+  const taxable = Math.max(0, toAmount(basic + earnings + extra + prior.priorEarnings - attendanceDeductions - prior.priorAttendance - contributions));
   return withholdingTax(data, taxable);
 }
 
@@ -175,7 +189,6 @@ export function defaultForm(data, employee) {
     halfDays: String(counts.half_days || 0),
     lwp: String(leave?.with_pay_days || 0),
     lwop: String(leave?.without_pay_days || 0),
-    earlyBird: String(counts.early_bird_days || 0),
     perfect: Boolean(info.pay?.perfect_attendance),
     overrideReason: "",
   };
@@ -200,16 +213,19 @@ export function formFromDraft(draft) {
     halfDays: n(d.half_days ?? 0),
     lwp: n(d.leave_with_pay_days ?? 0),
     lwop: n(d.leave_without_pay_days ?? 0),
-    earlyBird: n(payroll.incentives?.early_bird_days ?? 0),
     perfect: Boolean(payroll.incentives?.perfect_attendance),
     overrideReason: payroll.audit?.deviations?.reason || "",
   };
 }
 
-/** 1st half: no deductions at all (applyFirstHalfLock). */
+/**
+ * 1st half (applyFirstHalfLock): no contributions or tax. Before per-cutoff
+ * attendance it deducted nothing at all; from it, its own attendance stays.
+ */
 export function lockFirstHalf(data, form) {
   if (semiHalf(data) !== "first") return form;
-  return { ...form, sss: "0", philhealth: "0", pagibig: "0", tax: "0", absences: "0", late: "0", undertime: "0", halfDays: "0", lwp: "0", lwop: "0", earlyBird: "0", perfect: false };
+  if (perCutoffFirst(data)) return { ...form, sss: "0", philhealth: "0", pagibig: "0", tax: "0" };
+  return { ...form, sss: "0", philhealth: "0", pagibig: "0", tax: "0", absences: "0", late: "0", undertime: "0", halfDays: "0", lwp: "0", lwop: "0", perfect: false };
 }
 
 /** The Computation Summary for the form (recalc). Returns every figure shown. */
@@ -228,15 +244,15 @@ export function computeSummary(data, employee, rawForm) {
     late_days: g("late"),
     undertime_minutes: g("undertime"),
     half_days: g("halfDays"),
-    early_bird_days: g("earlyBird"),
     perfect_attendance: form.perfect,
   });
   const lwopDeduct = toAmount(lwopDays * info.unit.daily);
-  const incentives = toAmount(amounts.early_bird + amounts.perfect_attendance);
+  // The period's Early Bird winner is paid as an incentive on either half.
+  const incentives = toAmount(amounts.perfect_attendance + earlyBirdWinnerPay(info));
   const earnings = earningsFor(info);
   const gross = toAmount(basic + earnings.overtime + earnings.holiday);
   const settling = semiHalf(data) === "second";
-  const extras = settling ? semiExtras(info) : { other: 0, firstHalfPaid: 0, carryIn: 0, firstHalfStatus: "not_processed", subsidy: 0, subsidyTaxable: 0 };
+  const extras = settling ? semiExtras(info) : { other: 0, firstHalfPaid: 0, carryIn: 0, firstHalfStatus: "not_processed", subsidy: 0, subsidyTaxable: 0, priorAttendance: 0, priorEarnings: 0 };
   if (!settling && info.row?.defaults?.per_half) extras.other = semiExtras(info).other;
   // Cash advance installments plus loan amortizations (both net-only).
   const cashAdvance = toAmount(Number(info.row?.defaults?.cash_advance || 0) + Number(info.row?.defaults?.loan || 0));
@@ -251,7 +267,8 @@ export function computeSummary(data, employee, rawForm) {
   // The tax follows the figures until the accountant types one.
   const tax = form.taxEdited ? g("tax") : taxDefault;
   const totalDeductions = toAmount(sss + philhealth + pagibig + tax + amounts.absent + amounts.late + amounts.undertime + amounts.half_day + lwopDeduct + cashAdvance);
-  const monthNet = toAmount(gross - totalDeductions + incentives + extras.other + (extras.subsidy || 0));
+  const monthNet = toAmount(gross - totalDeductions + incentives + extras.other + (extras.subsidy || 0)
+    + (extras.priorEarnings || 0) - (extras.priorAttendance || 0));
   const secondHalfNet = toAmount(monthNet - extras.firstHalfPaid - extras.carryIn);
   const net = Math.max(0, settling ? secondHalfNet : monthNet);
   return {
@@ -270,7 +287,7 @@ export function formDeviations(data, employee, rawForm, taxDefault) {
   const leave = (data?.leave_summary || []).find((row) => row.employee_id === employee.id);
   const g = (key) => toAmount(form[key]);
   const basic = g("basic");
-  if (semiHalf(data) === "first") {
+  if (semiHalf(data) === "first" && !perCutoffFirst(data)) {
     return same(basicDefaultFor(data, employee), basic) ? [] : [`Basic Salary: ${basicDefaultFor(data, employee)} → ${basic}`];
   }
   const contributions = contributionDefaults(data, info, basic);
@@ -286,7 +303,6 @@ export function formDeviations(data, employee, rawForm, taxDefault) {
     ["Late", counts.late_days || 0, g("late")],
     ["Undertime", counts.undertime_minutes || 0, g("undertime")],
     ["Half Day", counts.half_days || 0, g("halfDays")],
-    ["Early Bird", counts.early_bird_days || 0, g("earlyBird")],
   ];
   const deviations = checks.filter(([, def, value]) => !same(def, value)).map(([label, def, value]) => `${label}: ${def} → ${value}`);
   if (info.pay && form.perfect !== Boolean(info.pay.perfect_attendance)) {
@@ -318,7 +334,7 @@ export function submissionPayload(action, { entryId, employee, period, form: raw
       leave_with_pay_days: g("lwp"),
       leave_without_pay_days: g("lwop"),
     },
-    incentives: { early_bird_days: g("earlyBird"), perfect_attendance: form.perfect },
+    incentives: { perfect_attendance: form.perfect },
     override_reason: String(form.overrideReason || "").trim(),
     reason: "Payroll processed by accountant.",
   };
@@ -330,7 +346,8 @@ export function submissionPayload(action, { entryId, employee, period, form: raw
 export function batchRowNet(row) {
   const lwopDeduct = toAmount(row.leave_without_pay_days * row.daily_rate);
   const totalDeductions = toAmount(row.sss + row.philhealth + row.pagibig + row.tax + row.attendance_deductions + lwopDeduct + (row.cash_advance || 0));
-  const monthNet = toAmount(row.basic_salary + (row.earnings || 0) - totalDeductions + row.incentives + (row.other_incentives || 0));
+  const monthNet = toAmount(row.basic_salary + (row.earnings || 0) - totalDeductions + row.incentives + (row.other_incentives || 0)
+    + (row.prior_earnings || 0) - (row.prior_attendance || 0));
   return Math.max(0, toAmount(monthNet - (row.first_half_paid || 0) - (row.carry_in || 0)));
 }
 
@@ -342,16 +359,18 @@ export function batchRowBase(data, employee) {
   const extras = half === "second" || info.row?.defaults?.per_half ? semiExtras(info) : { other: 0, overloadHours: 0, firstHalfPaid: 0, carryIn: 0 };
   // Cash advance installments plus loan amortizations (both net-only).
   const cashAdvance = toAmount(Number(info.row?.defaults?.cash_advance || 0) + Number(info.row?.defaults?.loan || 0));
-  const counts = half === "first" ? {} : info.pay?.counts || {};
-  const amounts = half === "first" ? {} : info.pay?.amounts || {};
-  const blocking = half === "first" ? [] : info.pay?.blocking || [];
+  // Before per-cutoff attendance the 1st half counted no attendance at all.
+  const noAttendance = half === "first" && !perCutoffFirst(data);
+  const counts = noAttendance ? {} : info.pay?.counts || {};
+  const amounts = noAttendance ? {} : info.pay?.amounts || {};
+  const blocking = noAttendance ? [] : info.pay?.blocking || [];
   const legal = usesLegalTables(info);
   const contributions = contributionDefaults(data, info, basic);
   const leave = (data?.leave_summary || []).find((row) => row.employee_id === employee.id);
-  const lwp = half === "first" ? 0 : leave?.with_pay_days || 0;
-  const lwop = half === "first" ? 0 : leave?.without_pay_days || 0;
+  const lwp = noAttendance ? 0 : leave?.with_pay_days || 0;
+  const lwop = noAttendance ? 0 : leave?.without_pay_days || 0;
   const attendanceDeductions = toAmount((amounts.absent || 0) + (amounts.late || 0) + (amounts.undertime || 0) + (amounts.half_day || 0));
-  const incentives = toAmount((amounts.early_bird || 0) + (amounts.perfect_attendance || 0));
+  const incentives = toAmount((amounts.perfect_attendance || 0) + earlyBirdWinnerPay(info));
   const e = earningsFor(info);
   const earnings = toAmount(e.overtime + e.holiday);
   return { info, half, basic, extras, cashAdvance, counts, amounts, blocking, legal, contributions, lwp, lwop, attendanceDeductions, incentives, earnings };

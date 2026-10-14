@@ -11,6 +11,8 @@ import { createClient } from "@supabase/supabase-js";
 import { requirePermission, resolveTargetUserId, denyForeignBranch } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { validateProofUrl } from "@/lib/leave-requests/proof";
+import { LEAVE_ADVANCE_MESSAGE, earliestLeaveStart, meetsAdvanceRule } from "@/lib/leave-requests/advance-rule";
+import { manilaDateKey } from "@/lib/payroll/periods";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -115,6 +117,16 @@ export async function POST(request) {
       );
     }
 
+    // At least 7 days ahead of the submission date (Manila), whatever the
+    // browser allowed (src/lib/leave-requests/advance-rule.js).
+    const submittedAt = new Date();
+    if (!meetsAdvanceRule(startDate, submittedAt)) {
+      return NextResponse.json(
+        { error: LEAVE_ADVANCE_MESSAGE, code: "leave_advance_notice", earliest_start: earliestLeaveStart(manilaDateKey(submittedAt)) },
+        { status: 400 },
+      );
+    }
+
     const allRequests = await readAllLeaveRequests({ employeeId });
     const hasDuplicatePending = allRequests.some((row) => {
       const isSameEmployee = employeeId
@@ -135,7 +147,8 @@ export async function POST(request) {
       );
     }
 
-    const nowIso = new Date().toISOString();
+    // The submission date and time the 7-day rule was checked against.
+    const nowIso = submittedAt.toISOString();
     const newRequest = normalizeLeaveRequest({
       id: crypto.randomUUID(),
       employee_id: employeeId,

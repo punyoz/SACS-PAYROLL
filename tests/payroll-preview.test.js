@@ -53,14 +53,17 @@ describe("attendance amounts", () => {
   const data = payload();
   const info = employeePayInfo(data, "e1");
 
+  // The fixture still carries a stale per-day Early Bird amount; the preview
+  // must ignore it (the bonus is retired).
   it("uses the server's computed amount while a quantity is unchanged", () => {
     const a = computeAttendanceAmounts(info, { absences_days: 1, late_days: 2, undertime_minutes: 30, half_days: 0, early_bird_days: 3, perfect_attendance: false });
-    expect(a).toMatchObject({ absent: 1000, late: 0, undertime: 62.5, half_day: 0, early_bird: 150, perfect_attendance: 0 });
+    expect(a).toMatchObject({ absent: 1000, late: 0, undertime: 62.5, half_day: 0, perfect_attendance: 0 });
+    expect(a.early_bird).toBeUndefined();
   });
 
   it("prices a changed quantity at the unit rate; 3 late days = 1 absence", () => {
     const a = computeAttendanceAmounts(info, { absences_days: 2, late_days: 3, undertime_minutes: 60, half_days: 1, early_bird_days: 0, perfect_attendance: true });
-    expect(a).toMatchObject({ absent: 2000, late: 1000, undertime: 125, half_day: 500, early_bird: 0, perfect_attendance: 300 });
+    expect(a).toMatchObject({ absent: 2000, late: 1000, undertime: 125, half_day: 500, perfect_attendance: 300 });
   });
 });
 
@@ -79,18 +82,18 @@ describe("computation summary", () => {
     const employee = data.employees[0];
     const s = computeSummary(data, employee, defaultForm(data, employee));
     // basic 12500, SSS/PhilHealth/Pag-IBIG 2% each = 250 x3, absent 1000,
-    // undertime 62.5, LWOP 1 x 1000, early bird +150.
+    // undertime 62.5, LWOP 1 x 1000. No per-day early bird bonus.
     expect(s.tax).toBe(0);
-    expect(s.net).toBe(toAmount(12500 - 750 - 1000 - 62.5 - 1000 + 150));
+    expect(s.net).toBe(toAmount(12500 - 750 - 1000 - 62.5 - 1000));
   });
 
   it("2nd half: settles the month less what the 1st half paid, with the monthly tax", () => {
     const data = payload({ half: "second", legal: true });
     const employee = data.employees[0];
     const s = computeSummary(data, employee, defaultForm(data, employee));
-    const taxable = 25000 + 500 + 150 - (1000 + 62.5 + 1000) - (1125 + 625 + 200);
+    const taxable = 25000 + 500 - (1000 + 62.5 + 1000) - (1125 + 625 + 200);
     expect(s.taxDefault).toBe(withholdingTax(data, taxable));
-    const monthNet = toAmount(25000 - (1125 + 625 + 200 + s.taxDefault + 1000 + 62.5 + 1000) + 150 + 500);
+    const monthNet = toAmount(25000 - (1125 + 625 + 200 + s.taxDefault + 1000 + 62.5 + 1000) + 500);
     expect(s.monthNet).toBe(monthNet);
     expect(s.net).toBe(toAmount(monthNet - 12500));
   });

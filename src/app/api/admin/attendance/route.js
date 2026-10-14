@@ -7,7 +7,8 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps, findRepeatedTap, hoursBetween, planTap } from "@/lib/attendance/taps";
 import { maskCardCode, recordRawTap, recordRefusedTap, tapDevice } from "@/lib/attendance/raw-taps";
-import { getBranchAttendancePolicy, isLateForPolicy } from "@/lib/attendance/policy";
+import { isLateForPolicy } from "@/lib/attendance/policy";
+import { getEmployeeAttendancePolicy } from "@/lib/attendance/work-schedules";
 import { attendanceBucket, normalizeAttendanceStatus as normalizeEngineStatus } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
@@ -724,9 +725,15 @@ export async function POST(request) {
       );
     }
 
-    // The tap is judged against the schedule of the branch the employee is
-    // assigned to, so a 7:00 AM branch marks Late earlier than an 8:00 AM one.
-    const policy = await getBranchAttendancePolicy(supabase, employee.branch_id);
+    // The tap is judged against the employee's own schedule that day (own →
+    // level → branch → default, src/lib/attendance/work-schedules.js), so a
+    // 7:00 AM pre-school teacher is Late earlier than an 8:00 AM colleague in
+    // the same branch. The database judges the stored row the same way.
+    const policy = await getEmployeeAttendancePolicy(supabase, {
+      employeeId: employee.id,
+      branchId: employee.branch_id,
+      dayKey: dateKey,
+    });
 
     // The same tap twice (within a few minutes of one already recorded) is
     // not a Time Out: nothing is saved, and the employee is told it counted.
@@ -787,6 +794,8 @@ export async function POST(request) {
         offline: Boolean(offline),
         branch_id: employee.branch_id,
         schedule: `${policy.work_start}-${policy.work_end}`,
+        schedule_source: policy.source,
+        schedule_name: policy.schedule_name || null,
         grace: policy.grace,
       },
     });

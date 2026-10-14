@@ -22,6 +22,8 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | **OVERVIEW** |
 | 1 | Dashboard (role-specific view) | F (all branches) | P (own branch) | P (all branches) | P (own branch) | P (own record) |
 | 2 | Attendance | F (all branches, edit/override) | P (own branch, edit/correct) | P (all branches, monitor + correct) | V (reference only, no edit) | V (own record only) |
+| 2a | Employee Work Schedules (schedule profiles, employee level, assignments) | F — create, change, delete (archive) and assign, effective-dated | V (own branch) — refused by the server | F (all branches) — same power as Super Admin | — | — |
+| 2b | Early Bird Incentive (threshold, eligibility, amount, winners) | F | V (own branch's winner named) | P — threshold, eligibility and amount | V (own branch's winner named) | Winner sees it on own payslip |
 | **MANAGEMENT** |
 | 3 | User/Account Management | F — can create/archive Admin, HR, Accountant, Employee accounts, any branch (no permanent delete) | P — can create/edit/archive HR, Accountant, Employee accounts, own branch only. Cannot create Admin/Super Admin | F — can create/edit/archive Employee and Accountant accounts, all branches. Cannot create Admin/HR/Super Admin | — | — |
 | 4 | Employee Information (records, 201 files) | F (all branches) | P (own branch) | F (all branches — primary owner of this module) | V (for payroll reference) | V (own profile only) |
@@ -34,6 +36,7 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 9 | RFID Device Registration/Config | F | V | — | — | — |
 | **PAYROLL** |
 | 10 | Process Payroll | V (oversight/approval only) | — | — | F (own branch) | — |
+| 10b | Payroll Approval (each branch's run per cutoff) | V (all branches) | — | P — view all branches, approve / reject Pending runs; never edits a figure, never approves a run it processed | P — submits / resubmits its branch's run; views its runs; never approves | Sees own payslip only once the run is Approved |
 | 10a | Payroll approvals (Approvals page) | V | P — view + approve/reject only (own branch): refused-consent loan decisions and missed-month subsidy adjustments. No other payroll edits | P — recommends refused-consent loan decisions | P — requests subsidy adjustments; cannot approve own request | — |
 | 11 | Payroll Records | F (all branches) | V (own branch) | — | F (own branch) | — |
 | 12 | Payslips | F (view/reissue, all branches) | V (own branch) | — | F (generate, own branch) | V (own payslip only) |

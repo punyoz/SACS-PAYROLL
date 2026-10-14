@@ -6,6 +6,7 @@ import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { can, SCOPE_SELF } from "@/lib/rbac/permissions";
 import { UNRESOLVED_STATUSES, normalizeAttendanceStatus } from "@/lib/attendance/status";
 import { loadAttendanceConfig, resolveAttendancePolicy } from "@/lib/attendance/policy";
+import { minutesToHHMM } from "@/lib/attendance/work-schedules";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
@@ -51,10 +52,15 @@ function overtimeMinutes(log, policy) {
 async function policiesFor(supabase, branchIds) {
   const config = await loadAttendanceConfig(supabase, branchIds);
   const cache = new Map();
-  return (branchId) => {
+  return (branchId, log = null) => {
     const key = String(branchId || "");
     if (!cache.has(key)) cache.set(key, resolveAttendancePolicy(config, branchId || null));
-    return cache.get(key);
+    const policy = cache.get(key);
+    // The day's own schedule end (the employee's schedule), when recorded.
+    const end = log?.shift_end_minutes;
+    return end === null || end === undefined || !Number.isFinite(Number(end))
+      ? policy
+      : { ...policy, work_end: minutesToHHMM(Number(end)) };
   };
 }
 
@@ -104,7 +110,9 @@ export async function GET(request) {
 
     let query = supabase
       .from("attendance_logs")
-      .select("id,employee_id,employee_name,branch_id,log_date,time_in,time_out,status")
+      // "*": includes shift_end_minutes, the end of the schedule the day was
+      // judged on (20261013010000), when the column exists.
+      .select("*")
       .gte("log_date", range.from)
       .lte("log_date", range.to)
       .eq("archived_duplicate", false)
@@ -120,7 +128,7 @@ export async function GET(request) {
 
     const candidates = logs
       .map((row) => {
-        const policy = policyFor(row.branch_id);
+        const policy = policyFor(row.branch_id, row);
         return { row, policy, minutes: overtimeMinutes(row, policy) };
       })
       .filter((item) => item.minutes >= OVERTIME_MIN_MINUTES);
@@ -179,7 +187,7 @@ export async function PATCH(request) {
     const supabase = getAdminClient();
     const logResult = await supabase
       .from("attendance_logs")
-      .select("id,employee_id,employee_name,branch_id,log_date,time_in,time_out,status,archived_duplicate")
+      .select("*")
       .eq("id", logId)
       .maybeSingle();
     if (logResult.error) throw new Error(logResult.error.message);
@@ -202,7 +210,7 @@ export async function PATCH(request) {
     }
 
     const policyFor = await policiesFor(supabase, [log.branch_id]);
-    const policy = policyFor(log.branch_id);
+    const policy = policyFor(log.branch_id, log);
     const available = overtimeMinutes(log, policy);
     if (available < OVERTIME_MIN_MINUTES) {
       return NextResponse.json(

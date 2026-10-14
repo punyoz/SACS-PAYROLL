@@ -105,7 +105,7 @@ export function PayslipScheduleSection({ refreshKey }) {
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><CalendarRangeIcon className="size-4 text-gold-text" aria-hidden="true" />Payslip Schedule</CardTitle>
-        <CardDescription>When payslips are generated. The 2nd half deducts attendance up to the day before its generation day; that day carries to next month.</CardDescription>
+        <CardDescription>When payslips are generated. Each half deducts attendance up to the day before its generation day; that day carries to the next payslip.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">

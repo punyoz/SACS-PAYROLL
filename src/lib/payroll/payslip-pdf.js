@@ -22,12 +22,12 @@ const MARGIN = 48;
 const WIDTHS = { " ": 278, ",": 278, ".": 278, "-": 333, P: 667, H: 722 };
 for (const digit of "0123456789") WIDTHS[digit] = 556;
 
-function textWidth(text, size) {
+export function textWidth(text, size) {
   return [...String(text)].reduce((sum, ch) => sum + (WIDTHS[ch] ?? 556), 0) * size / 1000;
 }
 
 /** Latin-1 only, PDF string escapes applied. */
-function pdfText(value) {
+export function pdfText(value) {
   return String(value ?? "")
     .replace(/[–—]/g, "-")
     .replace(/[‘’]/g, "'")
@@ -124,7 +124,29 @@ function holidayRows(p, lines) {
   (lines || []).forEach((line) => p.row(`   ${describeHolidayLine(line)}`, line.amount));
 }
 
+/** A per-cutoff payslip (monthly.cutoff): every earning and deduction on its own line. */
+function cutoffRows(p, c, holidayLines = []) {
+  const range = c.window ? ` (attendance ${c.window.start_key} to ${c.window.end_key})` : "";
+  p.heading(`Earnings - ${c.half === "first" ? "1st" : "2nd"} cutoff${range}`);
+  c.earnings.forEach((line) => {
+    p.row(line.label, line.amount, { note: line.note || "" });
+    if (line.label === "Holiday pay") holidayRows(p, holidayLines);
+  });
+  p.row("Gross pay", c.gross_pay || 0, { bold: true });
+  p.heading("Deductions");
+  if (Number(c.leave_with_pay_days) > 0) p.row(`Leave with pay (${c.leave_with_pay_days} days) - no deduction`, null);
+  if (!c.deductions.length) p.row("No deductions", 0);
+  c.deductions.forEach((line) => p.row(line.label, line.amount, { note: line.note || "" }));
+  p.row("Total deductions", c.total_deductions || 0, { bold: true });
+  if (c.half === "first") p.row("Tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.", null);
+  if (Number(c.carry_over_out) > 0) p.row("Balance carried to next month", c.carry_over_out);
+}
+
 function semiMonthlyRows(p, m, holidayLines = []) {
+  if (m.cutoff) {
+    cutoffRows(p, m.cutoff, holidayLines);
+    return;
+  }
   if (m.half === "first") {
     p.heading("Earnings - 1st half");
     p.row("Monthly salary", m.monthly_salary || 0);
