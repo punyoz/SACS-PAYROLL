@@ -39,6 +39,7 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -50,6 +51,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChangePasswordDialog, EditAccountDialog } from "@/components/portal/account-dialogs";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { usePortalSession } from "@/components/portal/session";
+import { apiFetch, BACKGROUND, jsonBody } from "@/lib/portal/api";
 import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
@@ -62,6 +64,8 @@ import { cn } from "@/lib/utils";
  *
  * nav: [{ section, items: [{ id, label, icon, module? }] }]. An item with a
  * `module` shows only when the session's permissions allow reading it.
+ * badges: { [item id]: count } shows a count on that item (e.g. pending
+ * payroll runs on HR's Payroll Approval).
  */
 
 const ROLE_LABEL = {
@@ -79,7 +83,7 @@ export function useAccountDialogs() {
   return React.useContext(AccountDialogsContext);
 }
 
-function NavLinks({ nav, page, onNavigate }) {
+function NavLinks({ nav, page, onNavigate, badges = {} }) {
   const { can } = usePortalSession();
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -113,6 +117,11 @@ function NavLinks({ nav, page, onNavigate }) {
                     {Icon ? <Icon aria-hidden="true" /> : null}
                     <span>{item.label}</span>
                   </SidebarMenuButton>
+                  {badges[item.id] ? (
+                    <SidebarMenuBadge className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white peer-data-[active=true]/menu-button:text-white" aria-label={`${badges[item.id]} waiting`}>
+                      {badges[item.id] > 99 ? "99+" : badges[item.id]}
+                    </SidebarMenuBadge>
+                  ) : null}
                 </SidebarMenuItem>
               );
             })}
@@ -207,15 +216,43 @@ function formatNotifTime(date) {
   return date.toLocaleDateString("en-PH", { month: "short", day: "numeric" });
 }
 
-/** The bell: a live summary for this portal, then this session's notices. */
-function NotificationsMenu({ summary = [] }) {
+/**
+ * Stored notifications (GET /api/notifications): e.g. a payroll run waiting
+ * for HR, or HR's decision for the Accountant. Read every minute.
+ */
+function useStoredNotifications() {
+  const [state, setState] = React.useState({ list: [], unread: 0 });
+  const load = React.useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/notifications", BACKGROUND);
+      if (!response.ok) return;
+      const data = await response.json();
+      setState({ list: Array.isArray(data.notifications) ? data.notifications : [], unread: Number(data.unread) || 0 });
+    } catch { /* offline: keep what we have */ }
+  }, []);
+  React.useEffect(() => {
+    load();
+    const timer = setInterval(load, 60000);
+    return () => clearInterval(timer);
+  }, [load]);
+  const markAllRead = React.useCallback(async () => {
+    setState((c) => ({ list: c.list.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })), unread: 0 }));
+    try { await apiFetch("/api/notifications", jsonBody("PATCH", {})); } catch { /* retried on the next open */ }
+  }, []);
+  return { ...state, markAllRead, reload: load };
+}
+
+/** The bell: a live summary for this portal, stored notices, then this session's notices. */
+function NotificationsMenu({ summary = [], onNavigate }) {
   const { notifications, unread, markRead } = usePortalSession();
+  const stored = useStoredNotifications();
+  const anyUnread = unread || stored.unread;
   return (
-    <DropdownMenu onOpenChange={(isOpen) => { if (isOpen) markRead(); }}>
+    <DropdownMenu onOpenChange={(isOpen) => { if (isOpen) { markRead(); if (stored.unread) stored.markAllRead(); } }}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label={unread ? `Notifications, ${unread} new` : "Notifications"}>
+        <Button variant="ghost" size="icon" className="relative" aria-label={anyUnread ? `Notifications, ${unread + stored.unread} new` : "Notifications"}>
           <BellIcon />
-          {unread ? <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive ring-2 ring-background" aria-hidden="true" /> : null}
+          {anyUnread ? <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive ring-2 ring-background" aria-hidden="true" /> : null}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
@@ -227,6 +264,26 @@ function NotificationsMenu({ summary = [] }) {
             {item.description ? <p className="text-xs text-muted-foreground">{item.description}</p> : null}
           </div>
         ))}
+        {stored.list.length ? (
+          <>
+            {summary.length ? <DropdownMenuSeparator /> : null}
+            <div className="max-h-64 overflow-y-auto">
+              {stored.list.map((item) => (
+                <DropdownMenuItem
+                  key={item.id}
+                  className="flex-col items-stretch gap-0.5 px-2 py-1.5"
+                  onSelect={() => { if (item.link_page && onNavigate) onNavigate(item.link_page); }}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className={cn("text-sm", item.read_at ? "font-normal" : "font-semibold")}>{item.title}</p>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{formatNotifTime(new Date(item.created_at))}</span>
+                  </div>
+                  {item.body ? <p className="text-xs text-muted-foreground">{item.body}</p> : null}
+                </DropdownMenuItem>
+              ))}
+            </div>
+          </>
+        ) : null}
         {notifications.length ? <DropdownMenuSeparator /> : null}
         <div className="max-h-72 overflow-y-auto">
           {notifications.map((item, index) => (
@@ -239,7 +296,7 @@ function NotificationsMenu({ summary = [] }) {
             </div>
           ))}
         </div>
-        {!summary.length && !notifications.length ? (
+        {!summary.length && !notifications.length && !stored.list.length ? (
           <p className="px-2 py-6 text-center text-sm text-muted-foreground">You&apos;re all caught up.</p>
         ) : null}
       </DropdownMenuContent>
@@ -276,6 +333,7 @@ export function AppShell({
   notificationSummary,
   profilePage,
   accountOptions,
+  badges,
   children,
 }) {
   const { role } = usePortalSession();
@@ -319,7 +377,7 @@ export function AppShell({
               </SidebarMenu>
             </SidebarHeader>
             <SidebarContent>
-              <NavLinks nav={nav} page={page} onNavigate={onNavigate} />
+              <NavLinks nav={nav} page={page} onNavigate={onNavigate} badges={badges} />
             </SidebarContent>
             <SidebarFooter className="border-t border-sidebar-border">
               <UserMenu onProfile={profilePage ? () => onNavigate(profilePage) : null} />
@@ -339,7 +397,7 @@ export function AppShell({
                   <RefreshCwIcon className={cn(refreshing && "animate-spin")} />
                 </Button>
               ) : null}
-              <NotificationsMenu summary={notificationSummary} />
+              <NotificationsMenu summary={notificationSummary} onNavigate={onNavigate} />
               <ThemeIconButton />
             </header>
 

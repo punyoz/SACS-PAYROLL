@@ -130,9 +130,11 @@ beforeEach(async () => {
 // Expected for EMP_OK, Sep 16-30, basic 10,000 (half of 20,000):
 //   3 late days = 1 absence = 500 (the minutes are not charged);
 //   undertime 90 min × ₱60/h = 90; half day 50% × 500 = 250;
-//   absent 100% × 500 = 500; early bird 1 × 20 = 20; contributions 2% = 200 each.
+//   absent 100% × 500 = 500; contributions 2% = 200 each. The Early Bird day
+//   (l5) earns nothing: the per-day bonus is retired, even with its old rate
+//   (₱20) still on file.
 const EXPECTED = {
-  late: 500, undertime: 90, half_day: 250, absent: 500, early_bird: 20,
+  late: 500, undertime: 90, half_day: 250, absent: 500,
   deductions: 200 * 3 + 500 + 90 + 250 + 500,
 };
 
@@ -147,7 +149,9 @@ describe("GET: the batch table's figures", () => {
 
     const ok = body.attendance_rows.find((r) => r.employee_id === EMP_OK);
     expect(ok.rates.hourly).toBe(60);
-    expect(ok.pay.amounts).toMatchObject({ late: 500, undertime: 90, half_day: 250, absent: 500, early_bird: 20 });
+    expect(ok.pay.amounts).toMatchObject({ late: 500, undertime: 90, half_day: 250, absent: 500 });
+    expect(ok.pay.amounts.early_bird).toBeUndefined();
+    expect(ok.early_bird_days).toBeUndefined();
     expect(ok.late_days).toBe(3);
     expect(ok.defaults).toMatchObject({ basic_salary: 10000, sss: 200, philhealth: 200, pagibig: 200 });
     expect(ok.pay.blocking).toEqual([]);
@@ -171,7 +175,7 @@ describe("GET: the batch table's figures", () => {
     }
     const body = await (await GET(request("GET", null, `?period=${encodeURIComponent(PERIOD)}`))).json();
     const ok = body.attendance_rows.find((r) => r.employee_id === EMP_OK);
-    expect(ok.pay.amounts).toMatchObject({ late: 500, undertime: 90, half_day: 250, absent: 500, early_bird: 20 });
+    expect(ok.pay.amounts).toMatchObject({ late: 500, undertime: 90, half_day: 250, absent: 500 });
     expect(body.attendance_rows.find((r) => r.employee_id === EMP_BLOCKED).unresolved_days).toBe(1);
   });
 });
@@ -196,8 +200,8 @@ describe("POST batch_submit", () => {
 
     const record = table("payroll_records").find((r) => r.employee_id === EMP_OK);
     expect(record.total_deductions).toBe(EXPECTED.deductions);
-    expect(record.total_incentives).toBe(EXPECTED.early_bird);
-    expect(record.net_pay).toBe(10000 - EXPECTED.deductions + EXPECTED.early_bird);
+    expect(record.total_incentives).toBe(0);
+    expect(record.net_pay).toBe(10000 - EXPECTED.deductions);
     expect(record.base_pay).toBe(10000);
     expect(record.processed_by).toBe("u-acct");
     expect(record.processed_by_name).toBe("Ana Accountant");
@@ -214,7 +218,8 @@ describe("POST batch_submit", () => {
     expect(byType.absent).toMatchObject({ amount: 500, source_log_id: "l4" });
     expect(byType.sss).toMatchObject({ amount: 200, is_override: false });
     const incentives = table("payroll_incentives").filter((d) => d.employee_id === EMP_OK);
-    expect(incentives).toEqual([expect.objectContaining({ type: "early_bird", amount: 20, source_log_id: "l5" })]);
+    // No per-day Early Bird line: the bonus is retired.
+    expect(incentives).toEqual([]);
   });
 
   it("refuses a changed contribution without a reason, and records it as a deviation with one", async () => {

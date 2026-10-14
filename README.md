@@ -102,6 +102,11 @@ Vercel Hobby is for **testing only** (non-commercial). Production runs on a free
 - **Holidays and suspensions:** Super Admin → System Configuration → Holidays;
   HR declares suspensions. A pg_cron job seeds next year's fixed holidays every
   December 1.
+- **Payroll Approval:** each branch's run is submitted by the Accountant and
+  approved by HR before employees see their payslips:
+  [docs/payroll-approval.md](docs/payroll-approval.md).
+- **Employee schedules, cutoff deductions, Early Bird:** see
+  [docs/employee-schedules-cutoffs-early-bird.md](docs/employee-schedules-cutoffs-early-bird.md).
 - **Payroll rules** (semi-monthly, payslip schedule, loans, AWOL hold,
   licensed-teacher subsidy) with worked examples:
   [docs/payroll-schedule-loans-awol.md](docs/payroll-schedule-loans-awol.md).
@@ -193,14 +198,14 @@ it to the live project. The same doc has the one-time
 `supabase migration repair` that lines the live history up with the file
 names.
 
-The schema has 39 tables and 2 read-only views:
+The schema has 46 tables and 3 read-only views:
 
 - **Accounts and branches:** `profiles`, `branches`, `employee_branch_assignments`, `transfer_requests`, `role_permissions`, `system_config`
-- **Attendance:** `attendance_logs`, `attendance_taps`, `attendance_logs_history`, `attendance_corrections`, `attendance_overtime_approvals`, `attendance_holidays`, `attendance_blocked_taps`
+- **Attendance:** `attendance_logs`, `attendance_taps`, `attendance_logs_history`, `attendance_corrections`, `attendance_overtime_approvals`, `attendance_holidays`, `attendance_blocked_taps`, `work_schedules`, `work_schedule_assignments` (per-employee schedules)
 - **Leave and HR:** `leave_requests`, `employee_awol_cases`, `employee_status_changes`, `employee_license_documents`, `employee_license_changes`, `employee_license_alerts`
-- **Payroll:** `payroll_entries`, `payroll_records`, `payroll_deductions`, `payroll_incentives`, `payroll_rate_configs`, `payroll_tax_brackets`, `payroll_contribution_amounts`, `payroll_monthly_incentives`, `payroll_thirteenth_month`, `payroll_schedule_settings`, `payroll_setting_changes`, `payroll_loans`, `payroll_loan_payments`, `payroll_subsidy_settings`, `payroll_subsidy_balances`, `payroll_subsidy_adjustments`, `payroll_cash_advances` (read-only history)
-- **System:** `audit_logs`, `auth_throttle`, `auth_email_otps`
-- **Views:** `employee_info_view`, `payroll_exempt_benefits_paid`
+- **Payroll:** `payroll_entries`, `payroll_records`, `payroll_deductions`, `payroll_incentives`, `payroll_rate_configs`, `payroll_tax_brackets`, `payroll_contribution_amounts`, `payroll_monthly_incentives`, `payroll_thirteenth_month`, `payroll_schedule_settings`, `payroll_setting_changes`, `payroll_loans`, `payroll_loan_payments`, `payroll_subsidy_settings`, `payroll_subsidy_balances`, `payroll_subsidy_adjustments`, `payroll_cash_advances` (read-only history), `early_bird_winners`, `payroll_runs`, `payroll_run_items`, `payroll_approval_history` (HR payroll approval)
+- **System:** `audit_logs`, `auth_throttle`, `auth_email_otps`, `notifications`
+- **Views:** `employee_info_view`, `payroll_exempt_benefits_paid`, `payroll_run_summaries`
 
 ## History
 
@@ -214,6 +219,8 @@ The schema has 39 tables and 2 read-only views:
 | `RULES.md` | Working agreement for AI-assisted edits |
 | `SACS-Payroll-Permission-Matrix.md` | The role and permission matrix |
 | `docs/payroll-schedule-loans-awol.md` | Payroll design, formulas and worked examples |
+| `docs/payroll-approval.md` | HR Payroll Approval: workflow, migration order, enforcement, test cases |
+| `docs/employee-schedules-cutoffs-early-bird.md` | Per-employee schedules, per-cutoff deductions, the 7-day leave rule, the Early Bird incentive, and their test cases |
 | `docs/local-migration-replay.md` | Testing migrations locally; repairing the migration history |
 | `docs/hosting.md` | Free hosting options compared; moving to an Oracle Cloud VM step by step |
 | `docs/backup-and-restore.md` | Free-plan limits, backups, restore test, keep-alive |

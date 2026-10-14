@@ -24,7 +24,9 @@ export const RATE_TYPES = Object.freeze({
   absent_pct: { label: "Absent deduction", unit: "percent", hint: "% of the daily rate deducted for an Absent day" },
   late_days_per_absent: { label: "Late days per absence", unit: "count", hint: "Every N late days in a period are charged as 1 absence (0 = off)" },
   late_minute_charge_pct: { label: "Per-minute late charge", unit: "percent", hint: "% of the hourly rate charged per late minute, on top of the rule above (0 = off)" },
-  early_bird_bonus: { label: "Early Bird bonus", unit: "peso", hint: "Added per Early Bird day" },
+  // early_bird_bonus (per Early Bird day) was retired on Oct 13, 2026: the one
+  // Early Bird incentive is the per-period winner (src/lib/payroll/early-bird.js).
+  // Its old rate rows stay in payroll_rate_configs as history; nothing reads them.
   perfect_attendance_bonus: { label: "Perfect Attendance bonus", unit: "peso", hint: "Added when a period has no Late, Undertime, Absent or Half Day" },
   sss_pct: { label: "SSS contribution", unit: "percent", hint: "Employee share: % of the monthly salary credit (before Oct 1, 2026: % of the period's basic salary)" },
   philhealth_pct: { label: "PhilHealth contribution", unit: "percent", hint: "Employee share: % of monthly basic salary within the floor and ceiling (before Oct 1, 2026: % of the period's basic salary)" },
@@ -70,7 +72,6 @@ export const DEFAULT_RATES = Object.freeze({
   absent_pct: 100,
   late_days_per_absent: 3,
   late_minute_charge_pct: 0,
-  early_bird_bonus: 0,
   perfect_attendance_bonus: 0,
   sss_pct: 2,
   philhealth_pct: 2,

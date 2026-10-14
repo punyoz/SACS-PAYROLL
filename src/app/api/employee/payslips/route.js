@@ -5,6 +5,7 @@ import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { payslipVisible, requiresApproval } from "@/lib/payroll/runs";
 
 function toAmount(value) {
   const n = Number(value || 0);
@@ -79,6 +80,9 @@ function mapEntryToPayslip(row) {
     early_bird_days: toAmount(payroll.incentives?.early_bird_days),
     early_bird_incentive: toAmount(totals.early_bird_incentive),
     perfect_attendance_incentive: toAmount(totals.perfect_attendance_incentive),
+    // The period's Early Bird winner: only on the winner's own payslip.
+    early_bird_winner_incentive: toAmount(totals.early_bird_winner_incentive),
+    early_bird_winner: payroll.early_bird && typeof payroll.early_bird === "object" ? payroll.early_bird : null,
     // Cash advance installment deducted (src/lib/payroll/cash-advance.js).
     cash_advance: toAmount(deductions.cash_advance),
     // Semi-monthly payroll: the month behind a 1st / 2nd half payslip.
@@ -102,18 +106,44 @@ function mapRecordToPayslip(rec) {
   };
 }
 
+/**
+ * Payroll Approval (20261014010000): from October 1, 2026 a payslip reaches
+ * the employee only once HR has approved its branch's payroll run. Before
+ * then (Draft, Pending HR Approval, Rejected) it is not listed at all.
+ */
+async function approvedRunIds(supabase, rows) {
+  const ids = [...new Set((rows || []).map((row) => row.run_id).filter(Boolean))];
+  if (!ids.length) return new Set();
+  const result = await supabase.from("payroll_runs").select("id,status").in("id", ids);
+  if (result.error) return new Set();
+  return new Set((result.data || []).filter((run) => run.status === "approved").map((run) => run.id));
+}
+
+async function onlyReleased(supabase, rows) {
+  const approved = await approvedRunIds(supabase, rows);
+  return (rows || []).filter((row) => payslipVisible(row.pay_period, row.run_id && approved.has(row.run_id) ? "approved" : null));
+}
+
+async function approvedRunLabels(supabase, records) {
+  const labels = [...new Set((records || []).map((r) => r.period_label).filter((label) => requiresApproval(label)))];
+  if (!labels.length) return new Set();
+  const result = await supabase.from("payroll_runs").select("branch_id,period_label,status").in("period_label", labels).eq("status", "approved");
+  if (result.error) return new Set();
+  return new Set((result.data || []).map((run) => `${run.branch_id}|${run.period_label}`));
+}
+
 async function fetchPayslipsForUser(supabase, userId) {
   // ── 1. payroll_entries DB ─────────────────────────────────────────────────
   try {
     let { data, error } = await supabase
       .from("payroll_entries")
-      .select("id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,created_at")
+      .select("id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,created_at,run_id")
       .eq("employee_id", userId)
       .not("status", "eq", "draft")
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (error && colMissing(error, "payslip_no")) {
+    if (error && (colMissing(error, "payslip_no") || colMissing(error, "run_id"))) {
       const r2 = await supabase
         .from("payroll_entries")
         .select("id,employee_id,pay_period,status,payroll,submitted_at,created_at")
@@ -126,7 +156,7 @@ async function fetchPayslipsForUser(supabase, userId) {
     }
 
     if (!error && Array.isArray(data) && data.length > 0) {
-      return data.map(mapEntryToPayslip);
+      return (await onlyReleased(supabase, data)).map(mapEntryToPayslip);
     }
   } catch {
     // payroll_entries table may not exist — fall through
@@ -137,7 +167,7 @@ async function fetchPayslipsForUser(supabase, userId) {
     let { data, error } = await supabase
       .from("payroll_records")
       .select(
-        "id,employee_id,employee_name,employee_type,gross_pay,total_deductions,net_pay,period_label,processed_at,payslip_no",
+        "id,employee_id,employee_name,employee_type,gross_pay,total_deductions,net_pay,period_label,processed_at,payslip_no,branch_id",
       )
       .eq("employee_id", userId)
       // A record a Super Admin override replaced is kept, archived, for audit.
@@ -160,7 +190,10 @@ async function fetchPayslipsForUser(supabase, userId) {
     }
 
     if (!error && Array.isArray(data) && data.length > 0) {
-      return data.map(mapRecordToPayslip);
+      const released = await approvedRunLabels(supabase, data);
+      return data
+        .filter((rec) => !requiresApproval(rec.period_label) || released.has(`${rec.branch_id}|${rec.period_label}`))
+        .map(mapRecordToPayslip);
     }
   } catch {
     // payroll_records table may not exist

@@ -113,6 +113,50 @@ export function monthlyWindow(monthKey, lockDayFor, { carryOver = true } = {}) {
   };
 }
 
+/**
+ * Per-cutoff attendance (from CUTOFF_ATTENDANCE_EFFECTIVE): each half deducts
+ * its own attendance.
+ *
+ *   1st cutoff (1-15)    Rate − attendance of its window; no tax,
+ *                        contributions, loans or other deductions.
+ *   2nd cutoff (16-end)  Rate − attendance of its window, and every other
+ *                        deduction; tax and contributions are computed on the
+ *                        WHOLE month's earnings (computeSecondHalf with the
+ *                        1st cutoff's attendance and earnings as priorAttendance /
+ *                        priorEarnings), so the month is taxed exactly once.
+ *
+ * Each window ends the day before its payslip's generation day (a day still
+ * in progress cannot be judged); the day carries to the next window, so no
+ * day is deducted twice or skipped. With the default schedule:
+ *   Oct 1-15 (generated Oct 15)   attendance Oct 1 – Oct 14
+ *   Oct 16-31 (generated Oct 30)  attendance Oct 15 – Oct 29
+ *   Nov 1-15 (generated Nov 16)   attendance Oct 30 – Nov 15
+ */
+export const PER_CUTOFF_RULE = "per_cutoff";
+export const CUTOFF_ATTENDANCE_EFFECTIVE = "2026-10-01";
+
+export function usesCutoffAttendance(periodStart) {
+  return String(periodStart || "") >= CUTOFF_ATTENDANCE_EFFECTIVE;
+}
+
+/**
+ * The attendance days a month's 1st cutoff deducts: from where last month's
+ * 2nd half stopped (or the 1st, without carry-over) to `firstCutoffKey`, never
+ * past the 15th.
+ */
+export function firstHalfWindow(monthKey, lockDayFor, firstCutoffKey, { carryOver = true } = {}) {
+  const start = monthlyWindow(monthKey, lockDayFor, { carryOver }).start_key;
+  const fifteenth = `${monthKey}-15`;
+  const cutoff = firstCutoffKey && firstCutoffKey < fifteenth ? firstCutoffKey : fifteenth;
+  return { start_key: start, end_key: cutoff < start ? start : cutoff };
+}
+
+/** The 2nd cutoff's days: the day after the 1st cutoff's window to the month's lock day. */
+export function secondHalfWindow(monthKey, lockDayFor, firstWindow) {
+  const end = lockDateKey(monthKey, lockDayFor(monthKey));
+  return { start_key: addDays(firstWindow.end_key, 1), end_key: end };
+}
+
 /** The payroll month ("YYYY-MM") a dated item filed on filedKey belongs to. */
 export function payrollMonthFor(dateKey, filedKey, lockDayFor) {
   const anchor = filedKey && filedKey > dateKey ? filedKey : dateKey;
@@ -245,6 +289,12 @@ export function computeSecondHalf({
   withholdingTax,
   firstHalfPaid = 0,
   carryIn = 0,
+  // Per-cutoff attendance: what the 1st cutoff already deducted for attendance
+  // and paid beyond its Rate (overtime, holiday pay, its Early Bird
+  // incentive). Both are part of the month, so the month's tax and
+  // contributions see them; firstHalfPaid already reflects them.
+  priorAttendance = 0,
+  priorEarnings = 0,
 }) {
   const salary = peso(monthlySalary);
   const daily = dailyRate !== undefined && dailyRate !== null ? peso(dailyRate) : dailyRateFor(salary, divisor);
@@ -260,10 +310,11 @@ export function computeSecondHalf({
   // half day) never take more than the monthly salary, so gross is never
   // pushed below the earnings (e.g. a whole month absent at 261 working days
   // a year would otherwise deduct 22 × daily > salary).
-  const attendanceRaw = peso(absence + peso(otherAttendanceDeductions));
+  const prior = peso(priorAttendance);
+  const attendanceRaw = peso(absence + peso(otherAttendanceDeductions) + prior);
   const attendanceTotal = Math.min(attendanceRaw, salary);
   const attendanceCapped = attendanceRaw > salary;
-  const monthlyGross = peso(salary - attendanceTotal + peso(incentives) + overload + peso(otherEarnings));
+  const monthlyGross = peso(salary - attendanceTotal + peso(incentives) + overload + peso(otherEarnings) + peso(priorEarnings));
   const sss = peso(contributions.sss);
   const philhealth = peso(contributions.philhealth);
   const pagibig = peso(contributions.pagibig);
@@ -288,6 +339,10 @@ export function computeSecondHalf({
     other_attendance_deductions: peso(otherAttendanceDeductions),
     attendance_deductions: peso(attendanceTotal),
     attendance_cap_applied: attendanceCapped,
+    // Per-cutoff: the 1st cutoff's part of the above, and this half's own.
+    prior_attendance_deductions: prior,
+    prior_earnings: peso(priorEarnings),
+    this_half_attendance_deductions: peso(Math.max(0, attendanceTotal - Math.min(prior, attendanceTotal))),
     incentives: peso(incentives),
     overload_hours: Number(overloadHours) || 0,
     overload_pay: overload,

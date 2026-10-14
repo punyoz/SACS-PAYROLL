@@ -57,7 +57,7 @@ export const DatePicker = React.forwardRef(function DatePicker(
         <Calendar
           mode="single"
           selected={selected}
-          defaultMonth={selected || maxDate}
+          defaultMonth={selected || maxDate || minDate}
           captionLayout="dropdown"
           disabled={limits.length ? limits : undefined}
           startMonth={minDate}

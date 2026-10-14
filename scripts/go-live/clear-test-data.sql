@@ -134,6 +134,29 @@ UPDATE public.payroll_tax_brackets      SET created_by = NULL WHERE created_by I
 UPDATE public.attendance_holidays       SET created_by = NULL WHERE created_by IN (SELECT id FROM go_live_drop);
 
 -- ── 6. Delete the test data, children first ───────────────────────────────
+-- Payroll approval runs, their snapshots, history and notifications
+-- (20261014010000). Their guards refuse every delete, and a Pending /
+-- Approved run locks its payslips, so for this transaction only: the run
+-- lock is bypassed and the append-only guards are off. Skipped when the
+-- migration is not applied.
+DO $$
+BEGIN
+  IF to_regclass('public.payroll_runs') IS NOT NULL THEN
+    PERFORM set_config('sacs.payroll_run_action', 'on', true);
+    DELETE FROM public.notifications;
+    ALTER TABLE public.payroll_run_items DISABLE TRIGGER USER;
+    ALTER TABLE public.payroll_approval_history DISABLE TRIGGER USER;
+    ALTER TABLE public.payroll_runs DISABLE TRIGGER USER;
+    DELETE FROM public.payroll_run_items;
+    DELETE FROM public.payroll_approval_history;
+    UPDATE public.payroll_entries SET run_id = NULL WHERE run_id IS NOT NULL;
+    DELETE FROM public.payroll_runs;
+    ALTER TABLE public.payroll_run_items ENABLE TRIGGER USER;
+    ALTER TABLE public.payroll_approval_history ENABLE TRIGGER USER;
+    ALTER TABLE public.payroll_runs ENABLE TRIGGER USER;
+  END IF;
+END $$;
+
 -- Payroll
 DELETE FROM public.payroll_loan_payments;
 DELETE FROM public.payroll_subsidy_adjustments;
@@ -156,6 +179,24 @@ DELETE FROM public.attendance_overtime_approvals;
 DELETE FROM public.attendance_taps;
 DELETE FROM public.attendance_blocked_taps;
 DELETE FROM public.attendance_logs;
+
+-- Early Bird winners (test payroll) and the test accounts' own schedule
+-- assignments (20261013010000). Schedule profiles and the by-level
+-- assignments are settings and stay. Skipped when the migration is not
+-- applied; the guard triggers are off only for these statements.
+DO $$
+BEGIN
+  IF to_regclass('public.early_bird_winners') IS NOT NULL THEN
+    ALTER TABLE public.early_bird_winners DISABLE TRIGGER USER;
+    DELETE FROM public.early_bird_winners;
+    ALTER TABLE public.early_bird_winners ENABLE TRIGGER USER;
+  END IF;
+  IF to_regclass('public.work_schedule_assignments') IS NOT NULL THEN
+    ALTER TABLE public.work_schedule_assignments DISABLE TRIGGER USER;
+    DELETE FROM public.work_schedule_assignments WHERE employee_id IN (SELECT id FROM go_live_drop);
+    ALTER TABLE public.work_schedule_assignments ENABLE TRIGGER USER;
+  END IF;
+END $$;
 
 -- HR records
 DELETE FROM public.employee_status_changes;

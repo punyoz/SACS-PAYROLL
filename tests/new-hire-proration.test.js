@@ -206,18 +206,22 @@ describe("A month with no earnings deducts no contributions", () => {
     }
   };
 
-  it("absent all of December (23 days ≥ the salary): gross ₱0, no SSS / Pag-IBIG, carry-over = the 1st half only", async () => {
-    const first = await generate("2026-12-15", "u-old", "December 1-15, 2026");
-    expect(first.entry.payroll.totals.net_pay).toBe(15000);
+  it("absent all of December (23 days ≥ the salary): gross ₱0, no SSS / Pag-IBIG, nothing to carry over", async () => {
     // December's window here: Nov 30 – Dec 30 (no holidays in this test calendar).
     absentEveryWorkday("u-old", "2026-11-30", "2026-12-30");
+    // Per-cutoff attendance: the 1st cutoff deducts its own absences, never
+    // more than its Rate, so it pays nothing.
+    const first = await generate("2026-12-15", "u-old", "December 1-15, 2026");
+    expect(first.entry.payroll.totals.net_pay).toBe(0);
+    expect(first.entry.payroll.monthly).toMatchObject({ rule: "per_cutoff", attendance_deductions: 15000 });
 
     const { response, entry } = await generate("2026-12-31", "u-old", "December 16-31, 2026");
     expect(response.status).toBe(200);
     expect(entry.payroll.monthly).toMatchObject({
+      attendance_rule: "per_cutoff",
       attendance_cap_applied: true, monthly_gross: 0,
       sss: 0, philhealth: 0, pagibig: 0, contributions: 0, withholding_tax: 0,
-      net_pay: 0, carry_over_out: 15000,
+      net_pay: 0, carry_over_out: 0,
     });
     const lines = table("payroll_deductions").filter((l) => l.employee_id === "u-old" && ["sss", "philhealth", "pagibig"].includes(l.type));
     expect(lines).toHaveLength(0);

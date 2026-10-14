@@ -311,7 +311,7 @@ describe("the school's payroll through the API (1-15 full, 16-end deducts everyt
     ({ createSessionToken, SESSION_COOKIE } = await import("@/lib/rbac/session"));
   });
 
-  it("1-15: the full Rate, no deductions, no cash advance", async () => {
+  it("1-15: the Rate less its own attendance only: no contributions, tax or cash advance", async () => {
     vi.setSystemTime(new Date("2026-10-17T10:00:00+08:00"));
     const body = await (await GET(request("GET", null, `?period=${encodeURIComponent(FIRST)}`))).json();
     expect(body.semi_monthly).toMatchObject({ half: "first" });
@@ -323,8 +323,12 @@ describe("the school's payroll through the API (1-15 full, 16-end deducts everyt
     const response = await POST(request("POST", { action: "submit", pay_period: FIRST, employee_id: NATE, basic_salary: 5250 }));
     expect(response.status).toBe(200);
     const entry = table("payroll_entries").find((e) => e.employee_id === NATE && e.pay_period === FIRST);
-    expect(entry.payroll.totals).toMatchObject({ gross_pay: 5250, total_deductions: 0, net_pay: 5250 });
-    expect(entry.payroll.sheet).toMatchObject({ days: 12, regular_hours: 96, rate: 5250, amount: 5250, total_deduction: 0, net_pay: 5250 });
+    // Per-cutoff attendance: absent Oct 5 and a half day Oct 6 are this
+    // half's own, 1.5 × 437.50 = 656.25; nothing else is deducted.
+    expect(entry.payroll.totals).toMatchObject({ gross_pay: 5250, total_deductions: 656.25, net_pay: 4593.75 });
+    expect(entry.payroll.deductions).toMatchObject({ sss: 0, philhealth: 0, pagibig: 0, withholding_tax: 0, cash_advance: 0 });
+    expect(entry.payroll.sheet).toMatchObject({ days: 10.5, regular_hours: 84, rate: 5250, amount: 4593.75, total_deduction: 0, net_pay: 4593.75 });
+    expect(entry.payroll.monthly).toMatchObject({ rule: "per_cutoff", half: "first", attendance_deductions: 656.25 });
   });
 
   it("16-end: GET pre-fills the month's fixed contributions, days missed and the cash advance", async () => {

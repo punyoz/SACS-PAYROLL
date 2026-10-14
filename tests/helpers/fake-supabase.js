@@ -55,6 +55,10 @@ function query(name) {
   let rangeFrom = null;
   let rangeTo = null;
   let single = false;
+  let conflict = null;
+  // select(..., { count: "exact", head: true }): the count, no rows.
+  let countMode = false;
+  let headMode = false;
   const orders = [];
 
   const matches = (row) => filters.every((f) => f(row));
@@ -75,7 +79,9 @@ function query(name) {
     if (op === "upsert") {
       const list = Array.isArray(payload) ? payload : [payload];
       list.forEach((row) => {
-        const i = rows.findIndex((r) => r.id === row.id || (r.employee_id === row.employee_id && r.pay_period === row.pay_period));
+        const i = conflict
+          ? rows.findIndex((r) => conflict.every((column) => r[column] === row[column]))
+          : rows.findIndex((r) => r.id === row.id || (r.employee_id === row.employee_id && r.pay_period === row.pay_period));
         if (i >= 0) rows[i] = { ...rows[i], ...row };
         else rows.push({ ...row });
       });
@@ -91,6 +97,7 @@ function query(name) {
       return { data: null, error: null };
     }
     let out = rows.filter(matches);
+    const total = out.length;
     // Applied last-to-first so the first order() is the primary key, as in
     // SQL (Array#sort is stable).
     [...orders].reverse().forEach(({ column, ascending }) => {
@@ -99,13 +106,16 @@ function query(name) {
     if (rangeFrom !== null) out = out.slice(rangeFrom, rangeTo + 1);
     if (limitN !== null) out = out.slice(0, limitN);
     if (state.maxRows !== null) out = out.slice(0, state.maxRows);
-    return { data: single ? out[0] || null : out, error: null };
+    if (headMode) return { data: null, count: total, error: null };
+    return { data: single ? out[0] || null : out, error: null, ...(countMode ? { count: total } : {}) };
   };
 
   const builder = {
-    select() { return builder; },
+    select(_columns, options = {}) { countMode = Boolean(options.count); headMode = Boolean(options.head); return builder; },
     insert(rows) { op = "insert"; payload = rows; return builder; },
-    upsert(rows) { op = "upsert"; payload = rows; return builder; },
+    // onConflict names the unique columns a real upsert matches on;
+    // without it, the id or (employee_id, pay_period) as before.
+    upsert(rows, options = {}) { op = "upsert"; payload = rows; conflict = options.onConflict ? String(options.onConflict).split(",").map((c) => c.trim()) : null; return builder; },
     update(values) { op = "update"; payload = values; return builder; },
     delete() { op = "delete"; return builder; },
     eq(column, value) { filters.push((row) => row[column] === value); return builder; },
@@ -116,6 +126,12 @@ function query(name) {
     gte(column, value) { filters.push((row) => String(row[column]) >= String(value)); return builder; },
     lte(column, value) { filters.push((row) => String(row[column]) <= String(value)); return builder; },
     lt(column, value) { filters.push((row) => String(row[column]) < String(value)); return builder; },
+    // Case-insensitive, % at either end.
+    ilike(column, pattern) {
+      const needle = String(pattern).replace(/^%|%$/g, "").toLowerCase();
+      filters.push((row) => String(row[column] || "").toLowerCase().includes(needle));
+      return builder;
+    },
     like(column, pattern) {
       const prefix = pattern.replace(/%$/, "");
       filters.push((row) => String(row[column] || "").startsWith(prefix));
@@ -153,12 +169,14 @@ function commitPayrollEntries({ p_items: items = [] } = {}) {
       .reduce((max, r) => Math.max(max, Number(String(r.payslip_no).slice(prefix.length)) || 0), 0) + 1;
     const payslipNo = `${prefix}${String(seq).padStart(4, "0")}`;
 
+    // The *_stamp_branch triggers: both rows carry the employee's branch.
+    const branchId = table("profiles").find((p) => p.id === entry.employee_id)?.branch_id ?? null;
     const recordId = `payroll_records-${records.length}-${Math.random().toString(16).slice(2, 8)}`;
-    records.push({ id: recordId, archived: false, ...record, payslip_no: payslipNo });
+    records.push({ id: recordId, archived: false, branch_id: branchId, ...record, payslip_no: payslipNo });
 
     const entries = table("payroll_entries");
     const at = entries.findIndex((e) => e.employee_id === entry.employee_id && e.pay_period === entry.pay_period);
-    const entryRow = { ...entry, payslip_no: payslipNo };
+    const entryRow = { branch_id: branchId, ...entry, payslip_no: payslipNo };
     if (at >= 0) entries[at] = { ...entries[at], ...entryRow, id: entries[at].id };
     else entries.push(entryRow);
     const entryId = at >= 0 ? entries[at].id : entry.id;

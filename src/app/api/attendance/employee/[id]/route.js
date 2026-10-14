@@ -4,7 +4,8 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_BRANCH } from "@/lib/rbac/permissions";
 import { normalizeAttendanceStatus } from "@/lib/attendance/status";
-import { formatPolicyTime12, getBranchAttendancePolicy } from "@/lib/attendance/policy";
+import { formatPolicyTime12 } from "@/lib/attendance/policy";
+import { getEmployeeAttendancePolicy } from "@/lib/attendance/work-schedules";
 import { readApprovedLeave } from "@/lib/attendance/leave";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { readRawTaps } from "@/lib/attendance/raw-taps";
@@ -80,7 +81,8 @@ export async function GET(request, { params }) {
       profile.branch_id
         ? supabase.from("branches").select("id,name").eq("id", profile.branch_id).maybeSingle()
         : Promise.resolve({ data: null }),
-      getBranchAttendancePolicy(supabase, profile.branch_id),
+      // The schedule the employee follows today (own → level → branch → default).
+      getEmployeeAttendancePolicy(supabase, { employeeId, branchId: profile.branch_id, dayKey: manilaDateKey() }),
       fetchAllRows(() => supabase
         .from("attendance_logs")
         .select(LOG_COLUMNS)
@@ -174,6 +176,8 @@ export async function GET(request, { params }) {
           grace: policy.grace,
           work_hours: policy.work_hours,
           source: policy.source,
+          name: policy.schedule_name || null,
+          working_days: policy.working_days || null,
         },
       },
       range: { from, to },

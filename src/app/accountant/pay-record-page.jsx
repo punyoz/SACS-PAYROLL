@@ -56,8 +56,42 @@ function HolidayLines({ lines }) {
   return (lines || []).map((line, i) => <Row key={`${line.date}-${i}`} indent muted label={holidayLineLabel(line)} value={`+ ${money(line.amount)}`} />);
 }
 
+/** A per-cutoff payslip (monthly.cutoff): every earning and deduction on its own line. */
+function Cutoff({ payslip }) {
+  const c = payslip.monthly.cutoff;
+  const range = c.window ? `${shortDate(c.window.start_key)} – ${dateLabel(c.window.end_key)}` : null;
+  return (
+    <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
+      <Section title={`Earnings — ${c.half === "first" ? "1st" : "2nd"} cutoff`}>
+        {range ? <Row muted label={`Attendance ${range}`} value="" /> : null}
+        {c.earnings.map((line) => (
+          <React.Fragment key={line.label}>
+            <Row label={line.label} value={`+ ${money(line.amount)}`} tone="plus" />
+            {line.note ? <Row indent muted label={line.note} value="" /> : null}
+            {line.label === "Holiday pay" ? <HolidayLines lines={payslip.holiday_lines} /> : null}
+          </React.Fragment>
+        ))}
+        <Row label="Gross pay" value={money(c.gross_pay)} strong tone="gold" />
+      </Section>
+      <Section title="Deductions">
+        {Number(c.leave_with_pay_days) > 0 ? <Row label={`Leave with pay (${plural(c.leave_with_pay_days, "day")})`} value="No deduction" /> : null}
+        {c.deductions.length ? c.deductions.map((line) => (
+          <React.Fragment key={line.label}>
+            <Row label={line.label} value={`- ${money(line.amount)}`} tone="minus" />
+            {line.note ? <Row indent muted label={line.note} value="" /> : null}
+          </React.Fragment>
+        )) : <Row label="None" value={money(0)} />}
+        <Row label="Total deductions" value={`- ${money(c.total_deductions)}`} strong />
+        {c.half === "first" ? <p className="pt-1 text-xs text-muted-foreground">Withholding tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.</p> : null}
+        {Number(c.carry_over_out) > 0 ? <Row label="Carried to next month" value={money(c.carry_over_out)} tone="warn" /> : null}
+      </Section>
+    </div>
+  );
+}
+
 function SemiMonthly({ payslip }) {
   const m = payslip.monthly;
+  if (m.cutoff) return <Cutoff payslip={payslip} />;
   if (m.half === "first") {
     return (
       <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
@@ -123,8 +157,10 @@ function Classic({ payslip }) {
           <Row label="Gross pay" value={money(e.gross_pay)} strong tone="gold" />
         </Section>
         <Section title="Incentives">
-          <Row label={eb ? `Early bird (${plural(eb, "day")})` : "Early bird"} value={money(inc.early_bird_incentive)} tone="plus" />
+          {/* The retired per-day bonus: shown only on old payslips that paid it. */}
+          {Number(inc.early_bird_incentive) > 0 ? <Row label={eb ? `Early bird bonus (${plural(eb, "day")})` : "Early bird bonus"} value={money(inc.early_bird_incentive)} tone="plus" /> : null}
           <Row label="Perfect attendance" value={money(inc.perfect_attendance_incentive)} tone="plus" />
+          {Number(inc.early_bird_winner_incentive) > 0 ? <Row label="Early Bird Incentive" value={money(inc.early_bird_winner_incentive)} tone="plus" /> : null}
         </Section>
       </div>
       <Section title="Deductions">

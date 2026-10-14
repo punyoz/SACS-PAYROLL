@@ -198,13 +198,17 @@ describe("Attendance deductions and incentives", () => {
     expect(result.perfect_attendance).toBe(false);
   });
 
-  it("pays early bird per day and perfect attendance per period, traced to logs", () => {
+  it("pays perfect attendance per period, traced to logs; the retired per-day early bird bonus is never paid", () => {
     const result = compute([
       log("e1", "2026-09-16", { status: "Early Bird", is_early_bird: true }),
       log("e2", "2026-09-17", { status: "Early Bird", is_early_bird: true }),
       log("c", "2026-09-18", { status: "Corrected" }),
     ], { early_bird_bonus: 20, perfect_attendance_bonus: 500 });
-    expect(result.amounts.early_bird).toBe(40);
+    // Even with an old early_bird_bonus rate still on file (src/lib/payroll/early-bird.js
+    // is the one Early Bird incentive now).
+    expect(result.amounts.early_bird).toBeUndefined();
+    expect(result.counts.early_bird_days).toBeUndefined();
+    expect(result.incentives.filter((i) => i.type === "early_bird")).toHaveLength(0);
     expect(result.perfect_attendance).toBe(true);
     expect(result.amounts.perfect_attendance).toBe(500);
     const perfect = result.incentives.find((i) => i.type === "perfect_attendance");

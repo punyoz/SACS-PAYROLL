@@ -131,6 +131,16 @@ const API_MODULES = [
   ["/api/admin/approvals", "payroll_approvals"],
   ["/api/admin/payslip-schedule", "system_configuration"],
   ["/api/admin/teacher-subsidy", "system_configuration"],
+  // Per-employee work schedules (Super Admin edits; Admin and HR read).
+  ["/api/admin/work-schedules", "work_schedules"],
+  // Early Bird threshold, eligibility and amount, and the period winners.
+  ["/api/admin/early-bird", "early_bird_incentive"],
+  // Payroll Approval: HR reviews / approves (and its live stream); the
+  // Accountant submits through process_payroll.
+  ["/api/hr/payroll-runs", "payroll_run_approval"],
+  ["/api/accountant/payroll-runs", "process_payroll"],
+  // The session's own stored notifications (every role).
+  ["/api/notifications", "profile"],
   ["/api/employee/payslips", "payslips"],
   ["/api/employee/timesheet", "timesheet"],
   ["/api/employee/leave-requests", "leave_approval"],

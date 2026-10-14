@@ -18,6 +18,7 @@ import { DatePicker } from "@/components/portal/date-picker";
 import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
+import { LEAVE_ADVANCE_DAYS, LEAVE_ADVANCE_MESSAGE, earliestLeaveStart } from "@/lib/leave-requests/advance-rule";
 
 /*
  * Leave request (submitLeaveRequest, public/legacy/js/employee.js): the same
@@ -38,6 +39,10 @@ const schema = z.object({
 }).refine((v) => !v.start_date || !v.end_date || v.start_date <= v.end_date, {
   path: ["end_date"],
   message: "End date must be on or after the start date.",
+}).refine((v) => !v.start_date || v.start_date >= earliestLeaveStart(), {
+  // Checked again by the server against its own clock.
+  path: ["start_date"],
+  message: LEAVE_ADVANCE_MESSAGE,
 }).refine((v) => !v.proof || v.proof.size <= MAX_PROOF_BYTES, {
   path: ["proof"],
   message: "Proof file must be less than 2MB.",
@@ -59,6 +64,9 @@ function LeaveRequestForm({ onSubmitted }) {
   const [serverError, setServerError] = React.useState("");
   const [fileKey, setFileKey] = React.useState(0);
   const form = useForm({ resolver: zodResolver(schema), defaultValues: DEFAULTS });
+  // Days before today + 7 (Manila) cannot be picked.
+  const earliest = earliestLeaveStart();
+  const startDate = form.watch("start_date");
 
   async function onSubmit(values) {
     setServerError("");
@@ -132,7 +140,8 @@ function LeaveRequestForm({ onSubmitted }) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Start date</FormLabel>
-              <FormControl><DatePicker value={field.value} onChange={field.onChange} /></FormControl>
+              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={earliest} /></FormControl>
+              <FormDescription>At least {LEAVE_ADVANCE_DAYS} days from today: {new Date(`${earliest}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} or later.</FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -143,7 +152,7 @@ function LeaveRequestForm({ onSubmitted }) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>End date</FormLabel>
-              <FormControl><DatePicker value={field.value} onChange={field.onChange} /></FormControl>
+              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={startDate && startDate > earliest ? startDate : earliest} /></FormControl>
               <FormMessage />
             </FormItem>
           )}

@@ -20,9 +20,13 @@ import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import {
   SEMI_MONTHLY_RULE,
   SEMI_MONTHLY_RULES_EFFECTIVE,
+  PER_CUTOFF_RULE,
   computeFirstHalf,
   computeSecondHalf,
+  firstHalfWindow,
   halfOf,
+  secondHalfWindow,
+  usesCutoffAttendance,
   hireProration,
   monthInfo,
   monthKeyOf,
@@ -73,6 +77,8 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
+import { isLockedRun, loadRunsFor, lockedRunMessage, shapeRun } from "@/lib/payroll/runs";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -332,7 +338,11 @@ function normalizePayrollEntry(row) {
         undertime_deduction: toAmount(payrollObj?.totals?.undertime_deduction ?? 0),
         half_day_deduction: toAmount(payrollObj?.totals?.half_day_deduction ?? 0),
         leave_without_pay_deduction: toAmount(payrollObj?.totals?.leave_without_pay_deduction),
+        // The retired per-day Early Bird bonus, as an old payslip paid it
+        // (read back for display only; new payslips never have it).
         early_bird_incentive: toAmount(payrollObj?.totals?.early_bird_incentive ?? 0),
+        // The period's one Early Bird winner (src/lib/payroll/early-bird.js).
+        early_bird_winner_incentive: toAmount(payrollObj?.totals?.early_bird_winner_incentive ?? 0),
         perfect_attendance_incentive: toAmount(payrollObj?.totals?.perfect_attendance_incentive ?? 0),
         other_incentive: toAmount(payrollObj?.totals?.other_incentive ?? 0),
         overload_pay: toAmount(payrollObj?.totals?.overload_pay ?? 0),
@@ -359,6 +369,10 @@ function normalizePayrollEntry(row) {
       // it repaid (src/lib/payroll/cash-advance.js reads these back).
       sheet: payrollObj?.sheet && typeof payrollObj.sheet === "object" ? payrollObj.sheet : null,
       cash_advances: Array.isArray(payrollObj?.cash_advances) ? payrollObj.cash_advances : [],
+      // Loan repayments taken by the payslip (the payslip breakdown lists each).
+      loans: Array.isArray(payrollObj?.loans) ? payrollObj.loans : [],
+      // The Early Bird winner this payslip pays (null when not the winner).
+      early_bird: payrollObj?.early_bird && typeof payrollObj.early_bird === "object" ? payrollObj.early_bird : null,
     },
   };
 }
@@ -380,7 +394,6 @@ function computeTotals(payroll) {
   const halfDays = Math.max(0, toAmount(payroll.deductions?.half_days));
   const leaveWithPayDays = Math.max(0, toAmount(payroll.deductions?.leave_with_pay_days));
   const leaveWithoutPayDays = Math.max(0, toAmount(payroll.deductions?.leave_without_pay_days));
-  const earlyBirdDays = Math.max(0, toAmount(payroll.incentives?.early_bird_days));
   const perfectAttendance = payroll.incentives?.perfect_attendance === true;
 
   // When the attendance lines were computed (buildEmployeePayroll), their
@@ -417,9 +430,9 @@ function computeTotals(payroll) {
   // Loan amortizations, 2nd half only (src/lib/payroll/loans.js).
   const loanDeduction = Math.max(0, toAmount(payroll.deductions?.loan));
 
-  const earlyBirdIncentive = amounts
-    ? toAmount(amounts.early_bird)
-    : toAmount(earlyBirdDays * (Number(rates.early_bird_bonus) || 0));
+  // The per-day Early Bird bonus is retired (Oct 13, 2026): a new payslip
+  // never computes it. Old payslips keep the amount they were paid
+  // (totals.early_bird_incentive, read back by normalizePayrollEntry).
   const perfectAttendanceIncentive = amounts
     ? toAmount(amounts.perfect_attendance)
     : (perfectAttendance ? toAmount(rates.perfect_attendance_bonus) : 0);
@@ -429,6 +442,8 @@ function computeTotals(payroll) {
   const overloadPay = Math.max(0, toAmount(payroll.extra?.overload));
   // Licensed-teacher subsidy payout + approved adjustments (2nd half).
   const subsidyPay = Math.max(0, toAmount(payroll.extra?.subsidy));
+  // The period's Early Bird winner (one employee per pay period).
+  const earlyBirdWinnerPay = Math.max(0, toAmount(payroll.extra?.early_bird_winner));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -439,7 +454,7 @@ function computeTotals(payroll) {
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
     + leaveWithoutPayDeduction + cashAdvance + loanDeduction,
   );
-  const totalIncentives = toAmount(earlyBirdIncentive + perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay);
+  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -473,7 +488,6 @@ function computeTotals(payroll) {
       loan: loanDeduction,
     },
     incentives: {
-      early_bird_days: earlyBirdDays,
       perfect_attendance: perfectAttendance,
     },
     totals: {
@@ -485,7 +499,7 @@ function computeTotals(payroll) {
       undertime_deduction: undertimeDeduction,
       half_day_deduction: halfDayDeduction,
       leave_without_pay_deduction: leaveWithoutPayDeduction,
-      early_bird_incentive: earlyBirdIncentive,
+      early_bird_winner_incentive: earlyBirdWinnerPay,
       perfect_attendance_incentive: perfectAttendanceIncentive,
       other_incentive: otherIncentive,
       overload_pay: overloadPay,
@@ -754,7 +768,7 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
       expandDateRange(overlapStart, overlapEnd).forEach((day) => {
         coveredDays.add(day);
         if (!isLeaveWorkingDay(day, holidays)) return;
-        if (includeDay && !includeDay(day, request)) return;
+        if (includeDay && !includeDay(day, request, employee)) return;
         (request.pay_status === "without_pay" ? withoutPayDates : withPayDates).push(day);
       });
     });
@@ -774,7 +788,7 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
   return { summaries, leaveDaysByEmployee };
 }
 
-async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee, prefetchedRows = null) {
+async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee, prefetchedRows = null, spanFor = null) {
   // Filtering by log_date server-side (indexed — attendance_logs_log_date_idx)
   // means the query only ever transfers rows this period could possibly use,
   // instead of pulling the 5000 globally-most-recent rows and filtering them
@@ -808,6 +822,9 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
 
     const key = dayKey(row);
     if (key < periodStart || key > periodEnd) return;
+    // Per-cutoff 2nd half: each employee's own window (spanFor, below).
+    const own = spanFor ? spanFor(employeeId) : null;
+    if (own && (key < own.start_key || key > own.end_key)) return;
 
     const summary = grouped.get(employeeId);
     if (!summary) return;
@@ -991,12 +1008,17 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   const month = monthInfo(monthKeyOf(period.start_key));
   const previous = monthInfo(shiftMonth(month.month_key, -1));
   // The lock day in force for a month's 2nd half (the payslip schedule's
-  // attendance cut-off, or the attendance_lock_day rate before it exists).
-  const lockDayFor = await resolveLockDayFor(supabase, configs);
+  // attendance cut-off, or the attendance_lock_day rate before it exists),
+  // and the day the 1st cutoff reads attendance to.
+  const { lockDayFor, firstCutoffFor } = await resolveCutoffs(supabase, configs);
   // Off (the school): days after the lock day are never deducted, so the
   // month reads only its own 1st to the lock day.
   const carryOver = Number(resolveRate(configs, "carry_after_lock", {}, `${month.month_key}-16`).value) !== 0;
   const window = monthlyWindow(month.month_key, lockDayFor, { carryOver });
+  // Per-cutoff attendance (semi-monthly.js): each half deducts its own days.
+  const perCutoff = usesCutoffAttendance(period.start_key);
+  const firstWindow = firstHalfWindow(month.month_key, lockDayFor, firstCutoffFor(month.month_key), { carryOver });
+  const secondWindow = secondHalfWindow(month.month_key, lockDayFor, firstWindow);
   const base = {
     half,
     month_key: month.month_key,
@@ -1007,6 +1029,11 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     lock_day: lockDayFor(month.month_key),
     carry_over: carryOver,
     lockDayFor,
+    per_cutoff: perCutoff,
+    first_window: firstWindow,
+    second_window: secondWindow,
+    // The half's own attendance days (the Early Bird window too).
+    cutoff_window: perCutoff ? (half === "first" ? firstWindow : secondWindow) : window,
   };
 
   const entriesResult = await supabase
@@ -1020,7 +1047,11 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   const byEmployee = new Map();
   if (half === "first") {
     employees.forEach((employee) => {
-      byEmployee.set(employee.id, { ...base, second_half_final: find(employee.id, month.second_half_label)?.status === "paid" });
+      byEmployee.set(employee.id, {
+        ...base,
+        second_half_final: find(employee.id, month.second_half_label)?.status === "paid",
+        attendance_window: perCutoff ? firstWindow : null,
+      });
     });
     return { ...base, ready: true, tax_table: [], byEmployee };
   }
@@ -1059,6 +1090,14 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     const first = find(employee.id, month.first_half_label);
     const firstPaid = first?.status === "paid";
     const totals = first?.payroll?.totals || {};
+    // A Final 1st cutoff that deducted its own attendance: this half reads only
+    // the days after its window. Otherwise (a 1st half paid in full before the
+    // per-cutoff rule, or not processed) this half settles the whole month.
+    const firstMonthly = first?.payroll?.monthly || {};
+    const firstPerCutoff = firstPaid && firstMonthly.rule === PER_CUTOFF_RULE && firstMonthly.window?.end_key;
+    const attendanceWindow = firstPerCutoff
+      ? { start_key: addDayKey(firstMonthly.window.end_key, 1), end_key: window.end_key }
+      : window;
     const previousSecond = find(employee.id, previous.second_half_label);
     const carryIn = previousSecond?.status === "paid" ? toAmount(previousSecond.payroll?.monthly?.carry_over_out || 0) : 0;
 
@@ -1087,8 +1126,16 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
           total_incentives: toAmount(totals.total_incentives),
           net_pay: floorNetPay(totals.net_pay),
           basic_earned: basicEarnedFromPayroll(first.payroll),
+          // Per-cutoff 1st half: its Rate, the attendance it deducted and what
+          // it paid beyond the Rate (the month's tax sees both).
+          per_cutoff: Boolean(firstPerCutoff),
+          basic_salary: toAmount(first.payroll?.basic_salary),
+          window: firstPerCutoff ? firstMonthly.window : null,
+          attendance_deductions: firstPerCutoff ? toAmount(firstMonthly.attendance_deductions) : 0,
+          extra_earnings: firstPerCutoff ? toAmount(firstMonthly.extra_earnings) : 0,
         }
         : { status: first ? "draft" : "not_processed", payslip_no: null, ...NO_FIRST_HALF },
+      attendance_window: attendanceWindow,
       carry_in: carryIn,
       carry_from: carryIn ? previous.label : null,
       contribution_amounts: contributionAmounts,
@@ -1208,7 +1255,7 @@ async function loadCashAdvanceContext(supabase, employeeIds, period) {
  * that day, for a payslip generated before the period ends: days that have
  * not happened yet are never absences or leave deductions.
  */
-async function loadPeriodPayContext(supabase, employees, period, { through = null } = {}) {
+async function loadPeriodPayContext(supabase, employees, period, { through = null, actor = null } = {}) {
   const employeeIds = employees.map((employee) => employee.id);
   const rateResult = await loadRateConfigs(supabase);
   // The school's payroll sheet: each half paid on its own attendance
@@ -1221,13 +1268,31 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     ? await loadSemiMonthlyContext(supabase, employees, period, rateResult.configs)
     : null;
   const settling = semi?.half === "second";
-  const span = settling ? semi.window : period;
+  // Per-cutoff 1st half: its own window (Oct 1-15 generated on the 15th:
+  // Oct 1-14). A 2nd half reads the month's window and each employee keeps
+  // the part their own 1st half did not already deduct (semi.byEmployee).
+  const firstCutoff = semi?.half === "first" && semi.per_cutoff;
+  const span = settling ? semi.window : firstCutoff ? semi.first_window : period;
   const lastDay = through && through >= span.start_key && through < span.end_key ? through : span.end_key;
+  const ownSpan = (employeeId) => {
+    const own = settling ? semi.byEmployee.get(employeeId)?.attendance_window : null;
+    if (!own) return { start_key: span.start_key, end_key: lastDay };
+    return { start_key: own.start_key, end_key: own.end_key < lastDay ? own.end_key : lastDay };
+  };
   // Without carry-over only leave days inside the window count; a leave day
   // after the lock day is never deducted, like an absence.
   const leaveFrom = settling && semi.carry_over ? SEMI_MONTHLY_RULES_EFFECTIVE : span.start_key;
-  const includeLeaveDay = settling && semi.carry_over
+  const inMonth = settling && semi.carry_over
     ? (day, request) => payrollMonthFor(day, manilaDateKey(new Date(request.submitted_at || Date.now())), semi.lockDayFor) === semi.month_key
+    : null;
+  // A leave day inside the window an employee's per-cutoff 1st half already
+  // paid (or deducted) is not counted again.
+  const includeLeaveDay = settling
+    ? (day, request, employee) => {
+      const firstWindow = semi.byEmployee.get(employee?.id)?.first_half?.window;
+      if (firstWindow && day >= firstWindow.start_key && day <= firstWindow.end_key) return false;
+      return inMonth ? inMonth(day, request) : true;
+    }
     : null;
   // Holidays first: leave days are counted on working days only.
   const holidays = await readHolidays(supabase, leaveFrom < span.start_key ? leaveFrom : span.start_key, period.end_key);
@@ -1246,7 +1311,22 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     lastDay,
     leaveDaysByEmployee,
     attendance.rows,
+    settling ? ownSpan : null,
   );
+
+  // The period's one Early Bird winner, from the half's own attendance days
+  // (src/lib/payroll/early-bird.js). Only for per-cutoff periods; a read or
+  // write problem never stops payroll, it only leaves the incentive out.
+  let earlyBird = { enabled: false, available: false, winner: null, window: null, error: null };
+  if (semi?.per_cutoff || (perHalf && usesCutoffAttendance(period.start_key))) {
+    const window = semi ? semi.cutoff_window : { start_key: period.start_key, end_key: period.end_key };
+    const ebWindow = { start_key: window.start_key, end_key: through && through < window.end_key && through >= window.start_key ? through : window.end_key };
+    try {
+      earlyBird = { ...(await resolveEarlyBirdWinner(supabase, { period, window: ebWindow, actor })), window: ebWindow, error: null };
+    } catch (error) {
+      earlyBird = { enabled: true, available: false, winner: null, window: ebWindow, error: sanitizeError(error) };
+    }
+  }
 
   const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
   const logsByEmployee = new Map();
@@ -1269,12 +1349,13 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       },
       period.start_key,
     );
+    const own = ownSpan(employee.id);
     const auto = computeAttendancePay({
-      logs: logsByEmployee.get(employee.id) || [],
+      logs: (logsByEmployee.get(employee.id) || []).filter((row) => row.log_date >= own.start_key && row.log_date <= own.end_key),
       leaveDays: leaveDaysByEmployee.get(employee.id),
       rates: resolved,
-      periodStart: span.start_key,
-      periodEnd: lastDay,
+      periodStart: own.start_key,
+      periodEnd: own.end_key,
       overtime: overtimeResult.minutes,
       holidays,
     });
@@ -1285,6 +1366,9 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       leave,
       semi: semi?.byEmployee.get(employee.id) || null,
       school: school?.byEmployee.get(employee.id) || null,
+      // The attendance days this payslip deducts.
+      attendance_span: own,
+      early_bird: earlyBird,
     });
   });
 
@@ -1304,7 +1388,6 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       late_minutes: context.auto.counts.late_minutes,
       undertime_minutes: context.auto.counts.undertime_minutes,
       half_days: context.auto.counts.half_days,
-      early_bird_days: context.auto.counts.early_bird_days,
       perfect_attendance: context.auto.perfect_attendance,
       pay: {
         counts: context.auto.counts,
@@ -1335,6 +1418,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     leaveSummary,
     attendanceRows: enrichedRows,
     byEmployee,
+    earlyBird,
   };
 }
 
@@ -1390,7 +1474,7 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     ? [{ field: "basic_salary", default: toAmount(defaultBasic), value: toAmount(basic) }]
     : [];
 
-  const none = { absent: 0, late: 0, undertime: 0, half_day: 0, early_bird: 0, perfect_attendance: 0 };
+  const none = { absent: 0, late: 0, undertime: 0, half_day: 0, perfect_attendance: 0 };
   const payroll = computeTotals({ basic_salary: basic, rates, deductions: {}, incentives: {}, attendance_amounts: none, earnings: {} });
   payroll.basic_earned = toAmount(basic);
   payroll.monthly = {
@@ -1468,11 +1552,16 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
  * dashboards and reports. payroll.monthly keeps the month's figures for the
  * payslip.
  */
-function applySecondHalfSettlement(payroll, { settlement, semi, rates }) {
+function applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCutoff = null, window = null }) {
   const month = { ...payroll.totals };
   const first = semi.first_half || NO_FIRST_HALF;
-  const gross = toAmount(month.gross_pay - first.gross_pay);
-  const incentives = toAmount(month.total_incentives - first.total_incentives);
+  // After a per-cutoff 1st half, computeTotals() priced only this half's
+  // attendance and earnings on the monthly salary: this payslip's gross is
+  // the salary less the 1st half's Rate, its incentives are its own.
+  const gross = firstCutoff
+    ? toAmount(month.gross_pay - firstCutoff.basic_salary)
+    : toAmount(month.gross_pay - first.gross_pay);
+  const incentives = firstCutoff ? toAmount(month.total_incentives) : toAmount(month.total_incentives - first.total_incentives);
   payroll.totals = {
     ...month,
     gross_pay: gross,
@@ -1483,13 +1572,18 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates }) {
   };
   // 13th month: the month's basic less unpaid absences, less the 1st half's.
   const earnedThisMonth = Math.max(0, toAmount(payroll.basic_salary - month.absence_deduction - month.leave_without_pay_deduction));
-  payroll.basic_earned = toAmount(earnedThisMonth - first.basic_earned);
+  payroll.basic_earned = firstCutoff
+    ? Math.max(0, toAmount(payroll.basic_salary - firstCutoff.basic_salary - month.absence_deduction - month.leave_without_pay_deduction))
+    : toAmount(earnedThisMonth - first.basic_earned);
   payroll.monthly = {
     rule: SEMI_MONTHLY_RULE,
     half: "second",
+    // Per-cutoff: this payslip deducted only its own window's attendance.
+    attendance_rule: firstCutoff ? PER_CUTOFF_RULE : null,
     month_key: semi.month_key,
     month_label: semi.month_label,
-    window: semi.window,
+    window: firstCutoff && window ? window : semi.window,
+    first_half_window: firstCutoff?.window || null,
     lock_day: semi.lock_day,
     divisor: Number(rates.working_days_per_year) || null,
     first_half_label: semi.first_half_label,
@@ -1502,7 +1596,7 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates }) {
     late_deduction: toAmount(month.late_deduction),
     undertime_deduction: toAmount(month.undertime_deduction),
     half_day_deduction: toAmount(month.half_day_deduction),
-    attendance_incentives: toAmount(month.early_bird_incentive + month.perfect_attendance_incentive),
+    attendance_incentives: toAmount(month.perfect_attendance_incentive),
     other_incentive: toAmount(month.other_incentive),
     overtime_pay: toAmount(month.overtime_pay),
     holiday_pay: toAmount(month.holiday_pay),
@@ -1529,8 +1623,16 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // Semi-monthly payroll (src/lib/payroll/semi-monthly.js): the 1st half is
   // half the salary with nothing deducted; the 2nd half settles the month.
   const semi = context.semi || null;
-  if (semi?.half === "first") return buildFirstHalfPayroll({ employee, context, input, period, actor });
+  // Before per-cutoff attendance the 1st half deducted nothing at all.
+  if (semi?.half === "first" && !semi.per_cutoff) return buildFirstHalfPayroll({ employee, context, input, period, actor });
+  // Per-cutoff 1st half (from CUTOFF_ATTENDANCE_EFFECTIVE): Rate less this
+  // window's attendance only -- no tax, contributions, loans or other
+  // deductions; those all come on the 2nd half.
+  const firstCutoff = semi?.half === "first" && semi.per_cutoff;
   const settling = semi?.half === "second";
+  // The 2nd half after a per-cutoff 1st half: this window's attendance only,
+  // the month's tax and contributions on the whole month's earnings.
+  const firstHalfCutoff = settling && semi.first_half?.per_cutoff ? semi.first_half : null;
   // The school's payroll sheet (payroll_per_half): this half on its own
   // attendance, with fixed / exempt contributions and cash advances.
   const school = context.school || null;
@@ -1550,7 +1652,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const hireSpan = settling
     ? (() => { const month = monthInfo(semi.month_key); return { startKey: month.start_key, endKey: month.end_key }; })()
     : { startKey: period.start_key, endKey: period.end_key };
-  const hire = (settling || school)
+  const hire = (settling || school || firstCutoff)
     ? hireProration({ dateHired: employee.date_hired, ...hireSpan, dailyRate: rates.daily, cap: normalBasic, divisor: rates.working_days_per_year })
     : null;
   const defaultBasic = hire ? hire.amount : normalBasic;
@@ -1582,7 +1684,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // A month with no earnings has no contributions (§5.3, decision of Oct
   // 10, 2026): set below, once the month's gross is known.
   let noEarnings = false;
-  const contributionDefault = (type) => (noEarnings
+  const contributionDefault = (type) => (noEarnings || firstCutoff
     ? 0
     : legal
       ? legalContributions[type]
@@ -1599,7 +1701,6 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     late_days: auto.counts.late_days,
     undertime_minutes: auto.counts.undertime_minutes,
     half_days: auto.counts.half_days,
-    early_bird_days: auto.counts.early_bird_days,
   };
   const used = { ...computed };
   let perfectAttendance = auto.perfect_attendance;
@@ -1609,7 +1710,6 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     used.late_days = pickAmount(deductionsIn.late_days, computed.late_days);
     used.undertime_minutes = pickAmount(deductionsIn.undertime_minutes, computed.undertime_minutes);
     used.half_days = pickAmount(deductionsIn.half_days, computed.half_days);
-    used.early_bird_days = pickAmount(incentivesIn.early_bird_days, computed.early_bird_days);
     Object.keys(computed).forEach((field) => note(field, computed[field], used[field]));
     if (typeof incentivesIn.perfect_attendance === "boolean" && incentivesIn.perfect_attendance !== auto.perfect_attendance) {
       perfectAttendance = incentivesIn.perfect_attendance;
@@ -1628,7 +1728,6 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       : auto.amounts.late,
     undertime: differs(used.undertime_minutes, computed.undertime_minutes) ? peso((used.undertime_minutes / 60) * unit.hourly) : auto.amounts.undertime,
     half_day: differs(used.half_days, computed.half_days) ? peso(used.half_days * unit.half_day) : auto.amounts.half_day,
-    early_bird: differs(used.early_bird_days, computed.early_bird_days) ? peso(used.early_bird_days * unit.early_bird) : auto.amounts.early_bird,
     perfect_attendance: perfectAttendance === auto.perfect_attendance
       ? auto.amounts.perfect_attendance
       : (perfectAttendance ? unit.perfect_attendance : 0),
@@ -1657,6 +1756,16 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // in its payout month, approved missed-month adjustments, and the part of
   // them that is taxable (exempt ceiling shared with the 13th month).
   const subsidy = subsidyForPayslip(settling ? semi.subsidy : null, period, semi?.benefits_ceiling);
+  // The period's Early Bird winner (one employee per pay period): its own
+  // earnings line, part of gross pay (src/lib/payroll/early-bird.js).
+  const earlyBirdWinner = context.early_bird?.winner?.employee_id === employee.id ? context.early_bird.winner : null;
+  const earlyBirdPay = earlyBirdWinner ? toAmount(earlyBirdWinner.amount) : 0;
+  // A per-cutoff 1st half's attendance and extra earnings are part of the
+  // month the 2nd half taxes.
+  const prior = {
+    priorAttendance: firstHalfCutoff?.attendance_deductions || 0,
+    priorEarnings: firstHalfCutoff?.extra_earnings || 0,
+  };
   // 2nd half: the month's gross (contributions do not change it). Nothing
   // earned -> no SSS / PhilHealth / Pag-IBIG by default.
   if (settling) {
@@ -1665,15 +1774,17 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       dailyRate: rates.daily,
       absenceDeduction: finalAmounts.absent + leaveWithoutPayAmount,
       otherAttendanceDeductions: finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day,
-      incentives: finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive,
+      incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
       overloadHours,
       overloadPay,
       otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
+      ...prior,
     }).monthly_gross <= 0;
   }
-  const sss = pickAmount(deductionsIn.sss, contributionDefault("sss"));
-  const philhealth = pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
-  const pagibig = pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
+  // The 1st cutoff never deducts contributions or tax.
+  const sss = firstCutoff ? 0 : pickAmount(deductionsIn.sss, contributionDefault("sss"));
+  const philhealth = firstCutoff ? 0 : pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
+  const pagibig = firstCutoff ? 0 : pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
   note("sss", contributionDefault("sss"), sss);
   note("philhealth", contributionDefault("philhealth"), philhealth);
   note("pagibig", contributionDefault("pagibig"), pagibig);
@@ -1686,7 +1797,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     leaveWithPayDays,
     absenceDeduction: finalAmounts.absent + leaveWithoutPayAmount,
     otherAttendanceDeductions: finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day,
-    incentives: finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive,
+    incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
     overloadHours,
     overloadPay,
     otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
@@ -1698,8 +1809,11 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     withholdingTax: tax,
     firstHalfPaid: semi?.first_half?.net_pay || 0,
     carryIn: semi?.carry_in || 0,
+    ...prior,
   });
-  const taxDefault = settling
+  const taxDefault = firstCutoff
+    ? 0
+    : settling
     ? settle(undefined).table_withholding_tax
     : legal
     ? computeWithholdingTax(taxableCompensation({
@@ -1710,7 +1824,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       contributions: sss + philhealth + pagibig,
     }))
     : 0;
-  const withholdingTax = pickAmount(deductionsIn.withholding_tax, taxDefault);
+  const withholdingTax = firstCutoff ? 0 : pickAmount(deductionsIn.withholding_tax, taxDefault);
   if (legal) note("withholding_tax", taxDefault, withholdingTax);
   // Loans first, oldest first, from what this payslip can still pay after
   // contributions, tax and any carry-over: partial when pay is short, the
@@ -1736,7 +1850,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       period,
       available: toAmount(
         basic + overtimePay + holidayPay
-        + finalAmounts.early_bird + finalAmounts.perfect_attendance + otherIncentive + overloadPay
+        + finalAmounts.perfect_attendance + otherIncentive + overloadPay
         - (sss + philhealth + pagibig + withholdingTax
           + finalAmounts.absent + finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day
           + leaveWithoutPayAmount),
@@ -1806,8 +1920,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     ...auto.incentives,
     // Earnings: stored with the incentives, each tied to its attendance log.
     ...(auto.earnings || []),
-    adjustment("early_bird", finalAmounts.early_bird, auto.amounts.early_bird, toAmount(used.early_bird_days - computed.early_bird_days), "day"),
     adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
+    // The period's Early Bird winner, tied to the early time-ins that won it.
+    earlyBirdLine(earlyBirdWinner),
     // Licensed-teacher subsidy payout and approved missed-month adjustments.
     ...subsidy.earnings.filter((line) => line.amount > 0)
       .map((line) => ({ ...line, rate_config_id: null, source_log_id: null, is_override: false, log_date: null })),
@@ -1844,13 +1959,22 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       loan: toAmount(loanSchedule.total + subsidy.prior_offset),
     },
     incentives: {
-      early_bird_days: used.early_bird_days,
       perfect_attendance: perfectAttendance,
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
-    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total },
+    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay },
   });
+  if (earlyBirdWinner) {
+    payroll.early_bird = {
+      label: EARLY_BIRD_LABEL,
+      amount: earlyBirdPay,
+      early_count: earlyBirdWinner.early_count,
+      threshold_minutes: earlyBirdWinner.threshold_minutes,
+      period_label: earlyBirdWinner.period_label,
+      window: earlyBirdWinner.window,
+    };
+  }
 
   const nowIso = new Date().toISOString();
   payroll.audit = {
@@ -1870,7 +1994,54 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     computed_by: actor?.userId || null,
     computed_by_name: actor?.name || null,
   };
-  if (settling) applySecondHalfSettlement(payroll, { settlement, semi, rates });
+  if (settling) applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCutoff: firstHalfCutoff, window: context.attendance_span });
+  if (firstCutoff) {
+    const t = payroll.totals;
+    // What this half paid beyond its Rate (overtime, holiday pay,
+    // incentives) and what it deducted for attendance: the 2nd half adds both
+    // to the month it taxes. Attendance is what makes net = Rate + extras − it
+    // (net is floored at zero, so a deduction above the pay counts only up to it).
+    const extraEarnings = toAmount(t.gross_pay - basic + t.total_incentives);
+    payroll.basic_earned = Math.max(0, toAmount(basic - t.absence_deduction - t.leave_without_pay_deduction));
+    payroll.monthly = {
+      rule: PER_CUTOFF_RULE,
+      half: "first",
+      month_key: semi.month_key,
+      month_label: semi.month_label,
+      second_half_label: semi.second_half_label,
+      window: context.attendance_span,
+      monthly_salary: toAmount(employee.basic_salary),
+      semi_monthly_pay: toAmount(basic),
+      attendance_deductions: toAmount(basic + extraEarnings - t.net_pay),
+      extra_earnings: extraEarnings,
+      net_pay: t.net_pay,
+      ...(hire && !hire.not_hired ? { new_hire: newHireNote(hire) } : {}),
+    };
+    payroll.sheet = {
+      ...sheetFigures({
+        basic,
+        daily: rates.daily,
+        hourly: rates.hourly,
+        periodDays: periodDaysFor(rates.working_days_per_year, workingDaysIn(period.start_key, period.end_key)),
+        absenceDeduction: t.absence_deduction,
+        halfDayDeduction: t.half_day_deduction,
+        leaveWithoutPayDeduction: t.leave_without_pay_deduction,
+        lateDeduction: t.late_deduction,
+        undertimeDeduction: t.undertime_deduction,
+        overtimeMinutes: auto.counts.overtime_minutes,
+        overtimePay: t.overtime_pay,
+        overtimePremiumPct: rates.overtime_premium_pct,
+        holidayPay: t.holiday_pay,
+        incentives: t.total_incentives,
+        cashAdvance: 0,
+        sss: 0,
+        philhealth: 0,
+        pagibig: 0,
+        withholdingTax: 0,
+      }),
+      half: "first",
+    };
+  }
   if (settling) {
     const t = payroll.totals;
     // The school's payroll sheet, 16-end: Rate (monthly ÷ 2) less the missed
@@ -1987,19 +2158,48 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       cash_advances: cashAdvance.lines,
     };
   }
+  // Per-cutoff payslips list every earning and deduction as its own line.
+  if (firstCutoff || firstHalfCutoff) {
+    payroll.monthly.cutoff = cutoffBreakdown(payroll, {
+      half: firstCutoff ? "first" : "second",
+      window: context.attendance_span,
+      rate: firstCutoff ? toAmount(basic) : toAmount(basic - firstHalfCutoff.basic_salary),
+      hire,
+    });
+  }
+  const monthSettled = firstCutoff && semi.second_half_final;
 
   return {
     payroll,
     deviations,
     reason,
     blocking: auto.blocking,
-    refusal: hire?.not_hired ? notHiredRefusal(hire, period.label) : null,
-    refusal_code: hire?.not_hired ? "not_hired_yet" : null,
+    refusal: hire?.not_hired
+      ? notHiredRefusal(hire, period.label)
+      : monthSettled
+        ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
+        : null,
+    refusal_code: hire?.not_hired ? "not_hired_yet" : monthSettled ? "month_settled" : null,
     // What the form and the batch table pre-fill (GET).
     defaults: {
-      statutory_method: legal ? "legal" : "flat",
+      statutory_method: firstCutoff ? "semi_monthly_first" : legal ? "legal" : "flat",
       basic_salary: defaultBasic,
+      // The period's Early Bird incentive when this employee won it.
+      early_bird_winner: earlyBirdPay,
+      ...(firstCutoff ? {
+        semi_monthly: "first",
+        per_cutoff: true,
+        attendance_window: context.attendance_span,
+        monthly: payroll.monthly,
+        sheet: payroll.sheet,
+      } : {}),
       ...(settling ? {
+        // After a per-cutoff 1st half: its attendance and extra earnings are
+        // part of the month the tax is computed on.
+        per_cutoff: Boolean(firstHalfCutoff),
+        prior_attendance: prior.priorAttendance,
+        prior_earnings: prior.priorEarnings,
+        attendance_window: context.attendance_span,
         semi_monthly: "second",
         other_incentive: otherIncentive,
         overload_hours: overloadHours,
@@ -2043,6 +2243,68 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   };
 }
 
+/**
+ * A per-cutoff payslip as lines (payroll.monthly.cutoff), the one shape the
+ * employee page, the Accountant's record and the PDF all draw: each earning
+ * and each deduction on its own line, gross, total deductions and net.
+ */
+function cutoffBreakdown(payroll, { half, window, rate, hire }) {
+  const t = payroll.totals;
+  const d = payroll.deductions;
+  const m = payroll.monthly || {};
+  const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? "" : "s"}`;
+  const earnings = [];
+  const deductions = [];
+  const earn = (label, amount, note = null) => { if (toAmount(amount) > 0) earnings.push({ label, amount: toAmount(amount), note }); };
+  const deduct = (label, amount, note = null) => { if (toAmount(amount) > 0) deductions.push({ label, amount: toAmount(amount), note }); };
+
+  earn(half === "first" ? "Basic pay (1st cutoff)" : "Basic pay (2nd cutoff)", rate,
+    hire && !hire.not_hired ? newHireNote(hire).text : "Monthly salary ÷ 2");
+  earn("Overtime", t.overtime_pay);
+  earn("Holiday pay", t.holiday_pay);
+  earn(EARLY_BIRD_LABEL, t.early_bird_winner_incentive,
+    payroll.early_bird ? `${plural(payroll.early_bird.early_count, "early time-in")}, the most in ${payroll.early_bird.period_label}` : null);
+  earn("Perfect attendance", t.perfect_attendance_incentive);
+  earn("Incentives", t.other_incentive);
+  earn(m.overload_hours ? `Overload pay (${m.overload_hours} h)` : "Overload pay", t.overload_pay);
+  earn("Licensed teacher subsidy", t.subsidy_pay);
+
+  deduct(`Absences (${plural(d.absences_days || 0, "day")})`, t.absence_deduction);
+  deduct(`Leave without pay (${plural(d.leave_without_pay_days || 0, "day")})`, t.leave_without_pay_deduction);
+  deduct(`Late (${plural(d.late_days || 0, "day")})`, t.late_deduction);
+  deduct(`Undertime (${plural(d.undertime_minutes || 0, "minute")})`, t.undertime_deduction);
+  deduct(`Half day (${plural(d.half_days || 0, "day")})`, t.half_day_deduction);
+  if (half === "second") {
+    deduct("SSS", d.sss);
+    deduct("PhilHealth", d.philhealth);
+    deduct("Pag-IBIG", d.pagibig);
+    deduct("Withholding tax", d.withholding_tax, m.taxable_income !== undefined
+      ? `Monthly table on the whole month's taxable income, ${money(m.taxable_income)}`
+      : null);
+    const loanLines = (payroll.loans || []).filter((line) => toAmount(line.amount) > 0);
+    loanLines.forEach((line) => deduct(line.description || "Loan", line.amount,
+      `Balance ${money(line.balance_before)} → ${money(line.balance_after)}${line.shortfall > 0 ? ` (partial: ${money(line.shortfall)} stays on the balance)` : ""}`));
+    deduct("Subsidy advance offset", toAmount((d.loan || 0) - loanLines.reduce((sum, line) => sum + toAmount(line.amount), 0)));
+    (payroll.cash_advances || []).forEach((line) => deduct(line.description ? `Cash advance: ${line.description}` : "Cash advance", line.amount));
+    deduct(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);
+  }
+
+  const gross = toAmount(earnings.reduce((sum, line) => sum + line.amount, 0));
+  const totalDeductions = toAmount(deductions.reduce((sum, line) => sum + line.amount, 0));
+  return {
+    rule: PER_CUTOFF_RULE,
+    half,
+    window: window ? { start_key: window.start_key, end_key: window.end_key } : null,
+    earnings,
+    deductions,
+    gross_pay: gross,
+    total_deductions: totalDeductions,
+    net_pay: t.net_pay,
+    carry_over_out: toAmount(m.carry_over_out || 0),
+    leave_with_pay_days: toAmount(d.leave_with_pay_days || 0),
+  };
+}
+
 const DEVIATION_LABELS = {
   basic_salary: "Basic Salary",
   sss: "SSS",
@@ -2054,7 +2316,6 @@ const DEVIATION_LABELS = {
   late_days: "Late",
   undertime_minutes: "Undertime",
   half_days: "Half Day",
-  early_bird_days: "Early Bird",
   perfect_attendance: "Perfect Attendance",
 };
 
@@ -2294,6 +2555,9 @@ function buildPayslipDetails(entry) {
       early_bird_incentive: entry.payroll.totals.early_bird_incentive ?? 0,
       perfect_attendance: entry.payroll.incentives?.perfect_attendance === true,
       perfect_attendance_incentive: entry.payroll.totals.perfect_attendance_incentive ?? 0,
+      // The period's Early Bird winner (only on the winner's payslip).
+      early_bird_winner_incentive: entry.payroll.totals.early_bird_winner_incentive ?? 0,
+      early_bird_winner: entry.payroll.early_bird || null,
       total_incentives: entry.payroll.totals.total_incentives ?? 0,
     },
     net_pay: entry.payroll.totals.net_pay,
@@ -2468,6 +2732,25 @@ async function resolveLockDayFor(supabase, configs) {
   const schedule = await loadPayslipSchedule(supabase);
   if (schedule) return schedule.lockDayFor;
   return (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0;
+}
+
+/**
+ * Both cut-offs: lockDayFor (above) and firstCutoffFor(monthKey), the last
+ * day the month's 1st cutoff deducts (the day before its generation day,
+ * never past the 15th; the 15th without the payslip schedule).
+ */
+async function resolveCutoffs(supabase, configs) {
+  const schedule = await loadPayslipSchedule(supabase);
+  if (schedule) {
+    return {
+      lockDayFor: schedule.lockDayFor,
+      firstCutoffFor: (monthKey) => schedule.forPeriod(`${monthKey}-01`).attendance_cutoff || `${monthKey}-15`,
+    };
+  }
+  return {
+    lockDayFor: (monthKey) => Number(resolveRate(configs, "attendance_lock_day", {}, `${monthKey}-16`).value) || 0,
+    firstCutoffFor: (monthKey) => `${monthKey}-15`,
+  };
 }
 
 function itemPayrollMonth(item, lockDayFor) {
@@ -3029,7 +3312,10 @@ export async function GET(request) {
     const genWindow = await periodWindow(supabase, activePeriod);
     // Attendance lines, leave and the rate versions in force on the period's
     // first day, per employee (loadPeriodPayContext above).
-    const payContext = await loadPeriodPayContext(supabase, employees, activePeriod, { through: genWindow.attendance_through });
+    const payContext = await loadPeriodPayContext(supabase, employees, activePeriod, {
+      through: genWindow.attendance_through,
+      actor: { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) },
+    });
     const leaveSummary = payContext.leaveSummary;
     const attendanceRows = payContext.attendanceRows.map((row) => ({
       ...row,
@@ -3038,6 +3324,11 @@ export async function GET(request) {
     const generatedDrafts = sortedEntries.filter((entry) => entry.status === "draft"
       && entry.payroll?.generation
       && (!selectedPeriod || entry.pay_period === selectedPeriod));
+    // Each branch's payroll run for the period (Payroll Approval): the page
+    // locks a Pending / Approved branch and offers Reprocess on a Draft or
+    // Rejected one.
+    const runRows = await loadRunsFor(supabase, employees.map((e) => e.branch_id), activePeriod.label);
+    const payrollRuns = Object.fromEntries([...runRows.entries()].map(([branchId, row]) => [branchId, shapeRun(row)]));
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -3058,6 +3349,9 @@ export async function GET(request) {
       generation_window: genWindow,
       // Super Admin only: change a Final payslip, with a reason.
       can_override: guard.scope === SCOPE_ALL,
+      // branch id -> its run for the period (no key: not submitted yet, Draft).
+      payroll_runs: payrollRuns,
+      payroll_runs_locked: Object.values(payrollRuns).some((r) => isLockedRun(r)),
       // From Oct 1, 2026: legal contribution tables and BIR withholding tax
       // (src/lib/payroll/statutory.js); the table lets the form preview the
       // tax exactly as the server computes it.
@@ -3075,8 +3369,14 @@ export async function GET(request) {
           second_half_label: payContext.semi.second_half_label,
           window: payContext.semi.window,
           lock_day: payContext.semi.lock_day,
+          // Per-cutoff attendance: the days this half deducts.
+          per_cutoff: payContext.semi.per_cutoff,
+          attendance_window: payContext.semi.cutoff_window,
         }
         : null,
+      // The period's Early Bird winner; another branch's winner is not named
+      // to a branch-scoped caller.
+      early_bird: describeEarlyBird(payContext.earlyBird, employees, guard),
       // The school's payroll sheet: each half paid on its own attendance.
       per_half: payContext.school
         ? { half: payContext.school.half, working_days: payContext.school.working_days }
@@ -3085,6 +3385,34 @@ export async function GET(request) {
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
+}
+
+/** The Early Bird panel of the payroll page (GET). */
+function describeEarlyBird(earlyBird, visibleEmployees, guard) {
+  if (!earlyBird) return null;
+  const winner = earlyBird.winner;
+  const visible = winner?.employee_id && (guard.branchExempt || visibleEmployees.some((e) => e.id === winner.employee_id));
+  return {
+    enabled: Boolean(earlyBird.enabled),
+    available: Boolean(earlyBird.available),
+    error: earlyBird.error || null,
+    window: earlyBird.window || winner?.window || null,
+    threshold_minutes: earlyBird.settings?.threshold_minutes ?? winner?.threshold_minutes ?? null,
+    amount: earlyBird.settings?.incentive_amount ?? null,
+    winner: winner
+      ? {
+        employee_id: visible ? winner.employee_id : null,
+        employee_name: winner.employee_id ? (visible ? winner.employee_name : "An employee of another branch") : null,
+        other_branch: Boolean(winner.employee_id && !visible),
+        early_count: winner.early_count,
+        average_offset_minutes: visible ? winner.average_offset_minutes : null,
+        amount: winner.amount,
+        finalized: winner.finalized,
+        tie_broken_by: winner.tie_broken_by,
+        computed_at: winner.computed_at,
+      }
+      : null,
+  };
 }
 
 // Processes every employee in one request — used by the "Process Payroll for
@@ -3113,15 +3441,17 @@ async function handleBatchSubmit(supabase, body, guard) {
   const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
   const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
   if (refused) return refused;
-  const payContext = await loadPeriodPayContext(supabase, employees, period);
+  const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+  const payContext = await loadPeriodPayContext(supabase, employees, period, { actor });
   if (!payContext.engineReady || !payContext.ratesReady) {
     return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
   }
-  const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
 
   const processed = [];
   const skipped = [];
   const candidates = [];
+  // Branch runs waiting for HR or approved take no new payslips.
+  const runs = await loadRunsFor(supabase, employees.map((e) => e.branch_id), period.label);
 
   // Pure in-memory work — no DB calls here, so this loop costs nothing extra
   // regardless of how many employees are in the batch.
@@ -3131,6 +3461,12 @@ async function handleBatchSubmit(supabase, body, guard) {
 
     if (!employee) {
       skipped.push({ employee_id: employeeId, reason: "Employee not found." });
+      continue;
+    }
+
+    const runLock = lockedRunMessage(runs.get(String(employee.branch_id || "")));
+    if (runLock) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: runLock, code: "payroll_run_locked" });
       continue;
     }
 
@@ -3299,15 +3635,18 @@ export async function POST(request) {
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
+    // A branch run waiting for HR or approved takes no new payslip or draft.
+    const runLock = lockedRunMessage((await loadRunsFor(supabase, [employee.branch_id], period.label)).get(String(employee.branch_id || "")));
+    if (runLock) return NextResponse.json({ error: runLock, code: "payroll_run_locked" }, { status: 409 });
     if (action === "submit") {
       const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
       if (refused) return refused;
     }
-    const payContext = await loadPeriodPayContext(supabase, [employee], period);
+    const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+    const payContext = await loadPeriodPayContext(supabase, [employee], period, { actor });
     if (action === "submit" && (!payContext.engineReady || !payContext.ratesReady)) {
       return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
     }
-    const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
 
     // Computed here from the attendance logs and the rate versions in force
     // on the period's first day. The form may override attendance figures and
@@ -3544,14 +3883,27 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const heldPay = refusePayrollHold(employee);
   if (heldPay) return heldPay;
 
+  // Payroll Approval (20261014010000): a branch's run that is Pending HR
+  // Approval or Approved changes for nobody, a Super Admin override included
+  // (the database refuses it too). While the run is Draft or Rejected, the
+  // Accountant may reprocess a Final payslip to correct it.
+  const run = (await loadRunsFor(supabase, [employee.branch_id], period.label)).get(String(employee.branch_id || "")) || null;
+  const locked = lockedRunMessage(run);
+  if (locked) return NextResponse.json({ error: locked, code: "payroll_run_locked", run_status: run.status }, { status: 409 });
+  const reprocess = !override && body.reprocess === true;
+
   const genWindow = await periodWindow(supabase, period);
-  if (override) {
+  if (override || reprocess) {
     if (genWindow.state === "not_open" || genWindow.state === "draft") {
       return NextResponse.json({
-        error: `An override changes a Final payslip, which exists only after the period ends (${formatDateKey(genWindow.period_end)}). Regenerate the Draft instead.`,
+        error: `${override ? "An override" : "Reprocessing"} changes a Final payslip, which exists only after the period ends (${formatDateKey(genWindow.period_end)}). Regenerate the Draft instead.`,
         code: "generation_window",
         window: genWindow,
       }, { status: 403 });
+    }
+    // After the generation window, only a run HR sent back may still be corrected.
+    if (reprocess && genWindow.state === "closed" && run?.status !== "rejected") {
+      return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
     }
   } else if (!genWindow.can_generate) {
     return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
@@ -3560,20 +3912,20 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const { entries } = await readPayrollEntries(supabase);
   const existing = entries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label) || null;
   const existingFinal = existing && existing.status !== "draft";
-  if (existingFinal && !override) {
+  if (existingFinal && !override && !reprocess) {
     return NextResponse.json({
-      error: "This payslip is Final and locked. Changing it needs a Super Admin override with a reason.",
+      error: "This payslip is Final. While its branch's payroll run is Draft or Rejected you can Reprocess it; once submitted for HR approval it is locked.",
       code: "payslip_locked",
     }, { status: 409 });
   }
 
   const through = genWindow.attendance_through;
-  const payContext = await loadPeriodPayContext(supabase, [employee], period, { through });
+  const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+  const payContext = await loadPeriodPayContext(supabase, [employee], period, { through, actor });
   if (!payContext.engineReady || !payContext.ratesReady) {
     return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
   }
   const context = payContext.byEmployee.get(employee.id);
-  const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
   const built = buildEmployeePayroll({ employee, context, input: {}, allowAttendanceOverrides: false, period, actor });
   if (built.refusal) {
     return NextResponse.json({ error: built.refusal, code: built.refusal_code || "month_settled" }, { status: 422 });
@@ -3668,7 +4020,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     }
   }
 
-  const action = override ? "payslip_override" : final ? "payslip_finalize" : previous ? "payslip_regenerate" : "payslip_generate";
+  const action = override ? "payslip_override" : reprocess && existingFinal ? "payslip_reprocess"
+    : final ? "payslip_finalize" : previous ? "payslip_regenerate" : "payslip_generate";
   await appendAuditLog({
     actor: guard,
     module: "payroll",
@@ -3755,6 +4108,11 @@ export async function PATCH(request) {
     if (entry.status !== "draft") {
       return NextResponse.json({ error: "Only drafts can be cancelled." }, { status: 400 });
     }
+
+    // Nothing of a run waiting for HR or approved is removed.
+    const branchRow = await supabase.from("payroll_entries").select("branch_id").eq("id", entryId).maybeSingle();
+    const runLock = lockedRunMessage((await loadRunsFor(supabase, [branchRow.data?.branch_id], entry.pay_period)).get(String(branchRow.data?.branch_id || "")));
+    if (runLock) return NextResponse.json({ error: runLock, code: "payroll_run_locked" }, { status: 409 });
 
     await deletePayrollEntryFromDb(supabase, entryId);
 

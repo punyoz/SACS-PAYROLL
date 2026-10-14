@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { CalendarCheckIcon, ClipboardCheckIcon, LayoutDashboardIcon, ScrollTextIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
+import { CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, LayoutDashboardIcon, ScrollTextIcon, TrendingUpIcon, UserRoundIcon, WrenchIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -16,6 +16,8 @@ import { AttendancePage } from "./attendance-page";
 import { AuditLogsPage } from "./audit-logs-page";
 import { MaintenancePage } from "./maintenance-page";
 import { ApprovalsPage } from "@/components/portal/approvals-page";
+import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
+import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -28,7 +30,13 @@ const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m)
  */
 const NAV = [
   { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
-  { section: "Attendance", items: [{ id: "adm-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" }] },
+  {
+    section: "Attendance",
+    items: [
+      { id: "adm-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
+      { id: "adm-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
+    ],
+  },
   { section: "Payroll", items: [{ id: "adm-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" }] },
   { section: "Reports", items: [{ id: "adm-branch-reports", label: "Branch Reports", icon: TrendingUpIcon, module: "branch_reports" }] },
   {
@@ -49,6 +57,7 @@ const TITLES = { ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.la
 const DESCRIPTIONS = {
   "adm-dashboard": "School-wide payroll and attendance overview.",
   "adm-attendance": "School-wide RFID attendance — read, correct and export.",
+  "adm-schedules": "The work schedule each employee of your branch follows, and the Early Bird winners. View only: Super Admin and HR set schedules.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "adm-audit-logs": "Track admin and system movements across payroll operations.",
   "adm-maintenance": "Register, replace and void RFID cards, and record RFID card scans for your branch.",
@@ -116,6 +125,12 @@ function AdminScreens() {
         {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} /> : null}
         {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
         {current === "adm-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
+        {current === "adm-schedules" ? (
+          <div className="flex flex-col gap-4">
+            <WorkSchedulesPanel refreshKey={refreshKey} />
+            <EarlyBirdCard refreshKey={refreshKey} />
+          </div>
+        ) : null}
         {current === "adm-profile" ? <StaffProfilePage roleLabel="Administrator" /> : null}
       </AppShell>
     </AttendanceActionsProvider>

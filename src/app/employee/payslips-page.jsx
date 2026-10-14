@@ -63,7 +63,30 @@ function semiMonthlyRows(m, holidayLines = []) {
   return rows;
 }
 
+/** A per-cutoff payslip (monthly.cutoff): each earning and each deduction on its own line. */
+function cutoffRows(c, holidayLines = []) {
+  const rows = [];
+  const range = c.window ? ` (attendance ${c.window.start_key} to ${c.window.end_key})` : "";
+  rows.push({ label: `${c.half === "first" ? "1st" : "2nd"} cutoff${range}`, value: "", kind: "note" });
+  c.earnings.forEach((line) => {
+    rows.push({ label: line.label, value: `+ ${formatPeso(line.amount)}`, kind: "plus" });
+    if (line.label === "Holiday pay") rows.push(...holidayRows(holidayLines));
+  });
+  rows.push({ label: "Gross Pay", value: formatPeso(c.gross_pay), kind: "total" });
+  if (Number(c.leave_with_pay_days) > 0) rows.push({ label: `Leave With Pay (${c.leave_with_pay_days}d)`, value: "No deduction" });
+  if (!c.deductions.length) rows.push({ label: "Deductions", value: "None", kind: "note" });
+  c.deductions.forEach((line) => {
+    rows.push({ label: line.label, value: `- ${formatPeso(line.amount)}`, kind: "minus" });
+    if (line.note) rows.push({ label: line.note, value: "", kind: "sub" });
+  });
+  rows.push({ label: "Total Deductions", value: `- ${formatPeso(c.total_deductions)}`, kind: "total" });
+  if (c.half === "first") rows.push({ label: "Withholding tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.", value: "", kind: "note" });
+  if (Number(c.carry_over_out) > 0) rows.push({ label: "Carried to next month", value: formatPeso(c.carry_over_out), kind: "carry" });
+  return rows;
+}
+
 function payslipRows(p) {
+  if (p.monthly?.cutoff) return cutoffRows(p.monthly.cutoff, p.holiday_lines);
   if (p.monthly) return semiMonthlyRows(p.monthly, p.holiday_lines);
   const rows = [];
   const add = (cond, label, value, kind) => { if (cond) rows.push({ label, value, kind }); };
@@ -86,7 +109,9 @@ function payslipRows(p) {
     add(p.late_deduction, `Late (${p.late_days}d)`, `- ${formatPeso(p.late_deduction)}`, "minus");
     add(p.undertime_deduction, `Undertime (${p.undertime_minutes} min)`, `- ${formatPeso(p.undertime_deduction)}`, "minus");
     add(p.half_day_deduction, `Half Day (${p.half_days}d)`, `- ${formatPeso(p.half_day_deduction)}`, "minus");
-    add(p.early_bird_incentive, `Early Bird (${p.early_bird_days}d)`, `+ ${formatPeso(p.early_bird_incentive)}`, "plus");
+    // The retired per-day bonus: only an old payslip that paid it has an amount.
+    add(p.early_bird_incentive, `Early Bird bonus (${p.early_bird_days}d)`, `+ ${formatPeso(p.early_bird_incentive)}`, "plus");
+    add(p.early_bird_winner_incentive, "Early Bird Incentive", `+ ${formatPeso(p.early_bird_winner_incentive)}`, "plus");
     add(p.perfect_attendance_incentive, "Perfect Attendance", `+ ${formatPeso(p.perfect_attendance_incentive)}`, "plus");
     add(p.leave_with_pay_days, `Leave With Pay (${p.leave_with_pay_days}d)`, "—");
     add(p.leave_without_pay_deduction, `Leave Without Pay (${p.leave_without_pay_days}d)`, `- ${formatPeso(p.leave_without_pay_deduction)}`, "minus");
@@ -133,6 +158,11 @@ function PayslipCard({ payslip }) {
         {payslip.payslip_no ? <span className="ml-auto hidden shrink-0 font-mono text-xs text-brand-gold-light sm:block">{payslip.payslip_no}</span> : null}
       </div>
       <CardContent className="px-5 py-4">
+        {payslip.early_bird_winner ? (
+          <p className="mb-3 rounded-lg border border-success/40 bg-success/8 px-3 py-2 text-sm text-success">
+            <span className="font-semibold">Early Bird winner</span> for {payslip.early_bird_winner.period_label || payslip.period_label}: {payslip.early_bird_winner.early_count} early time-in{payslip.early_bird_winner.early_count === 1 ? "" : "s"}, the most of any employee.
+          </p>
+        ) : null}
         <dl className="space-y-2.5 text-sm">
           {payslipRows(payslip).map((row, index) => (
             <div key={`${row.label}-${index}`} className={cn("flex items-start justify-between gap-4", KIND_CLASS[row.kind])}>

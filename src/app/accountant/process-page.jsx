@@ -27,10 +27,12 @@ import {
   dateLabel,
   defaultForm,
   describeBlockingDays,
+  earlyBirdWinnerPay,
   employeePayInfo,
   formDeviations,
   formFromDraft,
   money,
+  perCutoffFirst,
   same,
   semiHalf,
   shortDate,
@@ -40,6 +42,7 @@ import {
 } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
+import { RunApprovalPanel } from "./run-approval-panel";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -106,7 +109,11 @@ function Banners({ data }) {
         <Alert className="border-info/40 bg-info/8">
           <InfoIcon aria-hidden="true" />
           <AlertDescription>
-            {semi.half === "first" ? (
+            {semi.per_cutoff && semi.half === "first" ? (
+              <p><strong className="text-foreground">1st cutoff:</strong> the semi-monthly salary (monthly salary ÷ 2) less this cutoff&apos;s attendance only — late, undertime and absences from {shortDate(semi.attendance_window?.start_key)} to {dateLabel(semi.attendance_window?.end_key)}. No withholding tax, SSS, PhilHealth, Pag-IBIG, loans or other deductions: those are on the {semi.second_half_label} payslip.</p>
+            ) : semi.per_cutoff ? (
+              <p><strong className="text-foreground">2nd cutoff:</strong> attendance from {shortDate(semi.attendance_window?.start_key)} to {dateLabel(semi.attendance_window?.end_key)} only, plus SSS, PhilHealth, Pag-IBIG, loans and other deductions. Withholding tax and contributions are computed on the whole of {semi.month_label}&apos;s earnings; each deduction is its own line on the payslip.</p>
+            ) : semi.half === "first" ? (
               <p><strong className="text-foreground">1st half:</strong> the full semi-monthly salary (monthly salary ÷ 2) with no deductions. Absences, leave, incentives, contributions and withholding tax for {semi.month_label} are settled on the {semi.second_half_label} payslip.</p>
             ) : (
               <p><strong className="text-foreground">2nd half settles {semi.month_label}:</strong> attendance {shortDate(semi.window?.start_key)} – {dateLabel(semi.window?.end_key)}{semi.lock_day ? ` (locked on day ${semi.lock_day}; later items go to next month)` : ""}, approved leave, incentives and overload, the month&apos;s SSS / PhilHealth / Pag-IBIG and withholding tax from the monthly table. Net pay is the month&apos;s net less what the 1st half paid.</p>
@@ -114,7 +121,35 @@ function Banners({ data }) {
           </AlertDescription>
         </Alert>
       ) : null}
+      <EarlyBirdBanner earlyBird={data?.early_bird} />
     </>
+  );
+}
+
+/** The period's one Early Bird winner (src/lib/payroll/early-bird.js). */
+function EarlyBirdBanner({ earlyBird }) {
+  if (!earlyBird || (!earlyBird.enabled && !earlyBird.winner)) return null;
+  const winner = earlyBird.winner;
+  const range = earlyBird.window ? `${shortDate(earlyBird.window.start_key)} – ${dateLabel(earlyBird.window.end_key)}` : "this period";
+  return (
+    <Alert className="border-success/40 bg-success/8">
+      <InfoIcon aria-hidden="true" />
+      <AlertDescription>
+        {earlyBird.error ? (
+          <p><strong className="text-foreground">Early Bird Incentive:</strong> the winner could not be worked out ({earlyBird.error}); no incentive is added until it can.</p>
+        ) : winner?.employee_name ? (
+          <p>
+            <strong className="text-foreground">Early Bird Incentive — {winner.employee_name}:</strong>{" "}
+            {winner.early_count} early time-in{winner.early_count === 1 ? "" : "s"} ({range}, at least {earlyBird.threshold_minutes} min before their own start).{" "}
+            {money(winner.amount)} is added to {winner.other_branch ? "their" : "this employee's"} payslip as its own earnings line.
+            {winner.finalized ? " Locked: payroll for this period is finalized." : " Recomputed until the first payslip of the period is Final."}
+            {winner.tie_broken_by ? " A full tie was broken by employee ID." : ""}
+          </p>
+        ) : (
+          <p><strong className="text-foreground">Early Bird Incentive:</strong> no eligible employee yet for {range}. Each needs at least one time-in {earlyBird.threshold_minutes} minutes or more before their own start{earlyBird.amount ? `; the winner receives ${money(earlyBird.amount)}` : ""}.</p>
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -122,13 +157,29 @@ function Banners({ data }) {
 function PayslipCell({ data, employee, onGenerate, onView, busy }) {
   const win = data?.generation_window;
   const state = (data?.attendance_rows || []).find((r) => r.employee_id === employee.id)?.payslip || null;
+  // The branch's payroll run (Payroll Approval): Pending / Approved locks it;
+  // Draft / Rejected lets a Final payslip be reprocessed.
+  const run = data?.payroll_runs?.[String(employee.branch_id || "")] || null;
+  const runLocked = run?.status === "pending" || run?.status === "approved";
   if (state?.status === "final") {
+    const canReprocess = !runLocked && (win?.state === "final" || (win?.state === "closed" && run?.status === "rejected"));
     return (
       <div className="space-y-1">
-        <div className="flex items-center gap-1.5"><StatusBadge tone="success">Final</StatusBadge><Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.entry_id)}>View</Button></div>
-        <p className="text-xs text-muted-foreground">{state.payslip_no || ""} · locked</p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge tone="success">Final</StatusBadge>
+          <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.entry_id)}>View</Button>
+          {canReprocess ? (
+            <Button variant="outline" size="sm" className="h-7" disabled={busy} onClick={() => onGenerate(employee.id, false, true)} title="Recompute this Final payslip from the latest records (the run is not yet submitted, or HR sent it back)">
+              {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Reprocess
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-xs text-muted-foreground">{state.payslip_no || ""} · {runLocked ? (run.status === "pending" ? "waiting for HR" : "approved, locked") : "processed"}</p>
       </div>
     );
+  }
+  if (runLocked) {
+    return <p className="text-xs text-muted-foreground">{run.status === "pending" ? "Run waiting for HR approval" : "Run approved"}: locked</p>;
   }
   const canGenerate = Boolean(win?.can_generate);
   const isDraft = state?.status === "draft";
@@ -171,6 +222,9 @@ function BatchCard({ onNavigate }) {
   const ready = data?.payroll_ready !== false;
   const win = data?.generation_window || null;
   const finalWindow = !win || win.state === "final";
+  // Every visible branch's run is Pending / Approved: nothing left to process.
+  const branchIds = [...new Set(employees.map((e) => String(e.branch_id || "")))];
+  const allRunsLocked = branchIds.length > 0 && branchIds.every((id) => ["pending", "approved"].includes(data?.payroll_runs?.[id]?.status));
 
   const rows = employees.map((employee) => {
     const base = batchRowBase(data, employee);
@@ -189,6 +243,7 @@ function BatchCard({ onNavigate }) {
       leave_without_pay_days: nums.lwop, daily_rate: base.info.unit.daily, attendance_deductions: base.attendanceDeductions,
       incentives: base.incentives, earnings: base.earnings, other_incentives: base.extras.other + (base.extras.subsidy || 0),
       first_half_paid: base.extras.firstHalfPaid, carry_in: base.extras.carryIn, cash_advance: base.cashAdvance,
+      prior_attendance: base.extras.priorAttendance || 0, prior_earnings: base.extras.priorEarnings || 0,
     });
     const defaults = { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop, tax: taxDefault };
     const values = { sss, philhealth, pagibig, lwop, tax };
@@ -259,8 +314,16 @@ function BatchCard({ onNavigate }) {
     }
   }
 
-  async function generate(employeeId, confirmIncomplete = false) {
+  async function generate(employeeId, confirmIncomplete = false, reprocess = false) {
     const employee = employees.find((e) => e.id === employeeId);
+    if (reprocess) {
+      const ok = await confirm({
+        title: `Reprocess ${employee?.full_name || "this"} payslip?`,
+        description: "The Final payslip is recomputed from the latest attendance, leave and settings and replaces the current one (the old record is kept, archived). Submit the run for HR approval again afterwards.",
+        confirmLabel: "Reprocess",
+      });
+      if (!ok) return;
+    }
     setGenerating(employeeId);
     setFeedback({ text: `Generating ${employee?.full_name || "the"} payslip…`, ok: true });
     try {
@@ -269,6 +332,7 @@ function BatchCard({ onNavigate }) {
         employee_id: employeeId,
         pay_period: data?.active_period?.label || "",
         confirm_incomplete: confirmIncomplete,
+        reprocess,
       }));
       const result = await response.json().catch(() => ({}));
       if (response.status === 422 && result.code === "unresolved_attendance") {
@@ -279,18 +343,18 @@ function BatchCard({ onNavigate }) {
           description: `${result.error} They will be listed on the payslip as not counted.`,
           confirmLabel: "Generate anyway",
         });
-        if (proceed) await generate(employeeId, true);
+        if (proceed) await generate(employeeId, true, reprocess);
         return;
       }
       if (!response.ok) throw new Error(result.error || "Unable to generate the payslip.");
       const final = result.status === "final";
       setFeedback({
         text: final
-          ? `Final payslip ${result.entry?.payslip_no || ""} generated for ${employee?.full_name || "the employee"}. It is now locked.`
+          ? `Final payslip ${result.entry?.payslip_no || ""} ${reprocess ? "reprocessed" : "generated"} for ${employee?.full_name || "the employee"}. Submit the branch's run for HR approval when every employee is done.`
           : `Draft payslip generated for ${employee?.full_name || "the employee"} (attendance up to ${dateLabel(result.window?.attendance_through)}).`,
         ok: true,
       });
-      notify(final ? "Final Payslip Generated" : "Draft Payslip Generated", final ? "The payslip is final and locked." : "You can regenerate it until the period ends.", "success");
+      notify(final ? "Final Payslip Generated" : "Draft Payslip Generated", final ? "It locks when the run is submitted for HR approval." : "You can regenerate it until the period ends.", "success");
       await load({ period: data?.active_period?.label });
       if (result.entry?.id) openPayslip(result.entry.id);
     } catch (error) {
@@ -352,7 +416,7 @@ function BatchCard({ onNavigate }) {
               ) : rows.flatMap((row) => {
                 const { employee, base } = row;
                 const incentiveLabel = [
-                  base.counts.early_bird_days ? `${base.counts.early_bird_days} day${base.counts.early_bird_days === 1 ? "" : "s"}` : "",
+                  earlyBirdWinnerPay(base.info) ? "Early Bird Incentive" : "",
                   base.info.pay?.perfect_attendance && base.half !== "first" ? "Perfect" : "",
                   base.extras.other ? `Incentive/overload${base.extras.overloadHours ? ` (${base.extras.overloadHours} h)` : ""}` : "",
                 ].filter(Boolean).join(" · ") || "0";
@@ -408,7 +472,7 @@ function BatchCard({ onNavigate }) {
           </div>
         ) : null}
 
-        <Button className="w-full" size="lg" onClick={processAll} disabled={busy || !ready || !finalWindow} title={finalWindow ? "" : (win?.message || "")}>
+        <Button className="w-full" size="lg" onClick={processAll} disabled={busy || !ready || !finalWindow || allRunsLocked} title={allRunsLocked ? "This period's payroll run is with HR or approved: it cannot be processed again." : finalWindow ? "" : (win?.message || "")}>
           {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Processing…</> : "Process payroll for all →"}
         </Button>
         {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
@@ -464,6 +528,10 @@ function SingleEntry({ onNavigate }) {
   const win = data?.generation_window || null;
   const finalWindow = !win || win.state === "final";
   const firstHalf = semiHalf(data) === "first";
+  // Per-cutoff 1st half: its own attendance is editable; contributions and
+  // tax are not (they are all on the 2nd half).
+  const attendanceLocked = firstHalf && !perCutoffFirst(data);
+  const winnerPay = earlyBirdWinnerPay(info);
   const leave = (data?.leave_summary || []).find((row) => row.employee_id === employee?.id);
   const peso = (v) => money(v).replace("₱ ", "₱");
   const unit = info.unit;
@@ -527,7 +595,7 @@ function SingleEntry({ onNavigate }) {
     }
   }
 
-  const numberField = (id, label, key, { hint, step = "0.01", disabled = firstHalf, readOnly = false, children } = {}) => (
+  const numberField = (id, label, key, { hint, step = "0.01", disabled = attendanceLocked, readOnly = false, children } = {}) => (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="flex-wrap gap-x-1">{label}{hint ? <span className="font-normal text-muted-foreground">{hint}</span> : null}</Label>
       <Input
@@ -594,10 +662,10 @@ function SingleEntry({ onNavigate }) {
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Deductions</p>
             <div className="grid items-start gap-4 sm:grid-cols-2">
-              {numberField("pc-sss", "SSS", "sss", { hint: contributionHint("sss", `(legal table: ${info.rates.sss_pct}% of salary credit, editable)`) })}
-              {numberField("pc-philhealth", "PhilHealth", "philhealth", { hint: contributionHint("philhealth", `(legal table: ${info.rates.philhealth_pct}% of monthly salary, editable)`) })}
-              {numberField("pc-pagibig", "Pag-IBIG", "pagibig", { hint: contributionHint("pagibig", `(legal table: ${info.rates.pagibig_pct}% up to the cap, editable)`) })}
-              {numberField("pc-tax", "Withholding tax (₱)", "tax")}
+              {numberField("pc-sss", "SSS", "sss", { disabled: firstHalf, hint: contributionHint("sss", `(legal table: ${info.rates.sss_pct}% of salary credit, editable)`) })}
+              {numberField("pc-philhealth", "PhilHealth", "philhealth", { disabled: firstHalf, hint: contributionHint("philhealth", `(legal table: ${info.rates.philhealth_pct}% of monthly salary, editable)`) })}
+              {numberField("pc-pagibig", "Pag-IBIG", "pagibig", { disabled: firstHalf, hint: contributionHint("pagibig", `(legal table: ${info.rates.pagibig_pct}% up to the cap, editable)`) })}
+              {numberField("pc-tax", "Withholding tax (₱)", "tax", { disabled: firstHalf })}
               <p className="text-xs text-muted-foreground sm:col-span-2">Absent, Late, Undertime, Half Day and incentives are filled in from the attendance logs. Changing one is an override: it needs a reason and is logged.</p>
               {numberField("pc-absences", "Absent (days)", "absences", { hint: `${peso(unit.absent)}/day`, step: "1" })}
               {numberField("pc-late", "Late (days)", "late", { hint: lateRules, step: "1" })}
@@ -616,10 +684,15 @@ function SingleEntry({ onNavigate }) {
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Incentives</p>
             <div className="grid items-start gap-4 sm:grid-cols-2">
-              {numberField("pc-early-bird", "Early bird (days)", "earlyBird", { hint: `${peso(unit.early_bird)}/day`, step: "1" })}
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Early Bird Incentive</p>
+                <p className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground tabular-nums">
+                  {winnerPay ? `${money(winnerPay)} — this period's winner` : "Not this period's winner"}
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pc-perfect" className="flex-wrap gap-x-1">Perfect attendance <span className="font-normal text-muted-foreground">{peso(unit.perfect_attendance)}/period</span></Label>
-                <Select value={form.perfect ? "yes" : "no"} onValueChange={(v) => setForm((c) => ({ ...c, perfect: v === "yes" }))} disabled={firstHalf}>
+                <Select value={form.perfect ? "yes" : "no"} onValueChange={(v) => setForm((c) => ({ ...c, perfect: v === "yes" }))} disabled={attendanceLocked}>
                   <SelectTrigger id="pc-perfect" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent>
                 </Select>
@@ -657,10 +730,14 @@ function SingleEntry({ onNavigate }) {
               <SummaryRow label="Leave without pay" value={`- ${money(summary.lwopDeduct)}`} tone="minus" />
               <SummaryRow label="Loans / cash advance" value={`- ${money(summary.cashAdvance)}`} tone="minus" />
               {summary.extras.subsidy ? <SummaryRow label="Licensed teacher subsidy" value={`+ ${money(summary.extras.subsidy)}`} tone="plus" /> : null}
-              <SummaryRow label="Early bird / attendance incentive" value={`+ ${money(summary.shownIncentives)}`} tone="plus" />
+              {winnerPay ? <SummaryRow label="Early Bird Incentive (period winner)" value={`+ ${money(winnerPay)}`} tone="plus" /> : null}
+              <SummaryRow label="Perfect attendance / other incentives" value={`+ ${money(toAmount(summary.shownIncentives - winnerPay))}`} tone="plus" />
               {summary.settling ? (
                 <>
                   <SummaryRow label="Incentives / overload pay" value={`+ ${money(summary.extras.other)}`} tone="plus" />
+                  {summary.extras.priorAttendance || summary.extras.priorEarnings ? (
+                    <SummaryRow label="1st cutoff, in the month's tax" value={`${summary.extras.priorEarnings ? `+ ${money(summary.extras.priorEarnings)} earnings ` : ""}${summary.extras.priorAttendance ? `- ${money(summary.extras.priorAttendance)} attendance` : ""}`} />
+                  ) : null}
                   <SummaryRow label="Monthly net" value={money(summary.monthNet)} strong />
                   <SummaryRow label={summary.extras.firstHalfStatus === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)"} value={`- ${money(summary.extras.firstHalfPaid)}`} />
                   <SummaryRow label="Balance carried over" value={`- ${money(summary.extras.carryIn)}`} tone="minus" />
@@ -694,6 +771,7 @@ export function ProcessPage({ onNavigate }) {
   return (
     <>
       <Banners data={data} />
+      <RunApprovalPanel />
       <BatchCard onNavigate={onNavigate} />
       <h2 className="mt-2 text-base font-semibold">Single entry / edit draft</h2>
       <SingleEntry onNavigate={onNavigate} />

@@ -11,21 +11,24 @@
  *                    working day — a rest day is a Sat/Sun or a whole-day
  *                    holiday / suspension, as attendance_is_rest_day()
  *   Window           generation day .. + window_days − 1 (default 5)
- *   Attendance       the 2nd half deducts attendance up to the day BEFORE its
+ *   Attendance       each half deducts attendance up to the day BEFORE its
  *                    generation day; the generation day itself carries to the
- *                    next month's window (the processing-day rule). The
- *                    1st half deducts nothing.
+ *                    next window (the processing-day rule). Per-cutoff
+ *                    attendance: src/lib/payroll/semi-monthly.js.
  *
  * This mirrors public.payroll_generation_date_for() / payroll_schedule_for()
- * so the payroll can read any month's cut-off without a query per month.
+ * so the payroll can read any month's cut-off without a query per month
+ * (the SQL mirror's attendance_cutoff is the 2nd half's only; nothing in the
+ * database reads it).
  * It replaces the attendance_lock_day rate once the migration is applied;
  * until then loadPayslipSchedule() returns null and callers keep the rate.
  */
 
 export const DEFAULT_WINDOW_DAYS = 5;
 export const DEFAULT_NON_WORKING_DAY_RULE = "previous_working_day";
-// The 1st half deducts nothing, so a weekend 15th moves forward (Sun Nov 15,
-// 2026 -> Mon Nov 16); the 2nd half keeps DEFAULT_NON_WORKING_DAY_RULE.
+// A weekend 15th moves forward (Sun Nov 15, 2026 -> Mon Nov 16), so the 1st
+// cutoff still reads its attendance to the 15th; the 2nd half keeps
+// DEFAULT_NON_WORKING_DAY_RULE.
 export const DEFAULT_FIRST_HALF_RULE = "next_working_day";
 export const NON_WORKING_DAY_RULES = Object.freeze(["same_day", "previous_working_day", "next_working_day"]);
 
@@ -101,15 +104,21 @@ export function createPayslipSchedule({ settings = [], holidays = [] } = {}) {
     const generationDate = generationDateFor(periodStart, setting || {}, isWholeDayHoliday);
     const [year, month] = periodStart.split("-").map(Number);
     const monthEnd = `${year}-${pad(month)}-${pad(lastDayOfMonth(year, month))}`;
+    const fifteenth = `${year}-${pad(month)}-15`;
     const dayBefore = addDays(generationDate, -1);
+    const second = periodStart.slice(8, 10) === "16";
     return {
       period_start: periodStart,
       generation_date: generationDate,
       closes_on: addDays(generationDate, windowDays - 1),
       window_days: windowDays,
       non_working_day_rule: ruleFor(periodStart, setting || {}),
-      // Only the 2nd half deducts attendance.
-      attendance_cutoff: periodStart.slice(8, 10) === "16" ? (dayBefore < monthEnd ? dayBefore : monthEnd) : null,
+      // Each half deducts attendance up to the day before its generation day
+      // (per-cutoff attendance, src/lib/payroll/semi-monthly.js), never past
+      // its own period end.
+      attendance_cutoff: second
+        ? (dayBefore < monthEnd ? dayBefore : monthEnd)
+        : (dayBefore < fifteenth ? dayBefore : fifteenth),
       setting_id: setting?.id || null,
     };
   }
