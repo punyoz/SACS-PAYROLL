@@ -199,3 +199,13 @@ describe("Refused only for a real reason", () => {
     expect(table("attendance_blocked_taps")[0]).toMatchObject({ employee_id: "u-far", branch_id: BRANCH, reason: expect.stringMatching(/Wrong branch/) });
   });
 });
+
+describe("Audit trail never stores a full card number", () => {
+  it("an accepted tap's audit entry carries the masked card only", async () => {
+    await tapAt("08:00:00");
+    const entries = table("audit_logs").filter((row) => row.action === "rfid_timein");
+    expect(entries).toHaveLength(1);
+    expect(JSON.stringify(entries[0])).not.toContain(CARD);
+    expect(entries[0].metadata.rfid_code).toMatch(/5678$/);
+  });
+});

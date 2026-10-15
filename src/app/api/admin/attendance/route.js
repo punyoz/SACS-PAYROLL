@@ -729,7 +729,7 @@ export async function POST(request) {
         branch_id: employee.branch_id || null,
         metadata: {
           employee_id: employee.id,
-          rfid_code: rfidCode,
+          rfid_code: maskCardCode(rfidCode),
           manual_entry: manualEntry,
           date_key: dateKey,
           leave_request_id: leave.id,
@@ -823,7 +823,7 @@ export async function POST(request) {
       source: "api",
       metadata: {
         employee_id: employee.id,
-        rfid_code: rfidCode,
+        rfid_code: maskCardCode(rfidCode),
         manual_entry: manualEntry,
         date_key: dateKey,
         tapped_at: nowIso,
