@@ -300,11 +300,12 @@ function ContributionsCard({ data, loading, onReload }) {
           </div>
         ),
       },
-      { key: "monthly_salary", header: "Monthly salary", sortValue: (r) => Number(r.monthly_salary || 0), className: "tabular-nums", cell: (r) => peso(r.monthly_salary) },
-      ...TYPES.map(([type, label]) => ({ key: type, header: label, sortValue: (r) => amountOf(r, type).amount, cell: (r) => amountCell(r, type) })),
+      { key: "monthly_salary", header: "Monthly salary", align: "right", sortValue: (r) => Number(r.monthly_salary || 0), className: "tabular-nums", cell: (r) => peso(r.monthly_salary) },
+      ...TYPES.map(([type, label]) => ({ key: type, header: label, align: "right", sortValue: (r) => amountOf(r, type).amount, cell: (r) => amountCell(r, type) })),
       {
         key: "total",
         header: "Total",
+        align: "right",
         className: "font-semibold tabular-nums",
         sortValue: (r) => TYPES.reduce((sum, [type]) => sum + amountOf(r, type).amount, 0),
         cell: (r) => peso(TYPES.reduce((sum, [type]) => sum + amountOf(r, type).amount, 0)),

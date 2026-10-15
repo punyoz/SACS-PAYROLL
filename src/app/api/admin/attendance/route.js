@@ -533,7 +533,13 @@ async function findRepeat(supabase, employeeId, dateKey, tapIso) {
   const repeated = findRepeatedTap(rows.data || [], rawTaps, tapIso);
   if (!repeated) return null;
   const day = collapseDailyTaps(rows.data || [], { dateKey: () => dateKey })[0] || null;
-  return { repeated, record: day ? mapAttendanceRow(day) : null };
+  // The tap it repeats may be only in attendance_taps: stored, then the
+  // attendance_logs write failed (500) and the terminal sent it again.
+  // `logged` false tells the caller to rebuild the day instead of ignoring it.
+  const at = new Date(repeated).getTime();
+  const logged = (rows.data || []).some((row) => [row.time_in, row.time_out]
+    .some((value) => value && new Date(value).getTime() === at));
+  return { repeated, record: day ? mapAttendanceRow(day) : null, logged };
 }
 
 /** Why an unmatched code was refused: an archived / inactive employee's card, or no one's. */
@@ -684,6 +690,13 @@ export async function POST(request) {
       return refuse({ refusedEmployee: employee, reason: `Inactive employee: ${employee.full_name}.`, status: 403, error: "This employee is inactive. The tap was not recorded." });
     }
 
+    // Separated (src/lib/awol/cases.js): employment has ended, though the
+    // account stays open until final pay is released and HR archives it.
+    // AWOL is not refused: a tap is how a case closes as "returned to work".
+    if (String(employee.employee_status || "").toLowerCase() === "separated") {
+      return refuse({ refusedEmployee: employee, reason: `Separated employee: ${employee.full_name}.`, status: 403, error: "This employee is no longer employed. The tap was not recorded." });
+    }
+
     // Correcting or recording a scan for someone in another branch is refused.
     const foreignBranch = denyForeignBranch(guard, employee.branch_id);
     if (foreignBranch) {
@@ -741,6 +754,26 @@ export async function POST(request) {
     // The same tap twice (within a few minutes of one already recorded) is
     // not a Time Out: nothing is saved, and the employee is told it counted.
     const repeat = await findRepeat(supabase, employee.id, dateKey, nowIso);
+    if (repeat && !repeat.logged) {
+      // The repeated tap is stored but never reached the day's record: rebuild
+      // the day from the stored taps (no second raw tap for the same moment).
+      const { record, tap } = await persistScanToTable(
+        supabase, employee, dateKey, repeat.repeated, rfidCode, 1, policy,
+        guard, tapSource,
+      );
+      await appendAuditLog({
+        actor: guard,
+        module: "attendance",
+        action: tap === "time_out" ? "rfid_timeout" : tap === "after_correction" ? "rfid_tap_after_correction" : "rfid_timein",
+        entity_type: "employee",
+        entity_id: employee.employee_id,
+        description: `RFID scan processed for ${employee.full_name} (resent; day rebuilt from the stored tap).`,
+        status: "success",
+        source: "api",
+        metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: repeat.repeated, resent_at: nowIso, offline: Boolean(offline), branch_id: employee.branch_id },
+      });
+      return NextResponse.json({ success: true, persisted: true, tap, message: "Tap recorded.", record });
+    }
     if (repeat) {
       await appendAuditLog({
         actor: guard,

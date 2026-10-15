@@ -149,6 +149,8 @@ export function DataTable({
                         onClick={() => toggleSort(column)}
                         className={cn(
                           "-mx-1.5 inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                          // Right-aligned columns put the arrow first so the heading text lines up with the numbers below.
+                          column.align === "right" && "flex-row-reverse",
                           active && "text-foreground",
                         )}
                       >
