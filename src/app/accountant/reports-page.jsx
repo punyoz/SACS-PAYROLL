@@ -62,7 +62,7 @@ function PayrollSheet({ data }) {
           <div className="overflow-x-auto rounded-lg border">
             <Table className="text-xs" style={{ minWidth: 1500 }}>
               <TableHeader className="bg-muted/60">
-                <TableRow className="hover:bg-transparent">{SHEET_HEAD.map((h, i) => <TableHead key={`${h}-${i}`} className="h-9 text-xs font-semibold text-muted-foreground">{h}</TableHead>)}</TableRow>
+                <TableRow className="hover:bg-transparent">{SHEET_HEAD.map((h, i) => <TableHead key={`${h}-${i}`} className={cn("h-9 text-xs font-semibold text-muted-foreground", i > 0 && i < SHEET_HEAD.length - 1 && "text-right")}>{h}</TableHead>)}</TableRow>
               </TableHeader>
               <TableBody>
                 {branch.rows.map((r, i) => (

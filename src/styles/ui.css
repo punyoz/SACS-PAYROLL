@@ -227,8 +227,21 @@ body.sacs-ui-portal.dark {
 /* Printing from a React portal: only the element marked data-print-area
    (a payslip, a report) goes on paper, in the light theme. */
 @media print {
+  @page {
+    margin: 10mm;
+  }
   body.sacs-ui-portal * {
     visibility: hidden;
+  }
+  /* The sidebar's placeholder still takes width while hidden, which pushed
+     the print area right and narrowed it. Remove it so the page is full width
+     in portrait and landscape. */
+  body.sacs-ui-portal [data-slot="sidebar-gap"],
+  body.sacs-ui-portal [data-slot="sidebar-container"] {
+    display: none;
+  }
+  body.sacs-ui-portal [data-slot="sidebar-inset"] {
+    margin: 0;
   }
   body.sacs-ui-portal [data-print-area],
   body.sacs-ui-portal [data-print-area] * {

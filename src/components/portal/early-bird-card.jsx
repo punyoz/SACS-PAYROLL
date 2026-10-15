@@ -127,7 +127,7 @@ export function EarlyBirdCard({ refreshKey }) {
           <p className="text-sm font-medium">Winners</p>
           <div className="overflow-x-auto rounded-lg border">
             <Table>
-              <TableHeader><TableRow><TableHead>Pay period</TableHead><TableHead>Winner</TableHead><TableHead>Early time-ins</TableHead><TableHead>Average arrival</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Pay period</TableHead><TableHead>Winner</TableHead><TableHead>Early time-ins</TableHead><TableHead>Average arrival</TableHead><TableHead className="text-right">Amount</TableHead><TableHead>Status</TableHead></TableRow></TableHeader>
               <TableBody>
                 {(data?.winners || []).length ? data.winners.map((w) => (
                   <TableRow key={w.period_label}>
@@ -135,7 +135,7 @@ export function EarlyBirdCard({ refreshKey }) {
                     <TableCell>{w.employee_name || <span className="text-muted-foreground">No eligible employee</span>}</TableCell>
                     <TableCell className="tabular-nums">{w.employee_name ? w.early_count : "—"}</TableCell>
                     <TableCell className="tabular-nums">{w.employee_name ? offsetLabel(w.average_offset_minutes) : "—"}</TableCell>
-                    <TableCell className="tabular-nums">{w.employee_name ? money(w.amount) : "—"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{w.employee_name ? money(w.amount) : "—"}</TableCell>
                     <TableCell>{w.finalized ? <StatusBadge tone="success">Final</StatusBadge> : <StatusBadge tone="info">Until payroll is final</StatusBadge>}</TableCell>
                   </TableRow>
                 )) : (
