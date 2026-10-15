@@ -111,6 +111,22 @@ describe("Every tap counts (but a repeat within 5 minutes)", () => {
     expect(raw[0]).toMatchObject({ employee_id: EMP, branch_id: BRANCH, log_date: DAY, rfid_uid: CARD, device: "RFID Terminal · Main Branch", source: "rfid_tap" });
   });
 
+  it("a resent tap whose day record failed to save rebuilds the day instead of being ignored", async () => {
+    // The 07:55 tap was stored, then the attendance_logs write failed (500),
+    // so the terminal kept it and sends it again.
+    table("attendance_taps").push({
+      id: "tap-orphan", employee_id: EMP, branch_id: BRANCH, log_date: DAY, tapped_at: manila("07:55:00"),
+      rfid_uid: CARD, device: "RFID Terminal · Main Branch", source: "rfid_tap",
+    });
+    const { response, body } = await tapAt("07:55:20");
+    expect(response.status).toBe(200);
+    expect(body.persisted).toBe(true);
+    expect(dayRows()).toHaveLength(1);
+    expect(dayRows()[0]).toMatchObject({ time_in: manila("07:55:00"), time_out: null });
+    // No second raw tap for the same moment.
+    expect(table("attendance_taps")).toHaveLength(1);
+  });
+
   it("1 tap only: Time In with no Time Out (Incomplete once the shift ends)", async () => {
     const { response, body } = await tapAt("08:10:00");
     expect(response.status).toBe(200);
