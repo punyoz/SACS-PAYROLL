@@ -54,12 +54,16 @@ beforeEach(async () => {
     { id: EMP, email: "emp@sacs.test", user_metadata: { role: "employee", full_name: "Ella Employee", employee_id: "SACS-001", rfid_uid: CARD, branch_id: BRANCH } },
     { id: "u-far", email: "far@sacs.test", user_metadata: { role: "employee", full_name: "Fred Far", employee_id: "SACS-009", rfid_uid: "9999000011", branch_id: OTHER } },
     { id: "u-off", email: "off@sacs.test", user_metadata: { role: "employee", full_name: "Ivy Inactive", employee_id: "SACS-010", rfid_uid: "5555000022", branch_id: BRANCH } },
+    { id: "u-sep", email: "sep@sacs.test", user_metadata: { role: "employee", full_name: "Sam Separated", employee_id: "SACS-011", rfid_uid: "5555000033", branch_id: BRANCH } },
+    { id: "u-awol", email: "awol@sacs.test", user_metadata: { role: "employee", full_name: "Abe Awol", employee_id: "SACS-012", rfid_uid: "5555000044", branch_id: BRANCH } },
   );
   table("profiles").push(
     { id: "u-admin", branch_id: BRANCH, role: "admin" },
     { id: EMP, full_name: "Ella Employee", email: "emp@sacs.test", branch_id: BRANCH, role: "employee", employee_status: "Active" },
     { id: "u-far", full_name: "Fred Far", email: "far@sacs.test", branch_id: OTHER, role: "employee", employee_status: "Active" },
     { id: "u-off", full_name: "Ivy Inactive", email: "off@sacs.test", branch_id: BRANCH, role: "employee", employee_status: "Inactive" },
+    { id: "u-sep", full_name: "Sam Separated", email: "sep@sacs.test", branch_id: BRANCH, role: "employee", employee_status: "Separated" },
+    { id: "u-awol", full_name: "Abe Awol", email: "awol@sacs.test", branch_id: BRANCH, role: "employee", employee_status: "AWOL" },
   );
   rpc.results.attendance_approved_leave = { data: [], error: null };
 
@@ -156,6 +160,20 @@ describe("Refused only for a real reason", () => {
     expect(response.status).toBe(403);
     expect(table("attendance_taps")).toHaveLength(0);
     expect(table("attendance_blocked_taps")[0]).toMatchObject({ employee_id: "u-off", reason: expect.stringMatching(/Inactive employee/) });
+  });
+
+  it("a separated employee is blocked (employment ended)", async () => {
+    const { response } = await tapAt("08:00:00", { code: "5555000033" });
+    expect(response.status).toBe(403);
+    expect(table("attendance_taps")).toHaveLength(0);
+    expect(table("attendance_logs")).toHaveLength(0);
+    expect(table("attendance_blocked_taps")[0]).toMatchObject({ employee_id: "u-sep", reason: expect.stringMatching(/Separated employee/) });
+  });
+
+  it("an AWOL employee's tap still counts (the case can close as returned to work)", async () => {
+    const { response, body } = await tapAt("08:00:00", { code: "5555000044" });
+    expect(response.status).toBe(200);
+    expect(body.tap).toBe("time_in");
   });
 
   it("another branch's card is blocked at this branch's terminal", async () => {

@@ -684,6 +684,13 @@ export async function POST(request) {
       return refuse({ refusedEmployee: employee, reason: `Inactive employee: ${employee.full_name}.`, status: 403, error: "This employee is inactive. The tap was not recorded." });
     }
 
+    // Separated (src/lib/awol/cases.js): employment has ended, though the
+    // account stays open until final pay is released and HR archives it.
+    // AWOL is not refused: a tap is how a case closes as "returned to work".
+    if (String(employee.employee_status || "").toLowerCase() === "separated") {
+      return refuse({ refusedEmployee: employee, reason: `Separated employee: ${employee.full_name}.`, status: 403, error: "This employee is no longer employed. The tap was not recorded." });
+    }
+
     // Correcting or recording a scan for someone in another branch is refused.
     const foreignBranch = denyForeignBranch(guard, employee.branch_id);
     if (foreignBranch) {
