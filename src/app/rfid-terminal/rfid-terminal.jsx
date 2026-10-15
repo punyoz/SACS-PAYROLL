@@ -29,6 +29,9 @@ const PENDING_MAX = 500;
 const LIGHT_MS = 2500;
 const MESSAGE_MS = 5000;
 const IDLE_TEXT = "Tap your RFID card";
+// A tap the server has not answered by then is saved and resent with its own
+// time; the server ignores the resend if the first one did get through.
+const TAP_TIMEOUT_MS = 10 * 1000;
 
 function readPending() {
   try {
@@ -178,6 +181,7 @@ export function RfidTerminal() {
   const sendTap = React.useCallback((code, offlineTappedAt) => fetch("/api/admin/attendance", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-sacs-kiosk": "1" },
+    ...(typeof AbortSignal !== "undefined" && AbortSignal.timeout ? { signal: AbortSignal.timeout(TAP_TIMEOUT_MS) } : {}),
     // Every tap is stored with the reader it came from (Tap History).
     body: JSON.stringify({
       rfid_code: code,
