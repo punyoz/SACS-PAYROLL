@@ -378,7 +378,7 @@ export function TenureProtectionPanel({ refreshKey }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <Tabs value={tab} onValueChange={setTab}>
+            <Tabs value={tab} onValueChange={setTab} className="min-w-0 max-w-full">
               <div className="-mx-1 overflow-x-auto px-1 pb-1">
                 <TabsList className="w-max">
                   <TabsTrigger value="meets">Meets tenure ({counts.meets})</TabsTrigger>
