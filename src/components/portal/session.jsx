@@ -3,7 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { AUTH_CONTEXT_KEY, ROLE_ROUTES, readAuthContext } from "@/app/login/auth-context";
-import { apiFetch, endServerSession, hardNavigate, requirePasswordChange } from "@/lib/portal/api";
+import { apiFetch, clearLocalSession, endServerSession, hardNavigate, replaceNavigate, requirePasswordChange } from "@/lib/portal/api";
 
 /**
  * The signed-in person, for a React portal. The same checks the legacy
@@ -27,6 +27,17 @@ const SessionContext = React.createContext(null);
 const HEARTBEAT_MS = 10000;
 const MAX_HISTORY = 30;
 
+/**
+ * Leave for /login with the server session ended first: /login sends a live
+ * session straight back to its portal (src/proxy.js), so it must be gone
+ * before the sign-in page is requested.
+ */
+async function leaveToLogin() {
+  clearLocalSession();
+  await endServerSession();
+  replaceNavigate("/login");
+}
+
 function persistContext(next) {
   try {
     if (next) localStorage.setItem(AUTH_CONTEXT_KEY, JSON.stringify(next));
@@ -47,7 +58,7 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
   React.useEffect(() => {
     let stored = readAuthContext();
     if (!stored || !stored.role) {
-      hardNavigate("/login");
+      leaveToLogin();
       return;
     }
     // The proxy already verified the cookie owns this portal; repair a stale
@@ -114,7 +125,7 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
       if (event.key !== AUTH_CONTEXT_KEY) return;
       const next = readAuthContext();
       if (!next) {
-        hardNavigate("/login");
+        leaveToLogin();
         return;
       }
       setCtx(next);
@@ -122,6 +133,27 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  // Restored from the back/forward cache (Back after signing out): re-check
+  // the sign-in before anything cached stays on screen.
+  React.useEffect(() => {
+    const onPageShow = (event) => {
+      if (!event.persisted) return;
+      if (!readAuthContext()) {
+        replaceNavigate("/login");
+        return;
+      }
+      fetch("/api/rbac/me", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .catch(() => null)
+        .then((data) => {
+          if (!data?.user) replaceNavigate("/login");
+          else if (data.user.role !== role) replaceNavigate(ROLE_ROUTES[data.user.role] || "/login");
+        });
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [role]);
 
   const updateContext = React.useCallback((patch) => {
     setCtx((current) => {
@@ -131,15 +163,14 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
     });
   }, []);
 
-  const logout = React.useCallback(() => {
-    endServerSession();
+  const logout = React.useCallback(async () => {
     persistContext(null);
     try {
       Object.keys(ROLE_ROUTES).forEach((r) => localStorage.removeItem(`sacs-active-page-${r}`));
     } catch {
       // private mode
     }
-    hardNavigate("/login");
+    await leaveToLogin();
   }, []);
 
   /** Toast + the bell's history (pushNotification, app.js). */

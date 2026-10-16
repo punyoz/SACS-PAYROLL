@@ -163,7 +163,7 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
       }
       saveAuthContext(result, result.role || "employee", result.profile?.email);
       navigating.current = true;
-      window.location.href = result.redirectTo;
+      window.location.replace(result.redirectTo);
     } catch {
       setError(NETWORK_ERROR);
     } finally {
@@ -295,7 +295,7 @@ function CodeStep({ maskedEmail, sentAt, resendAfter, onBack, onResent }) {
       saveAuthContext(result, result.role || "employee", result.profile?.email);
       navigating.current = true;
       setFeedback({ text: "Verified. Opening your portal...", ok: true });
-      window.location.href = result.redirectTo;
+      window.location.replace(result.redirectTo);
     } catch {
       setFeedback({ text: NETWORK_ERROR, ok: false });
     } finally {
@@ -496,9 +496,25 @@ export default function LoginScreen() {
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null)
       .then((me) => {
-        if (me?.user?.role === ctx.role) window.location.href = ROLE_ROUTES[ctx.role];
+        if (me?.user?.role === ctx.role) window.location.replace(ROLE_ROUTES[ctx.role]);
         else clearAuthContext();
       });
+  }, []);
+
+  // Restored from the back/forward cache while signed in: go to the portal.
+  React.useEffect(() => {
+    const onPageShow = (event) => {
+      if (!event.persisted) return;
+      fetch("/api/rbac/me", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then((me) => {
+          const home = ROLE_ROUTES[me?.user?.role];
+          if (home) window.location.replace(home);
+        });
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
   const onOtpRequired = React.useCallback(({ maskedEmail, resendAfter }) => {

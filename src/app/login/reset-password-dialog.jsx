@@ -199,7 +199,7 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
       if (result.redirectTo) {
         setFeedback({ text: "Password updated. Opening your account...", ok: true });
         saveAuthContext(result, result.role || "employee", result.profile?.email);
-        window.location.href = result.redirectTo;
+        window.location.replace(result.redirectTo);
         return;
       }
       toast.success(result.message || "Your password has been reset.");
