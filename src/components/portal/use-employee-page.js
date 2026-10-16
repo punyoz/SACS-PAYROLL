@@ -39,8 +39,18 @@ export function useEmployeeRecordPage(current, setPage, recordPage, backPage) {
     if (current !== recordPage || employeeId) return;
     const stored = storedEmployeeId();
     if (stored) setEmployeeId(stored);
-    else setPage(backPage);
+    else setPage(backPage, { replace: true });
   }, [current, employeeId, recordPage, backPage, setPage]);
+
+  // Back / Forward onto a record entry: show the employee that entry names.
+  React.useEffect(() => {
+    const onPopState = () => {
+      const id = new URLSearchParams(window.location.search).get("employee");
+      if (id) setEmployeeId(id);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const openEmployee = React.useCallback((id) => {
     const value = String(id || "");

@@ -224,26 +224,51 @@ export function usePortalSession() {
 export function usePersistedPage(role, pages, fallback) {
   const key = `sacs-active-page-${role}`;
   const [page, setPageState] = React.useState(fallback);
+  const pageRef = React.useRef(fallback);
+
+  const urlWithPage = (next) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set("page", next);
+    return `${window.location.pathname}?${params.toString()}`;
+  };
 
   React.useEffect(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("page");
       const saved = fromUrl || localStorage.getItem(key);
-      if (saved && pages.includes(saved)) setPageState(saved);
+      if (saved && pages.includes(saved)) {
+        setPageState(saved);
+        pageRef.current = saved;
+      }
     } catch {
       // storage blocked
     }
+    // Stamp the first entry with its page, so Back can return to it.
+    window.history.replaceState(window.history.state, "", urlWithPage(pageRef.current));
+
+    // Back / Forward between portal pages: show the page the entry names.
+    const onPopState = () => {
+      const fromUrl = new URLSearchParams(window.location.search).get("page");
+      const next = fromUrl && pages.includes(fromUrl) ? fromUrl : fallback;
+      pageRef.current = next;
+      setPageState(next);
+      try { localStorage.setItem(key, next); } catch { /* storage blocked */ }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
     // pages is a constant list per portal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const setPage = React.useCallback((next) => {
+  /** A new page is a new history entry; { replace: true } for redirects. */
+  const setPage = React.useCallback((next, { replace = false } = {}) => {
+    const same = next === pageRef.current;
+    pageRef.current = next;
     setPageState(next);
     try { localStorage.setItem(key, next); } catch { /* storage blocked */ }
     // ?page= keeps a refresh or a shared link on the same page.
-    const params = new URLSearchParams(window.location.search);
-    params.set("page", next);
-    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
+    if (replace || same) window.history.replaceState(window.history.state, "", urlWithPage(next));
+    else window.history.pushState(null, "", urlWithPage(next));
     window.scrollTo?.({ top: 0 });
   }, [key]);
 
