@@ -32,17 +32,31 @@ export function hardNavigate(url) {
   window.location.href = url;
 }
 
+/**
+ * hardNavigate without a history entry: sign-in and sign-out use it so Back
+ * never returns to /login after signing in, nor to a portal after signing out.
+ */
+export function replaceNavigate(url) {
+  window.location.replace(url);
+}
+
+/** Drop every browser-side copy of the sign-in (context, saved pages, tab storage). */
+export function clearLocalSession() {
+  try {
+    localStorage.removeItem(AUTH_CONTEXT_KEY);
+    ROLES.forEach((role) => localStorage.removeItem(`sacs-active-page-${role}`));
+    sessionStorage.clear();
+  } catch {
+    // private mode
+  }
+}
+
 /** Clear the browser's copy of the sign-in and go to /login (signOutLocally, rbac.js). */
 export function signOutLocally(reason) {
   if (redirecting) return;
   redirecting = true;
-  try {
-    localStorage.removeItem(AUTH_CONTEXT_KEY);
-    ROLES.forEach((role) => localStorage.removeItem(`sacs-active-page-${role}`));
-  } catch {
-    // private mode
-  }
-  hardNavigate(`/login${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`);
+  clearLocalSession();
+  replaceNavigate(`/login${reason ? `?reason=${encodeURIComponent(reason)}` : ""}`);
 }
 
 /** Mark the stored context as gated and reload into the change-password screen. */

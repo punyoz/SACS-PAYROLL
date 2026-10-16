@@ -49,6 +49,7 @@ export const config = {
     "/accountant/:path*",
     "/employee/:path*",
     "/rfid-terminal/:path*",
+    "/login",
   ],
 };
 
@@ -337,7 +338,32 @@ function isCrossSiteApiRequest(request, pathname) {
   return String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "cross-site";
 }
 
+/**
+ * Signed-in pages and API replies must never be served from the browser's
+ * cache, so Back after a sign-out cannot show account data.
+ */
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+  Pragma: "no-cache",
+  Expires: "0",
+};
+
+/** Live event streams keep "no-transform" so compression cannot buffer them. */
+const STREAM_PATHS = ["/api/hr/payroll-runs/stream"];
+
+function withNoStore(response, pathname) {
+  for (const [key, value] of Object.entries(NO_STORE_HEADERS)) response.headers.set(key, value);
+  if (STREAM_PATHS.includes(pathname)) {
+    response.headers.set("Cache-Control", `${NO_STORE_HEADERS["Cache-Control"]}, no-transform`);
+  }
+  return response;
+}
+
 export async function proxy(request) {
+  return withNoStore(await route(request), request.nextUrl.pathname);
+}
+
+async function route(request) {
   const { pathname } = request.nextUrl;
 
   if (isCrossSiteApiRequest(request, pathname)) {
@@ -349,6 +375,17 @@ export async function proxy(request) {
   }
 
   const session = readSession(request);
+
+  // ── Sign-in page (guest only) ──
+  // A live session goes straight to its own portal, so Back, a bookmark or a
+  // typed /login never shows the sign-in form to someone already signed in.
+  if (pathname === "/login") {
+    if (!session || !isKnownRole(session.role) || !ROLE_HOME[session.role]) {
+      return NextResponse.next();
+    }
+    if (await sessionRejection(session)) return clearSession(NextResponse.next());
+    return NextResponse.redirect(new URL(ROLE_HOME[session.role], request.url));
+  }
 
   // ── RFID Terminal (Admin / Super Admin kiosk page) ──
   if (pathname === "/rfid-terminal" || pathname.startsWith("/rfid-terminal/")) {
