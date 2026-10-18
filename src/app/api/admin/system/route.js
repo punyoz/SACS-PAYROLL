@@ -132,6 +132,12 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "Employee id is required." }, { status: 400 });
     }
 
+    // The RFID terminal keeps only the digits a reader types, so a UID with
+    // letters or spaces could be saved but never matched at the kiosk.
+    if (rfidUid && !/^\d{1,16}$/.test(rfidUid)) {
+      return NextResponse.json({ error: "The RFID UID must be the card's number: digits only, up to 16." }, { status: 400 });
+    }
+
     const supabase = getAdminClient();
     const userResult = await getTrustedUserById(supabase, id);
     if (userResult.error || !userResult.data?.user) {
