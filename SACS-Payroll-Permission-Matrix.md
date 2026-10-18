@@ -39,8 +39,8 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | 10 | Process Payroll | V (oversight/approval only) | — | — | F (own branch) | — |
 | 10b | Payroll Approval (each branch's run per cutoff) | V (all branches) | — | P — view all branches, approve / reject Pending runs; never edits a figure, never approves a run it processed | P — submits / resubmits its branch's run; views its runs; never approves | Sees own payslip only once the run is Approved |
 | 10a | Payroll approvals (Approvals page) | V | P — view + approve/reject only (own branch): refused-consent loan decisions and missed-month subsidy adjustments. No other payroll edits | P — recommends refused-consent loan decisions | P — requests subsidy adjustments; cannot approve own request | — |
-| 11 | Payroll Records | F (all branches) | V (own branch) | — | F (own branch) | — |
-| 12 | Payslips | F (view/reissue, all branches) | V (own branch) | — | F (generate, own branch) | V (own payslip only) |
+| 11 | Payroll Records | F (all branches) | V (own branch) | V (all branches, read-only) | F (own branch) | — |
+| 12 | Payslips | F (view/reissue, all branches) | V (own branch) | V (all branches, read-only) | F (generate, own branch) | V (own payslip only) |
 | 13 | Payroll Monitoring | F (all branches) | V (own branch) | — | F (own branch) | — |
 | **SYSTEM** |
 | 14 | System Maintenance (feature toggles, general settings) | F — exclusive | — | — | — | — |

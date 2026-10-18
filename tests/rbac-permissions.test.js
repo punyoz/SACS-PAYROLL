@@ -247,9 +247,13 @@ describe("Branch scoping", () => {
     for (const [module, entry] of Object.entries(ROLE_PERMISSIONS.hr)) {
       expect(entry.scope, `hr.${module}`).not.toBe("branch");
     }
-    // Payroll stays out of reach however far HR's other modules go.
-    for (const moduleName of ["process_payroll", "payroll_records", "payslips", "payroll_monitoring"]) {
+    // HR never processes payroll; it views processed payslips read-only
+    // (20261018010000_hr_view_payroll_records_payslips.sql).
+    for (const moduleName of ["process_payroll", "payroll_monitoring"]) {
       expect(scopeFor("hr", moduleName), moduleName).toBe("none");
+    }
+    for (const moduleName of ["payroll_records", "payslips"]) {
+      expect(ROLE_PERMISSIONS.hr[moduleName], moduleName).toEqual({ scope: "all", actions: ["read"] });
     }
   });
 
@@ -562,13 +566,16 @@ describe("Matrix stays in step with the SQL seed", () => {
       "supabase/migrations/20261013010000_employee_schedules_cutoffs_early_bird.sql",
       "supabase/migrations/20261014010000_payroll_run_approval.sql",
       "supabase/migrations/20261015010000_tenure_pay_protection.sql",
+      "supabase/migrations/20261018010000_hr_view_payroll_records_payslips.sql",
     ].map((file) => readFileSync(file, "utf8")).join("\n");
   });
 
+  // The latest migration's row wins: files are listed oldest first.
   const seedRow = (role, moduleName) => {
-    const match = new RegExp(
+    const match = [...sql.matchAll(new RegExp(
       String.raw`\('${role}',\s*'${moduleName}',\s*'(\w+)',\s*(true|false),\s*(true|false),\s*(true|false),\s*(true|false)\)`,
-    ).exec(sql);
+      "g",
+    ))].at(-1);
     if (!match) return null;
     const [, scope, c, r, u, d] = match;
     const actions = [["create", c], ["read", r], ["update", u], ["delete", d]]

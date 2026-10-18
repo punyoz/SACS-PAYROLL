@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -21,6 +21,7 @@ import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
 import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 import { usePendingRunCount } from "@/components/portal/use-live-payroll-runs";
 import { PayrollApprovalPage } from "./payroll-approval-page";
+import { PayrollRecordsPage } from "./payroll-records-page";
 import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 
 // Charts (recharts) load with these pages, not with the portal.
@@ -57,7 +58,13 @@ const NAV = [
       { id: "hr-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
     ],
   },
-  { section: "Payroll", items: [{ id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" }] },
+  {
+    section: "Payroll",
+    items: [
+      { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
+      { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
+    ],
+  },
   { section: "Reports", items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
   { section: "Account", items: [{ id: "hr-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
@@ -73,6 +80,7 @@ const TITLES = {
   "hr-attendance": "Attendance Monitoring",
   "hr-schedules": "Work Schedules",
   "hr-payroll-approval": "Payroll Approval",
+  "hr-payroll-records": "Payroll Records",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
   "hr-awol": "AWOL Cases",
@@ -93,6 +101,7 @@ const DESCRIPTIONS = {
   "hr-awol": "Unexcused absences flagged by the nightly check: confirm, send the notices, and separate or close each case.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
+  "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
   "hr-profile": null,
 };
 
@@ -140,6 +149,7 @@ function HrScreens() {
         {current === "hr-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
+        {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
         {current === "hr-schedules" ? (
           <div className="flex flex-col gap-4">
             <WorkSchedulesPanel refreshKey={refreshKey} />

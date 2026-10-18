@@ -181,7 +181,8 @@ function Classic({ payslip }) {
   );
 }
 
-function PayslipDocument({ payslip }) {
+/** The payslip itself; also shown read-only on HR → Payroll Records. */
+export function PayslipDocument({ payslip }) {
   const draft = payslip.status === "draft";
   const g = payslip.generation || null;
   const notes = [];
