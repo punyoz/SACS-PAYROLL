@@ -6,7 +6,7 @@
  *
  *   flagged ──confirm──► confirmed ──1st notice──► first_notice
  *     ──2nd notice──► second_notice ──HR separates──► closed (separated)
- *   for_decision (older cases sent to the Admin) ──HR separates──► closed (separated)
+ *   for_decision (cases sent to the Admin before HR decided) ──HR separates──► closed (separated)
  *   any open stage ──close──► closed (false_alarm | returned | excused_by_leave)
  *
  * Confirming sets the employee to AWOL (the database then holds pay);
@@ -41,9 +41,6 @@ export const TRANSITIONS = Object.freeze({
   confirm: { from: ["flagged"], to: "confirmed" },
   first_notice: { from: ["confirmed"], to: "first_notice" },
   second_notice: { from: ["first_notice"], to: "second_notice" },
-  recommend: { from: ["second_notice"], to: "for_decision" },
-  approve_separation: { from: ["for_decision"], to: "closed" },
-  return_to_hr: { from: ["for_decision"], to: "second_notice" },
   // HR's own decision after both notices (Notice of Decision served).
   separate: { from: ["second_notice", "for_decision"], to: "closed" },
   close: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: "closed" },

@@ -10,13 +10,11 @@
  *          first_notice   { sent_on, reply_by }          Return-to-Work Order + Notice to Explain
  *          second_notice  { sent_on, reply_by, conference_on }
  *          record_reply   { employee_reply }
- *          recommend      { recommendation }             → waits for the branch Admin (no longer offered on screen)
  *          separate       { separation_effective, grounds } → Separated; HR decides, no Admin approval
  *          close          { outcome: false_alarm | returned | excused_by_leave,
  *                           returned_on, leave_request_id, note } → Active, pay released
  *
- * Cases recommended before HR decided separations can still be decided by
- * the Admin on /api/admin/approvals, or by HR here with "separate".
+ * HR decides every case; the Admin has no approval step.
  */
 
 import { NextResponse } from "next/server";
@@ -83,7 +81,6 @@ export async function GET(request) {
       summary: {
         open: cases.filter((c) => c.open).length,
         flagged: cases.filter((c) => c.stage === "flagged").length,
-        waiting_admin: cases.filter((c) => c.stage === "for_decision").length,
         for_decision: cases.filter((c) => c.stage === "second_notice" || c.stage === "for_decision").length,
         held: staff.filter((person) => person.payroll_hold).length,
       },
@@ -136,10 +133,10 @@ export async function PATCH(request) {
   try {
     const guard = await requirePermission(request, "awol_cases", "update");
     if (guard.denied) return guard.denied;
-    if (guard.role === "admin") return NextResponse.json({ error: "The Admin decides on the Approvals page." }, { status: 403 });
+    if (guard.role === "admin") return NextResponse.json({ error: "HR manages AWOL cases." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const action = normalizeText(body.action);
-    if (!TRANSITIONS[action] || action === "approve_separation" || action === "return_to_hr") {
+    if (!TRANSITIONS[action]) {
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }
     const supabase = getAdminClient();
@@ -188,11 +185,6 @@ export async function PATCH(request) {
       if (reply.length < 3) return NextResponse.json({ error: "Write what the employee said." }, { status: 400 });
       patch = { employee_reply: reply };
       description = `Reply recorded for ${personLabel(person)}'s AWOL case.`;
-    } else if (action === "recommend") {
-      const text = normalizeText(body.recommendation).slice(0, 2000);
-      if (text.length < 10) return NextResponse.json({ error: "Explain the recommendation (at least 10 characters)." }, { status: 400 });
-      patch = { stage: "for_decision", recommendation: text, recommended_at: now, recommended_by: by.id, recommended_by_name: by.name };
-      description = `HR recommends separating ${personLabel(person)} (abandonment); sent to the branch Admin.`;
     } else if (action === "separate") {
       const grounds = normalizeText(body.grounds).slice(0, 2000);
       if (grounds.length < 10) return NextResponse.json({ error: "State the grounds for separation (at least 10 characters)." }, { status: 400 });

@@ -2,9 +2,9 @@
  * Approvals (SACS-Payroll-Permission-Matrix.md row 10a;
  * docs/payroll-schedule-loans-awol.md §5, §6.7, §6.8). One queue, by role:
  *
- *   Admin (own branch) — approve / return AWOL separations; approve the
- *     refused-consent loan decision HR recommended; approve / reject
- *     missed-month subsidy adjustments. No other payroll edits.
+ *   Admin (own branch) — approve the refused-consent loan decision HR
+ *     recommended; approve / reject missed-month subsidy adjustments. No
+ *     other payroll edits. (AWOL separations are HR's: /api/hr/awol-cases.)
  *   HR (all branches) — recommend a decision for a refused-consent excess
  *     subsidy advance.
  *   Accountant (own branch) — request a missed-month subsidy adjustment
@@ -14,9 +14,7 @@
  *   GET
  *   POST   { action: "request_adjustment", subsidy_balance_id, months_missed,
  *            months_label, amount, reason }                       Accountant
- *   PATCH  { action: "decide_awol", case_id, decision: approve | return,
- *            separation_effective, note }                         Admin
- *          { action: "recommend_loan_decision", loan_id,
+ *   PATCH  { action: "recommend_loan_decision", loan_id,
  *            decision: offset_next_subsidy | waive | final_pay | collect, reason }  HR
  *          { action: "approve_loan_decision", loan_id, note }     Admin
  *          { action: "decide_adjustment", adjustment_id, decision: approve | reject, note }  Admin
@@ -27,13 +25,10 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
-import { can } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
-import { manilaDateKey } from "@/lib/payroll/periods";
 import { roundPeso } from "@/lib/payroll/money";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
-import { isDateKey, setEmployeeStatus, shapeCase } from "@/lib/awol/cases";
 
 const peso = (value) => roundPeso(value);
 const NOT_READY = "Approvals are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
@@ -65,17 +60,15 @@ export async function GET(request) {
     const byId = new Map(staff.map((person) => [person.id, person]));
     const ids = staff.map((person) => person.id);
     const role = guard.role;
-    const empty = { awol: [], loan_decisions: [], adjustments: [], balances: [] };
+    const empty = { loan_decisions: [], adjustments: [], balances: [] };
     if (!ids.length) return NextResponse.json({ available: true, role, ...empty });
 
-    const [cases, loans, adjustments] = await Promise.all([
-      role === "accountant" ? { data: [], error: null }
-        : supabase.from("employee_awol_cases").select("*").in("employee_id", ids).eq("stage", "for_decision"),
+    const [loans, adjustments] = await Promise.all([
       supabase.from("payroll_loans").select("*").in("employee_id", ids).eq("awaiting_decision", true),
       fetchAllRows(() => supabase.from("payroll_subsidy_adjustments").select("*").in("employee_id", ids)
         .order("requested_at", { ascending: false }).order("id", { ascending: true })),
     ]);
-    if (cases.error || loans.error || adjustments.error) return NextResponse.json({ available: false, error: NOT_READY, ...empty });
+    if (loans.error || adjustments.error) return NextResponse.json({ available: false, error: NOT_READY, ...empty });
 
     const balanceIds = [...new Set([
       ...(loans.data || []).map((l) => l.subsidy_balance_id),
@@ -100,7 +93,6 @@ export async function GET(request) {
     return NextResponse.json({
       available: true,
       role,
-      awol: (cases.data || []).map((row) => shapeCase(row, byId.get(row.employee_id))),
       loan_decisions: (loans.data || []).map((loan) => ({
         ...loan,
         employee_name: name(loan.employee_id),
@@ -177,45 +169,6 @@ export async function PATCH(request) {
     const inReach = (id) => staff.find((p) => p.id === id) || null;
     const now = new Date().toISOString();
     const note = normalizeText(body.note).slice(0, 1000);
-
-    if (action === "decide_awol") {
-      if (guard.role !== "admin" || !can(guard.role, "awol_cases", "update")) return NextResponse.json({ error: "Only the branch Admin decides AWOL separations." }, { status: 403 });
-      const found = await supabase.from("employee_awol_cases").select("*").eq("id", normalizeText(body.case_id)).maybeSingle();
-      if (found.error) return NextResponse.json({ error: NOT_READY }, { status: 503 });
-      const row = found.data;
-      const person = row ? inReach(row.employee_id) : null;
-      if (!row || !person) return NextResponse.json({ error: "Case not found in your branch." }, { status: 404 });
-      if (row.stage !== "for_decision") return NextResponse.json({ error: "This case is not waiting for a decision." }, { status: 409 });
-
-      if (normalizeText(body.decision) === "return") {
-        if (note.length < 5) return NextResponse.json({ error: "Tell HR what is missing (at least 5 characters)." }, { status: 400 });
-        const result = await supabase.from("employee_awol_cases").update({
-          stage: "second_notice", notes: [row.notes, `Returned by Admin: ${note}`].filter(Boolean).join("\n").slice(0, 1000), updated_at: now,
-        }).eq("id", row.id);
-        if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
-        await appendAuditLog({ actor: guard, module: "admin", action: "awol_return", entity_type: "employee_awol_case", entity_id: row.id, status: "success", source: "api",
-          description: `AWOL recommendation for ${personLabel(person)} returned to HR: ${note}`, metadata: { note } });
-        return NextResponse.json({ success: true });
-      }
-
-      const effective = normalizeText(body.separation_effective, manilaDateKey());
-      if (!isDateKey(effective) || effective < row.first_absent_on) return NextResponse.json({ error: "Choose the separation date (on or after the first absence)." }, { status: 400 });
-      const statusError = await setEmployeeStatus(supabase, {
-        employeeId: person.id, status: "Separated", caseId: row.id, effectiveOn: effective, actor: guard,
-        reason: `Separated (abandonment) — Notice of Decision${note ? `: ${note}` : ""}`,
-        extra: { separated_on: effective, separation_reason: "AWOL / abandonment" },
-      });
-      if (statusError) return NextResponse.json({ error: sanitizeError(statusError) }, { status: 500 });
-      const result = await supabase.from("employee_awol_cases").update({
-        stage: "closed", outcome: "separated", separation_effective: effective,
-        decided_at: now, decided_by: guard.userId || null, decided_by_name: actorName(guard), updated_at: now,
-      }).eq("id", row.id);
-      if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
-      await appendAuditLog({ actor: guard, module: "admin", action: "awol_separate", entity_type: "employee_awol_case", entity_id: row.id, status: "success", source: "api",
-        description: `${personLabel(person)} separated effective ${effective} (AWOL). Paid only through final pay (Accountant → Final Pay, within 30 days).`,
-        metadata: { separation_effective: effective, note: note || null } });
-      return NextResponse.json({ success: true });
-    }
 
     if (action === "recommend_loan_decision" || action === "approve_loan_decision") {
       const found = await supabase.from("payroll_loans").select("*").eq("id", normalizeText(body.loan_id)).maybeSingle();

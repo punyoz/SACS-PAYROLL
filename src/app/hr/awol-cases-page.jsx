@@ -89,7 +89,6 @@ export function AwolCasesPage({ refreshKey }) {
         if (action === "first_notice" || action === "second_notice") Object.assign(body, { sent_on: input.sent_on, reply_by: input.reply_by });
         if (action === "second_notice") body.conference_on = input.conference_on;
         if (action === "record_reply") body.employee_reply = input.text;
-        if (action === "recommend") body.recommendation = input.text;
         if (action === "separate") Object.assign(body, { separation_effective: input.separation_effective, grounds: input.text });
         if (action === "close") Object.assign(body, { outcome: input.outcome, returned_on: input.returned_on, note: input.note });
         await fetchJson("/api/hr/awol-cases", jsonBody("PATCH", body));
@@ -98,7 +97,6 @@ export function AwolCasesPage({ refreshKey }) {
           first_notice: ["1st Notice Recorded", `Reply due ${dateLabel(input.reply_by)}.`],
           second_notice: ["2nd Notice Recorded", `Reply due ${dateLabel(input.reply_by)}.`],
           record_reply: ["Reply Recorded", ""],
-          recommend: ["Sent to the Admin", "The branch Admin decides on the Approvals page."],
           separate: ["Employee Separated", `Effective ${dateLabel(input.separation_effective)}. Paid only through final pay.`],
           close: ["Case Closed", "Status Active; pay released. Held payslips need a Super Admin override."],
         };
@@ -141,7 +139,6 @@ export function AwolCasesPage({ refreshKey }) {
     first_notice: ["1st notice", "Return-to-Work Order + Notice to Explain, by email and courier to the last known address."],
     second_notice: ["2nd notice", "Final Return-to-Work Order and invitation to an administrative conference."],
     record_reply: ["Employee's reply", "Write what the employee said or submitted."],
-    recommend: ["Recommend separation", "Explain the grounds. The branch Admin approves or returns it on the Approvals page."],
     separate: ["Separate employee", "Notice of Decision: status becomes Separated and pay settles only through final pay. This cannot be undone here."],
     close: ["Close the case", "The employee goes back to Active and pay is released."],
   };
@@ -217,8 +214,8 @@ export function AwolCasesPage({ refreshKey }) {
                 {dialog.action === "separate" ? (
                   <div className="sm:col-span-2">{fieldFor("effective", "Separation effective", <DatePicker id="hr-awol-effective" value={input.separation_effective} onChange={(v) => setInput((c) => ({ ...c, separation_effective: v }))} />)}</div>
                 ) : null}
-                {["record_reply", "recommend", "separate"].includes(dialog.action) ? (
-                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "recommend" ? "Recommendation" : dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={2000} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
+                {["record_reply", "separate"].includes(dialog.action) ? (
+                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={2000} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
                 ) : null}
                 {["open", "confirm", "close"].includes(dialog.action) ? (
                   <div className="sm:col-span-2">{fieldFor("note", dialog.action === "close" ? "Why it is closed" : "Note", <Input id="hr-awol-note" maxLength={1000} placeholder={dialog.action === "confirm" ? "e.g. Called Nov 12 and the emergency contact; no answer" : ""} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)}</div>

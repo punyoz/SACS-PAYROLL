@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckIcon, ClipboardCheckIcon, GiftIcon, HandCoinsIcon, Loader2Icon, RefreshCwIcon, UndoIcon, UserXIcon, XIcon } from "lucide-react";
+import { CheckIcon, GiftIcon, HandCoinsIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -10,18 +10,16 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
-import { DatePicker } from "@/components/portal/date-picker";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { manilaDateKey } from "@/lib/portal/format";
-import { dateLabel, money } from "@/lib/portal/payroll-preview";
+import { money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 
 /*
  * Approvals (/api/admin/approvals; SACS-Payroll-Permission-Matrix.md row 10a).
- * One page, three queues; what each role may do comes from the API:
- *   AWOL separations      Admin approves or returns to HR
+ * One page, two queues; what each role may do comes from the API
+ * (AWOL separations are decided by HR on its AWOL Cases page):
  *   Excess subsidy advances (consent refused)  HR recommends, Admin approves
  *   Missed-month subsidy adjustments  Accountant requests, Admin approves / rejects
  */
@@ -55,7 +53,7 @@ export function ApprovalsPage({ refreshKey }) {
   function open(kind, row, preset = {}) {
     setDialog({ kind, row });
     setError("");
-    setInput({ note: "", reason: "", decision: "offset_next_subsidy", separation_effective: manilaDateKey(), balance: data?.balances?.[0]?.id || "", months: "1", label: "", amount: "", ...preset });
+    setInput({ note: "", reason: "", decision: "offset_next_subsidy", balance: data?.balances?.[0]?.id || "", months: "1", label: "", amount: "", ...preset });
   }
 
   async function submit() {
@@ -64,10 +62,7 @@ export function ApprovalsPage({ refreshKey }) {
     setError("");
     try {
       let message = ["Saved", ""];
-      if (kind === "separate" || kind === "return") {
-        await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "decide_awol", case_id: row.id, decision: kind === "separate" ? "approve" : "return", separation_effective: input.separation_effective, note: input.note }));
-        message = kind === "separate" ? ["Separation Approved", "Paid only through final pay (Accountant)."] : ["Returned to HR", ""];
-      } else if (kind === "recommend") {
+      if (kind === "recommend") {
         await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "recommend_loan_decision", loan_id: row.id, decision: input.decision, reason: input.reason }));
         message = ["Recommendation Sent", "The branch Admin approves it."];
       } else if (kind === "approve_loan") {
@@ -90,19 +85,6 @@ export function ApprovalsPage({ refreshKey }) {
       setBusy(false);
     }
   }
-
-  const awolColumns = [
-    { key: "employee_name", header: "Employee", cell: (c) => <div><p className="font-medium">{c.employee_name}</p><p className="text-xs text-muted-foreground">{c.employee_code}</p></div>, searchValue: (c) => c.employee_name },
-    { key: "since", header: "Absent since", cell: (c) => dateLabel(c.first_absent_on) },
-    { key: "notices", header: "Notices", cell: (c) => <p className="text-xs">{c.first_notice_sent_on ? `1st ${dateLabel(c.first_notice_sent_on)}` : "—"}{c.second_notice_sent_on ? ` · 2nd ${dateLabel(c.second_notice_sent_on)}` : ""}{c.conference_on ? ` · conference ${dateLabel(c.conference_on)}` : ""}</p> },
-    { key: "rec", header: "HR recommendation", cell: (c) => <p className="max-w-72 text-xs whitespace-normal">{c.recommendation}<span className="block text-muted-foreground">— {c.recommended_by_name || "HR"}{c.employee_reply ? ` · Reply: ${c.employee_reply}` : " · No reply"}</span></p> },
-    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (c) => (can.decide ? (
-      <div className="flex justify-end gap-1.5">
-        <Button size="sm" variant="destructive" onClick={() => open("separate", c)}><CheckIcon aria-hidden="true" />Approve separation</Button>
-        <Button size="sm" variant="outline" onClick={() => open("return", c)}><UndoIcon aria-hidden="true" />Return</Button>
-      </div>
-    ) : null) },
-  ];
 
   const loanColumns = [
     { key: "employee_name", header: "Teacher", cell: (l) => <p className="font-medium">{l.employee_name}</p>, searchValue: (l) => l.employee_name },
@@ -130,8 +112,6 @@ export function ApprovalsPage({ refreshKey }) {
   ];
 
   const titles = {
-    separate: ["Approve separation", "Notice of Decision: the employee becomes Separated and is paid only through final pay (within 30 days)."],
-    return: ["Return to HR", "The case goes back to the 2nd-notice stage with your note."],
     recommend: ["Recommend a decision", "The teacher refused to sign for the excess advance. Nothing is deducted from salary meanwhile."],
     approve_loan: ["Approve HR's recommendation", "A waiver closes the advance now; the other decisions act at next year's payout, final pay, or outside payroll."],
     approve_adj: ["Approve the adjustment", "Paid once on the teacher's next 16–end payslip."],
@@ -146,22 +126,9 @@ export function ApprovalsPage({ refreshKey }) {
       {data?.role !== "accountant" ? (
         <Card className="min-w-0 shadow-xs">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><UserXIcon className="size-4" aria-hidden="true" />AWOL separations</CardTitle>
-            <CardDescription>HR sent both notices and recommends separation (abandonment).</CardDescription>
-            <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
-          </CardHeader>
-          <CardContent>
-            <DataTable columns={awolColumns} rows={data?.awol || []} loading={first} error={state.error} onRetry={load} pageSize={10}
-              searchPlaceholder="Search employee…" empty={{ title: "No separations waiting", icon: ClipboardCheckIcon }} caption="AWOL separations" minWidth={900} />
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {data?.role !== "accountant" ? (
-        <Card className="min-w-0 shadow-xs">
-          <CardHeader>
             <CardTitle className="flex items-center gap-2"><HandCoinsIcon className="size-4" aria-hidden="true" />Excess subsidy advances</CardTitle>
             <CardDescription>The teacher refused to sign for converting the excess to a salary deduction. HR recommends; the Admin approves.</CardDescription>
+            <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
           </CardHeader>
           <CardContent>
             <DataTable columns={loanColumns} rows={data?.loan_decisions || []} loading={first} error={state.error} onRetry={load} pageSize={10}
@@ -193,7 +160,6 @@ export function ApprovalsPage({ refreshKey }) {
                 <DialogDescription>{titles[dialog.kind][1]}</DialogDescription>
               </DialogHeader>
               <div className="grid gap-3">
-                {dialog.kind === "separate" ? fieldFor("eff", "Separation effective", <DatePicker id="apv-eff" value={input.separation_effective} onChange={(v) => setInput((c) => ({ ...c, separation_effective: v }))} />) : null}
                 {dialog.kind === "recommend" ? (
                   <>
                     {fieldFor("dec", "Decision", (
@@ -221,14 +187,14 @@ export function ApprovalsPage({ refreshKey }) {
                     {fieldFor("reason", "Reason", <Textarea id="apv-reason" rows={3} maxLength={1000} placeholder="e.g. License valid since May 2; verification delayed" value={input.reason} onChange={(e) => setInput((c) => ({ ...c, reason: e.target.value }))} />)}
                   </>
                 ) : null}
-                {["separate", "return", "approve_loan", "approve_adj", "reject_adj"].includes(dialog.kind)
-                  ? fieldFor("note", dialog.kind === "return" || dialog.kind === "reject_adj" ? "Reason" : "Note (optional)", <Input id="apv-note" maxLength={1000} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)
+                {["approve_loan", "approve_adj", "reject_adj"].includes(dialog.kind)
+                  ? fieldFor("note", dialog.kind === "reject_adj" ? "Reason" : "Note (optional)", <Input id="apv-note" maxLength={1000} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)
                   : null}
               </div>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-                <Button onClick={submit} disabled={busy} variant={["separate", "reject_adj"].includes(dialog.kind) ? "destructive" : "default"}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Confirm</Button>
+                <Button onClick={submit} disabled={busy} variant={dialog.kind === "reject_adj" ? "destructive" : "default"}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Confirm</Button>
               </DialogFooter>
             </>
           ) : null}
