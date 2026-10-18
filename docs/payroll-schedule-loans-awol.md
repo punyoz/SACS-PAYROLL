@@ -320,7 +320,7 @@ The system's job is to flag the case early, hold pay, and keep the paper trail.
 ### 5.1 Status flow
 
 ```
-Active ──(HR confirms)──► AWOL ──(Admin approves separation)──► Separated ──(final pay released, HR archives)──► Inactive
+Active ──(HR confirms)──► AWOL ──(HR decides separation)──► Separated ──(final pay released, HR archives)──► Inactive
    ▲                       │
    └──(returns / excused)──┘
 ```
@@ -347,8 +347,7 @@ A database trigger sets the hold whenever `employee_status` changes, so it can't
 | 3rd consecutive working day absent, with no leave filed | System (00:20 nightly) | Opens an AWOL case (`flagged`) and notifies HR and the branch Admin |
 | Next working day | **HR** | Calls the employee and the emergency contact. If unreachable: confirms the case, sets status to AWOL (hold on), and sends **1st notice**: Return-to-Work Order + Notice to Explain by email and courier to the last known address. Reply due in 5 calendar days |
 | No reply | **HR** | **2nd notice**: final Return-to-Work Order + invitation to an administrative conference. Reply due in 5 calendar days |
-| Conference held or missed | **HR** | Recommends an outcome with reasons |
-| Decision | **Admin** (branch) | Approves separation, or returns the case to HR. Notice of Decision served. Status becomes Separated |
+| Conference held or missed | **HR** | Decides the outcome with reasons (no Admin approval). Notice of Decision served. Status becomes Separated |
 | Within 30 days of separation | **Accountant** computes, **Admin** views | Final pay released after clearance (DOLE Labor Advisory 06-2020) |
 | Any time | **Super Admin** | Oversight, override to generate held payslips for a returned employee |
 

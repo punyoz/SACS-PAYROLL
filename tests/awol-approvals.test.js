@@ -128,6 +128,25 @@ describe("AWOL case flow", () => {
     expect(other.awol.map((c) => c.id)).toEqual(["case-far"]);
   });
 
+  it("HR separates after both notices, with no Admin approval", async () => {
+    await hr("PATCH", { case_id: "case-paolo", action: "confirm", note: "Unreachable" });
+    // Not before the 2nd notice.
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." })).status).toBe(409);
+    await hr("PATCH", { case_id: "case-paolo", action: "first_notice", sent_on: "2026-11-12" });
+    await hr("PATCH", { case_id: "case-paolo", action: "second_notice", sent_on: "2026-11-18" });
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "short" })).status).toBe(400);
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-11-01", grounds: "No reply to either notice." })).status).toBe(400);
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice; missed the conference." })).status).toBe(200);
+    expect(paolo()).toMatchObject({ employee_status: "Separated", separated_on: "2026-12-07" });
+    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", separation_effective: "2026-12-07", decided_by: "u-hr" });
+  });
+
+  it("HR can decide a case that was already sent to the Admin", async () => {
+    Object.assign(theCase(), { stage: "for_decision", recommendation: "Separate" });
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." })).status).toBe(200);
+    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", decided_by: "u-hr", recommendation: "Separate" });
+  });
+
   it("closing as returned sets the employee back to Active (pay released)", async () => {
     await hr("PATCH", { case_id: "case-paolo", action: "confirm", note: "Unreachable" });
     expect((await hr("PATCH", { case_id: "case-paolo", action: "close", outcome: "returned", note: "ok" })).status).toBe(400);
