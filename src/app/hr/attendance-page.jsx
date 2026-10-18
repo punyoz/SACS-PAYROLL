@@ -140,7 +140,7 @@ function SuspensionsCard({ onChanged, refreshKey }) {
         <CardAction><Button variant="outline" size="sm" onClick={load}><RefreshCwIcon aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <form onSubmit={add} noValidate className="grid items-start gap-3 md:grid-cols-[10rem_1fr_13rem_auto_auto]">
+        <form onSubmit={add} noValidate className="grid items-start gap-3 lg:grid-cols-[10rem_1fr_13rem_auto_auto]">
           <div className="space-y-2">
             <Label htmlFor="hr-susp-date">Date</Label>
             <DatePicker id="hr-susp-date" value={form.date} onChange={(v) => setForm((c) => ({ ...c, date: state.today && v < state.today ? state.today : v }))} aria-invalid={Boolean(errors.date) || undefined} />
@@ -168,8 +168,8 @@ function SuspensionsCard({ onChanged, refreshKey }) {
               <Input id="hr-susp-cutoff" type="time" value={form.cutoff} onChange={(e) => setForm((c) => ({ ...c, cutoff: e.target.value }))} aria-invalid={Boolean(errors.cutoff) || undefined} />
               {errors.cutoff ? <p className="text-sm text-destructive">{errors.cutoff}</p> : null}
             </div>
-          ) : <div className="hidden md:block" />}
-          <Button type="submit" className="md:mt-[1.375rem]" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Add suspension</Button>
+          ) : <div className="hidden lg:block" />}
+          <Button type="submit" className="lg:mt-[1.375rem]" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Add suspension</Button>
         </form>
         {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
         <DataTable
