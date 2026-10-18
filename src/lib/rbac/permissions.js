@@ -129,11 +129,12 @@ export const MODULES = {
   },
   payroll_records: {
     order: 11, label: "Payroll Records", section: "Payroll",
-    page: { accountant: "ac-records" },
+    page: { accountant: "ac-records", hr: "hr-payroll-records" },
   },
   payslips: {
     order: 12, label: "Payslips", section: "Payroll",
-    page: { accountant: "ac-payslips" },
+    // HR opens payslips from its Payroll Records page (read-only).
+    page: { accountant: "ac-payslips", hr: "hr-payroll-records" },
   },
   payroll_monitoring: {
     order: 13, label: "Payroll Monitoring", section: "Monitoring",
@@ -231,8 +232,8 @@ export const MODULES = {
   },
   // Payroll Approval (20261014010000): the Accountant submits each branch's
   // run for a cutoff; HR reviews every branch and approves or rejects; Super
-  // Admin views. HR sees the payroll only through these snapshots: it still
-  // has no payroll_records / payslips access and cannot change a figure.
+  // Admin views. HR also views processed payslips (payroll_records /
+  // payslips, read-only) but never changes a figure.
   payroll_run_approval: {
     order: 10.5, label: "Payroll Approval", section: "Payroll",
     page: { hr: "hr-payroll-approval" },
@@ -360,12 +361,12 @@ export const ROLE_PERMISSIONS = {
     leave_approval: full(SCOPE_ALL),
     rfid_devices: none(),
     process_payroll: none(),
-    // Matrix rows 11-12: HR has no payroll or payslips access. Revoked in the
-    // database by supabase/migrations/20260923051901_revoke_hr_payroll_records.sql and
-    // 20260923055345_revoke_hr_payslips.sql; kept in step here because
-    // src/lib/rbac/guard.js answers from this table, not from role_permissions.
-    payroll_records: none(),
-    payslips: none(),
+    // Matrix rows 11-12: HR views every branch's processed payslips, read-only
+    // (/api/hr/payroll-records). Restored in the database by
+    // supabase/migrations/20261018010000_hr_view_payroll_records_payslips.sql;
+    // kept in step here because src/lib/rbac/guard.js answers from this table.
+    payroll_records: view(SCOPE_ALL),
+    payslips: view(SCOPE_ALL),
     payroll_monitoring: none(),
     system_maintenance: none(),
     system_configuration: none(),

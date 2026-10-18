@@ -1,12 +1,12 @@
 /**
  * AWOL cases (docs/payroll-schedule-loans-awol.md §5; employee_awol_cases,
  * 20261009010000). The nightly job opens a case at 3 consecutive unexcused
- * working-day absences; HR confirms and sends the two notices; the branch
- * Admin decides separation (Approvals).
+ * working-day absences; HR confirms, sends the two notices and decides
+ * separation. No Admin approval is needed.
  *
  *   flagged ──confirm──► confirmed ──1st notice──► first_notice
- *     ──2nd notice──► second_notice ──recommend──► for_decision
- *     ──Admin approves──► closed (separated)   ──Admin returns──► second_notice
+ *     ──2nd notice──► second_notice ──HR separates──► closed (separated)
+ *   for_decision (cases sent to the Admin before HR decided) ──HR separates──► closed (separated)
  *   any open stage ──close──► closed (false_alarm | returned | excused_by_leave)
  *
  * Confirming sets the employee to AWOL (the database then holds pay);
@@ -25,7 +25,7 @@ export const STAGE_LABELS = Object.freeze({
   confirmed: "Confirmed AWOL",
   first_notice: "1st notice sent",
   second_notice: "2nd notice sent",
-  for_decision: "Waiting for Admin",
+  for_decision: "For HR decision",
   closed: "Closed",
 });
 export const OUTCOME_LABELS = Object.freeze({
@@ -41,9 +41,8 @@ export const TRANSITIONS = Object.freeze({
   confirm: { from: ["flagged"], to: "confirmed" },
   first_notice: { from: ["confirmed"], to: "first_notice" },
   second_notice: { from: ["first_notice"], to: "second_notice" },
-  recommend: { from: ["second_notice"], to: "for_decision" },
-  approve_separation: { from: ["for_decision"], to: "closed" },
-  return_to_hr: { from: ["for_decision"], to: "second_notice" },
+  // HR's own decision after both notices (Notice of Decision served).
+  separate: { from: ["second_notice", "for_decision"], to: "closed" },
   close: { from: ["flagged", "confirmed", "first_notice", "second_notice", "for_decision"], to: "closed" },
   record_reply: { from: ["confirmed", "first_notice", "second_notice", "for_decision"], to: null },
 });

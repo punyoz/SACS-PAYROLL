@@ -140,6 +140,9 @@ const API_MODULES = [
   // Accountant submits through process_payroll.
   ["/api/hr/payroll-runs", "payroll_run_approval"],
   ["/api/accountant/payroll-runs", "process_payroll"],
+  // Processed payslips, read-only (HR every branch; Admin its own). The route
+  // also requires "payslips" to open a single payslip.
+  ["/api/hr/payroll-records", "payroll_records"],
   // Tenure Pay Protection: policy, break dates, grants (HR, Admin, Super Admin).
   ["/api/hr/tenure-protection", "tenure_protection"],
   // The session's own stored notifications (every role).

@@ -94,38 +94,43 @@ describe("AWOL case flow", () => {
     expect(table("employee_status_changes")[0]).toMatchObject({ employee_id: PAOLO, old_status: "Active", new_status: "AWOL", awol_case_id: "case-paolo", changed_by: "u-hr" });
   });
 
-  it("notices need at least 5 days to reply; then recommend → Admin approves separation", async () => {
+  it("notices need at least 5 days to reply", async () => {
     await hr("PATCH", { case_id: "case-paolo", action: "confirm", note: "Unreachable" });
     expect((await hr("PATCH", { case_id: "case-paolo", action: "first_notice", sent_on: "2026-11-12", reply_by: "2026-11-14" })).status).toBe(400);
     expect((await hr("PATCH", { case_id: "case-paolo", action: "first_notice", sent_on: "2026-11-12" })).status).toBe(200);
     expect(theCase().first_notice_reply_by).toBe("2026-11-17");
     expect((await hr("PATCH", { case_id: "case-paolo", action: "second_notice", sent_on: "2026-11-18", conference_on: "2026-11-25" })).status).toBe(200);
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "recommend", recommendation: "short" })).status).toBe(400);
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "recommend", recommendation: "No reply to either notice; did not attend the Nov 25 conference." })).status).toBe(200);
-    expect(theCase().stage).toBe("for_decision");
-    // HR cannot decide; the Admin can.
-    expect((await hr("PATCH", { case_id: "case-paolo", action: "approve_separation" })).status).toBe(400);
-    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "approve", separation_effective: "2026-12-07" }, who.hr)).status).toBe(403);
-
-    const queue = await (await apv("GET", null, who.admin)).json();
-    expect(queue.awol.map((c) => c.id)).toEqual(["case-paolo"]);   // not the other branch's case
-    expect(queue.can.decide).toBe(true);
-    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "approve", separation_effective: "2026-12-07" }, who.admin)).status).toBe(200);
-    expect(paolo()).toMatchObject({ employee_status: "Separated", separated_on: "2026-12-07" });
-    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", separation_effective: "2026-12-07", decided_by: "u-adm" });
-  });
-
-  it("the Admin can return a recommendation to HR with a reason", async () => {
-    Object.assign(theCase(), { stage: "for_decision", recommendation: "Separate" });
-    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "return" }, who.admin)).status).toBe(400);
-    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "return", note: "Attach the courier receipt" }, who.admin)).status).toBe(200);
     expect(theCase().stage).toBe("second_notice");
   });
 
-  it("an Admin cannot decide another branch's case", async () => {
-    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-far", decision: "approve" }, who.admin)).status).toBe(404);
-    const other = await (await apv("GET", null, who.otherAdmin)).json();
-    expect(other.awol.map((c) => c.id)).toEqual(["case-far"]);
+  it("there is no Admin approval step: no recommend, no Admin decision, no Admin queue", async () => {
+    Object.assign(theCase(), { stage: "second_notice" });
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "recommend", recommendation: "No reply to either notice; did not attend the conference." })).status).toBe(400);
+    expect((await call(awol.PATCH, "/api/hr/awol-cases", "PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." }, who.admin)).status).toBe(403);
+    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "approve", separation_effective: "2026-12-07" }, who.admin)).status).toBe(400);
+    const queue = await (await apv("GET", null, who.admin)).json();
+    expect(queue.awol).toBeUndefined();
+    expect(theCase().stage).toBe("second_notice");
+    expect(paolo().employee_status).toBe("Active");
+  });
+
+  it("HR separates after both notices, with no Admin approval", async () => {
+    await hr("PATCH", { case_id: "case-paolo", action: "confirm", note: "Unreachable" });
+    // Not before the 2nd notice.
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." })).status).toBe(409);
+    await hr("PATCH", { case_id: "case-paolo", action: "first_notice", sent_on: "2026-11-12" });
+    await hr("PATCH", { case_id: "case-paolo", action: "second_notice", sent_on: "2026-11-18" });
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "short" })).status).toBe(400);
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-11-01", grounds: "No reply to either notice." })).status).toBe(400);
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice; missed the conference." })).status).toBe(200);
+    expect(paolo()).toMatchObject({ employee_status: "Separated", separated_on: "2026-12-07" });
+    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", separation_effective: "2026-12-07", decided_by: "u-hr" });
+  });
+
+  it("HR can decide a case that was already sent to the Admin", async () => {
+    Object.assign(theCase(), { stage: "for_decision", recommendation: "Separate" });
+    expect((await hr("PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." })).status).toBe(200);
+    expect(theCase()).toMatchObject({ stage: "closed", outcome: "separated", decided_by: "u-hr", recommendation: "Separate" });
   });
 
   it("closing as returned sets the employee back to Active (pay released)", async () => {
@@ -184,7 +189,6 @@ describe("Approvals: excess subsidy advances and adjustments", () => {
     expect(asHr.adjustments).toEqual([]);
     expect(asHr.can).toMatchObject({ recommend: true, decide: false });
     const asAcct = await (await apv("GET", null, who.accountant)).json();
-    expect(asAcct.awol).toEqual([]);
     expect(asAcct.can.request).toBe(true);
     expect(asAcct.balances.map((b) => b.id)).toEqual(["bal-ana"]);
   });

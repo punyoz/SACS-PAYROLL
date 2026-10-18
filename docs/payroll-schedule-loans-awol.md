@@ -9,8 +9,9 @@ Status (October 10, 2026): **built, applied to live, not yet committed or deploy
   `payroll_cash_advances` table was empty, so the move script had nothing to move.
 - **Stage 3 (code):** on branch `feat/payslip-schedule-loans-awol-subsidy`. The
   actual file list differs slightly from §11. Admin uses one combined Approvals page
-  (`src/components/portal/approvals-page.jsx`) instead of a separate AWOL decisions
-  page, and the settings APIs live under `src/app/api/admin/`. Payslips (PDF, employee
+  (`src/components/portal/approvals-page.jsx`) for loan decisions and subsidy
+  adjustments; AWOL separations are decided by HR on its AWOL Cases page (no Admin
+  approval, since 2026-10-18), and the settings APIs live under `src/app/api/admin/`. Payslips (PDF, employee
   view, deduction explanation) and the Accountant preview show loan repayments and the
   licensed-teacher subsidy.
 - **Before go-live:** deploy the branch before the old rule opens Oct 1–15 generation
@@ -320,7 +321,7 @@ The system's job is to flag the case early, hold pay, and keep the paper trail.
 ### 5.1 Status flow
 
 ```
-Active ──(HR confirms)──► AWOL ──(Admin approves separation)──► Separated ──(final pay released, HR archives)──► Inactive
+Active ──(HR confirms)──► AWOL ──(HR decides separation)──► Separated ──(final pay released, HR archives)──► Inactive
    ▲                       │
    └──(returns / excused)──┘
 ```
@@ -347,8 +348,7 @@ A database trigger sets the hold whenever `employee_status` changes, so it can't
 | 3rd consecutive working day absent, with no leave filed | System (00:20 nightly) | Opens an AWOL case (`flagged`) and notifies HR and the branch Admin |
 | Next working day | **HR** | Calls the employee and the emergency contact. If unreachable: confirms the case, sets status to AWOL (hold on), and sends **1st notice**: Return-to-Work Order + Notice to Explain by email and courier to the last known address. Reply due in 5 calendar days |
 | No reply | **HR** | **2nd notice**: final Return-to-Work Order + invitation to an administrative conference. Reply due in 5 calendar days |
-| Conference held or missed | **HR** | Recommends an outcome with reasons |
-| Decision | **Admin** (branch) | Approves separation, or returns the case to HR. Notice of Decision served. Status becomes Separated |
+| Conference held or missed | **HR** | Decides the outcome with reasons (no Admin approval). Notice of Decision served. Status becomes Separated |
 | Within 30 days of separation | **Accountant** computes, **Admin** views | Final pay released after clearance (DOLE Labor Advisory 06-2020) |
 | Any time | **Super Admin** | Oversight, override to generate held payslips for a returned employee |
 
@@ -665,9 +665,8 @@ Dec 1–4 and Dec 7 = 5.
 | Thu Nov 12 | HR can't reach the employee or the emergency contact → **AWOL**, hold on, 1st notice (reply by Nov 17) |
 | Mon Nov 16 | 1st-half generation: Maria listed as **Held** |
 | Wed Nov 18 | No reply → 2nd notice, conference Nov 25 |
-| Wed Nov 25 | No-show → HR recommends separation |
+| Wed Nov 25 | No-show → HR decides separation |
 | Fri Nov 27 | 2nd-half generation: Maria **Held**. Nov 27 is itself an AWOL day; it falls in December's window |
-| Fri Dec 4 | Admin approves |
 | Mon Dec 7 | Notice of Decision → **Separated**, effective Dec 7 |
 | by Wed Jan 6, 2027 | Final pay released |
 
@@ -2592,10 +2591,7 @@ flowchart TD
     F -- No --> G[2nd notice + conference, 5 days]
     G --> H{Replies / attends?}
     H -- Yes --> F
-    H -- No --> I[HR recommends separation]
-    I --> J{Admin decision}
-    J -- Return to HR --> G
-    J -- Approve --> K[Notice of Decision<br/>status Separated, hold stays ON]
+    H -- No --> K[HR decides: Notice of Decision<br/>status Separated, hold stays ON]
     K --> M[Accountant computes final pay:<br/>held salary + pro-rated 13th<br/>- contributions - tax - carry-over]
     M --> T{Licensed teacher?}
     T -- Yes --> T1[Subsidy per on_dismissal:<br/>forfeit unpaid part<br/>recover advances above earned part]

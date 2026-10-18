@@ -1,0 +1,170 @@
+"use client";
+
+import * as React from "react";
+import { ArrowLeftIcon, BanknoteIcon, DownloadIcon, Loader2Icon, MinusCircleIcon, PrinterIcon, ReceiptTextIcon, RefreshCwIcon, WalletIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DataTable } from "@/components/portal/data-table";
+import { ErrorState } from "@/components/portal/empty-state";
+import { StatCard } from "@/components/portal/stat-card";
+import { StatusBadge } from "@/components/portal/status-badge";
+import { usePortalSession } from "@/components/portal/session";
+import { apiFetch, fetchJson } from "@/lib/portal/api";
+import { dateTime, moneyCompact, toAmount } from "@/lib/portal/payroll-preview";
+import { cn } from "@/lib/utils";
+import { PayslipDocument } from "@/app/accountant/pay-record-page";
+
+/*
+ * HR → Payroll Records (/api/hr/payroll-records). Every branch's processed
+ * payslips, read-only: filter by period and branch, open any payslip exactly
+ * as the Accountant's Pay Record shows it, print it or download the PDF.
+ * Drafts are not listed, and nothing here changes a figure.
+ */
+
+const RUN_TONE = { approved: "success", pending: "gold", rejected: "danger" };
+const ALL = "all";
+
+export function PayrollRecordsPage({ refreshKey }) {
+  const { notify } = usePortalSession();
+  const [state, setState] = React.useState({ loading: true, error: null, data: null });
+  const [period, setPeriod] = React.useState(ALL);
+  const [branch, setBranch] = React.useState(ALL);
+  const [open, setOpen] = React.useState(null);   // { id, loading, error, payslip }
+  const [downloading, setDownloading] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setState((c) => ({ ...c, loading: true, error: null }));
+    try {
+      const data = await fetchJson("/api/hr/payroll-records");
+      setState({ loading: false, error: null, data });
+    } catch (err) {
+      setState({ loading: false, error: err.message || "Unable to load payroll records.", data: null });
+    }
+  }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+
+  async function view(id) {
+    setOpen({ id, loading: true, error: null, payslip: null });
+    try {
+      const data = await fetchJson(`/api/hr/payroll-records?entry_id=${encodeURIComponent(id)}`);
+      setOpen({ id, loading: false, error: null, payslip: data.payslip });
+    } catch (err) {
+      setOpen({ id, loading: false, error: err.message || "Unable to open the payslip.", payslip: null });
+    }
+  }
+
+  async function downloadPdf() {
+    if (!open?.id) return;
+    setDownloading(true);
+    try {
+      const response = await apiFetch(`/api/hr/payroll-records?format=pdf&entry_id=${encodeURIComponent(open.id)}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || "Unable to download the payslip.");
+      }
+      const blob = await response.blob();
+      const match = /filename="([^"]+)"/.exec(response.headers.get("Content-Disposition") || "");
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = match ? match[1] : "payslip.pdf";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (error) {
+      notify("Download Failed", error.message, "error");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  const data = state.data;
+  const first = state.loading && !data;
+  const rows = React.useMemo(() => (data?.records || [])
+    .filter((r) => period === ALL || r.pay_period === period)
+    .filter((r) => branch === ALL || r.branch_id === branch), [data, period, branch]);
+  const totals = rows.reduce((t, r) => ({
+    gross: toAmount(t.gross + Number(r.gross_pay || 0)),
+    deductions: toAmount(t.deductions + Number(r.total_deductions || 0)),
+    net: toAmount(t.net + Number(r.net_pay || 0)),
+  }), { gross: 0, deductions: 0, net: 0 });
+
+  // One payslip, with the way back to the list.
+  if (open) {
+    return (
+      <>
+        <Card className="shadow-xs">
+          <CardContent className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setOpen(null)}><ArrowLeftIcon aria-hidden="true" />Back to records</Button>
+            <Button variant="outline" onClick={() => window.print()} disabled={!open.payslip}><PrinterIcon aria-hidden="true" />Print</Button>
+            <Button variant="outline" onClick={downloadPdf} disabled={!open.payslip || downloading}>{downloading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}Download PDF</Button>
+          </CardContent>
+        </Card>
+        {open.loading ? <Skeleton className="h-[480px] w-full rounded-xl" /> : null}
+        {open.error ? <Card className="shadow-xs"><CardContent><ErrorState message={open.error} onRetry={() => view(open.id)} /></CardContent></Card> : null}
+        {open.payslip ? <PayslipDocument payslip={open.payslip} /> : null}
+      </>
+    );
+  }
+
+  const columns = [
+    { key: "employee_name", header: "Employee", sortable: true, cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code}{r.payslip_no ? ` · ${r.payslip_no}` : ""}</p></div>, searchValue: (r) => `${r.employee_name} ${r.employee_code} ${r.payslip_no || ""}` },
+    { key: "branch_name", header: "Branch", sortable: true, searchValue: (r) => r.branch_name },
+    { key: "pay_period", header: "Period", sortable: true, cell: (r) => <div><p>{r.pay_period}</p><p className="text-xs text-muted-foreground">{r.processed_at ? dateTime(r.processed_at) : ""}</p></div>, searchValue: (r) => r.pay_period },
+    { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
+    { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.total_deductions || 0), cell: (r) => moneyCompact(r.total_deductions) },
+    { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
+    { key: "run_status", header: "Payroll approval", cell: (r) => (r.run_label ? <StatusBadge tone={RUN_TONE[r.run_status] || "muted"}>{r.run_label}</StatusBadge> : <span className="text-xs text-muted-foreground">—</span>) },
+    { key: "view", header: <span className="sr-only">Payslip</span>, align: "right", cell: (r) => <Button variant="outline" size="sm" onClick={() => view(r.id)}>View</Button> },
+  ];
+
+  return (
+    <>
+      <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard label="Total gross pay" value={moneyCompact(totals.gross)} hint={period === ALL ? "All periods" : period} icon={BanknoteIcon} tone="gold" loading={first} />
+        <StatCard label="Total deductions" value={moneyCompact(totals.deductions)} icon={MinusCircleIcon} tone="danger" loading={first} />
+        <StatCard label="Total net pay" value={moneyCompact(totals.net)} icon={WalletIcon} tone="success" loading={first} />
+      </section>
+      <Card className="min-w-0 shadow-xs">
+        <CardHeader>
+          <CardTitle>Processed payslips</CardTitle>
+          <CardAction className="flex flex-wrap gap-2">
+            <Select value={period} onValueChange={setPeriod}>
+              <SelectTrigger size="sm" className="w-48" aria-label="Pay period"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All periods</SelectItem>
+                {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={branch} onValueChange={setBranch}>
+              <SelectTrigger size="sm" className="w-40" aria-label="Branch"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL}>All branches</SelectItem>
+                {(data?.branches || []).map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            loading={first}
+            error={state.error}
+            onRetry={load}
+            pageSize={15}
+            searchPlaceholder="Search employee, payslip no. or period…"
+            empty={{ title: "No processed payslips yet", icon: ReceiptTextIcon }}
+            caption="Processed payslips"
+            minWidth={980}
+          />
+          <p className="mt-3 text-xs text-muted-foreground">Read-only. Payslips are processed by each branch&apos;s Accountant; drafts are not listed.</p>
+        </CardContent>
+      </Card>
+    </>
+  );
+}

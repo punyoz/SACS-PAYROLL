@@ -23,8 +23,8 @@ import { cn } from "@/lib/utils";
  * AWOL Cases (/api/hr/awol-cases; docs/payroll-schedule-loans-awol.md §5).
  * The nightly check opens a case at 3 consecutive unexcused working-day
  * absences. HR confirms (status AWOL, pay held), sends the two notices,
- * records replies and recommends separation; the branch Admin decides on
- * the Approvals page. Closing as returned / excused / false alarm sets the
+ * records replies and decides separation itself (no Admin approval).
+ * Closing as returned / excused / false alarm sets the
  * employee back to Active and releases pay.
  */
 
@@ -33,7 +33,8 @@ const NEXT_STEP = {
   flagged: ["confirm", "Confirm AWOL"],
   confirmed: ["first_notice", "Send 1st notice"],
   first_notice: ["second_notice", "Send 2nd notice"],
-  second_notice: ["recommend", "Recommend separation"],
+  second_notice: ["separate", "Separate employee"],
+  for_decision: ["separate", "Separate employee"],
 };
 const plusDays = (key, n) => {
   const d = new Date(`${key}T00:00:00Z`);
@@ -69,7 +70,7 @@ export function AwolCasesPage({ refreshKey }) {
     setDialog({ action, row });
     setError("");
     setInput({
-      sent_on: today, reply_by: plusDays(today, replyDays), conference_on: plusDays(today, replyDays + 2),
+      sent_on: today, reply_by: plusDays(today, replyDays), conference_on: plusDays(today, replyDays + 2), separation_effective: today,
       outcome: "returned", returned_on: today, note: "", text: "", employee: "", first_absent_on: "", last_present_on: "",
     });
   }
@@ -88,7 +89,7 @@ export function AwolCasesPage({ refreshKey }) {
         if (action === "first_notice" || action === "second_notice") Object.assign(body, { sent_on: input.sent_on, reply_by: input.reply_by });
         if (action === "second_notice") body.conference_on = input.conference_on;
         if (action === "record_reply") body.employee_reply = input.text;
-        if (action === "recommend") body.recommendation = input.text;
+        if (action === "separate") Object.assign(body, { separation_effective: input.separation_effective, grounds: input.text });
         if (action === "close") Object.assign(body, { outcome: input.outcome, returned_on: input.returned_on, note: input.note });
         await fetchJson("/api/hr/awol-cases", jsonBody("PATCH", body));
         const words = {
@@ -96,7 +97,7 @@ export function AwolCasesPage({ refreshKey }) {
           first_notice: ["1st Notice Recorded", `Reply due ${dateLabel(input.reply_by)}.`],
           second_notice: ["2nd Notice Recorded", `Reply due ${dateLabel(input.reply_by)}.`],
           record_reply: ["Reply Recorded", ""],
-          recommend: ["Sent to the Admin", "The branch Admin decides on the Approvals page."],
+          separate: ["Employee Separated", `Effective ${dateLabel(input.separation_effective)}. Paid only through final pay.`],
           close: ["Case Closed", "Status Active; pay released. Held payslips need a Super Admin override."],
         };
         notify(words[action][0], words[action][1], "success");
@@ -138,7 +139,7 @@ export function AwolCasesPage({ refreshKey }) {
     first_notice: ["1st notice", "Return-to-Work Order + Notice to Explain, by email and courier to the last known address."],
     second_notice: ["2nd notice", "Final Return-to-Work Order and invitation to an administrative conference."],
     record_reply: ["Employee's reply", "Write what the employee said or submitted."],
-    recommend: ["Recommend separation", "Explain the grounds. The branch Admin approves or returns it on the Approvals page."],
+    separate: ["Separate employee", "Notice of Decision: status becomes Separated and pay settles only through final pay. This cannot be undone here."],
     close: ["Close the case", "The employee goes back to Active and pay is released."],
   };
   const fieldFor = (id, label, el) => <div className="space-y-1.5"><Label htmlFor={`hr-awol-${id}`}>{label}</Label>{el}</div>;
@@ -146,9 +147,9 @@ export function AwolCasesPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Open cases" value={summary.open || 0} hint="Flagged to waiting for Admin" icon={UserXIcon} tone="danger" loading={first} />
+        <StatCard label="Open cases" value={summary.open || 0} hint="Flagged to HR decision" icon={UserXIcon} tone="danger" loading={first} />
         <StatCard label="To confirm" value={summary.flagged || 0} hint="Flagged by the nightly check" icon={AlertTriangleIcon} tone="gold" loading={first} />
-        <StatCard label="Waiting for Admin" value={summary.waiting_admin || 0} hint="Separation recommended" icon={HourglassIcon} tone="info" loading={first} />
+        <StatCard label="For decision" value={summary.for_decision || 0} hint="Both notices sent" icon={HourglassIcon} tone="info" loading={first} />
         <StatCard label="Pay on hold" value={summary.held || 0} hint="AWOL or separated" icon={PauseCircleIcon} tone="danger" loading={first} />
       </section>
 
@@ -167,7 +168,7 @@ export function AwolCasesPage({ refreshKey }) {
         <CardContent>
           <DataTable columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee…" empty={{ title: "No AWOL cases", icon: UserXIcon }} caption="AWOL cases" minWidth={980} />
-          <p className="mt-3 text-xs text-muted-foreground">An AWOL case is not automatically abandonment: separation needs both notices, a chance to reply, and the Admin&apos;s decision. Reply periods are at least {replyDays} calendar days.</p>
+          <p className="mt-3 text-xs text-muted-foreground">An AWOL case is not automatically abandonment: separation needs both notices, a chance to reply, and HR&apos;s decision. Reply periods are at least {replyDays} calendar days.</p>
         </CardContent>
       </Card>
 
@@ -210,8 +211,11 @@ export function AwolCasesPage({ refreshKey }) {
                     {input.outcome === "returned" ? fieldFor("returned", "Returned on", <DatePicker id="hr-awol-returned" value={input.returned_on} onChange={(v) => setInput((c) => ({ ...c, returned_on: v }))} />) : null}
                   </>
                 ) : null}
-                {["record_reply", "recommend"].includes(dialog.action) ? (
-                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "recommend" ? "Recommendation" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={2000} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
+                {dialog.action === "separate" ? (
+                  <div className="sm:col-span-2">{fieldFor("effective", "Separation effective", <DatePicker id="hr-awol-effective" value={input.separation_effective} onChange={(v) => setInput((c) => ({ ...c, separation_effective: v }))} />)}</div>
+                ) : null}
+                {["record_reply", "separate"].includes(dialog.action) ? (
+                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={2000} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
                 ) : null}
                 {["open", "confirm", "close"].includes(dialog.action) ? (
                   <div className="sm:col-span-2">{fieldFor("note", dialog.action === "close" ? "Why it is closed" : "Note", <Input id="hr-awol-note" maxLength={1000} placeholder={dialog.action === "confirm" ? "e.g. Called Nov 12 and the emergency contact; no answer" : ""} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)}</div>
@@ -220,7 +224,7 @@ export function AwolCasesPage({ refreshKey }) {
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
-                <Button onClick={submit} disabled={busy} variant={dialog.action === "confirm" ? "destructive" : "default"}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save</Button>
+                <Button onClick={submit} disabled={busy} variant={dialog.action === "confirm" || dialog.action === "separate" ? "destructive" : "default"}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save</Button>
               </DialogFooter>
             </>
           ) : null}
