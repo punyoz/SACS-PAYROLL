@@ -122,7 +122,7 @@ export function ReportsPage() {
           <CardDescription>Choose a report and, for attendance, a date range.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={generate} className="grid items-end gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+          <form onSubmit={generate} className="grid items-end gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
             <div className="space-y-2">
               <Label htmlFor="hr-report-type">Report type</Label>
               <Select value={type} onValueChange={setType}>
@@ -144,7 +144,7 @@ export function ReportsPage() {
                   <DatePicker id="hr-report-to" value={to} onChange={setTo} />
                 </div>
               </>
-            ) : <div className="hidden md:col-span-2 md:block" />}
+            ) : <div className="hidden lg:col-span-2 lg:block" />}
             <Button type="submit" disabled={state.loading}>{state.loading ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Generating…</> : "Generate"}</Button>
           </form>
         </CardContent>

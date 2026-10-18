@@ -15,7 +15,9 @@ import {
  * inboxes inside the app (src/lib/mail/mailtm.service.mjs).
  *
  * Answers 404 unless USE_MAILTM=true and NODE_ENV is not "production", so in
- * a deployment it does not exist. It is listed as public in src/proxy.js
+ * a deployment it does not exist; only GET answers { enabled: false } instead,
+ * so the sign-in code screen's check does not log a 404 on every visit.
+ * It is listed as public in src/proxy.js
  * because the sign-in code screen calls it before any session exists; it only
  * ever reads inboxes created on this machine (.runtime/mailtm-inboxes.json).
  *
@@ -34,7 +36,7 @@ function notFound() {
 }
 
 export async function GET() {
-  if (!isMailtmEnabled()) return notFound();
+  if (!isMailtmEnabled()) return NextResponse.json({ enabled: false });
   return NextResponse.json({ enabled: true, inboxes: listSavedInboxes().map((i) => i.address) });
 }
 
