@@ -38,7 +38,7 @@ export function ThirteenthMonthPage({ refreshKey }) {
       const data = await fetchJson(`/api/accountant/payroll?view=thirteenth_month&year=${year}`);
       setState({ loading: false, error: null, data });
     } catch (error) {
-      setState({ loading: false, error: error.message || "Unable to load the 13th month pay.", data: null });
+      setState((c) => ({ loading: false, error: error.message || "Unable to load the 13th month pay.", data: c.data }));
     }
   }, [year]);
 
