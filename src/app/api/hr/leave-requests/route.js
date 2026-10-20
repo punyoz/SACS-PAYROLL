@@ -10,6 +10,8 @@ import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { notifyEndorsers } from "@/lib/branch-requests-server";
+import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request) {
   try {
@@ -172,6 +174,12 @@ export async function PATCH(request) {
         { status: 409 },
       );
     }
+
+    // The branch Admin who recommended it learns HR's decision (2026-10-20).
+    await notifyEndorsers(getAdminClient(), "leave_endorsement", id, {
+      title: `Leave ${newStatus === "approved" ? "approved" : "rejected"} by HR · ${current.employee_name}`,
+      body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
+    }).catch(() => 0);
 
     // Leave decides paid versus unpaid days, so every decision is audited.
     await appendAuditLog({

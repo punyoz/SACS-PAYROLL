@@ -37,9 +37,11 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  // UI-movement logging: any signed-in role may append, but the entry is
-  // stamped with the caller's own branch so it stays inside that branch's view.
-  const guard = await requirePermission(request, "audit_logs", "read");
+  // UI-movement logging: any signed-in role may append its own movement
+  // (module "profile", every role's own), but the entry is stamped with the
+  // caller's own branch so it stays inside that branch's view. Reading the
+  // logs still needs audit_logs (2026-10-20: the branch Admin no longer has it).
+  const guard = await requirePermission(request, "profile", "read");
   if (guard.denied) return guard.denied;
 
   try {

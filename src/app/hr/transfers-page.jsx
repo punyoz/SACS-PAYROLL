@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { STATUS_TONES } from "@/lib/branch-requests";
 import { cn } from "@/lib/utils";
 import { useBranches } from "./employees-page";
 
@@ -24,7 +26,9 @@ import { useBranches } from "./employees-page";
  * Transfer Requests (loadHrBranchAssignment / submitHrBranchAssign /
  * loadHrTransferHistory, public/legacy/js/hr.js): GET
  * /api/admin/branch-employees (Employee and Accountant accounts only),
- * GET and POST /api/admin/transfer-requests. A transfer applies at once.
+ * GET and POST /api/admin/transfer-requests. A transfer applies at once,
+ * unless HR asks the branch Admins to endorse it first (2026-10-20): it then
+ * waits as Pending, the Admins endorse or not, and HR approves or rejects it.
  */
 
 const BRANCH_TONES = ["success", "gold", "info", "warning"];
@@ -38,11 +42,13 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   const [error, setError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
+  const [askAdmins, setAskAdmins] = React.useState(false);
 
   React.useEffect(() => {
     if (!employee) return;
     setBranch("");
     setRemarks("");
+    setAskAdmins(false);
     setError("");
     setFeedback({ text: "", ok: false });
   }, [employee]);
@@ -50,6 +56,7 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   // Active branches other than the one the employee is already in.
   const destinations = branches.filter((b) => String(b.status || "Active").toLowerCase() === "active" && b.id !== employee?.branch);
   const moving = Boolean(employee?.branch);
+  const wait = moving && askAdmins;
 
   async function submit(event) {
     event.preventDefault();
@@ -59,16 +66,23 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
     const destination = branches.find((b) => b.id === branch);
     const ok = await confirm({
       title: `${moving ? "Transfer" : "Assign"} ${employee.full_name || "this employee"} to ${destination?.name || "the selected branch"}?`,
-      description: "The change applies immediately and is recorded in Transfer History.",
-      confirmLabel: moving ? "Transfer" : "Assign",
+      description: wait
+        ? "The branch Admins of both branches are asked to endorse it. It applies only when you approve it in Transfer History."
+        : "The change applies immediately and is recorded in Transfer History.",
+      confirmLabel: wait ? "Ask for endorsement" : moving ? "Transfer" : "Assign",
     });
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: employee.id, to_branch_id: branch, remarks: remarks.trim() }));
+      const result = await fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: employee.id, to_branch_id: branch, remarks: remarks.trim(), wait_for_endorsement: wait }));
       const branchName = result.to_branch_name || destination?.name || "the new branch";
-      setFeedback({ text: `Moved to ${branchName}.`, ok: true });
-      notify("Employee Transferred", `${employee.full_name || "Employee"} now belongs to ${branchName}.`, "success");
+      if (result.applied) {
+        setFeedback({ text: `Moved to ${branchName}.`, ok: true });
+        notify("Employee Transferred", `${employee.full_name || "Employee"} now belongs to ${branchName}.`, "success");
+      } else {
+        setFeedback({ text: "Waiting for the branch Admins' endorsement.", ok: true });
+        notify("Endorsement Requested", `The branch Admins were notified. Approve or reject it in Transfer History.`, "success");
+      }
       await onDone();
       setTimeout(() => onOpenChange(false), 600);
     } catch (err) {
@@ -109,10 +123,16 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
               <Label htmlFor="hr-ba-remarks">Remarks <span className="font-normal text-muted-foreground">(optional)</span></Label>
               <Textarea id="hr-ba-remarks" rows={3} maxLength={300} placeholder="Reason for the transfer" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
             </div>
+            {moving ? (
+              <label htmlFor="hr-ba-ask" className="flex items-start gap-2 text-sm">
+                <Checkbox id="hr-ba-ask" checked={askAdmins} onCheckedChange={(v) => setAskAdmins(v === true)} className="mt-0.5" />
+                <span>Ask the branch Admins to endorse it first<span className="block text-xs text-muted-foreground">It stays Pending until you approve or reject it in Transfer History.</span></span>
+              </label>
+            ) : null}
             {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
             <DialogFooter className="gap-2 sm:gap-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-              <Button type="submit" disabled={busy}>{busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Saving…</> : moving ? "Transfer now" : "Assign now"}</Button>
+              <Button type="submit" disabled={busy}>{busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Saving…</> : wait ? "Ask for endorsement" : moving ? "Transfer now" : "Assign now"}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -128,6 +148,19 @@ export function TransfersPage({ refreshKey }) {
   const [history, setHistory] = React.useState({ loading: true, error: null, rows: [] });
   const [filter, setFilter] = React.useState("all");
   const [editing, setEditing] = React.useState(null);
+  const { notify } = usePortalSession();
+  const [confirmDialogNode, confirmDecision] = useConfirm();
+  // The branch Admins' endorsements, by transfer request (2026-10-20).
+  const [endorsements, setEndorsements] = React.useState(() => new Map());
+  const loadEndorsements = React.useCallback(async () => {
+    try {
+      const data = await fetchJson("/api/hr/branch-requests?kind=transfer_endorsement");
+      const map = new Map();
+      (data.requests || []).forEach((r) => map.set(r.ref_id, [...(map.get(r.ref_id) || []), r]));
+      setEndorsements(map);
+    } catch { /* the history itself is unaffected */ }
+  }, []);
+  React.useEffect(() => { loadEndorsements(); }, [loadEndorsements, refreshKey]);
 
   const load = React.useCallback(async () => {
     setRoster((c) => ({ ...c, loading: !c.employees.length, error: null }));
@@ -201,7 +234,42 @@ export function TransfersPage({ refreshKey }) {
     { key: "remarks", header: "Remarks", className: "max-w-56 whitespace-normal text-muted-foreground", cell: (r) => r.remarks || "—" },
     { key: "created_at", header: "Requested", className: "whitespace-nowrap text-xs", sortValue: (r) => r.created_at || "", cell: (r) => fmt(r.created_at) },
     { key: "reviewed_at", header: "Decided", className: "whitespace-nowrap text-xs", sortValue: (r) => r.reviewed_at || "", cell: (r) => fmt(r.reviewed_at) },
+    {
+      key: "endorsements", header: "Branch Admins",
+      cell: (r) => {
+        const list = endorsements.get(r.id) || [];
+        if (!list.length) return <span className="text-xs text-muted-foreground">{String(r.status) === "pending" ? "Waiting for endorsement" : "—"}</span>;
+        return (
+          <ul className="max-w-60 space-y-1 text-xs whitespace-normal">
+            {list.map((e) => <li key={e.id}><StatusBadge tone={STATUS_TONES[e.status] || "muted"}>{e.status_label}</StatusBadge> <span className="text-muted-foreground">{e.branch_name} · {e.created_by_name}</span><p>{e.admin_note}</p></li>)}
+          </ul>
+        );
+      },
+    },
+    {
+      key: "decide", header: <span className="sr-only">Decide</span>, align: "right",
+      cell: (r) => (String(r.status) === "pending" ? (
+        <div className="flex justify-end gap-1.5">
+          <Button size="sm" variant="outline" className="text-destructive" onClick={() => decideTransfer(r, "reject")}>Reject</Button>
+          <Button size="sm" onClick={() => decideTransfer(r, "approve")}>Approve</Button>
+        </div>
+      ) : null),
+    },
   ];
+
+  async function decideTransfer(r, action) {
+    const ok = await confirmDecision(action === "approve"
+      ? { title: `Approve the transfer of ${r.employee_name || "this employee"}?`, description: "The employee moves to the new branch now.", confirmLabel: "Approve" }
+      : { title: `Reject the transfer of ${r.employee_name || "this employee"}?`, description: "The employee stays in the current branch.", confirmLabel: "Reject", destructive: true });
+    if (!ok) return;
+    try {
+      await fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action }));
+      notify(action === "approve" ? "Transfer Approved" : "Transfer Rejected", "The branch Admins were notified.", "success");
+      await Promise.all([load(), loadEndorsements()]);
+    } catch (err) {
+      notify("Error", err.message || "Not saved.", "error");
+    }
+  }
 
   const first = roster.loading && !all.length;
 
@@ -269,7 +337,8 @@ export function TransfersPage({ refreshKey }) {
         </CardContent>
       </Card>
 
-      <TransferDialog employee={editing} branches={branches} onOpenChange={(open) => { if (!open) setEditing(null); }} onDone={load} />
+      <TransferDialog employee={editing} branches={branches} onOpenChange={(open) => { if (!open) setEditing(null); }} onDone={async () => { await Promise.all([load(), loadEndorsements()]); }} />
+      {confirmDialogNode}
     </>
   );
 }

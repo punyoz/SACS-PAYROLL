@@ -100,6 +100,10 @@ const API_MODULES = [
   ["/api/admin/audit-logs", "audit_logs"],
   ["/api/admin/branch-employees", "branch_assignment"],
   ["/api/admin/branch-reports", "branch_reports"],
+  // Branch oversight (20261020020000): the Admin recommends, HR decides.
+  ["/api/admin/branch-oversight", "branch_oversight"],
+  ["/api/hr/branch-requests", "branch_oversight"],
+  ["/api/announcements", "announcements"],
   ["/api/admin/branches", "branch_management"],
   ["/api/admin/config", "system_configuration"],
   // Effective-dated payroll rates: Super Admin's System Configuration.
@@ -490,7 +494,10 @@ async function route(request) {
   // tap as manual entry.
   const routeModule = pathname === "/api/admin/attendance" && request.method === "POST" && request.headers.get(KIOSK_HEADER) === "1"
     ? "rfid_devices"
-    : mapped.module;
+    // Appending one's own UI movement is every role's (the route stamps the branch).
+    : pathname === "/api/admin/audit-logs" && request.method === "POST"
+      ? "profile"
+      : mapped.module;
 
   // An unmapped /api path is a mistake, not a free pass: fail closed so a new
   // route cannot ship unguarded by accident.

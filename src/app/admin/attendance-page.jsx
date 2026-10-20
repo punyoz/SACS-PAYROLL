@@ -1,179 +1,105 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2Icon, ClockAlertIcon, DownloadIcon, RadioTowerIcon, XCircleIcon } from "lucide-react";
+import { CalendarCheckIcon, FlagIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatCard } from "@/components/portal/stat-card";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DataTable } from "@/components/portal/data-table";
+import { DatePicker } from "@/components/portal/date-picker";
+import { AttendanceBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
-import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { EmployeeSearch, GroupedAttendanceTable, recordColumns } from "@/components/portal/attendance/grouped-table";
-import { AttendanceStatusBoard } from "@/components/portal/attendance/status-board";
-import { fetchJson, hardNavigate } from "@/lib/portal/api";
-import { branchContext, branchCounts, countBy, downloadCsv, matchesEmployee, oneRowPerDay, rowBranchId, sortByBranchDay } from "@/lib/portal/attendance";
-import { logAuditMovement } from "@/lib/portal/audit";
+import { formatTime, manilaDateKey } from "@/lib/portal/format";
+import { dateLabel } from "@/lib/portal/payroll-preview";
+import { cn } from "@/lib/utils";
+import { DecisionCell, FileDialog, FiledCell, HistoryButton, RequestStatus, fileRequest, useBranchView } from "./oversight-shared";
 
 /*
- * Attendance Monitoring (loadAttendanceData / exportAttendanceCsv,
- * public/legacy/js/admin.js): GET /api/admin/attendance for today's panels
- * and log, grouped by branch and day (attPrepareAttendanceLog, app.js), then
- * the shared status board.
+ * Branch Attendance (GET /api/admin/branch-oversight?view=attendance):
+ * read-only daily or monthly logs of the Admin's branch. "Flag issue" sends a
+ * record to HR with a note (Pending until HR marks it Resolved); the Admin
+ * never edits a log.
  */
 
-/** "08:05 AM" in the browser's time zone (formatTimeOnly, app.js) — the CSV keeps the legacy format. */
-function timeOnly(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-PH", { hour: "2-digit", minute: "2-digit", hour12: true }).format(date);
+function monthStart(key) {
+  return `${key.slice(0, 7)}-01`;
 }
 
-/** "8h 05m" from decimal hours (formatHours, app.js). */
-function hoursText(value) {
-  const total = Number(value || 0);
-  if (!Number.isFinite(total) || total <= 0) return "—";
-  const whole = Math.floor(total);
-  return `${whole}h ${String(Math.round((total - whole) * 60)).padStart(2, "0")}m`;
-}
-
-const COLUMNS = recordColumns({ canReview: true, showType: true });
-
-const ADMIN_TERMINAL_TEXT = "Open the dedicated tap-in/tap-out screen for your branch's RFID reader. It replaces this view and is locked behind your Administration password.";
-
-/**
- * Also the Super Admin's Attendance page (public/legacy/js/super-admin.js
- * loadSAAttendanceData): every branch, a branch filter on the status board,
- * and its CSV export is not written to the audit trail (auditActor null).
- */
-export function AttendancePage({
-  refreshKey,
-  onNavigate,
-  maintenancePage = "adm-maintenance",
-  terminalText = ADMIN_TERMINAL_TEXT,
-  branchFilter = false,
-  auditActor = "Admin",
-}) {
+export function AttendancePage({ refreshKey }) {
   const { notify } = usePortalSession();
-  const { version } = useAttendanceActions();
-  const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [collapsed, setCollapsed] = React.useState(() => new Set());
-  const [search, setSearch] = React.useState("");
+  const today = manilaDateKey();
+  const [mode, setMode] = React.useState("daily");
+  const [day, setDay] = React.useState(today);
+  const [month, setMonth] = React.useState(today.slice(0, 7));
+  const [target, setTarget] = React.useState(null);
+  const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const from = mode === "daily" ? day : monthStart(`${month}-01`);
+  const to = mode === "daily" ? day : `${month}-${String(lastDay).padStart(2, "0")}`;
+  const view = useBranchView("attendance", { from, to: to > today ? today : to }, refreshKey);
+  const data = view.data;
 
-  const load = React.useCallback(async () => {
-    setState((current) => ({ ...current, loading: !current.data, error: null }));
-    try {
-      const data = await fetchJson("/api/admin/attendance");
-      setState({ loading: false, error: null, data });
-    } catch (error) {
-      setState((current) => ({ ...current, loading: false, error: error.message }));
-    }
-  }, []);
+  const columns = [
+    { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", cell: (l) => <div><p>{l.employee_name}</p><p className="text-xs text-muted-foreground">{l.employee_code}</p></div>, searchValue: (l) => `${l.employee_name} ${l.employee_code}` },
+    { key: "log_date", header: "Date", sortable: true, className: "whitespace-nowrap tabular-nums", cell: (l) => dateLabel(l.log_date) },
+    { key: "time_in", header: "Time in", className: "tabular-nums", cell: (l) => (l.time_in ? formatTime(l.time_in) : "—") },
+    { key: "time_out", header: "Time out", className: "tabular-nums", cell: (l) => (l.time_out ? formatTime(l.time_out) : "—") },
+    { key: "status", header: "Status", sortValue: (l) => l.status, cell: (l) => <div><AttendanceBadge status={l.status} />{l.late_minutes ? <p className="mt-0.5 text-xs text-muted-foreground">{l.late_minutes} min late</p> : null}</div>, searchValue: (l) => l.status },
+    { key: "flag", header: "Flag", cell: (l) => (l.flag ? <div className="flex items-center gap-1"><RequestStatus status={l.flag.status} label={l.flag.status_label} /><HistoryButton request={l.flag} /></div> : <span className="text-xs text-muted-foreground">—</span>) },
+    { key: "act", header: <span className="sr-only">Flag issue</span>, align: "right", cell: (l) => (l.flag?.status === "pending" ? null : <Button size="sm" variant="outline" onClick={() => setTarget(l)}><FlagIcon aria-hidden="true" />Flag issue</Button>) },
+  ];
 
-  React.useEffect(() => { load(); }, [load, refreshKey, version]);
-
-  const panels = state.data?.panels || {};
-  const raw = state.data?.attendance_logs;
-
-  const log = React.useMemo(() => {
-    const list = oneRowPerDay((raw || []).map((row) => ({ ...row, log_date: row.log_date || row.date }))).filter((row) => matchesEmployee(row, search));
-    const ctx = branchContext(list);
-    const rows = sortByBranchDay(ctx, list);
-    return {
-      rows,
-      grouping: {
-        byBranch: true,
-        ctx,
-        branchCounts: branchCounts(ctx, list),
-        dayCounts: countBy(rows, (row) => `${rowBranchId(ctx, row)}|${row.log_date}`),
-        statusBreakdown: true,
-      },
-    };
-  }, [raw, search]);
-
-  function exportCsv() {
-    const rows = raw || [];
-    if (!rows.length) {
-      notify("Nothing to export", "No attendance data available to export.", "info");
-      return;
-    }
-    const dateKey = String(state.data?.date_key || "today").replaceAll("/", "-");
-    downloadCsv(
-      `sacs-attendance-${dateKey}.csv`,
-      ["Employee", "Type", "Time In", "Time Out", "Hours", "Status"],
-      rows.map((row) => [row.employee_name || "", row.employee_type || "", timeOnly(row.time_in), timeOnly(row.time_out), hoursText(row.total_hours), row.status || ""]),
-    );
-    if (!auditActor) return;
-    logAuditMovement({
-      module: "ui",
-      action: "export_csv",
-      entity_type: "attendance",
-      entity_id: dateKey,
-      description: `${auditActor} exported attendance CSV.`,
-      source: "ui",
-      metadata: { row_count: rows.length },
-    });
-  }
-
-  const loading = state.loading && !state.data;
+  const flagColumns = [
+    { key: "employee_name", header: "Employee", className: "font-medium", cell: (r) => r.details?.employee_name || "—", searchValue: (r) => r.details?.employee_name },
+    { key: "day", header: "Record", cell: (r) => <div className="text-xs"><p>{dateLabel(r.details?.log_date)}</p><p className="text-muted-foreground">{r.details?.log_status}</p></div> },
+    { key: "admin_note", header: "Your note", cell: (r) => <p className="max-w-64 text-xs whitespace-normal">{r.admin_note}</p> },
+    { key: "filed", header: "Sent", cell: (r) => <FiledCell request={r} /> },
+    { key: "status", header: "Status", cell: (r) => <RequestStatus status={r.status} label={r.status_label} /> },
+    { key: "decision", header: "HR", cell: (r) => <DecisionCell request={r} /> },
+    { key: "history", header: <span className="sr-only">History</span>, align: "right", cell: (r) => <HistoryButton request={r} /> },
+  ];
 
   return (
     <>
-      <Card className="border-brand-gold/60 bg-gradient-to-r from-brand-gold/10 to-transparent shadow-xs">
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><RadioTowerIcon className="size-5" aria-hidden="true" /></span>
-          <div className="flex-1">
-            <p className="font-semibold">RFID Terminal</p>
-            <p className="text-sm text-muted-foreground">{terminalText}</p>
+      <Card className="min-w-0 shadow-xs">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><CalendarCheckIcon className="size-4 text-gold-text" aria-hidden="true" />Branch attendance</CardTitle>
+          <CardDescription>View only. To question a record, flag it: HR checks it and marks it Resolved.</CardDescription>
+          <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <Tabs value={mode} onValueChange={setMode}><TabsList><TabsTrigger value="daily">Daily</TabsTrigger><TabsTrigger value="monthly">Monthly</TabsTrigger></TabsList></Tabs>
+            {mode === "daily" ? (
+              <div className="space-y-1.5"><Label htmlFor="adm-att-day">Day</Label><DatePicker id="adm-att-day" value={day} max={today} onChange={(v) => setDay(v || today)} /></div>
+            ) : (
+              <div className="space-y-1.5"><Label htmlFor="adm-att-month">Month</Label><input id="adm-att-month" type="month" max={today.slice(0, 7)} value={month} onChange={(e) => setMonth(e.target.value || today.slice(0, 7))} className="h-9 rounded-md border bg-transparent px-3 text-sm shadow-xs" /></div>
+            )}
           </div>
-          <Button onClick={() => hardNavigate("/rfid-terminal")}>Open RFID Terminal</Button>
+          <DataTable columns={columns} rows={data?.logs || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={25}
+            searchPlaceholder="Search employee or status…" empty={{ title: "No attendance records for this range", icon: CalendarCheckIcon }} caption="Branch attendance" minWidth={980} />
         </CardContent>
       </Card>
-
-      <section aria-label="Today" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Present today" value={panels.present_today || 0} icon={CheckCircle2Icon} tone="success" loading={loading} />
-        <StatCard label="Late today" value={panels.late_today || 0} icon={ClockAlertIcon} tone="gold" loading={loading} />
-        <StatCard label="Absent today" value={panels.absent_today || 0} hint={`On leave: ${panels.on_leave_today || 0}`} icon={XCircleIcon} tone="danger" loading={loading} />
-      </section>
 
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
-          <CardTitle>Attendance log — {state.data?.date_label || "Today"}</CardTitle>
-          <CardDescription>Grouped by branch and day. Select a name to open that employee&apos;s record.</CardDescription>
-          <CardAction>
-            <Button variant="outline" size="sm" onClick={exportCsv} disabled={!raw?.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
-          </CardAction>
+          <CardTitle className="flex items-center gap-2"><FlagIcon className="size-4" aria-hidden="true" />Flags sent to HR</CardTitle>
+          <CardDescription>Every record you flagged, with HR&apos;s resolution. Kept for good.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <EmployeeSearch value={search} onChange={setSearch} />
-          <GroupedAttendanceTable
-            columns={COLUMNS}
-            rows={log.rows}
-            grouping={{
-              ...log.grouping,
-              collapsed,
-              onToggle: (branch) => setCollapsed((current) => {
-                const next = new Set(current);
-                if (next.has(branch)) next.delete(branch); else next.add(branch);
-                return next;
-              }),
-            }}
-            loading={loading}
-            error={!state.data ? state.error : null}
-            onRetry={load}
-            pageSize={15}
-            empty={search.trim() ? `No employees match "${search.trim()}".` : "No attendance records found for today."}
-            caption="Today's attendance log"
-            minWidth={1000}
-          />
+        <CardContent>
+          <DataTable columns={flagColumns} rows={data?.flags || []} loading={view.first} pageSize={10} searchPlaceholder="Search employee…" empty={{ title: "No flags sent", icon: FlagIcon }} caption="Attendance flags" minWidth={900} />
         </CardContent>
       </Card>
 
-      <AttendanceStatusBoard refreshKey={refreshKey} branchFilter={branchFilter} />
-
-      <p className="text-sm text-muted-foreground">
-        Need to record a tap manually? Use the RFID scan input under{" "}
-        <Button variant="link" className="h-auto p-0" onClick={() => onNavigate(maintenancePage)}>System Maintenance</Button>.
-      </p>
+      <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }}
+        title={`Flag issue — ${target?.employee_name || ""}`}
+        description={target ? `${dateLabel(target.log_date)} · ${target.status}${target.time_in ? ` · in ${formatTime(target.time_in)}` : ""}${target.time_out ? ` · out ${formatTime(target.time_out)}` : ""}. HR is notified; the record itself is not changed.` : ""}
+        submitLabel="Flag for HR"
+        onSubmit={async (values) => {
+          await fileRequest("attendance_flag", { ref_id: target.id, note: values.note });
+          notify("Flagged for HR", "HR has been notified.", "success");
+          await view.load();
+        }} />
     </>
   );
 }

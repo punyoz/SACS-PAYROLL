@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { BranchAnnouncementsCard } from "@/app/admin/branch-pages";
 import { Bar, BarChart, CartesianGrid, Cell, Label, Pie, PieChart, XAxis, YAxis } from "recharts";
 import {
   ArrowRightIcon,
@@ -163,6 +164,8 @@ export function DashboardPage({ stats, payslips, onNavigate }) {
           </div>
         </CardContent>
       </Card>
+      {/* The branch Admin's announcements (2026-10-20). */}
+      <BranchAnnouncementsCard />
 
       <section aria-label="This month at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Present" value={data?.present} icon={CheckCircle2Icon} tone="success" loading={loading} />

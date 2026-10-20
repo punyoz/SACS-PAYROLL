@@ -179,6 +179,11 @@ export async function GET(request) {
     if (guard.scope === SCOPE_SELF) {
       return NextResponse.json({ error: "You do not have permission to perform this action." }, { status: 403 });
     }
+    // It lists salaries and individual pay. The branch Admin's dashboard is
+    // /api/admin/branch-oversight (2026-10-20), which never does.
+    if (guard.role === "admin") {
+      return NextResponse.json({ error: "You do not have permission to perform this action." }, { status: 403 });
+    }
 
     const supabase = getAdminClient();
     const employees = await fetchEmployees(supabase);

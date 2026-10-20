@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -23,6 +23,7 @@ import { usePendingRunCount } from "@/components/portal/use-live-payroll-runs";
 import { PayrollApprovalPage } from "./payroll-approval-page";
 import { PayrollRecordsPage } from "./payroll-records-page";
 import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
+import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -58,6 +59,11 @@ const NAV = [
     ],
   },
   {
+    // What the branch Admins send (2026-10-20): HR decides.
+    section: "Branch Admins",
+    items: [{ id: "hr-branch-requests", label: "Branch Requests", icon: InboxIcon, module: "branch_oversight" }],
+  },
+  {
     section: "Payroll",
     items: [
       { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
@@ -85,6 +91,7 @@ const TITLES = {
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
   "hr-awol": "AWOL Cases",
+  "hr-branch-requests": "Branch Requests",
   "hr-subsidy-approvals": "Subsidy Approvals",
   "hr-reports": "HR Reports",
   "hr-profile": "Profile",
@@ -99,7 +106,8 @@ const DESCRIPTIONS = {
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
   "hr-subsidy-approvals": "Decide missed-month subsidy adjustments and refused-consent excess subsidy advances. HR is the only approver; every decision stays in the history.",
-  "hr-awol": "Unexcused absences flagged by the nightly check: confirm, send the notices, and separate or close each case.",
+  "hr-awol": "Unexcused absences flagged by the nightly check or reported by a branch Admin: confirm, send the notices, and separate or close each case.",
+  "hr-branch-requests": "Attendance flags, schedule requests, incentive recommendations, RFID issues and overtime confirmations sent by the branch Admins. HR decides; the Admin is notified.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
@@ -161,7 +169,22 @@ function HrScreens() {
           <EmployeeAttendanceRecord key={`${employeeId}-${refreshKey}`} employeeId={employeeId} onBack={() => navigate("hr-attendance")} />
         ) : null}
         {current === "hr-leaves" ? <LeavesPage refreshKey={refreshKey} /> : null}
-        {current === "hr-awol" ? <AwolCasesPage refreshKey={refreshKey} /> : null}
+        {current === "hr-awol" ? (
+          <div className="flex flex-col gap-4">
+            <AwolCasesPage refreshKey={refreshKey} />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["incident_report"]} icon={SirenIcon} title="Incident reports from branch Admins"
+              description="A reported no-show is already in the AWOL cases above (flagged). Handle the case there, then mark the report resolved with a remark for the Admin." />
+          </div>
+        ) : null}
+        {current === "hr-branch-requests" ? (
+          <div className="flex flex-col gap-4">
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["attendance_flag"]} title="Attendance flags" description="Records a branch Admin asked HR to check. Correct the record in Attendance if needed, then mark it resolved." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["schedule_request"]} title="Work schedule & class-load requests" description="Approve or reject. Apply an approved change in Work Schedules." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["incentive_endorsement"]} title="Incentive recommendations" description="Approving adds the incentive or overload to payroll, counted by today's date (after the month's cutoff it moves to next month's payroll)." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers. HR or the Super Admin marks them resolved." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["overtime_confirmation"]} readOnly title="Overtime & substitute-teaching confirmations" description="The branch Admin's confirmation; the Accountant reads it before paying. Nothing to decide here." />
+          </div>
+        ) : null}
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}

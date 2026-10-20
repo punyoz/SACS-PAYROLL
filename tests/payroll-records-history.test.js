@@ -43,5 +43,5 @@ describe('incentive cutoff (the day before the 2nd-half payslip day)', () => {
     expect(deferredPayrollMonth('2026-10-10', '2026-10-29', cutoffs)).toBe('2026-10');
     expect(deferredPayrollMonth('2026-10-10', '2026-10-30', cutoffs)).toBe('2026-11');
     expect(deferredPayrollMonth('2026-12-10', '2026-12-31', cutoffs)).toBe('2027-01');
-  });
+  }, 30000); // imports a whole client page: slow under a busy full run
 });

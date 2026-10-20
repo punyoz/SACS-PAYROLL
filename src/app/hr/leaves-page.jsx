@@ -11,7 +11,8 @@ import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { useProofViewer } from "@/components/portal/proof-viewer";
-import { RequestStatusBadge } from "@/components/portal/status-badge";
+import { RequestStatusBadge, StatusBadge } from "@/components/portal/status-badge";
+import { STATUS_TONES } from "@/lib/branch-requests";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 
@@ -32,12 +33,34 @@ const range = (req) => ({
   proof: req.proof_url || req.proof_data || "",
 });
 
+/** The branch Admin's recommendation on a leave request; HR still decides. */
+function AdminRecommendation({ rec, compact = false }) {
+  if (!rec) return compact ? <span className="text-xs text-muted-foreground">—</span> : <p className="text-xs text-muted-foreground">Branch Admin: no recommendation yet</p>;
+  return (
+    <div className={compact ? "max-w-56 text-xs whitespace-normal" : "rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs"}>
+      <p className="flex flex-wrap items-center gap-1.5">{compact ? null : <span className="font-medium">Branch Admin:</span>}<StatusBadge tone={STATUS_TONES[rec.status] || "muted"}>{rec.status_label}</StatusBadge></p>
+      <p className="mt-0.5">{rec.admin_note}</p>
+      <p className="text-muted-foreground">{rec.created_by_name}</p>
+    </div>
+  );
+}
+
 export function LeavesPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [proofViewer, openProof] = useProofViewer();
   const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [] });
   const [busy, setBusy] = React.useState(null);
+  // The branch Admins' recommendations, by leave request (2026-10-20).
+  const [recs, setRecs] = React.useState(() => new Map());
+
+  const loadRecs = React.useCallback(async () => {
+    try {
+      const data = await fetchJson("/api/hr/branch-requests?kind=leave_endorsement");
+      setRecs(new Map((data.requests || []).map((r) => [r.ref_id, r])));
+    } catch { /* keep what is shown; the leave list is unaffected */ }
+  }, []);
+  React.useEffect(() => { loadRecs(); }, [loadRecs, refreshKey]);
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: !current.pending.length && !current.history.length, error: null }));
@@ -101,6 +124,7 @@ export function LeavesPage({ refreshKey }) {
     { key: "leave_type", header: "Leave type", sortable: true, searchValue: (r) => r.leave_type },
     { key: "duration", header: "Duration", className: "whitespace-nowrap tabular-nums", cell: (r) => { const x = range(r); return `${x.days}d · ${x.from} – ${x.to}`; } },
     { key: "reason", header: "Reason", className: "max-w-48 truncate text-muted-foreground", cell: (r) => r.reason || "—", searchValue: (r) => r.reason },
+    { key: "branch_admin", header: "Branch Admin", cell: (r) => <AdminRecommendation rec={recs.get(r.id)} compact /> },
     { key: "proof", header: "Proof", cell: (r) => (range(r).proof ? <Button variant="outline" size="sm" onClick={() => openProof(range(r).proof)}><PaperclipIcon aria-hidden="true" />View</Button> : "—") },
     {
       key: "status",
@@ -157,6 +181,7 @@ export function LeavesPage({ refreshKey }) {
                       </p>
                       <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.from} to {x.to}</p>
                       <p className="text-sm text-muted-foreground">{req.reason || "—"}</p>
+                      <AdminRecommendation rec={recs.get(req.id)} />
                     </div>
                     <div className="mt-auto flex flex-wrap items-center gap-2">
                       {x.proof ? <Button variant="outline" size="sm" onClick={() => openProof(x.proof)}><PaperclipIcon aria-hidden="true" />View proof</Button> : null}

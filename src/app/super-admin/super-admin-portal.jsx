@@ -21,6 +21,7 @@ import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { manilaDateKey } from "@/lib/portal/format";
 import { AuditLogsPage } from "../admin/audit-logs-page";
 import { MaintenancePage } from "../admin/maintenance-page";
+import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { BranchesPage } from "./branches-page";
 import { AccountsPage } from "./accounts-page";
 import { RolesPage } from "./roles-page";
@@ -126,6 +127,10 @@ function SuperAdminScreens() {
           auditActor={null}
           terminalText="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your Super Admin password."
         />
+      ) : null}
+      {current === "sa-maintenance" ? (
+        <BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues reported by branch Admins"
+          description="Lost or broken cards and faulty readers. Fix the card or reader, then mark the report resolved with a remark." />
       ) : null}
       {current === "sa-config" ? <ConfigPage refreshKey={refreshKey} /> : null}
       {current === "sa-audit" ? (
