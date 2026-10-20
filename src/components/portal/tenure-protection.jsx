@@ -16,6 +16,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
+import { useConfirm } from "@/components/portal/confirm-dialog";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -99,6 +100,7 @@ export function TenureProtectionPanel({ refreshKey }) {
   const [dialogError, setDialogError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false, where: "" });
   const [busy, setBusy] = React.useState("");
+  const [confirmDialog, confirm] = useConfirm();
 
   const load = React.useCallback(async () => {
     setState((c) => ({ ...c, loading: true, error: null }));
@@ -354,7 +356,11 @@ export function TenureProtectionPanel({ refreshKey }) {
                       </Button>
                       {form.saved ? (
                         <Button size="sm" variant="ghost" disabled={busy === where}
-                          onClick={() => post({ action: "archive_break", school_year: schoolYear, kind: k.key }, `${k.label} SY ${schoolYear} removed.`, where)}>
+                          onClick={async () => {
+                            // Removing a break changes who is deducted for those days: ask first.
+                            const ok = await confirm({ title: `Remove ${k.label} SY ${schoolYear}?`, description: "Tenure Pay Protection stops covering these days on payslips computed from now on. The change is logged.", confirmLabel: "Remove", destructive: true });
+                            if (ok) post({ action: "archive_break", school_year: schoolYear, kind: k.key }, `${k.label} SY ${schoolYear} removed.`, where);
+                          }}>
                           Remove
                         </Button>
                       ) : null}
@@ -400,7 +406,7 @@ export function TenureProtectionPanel({ refreshKey }) {
               </div>
             ) : null}
           </div>
-          <DataTable columns={columns} rows={employees} loading={state.loading && !data} pageSize={15}
+          <DataTable columns={columns} rows={employees} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee or ID…" caption="Employees and Tenure Pay Protection" minWidth={canEdit ? 900 : 800}
             empty={{ title: tab === "granted" ? "Nobody has the benefit granted" : tab === "meets" ? "Nobody meets the tenure requirement yet" : "No employees" }} />
         </CardContent>
@@ -412,7 +418,7 @@ export function TenureProtectionPanel({ refreshKey }) {
           <CardDescription>Every grant and revocation, and what each grant kept from being deducted on payslips.</CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable columns={grantColumns} rows={data?.grants || []} loading={state.loading && !data} pageSize={10}
+          <DataTable columns={grantColumns} rows={data?.grants || []} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={10}
             searchPlaceholder="Search employee…" caption="Tenure Pay Protection grants" minWidth={760} empty={{ title: "No grants yet" }} />
         </CardContent>
       </Card>
@@ -466,6 +472,7 @@ export function TenureProtectionPanel({ refreshKey }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </div>
   );
 }

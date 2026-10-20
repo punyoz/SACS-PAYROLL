@@ -50,7 +50,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChangePasswordDialog, EditAccountDialog } from "@/components/portal/account-dialogs";
 import { useConfirm } from "@/components/portal/confirm-dialog";
-import { usePortalSession } from "@/components/portal/session";
+import { usePortalSession, useSystemName } from "@/components/portal/session";
 import { apiFetch, BACKGROUND, jsonBody } from "@/lib/portal/api";
 import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
@@ -337,6 +337,7 @@ export function AppShell({
   children,
 }) {
   const { role } = usePortalSession();
+  const systemTitle = useSystemName();
   const [dialog, setDialog] = React.useState(null);
   const dialogs = React.useMemo(() => ({ open: setDialog }), []);
 
@@ -369,7 +370,7 @@ export function AppShell({
                       className="size-8 shrink-0 rounded-full bg-white/95 p-0.5"
                     />
                     <div className="grid flex-1 text-left leading-tight">
-                      <span className="truncate text-sm font-semibold">SACS Payroll</span>
+                      <span className="truncate text-sm font-semibold">{systemTitle}</span>
                       <span className="truncate text-xs text-sidebar-primary">{ROLE_LABEL[role]}</span>
                     </div>
                   </SidebarMenuButton>

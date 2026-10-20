@@ -17,13 +17,16 @@ import { dateLabel } from "@/lib/portal/payroll-preview";
 export function LicensedTeachersCard({ refreshKey }) {
   const [state, setState] = React.useState({ loading: true, error: null, teachers: null });
 
+  // "Try again" after a failed load asks for it once more.
+  const [attempt, setAttempt] = React.useState(0);
   React.useEffect(() => {
     let alive = true;
     fetchJson("/api/hr/teacher-license")
       .then((data) => { if (alive) setState({ loading: false, error: null, teachers: data.available === false ? null : data.teachers || [] }); })
-      .catch((error) => { if (alive) setState({ loading: false, error: error.message, teachers: null }); });
+      // A failed load shows its error (null would hide the card as "not set up").
+      .catch((error) => { if (alive) setState({ loading: false, error: error.message || "Unable to load licensed teachers.", teachers: [] }); });
     return () => { alive = false; };
-  }, [refreshKey]);
+  }, [refreshKey, attempt]);
 
   if (!state.loading && state.teachers === null) return null;
   const rows = (state.teachers || []).filter((t) => t.is_licensed_teacher);
@@ -43,7 +46,7 @@ export function LicensedTeachersCard({ refreshKey }) {
         <CardDescription>Read-only. HR turns licenses on, edits and verifies them in User Management.</CardDescription>
       </CardHeader>
       <CardContent>
-        <DataTable columns={columns} rows={rows} loading={state.loading} error={state.error} pageSize={10}
+        <DataTable columns={columns} rows={rows} loading={state.loading} error={state.error} onRetry={() => { setState((c) => ({ ...c, loading: true, error: null })); setAttempt((n) => n + 1); }} pageSize={10}
           searchPlaceholder="Search teacher…" empty={{ title: "No licensed teachers", icon: GraduationCapIcon }} caption="Licensed teachers" minWidth={720} />
       </CardContent>
     </Card>

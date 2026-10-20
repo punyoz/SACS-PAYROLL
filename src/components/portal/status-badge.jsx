@@ -64,9 +64,28 @@ const REQUEST_TONE = {
   cancelled: "danger",
 };
 
+/*
+ * Stored statuses that are not words: a leave request waits as
+ * "pending_admin" (or the older "pending_accountant") until HR decides. Every
+ * screen shows them as the one request label "Pending" (2026-10-20 audit:
+ * employees saw "Pending_admin").
+ */
+const REQUEST_ALIAS = {
+  pending_admin: "pending",
+  pending_accountant: "pending",
+  not_endorsed: "not endorsed",
+};
+
 /** Leave / request / payslip state: "approved", "pending", "rejected", ... */
 export function RequestStatusBadge({ status, className }) {
-  const key = String(status || "pending").toLowerCase();
+  const raw = String(status || "pending").toLowerCase();
+  const key = REQUEST_ALIAS[raw] || raw.replace(/_/g, " ");
   const label = key.charAt(0).toUpperCase() + key.slice(1);
   return <StatusBadge tone={REQUEST_TONE[key] || "muted"} className={className}>{label}</StatusBadge>;
+}
+
+/** Is a leave / request still waiting for a decision? */
+export function isPendingRequest(status) {
+  const raw = String(status || "pending").toLowerCase();
+  return (REQUEST_ALIAS[raw] || raw) === "pending";
 }

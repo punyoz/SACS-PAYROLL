@@ -12,6 +12,7 @@
 
 import { money } from "@/lib/payroll/payslip-summary";
 import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
+import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -196,7 +197,7 @@ const SEAL_SIZE = 40;
  * options.seal: the school seal as JPEG bytes; left out (or not a usable
  * RGB / grayscale JPEG), the header is text only.
  */
-export function buildPayslipPdf(details, { seal = null } = {}) {
+export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NAME } = {}) {
   const p = new Page();
   const final = details?.status === "final";
   const generation = details?.generation || {};
@@ -210,7 +211,8 @@ export function buildPayslipPdf(details, { seal = null } = {}) {
   p.text(titleX, p.y, "Shepherd Angels Christian School", { size: 15, bold: true });
   p.right(PAGE_W - MARGIN, p.y, final ? "FINAL" : "DRAFT", { size: 13, bold: true, gray: final ? 0 : 0.45 });
   p.y -= 16;
-  p.text(titleX, p.y, "Payslip - SACS Payroll Management System", { size: 10, gray: 0.35 });
+  // System Configuration → Organization name ("SACS" -> "SACS Payroll").
+  p.text(titleX, p.y, `Payslip - ${systemName(orgName)} Management System`, { size: 10, gray: 0.35 });
   p.right(PAGE_W - MARGIN, p.y, `Payslip No. ${details?.payslip_no || "-"}`, { size: 9, gray: 0.35 });
   p.y -= 18;
   p.rule();

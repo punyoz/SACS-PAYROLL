@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
 import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { buildMenu, allowedPagesFor, defaultPageFor } from "@/lib/rbac/menu";
+import { loadOrgName } from "@/lib/org-name";
 import {
   ROLE_PERMISSIONS,
   MANAGEABLE_ROLES,
@@ -57,5 +58,7 @@ export async function GET(request) {
     menu: buildMenu(role),
     allowed_pages: allowedPagesFor(role),
     default_page: defaultPageFor(role),
+    // System Configuration → Organization name (the header's "<name> Payroll").
+    org_name: await loadOrgName(),
   });
 }

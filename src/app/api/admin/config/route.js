@@ -3,6 +3,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { SECURITY_SECTION, invalidateSecuritySettings } from "@/lib/auth/security-settings";
+import { ORG_NAME_SECTION, invalidateOrgName } from "@/lib/org-name";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
@@ -108,6 +109,7 @@ export async function PATCH(request) {
     // Enforced from the next request here; other server instances pick it up
     // within a minute (src/lib/auth/security-settings.js).
     if (section === SECURITY_SECTION) invalidateSecuritySettings();
+    if (section === ORG_NAME_SECTION) invalidateOrgName();
 
     await appendAuditLog({
       actor: guard,

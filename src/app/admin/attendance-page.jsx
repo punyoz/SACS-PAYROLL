@@ -87,7 +87,7 @@ export function AttendancePage({ refreshKey }) {
           <CardDescription>Every record you flagged, with HR&apos;s resolution. Kept for good.</CardDescription>
         </CardHeader>
         <CardContent>
-          <DataTable columns={flagColumns} rows={data?.flags || []} loading={view.first} pageSize={10} searchPlaceholder="Search employee…" empty={{ title: "No flags sent", icon: FlagIcon }} caption="Attendance flags" minWidth={900} />
+          <DataTable columns={flagColumns} rows={data?.flags || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={10} searchPlaceholder="Search employee…" empty={{ title: "No flags sent", icon: FlagIcon }} caption="Attendance flags" minWidth={900} />
         </CardContent>
       </Card>
 

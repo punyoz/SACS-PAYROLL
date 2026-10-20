@@ -27,6 +27,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { roundPeso } from "@/lib/payroll/money";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
+import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 
 const peso = (value) => roundPeso(value);
 const NOT_READY = "Approvals are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
@@ -172,6 +173,15 @@ export async function POST(request) {
       description: `Missed-month subsidy adjustment ${money(amount)} (${label}) requested for ${personLabel(person)}; waits for HR.`,
       metadata: { months, amount, label, reason },
     });
+    // HR's bell (2026-10-20 audit): a request is waiting for its decision.
+    try {
+      await notify(supabase, await hrAccountIds(supabase), {
+        kind: "subsidy_adjustment_requested",
+        title: `Subsidy adjustment to decide · ${personLabel(person)}`,
+        body: `${money(amount)} (${label}) requested by ${actorName(guard)}.`,
+        link_page: "hr-subsidy-approvals",
+      });
+    } catch { /* the request is saved either way */ }
     return NextResponse.json({ success: true, id: result.data?.id || null });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
@@ -242,8 +252,19 @@ export async function PATCH(request) {
       const result = await supabase.from("payroll_subsidy_adjustments").update({
         status: decision === "approve" ? "approved" : "rejected", decided_by: guard.userId || null,
         decided_by_name: actorName(guard), decided_by_role: "hr", decided_at: now, decision_note: note || null,
-      }).eq("id", row.id);
+      // Only while still pending: two HR accounts deciding at once cannot both win.
+      }).eq("id", row.id).eq("status", "pending").select("id");
       if (result.error) return dbError(result.error, "Not saved.");
+      if (Array.isArray(result.data) && !result.data.length) return NextResponse.json({ error: "Already decided." }, { status: 409 });
+      // The Accountant who asked learns the decision (2026-10-20 audit).
+      try {
+        await notify(supabase, [row.requested_by], {
+          kind: `subsidy_adjustment_${decision === "approve" ? "approved" : "rejected"}`,
+          title: `Subsidy adjustment ${decision === "approve" ? "approved" : "rejected"} · ${personLabel(person)}`,
+          body: `${money(row.amount)} (${row.months_label})${note ? `: ${note}` : ""}`,
+          link_page: "ac-approvals",
+        });
+      } catch { /* the decision stands */ }
       await appendAuditLog({ actor: guard, module: "hr", action: `subsidy_adjustment_${decision}`, entity_type: "payroll_subsidy_adjustment", entity_id: row.id, status: "success", source: "api",
         description: `${decision === "approve" ? "Approved" : "Rejected"} the ${money(row.amount)} subsidy adjustment (${row.months_label}) for ${personLabel(person)}${decision === "approve" ? "; paid on the next 16–end payslip" : `: ${note}`}.`,
         metadata: { decision, note: note || null } });

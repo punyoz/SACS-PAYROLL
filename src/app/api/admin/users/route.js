@@ -31,6 +31,7 @@ import {
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_LAST4_COLUMNS, maskedPii } from "@/lib/employees/pii";
 import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
+import { canManageRole } from "@/lib/rbac/permissions";
 
 /**
  * GET lists accounts; PATCH edits, archives or restores one.
@@ -163,10 +164,16 @@ export async function GET(request) {
 
     // Branch-scoped roles see only their own branch's accounts, and never the
     // admin / super_admin accounts they are not allowed to manage.
-    const visible = guard.branchExempt
+    const branchVisible = guard.branchExempt
       ? users
       : scopeListToBranch(users, guard, (u) => u.branch_id)
           .filter((u) => !["admin", "super_admin"].includes(u.role));
+    // Below the Super Admin, only the accounts the role may manage: HR is
+    // every-branch, so the filter above never ran for it and HR could list
+    // the Super Admin and Admin accounts (2026-10-20 audit).
+    const visible = guard.role === "super_admin"
+      ? branchVisible
+      : branchVisible.filter((u) => canManageRole(guard.role, u.role));
 
     return NextResponse.json({ users: visible });
   } catch (error) {

@@ -144,6 +144,8 @@ export function DashboardPage({ refreshKey, onNavigate }) {
               columns={RECORD_COLUMNS}
               rows={records.slice(0, 5)}
               loading={first}
+              error={error}
+              onRetry={() => load()}
               searchable={false}
               paginate={false}
               empty={{ title: "No recent payroll activity", icon: ReceiptTextIcon }}

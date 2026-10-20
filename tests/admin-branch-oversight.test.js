@@ -147,7 +147,7 @@ describe("leave recommendation", () => {
     expect(decided.status).toBe(200);
     expect(table("notifications").some((n) => n.recipient_id === ADMIN_A && n.kind === "leave_endorsement_decided")).toBe(true);
     const after = await view(who.adminA, "view=leaves");
-    expect(after.body.leaves[0]).toMatchObject({ status: "approved", hr_status_label: "Approved by HR", recommendation: expect.objectContaining({ status: "endorsed" }) });
+    expect(after.body.leaves[0]).toMatchObject({ status: "approved", hr_status_label: "Approved", recommendation: expect.objectContaining({ status: "endorsed" }) });
   });
 });
 

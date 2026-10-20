@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BellRingIcon, CheckIcon } from "lucide-react";
+import { BellRingIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -19,22 +19,29 @@ import { dateLabel } from "@/lib/portal/payroll-preview";
 export function LicenseAlertsCard({ refreshKey, onNavigate }) {
   const { notify } = usePortalSession();
   const [data, setData] = React.useState(null);
+  const [busy, setBusy] = React.useState("");
 
   const load = React.useCallback(async () => {
     try {
       setData(await fetchJson("/api/hr/teacher-license"));
     } catch {
-      setData(null);
+      // A failed refresh keeps the alerts already shown (it used to hide them).
+      setData((current) => current);
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   async function acknowledge(alert) {
+    if (busy) return;
+    setBusy(alert.id);
     try {
       await fetchJson("/api/hr/teacher-license", jsonBody("POST", { action: "acknowledge_alert", alert_id: alert.id }));
       await load();
+      notify("Alert Acknowledged", `${alert.employee_name}'s license alert is cleared.`, "success");
     } catch (error) {
       notify("Not Updated", error.message, "error");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -57,7 +64,7 @@ export function LicenseAlertsCard({ refreshKey, onNavigate }) {
               </div>
               <StatusBadge tone={alert.kind === "expired" ? "danger" : "gold"}>{alert.kind === "expired" ? "Expired" : "Expiring"}</StatusBadge>
               <Button size="sm" variant="ghost" onClick={() => onNavigate?.("hr-employees")}>Open</Button>
-              <Button size="sm" variant="outline" onClick={() => acknowledge(alert)}><CheckIcon aria-hidden="true" />Acknowledge</Button>
+              <Button size="sm" variant="outline" onClick={() => acknowledge(alert)} disabled={Boolean(busy)}>{busy === alert.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <CheckIcon aria-hidden="true" />}Acknowledge</Button>
             </li>
           ))}
         </ul>

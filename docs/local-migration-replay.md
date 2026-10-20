@@ -10,6 +10,16 @@ schema or data. Step 7 is the only step that changes the live schema.
 
 Live project ref: `swtlmaupaarrppypxsip`.
 
+## Naming new migrations (rule from 2026-10-21)
+
+The live history has one row stamped `20261018032608` for the file
+`20261018010000_hr_view_payroll_records_payslips.sql` (same content; it was
+applied before the file was renamed). By decision of 2026-10-21 that row is
+**left as it is**. So that the CLI never sees a new file as older than
+what live already ran, **every new migration's timestamp must be later
+than `20261018032608`** (any `2026102…` or later name is fine).
+`tests/migration-names.test.js` fails if a newer file breaks this rule.
+
 ## 0. Why the history needs repairing
 
 The live history lists 84 migrations and the repo has 84 files. The changes

@@ -227,7 +227,8 @@ export function TransfersPage({ refreshKey }) {
       header: "Status",
       cell: (r) => {
         const s = String(r.status || "").toLowerCase();
-        const label = s === "approved" ? "Transferred" : s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
+        // The request labels (Pending / Approved / Rejected), as on every screen.
+        const label = s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
         return <StatusBadge tone={s === "approved" ? "success" : s === "rejected" ? "danger" : "gold"}>{label}</StatusBadge>;
       },
     },

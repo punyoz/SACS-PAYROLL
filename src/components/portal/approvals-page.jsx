@@ -163,7 +163,7 @@ export function ApprovalsPage({ refreshKey }) {
             <CardDescription>Every subsidy decision HR has made: who decided, when, and why. Decisions stay listed here for good.</CardDescription>
           </CardHeader>
           <CardContent>
-            <DataTable columns={historyColumns} rows={data?.history || []} loading={first} pageSize={10}
+            <DataTable columns={historyColumns} rows={data?.history || []} loading={first} error={state.error} onRetry={load} pageSize={10}
               searchPlaceholder="Search teacher, decision or person…" empty={{ title: "No decisions yet", icon: HistoryIcon }} caption="Subsidy decision history" minWidth={1000} />
           </CardContent>
         </Card>

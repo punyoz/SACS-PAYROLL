@@ -17,7 +17,7 @@ import { INCOMPLETE_TAB_KEY } from "./process-page";
  */
 
 export function AttendancePage({ refreshKey }) {
-  const { data, loading } = useAccountant();
+  const { data, loading, error, load } = useAccountant();
   // Process Payroll's "View in attendance" opens the Incomplete queue.
   const [initialTab] = React.useState(() => {
     try {
@@ -53,6 +53,8 @@ export function AttendancePage({ refreshKey }) {
             columns={columns}
             rows={data?.attendance_rows || []}
             loading={loading && !data}
+            error={error}
+            onRetry={() => load()}
             rowKey={(r) => r.employee_id}
             pageSize={15}
             searchPlaceholder="Search employee…"

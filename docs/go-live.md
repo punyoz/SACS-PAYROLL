@@ -226,3 +226,12 @@ Do this at each of the 4 branches:
   once a week.
 - **Gmail limit:** a personal Gmail sends to about 500 recipients a day
   (Workspace about 2,000). Watch it if every employee signs in daily.
+
+## 11. Future improvements (not done yet)
+
+- **Leaked password protection** (Supabase → Authentication → Sign In /
+  Providers → Email → "Prevent use of leaked passwords"). Supabase checks
+  each new password against HaveIBeenPwned and refuses known-leaked ones.
+  The security advisor flags it as off. Skipped for now by decision
+  (2026-10-21); it may need a paid Supabase plan. Turn it on when the plan
+  allows: no code change is needed.

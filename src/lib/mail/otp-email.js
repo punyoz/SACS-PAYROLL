@@ -11,6 +11,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 
 const LOGO_FILE = path.join(process.cwd(), "public", "brand", "logo-160.png");
 const LOGO_CID = "sacs-logo@sacs-payroll";
@@ -20,10 +21,11 @@ const GREEN_DARK = "#0F3D28";
 const GOLD = "#C9A227";
 const GOLD_LIGHT = "#E8C766";
 
+// "{system}" is "<Organization name> Payroll" (System Configuration).
 const PURPOSES = {
-  login: { subject: "Your SACS Payroll sign-in code", action: "finish signing in" },
-  reset: { subject: "Your SACS Payroll password reset code", action: "reset your password" },
-  pwchange: { subject: "Your SACS Payroll password change code", action: "change your password" },
+  login: { subject: "Your {system} sign-in code", action: "finish signing in" },
+  reset: { subject: "Your {system} password reset code", action: "reset your password" },
+  pwchange: { subject: "Your {system} password change code", action: "change your password" },
 };
 
 function escapeHtml(value) {
@@ -44,11 +46,13 @@ function logoAttachment() {
 }
 
 /**
- * @param {{ code: string, purpose: "login"|"reset"|"pwchange", minutes: number, name?: string }} input
+ * @param {{ code: string, purpose: "login"|"reset"|"pwchange", minutes: number, name?: string, orgName?: string }} input
  * @returns {{ subject: string, html: string, text: string, attachments: object[] }}
  */
-export function buildOtpEmail({ code, purpose, minutes, name }) {
+export function buildOtpEmail({ code, purpose, minutes, name, orgName = DEFAULT_ORG_NAME }) {
   const kind = PURPOSES[purpose] || PURPOSES.login;
+  const system = systemName(orgName);
+  const subject = kind.subject.replace("{system}", system);
   const logo = logoAttachment();
   const greeting = name ? `Hello ${escapeHtml(name)},` : "Hello,";
   const digits = String(code).split("").map(escapeHtml).join("&#8202;");
@@ -63,7 +67,7 @@ export function buildOtpEmail({ code, purpose, minutes, name }) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light only">
-<title>${escapeHtml(kind.subject)}</title>
+<title>${escapeHtml(subject)}</title>
 </head>
 <body style="margin:0;padding:0;background:#F6F7F3;font-family:'DM Sans',Segoe UI,Arial,sans-serif;color:#1A1A1A;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F6F7F3;padding:24px 12px;">
@@ -84,7 +88,7 @@ export function buildOtpEmail({ code, purpose, minutes, name }) {
         <p style="margin:0 0 20px;color:#5E6470;font-size:13px;">If you did not try to sign in or change your password, ignore this email and tell the school administrator. Never share this code with anyone, including school staff.</p>
       </td></tr>
       <tr><td style="background:#F2F4EF;padding:14px 24px;text-align:center;font-size:11px;color:#5E6470;border-top:1px solid #E0D5AE;">
-        Sent automatically by SACS Payroll. Please do not reply.
+        Sent automatically by ${escapeHtml(system)}. Please do not reply.
       </td></tr>
     </table>
   </td></tr>
@@ -104,5 +108,5 @@ export function buildOtpEmail({ code, purpose, minutes, name }) {
     "Never share this code with anyone.",
   ].join("\n");
 
-  return { subject: kind.subject, html, text, attachments: logo ? [logo] : [] };
+  return { subject, fromName: system, html, text, attachments: logo ? [logo] : [] };
 }

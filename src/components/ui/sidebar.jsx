@@ -289,8 +289,10 @@ function SidebarInset({
   className,
   ...props
 }) {
+  // A div, not <main>: the portals put their own <main id="portal-main">
+  // inside it, and a page must have one main landmark (2026-10-20 audit).
   return (
-    <main
+    <div
       data-slot="sidebar-inset"
       className={cn(
         "relative flex w-full flex-1 flex-col bg-background",

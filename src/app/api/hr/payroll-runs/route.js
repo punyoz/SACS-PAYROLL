@@ -35,6 +35,7 @@ import { money } from "@/lib/payroll/payslip-summary";
 import { buildXlsx } from "@/lib/export/xlsx";
 import { buildTablePdf } from "@/lib/export/table-pdf";
 import { FLAG_LABELS, RUN_STATUS_LABELS, describeRunError, runTotals, shapeRun } from "@/lib/payroll/runs";
+import { notify } from "@/lib/branch-requests-server";
 
 const NOT_READY = "Payroll Approval is not set up yet: apply supabase/migrations/20261014010000_payroll_run_approval.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -326,6 +327,21 @@ export async function GET(request) {
   }
 }
 
+/** "Your payslip is ready" to every employee on the run's approved submission. */
+async function notifyPayslipsReleased(supabase, runId) {
+  const run = await supabase.from("payroll_runs").select("period_label,submission_no").eq("id", runId).maybeSingle();
+  if (run.error || !run.data) return;
+  const items = await supabase.from("payroll_run_items").select("employee_id")
+    .eq("run_id", runId).eq("submission_no", run.data.submission_no);
+  if (items.error) return;
+  await notify(supabase, (items.data || []).map((i) => i.employee_id), {
+    kind: "payslip_released",
+    title: "Your payslip is ready",
+    body: `Your payslip for ${run.data.period_label} was approved by HR.`,
+    link_page: "emp-payslips",
+  });
+}
+
 export async function PATCH(request) {
   try {
     const guard = await requirePermission(request, "payroll_run_approval", "update");
@@ -365,6 +381,13 @@ export async function PATCH(request) {
         else results.push({ run_id: id, ok: true, run: shapeRun(Array.isArray(result.data) ? result.data[0] : result.data) });
       }
       const approved = results.filter((r) => r.ok).length;
+      // The bell (2026-10-20 audit): each employee on an approved run is told
+      // the payslip is ready. Never fails the approval itself.
+      for (const done of results.filter((r) => r.ok)) {
+        try {
+          await notifyPayslipsReleased(supabase, done.run_id);
+        } catch { /* the approval stands; the payslip is visible either way */ }
+      }
       const status = approved ? 200 : results[0]?.status || 409;
       return NextResponse.json({ success: approved > 0, approved, results }, { status });
     }

@@ -7,6 +7,7 @@ import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/componen
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/portal/data-table";
+import { useUrlParam } from "@/components/portal/use-url-param";
 import { ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -28,8 +29,9 @@ const ALL = "all";
 export function PayrollRecordsPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [period, setPeriod] = React.useState(ALL);
-  const [branch, setBranch] = React.useState(ALL);
+  // The filters stay in the address, so a refresh keeps them (useUrlParam).
+  const [periodParam, setPeriod] = useUrlParam("pr_period", ALL);
+  const [branchParam, setBranch] = useUrlParam("pr_branch", ALL);
   const [open, setOpen] = React.useState(null);   // { id, loading, error, payslip }
   const [downloading, setDownloading] = React.useState(false);
 
@@ -82,6 +84,10 @@ export function PayrollRecordsPage({ refreshKey }) {
 
   const data = state.data;
   const first = state.loading && !data;
+  // A period or branch from the address that is not in the list (an old
+  // link) shows everything instead of an empty table.
+  const period = !data || periodParam === ALL || (data.periods || []).includes(periodParam) ? periodParam : ALL;
+  const branch = !data || branchParam === ALL || (data.branches || []).some((b) => b.id === branchParam) ? branchParam : ALL;
   const rows = React.useMemo(() => (data?.records || [])
     .filter((r) => period === ALL || r.pay_period === period)
     .filter((r) => branch === ALL || r.branch_id === branch), [data, period, branch]);
