@@ -12,7 +12,7 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson } from "@/lib/portal/api";
-import { dateLabel, money, moneyCompact, statusMeta, toAmount } from "@/lib/portal/payroll-preview";
+import { dateLabel, money, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 
@@ -107,7 +107,7 @@ export function ReportsPage() {
   const [state, setState] = React.useState({ loading: false, error: null });
 
   const periods = data?.period_options || [];
-  const all = [...(data?.records || []), ...(data?.draft_entries || [])];
+  const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])];
 
   async function generate() {
     setState({ loading: false, error: null });
@@ -194,7 +194,7 @@ export function ReportsPage() {
     { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
     { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.total_deductions) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
-    { key: "status", header: "Status", cell: (r) => { const s = statusMeta(r.status); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
+    { key: "status", header: "Status", cell: (r) => { const s = recordStatusMeta(r); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
   ];
 
   const holidayColumns = [

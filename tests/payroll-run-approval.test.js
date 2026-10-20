@@ -91,6 +91,7 @@ const ACCT = "aaaaaaaa-1111-4111-8111-0000000000ac";
 const HR = "aaaaaaaa-1111-4111-8111-0000000000e1";
 const HR2 = "aaaaaaaa-1111-4111-8111-0000000000e2";
 const SA = "aaaaaaaa-1111-4111-8111-0000000000fa";
+const ACCT_B = "aaaaaaaa-1111-4111-8111-0000000000ab";
 const FIRST = "October 1-15, 2026";
 const SECOND = "October 16-31, 2026";
 const BIR_MONTHLY = [[0, 0, 0], [20833, 0, 15], [33333, 1875, 20], [66667, 8541.8, 25], [166667, 33541.8, 30], [666667, 183541.8, 35]];
@@ -229,6 +230,7 @@ describe("Payroll Approval workflow", () => {
       { id: BEN, full_name: "Ben Senior High", email: "ben@sacs.test", branch_id: BRANCH_A, role: "employee", employee_id: "SACS-002", archived: false, employee_level: "senior_high" },
       { id: CARA, full_name: "Cara Clerk", email: "cara@sacs.test", branch_id: BRANCH_B, role: "employee", employee_id: "SACS-003", archived: false },
       { id: ACCT, full_name: "Ana Accountant", email: "acct@sacs.test", branch_id: BRANCH_A, role: "accountant" },
+      { id: ACCT_B, full_name: "Bert Accountant", email: "acct-b@sacs.test", branch_id: BRANCH_B, role: "accountant" },
       { id: HR, full_name: "Helen HR", email: "hr@sacs.test", branch_id: null, role: "hr" },
       { id: HR2, full_name: "Hugo HR", email: "hr2@sacs.test", branch_id: null, role: "hr" },
       { id: SA, full_name: "Sam Super", email: "sa@sacs.test", branch_id: null, role: "super_admin" },
@@ -345,8 +347,9 @@ describe("Payroll Approval workflow", () => {
     // Locked: no reprocess, override, new payslip or cancel.
     const reprocess = await json(payroll.PATCH(req(ACCT, "/api/accountant/payroll", "PATCH", { action: "generate", employee_id: ANA, pay_period: FIRST, reprocess: true })));
     expect(reprocess).toMatchObject({ status: 409, body: { code: "payroll_run_locked" } });
+    // The Super Admin no longer reaches payroll at all (2026-10-20).
     const override = await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "override_final", employee_id: ANA, pay_period: FIRST, reason: "Correcting a late tap" })));
-    expect(override.body.code).toBe("payroll_run_locked");
+    expect(override.status).toBe(403);
   });
 
   it("an Accountant cannot edit a Pending run, nor approve one", async () => {
@@ -420,6 +423,15 @@ describe("Payroll Approval workflow", () => {
     expect(detail.items.find((i) => i.employee_name === "Ana Preschool")).toMatchObject({ late_deduction: 0, net_pay: 26100 });
     expect(detail.history.map((h) => h.action)).toEqual(["submitted", "rejected", "resubmitted"]);
     expect(table("audit_logs").filter((a) => a.module === "payroll_approval").map((a) => a.actor_role)).toEqual(["accountant", "hr", "accountant"]);
+
+    // HR's History (2026-10-20): every decision stays listed, the rejection
+    // included, each with the submission it answered.
+    await json(hrRoute.PATCH(req(HR, "/api/hr/payroll-runs", "PATCH", { action: "approve", run_ids: [run.id], remarks: "OK now" })));
+    const history = (await json(hrRoute.GET(req(HR, "/api/hr/payroll-runs?view=history")))).body;
+    expect(history.available).toBe(true);
+    expect(history.history.map((h) => [h.decision, h.period_label, h.branch_name])).toEqual([["approved", FIRST, "Main"], ["rejected", FIRST, "Main"]]);
+    expect(history.history[1]).toMatchObject({ remarks: "Ana's Oct 5 late is a correction in progress", decided_by_name: expect.any(String), submitted_by_name: expect.any(String), submitted_at: expect.any(String), decided_at: expect.any(String) });
+    expect(history.history[0].submitted_at >= history.history[1].decided_at).toBe(true);
   });
 
   it("a 2nd cutoff run shows every deduction", async () => {
@@ -439,10 +451,12 @@ describe("Payroll Approval workflow", () => {
   it("HR approves two branches at once: one record each", async () => {
     await processBranchA();
     await submitBranchA();
-    // Annex: processed and submitted by the Super Admin.
-    // (The Super Admin processes with Generate; batch processing is the Accountant's.)
-    expect((await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "generate", employee_id: CARA, pay_period: FIRST })))).status).toBe(200);
-    const annex = await json(runsRoute.PATCH(req(SA, "/api/accountant/payroll-runs", "PATCH", { action: "submit", branch_id: BRANCH_B, period: FIRST })));
+    // Annex: processed and submitted by its own Accountant; the Super Admin
+    // can do neither (2026-10-20).
+    expect((await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "generate", employee_id: CARA, pay_period: FIRST })))).status).toBe(403);
+    expect((await json(runsRoute.PATCH(req(SA, "/api/accountant/payroll-runs", "PATCH", { action: "submit", branch_id: BRANCH_B, period: FIRST })))).status).toBe(403);
+    expect((await json(payroll.PATCH(req(ACCT_B, "/api/accountant/payroll", "PATCH", { action: "generate", employee_id: CARA, pay_period: FIRST })))).status).toBe(200);
+    const annex = await json(runsRoute.PATCH(req(ACCT_B, "/api/accountant/payroll-runs", "PATCH", { action: "submit", branch_id: BRANCH_B, period: FIRST })));
     expect(annex.status).toBe(200);
     const ids = [runOf(BRANCH_A).id, runOf(BRANCH_B).id];
     const result = await json(hrRoute.PATCH(req(HR, "/api/hr/payroll-runs", "PATCH", { action: "approve", run_ids: ids })));

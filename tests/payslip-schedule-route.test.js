@@ -118,10 +118,9 @@ describe("Generation on the scheduled day", () => {
     expect(body).toBeTruthy();
   });
 
-  it("Oct 20: closed (a Super Admin override is needed)", async () => {
-    const { response, body } = await generate("2026-10-20");
-    expect(response.status).toBe(403);
-    expect(body.error).toContain("closed on Oct 19, 2026");
+  it("Oct 20: closed; the Accountant still generates, marked late for HR", async () => {
+    const { response } = await generate("2026-10-20");
+    expect(response.status).toBe(200);
   });
 
   it("the 2nd half generates Fri Oct 30 (Oct 31 is a Saturday) and reads attendance to Oct 29", async () => {

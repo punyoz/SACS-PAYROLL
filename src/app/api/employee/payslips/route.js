@@ -35,7 +35,8 @@ function mapEntryToPayslip(row) {
   const allowances = payroll.allowances || {};
   const deductions = payroll.deductions || {};
 
-  const grossPay = toAmount(totals.gross_pay ?? payroll.basic_salary ?? 0);
+  // Per-cutoff payslips: the cutoff's gross, incentives and subsidy included.
+  const grossPay = toAmount(payroll.monthly?.cutoff?.gross_pay ?? totals.gross_pay ?? payroll.basic_salary ?? 0);
   const totalDeductions = toAmount(totals.total_deductions ?? 0);
   // Floored so entries stored before the rule existed also read 0.00 rather
   // than negative (src/lib/payroll/net-pay.js).

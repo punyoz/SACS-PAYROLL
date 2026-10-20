@@ -12,17 +12,18 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
-import { dateTime, money, moneyCompact, statusMeta } from "@/lib/portal/payroll-preview";
+import { dateTime, money, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { useAccountant } from "./accountant-data";
 
 /* Dashboard (renderDashboard, public/legacy/js/accountant.js). */
 
 const TOTALS_CHART = { amount: { label: "Amount" } };
+// The four payroll statuses (recordStatusMeta): "Paid" only after HR approves.
 const STATUS_CHART = {
   paid: { label: "Paid", color: "var(--chart-1)" },
-  draft: { label: "Draft", color: "var(--info)" },
-  pending: { label: "Pending", color: "var(--chart-2)" },
-  on_hold: { label: "On hold", color: "var(--destructive)" },
+  draft: { label: "Not submitted to HR", color: "var(--info)" },
+  pending: { label: "Pending HR Approval", color: "var(--chart-2)" },
+  on_hold: { label: "Rejected by HR", color: "var(--destructive)" },
 };
 
 export const RECORD_COLUMNS = [
@@ -30,33 +31,40 @@ export const RECORD_COLUMNS = [
   { key: "pay_period", header: "Period", sortable: true, searchValue: (r) => r.pay_period },
   { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
   { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
-  { key: "status", header: "Status", cell: (r) => { const s = statusMeta(r.status); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
+  { key: "status", header: "Status", cell: (r) => { const s = recordStatusMeta(r); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
   { key: "date", header: "Processed", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => { const d = r.submitted_at || r.updated_at; return d ? dateTime(d) : "—"; } },
 ];
 
-function bucket(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "paid" || s === "approved") return "paid";
-  if (s === "draft") return "draft";
-  if (s === "on_hold" || s === "rejected") return "on_hold";
-  return "pending";
+function bucket(record) {
+  const label = recordStatusMeta(record).label;
+  if (label === "Paid") return "paid";
+  if (label === "Not submitted to HR") return "draft";
+  if (label === "Pending HR Approval") return "pending";
+  return "on_hold";
 }
 
 export function DashboardPage({ refreshKey, onNavigate }) {
   const { data, loading, error, load } = useAccountant();
   const first = loading && !data;
   const employees = data?.employees || [];
-  const records = data?.records || [];
+  // The current period only: the first load (no ?period=) returns every
+  // period's records, later loads only the chosen one's.
+  const periodLabel = data?.active_period?.label;
+  const records = (data?.records || []).filter((r) => !periodLabel || r.pay_period === periodLabel);
   const drafts = data?.draft_entries || [];
-  const panels = data?.panels || {};
-  const paid = records.filter((r) => r.status === "paid" || r.status === "approved").length;
+  const panels = records.reduce((acc, r) => ({
+    total_gross: acc.total_gross + Number(r.gross_pay || 0),
+    total_deductions: acc.total_deductions + Number(r.total_deductions || 0),
+    total_net: acc.total_net + Number(r.net_pay || 0),
+  }), { total_gross: 0, total_deductions: 0, total_net: 0 });
+  const paid = records.filter((r) => recordStatusMeta(r).label === "Paid").length;
 
   const totals = [
     { label: "Gross pay", amount: Number(panels.total_gross || 0), fill: "var(--chart-1)" },
     { label: "Deductions", amount: Number(panels.total_deductions || 0), fill: "var(--destructive)" },
     { label: "Net pay", amount: Number(panels.total_net || 0), fill: "var(--chart-2)" },
   ];
-  const statusCounts = [...records, ...drafts].reduce((acc, r) => { acc[bucket(r.status)] = (acc[bucket(r.status)] || 0) + 1; return acc; }, {});
+  const statusCounts = [...records, ...drafts].reduce((acc, r) => { acc[bucket(r)] = (acc[bucket(r)] || 0) + 1; return acc; }, {});
   const slices = Object.keys(STATUS_CHART).map((key) => ({ key, value: statusCounts[key] || 0, fill: `var(--color-${key})` })).filter((s) => s.value > 0);
   const totalEntries = slices.reduce((sum, s) => sum + s.value, 0);
 
@@ -68,7 +76,7 @@ export function DashboardPage({ refreshKey, onNavigate }) {
         <StatCard label="Total employees" value={employees.length} hint="Active staff" icon={UsersIcon} loading={first} />
         <StatCard label="Period gross pay" value={moneyCompact(panels.total_gross || 0)} hint={data?.active_period?.label || "Current period"} icon={BanknoteIcon} tone="gold" loading={first} />
         <StatCard label="Period net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" loading={first} />
-        <StatCard label="Paid payrolls" value={paid} hint="Processed entries" icon={CheckCircle2Icon} tone="success" loading={first} />
+        <StatCard label="Paid payrolls" value={paid} hint="Approved by HR" icon={CheckCircle2Icon} tone="success" loading={first} />
         <StatCard label="Draft payrolls" value={drafts.length} hint="Saved drafts" icon={FilePenLineIcon} tone="info" loading={first} />
         <StatCard label="Total deductions" value={moneyCompact(panels.total_deductions || 0)} hint="Current period" icon={MinusCircleIcon} tone="danger" loading={first} />
       </section>

@@ -43,6 +43,8 @@ export const FLAG_LABELS = Object.freeze({
   negative_net: "Net pay below zero (paid ₱0)",
   zero_days: "No days worked",
   large_change: "Large change vs. previous period",
+  own_payslip: "Accountant's own payslip (system-computed): check it",
+  late_processing: "Processed after the generation window",
 });
 
 const peso = (value) => roundPeso(value);
@@ -158,11 +160,15 @@ export function shapeRunItem(entry, { employeeLevel = null, scheduleName = null,
     undertime_minutes: num(d.undertime_minutes ?? counts.undertime_minutes),
     half_days: num(d.half_days ?? counts.half_days),
     previous_net_pay: previousNet === null || previousNet === undefined ? null : peso(previousNet),
-    flags: attentionFlags({
-      grossPay, totalDeductions, netPay, carryOverOut: m.carry_over_out, daysWorked, previousNet,
-    }),
+    flags: [
+      ...attentionFlags({ grossPay, totalDeductions, netPay, carryOverOut: m.carry_over_out, daysWorked, previousNet }),
+      // The submitting Accountant's own payslip: HR is its independent check.
+      ...(payroll.own_payslip?.processed_by_self ? ["own_payslip"] : []),
+      ...(payroll.late_processing ? ["late_processing"] : []),
+    ],
     // Everything the expanded row shows: each line with its quantity and rate.
     breakdown: {
+      own_payslip: payroll.own_payslip || null,
       half: m.half || null,
       attendance_rule: m.rule === "per_cutoff" || m.attendance_rule === "per_cutoff" ? "per_cutoff" : m.rule || null,
       window: m.cutoff?.window || m.window || null,

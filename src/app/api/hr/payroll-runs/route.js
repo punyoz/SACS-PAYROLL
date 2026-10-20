@@ -7,6 +7,11 @@
  *   GET   ?run_id=…                      the run: summary, every employee's
  *                                        snapshot row, history, Early Bird winner
  *   GET   ?run_id=…&format=xlsx|pdf      the same as Excel or PDF
+ *   GET   ?view=history[&branch_id][&period][&q]
+ *                                        every approve / reject decision, newest
+ *                                        first, each with the submission it
+ *                                        decided (kept for good: a rejected run
+ *                                        that is resubmitted keeps its rejection)
  *   PATCH { action: "approve", run_ids: [...], remarks? }   HR only; one record per run
  *   PATCH { action: "reject", run_id, remarks }             HR only; remarks required
  *
@@ -36,6 +41,61 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SUBMITTED = ["pending", "approved", "rejected"];
 
 const num = (value) => Number(value) || 0;
+
+/**
+ * Every decision HR made (payroll_approval_history: approved / rejected),
+ * newest first, with the run's period and branch and the submission each
+ * decision answered (the latest submitted / resubmitted row before it).
+ */
+async function loadDecisionHistory(supabase, guard, { branchId, period, q }) {
+  const runsResult = await fetchAllRows(() => {
+    let query = scopeRuns(supabase.from("payroll_run_summaries").select("*"), guard).in("status", SUBMITTED);
+    if (branchId && UUID.test(branchId)) query = query.eq("branch_id", branchId);
+    if (period) query = query.eq("period_label", period);
+    return query.order("period_start", { ascending: false }).order("id", { ascending: true });
+  });
+  if (runsResult.error) return { error: NOT_READY };
+  const runs = new Map((runsResult.data || []).map((row) => [row.id, shapeRun(row)]));
+  if (!runs.size) return { rows: [] };
+  const historyResult = await fetchAllRows(() => supabase.from("payroll_approval_history").select("*")
+    .in("run_id", [...runs.keys()]).order("created_at", { ascending: true }).order("id", { ascending: true }));
+  if (historyResult.error) return { error: NOT_READY };
+  const lastSubmission = new Map();
+  const rows = [];
+  for (const h of historyResult.data || []) {
+    if (h.action === "submitted" || h.action === "resubmitted") { lastSubmission.set(h.run_id, h); continue; }
+    if (h.action !== "approved" && h.action !== "rejected") continue;
+    const run = runs.get(h.run_id);
+    const submission = lastSubmission.get(h.run_id) || null;
+    rows.push({
+      id: h.id,
+      run_id: h.run_id,
+      period_label: run.period_label,
+      period_start: run.period_start,
+      cutoff_type: run.cutoff_type,
+      branch_id: run.branch_id,
+      branch_name: run.branch_name,
+      submitted_by_name: submission?.actor_name || run.submitted_by_name || null,
+      submitted_at: submission?.created_at || null,
+      decision: h.action,
+      decision_label: h.action === "approved" ? "Approved" : "Rejected",
+      decided_by_name: h.actor_name || null,
+      decided_at: h.created_at,
+      remarks: h.remarks || null,
+      totals: h.totals || {},
+      current_status: run.status,
+      seq: rows.length,
+    });
+  }
+  // Newest first; the history's own order breaks a tie in time.
+  rows.sort((a, b) => String(b.decided_at).localeCompare(String(a.decided_at)) || b.seq - a.seq);
+  const needle = String(q || "").toLowerCase();
+  return {
+    rows: needle
+      ? rows.filter((r) => [r.branch_name, r.period_label, r.submitted_by_name, r.decided_by_name, r.remarks].some((v) => String(v || "").toLowerCase().includes(needle)))
+      : rows,
+  };
+}
 
 function scopeRuns(query, guard) {
   // HR and Super Admin: every branch. The Accountant: its own.
@@ -217,6 +277,23 @@ export async function GET(request) {
     const branchId = normalizeText(url.searchParams.get("branch_id"));
     const period = normalizeText(url.searchParams.get("period"));
     const q = normalizeText(url.searchParams.get("q")).toLowerCase();
+
+    const listMeta = async () => {
+      const [branches, periods] = await Promise.all([
+        supabase.from("branches").select("id,name").order("name", { ascending: true }),
+        scopeRuns(supabase.from("payroll_runs").select("period_label,period_start").in("status", SUBMITTED), guard).order("period_start", { ascending: false }),
+      ]);
+      return {
+        branches: (branches.data || []).filter((b) => guard.branchExempt || String(b.id) === String(guard.branchId)),
+        periods: [...new Set((periods.data || []).map((p) => p.period_label))],
+      };
+    };
+
+    if (normalizeText(url.searchParams.get("view")).toLowerCase() === "history") {
+      const history = await loadDecisionHistory(supabase, guard, { branchId, period, q });
+      if (history.error) return NextResponse.json({ available: false, error: history.error, history: [] });
+      return NextResponse.json({ available: true, history: history.rows, can_review: guard.role === "hr", ...(await listMeta()) });
+    }
     const build = () => {
       let query = scopeRuns(supabase.from("payroll_run_summaries").select("*"), guard)
         .in("status", status === "all" ? SUBMITTED : [status]);
@@ -238,16 +315,11 @@ export async function GET(request) {
         || [run.branch_name, run.submitted_by_name, run.reviewed_by_name, run.period_label].some((v) => String(v || "").toLowerCase().includes(q)));
     }
 
-    const [branches, periods] = await Promise.all([
-      supabase.from("branches").select("id,name").order("name", { ascending: true }),
-      scopeRuns(supabase.from("payroll_runs").select("period_label,period_start").in("status", SUBMITTED), guard).order("period_start", { ascending: false }),
-    ]);
     return NextResponse.json({
       available: true,
       runs,
       can_review: guard.role === "hr",
-      branches: (branches.data || []).filter((b) => guard.branchExempt || String(b.id) === String(guard.branchId)),
-      periods: [...new Set((periods.data || []).map((p) => p.period_label))],
+      ...(await listMeta()),
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
