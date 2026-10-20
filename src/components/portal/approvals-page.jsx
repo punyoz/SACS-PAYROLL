@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckIcon, GiftIcon, HandCoinsIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
+import { CheckIcon, GiftIcon, HandCoinsIcon, HistoryIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,15 +13,15 @@ import { DataTable } from "@/components/portal/data-table";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { money } from "@/lib/portal/payroll-preview";
+import { dateTime, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 
 /*
- * Approvals (/api/admin/approvals; SACS-Payroll-Permission-Matrix.md row 10a).
- * One page, two queues; what each role may do comes from the API
- * (AWOL separations are decided by HR on its AWOL Cases page):
- *   Excess subsidy advances (consent refused)  HR recommends, Admin approves
- *   Missed-month subsidy adjustments  Accountant requests, Admin approves / rejects
+ * Subsidy Approvals (/api/admin/approvals). HR is the only approver since
+ * 2026-10-20; what each role may do comes from the API:
+ *   Excess subsidy advances (consent refused)  HR decides
+ *   Missed-month subsidy adjustments  Accountant requests, HR approves / rejects
+ *   Decision history  every decision HR made, kept for good
  */
 
 const ADJ_TONE = { pending: "gold", approved: "info", applied: "success", rejected: "danger" };
@@ -41,7 +41,7 @@ export function ApprovalsPage({ refreshKey }) {
       if (!data.available) throw new Error(data.error || "Approvals are not set up yet.");
       setState({ loading: false, error: null, data });
     } catch (err) {
-      setState({ loading: false, error: err.message || "Unable to load approvals.", data: null });
+      setState((c) => ({ loading: false, error: err.message || "Unable to load approvals.", data: c.data }));
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
@@ -62,19 +62,16 @@ export function ApprovalsPage({ refreshKey }) {
     setError("");
     try {
       let message = ["Saved", ""];
-      if (kind === "recommend") {
-        await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "recommend_loan_decision", loan_id: row.id, decision: input.decision, reason: input.reason }));
-        message = ["Recommendation Sent", "The branch Admin approves it."];
-      } else if (kind === "approve_loan") {
-        await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "approve_loan_decision", loan_id: row.id, note: input.note }));
-        message = ["Decision Approved", ""];
+      if (kind === "decide_loan") {
+        await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "decide_loan_decision", loan_id: row.id, decision: input.decision, reason: input.reason }));
+        message = ["Decision Saved", "It is listed under Decision history."];
       } else if (kind === "approve_adj" || kind === "reject_adj") {
         await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: kind === "approve_adj" ? "approve" : "reject", note: input.note }));
         message = kind === "approve_adj" ? ["Adjustment Approved", "Paid on the next 16–end payslip."] : ["Adjustment Rejected", ""];
       } else if (kind === "request_adj") {
         const balance = data.balances.find((b) => b.id === input.balance);
         await fetchJson("/api/admin/approvals", jsonBody("POST", { action: "request_adjustment", subsidy_balance_id: input.balance, months_missed: Number(input.months), months_label: input.label, amount: input.amount || (balance ? balance.monthly * Number(input.months) : 0), reason: input.reason }));
-        message = ["Adjustment Requested", "The branch Admin approves it."];
+        message = ["Adjustment Requested", "HR approves it."];
       }
       notify(message[0], message[1], "success");
       setDialog(null);
@@ -90,12 +87,10 @@ export function ApprovalsPage({ refreshKey }) {
     { key: "employee_name", header: "Teacher", cell: (l) => <p className="font-medium">{l.employee_name}</p>, searchValue: (l) => l.employee_name },
     { key: "excess", header: "Excess advance", align: "right", className: "tabular-nums font-semibold", cell: (l) => money(l.excess) },
     { key: "why", header: "Teacher's answer", cell: (l) => <p className="max-w-60 text-xs whitespace-normal text-muted-foreground">{l.status_reason}</p> },
-    { key: "dec", header: "Decision", cell: (l) => (l.decision_label ? <div><StatusBadge tone={l.decision_approved_at ? "success" : "gold"}>{l.decision_approved_at ? "Approved" : "Recommended"}</StatusBadge><p className="mt-1 text-xs">{l.decision_label}</p><p className="max-w-60 text-xs whitespace-normal text-muted-foreground">{l.decision_reason} — {l.decision_recommended_by_name}</p></div> : <StatusBadge tone="muted">Waiting for HR</StatusBadge>) },
-    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (l) => {
-      if (can.recommend && !l.decision_approved_at) return <Button size="sm" onClick={() => open("recommend", l, { decision: l.decision || "offset_next_subsidy" })}>{l.decision ? "Change" : "Recommend"}</Button>;
-      if (can.decide && l.decision && !l.decision_approved_at) return <Button size="sm" onClick={() => open("approve_loan", l)}><CheckIcon aria-hidden="true" />Approve</Button>;
-      return null;
-    } },
+    { key: "dec", header: "Decision", cell: () => <StatusBadge tone="gold">Waiting for HR</StatusBadge> },
+    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (l) => (can.decide
+      ? <Button size="sm" onClick={() => open("decide_loan", l, { decision: l.decision || "offset_next_subsidy" })}>Decide</Button>
+      : null) },
   ];
 
   const adjColumns = [
@@ -111,12 +106,22 @@ export function ApprovalsPage({ refreshKey }) {
     ) : null) },
   ];
 
+  const historyColumns = [
+    { key: "kind_label", header: "Type", cell: (h) => <StatusBadge tone={h.kind === "adjustment" ? "info" : "gold"} dot={false}>{h.kind_label}</StatusBadge>, searchValue: (h) => h.kind_label },
+    { key: "employee_name", header: "Teacher", className: "font-medium", sortable: true, searchValue: (h) => h.employee_name },
+    { key: "amount", header: "Amount", align: "right", className: "tabular-nums", cell: (h) => money(h.amount) },
+    { key: "requested", header: "Requested by", cell: (h) => <div className="text-xs">{h.requested_by_name || "—"}{h.requested_at ? <span className="block text-muted-foreground">{dateTime(h.requested_at)}</span> : null}</div>, searchValue: (h) => h.requested_by_name },
+    { key: "decision_label", header: "Decision", cell: (h) => <StatusBadge tone={h.decision === "rejected" ? "danger" : "success"}>{h.decision_label}</StatusBadge>, searchValue: (h) => h.decision_label },
+    { key: "decided_by_name", header: "Decided by", sortable: true, cell: (h) => h.decided_by_name || "—", searchValue: (h) => h.decided_by_name },
+    { key: "decided_at", header: "Decision date", sortable: true, className: "whitespace-nowrap", cell: (h) => (h.decided_at ? dateTime(h.decided_at) : "—") },
+    { key: "reason", header: "Reason", cell: (h) => <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{h.reason || "—"}</p> },
+  ];
+
   const titles = {
-    recommend: ["Recommend a decision", "The teacher refused to sign for the excess advance. Nothing is deducted from salary meanwhile."],
-    approve_loan: ["Approve HR's recommendation", "A waiver closes the advance now; the other decisions act at next year's payout, final pay, or outside payroll."],
+    decide_loan: ["Decide the excess advance", "The teacher refused to sign for the excess advance. Nothing is deducted from salary meanwhile. A waiver closes the advance now; the other decisions act at next year's payout, final pay, or outside payroll."],
     approve_adj: ["Approve the adjustment", "Paid once on the teacher's next 16–end payslip."],
     reject_adj: ["Reject the adjustment", "It stays on record with your reason."],
-    request_adj: ["Request a missed-month adjustment", "License changes are never backdated: missed months are paid once, with the Admin's approval."],
+    request_adj: ["Request a missed-month adjustment", "License changes are never backdated: missed months are paid once, with HR's approval."],
   };
   const fieldFor = (id, label, el) => <div className="space-y-1.5"><Label htmlFor={`apv-${id}`}>{label}</Label>{el}</div>;
   const selectedBalance = data?.balances?.find((b) => b.id === input.balance);
@@ -127,7 +132,7 @@ export function ApprovalsPage({ refreshKey }) {
         <Card className="min-w-0 shadow-xs">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><HandCoinsIcon className="size-4" aria-hidden="true" />Excess subsidy advances</CardTitle>
-            <CardDescription>The teacher refused to sign for converting the excess to a salary deduction. HR recommends; the Admin approves.</CardDescription>
+            <CardDescription>The teacher refused to sign for converting the excess to a salary deduction. HR decides what happens to it.</CardDescription>
             <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
           </CardHeader>
           <CardContent>
@@ -137,16 +142,29 @@ export function ApprovalsPage({ refreshKey }) {
         </Card>
       ) : null}
 
-      {data?.role !== "hr" ? (
+      {data ? (
         <Card className="min-w-0 shadow-xs">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><GiftIcon className="size-4" aria-hidden="true" />Missed-month subsidy adjustments</CardTitle>
-            <CardDescription>Months a licensed teacher missed because verification came late. The Accountant requests; the Admin approves.</CardDescription>
+            <CardDescription>Months a licensed teacher missed because verification came late. The Accountant requests; HR approves or rejects.</CardDescription>
             {can.request ? <CardAction><Button size="sm" onClick={() => open("request_adj", null)} disabled={!data?.balances?.length}>Request adjustment</Button></CardAction> : null}
           </CardHeader>
           <CardContent>
             <DataTable columns={adjColumns} rows={data?.adjustments || []} loading={first} error={state.error} onRetry={load} pageSize={10}
               searchPlaceholder="Search teacher…" empty={{ title: "No adjustments", icon: GiftIcon }} caption="Subsidy adjustments" minWidth={900} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {data ? (
+        <Card className="min-w-0 shadow-xs">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><HistoryIcon className="size-4" aria-hidden="true" />Decision history</CardTitle>
+            <CardDescription>Every subsidy decision HR has made: who decided, when, and why. Decisions stay listed here for good.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable columns={historyColumns} rows={data?.history || []} loading={first} pageSize={10}
+              searchPlaceholder="Search teacher, decision or person…" empty={{ title: "No decisions yet", icon: HistoryIcon }} caption="Subsidy decision history" minWidth={1000} />
           </CardContent>
         </Card>
       ) : null}
@@ -160,7 +178,7 @@ export function ApprovalsPage({ refreshKey }) {
                 <DialogDescription>{titles[dialog.kind][1]}</DialogDescription>
               </DialogHeader>
               <div className="grid gap-3">
-                {dialog.kind === "recommend" ? (
+                {dialog.kind === "decide_loan" ? (
                   <>
                     {fieldFor("dec", "Decision", (
                       <Select value={input.decision} onValueChange={(v) => setInput((c) => ({ ...c, decision: v }))}>
@@ -187,7 +205,7 @@ export function ApprovalsPage({ refreshKey }) {
                     {fieldFor("reason", "Reason", <Textarea id="apv-reason" rows={3} maxLength={1000} placeholder="e.g. License valid since May 2; verification delayed" value={input.reason} onChange={(e) => setInput((c) => ({ ...c, reason: e.target.value }))} />)}
                   </>
                 ) : null}
-                {["approve_loan", "approve_adj", "reject_adj"].includes(dialog.kind)
+                {["approve_adj", "reject_adj"].includes(dialog.kind)
                   ? fieldFor("note", dialog.kind === "reject_adj" ? "Reason" : "Note (optional)", <Input id="apv-note" maxLength={1000} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)
                   : null}
               </div>

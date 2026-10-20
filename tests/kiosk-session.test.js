@@ -165,7 +165,8 @@ describe("taps on the kiosk session", () => {
     vi.setSystemTime(new Date(manila("09:30:00")));
     const response = await POST(new Request("https://sacs.test/api/admin/attendance", {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}` },
+      // The terminal's header without a kiosk cookie: still not the kiosk session.
+      headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}`, "x-sacs-kiosk": "1" },
       body: JSON.stringify({ rfid_code: CARD, offline_tapped_at: manila("07:00:00") }),
     }));
     expect(response.status).toBe(200);

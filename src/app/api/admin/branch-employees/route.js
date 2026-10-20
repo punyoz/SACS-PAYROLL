@@ -168,6 +168,11 @@ export async function POST(request) {
     // Super Admin and HR serve every branch and are stored with none;
     // assigning one would box it into a single branch.
     const targetRole = String(meta.role || "").toLowerCase();
+    // The Super Admin moves Admin login accounts only (2026-10-20): moving
+    // employees and accountants between branches is HR's (Transfer Requests).
+    if (guard.role === "super_admin" && targetRole !== "admin") {
+      return NextResponse.json({ error: "Employees and accountants are moved between branches by HR (Transfer Requests)." }, { status: 403 });
+    }
     if (targetRole === "hr" || targetRole === "super_admin") {
       return NextResponse.json(
         { error: "HR and Super Admin accounts serve all branches and are not assigned to one." },

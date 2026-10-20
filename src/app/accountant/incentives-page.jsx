@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { InfoIcon, Loader2Icon, RefreshCwIcon, StarIcon } from "lucide-react";
+import { CalendarClockIcon, InfoIcon, Loader2Icon, RefreshCwIcon, StarIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,77 @@ export function HowItWorks({ title, rows, note }) {
   );
 }
 
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/** "2026-11" -> "November 2026". */
+export function monthLabel(key) {
+  const [y, m] = String(key || "").split("-").map(Number);
+  return y && m ? `${MONTH_NAMES[m - 1]} ${y}` : String(key || "");
+}
+
+/**
+ * The month whose 2nd-half payroll pays an item dated `dateKey` and filed on
+ * `filedKey` (payrollMonthFor, src/lib/payroll/semi-monthly.js): an item
+ * dated or filed after its month's cutoff (the day before the 2nd-half payslip
+ * day; cutoffs from GET ?view=monthly_items) moves to next month.
+ */
+export function deferredPayrollMonth(dateKey, filedKey, cutoffs = {}) {
+  const anchor = filedKey && filedKey > dateKey ? filedKey : dateKey;
+  const [y, m, d] = String(anchor || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const monthKey = `${y}-${String(m).padStart(2, "0")}`;
+  const cutoff = cutoffs?.[monthKey]?.cutoff_date;
+  if (!cutoff || anchor <= cutoff) return monthKey;
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+}
+
+/** The badge a deferred item carries everywhere it is listed. */
+export function DeferredBadge({ item }) {
+  return <StatusBadge tone="warning">{`Deferred to next month's payroll [${item.payroll_month_label}]`}</StatusBadge>;
+}
+
+/**
+ * Process Payroll's notice: the incentives and overload dated in `monthKey`
+ * that were filed after its cutoff, so they are paid next month (by
+ * design), listed so nothing seems to have gone missing.
+ */
+export function DeferredIncentivesNotice({ monthKey }) {
+  const [state, setState] = React.useState({ items: [], cutoff: null });
+  React.useEffect(() => {
+    if (!/^\d{4}-\d{2}$/.test(String(monthKey || ""))) return undefined;
+    let alive = true;
+    fetchJson(`/api/accountant/payroll?view=monthly_items&month=${encodeURIComponent(monthKey)}`)
+      .then((data) => {
+        if (!alive) return;
+        setState({ items: (data.items || []).filter((i) => i.moved_to_next_month && String(i.item_date).slice(0, 7) === monthKey), cutoff: data.cutoff || null });
+      })
+      .catch(() => { /* the notice is informational; the Incentives page shows any error */ });
+    return () => { alive = false; };
+  }, [monthKey]);
+  const { items, cutoff } = state;
+  if (!cutoff && !items.length) return null;
+  const moved = items.length > 0;
+  return (
+    <Alert className={moved ? "border-warning/40 bg-warning/5" : "border-info/40 bg-info/8"}>
+      <CalendarClockIcon className={moved ? "text-warning" : "text-info"} aria-hidden="true" />
+      <AlertDescription>
+        {cutoff ? (
+          <p><strong className="text-foreground">Incentive &amp; overload cutoff for {monthLabel(monthKey)}: {cutoff.cutoff_label}</strong> (the day before the 2nd-half payslip day, {cutoff.payslip_day_label}). Anything filed after {cutoff.cutoff_label} is paid with {cutoff.next_month_label}&apos;s payroll.</p>
+        ) : null}
+        {moved ? (
+          <>
+            <p className="mt-1"><strong className="text-foreground">{items.length} item{items.length === 1 ? "" : "s"} dated in {monthLabel(monthKey)} {items.length === 1 ? "was" : "were"} filed after the cutoff and moved to {items[0].payroll_month_label}&apos;s payroll.</strong> This is intended: they are not missing from this payroll. See Incentives &amp; Overload → Deferred incentives.</p>
+            <ul className="mt-1 list-disc pl-5 text-xs">
+              {items.slice(0, 6).map((i) => <li key={i.id}>{i.employee_name}: {i.kind === "overload" ? `${i.hours} h overload` : money(i.amount)} ({dateLabel(i.item_date)}) → {i.payroll_month_label}</li>)}
+              {items.length > 6 ? <li>and {items.length - 6} more</li> : null}
+            </ul>
+          </>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
 export function EmployeeSelect({ id, value, onChange, employees, invalid }) {
   return (
     <Select value={value} onValueChange={onChange} disabled={!employees.length}>
@@ -73,7 +144,7 @@ export function IncentivesPage({ refreshKey }) {
       if (!data.available) throw new Error(data.error || "Incentives are not set up yet.");
       setState({ loading: false, error: null, data });
     } catch (error) {
-      setState({ loading: false, error: error.message || "Unable to load incentives.", data: null });
+      setState((c) => ({ loading: false, error: error.message || "Unable to load incentives.", data: c.data }));
     }
   }, [month]);
 
@@ -102,7 +173,7 @@ export function IncentivesPage({ refreshKey }) {
         amount: form.kind === "incentive" ? form.amount : undefined,
         hours: form.kind === "overload" ? form.hours : undefined,
       }));
-      setFeedback({ text: `Added — counted in the ${data.payroll_month_label} payroll.`, ok: true });
+      setFeedback({ text: data.deferred ? `Added — deferred to next month's payroll [${data.payroll_month_label}] (filed after the cutoff).` : `Added — counted in the ${data.payroll_month_label} payroll.`, ok: true });
       setForm((c) => ({ ...c, amount: "", hours: "", description: "" }));
       notify("Added to Payroll", `Counted in the ${data.payroll_month_label} 2nd half payroll.`, "success");
       await load();
@@ -128,13 +199,18 @@ export function IncentivesPage({ refreshKey }) {
   }
 
   const info = state.data;
+  // Today is the filing date: an item for a month whose cutoff has passed
+  // is paid with the next month (intended; the form says so before saving).
+  const deferTo = form.date ? deferredPayrollMonth(form.date, manilaDateKey(), info?.cutoffs) : null;
+  const formCutoff = form.date ? info?.cutoffs?.[form.date.slice(0, 7)] || null : null;
+  const deferred = (info?.items || []).filter((i) => i.moved_to_next_month);
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, cell: (i) => <div><p className="font-medium">{i.employee_name}</p><p className="text-xs text-muted-foreground">{i.employee_code || ""}</p></div>, searchValue: (i) => `${i.employee_name} ${i.employee_code || ""}` },
     { key: "item_date", header: "Date", sortable: true, className: "whitespace-nowrap tabular-nums", cell: (i) => dateLabel(i.item_date) },
     { key: "kind", header: "Type", cell: (i) => (i.kind === "overload" ? <StatusBadge tone="info">Overload</StatusBadge> : <StatusBadge tone="success">Incentive</StatusBadge>) },
     { key: "description", header: "Description", className: "max-w-64 whitespace-normal", searchValue: (i) => i.description },
     { key: "amount", header: "Amount / hours", align: "right", className: "tabular-nums", cell: (i) => (i.kind === "overload" ? `${i.hours} h` : money(i.amount)) },
-    { key: "month", header: "Counted in", cell: (i) => <div><p>{i.payroll_month_label}</p>{i.moved_to_next_month ? <p className="text-xs text-warning">After the lock — next month</p> : null}</div> },
+    { key: "month", header: "Counted in", cell: (i) => (i.moved_to_next_month ? <DeferredBadge item={i} /> : <p>{i.payroll_month_label}</p>) },
     { key: "by", header: "Added by", className: "text-xs text-muted-foreground", cell: (i) => i.created_by_name || "" },
     { key: "remove", header: <span className="sr-only">Remove</span>, align: "right", cell: (i) => <Button variant="outline" size="sm" onClick={() => remove(i)}>Remove</Button> },
   ];
@@ -144,7 +220,7 @@ export function IncentivesPage({ refreshKey }) {
       {info ? (
         <Alert className="border-info/40 bg-info/8">
           <InfoIcon aria-hidden="true" />
-          <AlertDescription><p><strong className="text-foreground">{info.month?.label || ""}:</strong> attendance {shortDate(info.window?.start_key)} – {dateLabel(info.window?.end_key)}. {info.lock_day ? `Locked on day ${info.lock_day} — anything dated or filed after it is paid next month.` : "Locked at month end."}</p></AlertDescription>
+          <AlertDescription><p><strong className="text-foreground">{info.month?.label || ""}:</strong> attendance {shortDate(info.window?.start_key)} – {dateLabel(info.window?.end_key)}. {info.cutoff ? <>Incentive &amp; overload cutoff: <strong className="text-foreground">{info.cutoff.cutoff_label}</strong> (the day before the 2nd-half payslip day, {info.cutoff.payslip_day_label}). Anything filed after it is added to {info.cutoff.next_month_label}&apos;s payroll (intended); it is marked &quot;Deferred to next month&apos;s payroll [{info.cutoff.next_month_label}]&quot; and listed under Deferred incentives below.</> : "Locked at month end."}</p></AlertDescription>
         </Alert>
       ) : null}
 
@@ -169,6 +245,13 @@ export function IncentivesPage({ refreshKey }) {
                 <Label htmlFor="ac-item-date">Date it is for</Label>
                 <DatePicker id="ac-item-date" value={form.date} onChange={(v) => setForm((c) => ({ ...c, date: v < "2026-10-01" ? "2026-10-01" : v }))} aria-invalid={Boolean(errors.date) || undefined} />
                 {errors.date ? <p className="text-sm text-destructive">{errors.date}</p> : null}
+              {formCutoff ? (
+                deferTo && deferTo !== form.date.slice(0, 7) ? (
+                  <p className="text-xs text-warning" role="status">The {monthLabel(form.date.slice(0, 7))} cutoff was {formCutoff.cutoff_label}: filed today, this item is deferred to next month&apos;s payroll [{monthLabel(deferTo)}].</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground" role="status">Cutoff for {monthLabel(form.date.slice(0, 7))}: {formCutoff.cutoff_label}. Filed today, it is paid with the {monthLabel(deferTo || form.date.slice(0, 7))} payroll.</p>
+                )
+              ) : null}
               </div>
               {form.kind === "incentive" ? (
                 <div className="space-y-1.5">
@@ -195,7 +278,7 @@ export function IncentivesPage({ refreshKey }) {
         </Card>
         <HowItWorks
           title="How it is paid"
-          rows={[["1st half (1–15)", "Monthly salary ÷ 2, no deductions"], ["2nd half (16–end)", "Whole month settled"], ["Incentive", "+ amount"], ["Overload", "+ hourly rate × hours"], ["Filed after the lock day", "Next month"]]}
+          rows={[["1st half (1–15)", "Monthly salary ÷ 2, no deductions"], ["2nd half (16–end)", "Whole month settled"], ["Incentive", "+ amount"], ["Overload", "+ hourly rate × hours"], ["Filed after the cutoff", info?.cutoff ? `${info.cutoff.next_month_label} (cutoff ${info.cutoff.cutoff_label})` : "Next month"]]}
           note="Both are taxable and count toward the month's gross pay. An item already paid on a Final payslip cannot be removed."
         />
       </div>
@@ -221,6 +304,33 @@ export function IncentivesPage({ refreshKey }) {
             empty={{ title: "No incentives or overload for this month", icon: StarIcon }}
             caption="Incentives and overload"
             minWidth={980}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="min-w-0 shadow-xs">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><CalendarClockIcon className="size-4 text-warning" aria-hidden="true" />Deferred incentives</CardTitle>
+          <CardDescription>Items filed after their month&apos;s cutoff (the day before the 2nd-half payslip day), moved to the next month&apos;s payroll: exactly what moved, from which month, and where it is paid.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DataTable
+            columns={[
+              { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (i) => i.employee_name },
+              { key: "item_date", header: "Dated", sortable: true, className: "whitespace-nowrap tabular-nums", cell: (i) => dateLabel(i.item_date) },
+              { key: "created_at", header: "Filed", className: "whitespace-nowrap text-xs", cell: (i) => (i.created_at ? dateLabel(String(manilaDateKey(new Date(i.created_at)))) : "—") },
+              { key: "kind", header: "Type", cell: (i) => (i.kind === "overload" ? "Overload" : "Incentive") },
+              { key: "amount", header: "Amount / hours", align: "right", className: "tabular-nums", cell: (i) => (i.kind === "overload" ? `${i.hours} h` : money(i.amount)) },
+              { key: "from", header: "Moved from", cell: (i) => monthLabel(String(i.item_date).slice(0, 7)) },
+              { key: "deferred", header: "Moved to", cell: (i) => <DeferredBadge item={i} /> },
+            ]}
+            rows={deferred}
+            loading={state.loading && !info}
+            pageSize={10}
+            searchPlaceholder="Search employee…"
+            empty={{ title: "Nothing deferred for this month", icon: CalendarClockIcon }}
+            caption="Deferred incentives"
+            minWidth={820}
           />
         </CardContent>
       </Card>

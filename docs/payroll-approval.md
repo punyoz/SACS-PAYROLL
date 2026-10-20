@@ -18,12 +18,28 @@ Migration: `supabase/migrations/20261014010000_payroll_run_approval.sql`.
 
 | From | To | Who | Function |
 |---|---|---|---|
-| Draft | Pending | Accountant (own branch) or Super Admin | `submit_payroll_run` |
+| Draft | Pending | Accountant (own branch) | `submit_payroll_run` |
 | Pending | Approved | HR, not the person who processed or submitted it | `approve_payroll_run` |
 | Pending | Rejected | HR, with a reason | `reject_payroll_run` |
-| Rejected | Pending | Accountant or Super Admin (resubmit) | `submit_payroll_run` |
+| Rejected | Pending | Accountant (resubmit) | `submit_payroll_run` |
 
 Any other move is refused by the database (trigger `payroll_runs_guard`), whoever asks.
+
+## Changes of October 20, 2026 (`20261020010000_role_separation.sql`)
+
+- Only the Accountant processes, generates and submits payroll; the Super
+  Admin no longer can (no override either) and does not see payroll runs.
+- The Accountant's own payslip is processed on the system-computed path only
+  (Generate / Process payroll for all; no typed values), marked
+  `payroll.own_payslip`, and flagged "Accountant's own payslip" for HR, who
+  approves it with the run.
+- After the generation window closes, the Accountant still processes missing
+  payslips while the branch's run is Draft or Rejected; they are marked
+  `payroll.late_processing` and flagged "Processed after the generation window".
+- HR → Payroll Approval → **History** lists every approve / reject decision for
+  good (`GET /api/hr/payroll-runs?view=history`).
+- Payroll Records / Monitoring status: Not submitted to HR · Pending HR Approval ·
+  Rejected by HR · Paid ("Paid" only once HR approved the run).
 
 ## Run the migrations in this order
 

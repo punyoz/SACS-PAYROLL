@@ -55,7 +55,6 @@ const NAV = [
     items: [
       { id: "hr-leaves", label: "Leave Approval", icon: CalendarDaysIcon, module: "leave_approval" },
       { id: "hr-awol", label: "AWOL Cases", icon: UserXIcon, module: "awol_cases" },
-      { id: "hr-approvals", label: "Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
     ],
   },
   {
@@ -63,6 +62,8 @@ const NAV = [
     items: [
       { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
+      // Moved from Leave (2026-10-20): subsidy decisions are payroll, not leave.
+      { id: "hr-subsidy-approvals", label: "Subsidy Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
     ],
   },
   { section: "Reports", items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
@@ -84,7 +85,7 @@ const TITLES = {
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
   "hr-awol": "AWOL Cases",
-  "hr-approvals": "Approvals",
+  "hr-subsidy-approvals": "Subsidy Approvals",
   "hr-reports": "HR Reports",
   "hr-profile": "Profile",
 };
@@ -97,7 +98,7 @@ const DESCRIPTIONS = {
   "hr-schedules": "Create, change and assign employee work schedules, and set the Early Bird incentive. Every change takes effect from a date and is logged.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
-  "hr-approvals": "Recommend a decision for excess subsidy advances the teacher refused to sign for.",
+  "hr-subsidy-approvals": "Decide missed-month subsidy adjustments and refused-consent excess subsidy advances. HR is the only approver; every decision stays in the history.",
   "hr-awol": "Unexcused absences flagged by the nightly check: confirm, send the notices, and separate or close each case.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
@@ -161,7 +162,7 @@ function HrScreens() {
         ) : null}
         {current === "hr-leaves" ? <LeavesPage refreshKey={refreshKey} /> : null}
         {current === "hr-awol" ? <AwolCasesPage refreshKey={refreshKey} /> : null}
-        {current === "hr-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
+        {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
       </AppShell>

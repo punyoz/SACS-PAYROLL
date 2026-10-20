@@ -223,10 +223,10 @@ export function defaultPageFor(role) {
  * Individual Employee Attendance page, from Attendance Monitoring). Allowed
  * when the parent page is and the role holds the permission the page needs.
  */
+// Attendance is HR's alone since 2026-10-20 (the Admin and Super Admin
+// attendance pages are gone).
 const SUB_PAGES = [
-  { parent: "adm-attendance", page: "adm-att-employee", module: "attendance_corrections", action: "update" },
   { parent: "hr-attendance", page: "hr-att-employee", module: "attendance_corrections", action: "update" },
-  { parent: "sa-attendance", page: "sa-att-employee", module: "attendance_corrections", action: "update" },
 ];
 
 /** Every page id a role is allowed to open — the frontend page-level guard. */

@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { LicensedTeachersCard } from "@/components/portal/licensed-teachers-card";
+import { usePortalSession } from "@/components/portal/session";
 import { fetchJson } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "./dashboard-page";
@@ -24,6 +25,7 @@ import { formatMoney } from "./dashboard-page";
 const CHART = { count: { label: "Employees" } };
 
 export function BranchReportsPage({ refreshKey }) {
+  const { can } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
 
   const load = React.useCallback(async () => {
@@ -125,7 +127,8 @@ export function BranchReportsPage({ refreshKey }) {
           </CardContent>
         </Card>
       </div>
-      <LicensedTeachersCard refreshKey={refreshKey} />
+      {/* Licensed-teacher records are HR's (2026-10-20). */}
+      {can("teacher_license") ? <LicensedTeachersCard refreshKey={refreshKey} /> : null}
     </>
   );
 }

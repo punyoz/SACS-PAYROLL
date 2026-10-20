@@ -9,7 +9,8 @@
  *   before opens_on            "not_open"  generation refused
  *   opens_on .. period end     "draft"     a Draft, counting attendance up to today
  *   after period end .. pay    "final"     a Final payslip, locked once written
- *   after pay_date             "closed"    only a Super Admin override
+ *   after pay_date             "closed"    late processing (the Accountant, while the
+ *                                          branch run is Draft or Rejected; flagged for HR)
  *
  * The API enforces this (src/app/api/accountant/payroll/route.js); the portal
  * only mirrors it to disable the buttons.
@@ -55,7 +56,8 @@ export function payDateFor(endKey, payCalendar = []) {
  *
  *   before generation_date     "not_open"  "Payslip generation on Oct 15, 2026."
  *   generation_date..closes_on "final"     Final payslip, locked once written
- *   after closes_on            "closed"    only a Super Admin override
+ *   after closes_on            "closed"    late processing (the Accountant, while the
+ *                                          branch run is Draft or Rejected; flagged for HR)
  */
 export function scheduledGenerationWindow(period, schedule, { today = manilaDateKey(), payCalendar = [] } = {}) {
   const { pay_date: payDate, scheduled } = payDateFor(period.end_key, payCalendar);
@@ -73,7 +75,7 @@ export function scheduledGenerationWindow(period, schedule, { today = manilaDate
     message = `Payslip generation is open ${range}: generating creates the Final payslip, locked once saved.`;
   } else {
     state = "closed";
-    message = `Payslip generation closed on ${formatDateKey(closesOn)}. A Super Admin override is needed.`;
+    message = `Payslip generation closed on ${formatDateKey(closesOn)}. The Accountant can still process missing payslips while the branch's run is not submitted (or HR sent it back); they are marked as processed late for HR.`;
   }
 
   return {
@@ -121,7 +123,7 @@ export function generationWindow(period, { today = manilaDateKey(), payCalendar 
     message = `The period has ended: generating now creates the Final payslip, locked once saved. Open until the pay date, ${formatDateKey(payDate)}.`;
   } else {
     state = "closed";
-    message = `Payslip generation closed on the pay date, ${formatDateKey(payDate)}. A Super Admin override is needed.`;
+    message = `Payslip generation closed on the pay date, ${formatDateKey(payDate)}. The Accountant can still process missing payslips while the branch's run is not submitted (or HR sent it back); they are marked as processed late for HR.`;
   }
 
   return {

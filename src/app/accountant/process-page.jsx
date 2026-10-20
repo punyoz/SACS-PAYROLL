@@ -43,6 +43,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { RunApprovalPanel } from "./run-approval-panel";
+import { DeferredIncentivesNotice } from "./incentives-page";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -181,7 +182,8 @@ function PayslipCell({ data, employee, onGenerate, onView, busy }) {
   if (runLocked) {
     return <p className="text-xs text-muted-foreground">{run.status === "pending" ? "Run waiting for HR approval" : "Run approved"}: locked</p>;
   }
-  const canGenerate = Boolean(win?.can_generate);
+  // After the window closes: still generated (marked late for HR) while the run is open.
+  const canGenerate = Boolean(win?.can_generate) || win?.state === "closed";
   const isDraft = state?.status === "draft";
   const finalNext = win?.state === "final";
   const title = canGenerate
@@ -199,7 +201,7 @@ function PayslipCell({ data, employee, onGenerate, onView, busy }) {
       </div>
       {isDraft ? <p className="text-xs text-muted-foreground">Up to {dateLabel(state.attendance_through)}</p>
         : !canGenerate && win?.state === "not_open" ? <p className="text-xs text-muted-foreground">Opens {dateLabel(win.opens_on)}</p>
-          : !canGenerate && win?.state === "closed" ? <p className="text-xs text-muted-foreground">Window closed</p> : null}
+          : win?.state === "closed" ? <p className="text-xs text-warning">Window closed: marked late for HR</p> : null}
     </div>
   );
 }
@@ -221,7 +223,9 @@ function BatchCard({ onNavigate }) {
   const employees = data?.employees || [];
   const ready = data?.payroll_ready !== false;
   const win = data?.generation_window || null;
-  const finalWindow = !win || win.state === "final";
+  // Closed: the Accountant still processes what is missing (marked late)
+  // while the run is not submitted; a submitted run stays locked.
+  const finalWindow = !win || win.state === "final" || win.state === "closed";
   // Every visible branch's run is Pending / Approved: nothing left to process.
   const branchIds = [...new Set(employees.map((e) => String(e.branch_id || "")))];
   const allRunsLocked = branchIds.length > 0 && branchIds.every((id) => ["pending", "approved"].includes(data?.payroll_runs?.[id]?.status));
@@ -526,7 +530,9 @@ function SingleEntry({ onNavigate }) {
   const blocking = info.pay?.blocking || [];
   const ready = data?.payroll_ready !== false;
   const win = data?.generation_window || null;
-  const finalWindow = !win || win.state === "final";
+  // Closed: the Accountant still processes what is missing (marked late)
+  // while the run is not submitted; a submitted run stays locked.
+  const finalWindow = !win || win.state === "final" || win.state === "closed";
   const firstHalf = semiHalf(data) === "first";
   // Per-cutoff 1st half: its own attendance is editable; contributions and
   // tax are not (they are all on the 2nd half).
@@ -771,6 +777,8 @@ export function ProcessPage({ onNavigate }) {
   return (
     <>
       <Banners data={data} />
+      {/* Incentives filed after the 15th are paid next month (intended). */}
+      <DeferredIncentivesNotice monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />
       <RunApprovalPanel />
       <BatchCard onNavigate={onNavigate} />
       <h2 className="mt-2 text-base font-semibold">Single entry / edit draft</h2>

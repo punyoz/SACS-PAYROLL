@@ -85,12 +85,11 @@ describe("HR payroll records", () => {
     expect((await get("?entry_id=e-draft", who.hr)).status).toBe(404);
   });
 
-  it("keeps an Admin and an Accountant to their own branch", async () => {
-    for (const as of [who.admin, who.accountant]) {
-      const body = await (await get("", as)).json();
-      expect(body.records.map((r) => r.id)).toEqual(["e-paolo"]);
-      expect((await get("?entry_id=e-far", as)).status).toBe(404);
-    }
+  it("keeps the Accountant to its own branch, and refuses the Admin (2026-10-20)", async () => {
+    const body = await (await get("", who.accountant)).json();
+    expect(body.records.map((r) => r.id)).toEqual(["e-paolo"]);
+    expect((await get("?entry_id=e-far", who.accountant)).status).toBe(404);
+    expect((await get("", who.admin)).status).toBe(403);
   });
 
   it("refuses the Employee (own payslips only, on its own page)", async () => {

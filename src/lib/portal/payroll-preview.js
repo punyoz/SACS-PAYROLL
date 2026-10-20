@@ -10,6 +10,8 @@
  * `data` is that GET payload. Keep this file in step with accountant.js.
  */
 
+import { requiresApproval } from "@/lib/payroll/runs";
+
 export function toAmount(value) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount)) return 0;
@@ -394,6 +396,22 @@ export function statusMeta(status) {
   if (s === "on_hold" || s === "rejected") return { label: "On hold", tone: "danger" };
   if (s === "draft") return { label: "Draft", tone: "info" };
   return { label: "Pending Approval", tone: "gold" };
+}
+
+/**
+ * A processed record's status as the Accountant sees it: from Oct 1, 2026 a
+ * processed payslip is Paid only once HR approves its branch's run
+ * (record.run_status, GET /api/accountant/payroll), not when it is processed.
+ */
+export function recordStatusMeta(record) {
+  const s = String(record?.status || "").toLowerCase();
+  // Exactly four labels (2026-10-20). A Draft has not gone to HR either.
+  if (s === "draft") return { label: "Not submitted to HR", tone: "info" };
+  if (s === "on_hold" || s === "rejected" || !requiresApproval(record?.pay_period)) return statusMeta(record?.status);
+  if (record.run_status === "approved") return { label: "Paid", tone: "success" };
+  if (record.run_status === "pending") return { label: "Pending HR Approval", tone: "gold" };
+  if (record.run_status === "rejected") return { label: "Rejected by HR", tone: "danger" };
+  return { label: "Not submitted to HR", tone: "info" };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

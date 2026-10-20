@@ -112,7 +112,8 @@ describe("RFID tap on a leave day", () => {
     });
     return new Request("https://sacs.test/api/admin/attendance", {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}` },
+      // As the RFID Terminal sends it.
+      headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}`, "x-sacs-kiosk": "1" },
       body: JSON.stringify({ rfid_code: CARD }),
     });
   };

@@ -79,7 +79,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
       if (!data.available) throw new Error(data.error || "Cash advances are not set up yet.");
       setState({ loading: false, error: null, data });
     } catch (error) {
-      setState({ loading: false, error: error.message || "Unable to load cash advances.", data: null });
+      setState((c) => ({ loading: false, error: error.message || "Unable to load cash advances.", data: c.data }));
     }
   }, []);
 

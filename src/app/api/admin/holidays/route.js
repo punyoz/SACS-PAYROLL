@@ -71,7 +71,9 @@ async function applyToDay(supabase, date, guard) {
 }
 
 export async function GET(request) {
-  const guard = await requirePermission(request, "attendance", "read");
+  // Reading the holiday calendar is for every portal's dashboard (the Admin
+  // no longer has attendance since 2026-10-20); changing it is checked below.
+  const guard = await requirePermission(request, "dashboard", "read");
   if (guard.denied) return guard.denied;
 
   try {

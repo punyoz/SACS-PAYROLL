@@ -72,17 +72,21 @@ afterEach(() => {
 });
 
 describe("own payroll", () => {
-  it("an Accountant cannot generate their own payslip; a colleague and a Super Admin can", async () => {
+  // 2026-10-20: the Accountant's own payslip is generated on the
+  // system-computed path only, marked, and approved by HR with the run; the
+  // Super Admin no longer processes payroll at all.
+  it("an Accountant generates their own payslip (system-computed, marked for HR); a Super Admin cannot generate", async () => {
     const own = await call(PATCH, ANA, "PATCH", { action: "generate", employee_id: ANA.user_id, pay_period: PERIOD });
-    expect(own.response.status).toBe(403);
-    expect(own.body.code).toBe("own_payroll");
-    expect(table("payroll_entries")).toHaveLength(0);
+    expect(own.response.status).toBe(200);
+    const entry = table("payroll_entries").find((row) => row.employee_id === ANA.user_id);
+    const payroll = typeof entry.payroll === "string" ? JSON.parse(entry.payroll) : entry.payroll;
+    expect(payroll.own_payslip).toMatchObject({ processed_by_self: true, by: ANA.user_id });
 
-    const colleague = await call(PATCH, BEN, "PATCH", { action: "generate", employee_id: ANA.user_id, pay_period: PERIOD });
-    expect(colleague.response.status).toBe(200);
+    const overrideOwn = await call(PATCH, ANA, "PATCH", { action: "override_final", employee_id: ANA.user_id, pay_period: PERIOD, reason: "Changing my own payslip" });
+    expect(overrideOwn.response.status).toBe(403);
 
     const superAdmin = await call(PATCH, SUPER, "PATCH", { action: "generate", employee_id: BEN.user_id, pay_period: PERIOD });
-    expect(superAdmin.response.status).toBe(200);
+    expect(superAdmin.response.status).toBe(403);
   });
 
   it("an Accountant cannot save or process their own payroll, or raise their own basic salary", async () => {
@@ -93,13 +97,17 @@ describe("own payroll", () => {
     expect(table("payroll_entries")).toHaveLength(0);
   });
 
-  it("the batch skips the Accountant's own row and processes the rest", async () => {
+  it("the batch processes the Accountant's own row from the computed values only, whatever the form sent", async () => {
     vi.setSystemTime(new Date("2026-10-02T10:00:00+08:00"));
     const { body } = await call(POST, ANA, "POST", {
-      action: "batch_submit", pay_period: PERIOD, entries: [{ employee_id: ANA.user_id }, { employee_id: BEN.user_id }],
+      action: "batch_submit", pay_period: PERIOD, override_reason: "raise",
+      entries: [{ employee_id: ANA.user_id, basic_salary: 99999, deductions: { sss: 0, withholding_tax: 0 } }, { employee_id: BEN.user_id }],
     });
-    expect(body.skipped).toEqual([expect.objectContaining({ employee_id: ANA.user_id, code: "own_payroll" })]);
-    expect(body.processed.map((row) => row.employee_id)).toEqual([BEN.user_id]);
+    expect(body.processed.map((row) => row.employee_id).sort()).toEqual([ANA.user_id, BEN.user_id].sort());
+    const entry = table("payroll_entries").find((row) => row.employee_id === ANA.user_id);
+    const payroll = typeof entry.payroll === "string" ? JSON.parse(entry.payroll) : entry.payroll;
+    expect(payroll.own_payslip?.processed_by_self).toBe(true);
+    expect(Number(payroll.basic_salary)).not.toBe(99999);
   });
 
   it("an Accountant cannot give themselves a cash advance or an incentive", async () => {

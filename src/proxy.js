@@ -38,7 +38,7 @@ import { readSession, clearSession, reissueSession } from "@/lib/rbac/session";
 import { can, isKnownRole } from "@/lib/rbac/permissions";
 import { checkActiveSession } from "@/lib/auth/active-session";
 import { loadSecuritySettings } from "@/lib/auth/security-settings";
-import { clearKioskSession, kioskRefusal, readKioskSession } from "@/lib/auth/kiosk-session";
+import { KIOSK_HEADER, clearKioskSession, kioskRefusal, readKioskSession } from "@/lib/auth/kiosk-session";
 
 export const config = {
   matcher: [
@@ -94,6 +94,9 @@ const API_MODULES = [
   ["/api/admin/staff-accounts", "user_management"],
   ["/api/admin/transfer-requests", "transfer_requests"],
   ["/api/admin/attendance", "attendance"],
+  // Unlocking the RFID Terminal: a device function of Admin / Super Admin
+  // (rfid_devices), not attendance management, which is HR's.
+  ["/api/admin/attendance/verify-password", "rfid_devices"],
   ["/api/admin/audit-logs", "audit_logs"],
   ["/api/admin/branch-employees", "branch_assignment"],
   ["/api/admin/branch-reports", "branch_reports"],
@@ -447,7 +450,9 @@ async function route(request) {
         { status: 401 },
       ));
     }
-    if (!can(kiosk.role, "attendance", "update")) {
+    // The terminal is a device (Admin / Super Admin): its taps need
+    // rfid_devices, not attendance management, which is HR's (2026-10-20).
+    if (!can(kiosk.role, "rfid_devices", "update")) {
       return NextResponse.json({ error: "You do not have permission to perform this action." }, { status: 403 });
     }
     return NextResponse.next();
@@ -477,7 +482,15 @@ async function route(request) {
     );
   }
 
-  const { module, matched } = moduleForPath(pathname);
+  const mapped = moduleForPath(pathname);
+  const { matched } = mapped;
+  // A tap from the RFID Terminal (it always sends the kiosk header) is a
+  // device action of the Admin / Super Admin running it, not attendance
+  // management, which is HR's (2026-10-20). The route never treats such a
+  // tap as manual entry.
+  const routeModule = pathname === "/api/admin/attendance" && request.method === "POST" && request.headers.get(KIOSK_HEADER) === "1"
+    ? "rfid_devices"
+    : mapped.module;
 
   // An unmapped /api path is a mistake, not a free pass: fail closed so a new
   // route cannot ship unguarded by accident.
@@ -490,7 +503,7 @@ async function route(request) {
 
   // module === null means "authenticated session is the whole requirement"
   // (currently just /api/rbac/me, which derives everything from the cookie).
-  if (module === null) {
+  if (routeModule === null) {
     return withRenewedSession(request, NextResponse.next(), session, pathname);
   }
 
@@ -500,7 +513,7 @@ async function route(request) {
 
   const action = actionForRequest(pathname, request.method);
 
-  if (!can(session.role, module, action)) {
+  if (!can(session.role, routeModule, action)) {
     return NextResponse.json(
       { error: "You do not have permission to perform this action." },
       { status: 403 },

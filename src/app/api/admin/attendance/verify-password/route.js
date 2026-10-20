@@ -59,7 +59,8 @@ function recordSuccess(userId) {
 }
 
 export async function POST(request) {
-  const guard = await requirePermission(request, "attendance", "update");
+  // Unlocking the RFID Terminal is a device function (Admin / Super Admin).
+  const guard = await requirePermission(request, "rfid_devices", "update");
   if (guard.denied) return guard.denied;
 
   try {

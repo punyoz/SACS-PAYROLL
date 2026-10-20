@@ -117,7 +117,8 @@ export async function GET(request) {
         pay_period: row.pay_period,
         payslip_no: row.payslip_no || null,
         processed_at: row.submitted_at || row.updated_at || row.created_at,
-        gross_pay: amount(totals.gross_pay ?? row.payroll.basic_salary),
+        // Per-cutoff payslips: the cutoff's gross, incentives and subsidy included.
+        gross_pay: amount(row.payroll?.monthly?.cutoff?.gross_pay ?? totals.gross_pay ?? row.payroll.basic_salary),
         total_deductions: amount(totals.total_deductions),
         net_pay: floorNetPay(totals.net_pay ?? 0),
         run_status: run,

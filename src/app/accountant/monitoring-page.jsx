@@ -11,7 +11,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { dateTime, moneyCompact, statusMeta } from "@/lib/portal/payroll-preview";
+import { dateTime, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 
@@ -25,9 +25,11 @@ export function MonitoringPage() {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [filter, setFilter] = React.useState("all");
-  const all = [...(data?.records || []), ...(data?.draft_entries || [])];
-  const rows = filter === "all" ? all : all.filter((r) => String(r.status || "").toLowerCase() === filter);
-  const paid = all.filter((r) => r.status === "paid" || r.status === "approved").length;
+  const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])];
+  const rows = filter === "all" ? all
+    : filter === "paid" ? all.filter((r) => recordStatusMeta(r).label === "Paid")
+      : all.filter((r) => String(r.status || "").toLowerCase() === filter);
+  const paid = all.filter((r) => recordStatusMeta(r).label === "Paid").length;
   const hold = all.filter((r) => r.status === "on_hold").length;
   const first = loading && !data;
 
@@ -50,7 +52,7 @@ export function MonitoringPage() {
     { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
     { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.total_deductions) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
-    { key: "status", header: "Status", cell: (r) => { const s = statusMeta(r.status); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
+    { key: "status", header: "Status", cell: (r) => { const s = recordStatusMeta(r); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
     { key: "date", header: "Date", className: "whitespace-nowrap text-xs text-muted-foreground", sortValue: (r) => r.submitted_at || r.updated_at || "", cell: (r) => { const d = r.submitted_at || r.updated_at; return d ? dateTime(d) : "—"; } },
     {
       key: "action",

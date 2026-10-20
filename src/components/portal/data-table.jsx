@@ -129,6 +129,14 @@ export function DataTable({
         </div>
       ) : null}
 
+      {/* A failed refresh never empties a table that already has rows: they
+          stay, with the error and a retry above them. */}
+      {error && (rows || []).length ? (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <span>{error} Showing the last loaded data.</span>
+          {onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>Try again</Button> : null}
+        </div>
+      ) : null}
       <div className="overflow-hidden rounded-lg border bg-card">
         <Table style={minWidth ? { minWidth } : undefined}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
@@ -176,7 +184,7 @@ export function DataTable({
                   ))}
                 </TableRow>
               ))
-            ) : error ? (
+            ) : error && !(rows || []).length ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={columns.length} className="p-0">
                   <ErrorState message={error} onRetry={onRetry} />
@@ -207,7 +215,7 @@ export function DataTable({
         </Table>
       </div>
 
-      {paginate && !loading && !error && total > 0 ? (
+      {paginate && !loading && total > 0 ? (
         <div className="flex flex-col-reverse gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p aria-live="polite">
             Showing {start + 1}–{Math.min(start + pageSize, total)} of {total}

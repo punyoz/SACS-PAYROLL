@@ -129,10 +129,14 @@ describe("Generation window", () => {
     expect(body.payslip).toMatchObject({ status: "draft", employee: { branch: "Main Branch", position: "Teacher I" } });
   });
 
-  it("closes after the pay date (Super Admin override only)", async () => {
-    const { response, body } = await generate("2026-10-06");
-    expect(response.status).toBe(403);
-    expect(body.error).toMatch(/closed on the pay date, Oct 5, 2026/);
+  // 2026-10-20: no Super Admin override any more. After the pay date the
+  // Accountant still generates a missing payslip while the branch's run is
+  // not submitted; it is Final and marked as processed late for HR.
+  it("after the pay date: still generated (Final, marked late) while the run is open", async () => {
+    const { response } = await generate("2026-10-06");
+    expect(response.status).toBe(200);
+    expect(entry().status).toBe("paid");
+    expect(entry().payroll.late_processing).toMatchObject({ after: "2026-10-05" });
   });
 
   it("refuses Process Payroll before the period ends", async () => {
@@ -244,7 +248,10 @@ describe("Draft, regenerate, Final", () => {
     expect(table("audit_logs").some((row) => row.action === "payslip_regenerate")).toBe(true);
   });
 
-  it("locks a Final payslip; only a Super Admin override with a reason changes it", async () => {
+  // 2026-10-20: the Super Admin no longer changes payroll; a Final payslip is
+  // corrected only by the Accountant's Reprocess while its run is Draft or
+  // Rejected by HR.
+  it("locks a Final payslip; no override changes it (Super Admin and Accountant refused)", async () => {
     await generate("2026-10-01");
     const firstNo = entry().payslip_no;
 
@@ -253,18 +260,12 @@ describe("Draft, regenerate, Final", () => {
     expect(again.body.code).toBe("payslip_locked");
 
     vi.setSystemTime(new Date("2026-10-08T10:00:00+08:00"));
-    const noReason = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "fix" }));
-    expect(noReason.status).toBe(400);
-    const notSuper = await PATCH(request(ACCOUNTANT, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
-    expect(notSuper.status).toBe(403);
-
-    const override = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
-    expect(override.status).toBe(200);
-    const records = table("payroll_records").filter((row) => row.employee_id === EMP);
-    expect(records.filter((row) => row.archived)).toHaveLength(1);
-    expect(records.filter((row) => !row.archived)).toHaveLength(1);
-    expect(entry().payroll.generation.override).toMatchObject({ reason: "Late correction approved by HR", by_name: "Sam Super", replaced_payslip_no: firstNo });
-    expect(table("audit_logs").some((row) => row.action === "payslip_override")).toBe(true);
+    const superAdmin = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
+    expect(superAdmin.status).toBe(403);
+    const accountant = await PATCH(request(ACCOUNTANT, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
+    expect(accountant.status).toBe(403);
+    expect(entry().payslip_no).toBe(firstNo);
+    expect(table("payroll_records").filter((row) => row.employee_id === EMP && row.archived)).toHaveLength(0);
   });
 
   it("downloads the payslip as a PDF", async () => {
@@ -292,8 +293,9 @@ describe("Who may generate", () => {
     expect(entry()).toBeUndefined();
   });
 
-  it("lets a Super Admin generate", async () => {
+  it("refuses a Super Admin (only the Accountant processes payroll)", async () => {
     const { response } = await generate("2026-10-01", {}, SUPER);
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
+    expect(table("payroll_entries")).toHaveLength(0);
   });
 });

@@ -12,7 +12,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, fetchJson } from "@/lib/portal/api";
-import { dateTime, moneyCompact, toAmount } from "@/lib/portal/payroll-preview";
+import { dateTime, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
 
@@ -23,7 +23,6 @@ import { PayslipDocument } from "@/app/accountant/pay-record-page";
  * Drafts are not listed, and nothing here changes a figure.
  */
 
-const RUN_TONE = { approved: "success", pending: "gold", rejected: "danger" };
 const ALL = "all";
 
 export function PayrollRecordsPage({ refreshKey }) {
@@ -40,7 +39,7 @@ export function PayrollRecordsPage({ refreshKey }) {
       const data = await fetchJson("/api/hr/payroll-records");
       setState({ loading: false, error: null, data });
     } catch (err) {
-      setState({ loading: false, error: err.message || "Unable to load payroll records.", data: null });
+      setState((c) => ({ loading: false, error: err.message || "Unable to load payroll records.", data: c.data }));
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
@@ -117,7 +116,8 @@ export function PayrollRecordsPage({ refreshKey }) {
     { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
     { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.total_deductions || 0), cell: (r) => moneyCompact(r.total_deductions) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
-    { key: "run_status", header: "Payroll approval", cell: (r) => (r.run_label ? <StatusBadge tone={RUN_TONE[r.run_status] || "muted"}>{r.run_label}</StatusBadge> : <span className="text-xs text-muted-foreground">—</span>) },
+    // The four payroll statuses, as the Accountant sees them (records here are processed payslips).
+    { key: "run_status", header: "Status", cell: (r) => { const s = recordStatusMeta({ status: "paid", pay_period: r.pay_period, run_status: r.run_status }); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
     { key: "view", header: <span className="sr-only">Payslip</span>, align: "right", cell: (r) => <Button variant="outline" size="sm" onClick={() => view(r.id)}>View</Button> },
   ];
 

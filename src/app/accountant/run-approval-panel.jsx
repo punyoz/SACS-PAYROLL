@@ -38,7 +38,7 @@ export function RunApprovalPanel() {
       const data = await fetchJson(`/api/accountant/payroll-runs?period=${encodeURIComponent(period)}`);
       setState({ loading: false, error: null, runs: data.runs || [] });
     } catch (error) {
-      setState({ loading: false, error: error.message, runs: [] });
+      setState((c) => ({ loading: false, error: error.message, runs: c.runs || [] }));
     }
   }, [period]);
   React.useEffect(() => { load(); }, [load]);
@@ -68,7 +68,7 @@ export function RunApprovalPanel() {
   }
 
   if (!period) return null;
-  if (state.error) return <Alert className="border-warning/40 bg-warning/5"><AlertDescription>Payroll Approval: {state.error}</AlertDescription></Alert>;
+  if (state.error && !state.runs?.length) return <Alert className="border-warning/40 bg-warning/5"><AlertDescription>Payroll Approval: {state.error}</AlertDescription></Alert>;
   if (state.runs.length && state.runs.every((r) => r.available === false)) {
     return <Alert className="border-warning/40 bg-warning/5"><AlertDescription>Payroll Approval is not set up yet: apply supabase/migrations/20261014010000_payroll_run_approval.sql.</AlertDescription></Alert>;
   }

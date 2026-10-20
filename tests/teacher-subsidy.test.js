@@ -189,13 +189,12 @@ describe("Worked example 7.4: the December 16–31, 2027 payslip pays the ₱14,
 });
 
 describe("License API", () => {
-  it("HR, Admin and Super Admin can read; Admin gets no document id; the Accountant has no access", async () => {
+  // 2026-10-20: licensed-teacher records are employee management, HR's alone.
+  it("only HR reads licenses; the Admin and the Accountant have no access", async () => {
     const asHr = await (await call(license.GET, "/api/hr/teacher-license", "GET", null, who.hr)).json();
     expect(asHr.teachers.find((t) => t.employee_id === ANA)).toMatchObject({ prc_license_masked: "••••3456", status: { code: "eligible" }, verified_by_name: "Rita HR" });
     expect(asHr.can_edit).toBe(true);
-    const asAdmin = await (await call(license.GET, "/api/hr/teacher-license", "GET", null, who.admin)).json();
-    expect(asAdmin.can_edit).toBe(false);
-    expect("document_id" in asAdmin.teachers[0]).toBe(false);
+    expect((await call(license.GET, "/api/hr/teacher-license", "GET", null, who.admin)).status).toBe(403);
     expect((await call(license.GET, "/api/hr/teacher-license", "GET", null, who.accountant)).status).toBe(403);
   });
 

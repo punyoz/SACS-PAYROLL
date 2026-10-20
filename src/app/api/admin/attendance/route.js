@@ -5,6 +5,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
+import { KIOSK_HEADER, readKioskSession } from "@/lib/auth/kiosk-session";
 import { collapseDailyTaps, findRepeatedTap, hoursBetween, planTap } from "@/lib/attendance/taps";
 import { maskCardCode, recordRawTap, recordRefusedTap, tapDevice } from "@/lib/attendance/raw-taps";
 import { isLateForPolicy } from "@/lib/attendance/policy";
@@ -614,7 +615,11 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const guard = await requirePermission(request, "attendance", "update");
+  // A tap from the RFID Terminal (kiosk session) is a device action of the
+  // Admin / Super Admin who unlocked it; recording a scan by hand is
+  // attendance management, which is HR's (2026-10-20).
+  const terminalTap = Boolean(readKioskSession(request)) || request.headers.get(KIOSK_HEADER) === "1";
+  const guard = await requirePermission(request, terminalTap ? "rfid_devices" : "attendance", "update");
   if (guard.denied) return guard.denied;
 
   try {
@@ -628,7 +633,7 @@ export async function POST(request) {
     // Only the Admin / Super Admin portal's manual box sends manual_entry; the
     // RFID terminal never does, so at the kiosk only a registered card counts.
     // The kiosk session (src/lib/auth/kiosk-session.js) is never manual entry.
-    const manualEntry = body.manual_entry === true && !guard.kiosk;
+    const manualEntry = body.manual_entry === true && !guard.kiosk && !terminalTap;
 
     // A tap the terminal saved while offline carries its own time. One that
     // cannot be used (over a day old, in the future, no valid time) is

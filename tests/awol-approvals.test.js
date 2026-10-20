@@ -107,9 +107,9 @@ describe("AWOL case flow", () => {
     Object.assign(theCase(), { stage: "second_notice" });
     expect((await hr("PATCH", { case_id: "case-paolo", action: "recommend", recommendation: "No reply to either notice; did not attend the conference." })).status).toBe(400);
     expect((await call(awol.PATCH, "/api/hr/awol-cases", "PATCH", { case_id: "case-paolo", action: "separate", separation_effective: "2026-12-07", grounds: "No reply to either notice." }, who.admin)).status).toBe(403);
-    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "approve", separation_effective: "2026-12-07" }, who.admin)).status).toBe(400);
-    const queue = await (await apv("GET", null, who.admin)).json();
-    expect(queue.awol).toBeUndefined();
+    // The Admin has no Approvals page at all since 2026-10-20.
+    expect((await apv("PATCH", { action: "decide_awol", case_id: "case-paolo", decision: "approve", separation_effective: "2026-12-07" }, who.admin)).status).toBe(403);
+    expect((await apv("GET", null, who.admin)).status).toBe(403);
     expect(theCase().stage).toBe("second_notice");
     expect(paolo().employee_status).toBe("Active");
   });
@@ -157,20 +157,22 @@ describe("Approvals: excess subsidy advances and adjustments", () => {
     });
   });
 
-  it("HR recommends, the Admin approves; a waiver closes the advance", async () => {
-    expect((await apv("PATCH", { action: "approve_loan_decision", loan_id: "adv-ana" }, who.admin)).status).toBe(409);   // nothing recommended yet
-    expect((await apv("PATCH", { action: "recommend_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "short" }, who.hr)).status).toBe(400);
-    expect((await apv("PATCH", { action: "recommend_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.admin)).status).toBe(403);
-    expect((await apv("PATCH", { action: "recommend_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.hr)).status).toBe(200);
-    const queue = await (await apv("GET", null, who.admin)).json();
-    expect(queue.loan_decisions[0]).toMatchObject({ excess: 2000, decision: "waive", decision_recommended_by: "u-hr" });
-    expect((await apv("PATCH", { action: "approve_loan_decision", loan_id: "adv-ana" }, who.hr)).status).toBe(403);
-    expect((await apv("PATCH", { action: "approve_loan_decision", loan_id: "adv-ana", note: "OK" }, who.admin)).status).toBe(200);
-    expect(table("payroll_loans")[0]).toMatchObject({ decision_approved_by: "u-adm" });
+  // 2026-10-20: HR is the only approver; the Admin and Super Admin have no access.
+  it("HR decides the excess advance in one step; the Admin and the Accountant are refused; a waiver closes it", async () => {
+    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "short" }, who.hr)).status).toBe(400);
+    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.admin)).status).toBe(403);
+    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.accountant)).status).toBe(403);
+    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.hr)).status).toBe(200);
+    expect(table("payroll_loans")[0]).toMatchObject({ decision: "waive", decision_recommended_by: "u-hr", decision_approved_by: "u-hr" });
     expect(table("payroll_loan_payments")[0]).toMatchObject({ loan_id: "adv-ana", kind: "waiver", amount: 2000 });
+    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "collect", reason: "Changed my mind later" }, who.hr)).status).toBe(409);
+    // Decided: off the waiting list, kept in the history.
+    const asHr = await (await apv("GET", null, who.hr)).json();
+    expect(asHr.loan_decisions).toEqual([]);
+    expect(asHr.history).toEqual([expect.objectContaining({ kind: "excess_advance", decided_by_name: expect.any(String), reason: "Hardship; amount small" })]);
   });
 
-  it("the Accountant requests an adjustment; the Admin approves or rejects (with a reason)", async () => {
+  it("the Accountant requests an adjustment; HR approves or rejects (with a reason); the Admin cannot", async () => {
     const req = (body) => apv("POST", { action: "request_adjustment", subsidy_balance_id: "bal-ana", months_missed: 1, months_label: "Jul 2026", amount: 2000, reason: "Verified late; license valid since Jul 2", ...body }, who.accountant);
     expect((await req({ reason: "late" })).status).toBe(400);
     expect((await req({ months_missed: 13 })).status).toBe(400);
@@ -178,18 +180,22 @@ describe("Approvals: excess subsidy advances and adjustments", () => {
     const row = table("payroll_subsidy_adjustments")[0];
     expect(row).toMatchObject({ status: "pending", requested_by: "u-acct", amount: 2000 });
     expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.accountant)).status).toBe(403);
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "reject" }, who.admin)).status).toBe(400);
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.admin)).status).toBe(200);
-    expect(row).toMatchObject({ status: "approved", decided_by: "u-adm", decided_by_role: "admin" });
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.admin)).status).toBe(409);
+    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.admin)).status).toBe(403);
+    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "reject" }, who.hr)).status).toBe(400);
+    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.hr)).status).toBe(200);
+    expect(row).toMatchObject({ status: "approved", decided_by: "u-hr", decided_by_role: "hr" });
+    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.hr)).status).toBe(409);
+    const asHr = await (await apv("GET", null, who.hr)).json();
+    expect(asHr.history).toEqual([expect.objectContaining({ kind: "adjustment", decision: "approved", requested_by_name: expect.any(String) })]);
   });
 
-  it("each role sees its own queues", async () => {
+  it("each role sees its own queues; the Admin has none", async () => {
     const asHr = await (await apv("GET", null, who.hr)).json();
-    expect(asHr.adjustments).toEqual([]);
-    expect(asHr.can).toMatchObject({ recommend: true, decide: false });
+    expect(asHr.can).toMatchObject({ decide: true, request: false });
+    expect(asHr.loan_decisions.map((l) => l.id)).toEqual(["adv-ana"]);
     const asAcct = await (await apv("GET", null, who.accountant)).json();
-    expect(asAcct.can.request).toBe(true);
+    expect(asAcct.can).toMatchObject({ request: true, decide: false });
     expect(asAcct.balances.map((b) => b.id)).toEqual(["bal-ana"]);
+    expect((await apv("GET", null, who.admin)).status).toBe(403);
   });
 });

@@ -43,7 +43,10 @@ const TABS = [
   { id: "pending", label: "Pending" },
   { id: "approved", label: "Approved" },
   { id: "rejected", label: "Rejected" },
-  { id: "all", label: "All History" },
+  { id: "all", label: "All runs" },
+  // Every approve / reject decision, kept for good (a rejected run that is
+  // resubmitted keeps its rejection here).
+  { id: "history", label: "History" },
 ];
 const ANY = "__any__";
 
@@ -243,7 +246,7 @@ function RunDetail({ runId, onBack, onChanged }) {
       const data = await fetchJson(`/api/hr/payroll-runs?run_id=${encodeURIComponent(runId)}`);
       setState({ loading: false, error: null, data });
     } catch (error) {
-      setState({ loading: false, error: error.message, data: null });
+      setState((c) => ({ loading: false, error: error.message, data: c.data }));
     }
   }, [runId]);
   React.useEffect(() => { load(); }, [load]);
@@ -435,19 +438,29 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
     return () => clearTimeout(timer);
   }, [filters.q]);
 
+  // The newest request wins: a slower, older one (another tab or filter)
+  // never overwrites it.
+  const seq = React.useRef(0);
   const load = React.useCallback(async () => {
+    const mine = ++seq.current;
     setState((c) => ({ ...c, loading: true, error: null }));
     try {
-      const params = new URLSearchParams({ status: tab });
+      const params = new URLSearchParams(tab === "history" ? { view: "history" } : { status: tab });
       if (filters.branch !== ANY) params.set("branch_id", filters.branch);
       if (filters.period !== ANY) params.set("period", filters.period);
       if (query) params.set("q", query);
       const data = await fetchJson(`/api/hr/payroll-runs?${params.toString()}`);
+      if (mine !== seq.current) return;
       if (data.available === false) throw new Error(data.error);
-      setState({ loading: false, error: null, data });
+      // Tagged with its tab: switching tabs shows the skeleton, never the
+      // previous tab's rows or a false "nothing here", until this arrives.
+      setState({ loading: false, error: null, data: { ...data, tab } });
       setSelected((c) => new Set([...c].filter((id) => (data.runs || []).some((r) => r.id === id && r.status === "pending"))));
+      // The History tab selects nothing.
+      if (tab === "history") setSelected(new Set());
     } catch (error) {
-      setState({ loading: false, error: error.message, data: null });
+      if (mine !== seq.current) return;
+      setState((c) => ({ loading: false, error: error.message, data: c.data }));
     }
   }, [tab, filters.branch, filters.period, query]);
   React.useEffect(() => { load(); }, [load, refreshKey]);
@@ -458,13 +471,26 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
   }
 
   const data = state.data;
-  const runs = data?.runs || [];
+  const current = data?.tab === tab;
+  const runs = current ? data?.runs || [] : [];
   const canReview = Boolean(data?.can_review);
   const pendingRuns = runs.filter((r) => r.status === "pending");
   const chosen = pendingRuns.filter((r) => selected.has(r.id));
   const toggle = (id, on) => setSelected((c) => { const next = new Set(c); if (on) next.add(id); else next.delete(id); return next; });
 
-  const columns = [
+  const historyColumns = [
+    { key: "period_start", header: "Pay period", sortable: true, cell: (r) => <span className="whitespace-nowrap">{r.period_label}<span className="block text-xs text-muted-foreground">{cutoffLabel(r)}</span></span>, searchValue: (r) => r.period_label },
+    { key: "branch_name", header: "Branch", sortable: true, className: "font-medium" },
+    { key: "submitted_by_name", header: "Submitted by", sortable: true, cell: (r) => r.submitted_by_name || "—" },
+    { key: "submitted_at", header: "Submitted", sortable: true, className: "whitespace-nowrap", cell: (r) => (r.submitted_at ? dateTime(r.submitted_at) : "—") },
+    { key: "decision", header: "Decision", sortable: true, cell: (r) => <RunStatusBadge status={r.decision} /> },
+    { key: "decided_by_name", header: "Decided by", sortable: true, cell: (r) => r.decided_by_name || "—" },
+    { key: "decided_at", header: "Decision date", sortable: true, className: "whitespace-nowrap", cell: (r) => (r.decided_at ? dateTime(r.decided_at) : "—") },
+    { key: "remarks", header: "Rejection reason", cell: (r) => (r.decision === "rejected" ? <p className="max-w-64 text-xs whitespace-normal">{r.remarks || "—"}</p> : <span className="text-xs text-muted-foreground">{r.remarks || "—"}</span>) },
+    { key: "open", header: <span className="sr-only">Open</span>, align: "right", cell: (r) => <Button variant="outline" size="sm" onClick={() => setOpenRun(r.run_id)}>View run</Button> },
+  ];
+
+  const columns = tab === "history" ? historyColumns : [
     ...(canReview && tab !== "approved" && tab !== "rejected" ? [{
       key: "pick",
       header: (
@@ -548,20 +574,22 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
               <Input id="pa-search" placeholder="Branch, submitter or employee name" value={filters.q} onChange={(e) => setFilters((c) => ({ ...c, q: e.target.value }))} />
             </div>
           </div>
-          {state.error ? <ErrorState message={state.error} onRetry={load} /> : (
+          {state.error && !data ? <ErrorState message={state.error} onRetry={load} /> : (
             <DataTable
               columns={columns}
-              rows={runs}
-              loading={state.loading && !data}
+              rows={!current ? [] : tab === "history" ? data?.history || [] : runs}
+              loading={state.loading && !current}
+              error={state.error}
+              onRetry={load}
               searchable={false}
               pageSize={15}
               rowKey={(r) => r.id}
               rowClassName={(r) => (r.flagged_employees ? "bg-warning/5" : undefined)}
               empty={{
-                title: tab === "pending" ? "No payroll waiting for approval" : "No payroll runs here",
+                title: tab === "pending" ? "No payroll waiting for approval" : tab === "history" ? "No decisions yet" : "No payroll runs here",
                 description: tab === "pending" ? "Runs appear here as soon as an Accountant submits them." : null,
               }}
-              caption="Payroll runs"
+              caption={tab === "history" ? "Payroll approval history" : "Payroll runs"}
               minWidth={1100}
             />
           )}

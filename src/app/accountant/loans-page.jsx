@@ -83,7 +83,7 @@ export function LoansPage({ refreshKey }) {
       if (!data.available) throw new Error(data.error || "Loans are not set up yet.");
       setState({ loading: false, error: null, data });
     } catch (error) {
-      setState({ loading: false, error: error.message || "Unable to load loans.", data: null });
+      setState((c) => ({ loading: false, error: error.message || "Unable to load loans.", data: c.data }));
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);

@@ -109,7 +109,7 @@ export function TenureProtectionPanel({ refreshKey }) {
       setSystemForm(policyForm(data.policy?.system));
       setSchoolYear((current) => current || data.school_year);
     } catch (error) {
-      setState({ loading: false, error: error.message, data: null });
+      setState((c) => ({ loading: false, error: error.message, data: c.data }));
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);

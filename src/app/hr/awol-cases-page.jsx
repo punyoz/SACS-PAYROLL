@@ -58,7 +58,7 @@ export function AwolCasesPage({ refreshKey }) {
       if (!data.available) throw new Error(data.error || "AWOL cases are not set up yet.");
       setState({ loading: false, error: null, data });
     } catch (err) {
-      setState({ loading: false, error: err.message || "Unable to load AWOL cases.", data: null });
+      setState((c) => ({ loading: false, error: err.message || "Unable to load AWOL cases.", data: c.data }));
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);

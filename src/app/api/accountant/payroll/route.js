@@ -28,6 +28,7 @@ import {
   usesCutoffAttendance,
   hireProration,
   monthInfo,
+  lockDateKey,
   monthKeyOf,
   monthlyWindow,
   overloadPayFor,
@@ -84,13 +85,39 @@ import { isLockedRun, loadRunsFor, lockedRunMessage, shapeRun } from "@/lib/payr
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
 /**
- * Nobody processes, adjusts or adds to their own pay. Accountants are on the
- * payroll they run, so without this an Accountant could finalize their own
- * payslip with a raised basic salary, or file incentives and overload hours
- * for themselves. Another Accountant of the branch, or a Super Admin
- * (Generate / Override), handles an Accountant's own payroll.
+ * Nobody adjusts or adds to their own pay. Accountants are on the payroll
+ * they run, so without this an Accountant could finalize their own payslip
+ * with a raised basic salary, or file incentives and overload hours for
+ * themselves.
+ *
+ * Their own payslip is still processed (2026-10-20: the Super Admin no longer
+ * processes payroll, and a run is submitted only once every payslip is in
+ * it): by Generate or Process payroll for all, on the system-computed path
+ * only (attendance, rates and the HR-kept salary; no typed values), marked
+ * payroll.own_payslip, and flagged for HR, who approves it with the run.
  */
-const OWN_PAYROLL_MESSAGE = "You cannot process or change your own payroll. Another Accountant of your branch or a Super Admin handles it.";
+const OWN_PAYROLL_MESSAGE = "You cannot change your own payroll by hand. Your own payslip is computed by the system only (Generate or Process payroll for all), and HR approves it with the branch's run.";
+
+/** The mark a payslip processed after its generation window closed carries (HR's flag). */
+function lateMark(genWindow, guard) {
+  return {
+    after: genWindow.closes_on || genWindow.pay_date || null,
+    at: new Date().toISOString(),
+    by: guard?.userId || null,
+    by_name: normalizeText(guard?.session?.full_name, guard?.session?.email) || null,
+  };
+}
+
+/** The mark an Accountant's own, system-computed payslip carries (the audit trail and HR's flag). */
+function ownPayslipMark(guard) {
+  return {
+    processed_by_self: true,
+    by: guard?.userId || null,
+    by_name: normalizeText(guard?.session?.full_name, guard?.session?.email) || null,
+    at: new Date().toISOString(),
+    rule: "System-computed only (no manual changes); HR reviews and approves it with the branch's run.",
+  };
+}
 
 function isOwnPayroll(guard, employeeId) {
   return guard?.scope !== SCOPE_ALL && Boolean(guard?.userId) && String(employeeId || "") === String(guard.userId);
@@ -301,6 +328,8 @@ function normalizePayrollEntry(row) {
     pay_period: normalizeText(row.pay_period, formatPeriodLabel(manilaToday())),
     status: normalizeText(row.status, "draft").toLowerCase(),
     approval_id: normalizeText(row.approval_id),
+    // Stamped by trigger; ties the entry to its branch's payroll run.
+    branch_id: row.branch_id || null,
     payslip_no: normalizeText(row.payslip_no) || null,
     submitted_at: row.submitted_at || null,
     created_at: row.created_at || new Date().toISOString(),
@@ -2169,6 +2198,8 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       window: context.attendance_span,
       rate: firstCutoff ? toAmount(basic) : toAmount(basic - firstHalfCutoff.basic_salary),
       hire,
+      // The late charge is 0% by the school's rule (2026-10-20: intended).
+      lateRateZero: !(Number(rates.late_days_per_absent) > 0) && !(Number(rates.late_minute_charge_pct) > 0),
     });
   }
   const monthSettled = firstCutoff && semi.second_half_final;
@@ -2252,7 +2283,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
  * employee page, the Accountant's record and the PDF all draw: each earning
  * and each deduction on its own line, gross, total deductions and net.
  */
-function cutoffBreakdown(payroll, { half, window, rate, hire }) {
+function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = false }) {
   const t = payroll.totals;
   const d = payroll.deductions;
   const m = payroll.monthly || {};
@@ -2276,6 +2307,11 @@ function cutoffBreakdown(payroll, { half, window, rate, hire }) {
   deduct(`Absences (${plural(d.absences_days || 0, "day")})`, t.absence_deduction);
   deduct(`Leave without pay (${plural(d.leave_without_pay_days || 0, "day")})`, t.leave_without_pay_deduction);
   deduct(`Late (${plural(d.late_days || 0, "day")})`, t.late_deduction);
+  // Late arrivals stay recorded but cost nothing while the rate is 0%
+  // (intended): the line says so instead of leaving them unexplained.
+  if (lateRateZero && !(toAmount(t.late_deduction) > 0) && (Number(d.late_days) > 0 || Number(d.late_minutes) > 0)) {
+    deductions.push({ label: "Late deduction: ₱0 (rate 0%)", amount: 0, note: `${plural(d.late_days || 0, "late day")}, ${d.late_minutes || 0} min recorded; not deducted` });
+  }
   deduct(`Undertime (${plural(d.undertime_minutes || 0, "minute")})`, t.undertime_deduction);
   deduct(`Half day (${plural(d.half_days || 0, "day")})`, t.half_day_deduction);
   if (half === "second") {
@@ -2381,7 +2417,9 @@ function buildPayrollLineRows(entry) {
 }
 
 function mapEntryToRecord(entry) {
-  const grossPay = Number(entry.payroll?.totals?.gross_pay || 0);
+  // A per-cutoff payslip's gross includes its incentives, overload and
+  // subsidy (monthly.cutoff); totals.gross_pay is the basic pay alone.
+  const grossPay = Number(entry.payroll?.monthly?.cutoff?.gross_pay ?? entry.payroll?.totals?.gross_pay ?? 0);
   const totalDeductions = Number(entry.payroll?.totals?.total_deductions || 0);
   const netPay = floorNetPay(entry.payroll?.totals?.net_pay);
 
@@ -2391,6 +2429,7 @@ function mapEntryToRecord(entry) {
     employee_name: entry.employee_name,
     employee_code: entry.employee_code,
     employee_type: entry.employee_type,
+    branch_id: entry.branch_id || null,
     pay_period: entry.pay_period,
     payslip_no: entry.payslip_no || null,
     gross_pay: grossPay,
@@ -2401,6 +2440,17 @@ function mapEntryToRecord(entry) {
     updated_at: entry.updated_at,
     payroll: entry.payroll,
   };
+}
+
+/** "branch_id|period label" -> run status, for every branch and period the entries cover. */
+async function loadRunStatuses(supabase, entries) {
+  const out = new Map();
+  const branchIds = [...new Set(entries.map((entry) => entry.branch_id).filter(Boolean).map(String))];
+  if (!branchIds.length) return out;
+  const result = await supabase.from("payroll_runs").select("branch_id,period_label,status").in("branch_id", branchIds);
+  if (result.error) return out; // approval migration not applied: no run states
+  (result.data || []).forEach((row) => out.set(`${row.branch_id}|${row.period_label}`, row.status));
+  return out;
 }
 
 function buildPayrollPanels(records) {
@@ -2452,7 +2502,10 @@ async function periodWindow(supabase, period) {
  * Generate makes a Draft.
  */
 function refuseOutsideFinalWindow(genWindow) {
-  if (genWindow.state === "final") return null;
+  // After the window closes the Accountant still processes what is missing
+  // (2026-10-20: no Super Admin override any more). Every caller refuses a
+  // branch whose run is Pending or Approved, and marks the payslip late.
+  if (genWindow.state === "final" || genWindow.state === "closed") return null;
   const error = genWindow.state === "not_open"
     ? genWindow.message
     : genWindow.state === "draft"
@@ -2576,10 +2629,9 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
   const skipped = [];
   const rows = [];
   employees.filter((employee) => !wanted || wanted.has(employee.id)).forEach((employee) => {
-    if (isOwnPayroll(guard, employee.id)) {
-      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: OWN_PAYROLL_MESSAGE, code: "own_payroll" });
-      return;
-    }
+    // The Accountant's own 13th month is computed from their payslips alone
+    // (no typed value), so it is processed with everyone's and marked.
+    const own = isOwnPayroll(guard, employee.id);
     if (already.has(employee.id)) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Already processed." });
       return;
@@ -2595,7 +2647,7 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
       year,
       basic_earned: computed.total_basic_earned,
       amount: computed.amount,
-      breakdown: { periods: computed.periods },
+      breakdown: { periods: computed.periods, ...(own ? { own_payslip: ownPayslipMark(guard) } : {}) },
       processed_by: guard.userId || null,
       processed_by_name: actorName || null,
       processed_at: nowIso,
@@ -2713,10 +2765,26 @@ async function handleMonthlyItemsView(supabase, employees, url) {
     .filter((item) => item.payroll_month === monthKey || monthKeyOf(item.item_date) === monthKey);
 
   const lockDay = lockDayFor(monthKey);
+  // The exact incentive cutoff of the month before, this month and the next
+  // (the day before each 2nd-half payslip day): items filed after it are paid
+  // with the next month's payroll.
+  const cutoffs = Object.fromEntries([-1, 0, 1].map((delta) => {
+    const key = shiftMonth(monthKey, delta);
+    const cutoff = lockDateKey(key, lockDayFor(key));
+    return [key, {
+      cutoff_date: cutoff,
+      cutoff_label: formatDateKey(cutoff),
+      payslip_day: addDayKey(cutoff, 1),
+      payslip_day_label: formatDateKey(addDayKey(cutoff, 1)),
+      next_month_label: monthInfo(shiftMonth(key, 1)).label,
+    }];
+  }));
   return NextResponse.json({
     available: true,
     month,
     lock_day: lockDay,
+    cutoff: cutoffs[monthKey],
+    cutoffs,
     window: monthlyWindow(monthKey, lockDayFor, {
       carryOver: Number(resolveRate((await loadRateConfigs(supabase)).configs, "carry_after_lock", {}, `${monthKey}-16`).value) !== 0,
     }),
@@ -2781,7 +2849,13 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     metadata: { ...row, payroll_month: payrollMonth },
   });
 
-  return NextResponse.json({ success: true, payroll_month: payrollMonth, payroll_month_label: monthInfo(payrollMonth).label });
+  return NextResponse.json({
+    success: true,
+    payroll_month: payrollMonth,
+    payroll_month_label: monthInfo(payrollMonth).label,
+    // Filed after the lock day: paid with next month's payroll (intended).
+    deferred: payrollMonth !== monthKeyOf(itemDate),
+  });
 }
 
 /** PATCH { action: "archive_monthly_item", item_id }: never once a Final payslip paid it. */
@@ -3208,6 +3282,20 @@ export async function GET(request) {
       ...mapEntryToRecord(entry),
       attendance_changed: changedAfterFinal.get(entry.id) || null,
     }));
+    // Every processed entry of every period, whatever ?period= asks for:
+    // Payroll Records, Monitoring, Reports and the Pay Record picker list
+    // the whole history. Without it, the first load (no period) listed all
+    // periods but every later load (e.g. opening a payslip) narrowed
+    // `records` to the current period, and the history appeared to vanish.
+    const historyEntries = sortedEntries.filter((entry) => entry.status !== "draft");
+    // Each record's HR approval state (its branch run for its period): a
+    // processed payslip is not paid until HR approves the run.
+    const runStatusByKey = await loadRunStatuses(supabase, historyEntries);
+    const withRunStatus = (record) => ({
+      ...record,
+      run_status: runStatusByKey.get(`${record.branch_id}|${record.pay_period}`) || null,
+    });
+    const historyRecords = historyEntries.map(mapEntryToRecord).map(withRunStatus);
 
     const payslipSource = requestedEntryId
       ? sortedEntries.find((entry) => entry.id === requestedEntryId)
@@ -3249,8 +3337,10 @@ export async function GET(request) {
       generated_at: new Date().toISOString(),
       employees,
       period_options: getPeriodOptions(sortedEntries),
-      records: payrollRecords,
+      records: payrollRecords.map(withRunStatus),
       panels: buildPayrollPanels(payrollRecords),
+      history_records: historyRecords,
+      history_panels: buildPayrollPanels(historyRecords),
       attendance_rows: attendanceRows,
       leave_summary: leaveSummary,
       active_period: { label: activePeriod.label, start_key: activePeriod.start_key, end_key: activePeriod.end_key },
@@ -3259,7 +3349,7 @@ export async function GET(request) {
       payroll_ready: payContext.engineReady && payContext.ratesReady,
       payroll_not_ready_message: payContext.engineReady && payContext.ratesReady ? null : PAYROLL_NOT_READY_MESSAGE,
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
-      payslip_options: buildPayslipOptions(payrollRecords, generatedDrafts),
+      payslip_options: buildPayslipOptions(historyRecords, generatedDrafts),
       payslip: buildPayslipDetails(payslipSource),
       generation_window: genWindow,
       // Super Admin only: change a Final payslip, with a reason.
@@ -3354,7 +3444,8 @@ async function handleBatchSubmit(supabase, body, guard) {
   // Attendance, leave and rates for the period, computed here -- never taken
   // from the browser. Attendance figures cannot be edited in the batch table.
   const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
-  const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
+  const batchWindow = await periodWindow(supabase, period);
+  const refused = refuseOutsideFinalWindow(batchWindow);
   if (refused) return refused;
   const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
   const payContext = await loadPeriodPayContext(supabase, employees, period, { actor });
@@ -3385,10 +3476,8 @@ async function handleBatchSubmit(supabase, body, guard) {
       continue;
     }
 
-    if (isOwnPayroll(guard, employee.id)) {
-      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: OWN_PAYROLL_MESSAGE, code: "own_payroll" });
-      continue;
-    }
+    // The Accountant's own row: system-computed only, whatever the form sent.
+    const own = isOwnPayroll(guard, employee.id);
 
     if (employee.payroll_hold) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: payrollHoldMessage(employee), code: PAYROLL_HOLD_CODE });
@@ -3407,7 +3496,7 @@ async function handleBatchSubmit(supabase, body, guard) {
     const built = buildEmployeePayroll({
       employee,
       context: payContext.byEmployee.get(employee.id),
-      input: {
+      input: own ? {} : {
         basic_salary: item.basic_salary,
         deductions: {
           sss: item.deductions?.sss,
@@ -3448,6 +3537,8 @@ async function handleBatchSubmit(supabase, body, guard) {
       continue;
     }
     const computedPayroll = built.payroll;
+    if (own) computedPayroll.own_payslip = ownPayslipMark(guard);
+    if (batchWindow.state === "closed") computedPayroll.late_processing = lateMark(batchWindow, guard);
 
     const baseEntry = {
       // Reuse an existing draft's id for this employee+period (there can be
@@ -3505,10 +3596,10 @@ async function handleBatchSubmit(supabase, body, guard) {
     action: "batch_process",
     entity_type: "payroll_entry",
     entity_id: payPeriod,
-    description: `Batch payroll processed for ${processed.length} employee(s), pay period ${payPeriod}${skipped.length ? ` (${skipped.length} skipped)` : ""}.`,
+    description: `Batch payroll processed for ${processed.length} employee(s), pay period ${payPeriod}${skipped.length ? ` (${skipped.length} skipped)` : ""}.${processed.some((p) => isOwnPayroll(guard, p.employee_id)) ? " Includes the Accountant's own payslip: system-computed, for HR approval with the run." : ""}`,
     status: "success",
     source: "api",
-    metadata: { pay_period: payPeriod, processed_count: processed.length, skipped_count: skipped.length, skipped },
+    metadata: { pay_period: payPeriod, processed_count: processed.length, skipped_count: skipped.length, skipped, own_payslip: processed.some((p) => isOwnPayroll(guard, p.employee_id)) },
   });
 
   return NextResponse.json({ success: true, processed, skipped });
@@ -3791,8 +3882,10 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const employees = await fetchEmployees(supabase, guard);
   const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
   if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
-  const own = refuseOwnPayroll(guard, employee.id);
-  if (own) return own;
+  // The Accountant's own payslip: Generate (system-computed, input {} below)
+  // is allowed and marked for HR; an override never is.
+  const ownPayslip = isOwnPayroll(guard, employee.id);
+  if (ownPayslip && override) return refuseOwnPayroll(guard, employee.id);
   // Held pay is never generated, not even by an override: HR closes the case
   // first (returned / excused), then the held payslip can be generated.
   const heldPay = refusePayrollHold(employee);
@@ -3820,9 +3913,11 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     if (reprocess && genWindow.state === "closed" && run?.status !== "rejected") {
       return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
     }
-  } else if (!genWindow.can_generate) {
+  } else if (!genWindow.can_generate && !(genWindow.state === "closed" && !isLockedRun(run))) {
+    // Closed: still allowed (late) while the branch's run is Draft or Rejected.
     return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
   }
+  const lateProcessing = genWindow.state === "closed";
 
   const { entries } = await readPayrollEntries(supabase);
   const existing = entries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label) || null;
@@ -3888,6 +3983,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       ? { reason, by: guard.userId || null, by_name: actor.name || null, at: nowIso, replaced_payslip_no: existing?.payslip_no || null }
       : null,
   };
+  if (ownPayslip) built.payroll.own_payslip = ownPayslipMark(guard);
+  if (lateProcessing) built.payroll.late_processing = lateMark(genWindow, guard);
 
   const baseEntry = {
     id: existing?.id || crypto.randomUUID(),
@@ -3945,7 +4042,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     entity_id: baseEntry.id,
     description: override
       ? `Final payslip for ${employee.full_name}, ${period.label}, overridden by ${actor.name}: ${reason}`
-      : `${final ? "Final" : "Draft"} payslip for ${employee.full_name}, ${period.label}, ${previous && !final ? "regenerated" : "generated"} (attendance up to ${formatDateKey(through)}).`,
+      : `${final ? "Final" : "Draft"} payslip for ${employee.full_name}, ${period.label}, ${previous && !final ? "regenerated" : "generated"} (attendance up to ${formatDateKey(through)}).${ownPayslip ? " The Accountant's own payslip: system-computed, for HR approval with the run." : ""}`,
     status: "success",
     source: "api",
     metadata: {

@@ -245,18 +245,17 @@ describe("Loans API", () => {
     expect((await createLoan()).status).toBe(409);
   });
 
-  it("the Admin can view but not add; an employee sees only their own loans", async () => {
+  // 2026-10-20: loans are payroll (the Accountant's); the Admin and the
+  // Super Admin have no access.
+  it("the Admin and the Super Admin have no access; an employee sees only their own loans", async () => {
     seedLoan();
     table("payroll_loans").push({ id: "loan-far", employee_id: FAR, branch_id: OTHER, loan_type: "salary_loan", principal: 1000, remaining_balance: 1000, status: "active", date_granted: "2026-10-01" });
     expect((await createLoan({}, who.admin)).status).toBe(403);
-    const admin = await (await loansApi.GET(request("/api/accountant/loans", "GET", null, who.admin))).json();
-    expect(admin.loans.map((l) => l.id)).toEqual(["loan-nate"]);
-    expect(admin.can_edit).toBe(false);
+    expect((await loansApi.GET(request("/api/accountant/loans", "GET", null, who.admin))).status).toBe(403);
     const own = await (await loansApi.GET(request("/api/accountant/loans", "GET", null, who.employee))).json();
     expect(own.loans.map((l) => l.id)).toEqual(["loan-nate"]);
     expect(own.people).toEqual([]);
-    const all = await (await loansApi.GET(request("/api/accountant/loans", "GET", null, who.super))).json();
-    expect(all.loans).toHaveLength(2);
+    expect((await loansApi.GET(request("/api/accountant/loans", "GET", null, who.super))).status).toBe(403);
   });
 
   it("suspend needs a reason; resume; a paid loan cannot change", async () => {

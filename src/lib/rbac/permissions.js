@@ -66,7 +66,7 @@ export const MODULES = {
   },
   attendance: {
     order: 2, label: "Attendance", section: "Overview",
-    page: { super_admin: "sa-attendance", admin: "adm-attendance", hr: "hr-attendance", accountant: "ac-attendance" },
+    page: { hr: "hr-attendance", accountant: "ac-attendance" },
     labelOverride: { hr: "Attendance Monitoring", accountant: "View Attendance" },
   },
   user_management: {
@@ -197,12 +197,12 @@ export const MODULES = {
     order: 8.5, label: "AWOL Cases", section: "Leave",
     page: { hr: "hr-awol" },
   },
-  // Admin's one approval queue (SACS-Payroll-Permission-Matrix.md row 10a):
-  // AWOL separations, refused-consent loan decisions and missed-month subsidy
-  // adjustments. HR recommends loan decisions; the Accountant requests adjustments.
+  // Subsidy approvals (2026-10-20: HR only): missed-month subsidy
+  // adjustments the Accountant requests, and refused-consent excess subsidy
+  // advances. HR decides both; the Accountant requests adjustments.
   payroll_approvals: {
-    order: 13.5, label: "Approvals", section: "Payroll",
-    page: { admin: "adm-approvals", hr: "hr-approvals", accountant: "ac-approvals" },
+    order: 13.5, label: "Subsidy Approvals", section: "Payroll",
+    page: { hr: "hr-subsidy-approvals", accountant: "ac-approvals" },
   },
   // Licensed-teacher fields (row 4a): HR edits and verifies inside the
   // employee form; Admin and Super Admin view; Accountant / Employee none.
@@ -211,7 +211,7 @@ export const MODULES = {
     page: {},
   },
   // Missed tap-out corrections: an employee asks for a corrected time out,
-  // HR or Admin approves or rejects it. No sidebar row of its own -- it lives
+  // HR approves or rejects it (2026-10-20). No sidebar row of its own -- it lives
   // on each role's Attendance page (and the employee's My Attendance tab).
   attendance_corrections: {
     order: 2.5, label: "Attendance Corrections", section: "Overview",
@@ -222,7 +222,7 @@ export const MODULES = {
   // (Work Schedules) have the same full power; Admin views its own branch.
   work_schedules: {
     order: 2.6, label: "Work Schedules", section: "Attendance",
-    page: { admin: "adm-schedules", hr: "hr-schedules" },
+    page: { hr: "hr-schedules" },
   },
   // Early Bird incentive: one winner per pay period. Super Admin or HR sets
   // the threshold, the eligibility rule and the amount.
@@ -245,7 +245,7 @@ export const MODULES = {
   // Accountant and Employee: none.
   tenure_protection: {
     order: 4.7, label: "Tenure Pay Protection", section: "Employees",
-    page: { super_admin: "sa-tenure", admin: "adm-tenure", hr: "hr-tenure" },
+    page: { hr: "hr-tenure" },
   },
 };
 
@@ -255,93 +255,89 @@ export const MODULES = {
  */
 export const ROLE_PERMISSIONS = {
   super_admin: {
-    // System-wide + configuration authority: full reach on every module,
-    // unrestricted by branch.
-    dashboard: full(SCOPE_ALL),
-    attendance: full(SCOPE_ALL),
+    // System functions only (2026-10-20): system settings, branches, roles &
+    // permissions, staff (Admin / HR) login accounts, RFID maintenance, audit
+    // logs, backups. Managing employees (attendance, schedules, leave, AWOL,
+    // transfers, Tenure Pay Protection) is HR's; processing payroll is the
+    // Accountant's; approving it is HR's. The Super Admin does none of them.
+    dashboard: view(SCOPE_ALL),
+    // Read-only, no page: the backup export and the per-employee payroll rate
+    // picker (System Configuration) read the employee list and attendance.
+    attendance: view(SCOPE_ALL),
+    // Only the Admin / HR / Super Admin login accounts (MANAGEABLE_ROLES).
     user_management: full(SCOPE_ALL),
-    employee_information: full(SCOPE_ALL),
+    employee_information: view(SCOPE_ALL),
     employee_info_readonly: view(SCOPE_ALL),
     branch_management: full(SCOPE_ALL),
-    branch_assignment: full(SCOPE_ALL),
+    // Moving an Admin account to another branch (the route refuses anyone else).
+    branch_assignment: { scope: SCOPE_ALL, actions: READ_WRITE },
     roles_permissions: full(SCOPE_ALL),
-    // Sole approver: only Super Admin may update a transfer request's status.
-    transfer_requests: full(SCOPE_ALL),
-    leave_approval: full(SCOPE_ALL),
+    transfer_requests: none(),
+    leave_approval: none(),
     rfid_devices: full(SCOPE_ALL),
-    // Oversight/approval only — the Accountant owns payroll processing.
-    process_payroll: { scope: SCOPE_ALL, actions: READ_WRITE },
-    payroll_records: full(SCOPE_ALL),
-    payslips: full(SCOPE_ALL),
-    payroll_monitoring: full(SCOPE_ALL),
+    process_payroll: none(),
+    payroll_records: none(),
+    payslips: none(),
+    payroll_monitoring: none(),
     system_maintenance: full(SCOPE_ALL),
     system_configuration: full(SCOPE_ALL),
     audit_logs: full(SCOPE_ALL),
     backup_recovery: full(SCOPE_ALL),
-    hr_reports: full(SCOPE_ALL),
-    payroll_reports: full(SCOPE_ALL),
+    hr_reports: none(),
+    payroll_reports: none(),
     branch_reports: view(SCOPE_ALL),
     profile: full(SCOPE_SELF),
-    timesheet: full(SCOPE_ALL),
-    attendance_corrections: full(SCOPE_ALL),
-    loans: full(SCOPE_ALL),
-    awol_cases: full(SCOPE_ALL),
-    payroll_approvals: view(SCOPE_ALL),
-    // View only (SACS-Payroll-Permission-Matrix.md row 4a): HR alone edits.
-    teacher_license: view(SCOPE_ALL),
-    // Creates, changes, deletes (archives) and assigns schedules, as HR does.
-    work_schedules: full(SCOPE_ALL),
-    early_bird_incentive: full(SCOPE_ALL),
-    // Views every run and its history; HR alone approves.
-    payroll_run_approval: view(SCOPE_ALL),
-    // Same power as HR: policy, break dates, grants for every branch.
-    tenure_protection: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
+    timesheet: none(),
+    attendance_corrections: none(),
+    loans: none(),
+    awol_cases: none(),
+    payroll_approvals: none(),
+    teacher_license: none(),
+    work_schedules: none(),
+    // The Early Bird threshold and amount are system configuration.
+    early_bird_incentive: { scope: SCOPE_ALL, actions: READ_WRITE },
+    payroll_run_approval: none(),
+    tenure_protection: none(),
   },
 
   admin: {
-    // Operational authority, boxed inside one branch. Never system config,
-    // role definitions, branch records, backups, or any account management —
-    // user accounts and branch transfers belong to HR.
+    // Branch oversight only (2026-10-20): its branch's dashboard and reports,
+    // RFID card maintenance and its branch's audit log. Employee management is
+    // HR's, payroll the Accountant's, approvals HR's.
     dashboard: view(SCOPE_BRANCH),
-    attendance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    attendance: none(),
     user_management: none(),
-    employee_information: view(SCOPE_BRANCH),
+    employee_information: none(),
     employee_info_readonly: view(SCOPE_BRANCH),
     branch_management: none(),
     branch_assignment: none(),
     roles_permissions: none(),
     transfer_requests: none(),
-    leave_approval: view(SCOPE_BRANCH),
+    leave_approval: none(),
     // Registering, replacing and voiding RFID cards for the Admin's own branch.
     rfid_devices: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     process_payroll: none(),
-    payroll_records: view(SCOPE_BRANCH),
-    payslips: view(SCOPE_BRANCH),
-    payroll_monitoring: view(SCOPE_BRANCH),
+    payroll_records: none(),
+    payslips: none(),
+    payroll_monitoring: none(),
     system_maintenance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     system_configuration: none(),
     audit_logs: view(SCOPE_BRANCH),
     backup_recovery: none(),
-    hr_reports: view(SCOPE_BRANCH),
-    payroll_reports: view(SCOPE_BRANCH),
+    hr_reports: none(),
+    payroll_reports: none(),
     branch_reports: view(SCOPE_BRANCH),
     profile: full(SCOPE_SELF),
-    timesheet: view(SCOPE_BRANCH),
-    // Approves or rejects its own branch's correction requests.
-    attendance_corrections: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    loans: view(SCOPE_BRANCH),
-    // Decides AWOL separations for its branch (on the Approvals page).
-    awol_cases: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    // View + approve loan decisions and subsidy adjustments only (row 10a).
-    payroll_approvals: { scope: SCOPE_BRANCH, actions: READ_WRITE },
-    teacher_license: view(SCOPE_BRANCH),
-    // View only: its own branch's employees and the schedules they follow.
-    work_schedules: view(SCOPE_BRANCH),
-    early_bird_incentive: view(SCOPE_BRANCH),
+    timesheet: none(),
+    attendance_corrections: none(),
+    loans: none(),
+    awol_cases: none(),
+    payroll_approvals: none(),
+    teacher_license: none(),
+    work_schedules: none(),
+    early_bird_incentive: none(),
     payroll_run_approval: none(),
-    // Its own branch: grants / revokes for its employees and the branch's own
-    // policy. The system-wide policy and the break dates are HR / Super Admin.
-    tenure_protection: { scope: SCOPE_BRANCH, actions: ["create", "read", "update"] },
+    tenure_protection: none(),
   },
 
   hr: {
@@ -380,7 +376,8 @@ export const ROLE_PERMISSIONS = {
     attendance_corrections: { scope: SCOPE_ALL, actions: READ_WRITE },
     loans: none(),
     awol_cases: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
-    // Recommends refused-consent loan decisions (the Admin approves).
+    // The only approver of subsidy decisions: missed-month adjustments the
+    // Accountant requests, and refused-consent excess subsidy advances.
     payroll_approvals: { scope: SCOPE_ALL, actions: READ_WRITE },
     // The only role that edits and verifies licensed-teacher fields.
     teacher_license: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
@@ -487,7 +484,8 @@ export const ROLE_PERMISSIONS = {
  * edit, or elevate anyone into admin or super_admin.
  */
 export const MANAGEABLE_ROLES = {
-  super_admin: ["super_admin", "admin", "hr", "accountant", "employee"],
+  // Staff login accounts only; HR owns every Employee and Accountant account.
+  super_admin: ["super_admin", "admin", "hr"],
   admin: [],
   hr: ["accountant", "employee"],
   accountant: [],

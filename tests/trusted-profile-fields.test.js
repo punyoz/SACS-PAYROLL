@@ -119,14 +119,15 @@ describe("RFID scan matching", () => {
   let createSessionToken;
   let SESSION_COOKIE;
 
-  function scan(body) {
-    const token = createSessionToken({
-      user_id: "u-admin", role: "admin", branch_id: BRANCH, email: "admin@sacs.test",
-      full_name: "Branch Admin", session_id: "s-1",
-    });
+  // The RFID Terminal (the Admin's device, with its header) by default; the
+  // manual box is an attendance action, HR's since 2026-10-20.
+  function scan(body, { terminal = true, role = "admin" } = {}) {
+    const token = role === "hr"
+      ? createSessionToken({ user_id: "u-hr", role: "hr", branch_id: null, email: "hr@sacs.test", full_name: "Hana HR", session_id: "s-2" })
+      : createSessionToken({ user_id: "u-admin", role: "admin", branch_id: BRANCH, email: "admin@sacs.test", full_name: "Branch Admin", session_id: "s-1" });
     return POST(new Request("https://sacs.test/api/admin/attendance", {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}` },
+      headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}`, ...(terminal ? { "x-sacs-kiosk": "1" } : {}) },
       body: JSON.stringify(body),
     }));
   }
@@ -145,6 +146,7 @@ describe("RFID scan matching", () => {
     });
     table("profiles").push(
       { id: "u-admin", role: "admin", branch_id: BRANCH },
+      { id: "u-hr", role: "hr", branch_id: null },
       { id: EMP, role: "employee", full_name: "Emma Employee", email: "emp@sacs.test", branch_id: BRANCH, employee_id: "SACS-001", rfid_uid: "CARD-1", basic_salary: 15000, archived: false },
     );
 
@@ -170,10 +172,22 @@ describe("RFID scan matching", () => {
     expect(table("attendance_logs")).toHaveLength(0);
   });
 
-  it("the Admin portal's manual box may still use the Employee ID", async () => {
-    const res = await scan({ rfid_code: "SACS-001", manual_entry: true });
+  it("a manual entry (HR records attendance) may still use the Employee ID", async () => {
+    const res = await scan({ rfid_code: "SACS-001", manual_entry: true }, { terminal: false, role: "hr" });
     expect(res.status).toBe(200);
     expect(table("attendance_logs")).toHaveLength(1);
+  });
+
+  it("an Admin's manual entry is refused: recording attendance is HR's", async () => {
+    const res = await scan({ rfid_code: "SACS-001", manual_entry: true }, { terminal: false });
+    expect(res.status).toBe(403);
+    expect(table("attendance_logs")).toHaveLength(0);
+  });
+
+  it("a manual_entry flag on a terminal tap is ignored: the terminal only takes cards", async () => {
+    const res = await scan({ rfid_code: "SACS-001", manual_entry: true });
+    expect(res.status).toBe(404);
+    expect(table("attendance_logs")).toHaveLength(0);
   });
 
   it("only the portal manual boxes send manual_entry, never the kiosk", () => {

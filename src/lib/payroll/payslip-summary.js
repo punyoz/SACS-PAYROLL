@@ -82,6 +82,10 @@ export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis, con
     lateParts.push(`${d.late_minutes || 0} min × (${money(hourly)}/hr ÷ 60${pct === 100 ? "" : ` × ${pct}%`})`);
   }
   add("late", "Late", t.late_deduction, lateParts.join(" + ") || `${d.late_minutes || 0} min late`);
+  // The late charge is 0% (intended): lates are recorded, nothing is deducted.
+  if (!(roundPeso(t.late_deduction) > 0) && !(perAbsent > 0) && !(Number(unit.late_minute_pct) > 0) && (Number(d.late_days) > 0 || Number(d.late_minutes) > 0)) {
+    lines.push({ type: "late", label: "Late", amount: 0, basis: `Late deduction: ₱0 (rate 0%) — ${plural(d.late_days || 0, "late day")}, ${d.late_minutes || 0} min recorded` });
+  }
 
   add("undertime", "Undertime", t.undertime_deduction, `${d.undertime_minutes || 0} min × (${money(hourly)}/hr ÷ 60)`);
   add("half_day", "Half Day", t.half_day_deduction, `${plural(d.half_days || 0, "day")} × ${money(unit.half_day ?? daily / 2)}`);
