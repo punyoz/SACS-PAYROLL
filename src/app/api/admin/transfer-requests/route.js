@@ -13,6 +13,7 @@ import {
   getEmployeeCurrentBranch,
 } from "@/lib/transfer-requests/store";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { notify, notifyEndorsers } from "@/lib/branch-requests-server";
 
 /**
  * Put the employee in the destination branch. The approval trigger on
@@ -164,8 +165,11 @@ export async function POST(request) {
 
     // A caller who may also decide transfers (HR) has nobody above it to wait
     // for: the move is approved and applied at once, and stays on record in
-    // Transfer History.
-    const appliedImmediately = can(guard.role, "transfer_requests", "update");
+    // Transfer History. Unless HR asks the branch Admins to endorse it first
+    // (wait_for_endorsement, 2026-10-20): it then stays Pending until HR
+    // approves or rejects it.
+    const waitForEndorsement = body.wait_for_endorsement === true;
+    const appliedImmediately = can(guard.role, "transfer_requests", "update") && !waitForEndorsement;
     if (appliedImmediately) {
       const moveResult = await applyBranchMove(supabase, employeeId, fromBranchId, toBranchId);
       if (!moveResult.moved) {
@@ -194,6 +198,18 @@ export async function POST(request) {
       source: "api",
       metadata: { employee_id: employeeId, from_branch_id: fromBranchId, to_branch_id: toBranchId },
     });
+
+    if (waitForEndorsement) {
+      const supabaseNotify = getAdminClient();
+      const admins = await supabaseNotify.from("profiles").select("id").eq("role", "admin").eq("archived", false)
+        .in("branch_id", [fromBranchId, toBranchId].filter(Boolean));
+      await notify(supabaseNotify, (admins.data || []).map((a) => a.id), {
+        kind: "transfer_endorsement_requested",
+        title: `Transfer to endorse · ${normalizeText(employeeMeta.full_name, "Employee")}`,
+        body: `To ${destination.name}. HR decides after the branch Admins' endorsement.`,
+        link_page: "adm-transfers",
+      }).catch(() => 0);
+    }
 
     return NextResponse.json(
       { request: request_, applied: appliedImmediately, to_branch_name: destination.name },
@@ -250,9 +266,11 @@ export async function PATCH(request) {
     }
 
     const nextStatus = action === "approve" ? "approved" : "rejected";
-    const { request: updated } = await updateTransferRequestStatus(id, nextStatus, {
-      reviewedBy: guard.userId,
-    });
+    // Move first, then record the decision (as the immediate path in POST
+    // does): marking it approved fires the approval trigger, which moves the
+    // employee too, so moving afterwards found the employee already gone and
+    // flipped an applied transfer to "rejected" (2026-10-20, found when
+    // pending transfers started waiting for the branch Admins' endorsement).
     if (nextStatus === "approved") {
       const moveResult = await applyBranchMove(
         getAdminClient(),
@@ -270,6 +288,14 @@ export async function PATCH(request) {
         );
       }
     }
+    const { request: updated } = await updateTransferRequestStatus(id, nextStatus, {
+      reviewedBy: guard.userId,
+    });
+
+    await notifyEndorsers(getAdminClient(), "transfer_endorsement", id, {
+      title: `Transfer ${nextStatus === "approved" ? "approved" : "rejected"} by HR`,
+      body: current.remarks || "See Transfer Endorsements.",
+    }).catch(() => 0);
 
     await appendAuditLog({
       actor: guard,
