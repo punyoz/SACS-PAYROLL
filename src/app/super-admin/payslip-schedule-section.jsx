@@ -12,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { dateLabel } from "@/lib/portal/payroll-preview";
+import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 
 /*
@@ -160,7 +160,7 @@ export function PayslipScheduleSection({ refreshKey }) {
             <p className="text-sm font-medium">Change history</p>
             <ul className="space-y-1 text-xs text-muted-foreground">
               {data.history.slice(0, 8).map((h) => (
-                <li key={h.id}>{new Date(h.changed_at).toLocaleString("en-PH")} · {h.changed_by_name || "—"} · from {dateLabel(h.effective_from)} · window {h.old_value?.window_days ?? "—"}→{h.new_value?.window_days}, {String(h.old_value?.non_working_day_rule || "").replaceAll("_", " ")}→{String(h.new_value?.non_working_day_rule || "").replaceAll("_", " ")} — {h.reason}</li>
+                <li key={h.id}>{dateTime(h.changed_at)} · {h.changed_by_name || "—"} · from {dateLabel(h.effective_from)} · window {h.old_value?.window_days ?? "—"}→{h.new_value?.window_days}, {String(h.old_value?.non_working_day_rule || "").replaceAll("_", " ")}→{String(h.new_value?.non_working_day_rule || "").replaceAll("_", " ")} — {h.reason}</li>
               ))}
             </ul>
           </div>

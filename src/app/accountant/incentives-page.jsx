@@ -326,6 +326,8 @@ export function IncentivesPage({ refreshKey }) {
             ]}
             rows={deferred}
             loading={state.loading && !info}
+            error={state.error}
+            onRetry={load}
             pageSize={10}
             searchPlaceholder="Search employee…"
             empty={{ title: "Nothing deferred for this month", icon: CalendarClockIcon }}

@@ -22,10 +22,16 @@ export function useBranches(refreshKey) {
   const [branches, setBranches] = React.useState([]);
   React.useEffect(() => {
     let cancelled = false;
-    fetchJson("/api/admin/branches")
-      .then((data) => { if (!cancelled) setBranches(data.branches || []); })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    let timer = null;
+    // A failed lookup used to leave every branch as "Unknown branch" until
+    // the next refresh: try again a few times, a little later each time.
+    const attempt = (n) => {
+      fetchJson("/api/admin/branches")
+        .then((data) => { if (!cancelled) setBranches(data.branches || []); })
+        .catch(() => { if (!cancelled && n < 3) timer = setTimeout(() => attempt(n + 1), 1500 * (n + 1)); });
+    };
+    attempt(0);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, [refreshKey]);
   return branches;
 }

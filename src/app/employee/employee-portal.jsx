@@ -7,6 +7,7 @@ import { CalendarCheckIcon, CalendarDaysIcon, ClockIcon, LayoutDashboardIcon, Re
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
+import { isPendingRequest } from "@/components/portal/status-badge";
 import { useEmployeeStats, useLeaveRequests, usePayslips } from "./use-employee-data";
 import { AttendancePage } from "./attendance-page";
 import { TimesheetPage } from "./timesheet-page";
@@ -72,7 +73,8 @@ function EmployeeScreens() {
   // The bell's summary (getRoleNotifications, app.js, Employee screen).
   const summary = React.useMemo(() => {
     const data = stats.data;
-    const pending = leave.requests.filter((r) => String(r.status || "pending").toLowerCase() === "pending").length;
+    // Leave waits as "pending_admin" until HR decides (isPendingRequest).
+    const pending = leave.requests.filter((r) => isPendingRequest(r.status)).length;
     return [
       {
         title: data ? `This month: ${data.present ?? 0} present · ${data.late ?? 0} late · ${data.absent ?? 0} absent` : "Attendance data loading…",

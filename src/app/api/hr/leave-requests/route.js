@@ -10,7 +10,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { manilaDateKey } from "@/lib/payroll/periods";
-import { notifyEndorsers } from "@/lib/branch-requests-server";
+import { notify, notifyEndorsers } from "@/lib/branch-requests-server";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request) {
@@ -128,6 +128,15 @@ export async function PATCH(request) {
         },
       });
 
+      try {
+        await notify(getAdminClient(), [current.employee_id], {
+          kind: "leave_cancelled",
+          title: "Your approved leave was cancelled",
+          body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
+          link_page: "emp-leave",
+        });
+      } catch { /* never fails the cancellation */ }
+
       return NextResponse.json({ success: true, new_status: "cancelled", attendance: sync });
     }
 
@@ -180,6 +189,16 @@ export async function PATCH(request) {
       title: `Leave ${newStatus === "approved" ? "approved" : "rejected"} by HR · ${current.employee_name}`,
       body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
     }).catch(() => 0);
+
+    // The employee's bell (2026-10-20 audit): HR's decision on their request.
+    try {
+      await notify(getAdminClient(), [current.employee_id], {
+        kind: `leave_${newStatus}`,
+        title: `Your leave was ${newStatus}`,
+        body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
+        link_page: "emp-leave",
+      });
+    } catch { /* never fails the decision */ }
 
     // Leave decides paid versus unpaid days, so every decision is audited.
     await appendAuditLog({

@@ -59,10 +59,11 @@ function transporter() {
  * refuses it or cannot be reached.
  * @param {{ to: string, subject: string, html: string, text: string, attachments?: object[] }} message
  */
-export async function sendMail({ to, subject, html, text, attachments }) {
+export async function sendMail({ to, subject, html, text, attachments, fromName: preferredName }) {
   const auth = credentials();
   if (!auth) throw new MailNotConfiguredError();
-  const fromName = String(process.env.MAIL_FROM_NAME || "SACS Payroll").replace(/["\r\n]/g, "").trim();
+  // MAIL_FROM_NAME (server setting) wins; otherwise "<Organization name> Payroll".
+  const fromName = String(process.env.MAIL_FROM_NAME || preferredName || "SACS Payroll").replace(/["\r\n]/g, "").trim();
   return transporter().sendMail({
     // Gmail rewrites any other From address to the signed-in account anyway.
     from: { name: fromName || "SACS Payroll", address: auth.user },

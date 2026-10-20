@@ -15,6 +15,7 @@ import { loadLoanContext, scheduleLoans } from "@/lib/payroll/loans";
 import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from "@/lib/payroll/teacher-subsidy";
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
+import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, payslipSeal } from "@/lib/payroll/payslip-details";
 import {
   SEMI_MONTHLY_RULE,
@@ -3238,7 +3239,7 @@ export async function GET(request) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
       const details = buildPayslipDetails(entry);
-      const pdf = buildPayslipPdf(details, { seal: payslipSeal() });
+      const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "draft").replace(/[^\w-]/g, "")}-${entry.pay_period.replace(/[^\w-]+/g, "-")}${details.status === "draft" ? "-DRAFT" : ""}.pdf`;
       return new NextResponse(pdf, {
         status: 200,

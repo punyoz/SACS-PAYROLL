@@ -18,13 +18,38 @@ export function useAccountant() {
   return React.useContext(AccountantContext);
 }
 
+/*
+ * The chosen pay period is kept in the address (?period=), so a refresh, a
+ * shared link or Back reopens the same period instead of falling back to the
+ * current one (2026-10-20 audit: a run being resubmitted for October 1-15
+ * vanished from Process Payroll on refresh).
+ */
+function periodFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get("period") || "";
+  } catch {
+    return "";
+  }
+}
+
+function keepPeriodInUrl(next) {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (next) params.set("period", next);
+    else params.delete("period");
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+  } catch {
+    // history unavailable: the period still applies to this visit
+  }
+}
+
 export function AccountantDataProvider({ children, navigate }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [period, setPeriodState] = React.useState("");
   const [entryId, setEntryId] = React.useState("");
   const seq = React.useRef(0);
   // The latest choices, read by load() without re-creating it.
-  const periodRef = React.useRef("");
+  const periodRef = React.useRef(typeof window === "undefined" ? "" : periodFromUrl());
   const entryRef = React.useRef("");
   const chooseEntry = React.useCallback((id) => {
     entryRef.current = String(id || "");
@@ -66,7 +91,7 @@ export function AccountantDataProvider({ children, navigate }) {
     setEntryId: chooseEntry,
     load,
     /** A new period for both Process Payroll selectors, and everything reloads. */
-    setPeriod: (next) => { setPeriodState(next); periodRef.current = next; load({ period: next }); },
+    setPeriod: (next) => { setPeriodState(next); periodRef.current = next; keepPeriodInUrl(next); load({ period: next }); },
     /** Open an entry's payslip on the Pay Record page (openPayslipFromRecord). */
     openPayslip: (id) => { load({ entryId: id }); navigate("ac-payslips"); },
     /** Edit a draft in the Process Payroll form (editDraftEntry). */

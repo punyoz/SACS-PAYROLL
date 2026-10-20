@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, Table
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
+import { useUrlParam } from "@/components/portal/use-url-param";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -40,9 +41,10 @@ import { cn } from "@/lib/utils";
  */
 
 const TABS = [
-  { id: "pending", label: "Pending" },
-  { id: "approved", label: "Approved" },
-  { id: "rejected", label: "Rejected" },
+  // The payroll status labels (RUN_STATUS_LABELS).
+  { id: "pending", label: "Pending HR Approval" },
+  { id: "approved", label: "Paid" },
+  { id: "rejected", label: "Rejected by HR" },
   { id: "all", label: "All runs" },
   // Every approve / reject decision, kept for good (a rejected run that is
   // resubmitted keeps its rejection here).
@@ -424,12 +426,15 @@ function RunDetail({ runId, onBack, onChanged }) {
 /* ── The list ───────────────────────────────────────────────────────────── */
 
 export function PayrollApprovalPage({ refreshKey, onChanged }) {
-  const [tab, setTab] = React.useState("pending");
+  // The tab and the open run stay in the address: a refresh mid-review
+  // reopens the same run (useUrlParam).
+  const [tabParam, setTab] = useUrlParam("pa_tab", "pending");
+  const tab = TABS.some((t) => t.id === tabParam) ? tabParam : "pending";
   const [filters, setFilters] = React.useState({ branch: ANY, period: ANY, q: "" });
   const [query, setQuery] = React.useState("");
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [selected, setSelected] = React.useState(() => new Set());
-  const [openRun, setOpenRun] = React.useState("");
+  const [openRun, setOpenRun] = useUrlParam("pa_run", "");
   const [decision, setDecision] = React.useState(null);
 
   // Search waits for a pause in typing.

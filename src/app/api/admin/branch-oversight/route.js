@@ -50,7 +50,9 @@ const NOT_READY = "Branch oversight is not set up yet: apply 20261020020000_admi
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isDateKey = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
 const LEAVE_PENDING = ["pending_admin", "pending_accountant"];
-const LEAVE_LABELS = { pending_admin: "Pending HR decision", pending_accountant: "Pending HR decision", approved: "Approved by HR", rejected: "Rejected by HR", cancelled: "Cancelled" };
+// The request labels used on every screen (Pending / Approved / Rejected);
+// the column says it is HR's decision.
+const LEAVE_LABELS = { pending_admin: "Pending", pending_accountant: "Pending", approved: "Approved", rejected: "Rejected", cancelled: "Cancelled" };
 const ATTENDED = new Set(["present", "late"]);
 
 function actorName(guard) {
@@ -226,7 +228,7 @@ async function transfersView(supabase, branchId, staff) {
       from_branch: branchName.get(String(t.from_branch_id)) || "—",
       to_branch: branchName.get(String(t.to_branch_id)) || "—",
       status: t.status,
-      status_label: t.status === "pending" ? "Pending HR decision" : t.status === "approved" ? "Approved by HR" : "Rejected by HR",
+      status_label: t.status === "pending" ? "Pending" : t.status === "approved" ? "Approved" : "Rejected",
       remarks: t.remarks || null,
       created_at: t.created_at,
       reviewed_at: t.reviewed_at,

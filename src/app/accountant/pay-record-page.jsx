@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
-import { usePortalSession } from "@/components/portal/session";
+import { usePortalSession, useSystemName } from "@/components/portal/session";
 import { apiFetch } from "@/lib/portal/api";
 import { holidayLineLabel } from "@/lib/portal/format";
 import { dateLabel, dateTime, money, shortDate, toAmount } from "@/lib/portal/payroll-preview";
@@ -183,6 +183,7 @@ function Classic({ payslip }) {
 
 /** The payslip itself; also shown read-only on HR → Payroll Records. */
 export function PayslipDocument({ payslip }) {
+  const systemTitle = useSystemName();
   const draft = payslip.status === "draft";
   const g = payslip.generation || null;
   const notes = [];
@@ -201,7 +202,7 @@ export function PayslipDocument({ payslip }) {
           <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width={52} height={52} className="size-13 shrink-0 rounded-full bg-white/95 p-0.5" />
           <div>
             <p className="font-semibold">Shepherd Angels Christian School</p>
-            <p className="text-sm text-white/80">SACS Payroll Management System</p>
+            <p className="text-sm text-white/80">{systemTitle} Management System</p>
             <p className="mt-1.5 inline-flex items-center gap-2 rounded-md bg-white/10 px-2 py-0.5 text-xs"><span className="font-semibold tracking-wide text-brand-gold-light uppercase">Payslip no.</span><span className="font-mono">{payslip.payslip_no || "—"}</span></p>
           </div>
         </div>

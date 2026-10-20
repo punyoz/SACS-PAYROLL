@@ -12,7 +12,7 @@ import { useConfirm } from "@/components/portal/confirm-dialog";
 import { LicensedTeachersCard } from "@/components/portal/licensed-teachers-card";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { dateLabel, money } from "@/lib/portal/payroll-preview";
+import { dateLabel, dateTime, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 
 /*
@@ -33,7 +33,7 @@ const OPTIONS = {
 };
 
 export function TeacherSubsidySection({ refreshKey }) {
-  const { notify } = usePortalSession();
+  const { notify, me, can } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [form, setForm] = React.useState(null);
@@ -168,7 +168,7 @@ export function TeacherSubsidySection({ refreshKey }) {
               <p className="text-sm font-medium">Change history</p>
               <ul className="space-y-1 text-xs text-muted-foreground">
                 {data.history.slice(0, 8).map((h) => (
-                  <li key={h.id}>{new Date(h.changed_at).toLocaleString("en-PH")} · {h.changed_by_name || "—"} · from {dateLabel(h.effective_from)} · {money(h.old_value?.annual_amount)} → {money(h.new_value?.annual_amount)}, {String(h.new_value?.tax_treatment || "").replace("_", " ")} — {h.reason}</li>
+                  <li key={h.id}>{dateTime(h.changed_at)} · {h.changed_by_name || "—"} · from {dateLabel(h.effective_from)} · {money(h.old_value?.annual_amount)} → {money(h.new_value?.annual_amount)}, {String(h.new_value?.tax_treatment || "").replace("_", " ")} — {h.reason}</li>
                 ))}
               </ul>
             </div>
@@ -180,7 +180,9 @@ export function TeacherSubsidySection({ refreshKey }) {
         </CardFooter>
         {confirmDialog}
       </Card>
-      <LicensedTeachersCard refreshKey={refreshKey} />
+      {/* Only for a role that may read licenses: the Super Admin may not
+          since 2026-10-20, and the card's request was refused (403). */}
+      {me && can("teacher_license") ? <LicensedTeachersCard refreshKey={refreshKey} /> : null}
     </>
   );
 }

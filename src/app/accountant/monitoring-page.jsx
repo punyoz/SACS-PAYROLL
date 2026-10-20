@@ -20,15 +20,17 @@ import { useAccountant } from "./accountant-data";
  * cancelDraft, accountant.js): processed records and saved drafts together.
  */
 
+const MONITOR_TABS = ["Not submitted to HR", "Pending HR Approval", "Rejected by HR", "Paid", "On hold"];
+
 export function MonitoringPage() {
-  const { data, loading, load, editDraft, openPayslip, entryId, setEntryId } = useAccountant();
+  const { data, loading, error, load, editDraft, openPayslip, entryId, setEntryId } = useAccountant();
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [filter, setFilter] = React.useState("all");
   const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])];
-  const rows = filter === "all" ? all
-    : filter === "paid" ? all.filter((r) => recordStatusMeta(r).label === "Paid")
-      : all.filter((r) => String(r.status || "").toLowerCase() === filter);
+  // The tabs are the payroll status labels (recordStatusMeta), so a tab
+  // shows exactly the rows whose badge says its name.
+  const rows = filter === "all" ? all : all.filter((r) => recordStatusMeta(r).label === filter);
   const paid = all.filter((r) => recordStatusMeta(r).label === "Paid").length;
   const hold = all.filter((r) => r.status === "on_hold").length;
   const first = loading && !data;
@@ -80,18 +82,18 @@ export function MonitoringPage() {
           <CardAction><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={filter} onValueChange={setFilter}>
-            <TabsList>
+          <Tabs value={filter} onValueChange={setFilter} className="overflow-x-auto">
+            <TabsList className="w-max">
               <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="paid">Paid</TabsTrigger>
-              <TabsTrigger value="draft">Draft</TabsTrigger>
-              <TabsTrigger value="on_hold">On hold</TabsTrigger>
+              {MONITOR_TABS.map((label) => <TabsTrigger key={label} value={label}>{label}</TabsTrigger>)}
             </TabsList>
           </Tabs>
           <DataTable
             columns={columns}
             rows={rows}
             loading={first}
+            error={error}
+            onRetry={() => load()}
             pageSize={15}
             searchPlaceholder="Search employee name…"
             empty={{ title: "No payroll records found", icon: ReceiptTextIcon }}

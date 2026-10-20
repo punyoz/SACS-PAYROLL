@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { AUTH_CONTEXT_KEY, ROLE_ROUTES, readAuthContext } from "@/app/login/auth-context";
+import { systemName } from "@/lib/org-name-format";
 import { apiFetch, clearLocalSession, endServerSession, hardNavigate, replaceNavigate, requirePasswordChange } from "@/lib/portal/api";
 
 /**
@@ -209,6 +210,16 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
   }
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+}
+
+/**
+ * "<Organization name> Payroll" for the header and payslips (Super Admin →
+ * System Configuration → Organization name, via /api/rbac/me). "SACS
+ * Payroll" until it answers, and outside a portal.
+ */
+export function useSystemName() {
+  const value = React.useContext(SessionContext);
+  return systemName(value?.me?.org_name);
 }
 
 export function usePortalSession() {

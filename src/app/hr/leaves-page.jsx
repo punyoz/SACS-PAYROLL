@@ -145,8 +145,8 @@ export function LeavesPage({ refreshKey }) {
         );
       },
     },
-    { key: "submitted", header: "Submitted", className: "whitespace-nowrap", sortValue: (r) => r.submitted_at || r.created_at || "", cell: (r) => (r.submitted_at || r.created_at ? new Date(r.submitted_at || r.created_at).toLocaleDateString("en-PH") : "—") },
-    { key: "decided", header: "Decided", className: "whitespace-nowrap", sortValue: (r) => r.decided_at || "", cell: (r) => (r.decided_at ? new Date(r.decided_at).toLocaleDateString("en-PH") : "—") },
+    { key: "submitted", header: "Submitted", className: "whitespace-nowrap", sortValue: (r) => r.submitted_at || r.created_at || "", cell: (r) => (r.submitted_at || r.created_at ? new Date(r.submitted_at || r.created_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—") },
+    { key: "decided", header: "Decided", className: "whitespace-nowrap", sortValue: (r) => r.decided_at || "", cell: (r) => (r.decided_at ? new Date(r.decided_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—") },
   ];
 
   return (

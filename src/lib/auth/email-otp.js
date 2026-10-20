@@ -30,6 +30,7 @@ import { sign } from "@/lib/rbac/session";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { sendMail, MailNotConfiguredError } from "@/lib/mail/gmail";
 import { buildOtpEmail } from "@/lib/mail/otp-email";
+import { loadOrgName } from "@/lib/org-name";
 
 export const EMAIL_OTP_LENGTH = 6;
 export const EMAIL_OTP_TTL_SECONDS = 5 * 60;
@@ -114,7 +115,7 @@ export async function sendEmailOtp({ purpose, subject, email, name }) {
   }
 
   try {
-    const message = buildOtpEmail({ code, purpose, minutes: EMAIL_OTP_TTL_SECONDS / 60, name });
+    const message = buildOtpEmail({ code, purpose, minutes: EMAIL_OTP_TTL_SECONDS / 60, name, orgName: await loadOrgName(supabase) });
     await sendMail({ to: email, ...message });
   } catch (sendError) {
     // A code nobody received must not hold the resend cooldown.

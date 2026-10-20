@@ -393,9 +393,12 @@ export function batchTaxDefault(data, base, { sss, philhealth, pagibig, lwop }) 
 export function statusMeta(status) {
   const s = String(status || "").toLowerCase();
   if (s === "paid" || s === "approved") return { label: "Paid", tone: "success" };
-  if (s === "on_hold" || s === "rejected") return { label: "On hold", tone: "danger" };
-  if (s === "draft") return { label: "Draft", tone: "info" };
-  return { label: "Pending Approval", tone: "gold" };
+  // Same wording as recordStatusMeta (2026-10-20); "On hold" is an entry
+  // the Accountant held back, not an HR decision.
+  if (s === "rejected") return { label: "Rejected by HR", tone: "danger" };
+  if (s === "on_hold") return { label: "On hold", tone: "danger" };
+  if (s === "draft") return { label: "Not submitted to HR", tone: "info" };
+  return { label: "Pending HR Approval", tone: "gold" };
 }
 
 /**

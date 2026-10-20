@@ -340,6 +340,8 @@ describe("Payroll Approval workflow", () => {
     expect(run.status).toBe("approved");
     expect(table("early_bird_winners")[0].finalized_at).toBeTruthy();
     expect(table("notifications").filter((n) => n.kind === "payroll_run_approved").map((n) => n.recipient_id)).toEqual([ACCT]);
+    // Each employee on the run is told the payslip is ready (2026-10-20 audit).
+    expect(table("notifications").filter((n) => n.kind === "payslip_released").map((n) => n.recipient_id)).toContain(ANA);
 
     const visible = (await json(payslipsRoute.GET(req(ANA, "/api/employee/payslips?email=ana@sacs.test")))).body.payslips;
     expect(visible).toEqual([expect.objectContaining({ period_label: FIRST, net_pay: 26000 })]);

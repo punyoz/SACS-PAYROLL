@@ -46,10 +46,16 @@ const SECTION_LABELS = { general: "General Settings", attendance: "Attendance Po
 
 const FIELDS = {
   general: [
-    { key: "org_name", label: "Organization name", type: "text", placeholder: "e.g. SACS School", fallback: "SACS" },
-    { key: "timezone", label: "Timezone", options: [["Asia/Manila", "Asia/Manila (PHT, UTC+8)"], ["UTC", "UTC"]], fallback: "Asia/Manila" },
-    { key: "date_format", label: "Date format", options: [["MM/DD/YYYY", "MM/DD/YYYY"], ["DD/MM/YYYY", "DD/MM/YYYY"], ["YYYY-MM-DD", "YYYY-MM-DD"]], fallback: "MM/DD/YYYY" },
-    { key: "currency", label: "Currency", options: [["PHP", "PHP — Philippine Peso"], ["USD", "USD — US Dollar"]], fallback: "PHP" },
+    { key: "org_name", label: "Organization name", type: "text", placeholder: "e.g. SACS", fallback: "SACS", maxLength: 60,
+      hint: "Shown as “<name> Payroll” in the portal header, on payslips and in sign-in code emails. Takes effect within a minute." },
+    // Fixed (2026-10-20 audit): nothing read these, so choosing UTC, another
+    // date format or USD changed nothing. They show what the system uses.
+    { key: "timezone", label: "Timezone", options: [["Asia/Manila", "Asia/Manila (PHT, UTC+8)"], ["UTC", "UTC"]], fallback: "Asia/Manila",
+      fixed: { value: "Asia/Manila (PHT, UTC+8)", note: "Attendance, cutoffs and payslip days always follow Philippine time." } },
+    { key: "date_format", label: "Date format", options: [["MM/DD/YYYY", "MM/DD/YYYY"], ["DD/MM/YYYY", "DD/MM/YYYY"], ["YYYY-MM-DD", "YYYY-MM-DD"]], fallback: "MM/DD/YYYY",
+      fixed: { value: "Oct 20, 2026", note: "Every screen, payslip and export shows dates this way." } },
+    { key: "currency", label: "Currency", options: [["PHP", "PHP — Philippine Peso"], ["USD", "USD — US Dollar"]], fallback: "PHP",
+      fixed: { value: "PHP — Philippine Peso (₱)", note: "Payroll, contributions and tax are computed in pesos." } },
   ],
   attendance: [
     { key: "work_start", label: "Work start time", type: "time" },
@@ -58,7 +64,8 @@ const FIELDS = {
     { key: "work_hours", label: "Required work hours / day", type: "number", min: 1, max: 24, step: 0.5 },
   ],
   payroll: [
-    { key: "pay_freq", label: "Pay frequency", options: [["semi-monthly", "Semi-Monthly (1st & 15th)"], ["monthly", "Monthly"], ["weekly", "Weekly"]], fallback: "semi-monthly" },
+    { key: "pay_freq", label: "Pay frequency", options: [["semi-monthly", "Semi-Monthly (1st & 15th)"], ["monthly", "Monthly"], ["weekly", "Weekly"]], fallback: "semi-monthly",
+      fixed: { value: "Semi-monthly (1–15 and 16–end of month)", note: "Payroll always runs per cutoff. Payslip days are set under Payslip Schedule." } },
   ],
   security: [
     { key: "session", label: "Session timeout (minutes)", type: "number", min: 5, max: 480, fallback: "60" },
@@ -102,7 +109,12 @@ function SettingInputs({ fields, values, errors, onChange, idPrefix }) {
     return (
       <div key={f.key} className="space-y-2">
         <Label htmlFor={id}>{f.label}</Label>
-        {f.options ? (
+        {f.fixed ? (
+          <>
+            <Input id={id} value={f.fixed.value} disabled readOnly aria-describedby={`${id}-fixed`} />
+            <p id={`${id}-fixed`} className="text-xs text-muted-foreground">{f.fixed.note}</p>
+          </>
+        ) : f.options ? (
           <Select value={values[f.key] || undefined} onValueChange={(v) => onChange(f.key, v)}>
             <SelectTrigger id={id} className="w-full" {...invalid}><SelectValue placeholder="Select" /></SelectTrigger>
             <SelectContent>{f.options.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
@@ -116,12 +128,14 @@ function SettingInputs({ fields, values, errors, onChange, idPrefix }) {
             step={f.step}
             inputMode={f.type === "number" ? "decimal" : undefined}
             placeholder={f.placeholder}
+            maxLength={f.maxLength}
             value={values[f.key] ?? ""}
             onChange={(e) => onChange(f.key, e.target.value)}
             className={cn(f.type === "number" && "tabular-nums")}
             {...invalid}
           />
         )}
+        {f.hint ? <p className="text-xs text-muted-foreground">{f.hint}</p> : null}
         {errors[f.key] ? <p id={`${id}-error`} className="text-sm text-destructive">{errors[f.key]}</p> : null}
       </div>
     );

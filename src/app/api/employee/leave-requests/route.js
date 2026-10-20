@@ -13,6 +13,8 @@ import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { validateProofUrl } from "@/lib/leave-requests/proof";
 import { LEAVE_ADVANCE_MESSAGE, earliestLeaveStart, meetsAdvanceRule } from "@/lib/leave-requests/advance-rule";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { hrAccountIds, notify } from "@/lib/branch-requests-server";
+import { getServiceClient } from "@/lib/supabase/admin";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -167,6 +169,16 @@ export async function POST(request) {
     });
 
     const saved = await insertLeaveRequest(newRequest);
+    // HR's bell (2026-10-20 audit): a new request is waiting for a decision.
+    try {
+      const supabase = getServiceClient();
+      await notify(supabase, await hrAccountIds(supabase), {
+        kind: "leave_filed",
+        title: `Leave request · ${employeeName || "Employee"}`,
+        body: `${leaveType}, ${startDate} to ${endDate}. Waiting for HR's decision.`,
+        link_page: "hr-leaves",
+      });
+    } catch { /* the request is saved either way */ }
     return NextResponse.json({ success: true, request: saved }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
