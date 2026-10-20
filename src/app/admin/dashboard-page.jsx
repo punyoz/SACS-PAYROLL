@@ -1,195 +1,107 @@
 "use client";
 
 import * as React from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Label, Pie, PieChart, XAxis, YAxis } from "recharts";
-import {
-  CalendarDaysIcon,
-  CheckCircle2Icon,
-  ClockAlertIcon,
-  GraduationCapIcon,
-  ReceiptTextIcon,
-  UsersIcon,
-  XCircleIcon,
-} from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UserXIcon, UsersIcon, XCircleIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
-import { fetchJson } from "@/lib/portal/api";
-import { initialsOf } from "@/lib/portal/format";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
+import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
+import { useBranchView } from "./oversight-shared";
 
 /*
- * Admin Dashboard (loadDashboard / renderDashboardPanels /
- * renderRecentPayrollActivity, public/legacy/js/admin.js; mountUpcomingHolidays,
- * app.js): GET /api/admin/dashboard and /api/admin/holidays?upcoming=5.
+ * Branch Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
+ * attendance of the Admin's branch, who has not tapped in yet, pending leave,
+ * headcount and recent branch activity. No pay figures.
  */
 
-const TODAY_CHART = {
-  present: { label: "Present", color: "var(--chart-1)" },
-  late: { label: "Late", color: "var(--chart-2)" },
-  absent: { label: "Absent", color: "var(--destructive)" },
-  on_leave: { label: "On Leave", color: "var(--info)" },
-};
-
-const STAFF_CHART = { count: { label: "Employees", color: "var(--chart-1)" } };
-
-/** "₱ 12,345" (formatMoney, admin.js). */
-export function formatMoney(value) {
-  const amount = Number(value);
-  if (!Number.isFinite(amount)) return "₱ 0";
-  return `₱ ${amount.toLocaleString("en-PH", { maximumFractionDigits: 0 })}`;
-}
-
-function payrollStatus(status) {
-  const key = String(status || "").toLowerCase();
-  if (key === "paid" || key === "approved") return { tone: "success", label: "Paid" };
-  if (key === "on_hold" || key === "rejected") return { tone: "danger", label: "On Hold" };
-  if (key === "not_paid" || key === "unpaid") return { tone: "danger", label: "Not Paid" };
-  return { tone: "gold", label: "Pending" };
-}
-
-export function DashboardPage({ refreshKey, onSummary }) {
-  const [state, setState] = React.useState({ loading: true, error: null, data: null });
+export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
+  const view = useBranchView("dashboard", {}, refreshKey);
+  const data = view.data;
+  const a = data?.attendance || {};
 
   React.useEffect(() => {
-    let cancelled = false;
-    setState((current) => ({ ...current, loading: !current.data, error: null }));
-    fetchJson("/api/admin/dashboard")
-      .then((data) => {
-        if (cancelled) return;
-        setState({ loading: false, error: null, data });
-        const p = data?.panels || {};
-        const absent = Number(p.absent_today || 0);
-        onSummary?.([
-          { title: absent > 0 ? `${absent} employee${absent > 1 ? "s" : ""} absent today` : "Full attendance today", description: "Open Attendance to review today's records." },
-          { title: `${p.total_employees || 0} active employees loaded`, description: "Manage Employees has the current staff list and status." },
-        ]);
-      })
-      .catch((error) => { if (!cancelled) setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load dashboard data" })); });
-    return () => { cancelled = true; };
-  }, [refreshKey, onSummary]);
+    if (!data || !onSummary) return;
+    onSummary([
+      { title: `${data.pending_leave_count} leave request${data.pending_leave_count === 1 ? "" : "s"} waiting for HR`, description: "Give your recommendation under Leave Recommendations." },
+      { title: `${data.not_tapped.length} not tapped in yet today`, description: data.rest_day ? `Today: ${data.rest_day}` : "See Branch Attendance." },
+    ]);
+  }, [data, onSummary]);
 
-  const p = state.data?.panels || {};
-  const loading = state.loading;
-  const today = Object.keys(TODAY_CHART).map((key) => ({
-    key,
-    value: Number(p[`${key}_today`] || 0),
-    fill: `var(--color-${key})`,
-  }));
-  const todayTotal = today.reduce((sum, slice) => sum + slice.value, 0);
-  const staff = [
-    { type: "Teaching", count: Number(p.teaching_count || 0) },
-    { type: "Non-Teaching", count: Number(p.non_teaching_count || 0) },
-  ];
-  const activity = (state.data?.recent_activity || []).slice(0, 5);
-
-  if (state.error && !state.data) {
-    return <Card className="shadow-xs"><CardContent><ErrorState message={state.error} /></CardContent></Card>;
-  }
+  if (view.error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={view.error} onRetry={view.load} /></CardContent></Card>;
 
   return (
     <>
-      <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
-        <StatCard label="Total employees" value={p.total_employees || 0} hint={`Teaching: ${p.teaching_count || 0} · Non-Teaching: ${p.non_teaching_count || 0}`} icon={UsersIcon} loading={loading} />
-        <StatCard label="Present today" value={p.present_today || 0} hint="Logged in on time" icon={CheckCircle2Icon} tone="success" loading={loading} />
-        <StatCard label="Late today" value={p.late_today || 0} hint="Arrived after 8:00 AM" icon={ClockAlertIcon} tone="gold" loading={loading} />
-        <StatCard label="Absent today" value={p.absent_today || 0} hint="Based on employee status" icon={XCircleIcon} tone="danger" loading={loading} />
-        <StatCard label="On leave today" value={p.on_leave_today || 0} hint="Approved leave" icon={CalendarDaysIcon} tone="info" loading={loading} />
-        <StatCard label="Teaching staff" value={p.teaching_count || 0} hint={`Non-Teaching: ${p.non_teaching_count || 0}`} icon={GraduationCapIcon} tone="gold" loading={loading} />
+      {view.error ? <p role="alert" className="text-sm text-destructive">{view.error} Showing the last loaded data.</p> : null}
+      <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} />
+        <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} />
+        <StatCard label="Absent" value={a.absent ?? 0} icon={XCircleIcon} tone="danger" loading={view.first} />
+        <StatCard label="Not tapped in yet" value={a.not_tapped ?? 0} hint={data?.rest_day || ""} icon={UserXIcon} tone="danger" loading={view.first} />
+        <StatCard label="On leave" value={a.on_leave ?? 0} icon={CalendarDaysIcon} loading={view.first} />
+      </section>
+      <section aria-label="Branch" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard label="Headcount" value={data?.headcount?.total ?? 0} hint={data ? `${data.headcount.teaching} teaching · ${data.headcount.non_teaching} non-teaching` : ""} icon={UsersIcon} loading={view.first} />
+        <StatCard label="Leave waiting for HR" value={data?.pending_leave_count ?? 0} icon={CalendarDaysIcon} tone="gold" loading={view.first} />
+        <StatCard label="Your requests waiting for HR" value={data?.open_requests ?? 0} icon={InboxIcon} tone="gold" loading={view.first} />
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card className="min-w-0 shadow-xs">
           <CardHeader>
-            <CardTitle>Today&apos;s attendance</CardTitle>
-            <CardDescription>Employees by status</CardDescription>
+            <CardTitle>Not tapped in yet</CardTitle>
+            <CardDescription>Employees of your branch with no time-in today (excluding those on approved leave).</CardDescription>
+            <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate?.("adm-attendance")}>Branch Attendance</Button></CardAction>
           </CardHeader>
           <CardContent>
-            {loading ? <Skeleton className="mx-auto aspect-square w-full max-w-[220px] rounded-full" /> : todayTotal === 0 ? (
-              <EmptyState icon={CheckCircle2Icon} title="No attendance yet today" description="Statuses appear as employees tap in." />
-            ) : (
-              <ChartContainer config={TODAY_CHART} className="mx-auto aspect-square max-h-[260px]">
-                <PieChart accessibilityLayer>
-                  <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel nameKey="key" />} />
-                  <Pie data={today} dataKey="value" nameKey="key" innerRadius={62} strokeWidth={3} stroke="var(--card)">
-                    {today.map((slice) => <Cell key={slice.key} fill={slice.fill} />)}
-                    <Label
-                      content={({ viewBox }) => (viewBox && "cx" in viewBox ? (
-                        <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                          <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-2xl font-semibold">{todayTotal}</tspan>
-                          <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 20} className="fill-muted-foreground text-xs">employees</tspan>
-                        </text>
-                      ) : null)}
-                    />
-                  </Pie>
-                  <ChartLegend content={<ChartLegendContent nameKey="key" />} className="flex-wrap gap-x-4 gap-y-1" />
-                </PieChart>
-              </ChartContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="min-w-0 shadow-xs">
-          <CardHeader>
-            <CardTitle>Staff mix</CardTitle>
-            <CardDescription>Active employees by type</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? <Skeleton className="h-[220px] w-full" /> : (
-              <ChartContainer config={STAFF_CHART} className="h-[240px] w-full">
-                <BarChart accessibilityLayer data={staff} layout="vertical" margin={{ left: 8, right: 16 }}>
-                  <CartesianGrid horizontal={false} />
-                  <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
-                  <YAxis type="category" dataKey="type" tickLine={false} axisLine={false} width={96} fontSize={12} />
-                  <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<ChartTooltipContent hideLabel />} />
-                  <Bar dataKey="count" radius={[0, 6, 6, 0]} maxBarSize={44}>
-                    {staff.map((row, i) => <Cell key={row.type} fill={i === 0 ? "var(--chart-1)" : "var(--chart-2)"} />)}
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <UpcomingHolidaysCard refreshKey={refreshKey} />
-        <Card className="min-w-0 shadow-xs">
-          <CardHeader>
-            <CardTitle>Recent payroll activity</CardTitle>
-            <CardDescription>The latest payroll entries</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-            ) : !activity.length ? (
-              <EmptyState icon={ReceiptTextIcon} title="No recent payroll activity available" />
-            ) : (
-              <ul className="divide-y">
-                {activity.map((item, index) => {
-                  const status = payrollStatus(item.status);
-                  return (
-                    <li key={item.id || index} className="flex items-center gap-3 py-2.5">
-                      <Avatar className="size-9"><AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">{initialsOf(item.name, "NA")}</AvatarFallback></Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{item.name} — {item.employee_type}</p>
-                        <p className="truncate text-xs text-muted-foreground">{item.sub_text || item.period || ""}</p>
-                      </div>
-                      <div className="shrink-0 space-y-1 text-right">
-                        <p className="text-sm font-semibold tabular-nums">{formatMoney(item.amount)}</p>
-                        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-                      </div>
-                    </li>
-                  );
-                })}
+            {!data?.not_tapped?.length ? <EmptyState icon={CheckCircle2Icon} title={data?.rest_day ? `No work today (${data.rest_day})` : "Everyone has tapped in"} /> : (
+              <ul className="divide-y rounded-lg border">
+                {data.not_tapped.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                    <span className="font-medium">{p.full_name}<span className="ml-2 text-xs font-normal text-muted-foreground">{p.employee_code}</span></span>
+                    <StatusBadge tone={p.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{p.employee_type}</StatusBadge>
+                  </li>
+                ))}
               </ul>
             )}
           </CardContent>
         </Card>
+
+        <Card className="min-w-0 shadow-xs">
+          <CardHeader>
+            <CardTitle>Leave waiting for HR</CardTitle>
+            <CardDescription>Recommend each one; HR decides.</CardDescription>
+            <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate?.("adm-leaves")}>Leave Recommendations</Button></CardAction>
+          </CardHeader>
+          <CardContent>
+            {!data?.pending_leaves?.length ? <EmptyState icon={CalendarDaysIcon} title="No pending leave" /> : (
+              <ul className="divide-y rounded-lg border">
+                {data.pending_leaves.map((l) => (
+                  <li key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                    <span className="font-medium">{l.employee_name}</span>
+                    <span className="text-xs text-muted-foreground">{l.leave_type} · {dateLabel(l.start_date)}{l.end_date !== l.start_date ? ` – ${dateLabel(l.end_date)}` : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="min-w-0 shadow-xs">
+          <CardHeader><CardTitle className="flex items-center gap-2"><ActivityIcon className="size-4" aria-hidden="true" />Recent branch activity</CardTitle></CardHeader>
+          <CardContent>
+            {!data?.recent_activity?.length ? <EmptyState icon={ActivityIcon} title="No activity yet" /> : (
+              <ul className="space-y-2">
+                {data.recent_activity.map((item, i) => (
+                  <li key={`${item.at}-${i}`} className="text-sm"><p>{item.text}</p><p className="text-xs text-muted-foreground">{dateTime(item.at)}</p></li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+        <UpcomingHolidaysCard refreshKey={refreshKey} />
       </div>
     </>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { CalendarCheckIcon, InfoIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,6 +63,11 @@ export function AttendancePage({ refreshKey }) {
         </CardContent>
       </Card>
       <AttendanceStatusBoard refreshKey={refreshKey} initialTab={initialTab} />
+      {/* The branch Admin confirms overtime / substitute teaching before it is paid (2026-10-20). */}
+      <BranchRequestsReview refreshKey={refreshKey} kinds={["overtime_confirmation"]} readOnly
+        source="/api/admin/branch-oversight?view=requests&kind=overtime_confirmation"
+        title="Overtime & substitute-teaching confirmations"
+        description="The branch Admin's confirmation (Endorsed = it happened; Not endorsed = it did not). Check it before paying overtime or substitute teaching." />
     </>
   );
 }

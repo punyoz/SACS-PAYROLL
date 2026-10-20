@@ -24,6 +24,11 @@ import { manilaDateKey as todayKeyManila } from "@/lib/payroll/periods";
 export async function GET(request) {
   const guard = await requirePermission(request, "branch_reports", "read");
   if (guard.denied) return guard.denied;
+  // The branch Admin's reports are /api/admin/branch-oversight?view=reports
+  // (2026-10-20): attendance, lateness and leave, never pay.
+  if (guard.role === "admin") {
+    return NextResponse.json({ error: "You do not have permission to perform this action." }, { status: 403 });
+  }
 
   try {
     const supabase = getAdminClient();

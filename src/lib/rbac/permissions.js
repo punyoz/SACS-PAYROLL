@@ -59,6 +59,20 @@ const none = () => ({ scope: SCOPE_NONE, actions: [] });
  * acctNav() handlers the portals already define — no page markup changes.
  */
 export const MODULES = {
+  // Branch oversight (20261020020000): the branch Admin recommends, HR
+  // decides. Attendance flags, leave and transfer endorsements, incident /
+  // AWOL reports, schedule requests, RFID issues, overtime / substitute
+  // teaching confirmations and incentive recommendations, all for the
+  // Admin's own branch (public.branch_admin_requests).
+  branch_oversight: {
+    order: 1.5, label: "Branch Oversight", section: "Branch",
+    page: {},
+  },
+  // Branch announcements: the Admin posts them for its branch's employees.
+  announcements: {
+    order: 1.6, label: "Announcements", section: "Branch",
+    page: {},
+  },
   dashboard: {
     order: 1, label: "Dashboard", section: "Overview",
     page: { super_admin: "sa-dashboard", admin: "adm-dashboard", hr: "hr-dashboard", accountant: "ac-dashboard" },
@@ -298,12 +312,21 @@ export const ROLE_PERMISSIONS = {
     early_bird_incentive: { scope: SCOPE_ALL, actions: READ_WRITE },
     payroll_run_approval: none(),
     tenure_protection: none(),
+    // RFID issue reports only (the route refuses every other kind): it marks them Resolved.
+    branch_oversight: { scope: SCOPE_ALL, actions: READ_WRITE },
+    announcements: none(),
   },
 
   admin: {
-    // Branch oversight only (2026-10-20): its branch's dashboard and reports,
-    // RFID card maintenance and its branch's audit log. Employee management is
-    // HR's, payroll the Accountant's, approvals HR's.
+    // The branch head's oversight role (2026-10-20): it recommends, HR
+    // decides, the Accountant processes, the Super Admin maintains the
+    // system. Everything is its own branch only: the branch dashboard,
+    // read-only attendance, endorsements / reports / requests to HR
+    // (branch_oversight), announcements, the branch payroll totals and
+    // reports, and the RFID terminal and cards. It never manages employees,
+    // payroll, subsidy decisions or system settings.
+    // dashboard: only the holiday calendar read; /api/admin/dashboard
+    // (salaries) refuses the Admin.
     dashboard: view(SCOPE_BRANCH),
     attendance: none(),
     user_management: none(),
@@ -322,10 +345,11 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: none(),
     system_maintenance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     system_configuration: none(),
-    audit_logs: view(SCOPE_BRANCH),
+    audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
     payroll_reports: none(),
+    // Attendance rate, lateness and leave usage; the payroll summary is run totals only.
     branch_reports: view(SCOPE_BRANCH),
     profile: full(SCOPE_SELF),
     timesheet: none(),
@@ -338,6 +362,9 @@ export const ROLE_PERMISSIONS = {
     early_bird_incentive: none(),
     payroll_run_approval: none(),
     tenure_protection: none(),
+    branch_oversight: { scope: SCOPE_BRANCH, actions: ["create", "read", "update"] },
+    // "delete" removes (archives) an announcement.
+    announcements: full(SCOPE_BRANCH),
   },
 
   hr: {
@@ -391,6 +418,9 @@ export const ROLE_PERMISSIONS = {
     // Sets the policy and break dates, grants and revokes (never deletes:
     // a grant is revoked, history kept).
     tenure_protection: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
+    // Sees every branch Admin's endorsements, reports and requests and decides them.
+    branch_oversight: { scope: SCOPE_ALL, actions: READ_WRITE },
+    announcements: view(SCOPE_ALL),
   },
 
   accountant: {
@@ -438,6 +468,9 @@ export const ROLE_PERMISSIONS = {
     payroll_run_approval: view(SCOPE_BRANCH),
     // Payroll applies protection; the Accountant cannot see or grant it.
     tenure_protection: none(),
+    // Reads the branch Admin's overtime / substitute-teaching confirmations before paying them.
+    branch_oversight: view(SCOPE_BRANCH),
+    announcements: view(SCOPE_BRANCH),
   },
 
   employee: {
@@ -475,6 +508,9 @@ export const ROLE_PERMISSIONS = {
     early_bird_incentive: none(),
     payroll_run_approval: none(),
     tenure_protection: none(),
+    branch_oversight: none(),
+    // Its own branch's announcements (dashboard and notification bell).
+    announcements: view(SCOPE_SELF),
   },
 };
 

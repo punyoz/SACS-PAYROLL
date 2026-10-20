@@ -90,9 +90,17 @@ describe("sidebars", () => {
     expect(config).not.toMatch(/WorkSchedulesPanel/);
   });
 
-  it("the Admin has no Attendance, Work Schedules, Approvals or Tenure page", () => {
+  // 2026-10-20 redesign: the Admin's pages are branch oversight (read-only
+  // attendance, recommendations and reports to HR); none manages employees,
+  // payroll, subsidy approvals or system settings.
+  it("no Admin page uses an employee-management, payroll or system module", () => {
     const portal = nav("src/app/admin/admin-portal.jsx");
-    for (const id of ["adm-attendance", "adm-schedules", "adm-approvals", "adm-tenure"]) expect(portal).not.toMatch(new RegExp(`id: "${id}"`));
+    const modules = [...portal.matchAll(/module: "(\w+)"/g)].map((m) => m[1]);
+    for (const forbidden of ["attendance", "work_schedules", "payroll_approvals", "tenure_protection", "user_management", "process_payroll",
+      "payroll_run_approval", "leave_approval", "awol_cases", "transfer_requests", "system_configuration", "audit_logs"]) {
+      expect(modules, forbidden).not.toContain(forbidden);
+    }
+    for (const id of ["adm-approvals", "adm-tenure", "adm-audit-logs"]) expect(portal).not.toMatch(new RegExp(`id: "${id}"`));
   });
 
   it("HR's Subsidy Approvals sits under Payroll, not Leave", () => {
