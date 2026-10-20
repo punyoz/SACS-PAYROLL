@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CreditCardIcon, Loader2Icon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
+import { CreditCardIcon, Loader2Icon, RadioTowerIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,7 @@ import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
-import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { fetchJson, hardNavigate, jsonBody } from "@/lib/portal/api";
 import { logAuditMovement } from "@/lib/portal/audit";
 import { cn } from "@/lib/utils";
 
@@ -187,8 +187,10 @@ const ADMIN_REGISTRATION_TEXT = "Assign or update RFID UIDs for employees in you
  * public/legacy/js/super-admin.js): every branch, and a scan is not written
  * to the audit trail (auditActor null).
  */
-export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin" }) {
-  const { notify } = usePortalSession();
+const ADMIN_TERMINAL_TEXT = "Open the dedicated tap-in/tap-out screen for your branch's RFID reader. It replaces this view and is locked behind your Administration password.";
+
+export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin", terminalText = ADMIN_TERMINAL_TEXT }) {
+  const { notify, can } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, devices: [] });
   const [editing, setEditing] = React.useState(null);
   const [confirmDialog, confirm] = useConfirm();
@@ -251,6 +253,20 @@ export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRAT
 
   return (
     <>
+      {/* The RFID reader is a device: Admin / Super Admin run it from here
+          (it used to sit on their Attendance pages, which are HR's now). */}
+      {can("rfid_devices", "update") ? (
+        <Card className="border-brand-gold/60 bg-gradient-to-r from-brand-gold/10 to-transparent shadow-xs">
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><RadioTowerIcon className="size-5" aria-hidden="true" /></span>
+            <div className="flex-1">
+              <p className="font-semibold">RFID Terminal</p>
+              <p className="text-sm text-muted-foreground">{terminalText}</p>
+            </div>
+            <Button onClick={() => hardNavigate("/rfid-terminal")}>Open RFID Terminal</Button>
+          </CardContent>
+        </Card>
+      ) : null}
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><CreditCardIcon className="size-4 text-gold-text" aria-hidden="true" />RFID device registration</CardTitle>
@@ -275,7 +291,8 @@ export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRAT
         </CardContent>
       </Card>
 
-      <ScanCard auditActor={auditActor} />
+      {/* Recording a scan writes attendance, which only HR manages (2026-10-20). */}
+      {can("attendance", "update") ? <ScanCard auditActor={auditActor} /> : null}
 
       <AssignDialog device={editing} onOpenChange={(open) => { if (!open) setEditing(null); }} onSaved={load} />
       {confirmDialog}

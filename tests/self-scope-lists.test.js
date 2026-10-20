@@ -59,10 +59,11 @@ describe("Admin / HR list routes refuse self-scoped callers", () => {
     expect(JSON.stringify(await response.json())).not.toContain("Colleague");
   });
 
-  it("a branch-scoped Admin still lists its branch", async () => {
+  // 2026-10-20: leave is HR's alone; the Admin's branch list is refused too.
+  it("a branch-scoped Admin is refused (leave is HR's)", async () => {
     table("profiles").push({ id: "u-admin", branch_id: BRANCH, role: "admin" });
     const { GET } = await import("@/app/api/hr/leave-requests/route");
     const response = await GET(as("admin", "/api/hr/leave-requests"));
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(403);
   });
 });

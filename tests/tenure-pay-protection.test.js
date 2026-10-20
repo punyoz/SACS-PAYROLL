@@ -320,11 +320,10 @@ describe("GET / POST /api/hr/tenure-protection", () => {
     expect(body).toMatchObject({ can_edit: true, can_edit_system: true, school_year: "2026-2027" });
   });
 
-  it("an Admin sees only its own branch", async () => {
-    const { body } = await get("admin");
-    expect(body.employees.map((e) => e.full_name).sort()).toEqual(["Ana Reyes", "Ben Cruz", "Cara Lim"]);
-    expect(body.branches.map((b) => b.name)).toEqual(["Main"]);
-    expect(body).toMatchObject({ can_edit: true, can_edit_system: false });
+  // 2026-10-20: Tenure Pay Protection is HR's alone.
+  it("the Admin and the Super Admin have no access", async () => {
+    expect((await get("admin")).status).toBe(403);
+    expect((await get("super_admin")).status).toBe(403);
   });
 
   it("HR grants to an eligible employee, with the contract reference; the audit log names HR", async () => {
@@ -350,16 +349,12 @@ describe("GET / POST /api/hr/tenure-protection", () => {
     expect((await post("hr", { action: "grant", employee_id: ANA, effective_from: "2026-10-01" })).body.error).toMatch(/cannot be before today/);
   });
 
-  it("an Admin grants within its branch only, and cannot change the system-wide policy or the break dates", async () => {
-    expect((await post("admin", { action: "grant", employee_id: DAN })).status).toBe(404);
-    expect((await post("admin", { action: "grant", employee_id: ANA, notes: "Contract 7" })).status).toBe(200);
-    expect(table("tenure_protection_grants").find((g) => g.employee_id === ANA)).toMatchObject({ granted_by_role: "admin" });
-    expect((await post("admin", { action: "save_policy", branch_id: null, min_tenure_years: 1, categories: {} })).status).toBe(403);
-    expect((await post("admin", { action: "save_policy", branch_id: OTHER_BRANCH, min_tenure_years: 1, categories: {} })).status).toBe(403);
+  it("the Admin grants nothing and changes no policy or break dates (HR only)", async () => {
+    expect((await post("admin", { action: "grant", employee_id: ANA, notes: "Contract 7" })).status).toBe(403);
+    expect((await post("admin", { action: "save_policy", branch_id: BRANCH, min_tenure_years: 3, categories: { absence: true } })).status).toBe(403);
     expect((await post("admin", { action: "save_break", school_year: "2026-2027", kind: "christmas", start_date: "2026-12-19", end_date: "2027-01-04" })).status).toBe(403);
-    // Its own branch's policy it may set.
-    expect((await post("admin", { action: "save_policy", branch_id: BRANCH, min_tenure_years: 3, categories: { absence: true } })).status).toBe(200);
-    expect(table("tenure_protection_policies").find((p) => p.branch_id === BRANCH)).toMatchObject({ min_tenure_years: 3, cover_absence: true, cover_late: false });
+    expect((await post("super_admin", { action: "grant", employee_id: ANA, notes: "Contract 7" })).status).toBe(403);
+    expect(table("tenure_protection_grants").find((g) => g.employee_id === ANA && g.notes === "Contract 7")).toBeUndefined();
   });
 
   it("changing the tenure threshold updates who meets it", async () => {

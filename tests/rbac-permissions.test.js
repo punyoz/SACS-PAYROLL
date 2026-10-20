@@ -134,8 +134,9 @@ describe("Admin is locked out of Super Admin-exclusive modules", () => {
     expect(allowedModules("admin")).toContain("branch_reports");
   });
 
-  it("keeps Leave Approval view-only for Admin", () => {
-    expect(can("admin", "leave_approval", "read")).toBe(true);
+  // 2026-10-20: managing employees (leave included) is HR's alone.
+  it("gives Admin no access to Leave Approval", () => {
+    expect(can("admin", "leave_approval", "read")).toBe(false);
     expect(can("admin", "leave_approval", "update")).toBe(false);
     // Final approval stays with HR.
     expect(can("hr", "leave_approval", "update")).toBe(true);
@@ -258,14 +259,14 @@ describe("Branch scoping", () => {
   });
 
   it("pins the Admin guard to the branch in its signed session", async () => {
-    const guard = await requirePermission(requestAs("admin"), "attendance", "read");
+    const guard = await requirePermission(requestAs("admin"), "system_maintenance", "read");
     expect(guard.denied).toBeNull();
     expect(guard.branchId).toBe(BRANCH_A);
     expect(guard.branchExempt).toBe(false);
   });
 
   it("refuses an Admin reaching a row in another branch", async () => {
-    const guard = await requirePermission(requestAs("admin"), "attendance", "update");
+    const guard = await requirePermission(requestAs("admin"), "system_maintenance", "update");
     const denial = denyForeignBranch(guard, BRANCH_B);
 
     expect(denial).not.toBeNull();
@@ -273,7 +274,7 @@ describe("Branch scoping", () => {
   });
 
   it("allows an Admin acting inside its own branch", async () => {
-    const guard = await requirePermission(requestAs("admin"), "attendance", "update");
+    const guard = await requirePermission(requestAs("admin"), "system_maintenance", "update");
     expect(denyForeignBranch(guard, BRANCH_A)).toBeNull();
   });
 
@@ -339,9 +340,14 @@ describe("Role ceiling", () => {
     expect(denyRoleEscalation(guard, "employee")).toBeNull();
   });
 
-  it("lets Super Admin manage every role (it creates the Admin and HR logins)", () => {
-    for (const target of ["super_admin", "admin", "hr", "accountant", "employee"]) {
+  // 2026-10-20: the Super Admin keeps the staff login accounts; Employee and
+  // Accountant accounts are HR's.
+  it("lets Super Admin manage the staff logins only (Super Admin, Admin, HR)", () => {
+    for (const target of ["super_admin", "admin", "hr"]) {
       expect(canManageRole("super_admin", target)).toBe(true);
+    }
+    for (const target of ["accountant", "employee"]) {
+      expect(canManageRole("super_admin", target)).toBe(false);
     }
   });
 
@@ -424,7 +430,7 @@ describe("Accounts are archived, never destroyed", () => {
     // "delete" in the matrix means archive; the route and the DB trigger both
     // enforce that. What matters here is that no role is handed a hard delete
     // path — which the two source scans above assert.
-    expect(can("super_admin", "employee_information", "delete")).toBe(true);
+    expect(can("hr", "employee_information", "delete")).toBe(true);
     expect(assertNoHardDelete).toBeTypeOf("function");
   });
 });
@@ -567,6 +573,7 @@ describe("Matrix stays in step with the SQL seed", () => {
       "supabase/migrations/20261014010000_payroll_run_approval.sql",
       "supabase/migrations/20261015010000_tenure_pay_protection.sql",
       "supabase/migrations/20261018010000_hr_view_payroll_records_payslips.sql",
+      "supabase/migrations/20261020010000_role_separation.sql",
     ].map((file) => readFileSync(file, "utf8")).join("\n");
   });
 

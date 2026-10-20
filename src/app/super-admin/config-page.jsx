@@ -19,10 +19,8 @@ import { cn } from "@/lib/utils";
 import { RatesSection } from "./rates-section";
 import { PayrollSettingsSection } from "./tax-section";
 import { HolidaysSection } from "./holidays-section";
-import { OverrideSection } from "./override-section";
 import { PayslipScheduleSection } from "./payslip-schedule-section";
 import { TeacherSubsidySection } from "./teacher-subsidy-section";
-import { WorkSchedulesPanel } from "@/components/portal/work-schedules";
 import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 
 /*
@@ -41,7 +39,6 @@ const TABS = [
   { id: "tax", label: "Tax & contributions" },
   { id: "holidays", label: "Holidays" },
   { id: "security", label: "Security" },
-  { id: "override", label: "Payslip override" },
 ];
 
 const ATT_DEFAULTS = { work_start: "08:00", work_end: "17:00", grace: "15", work_hours: "8" };
@@ -449,8 +446,7 @@ export function ConfigPage({ refreshKey }) {
         </TabsContent>
         <TabsContent value="attendance" className="flex flex-col gap-4">
           {state.config ? <AttendanceSection key={`att-${state.version}`} config={config} onConfig={onConfig} branches={state.branches} /> : null}
-          {/* Per-employee schedules: own → level → the branch schedule above → default. */}
-          <WorkSchedulesPanel refreshKey={refreshKey} />
+          {/* Per-employee work schedules are HR's (HR → Work Schedules) since 2026-10-20. */}
           <EarlyBirdCard refreshKey={refreshKey} />
         </TabsContent>
         <TabsContent value="payroll" className="flex flex-col gap-4">
@@ -475,7 +471,9 @@ export function ConfigPage({ refreshKey }) {
             />
           ) : null}
         </TabsContent>
-        <TabsContent value="override" className="flex flex-col gap-4"><OverrideSection refreshKey={refreshKey} /></TabsContent>
+        {/* Payslip override removed 2026-10-20: the Super Admin no longer
+            changes payroll. The Accountant reprocesses while a run is Draft or
+            Rejected by HR. */}
       </Tabs>
     </>
   );

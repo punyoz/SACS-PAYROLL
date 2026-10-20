@@ -33,7 +33,8 @@ async function tapAt(hms, { code = CARD, branchId = BRANCH, device = "RFID Termi
   });
   const response = await POST(new Request("https://sacs.test/api/admin/attendance", {
     method: "POST",
-    headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}` },
+    // As the RFID Terminal sends it (src/app/rfid-terminal/rfid-terminal.jsx).
+    headers: { "Content-Type": "application/json", cookie: `${SESSION_COOKIE}=${token}`, "x-sacs-kiosk": "1" },
     body: JSON.stringify({ rfid_code: code, device }),
   }));
   return { response, body: await response.json() };

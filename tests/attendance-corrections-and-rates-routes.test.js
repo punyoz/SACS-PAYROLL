@@ -132,14 +132,15 @@ describe("Attendance corrections", () => {
     expect(decide.status).toBe(403);
   });
 
-  it("keeps an Admin to its own branch", async () => {
+  // 2026-10-20: correction requests are decided by HR alone.
+  it("refuses the Admin, in its own branch or another", async () => {
     const { PATCH } = await import("@/app/api/attendance/corrections/route");
     const admin = { userId: "u-admin", role: "admin" };
     const foreign = await PATCH(requestAs(admin, "/api/attendance/corrections", "PATCH", { correction_id: "c-other-branch", decision: "approve" }));
     expect(foreign.status).toBe(403);
     const own = await PATCH(requestAs(admin, "/api/attendance/corrections", "PATCH", { correction_id: "c-mine", decision: "reject", resolution: "absent" }));
-    expect(own.status).toBe(200);
-    expect(rpc.calls.at(-1)).toMatchObject({ fn: "attendance_review_correction", args: { p_decision: "reject", p_resolution: "absent", p_reviewer: "u-admin" } });
+    expect(own.status).toBe(403);
+    expect(rpc.calls.find((c) => c.fn === "attendance_review_correction")).toBeUndefined();
   });
 
   it("never lets a reviewer decide their own request", async () => {
@@ -201,12 +202,13 @@ describe("Today's non-tappers and correcting an absence", () => {
     expect(body.logs.filter((row) => row.not_yet_tapped)).toHaveLength(0);
   });
 
-  it("shows them on the status board to reviewers, scoped to the Admin's branch", async () => {
+  it("shows them on the status board to HR, the reviewer (the Admin no longer has it)", async () => {
     const { GET } = await import("@/app/api/attendance/logs/route");
-    const board = await (await GET(requestAs(ADMIN, "/api/attendance/logs"))).json();
+    const board = await (await GET(requestAs(HR, "/api/attendance/logs"))).json();
     const absent = board.logs.filter((row) => row.not_yet_tapped).map((row) => row.employee_name);
-    expect(absent).toEqual(["Not Yet"]);
+    expect(absent).toContain("Not Yet");
     expect(board.can_review).toBe(true);
+    expect((await GET(requestAs(ADMIN, "/api/attendance/logs"))).status).toBe(403);
   });
 
   it("does not call an employee absent in their own view before the day is over", async () => {

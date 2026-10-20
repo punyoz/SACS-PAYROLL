@@ -272,9 +272,10 @@ describe("holidays on the boards and the employee dashboard", () => {
     );
   });
 
-  it("the Admin board lists people who have not tapped on a day off as Holiday, not Absent", async () => {
+  // 2026-10-20: attendance boards are HR's (the Admin's page is gone).
+  it("the attendance board lists people who have not tapped on a day off as Holiday, not Absent", async () => {
     const { GET } = await import("@/app/api/admin/attendance/route");
-    const body = await (await GET(requestAs(ADMIN, "/api/admin/attendance"))).json();
+    const body = await (await GET(requestAs(HR, "/api/admin/attendance"))).json();
     const row = body.attendance_logs.find((r) => r.employee_id === "u-emp");
     expect(row).toMatchObject({ status: "Holiday", holiday_name: "Typhoon (LGU)" });
     expect(body.panels.absent_today).toBe(0);

@@ -172,7 +172,9 @@ describe("GET / POST /api/admin/work-schedules", () => {
   });
 
   it("employees of one branch follow different schedules: own → level → branch / default", async () => {
-    const body = await (await GET(as("super_admin"))).json();
+    // Work schedules are HR's alone since 2026-10-20.
+    expect((await GET(as("super_admin"))).status).toBe(403);
+    const body = await (await GET(as("hr"))).json();
     expect(body.available).toBe(true);
     expect(body.can_edit).toBe(true);
     const by = Object.fromEntries(body.employees.map((e) => [e.id, e]));
@@ -210,12 +212,10 @@ describe("GET / POST /api/admin/work-schedules", () => {
       .toEqual(["schedule_assign_employee", "schedule_create", "schedule_update", "schedule_delete"]);
   });
 
-  it("a non-HR Admin (and the Accountant) can view but are blocked by the server", async () => {
+  it("the Admin, the Super Admin and the Accountant are blocked by the server (HR only)", async () => {
     const CORA = "cccccccc-0000-4000-8000-00000000000c";
-    const admin = await (await GET(as("admin"))).json();
-    expect(admin.can_edit).toBe(false);
-    expect(admin.employees).toHaveLength(3);
-    for (const role of ["admin", "accountant"]) {
+    expect((await GET(as("admin"))).status).toBe(403);
+    for (const role of ["admin", "accountant", "super_admin"]) {
       const response = await POST(as(role, "POST", { action: "assign", target: "employee", employee_ids: [CORA], schedule_key: PRE, effective_from: "2026-10-14" }));
       expect(response.status).toBe(403);
     }
@@ -231,7 +231,7 @@ describe("GET / POST /api/admin/work-schedules", () => {
   });
 
   it("refuses an effective date before today, so past attendance is never recalculated", async () => {
-    const response = await POST(as("super_admin", "POST", {
+    const response = await POST(as("hr", "POST", {
       action: "assign", target: "employee", employee_ids: ["cccccccc-0000-4000-8000-00000000000c"], schedule_key: PRE, effective_from: "2026-10-12",
     }));
     expect(response.status).toBe(400);
@@ -239,16 +239,16 @@ describe("GET / POST /api/admin/work-schedules", () => {
   });
 
   it("creates a profile, assigns by level and by employee, and logs every change", async () => {
-    let response = await POST(as("super_admin", "POST", {
+    let response = await POST(as("hr", "POST", {
       action: "save_schedule", name: "Non-teaching Staff", work_start: "08:00", work_end: "17:00", grace_minutes: 5, work_hours: 8, working_days: [1, 2, 3, 4, 5, 6], effective_from: "2026-10-13",
     }));
     expect(response.status).toBe(200);
     const created = table("work_schedules").find((row) => row.name === "Non-teaching Staff");
-    expect(created).toMatchObject({ grace_minutes: 5, working_days: [1, 2, 3, 4, 5, 6], effective_from: "2026-10-13", created_by_name: "super_admin" });
+    expect(created).toMatchObject({ grace_minutes: 5, working_days: [1, 2, 3, 4, 5, 6], effective_from: "2026-10-13", created_by_name: "hr" });
 
-    response = await POST(as("super_admin", "POST", { action: "assign", target: "level", level: "non_teaching", schedule_key: created.schedule_key, effective_from: "2026-10-16" }));
+    response = await POST(as("hr", "POST", { action: "assign", target: "level", level: "non_teaching", schedule_key: created.schedule_key, effective_from: "2026-10-16" }));
     expect(response.status).toBe(200);
-    response = await POST(as("super_admin", "POST", { action: "set_level", employee_ids: ["cccccccc-0000-4000-8000-00000000000b"], level: "high_school" }));
+    response = await POST(as("hr", "POST", { action: "set_level", employee_ids: ["cccccccc-0000-4000-8000-00000000000b"], level: "high_school" }));
     expect(response.status).toBe(200);
     expect(table("profiles").find((row) => row.id === "cccccccc-0000-4000-8000-00000000000b").employee_level).toBe("high_school");
 
@@ -576,8 +576,8 @@ describe("Early Bird settings: Super Admin and HR change them, others cannot", (
     expect(entry.description).toMatch(/\(HR\)\.$/);
   });
 
-  it("Admin views only: its change is refused", async () => {
-    expect((await (await GET(as("admin"))).json())).toMatchObject({ can_edit_settings: false, can_edit_amount: false });
+  it("the Admin has no access (2026-10-20): its read and change are refused", async () => {
+    expect((await GET(as("admin"))).status).toBe(403);
     expect((await PATCH(as("admin", "PATCH", { threshold_minutes: 5 }))).status).toBe(403);
     expect(table("system_config").find((row) => row.key === "threshold_minutes").value).toBe("15");
   });

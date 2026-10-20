@@ -115,12 +115,19 @@ describe("Correct any record", () => {
   });
 
   it("corrects both time in and time out", async () => {
-    const response = await patch(ADMIN, { log_id: "log-late", type: "both", time_in: "08:00", time_out: "17:00", note: "Both taps were wrong" });
+    const response = await patch(HR, { log_id: "log-late", type: "both", time_in: "08:00", time_out: "17:00", note: "Both taps were wrong" });
     expect(response.status).toBe(200);
     const call = rpc.calls.find((c) => c.fn === "attendance_correct_record");
     expect(call.args).toMatchObject({
-      p_type: "both", p_time_in: "2026-09-18T00:00:00.000Z", p_time_out: "2026-09-18T09:00:00.000Z", p_reviewer: "u-admin",
+      p_type: "both", p_time_in: "2026-09-18T00:00:00.000Z", p_time_out: "2026-09-18T09:00:00.000Z", p_reviewer: "u-hr",
     });
+  });
+
+  // 2026-10-20: attendance corrections are HR's alone.
+  it("refuses an Admin's correction", async () => {
+    const response = await patch(ADMIN, { log_id: "log-late", type: "both", time_in: "08:00", time_out: "17:00", note: "Both taps were wrong" });
+    expect(response.status).toBe(403);
+    expect(rpc.calls.find((c) => c.fn === "attendance_correct_record")).toBeUndefined();
   });
 
   it("corrects a record that was already tapped On Time", async () => {
@@ -230,18 +237,19 @@ describe("Individual Employee Attendance page", () => {
     expect(day.last_correction).toMatchObject({ approved_by_name: "Hana HR", reason: "Tapped late by mistake" });
   });
 
-  it("is HR / Admin only, and an Admin only for its own branch", async () => {
+  it("is HR only (2026-10-20): the Admin, Accountant and Employee are refused", async () => {
     expect((await get({ userId: "u-emp", role: "employee" }, EMP_ID)).status).toBe(403);
     expect((await get({ userId: "u-acct", role: "accountant" }, EMP_ID)).status).toBe(403);
     expect((await get(ADMIN, FAR_ID)).status).toBe(403);
-    expect((await get(ADMIN, EMP_ID)).status).toBe(200);
+    expect((await get(ADMIN, EMP_ID)).status).toBe(403);
+    expect((await get(HR, EMP_ID)).status).toBe(200);
   });
 });
 
 describe("Page access", () => {
-  it("opens the employee record page for Admin and HR only", async () => {
+  it("opens the employee record page for HR only", async () => {
     const { allowedPagesFor } = await import("@/lib/rbac/menu");
-    expect(allowedPagesFor("admin")).toContain("adm-att-employee");
+    expect(allowedPagesFor("admin").some((page) => page.endsWith("att-employee"))).toBe(false);
     expect(allowedPagesFor("hr")).toContain("hr-att-employee");
     expect(allowedPagesFor("accountant").some((page) => page.endsWith("att-employee"))).toBe(false);
     expect(allowedPagesFor("employee").some((page) => page.endsWith("att-employee"))).toBe(false);
