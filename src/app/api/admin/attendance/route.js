@@ -74,7 +74,10 @@ function shapeEmployee(user, profile, index) {
     full_name: normalizeText(profile?.full_name, normalizeText(metadata.full_name, user.email)),
     employee_id: normalizeText(metadata.employee_id, buildEmployeeId(index)),
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
-    rfid_uid: normalizeText(metadata.rfid_uid),
+    // The card a tap matches is read fresh from profiles on every tap (the
+    // active card, rfid_cards 20261021030000): the cached user list could
+    // still hold a card replaced or registered a moment ago.
+    rfid_uid: profile && profile.rfid_uid !== undefined ? normalizeText(profile.rfid_uid) : normalizeText(metadata.rfid_uid),
     archived: Boolean(metadata.archived),
     branch_id: profile?.branch_id || metadata.branch_id || null,
     employee_status: normalizeText(profile?.employee_status, "Active"),
@@ -98,7 +101,7 @@ async function fetchEmployees(supabase) {
   if (userIds.length) {
     const profileResult = await supabase
       .from("profiles")
-      .select("id,email,full_name,branch_id,employee_status")
+      .select("id,email,full_name,branch_id,employee_status,rfid_uid")
       .in("id", userIds);
 
     if (profileResult.error) {
@@ -553,9 +556,18 @@ async function unmatchedCardReason(supabase, code) {
     .limit(1);
   const owner = result.error ? null : (result.data || [])[0];
   if (owner) {
-    return { employee: owner, reason: `Inactive employee: card ${maskCardCode(value)} belongs to an archived or inactive account.` };
+    return { employee: owner, reason: `Inactive employee: card ${maskCardCode(value)} belongs to an archived or inactive account.`, code: "employee_inactive" };
   }
-  return { employee: null, reason: `Unregistered RFID card ${maskCardCode(value)}.` };
+  // A card that was deactivated, reported lost or replaced (rfid_cards,
+  // 2026-10-21) no longer matches anyone, by design: say which.
+  const card = await supabase.from("rfid_cards").select("employee_id,status").eq("uid", value)
+    .order("updated_at", { ascending: false }).limit(1);
+  const last = card.error ? null : (card.data || [])[0];
+  if (last) {
+    const holder = await supabase.from("profiles").select("id,full_name,branch_id,archived,employee_status").eq("id", last.employee_id).maybeSingle();
+    return { employee: holder.data || null, reason: `Card ${maskCardCode(value)} is ${last.status}: it no longer records attendance.`, code: "card_inactive" };
+  }
+  return { employee: null, reason: `Unregistered RFID card ${maskCardCode(value)}.`, code: "card_unknown" };
 }
 
 export async function GET(request) {
@@ -621,9 +633,16 @@ export async function POST(request) {
   const terminalTap = Boolean(readKioskSession(request)) || request.headers.get(KIOSK_HEADER) === "1";
   const guard = await requirePermission(request, terminalTap ? "rfid_devices" : "attendance", "update");
   if (guard.denied) return guard.denied;
+  // The registered terminal this kiosk is (src/lib/auth/kiosk-session.js).
+  const kioskClaims = readKioskSession(request);
+  const terminalId = kioskClaims?.terminal_id || null;
 
   try {
     const body = await request.json();
+    // Every tap the terminal sends updates its "last tap" (offline check).
+    const touchTerminal = (result) => (terminalId
+      ? getAdminClient().rpc("rfid_terminal_touch", { p_terminal: terminalId, p_result: result }).then(() => {}, () => {})
+      : Promise.resolve());
     const rfidCode = normalizeText(body.rfid_code || body.employee_id || body.employee_code);
 
     if (!rfidCode) {
@@ -651,7 +670,7 @@ export async function POST(request) {
     // A tap is refused only for a real reason, and kept in Blocked Taps:
     // an unregistered card, an inactive employee, another branch's employee
     // (approved leave is handled below). Never for tapping again too soon.
-    const refuse = async ({ refusedEmployee = null, reason, status, error }) => {
+    const refuse = async ({ refusedEmployee = null, reason, status, error, code: refusedCode = null }) => {
       await recordRefusedTap(supabase, {
         employee: refusedEmployee,
         branchId: guard.branchId || null,
@@ -672,7 +691,8 @@ export async function POST(request) {
         source: "api",
         metadata: { rfid_code: maskCardCode(rfidCode), manual_entry: manualEntry, date_key: dateKey, employee_id: refusedEmployee?.id || null },
       });
-      return NextResponse.json({ error, persisted: false, refused: true }, { status });
+      await touchTerminal("refused");
+      return NextResponse.json({ error, persisted: false, refused: true, code: refusedCode }, { status });
     };
 
     if (offline?.error) {
@@ -688,7 +708,10 @@ export async function POST(request) {
 
     if (!employee) {
       const unmatched = await unmatchedCardReason(supabase, rfidCode);
-      return refuse({ refusedEmployee: unmatched.employee, reason: unmatched.reason, status: 404, error: "RFID not matched to an active employee." });
+      return refuse({
+        refusedEmployee: unmatched.employee, reason: unmatched.reason, status: 404, code: unmatched.code,
+        error: unmatched.code === "card_inactive" ? "Card inactive. It no longer records attendance." : unmatched.code === "card_unknown" ? "Card not recognized." : "RFID not matched to an active employee.",
+      });
     }
 
     if (String(employee.employee_status || "").toLowerCase() === "inactive") {
@@ -704,12 +727,15 @@ export async function POST(request) {
 
     // Correcting or recording a scan for someone in another branch is refused.
     const foreignBranch = denyForeignBranch(guard, employee.branch_id);
-    if (foreignBranch) {
+    // A branch's terminal takes its own branch's cards only, whoever opened it.
+    const wrongTerminal = kioskClaims?.terminal_branch_id && String(employee.branch_id || "") !== String(kioskClaims.terminal_branch_id);
+    if (foreignBranch || wrongTerminal) {
       return refuse({
         refusedEmployee: employee,
         reason: `Wrong branch: ${employee.full_name} belongs to another branch.`,
-        status: foreignBranch.status || 403,
+        status: foreignBranch?.status || 403,
         error: "This card belongs to an employee of another branch.",
+        code: "wrong_branch",
       });
     }
 
@@ -777,7 +803,8 @@ export async function POST(request) {
         source: "api",
         metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: repeat.repeated, resent_at: nowIso, offline: Boolean(offline), branch_id: employee.branch_id },
       });
-      return NextResponse.json({ success: true, persisted: true, tap, message: "Tap recorded.", record });
+      await touchTerminal(tap);
+      return NextResponse.json({ success: true, persisted: true, tap, message: "Tap recorded.", record, employee: { name: employee.full_name, branch_id: employee.branch_id || null }, tapped_at: repeat.repeated });
     }
     if (repeat) {
       await appendAuditLog({
@@ -791,12 +818,15 @@ export async function POST(request) {
         source: "api",
         metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: nowIso, repeated: repeat.repeated, offline: Boolean(offline) },
       });
+      await touchTerminal("duplicate");
       return NextResponse.json({
         success: true,
         persisted: false,
         tap: "duplicate",
         message: "Already recorded. A repeated tap within a few minutes is not counted.",
         record: repeat.record,
+        employee: { name: employee.full_name, branch_id: employee.branch_id || null },
+        tapped_at: repeat.repeated,
       });
     }
 
@@ -807,9 +837,11 @@ export async function POST(request) {
       dateKey,
       tappedAt: nowIso,
       rfidCode: normalizeText(rfidCode),
-      device: offline ? `${tapDevice(body, manualEntry)} (sent late)` : tapDevice(body, manualEntry),
+      device: offline ? `${tapDevice(kioskClaims?.terminal_name ? { device: kioskClaims.terminal_name } : body, manualEntry)} (sent late)`
+        : tapDevice(kioskClaims?.terminal_name ? { device: kioskClaims.terminal_name } : body, manualEntry),
       source: tapSource,
       recordedBy: guard.userId || null,
+      terminalId,
     });
 
     const { record, tap } = await persistScanToTable(
@@ -847,12 +879,16 @@ export async function POST(request) {
       after_correction: "Tap recorded. This day was corrected by HR / Admin, so its times stay as corrected; the tap is flagged for review.",
     };
 
+    await touchTerminal(tap);
     return NextResponse.json({
       success: true,
       persisted: true,
       tap,
       message: messages[tap],
       record,
+      // What the terminal screen shows.
+      employee: { name: employee.full_name, branch_id: employee.branch_id || null },
+      tapped_at: nowIso,
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });

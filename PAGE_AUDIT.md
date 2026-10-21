@@ -69,7 +69,7 @@ Every page reads `/api/admin/branch-oversight?view=…` (own branch only, from t
 | Announcements (`adm-announcements`) | `/api/announcements` (branch_announcements) | Post, edit, remove (confirm) | ✅ |
 | Payroll Summary (`adm-payroll`) | `payroll` → payroll_run_summaries (approved runs, totals only) | View | ✅ totals match HR's run |
 | Branch Reports (`adm-branch-reports`) | `reports` (+ PDF) | Month picker, export | ✅ |
-| RFID Terminal & Cards (`adm-maintenance`) | `/api/admin/system`, `/api/admin/attendance` | Open terminal, assign / void card | ✅ |
+| RFID Terminal & Cards (`adm-maintenance`) | `/api/rfid/cards`, `/api/rfid/terminals` (own branch only) | Open terminal, shared RFID Cards and Terminals panels | 🔧 2026-10-21: same records as HR / Super Admin, branch-limited in the database |
 | Profile (`adm-profile`) | `/api/legacy-auth/update-profile` | Change password, edit contact | ✅ |
 
 ## HR (`/hr`) — manages employees, decides every approval
@@ -82,6 +82,8 @@ Every page reads `/api/admin/branch-oversight?view=…` (own branch only, from t
 | Tenure Pay Protection (`hr-tenure`) | `/api/hr/tenure-protection` (tenure_protection_*, school_break_periods) | Grant / revoke (dialog), school breaks save / remove | 🔧 removing a school break now asks first; tables show load errors |
 | Attendance (`hr-attendance`, `hr-att-employee`) | `/api/hr/attendance`, `/api/attendance/logs`, `/api/attendance/corrections`, `/api/attendance/overtime`, `/api/attendance/employee/:id`, `/api/admin/holidays` | Date / range view, correct record, review corrections and overtime, suspensions | ✅ |
 | Work Schedules (`hr-schedules`) | `/api/admin/work-schedules`, `/api/admin/early-bird` | Profiles, assign, level, archive | ✅ |
+| RFID Cards (`hr-rfid-cards`) | `/api/rfid/cards` (rfid_cards, rfid_card_events) | Register (tap or type UID), Replace (reason; old → Lost/Replaced), Deactivate / Reactivate / Lost (reason), history; status tabs + branch filter kept in the address | 🆕 2026-10-21: same cards as Super Admin and Admin (own branch) |
+| RFID Terminals (`hr-rfid-terminals`) | `/api/rfid/terminals` (rfid_terminals) | Add / edit, switch on / off, reset key (reason), last tap, Open RFID Terminal | 🆕 2026-10-21 |
 | Leave Approval (`hr-leaves`) | `/api/hr/leave-requests` (leave_requests), `/api/hr/branch-requests` | Approve / reject (confirm), cancel approved (confirm), proof viewer | 🔧 employee is now notified; dates "Oct 20, 2026" |
 | AWOL Cases (`hr-awol`) | `/api/hr/awol-cases` (employee_awol_cases), incident reports | Confirm, notices, reply, separate / close | ✅ |
 | Branch Requests (`hr-branch-requests`) | `/api/hr/branch-requests` (branch_admin_requests) | Approve / reject / resolve with remark | ✅ |
@@ -128,7 +130,7 @@ Most pages share one load: `/api/accountant/payroll[?period=]` (payroll_entries,
 | Page | Roles | Status |
 |---|---|---|
 | `/login` | everyone | ✅ password + emailed code; wrong role / no role refused |
-| `/rfid-terminal` | Super Admin / Admin (password-locked kiosk) | ✅ |
+| `/rfid-terminal` | HR, Super Admin, Admin (password-locked kiosk on a registered terminal) | 🔧 2026-10-21: choose the terminal on unlock; shows name, initials, time, Time In / Out; says why a tap is refused; connection-lost banner, taps queued and sent once |
 | `/supabase-status` | diagnostic | ✅ |
 | Bell (every portal) | everyone | 🔧 now stored for: payslip released (employee), leave filed (HR), leave decided / cancelled (employee), subsidy adjustment requested (HR) and decided (Accountant), on top of the payroll-run and branch-request notices. Survives a refresh. |
 

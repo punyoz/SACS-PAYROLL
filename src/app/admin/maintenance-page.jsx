@@ -1,15 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { CreditCardIcon, Loader2Icon, RadioTowerIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
+import { Loader2Icon, RadioTowerIcon, ScanLineIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useConfirm } from "@/components/portal/confirm-dialog";
-import { DataTable } from "@/components/portal/data-table";
-import { StatusBadge } from "@/components/portal/status-badge";
+import { RfidCardsPanel } from "@/components/portal/rfid/rfid-cards-panel";
+import { RfidTerminalsPanel } from "@/components/portal/rfid/rfid-terminals-panel";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, hardNavigate, jsonBody } from "@/lib/portal/api";
 import { logAuditMovement } from "@/lib/portal/audit";
@@ -38,66 +36,6 @@ function scanMessage(record, tap) {
   if (tap === "after_correction") return `${name}: tap recorded. This day was corrected by HR / Admin, so its times stay as corrected (flagged for review).`;
   if (record.time_out) return `${name}: Time Out recorded at ${timeOnly(record.time_out)} (Time In ${timeOnly(record.time_in)}).`;
   return `${name}: Time In recorded at ${timeOnly(record.time_in)} (${record.status || "Present"}).`;
-}
-
-function AssignDialog({ device, onOpenChange, onSaved }) {
-  const { notify } = usePortalSession();
-  const [uid, setUid] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
-  const [feedback, setFeedback] = React.useState({ text: "", ok: false });
-  const inputRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (!device) return;
-    setUid(device.rfid_uid || "");
-    setFeedback({ text: "", ok: false });
-    // Selected, so a HID reader's keystrokes replace it at once.
-    setTimeout(() => inputRef.current?.select(), 50);
-  }, [device]);
-
-  async function save(event) {
-    event.preventDefault();
-    if (!device?.id) { setFeedback({ text: "Employee ID is missing.", ok: false }); return; }
-    const value = uid.trim();
-    setBusy(true);
-    try {
-      await fetchJson("/api/admin/system", jsonBody("PATCH", { id: device.id, rfid_uid: value }));
-      setFeedback({ text: value ? "RFID assigned successfully." : "RFID removed.", ok: true });
-      notify("RFID Updated", value ? "RFID UID has been assigned to the employee." : "RFID UID has been removed.", "success");
-      await onSaved();
-      setTimeout(() => onOpenChange(false), 500);
-    } catch (error) {
-      setFeedback({ text: error.message || "Failed to update RFID", ok: false });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Dialog open={Boolean(device)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Assign RFID UID</DialogTitle>
-          <DialogDescription>Tap the card on the reader, or type the UID. Leave it blank to remove the current assignment.</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={save} noValidate className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="adm-f-employee-display">Employee</Label>
-            <Input id="adm-f-employee-display" readOnly value={device ? `${device.full_name} (${device.employee_id || "N/A"})` : ""} className="bg-muted text-muted-foreground" />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="adm-f-rfid-uid">RFID UID</Label>
-            <Input id="adm-f-rfid-uid" ref={inputRef} maxLength={16} autoComplete="off" placeholder="Tap RFID card or enter UID manually" value={uid} onChange={(e) => setUid(e.target.value)} className="font-mono" />
-          </div>
-          <p role="status" aria-live="polite" className={cn("min-h-5 text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy}>{busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Saving…</> : "Save RFID"}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function ScanCard({ auditActor }) {
@@ -180,7 +118,7 @@ function ScanCard({ auditActor }) {
   );
 }
 
-const ADMIN_REGISTRATION_TEXT = "Assign or update RFID UIDs for employees in your branch. The UID matches card taps to attendance records. Void a card that is lost or no longer in use.";
+const ADMIN_REGISTRATION_TEXT = "Register, replace and deactivate the RFID cards of your branch, and manage its terminals. HR and the Super Admin see the same cards.";
 
 /**
  * Also the Super Admin's System Maintenance (loadSASystemData and friends,
@@ -190,71 +128,12 @@ const ADMIN_REGISTRATION_TEXT = "Assign or update RFID UIDs for employees in you
 const ADMIN_TERMINAL_TEXT = "Open the dedicated tap-in/tap-out screen for your branch's RFID reader. It replaces this view and is locked behind your Administration password.";
 
 export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin", terminalText = ADMIN_TERMINAL_TEXT }) {
-  const { notify, can } = usePortalSession();
-  const [state, setState] = React.useState({ loading: true, error: null, devices: [] });
-  const [editing, setEditing] = React.useState(null);
-  const [confirmDialog, confirm] = useConfirm();
-
-  const load = React.useCallback(async () => {
-    setState((current) => ({ ...current, loading: !current.devices.length, error: null }));
-    try {
-      const payload = await fetchJson("/api/admin/system");
-      setState({ loading: false, error: null, devices: (payload.rfid_devices || []).filter((d) => !d.archived) });
-    } catch (error) {
-      setState((current) => ({ ...current, loading: false, error: error.message }));
-    }
-  }, []);
-
-  React.useEffect(() => { load(); }, [load, refreshKey]);
-
-  const voidCard = React.useCallback(async (device) => {
-    const ok = await confirm({
-      title: `Void the RFID card for ${device.full_name}?`,
-      description: "The employee will no longer be able to tap in with this card.",
-      confirmLabel: "Void card",
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      await fetchJson("/api/admin/system", jsonBody("PATCH", { id: device.id, rfid_uid: "" }));
-      notify("RFID Voided", `RFID card for ${device.full_name} has been voided.`, "success");
-      await load();
-    } catch (error) {
-      notify("Error", error.message || "Failed to void RFID card.", "error");
-    }
-  }, [confirm, load, notify]);
-
-  const columns = React.useMemo(() => [
-    { key: "full_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (d) => d.full_name },
-    { key: "employee_id", header: "Employee ID", className: "tabular-nums", cell: (d) => d.employee_id || "N/A", searchValue: (d) => d.employee_id },
-    { key: "employee_type", header: "Type", cell: (d) => <StatusBadge tone={d.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{d.employee_type || "Teaching"}</StatusBadge> },
-    { key: "rfid_uid", header: "RFID UID", className: "font-mono text-xs", cell: (d) => (String(d.rfid_uid || "").trim() ? d.rfid_uid : "—"), searchValue: (d) => d.rfid_uid },
-    {
-      key: "status",
-      header: "Status",
-      sortValue: (d) => (String(d.rfid_uid || "").trim() ? 1 : 0),
-      cell: (d) => (String(d.rfid_uid || "").trim() ? <StatusBadge tone="success">Assigned</StatusBadge> : <StatusBadge tone="gold">Unassigned</StatusBadge>),
-    },
-    {
-      key: "actions",
-      header: <span className="sr-only">Actions</span>,
-      align: "right",
-      cell: (d) => {
-        const has = Boolean(String(d.rfid_uid || "").trim());
-        return (
-          <div className="flex justify-end gap-1.5">
-            <Button variant="outline" size="sm" onClick={() => setEditing(d)}>{has ? "Update" : "Assign"}</Button>
-            {has ? <Button variant="destructive" size="sm" onClick={() => voidCard(d)}>Void</Button> : null}
-          </div>
-        );
-      },
-    },
-  ], [voidCard]);
+  const { can } = usePortalSession();
 
   return (
     <>
-      {/* The RFID reader is a device: Admin / Super Admin run it from here
-          (it used to sit on their Attendance pages, which are HR's now). */}
+      {/* The RFID reader is a device: HR, the Admin and the Super Admin run it
+          from here (it used to sit on their Attendance pages). */}
       {can("rfid_devices", "update") ? (
         <Card className="border-brand-gold/60 bg-gradient-to-r from-brand-gold/10 to-transparent shadow-xs">
           <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -267,35 +146,14 @@ export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRAT
           </CardContent>
         </Card>
       ) : null}
-      <Card className="min-w-0 shadow-xs">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><CreditCardIcon className="size-4 text-gold-text" aria-hidden="true" />RFID device registration</CardTitle>
-          <CardDescription>{registrationText}</CardDescription>
-          <CardAction>
-            <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
-          </CardAction>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            rows={state.devices}
-            loading={state.loading}
-            error={state.error}
-            onRetry={load}
-            pageSize={15}
-            searchPlaceholder="Search employee name, ID or UID…"
-            empty={{ title: "No employees found", icon: CreditCardIcon }}
-            caption="RFID cards"
-            minWidth={720}
-          />
-        </CardContent>
-      </Card>
+      {/* Cards and terminals: the same records HR and the Super Admin see
+          (an Admin: its own branch). 2026-10-21. */}
+      <p className="text-sm text-muted-foreground">{registrationText}</p>
+      <RfidCardsPanel refreshKey={refreshKey} />
+      <RfidTerminalsPanel refreshKey={refreshKey} showOpen={false} />
 
       {/* Recording a scan writes attendance, which only HR manages (2026-10-20). */}
       {can("attendance", "update") ? <ScanCard auditActor={auditActor} /> : null}
-
-      <AssignDialog device={editing} onOpenChange={(open) => { if (!open) setEditing(null); }} onSaved={load} />
-      {confirmDialog}
     </>
   );
 }
