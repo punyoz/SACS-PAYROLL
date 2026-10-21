@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { resetDb, table, users } from "./helpers/fake-supabase.js";
+import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -148,54 +148,87 @@ describe("AWOL case flow", () => {
   });
 });
 
-describe("Approvals: excess subsidy advances and adjustments", () => {
+// 2026-10-21: the Accountant processes, HR approves (20261021010000). The
+// database functions own the rules (scripts/checks/subsidy-processing-scenarios.sql);
+// here: who reaches which step, and what the routes send them.
+describe("Subsidies: the Accountant processes, HR approves", () => {
+  const BAL = "bbbbbbbb-1111-4111-8111-000000000001";
+  const REQ = "cccccccc-1111-4111-8111-000000000001";
+
   beforeEach(() => {
-    table("payroll_subsidy_balances").push({ id: "bal-ana", employee_id: ANA, subsidy_year_start: "2026-01-01", status: "open", annual_amount: 24000, eligible_months: 9, remaining: -2000 });
-    table("payroll_loans").push({
-      id: "adv-ana", employee_id: ANA, branch_id: BRANCH, loan_type: "subsidy_advance", principal: 20000, remaining_balance: 2000,
-      status: "suspended", awaiting_decision: true, consent_refused_at: "2026-11-10T00:00:00Z", subsidy_balance_id: "bal-ana", status_reason: "Consent refused: will not sign",
-    });
+    table("payroll_subsidy_balances").push({ id: BAL, employee_id: ANA, subsidy_year_start: "2026-01-01", status: "open", annual_amount: 24000,
+      eligible_months: 9, entitlement: 18000, advances_total: 0, paid_out: 0, remaining: 18000, advance_limit: "full_year", eligible_from: "2026-04-01" });
+    rpc.results.subsidy_requests_raise_excess = () => ({ data: 0, error: null });
+    rpc.results.subsidy_request_process = ({ p_actor, p_request_id, p_kind, p_employee_id, p_balance_id, p_amount, p_reason, p_details }) => {
+      const row = table("payroll_subsidy_requests").find((r) => r.id === p_request_id);
+      if (row) {
+        Object.assign(row, { status: "processed", amount: p_amount, reason: p_reason, details: p_details, submission_no: row.submission_no + 1, processed_by: p_actor, processed_by_name: "Ana Accountant", decided_by: null });
+        row.history.push({ action: "resubmitted", actor_name: "Ana Accountant", at: "2026-11-03T00:00:00Z", note: p_reason });
+        return { data: row, error: null };
+      }
+      const created = { id: REQ, kind: p_kind, employee_id: p_employee_id, subsidy_balance_id: p_balance_id, status: "processed", amount: p_amount, reason: p_reason, details: p_details,
+        submission_no: 1, requested_by: p_actor, requested_by_name: "Ana Accountant", requested_at: "2026-11-01T00:00:00Z",
+        processed_by: p_actor, processed_by_name: "Ana Accountant", processed_at: "2026-11-01T00:00:00Z",
+        history: [{ action: "processed", actor_name: "Ana Accountant", at: "2026-11-01T00:00:00Z", note: p_reason }] };
+      table("payroll_subsidy_requests").push(created);
+      return { data: created, error: null };
+    };
+    rpc.results.subsidy_request_decide = ({ p_actor, p_request_id, p_decision, p_note }) => {
+      const row = table("payroll_subsidy_requests").find((r) => r.id === p_request_id);
+      if (row.status !== "processed") return { data: null, error: { message: `invalid_transition: this request is ${row.status} (only a processed one is decided).` } };
+      const at = new Date(Date.UTC(2026, 10, 2, row.history.length)).toISOString();
+      Object.assign(row, { status: p_decision === "approve" ? "approved" : "rejected", decided_by: p_actor, decided_by_name: "Rita HR", decided_at: at, decision_note: p_note });
+      row.history.push({ action: p_decision === "approve" ? "approved" : "rejected", actor_name: "Rita HR", at, note: p_note });
+      return { data: row, error: null };
+    };
   });
 
-  // 2026-10-20: HR is the only approver; the Admin and Super Admin have no access.
-  it("HR decides the excess advance in one step; the Admin and the Accountant are refused; a waiver closes it", async () => {
-    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "short" }, who.hr)).status).toBe(400);
-    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.admin)).status).toBe(403);
-    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.accountant)).status).toBe(403);
-    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "waive", reason: "Hardship; amount small" }, who.hr)).status).toBe(200);
-    expect(table("payroll_loans")[0]).toMatchObject({ decision: "waive", decision_recommended_by: "u-hr", decision_approved_by: "u-hr" });
-    expect(table("payroll_loan_payments")[0]).toMatchObject({ loan_id: "adv-ana", kind: "waiver", amount: 2000 });
-    expect((await apv("PATCH", { action: "decide_loan_decision", loan_id: "adv-ana", decision: "collect", reason: "Changed my mind later" }, who.hr)).status).toBe(409);
-    // Decided: off the waiting list, kept in the history.
-    const asHr = await (await apv("GET", null, who.hr)).json();
-    expect(asHr.loan_decisions).toEqual([]);
-    expect(asHr.history).toEqual([expect.objectContaining({ kind: "excess_advance", decided_by_name: expect.any(String), reason: "Hardship; amount small" })]);
+  const process = (as, body = {}) => apv("POST", { action: "process", kind: "adjustment", subsidy_balance_id: BAL, amount: 2000,
+    reason: "Verified late; license valid since Jul 2", details: { months_missed: 1, months_label: "Jul 2026" }, ...body }, as);
+
+  it("only the Accountant processes; the request goes to the database as the signed-in Accountant", async () => {
+    expect((await process(who.hr)).status).toBe(403);
+    expect((await process(who.admin)).status).toBe(403);
+    expect((await process(who.accountant)).status).toBe(200);
+    const call = rpc.calls.find((c) => c.fn === "subsidy_request_process");
+    expect(call.args).toMatchObject({ p_actor: "u-acct", p_kind: "adjustment", p_employee_id: ANA, p_amount: 2000, p_details: { months_missed: 1, months_label: "Jul 2026" } });
+    // The old name still works for the adjustment form.
+    expect((await apv("POST", { action: "request_adjustment", subsidy_balance_id: BAL, months_missed: 1, months_label: "Jul 2026", amount: 2000, reason: "Verified late; license valid since Jul 2" }, who.accountant)).status).toBe(200);
   });
 
-  it("the Accountant requests an adjustment; HR approves or rejects (with a reason); the Admin cannot", async () => {
-    const req = (body) => apv("POST", { action: "request_adjustment", subsidy_balance_id: "bal-ana", months_missed: 1, months_label: "Jul 2026", amount: 2000, reason: "Verified late; license valid since Jul 2", ...body }, who.accountant);
-    expect((await req({ reason: "late" })).status).toBe(400);
-    expect((await req({ months_missed: 13 })).status).toBe(400);
-    expect((await req()).status).toBe(200);
-    const row = table("payroll_subsidy_adjustments")[0];
-    expect(row).toMatchObject({ status: "pending", requested_by: "u-acct", amount: 2000 });
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.accountant)).status).toBe(403);
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.admin)).status).toBe(403);
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "reject" }, who.hr)).status).toBe(400);
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.hr)).status).toBe(200);
-    expect(row).toMatchObject({ status: "approved", decided_by: "u-hr", decided_by_role: "hr" });
-    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: row.id, decision: "approve" }, who.hr)).status).toBe(409);
+  it("only HR decides; a rejection goes back to the Accountant, who resubmits; then HR approves", async () => {
+    await process(who.accountant);
+    const decide = (as, decision, note) => apv("PATCH", { action: "decide", request_id: REQ, decision, note }, as);
+    expect((await decide(who.accountant, "approve")).status).toBe(403);
+    expect((await decide(who.admin, "approve")).status).toBe(403);
+    // The one-step decisions are gone.
+    expect((await apv("PATCH", { action: "decide_adjustment", adjustment_id: REQ, decision: "approve" }, who.hr)).status).toBe(409);
+    expect((await decide(who.hr, "reject", "Attach the PRC receipt date.")).status).toBe(200);
+    expect(rpc.calls.find((c) => c.fn === "subsidy_request_decide").args).toMatchObject({ p_actor: "u-hr", p_decision: "reject", p_note: "Attach the PRC receipt date." });
+    expect((await decide(who.hr, "approve")).status).toBe(409);   // rejected: the database refuses until resubmitted
+    expect((await process(who.accountant, { request_id: REQ, reason: "PRC receipt dated Jul 2, 2026" })).status).toBe(200);
+    expect((await decide(who.hr, "approve")).status).toBe(200);
+
     const asHr = await (await apv("GET", null, who.hr)).json();
-    expect(asHr.history).toEqual([expect.objectContaining({ kind: "adjustment", decision: "approved", requested_by_name: expect.any(String) })]);
+    expect(asHr.can).toEqual({ process: false, decide: true });
+    expect(asHr.requests).toEqual([expect.objectContaining({ id: REQ, status: "approved", status_label: "Approved", processed_by_name: "Ana Accountant", decided_by_name: "Rita HR" })]);
+    // Both decisions stay in the history, with who processed each round.
+    expect(asHr.history.map((h) => [h.decision, h.processed_by_name, h.decided_by_name])).toEqual([
+      ["approved", "Ana Accountant", "Rita HR"], ["rejected", "Ana Accountant", "Rita HR"],
+    ]);
   });
 
-  it("each role sees its own queues; the Admin has none", async () => {
-    const asHr = await (await apv("GET", null, who.hr)).json();
-    expect(asHr.can).toMatchObject({ decide: true, request: false });
-    expect(asHr.loan_decisions.map((l) => l.id)).toEqual(["adv-ana"]);
+  it("a database refusal reaches the person as it is", async () => {
+    rpc.results.subsidy_request_process = () => ({ data: null, error: { message: "forbidden: you cannot process your own subsidy." } });
+    const res = await process(who.accountant);
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("You cannot process your own subsidy.");
+  });
+
+  it("each role sees what it owns; the Admin has no access", async () => {
     const asAcct = await (await apv("GET", null, who.accountant)).json();
-    expect(asAcct.can).toMatchObject({ request: true, decide: false });
-    expect(asAcct.balances.map((b) => b.id)).toEqual(["bal-ana"]);
+    expect(asAcct.can).toEqual({ process: true, decide: false });
+    expect(asAcct.balances.map((b) => b.id)).toEqual([BAL]);
     expect((await apv("GET", null, who.admin)).status).toBe(403);
   });
 });

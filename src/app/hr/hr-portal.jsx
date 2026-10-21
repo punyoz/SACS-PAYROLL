@@ -120,7 +120,7 @@ const DESCRIPTIONS = {
   "hr-rfid-terminals": "The RFID readers of every branch: add and name them, switch them on or off, and open the RFID Terminal on one.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
-  "hr-subsidy-approvals": "Decide missed-month subsidy adjustments and refused-consent excess subsidy advances. HR is the only approver; every decision stays in the history.",
+  "hr-subsidy-approvals": "Approve or reject the subsidies the Accountant processed: missed-month adjustments, subsidy advances and excess-advance settlements. HR is the only approver; every decision stays in the history.",
   "hr-awol": "Unexcused absences flagged by the nightly check or reported by a branch Admin: confirm, send the notices, and separate or close each case.",
   "hr-branch-requests": "Attendance flags, schedule requests, incentive recommendations, RFID issues and overtime confirmations sent by the branch Admins. HR decides; the Admin is notified.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",

@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { resetDb, table, users } from "./helpers/fake-supabase.js";
+import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 import {
   loanAppliesToPeriod,
   nextSecondHalf,
@@ -269,27 +269,41 @@ describe("Loans API", () => {
     expect((await patch({ status: "suspended", reason: "whatever" })).status).toBe(409);
   });
 
-  it("a subsidy advance must fit the teacher's available balance", async () => {
+  // 2026-10-21: the Accountant processes, HR approves (20261021010000).
+  it("a subsidy advance must fit the available balance, and is only processed: no loan until HR approves", async () => {
     table("payroll_subsidy_balances").push({
       id: "bal-1", employee_id: NATE, subsidy_year_start: "2026-01-01", status: "open", annual_amount: 24000,
       entitlement: 24000, advances_total: 20000, paid_out: 0, remaining: 4000, advance_limit: "full_year", eligible_from: "2026-01-01", eligible_months: 12,
     });
+    rpc.results.subsidy_request_process = (args) => ({ data: { id: "req-1", status: "processed", ...args }, error: null });
     const advance = (principal) => loansApi.POST(request("/api/accountant/loans", "POST", {
       action: "create_subsidy_advance", employee_id: NATE, subsidy_balance_id: "bal-1", principal, date_granted: "2026-11-02",
     }));
     expect((await advance(4000.01)).status).toBe(400);
-    expect((await advance(4000)).status).toBe(200);
-    expect(table("payroll_loans")[0]).toMatchObject({ loan_type: "subsidy_advance", principal: 4000, subsidy_balance_id: "bal-1" });
+    const res = await advance(4000);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: "processed", request_id: "req-1" });
+    expect(table("payroll_loans")).toHaveLength(0);
+    expect(rpc.calls.find((c) => c.fn === "subsidy_request_process").args).toMatchObject({
+      p_kind: "advance", p_employee_id: NATE, p_balance_id: "bal-1", p_amount: 4000, p_details: expect.objectContaining({ date_granted: "2026-11-02" }),
+    });
   });
 
-  it("excess subsidy advance: refusal goes to HR / Admin; conversion needs signed consent", async () => {
+  it("excess subsidy advance: a refusal or a signed conversion is processed for HR, never applied here", async () => {
     table("payroll_subsidy_balances").push({ id: "bal-2", employee_id: NATE, status: "open", remaining: -2000 });
     seedLoan({ id: "adv", loan_type: "subsidy_advance", subsidy_balance_id: "bal-2", remaining_balance: 10000, amortization: null, start_period: null });
+    rpc.results.subsidy_request_process = (args) => ({ data: { id: "req-2", status: "processed", ...args }, error: null });
     const patch = (body) => loansApi.PATCH(request("/api/accountant/loans", "PATCH", { loan_id: "adv", ...body }));
-    expect((await patch({ action: "convert_excess" })).status).toBe(400);
+    expect((await patch({ action: "convert_excess" })).status).toBe(400);   // no signed consent
     expect((await patch({ action: "record_refusal", reason: "no" })).status).toBe(400);
-    expect((await patch({ action: "record_refusal", reason: "Will not sign; asks for offset" })).status).toBe(200);
-    expect(table("payroll_loans").find((l) => l.id === "adv")).toMatchObject({ status: "suspended", awaiting_decision: true });
-    expect((await patch({ action: "set_status", status: "active" })).status).toBe(409);
+    expect((await patch({ action: "record_refusal", reason: "Will not sign; asks for offset", option: "offset_next_subsidy" })).status).toBe(200);
+    expect(rpc.calls.find((c) => c.fn === "subsidy_request_process").args).toMatchObject({
+      p_kind: "excess_settlement", p_loan_id: "adv", p_details: { option: "offset_next_subsidy" },
+    });
+    expect((await patch({ action: "convert_excess", consent_signed: true, number_of_payrolls: 2 })).status).toBe(200);
+    expect(rpc.calls.filter((c) => c.fn === "subsidy_request_process").at(-1).args.p_details).toMatchObject({ option: "convert", consent_signed: true, number_of_payrolls: 2 });
+    // Nothing was written to the loan by the route itself.
+    expect(table("payroll_loans").find((l) => l.id === "adv")).not.toHaveProperty("decision");
+    expect(table("payroll_loan_payments")).toHaveLength(0);
   });
 });

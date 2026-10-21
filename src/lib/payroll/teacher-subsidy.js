@@ -6,7 +6,7 @@
  *   Payout month (the balance's payout_period_start = this period):
  *     Subsidy earning        = entitlement − advances − carried in − already paid − forfeited
  *     This year's advances   closed by a 'subsidy_offset' (never from salary)
- *     Prior-year excess      an excess advance the Admin approved to "offset
+ *     Prior-year excess      an excess advance HR approved to "offset
  *                            against next year's subsidy" is taken here, as its
  *                            own deduction line, up to the payout
  *   Any 2nd half:
@@ -90,7 +90,7 @@ export function subsidyForPayslip(ctx, period, ceiling = DEFAULT_BENEFITS_CEILIN
   const adjustments = ctx.adjustments || [];
   adjustments.forEach((adj) => {
     earnings.push({ type: "subsidy_adjustment", quantity: adj.months_missed, unit: "month", rate: null, amount: peso(adj.amount),
-      note: `Licensed teacher subsidy — adjustment (${adj.months_label}), approved by ${adj.decided_by_name || "Admin"}` });
+      note: `Licensed teacher subsidy — adjustment (${adj.months_label}), approved by ${adj.decided_by_name || "HR"}` });
   });
   const adjustmentsTotal = peso(adjustments.reduce((sum, adj) => sum + Number(adj.amount || 0), 0));
 

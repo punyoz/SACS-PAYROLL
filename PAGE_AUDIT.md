@@ -89,7 +89,7 @@ Every page reads `/api/admin/branch-oversight?view=…` (own branch only, from t
 | Branch Requests (`hr-branch-requests`) | `/api/hr/branch-requests` (branch_admin_requests) | Approve / reject / resolve with remark | ✅ |
 | Payroll Approval (`hr-payroll-approval`) | `/api/hr/payroll-runs` (payroll_run_summaries, payroll_run_items, payroll_approval_history), live stream | Tabs, filters, Review, Approve (one or many), Reject (reason required), PDF / Excel / Print | 🔧 tabs and badges use the payroll labels; the tab and open run survive a refresh |
 | Payroll Records (`hr-payroll-records`) | `/api/hr/payroll-records` (payroll_entries, payroll_runs) | Period / branch filters, View payslip, print / PDF | 🔧 filters survive a refresh; an old period in a link shows all records |
-| Subsidy Approvals (`hr-subsidy-approvals`) | `/api/admin/approvals` (payroll_loans, payroll_subsidy_adjustments) | Decide excess advance, approve / reject adjustment, decision history | 🔧 a decision can no longer be made twice at once; the Accountant is notified; history table shows load errors |
+| Subsidy Approvals (`hr-subsidy-approvals`) | `/api/admin/approvals` (payroll_subsidy_requests; applies to payroll_subsidy_adjustments, payroll_loans) | Status tabs, Approve / Reject (reason required) what the Accountant processed, Decision history | 🔧 2026-10-21: Accountant processes, HR approves; Requested / Processed / Approved-by columns; statuses Pending · Processed · Approved · Rejected · Applied to payroll; tab survives refresh |
 | HR Reports (`hr-reports`) | `/api/hr/reports` | Report type, date range, export | ✅ |
 | Profile (`hr-profile`) | `/api/legacy-auth/update-profile` | Change password, edit contact | ✅ |
 
@@ -103,11 +103,11 @@ Most pages share one load: `/api/accountant/payroll[?period=]` (payroll_entries,
 | Process Payroll (`ac-process`) | shared load, `/api/accountant/payroll-runs` | Pay period, Generate / Regenerate / Generate final, batch, save draft, Submit / Resubmit for HR Approval (confirm) | 🔧 **the chosen pay period survives a refresh** (a run being resubmitted used to drop out of view) |
 | Payroll Records (`ac-records`) | shared load (`history_records`, every period) | Search, Payslip | ✅ |
 | Payslips / Pay Record (`ac-payslips`) | shared load (`entry_id`) | Choose entry, print, PDF | ✅ |
-| Loans (`ac-loans`) | `/api/accountant/loans` | Add, suspend / resume, convert, refused | ✅ |
+| Loans (`ac-loans`) | `/api/accountant/loans` | Add, suspend / resume; subsidy advance and excess conversion / refusal are processed for HR | 🔧 2026-10-21: a subsidy advance is released only after HR approves |
 | Incentives & Overload (`ac-incentives`) | `?view=monthly_items` | Add, remove (confirm), month | 🔧 deferred table shows load errors |
 | Cash Advances (`ac-cash-advances`) | shared load | Hold / resume / cancel (confirm) | ✅ |
 | 13th Month Pay (`ac-13th`) | `?view=thirteenth_month` | Year, Process (confirm) | ✅ |
-| Subsidy Adjustments (`ac-approvals`) | `/api/admin/approvals` | Request adjustment (HR decides) | 🔧 HR is notified of each request |
+| Subsidies (`ac-approvals`) | `/api/admin/approvals` | Process adjustment / advance / excess settlement, Fix & resubmit what HR rejected | 🔧 2026-10-21: renamed from "Subsidy Adjustments"; processes every subsidy item; HR's reason shown on rejection |
 | Final Pay (`ac-final-pay`) | `/api/accountant/final-pay` | Compute, release | ✅ |
 | View Attendance (`ac-attendance`) | shared load, `/api/attendance/logs`, OT confirmations | View only | 🔧 table shows load errors with Try again |
 | Payroll Monitoring (`ac-monitoring`) | shared load | Status tabs, Edit / Cancel draft (confirm), Payslip | 🔧 tabs are the payroll labels; a failed load shows an error (it showed "No payroll records found") |
