@@ -13,6 +13,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getServiceClient } from "@/lib/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -110,8 +111,21 @@ export async function POST(request) {
     // recording after this sign-in ends (src/lib/auth/kiosk-session.js);
     // exiting it ends that session.
     const purpose = String(body.purpose || "").toLowerCase();
+    if (valid && purpose === "unlock") {
+      // The kiosk is one registered terminal (2026-10-21): Active, and one
+      // this person may run (an Admin only its own branch's terminals).
+      const terminalId = String(body.terminal_id || "").trim();
+      const terminal = /^[0-9a-f-]{36}$/i.test(terminalId)
+        ? (await getServiceClient().from("rfid_terminals").select("id,name,branch_id,status,key_version").eq("id", terminalId).maybeSingle()).data
+        : null;
+      if (!terminal) return NextResponse.json({ valid: true, error: "Choose the terminal this screen is.", code: "terminal_required" }, { status: 400 });
+      if (terminal.status !== "active") return NextResponse.json({ valid: true, error: "That terminal is switched off. Turn it on in RFID Terminals first.", code: "terminal_inactive" }, { status: 409 });
+      if (!guard.branchExempt && String(terminal.branch_id || "") !== String(guard.branchId || "")) {
+        return NextResponse.json({ valid: true, error: "That terminal belongs to another branch.", code: "forbidden" }, { status: 403 });
+      }
+      return attachKioskSession(NextResponse.json({ valid, terminal: { id: terminal.id, name: terminal.name, branch_id: terminal.branch_id } }), guard.session, terminal);
+    }
     const response = NextResponse.json({ valid });
-    if (valid && purpose === "unlock") return attachKioskSession(response, guard.session);
     if (valid && purpose === "exit") return clearKioskSession(response);
     return response;
   } catch (error) {

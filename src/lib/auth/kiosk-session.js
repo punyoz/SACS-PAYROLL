@@ -34,9 +34,10 @@ export const KIOSK_HEADER = "x-sacs-kiosk";
 /** A school day and then some: unlocked at 6:00, still recording at 22:00. */
 export const KIOSK_MAX_AGE_SECONDS = 16 * 60 * 60;
 
-const KIOSK_ROLES = ["admin", "super_admin"];
+// HR runs terminals too (2026-10-21).
+const KIOSK_ROLES = ["admin", "super_admin", "hr"];
 
-export function createKioskToken({ user_id: userId, role, branch_id: branchId, email, full_name: fullName }) {
+export function createKioskToken({ user_id: userId, role, branch_id: branchId, email, full_name: fullName, terminal = null }) {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     kind: "kiosk",
@@ -46,6 +47,13 @@ export function createKioskToken({ user_id: userId, role, branch_id: branchId, e
     branch_id: branchId ? String(branchId) : null,
     email: String(email || ""),
     full_name: String(fullName || ""),
+    // The registered terminal this kiosk is (rfid_terminals): its taps are
+    // recorded against it, and switching it off or resetting its key
+    // (key_version) ends this session at once.
+    terminal_id: terminal?.id ? String(terminal.id) : null,
+    terminal_name: terminal?.name ? String(terminal.name) : null,
+    terminal_branch_id: terminal?.branch_id ? String(terminal.branch_id) : null,
+    terminal_key: Number(terminal?.key_version || 0),
     iat: now,
     exp: now + KIOSK_MAX_AGE_SECONDS,
   };
@@ -89,13 +97,14 @@ function kioskCookieOptions(maxAge = KIOSK_MAX_AGE_SECONDS) {
 }
 
 /** Issue the kiosk cookie for a verified session (see the header). */
-export function attachKioskSession(response, session) {
+export function attachKioskSession(response, session, terminal = null) {
   response.cookies.set(KIOSK_COOKIE, createKioskToken({
     user_id: session.sub,
     role: session.role,
     branch_id: session.branch_id,
     email: session.email,
     full_name: session.full_name,
+    terminal,
   }), kioskCookieOptions());
   return response;
 }
@@ -154,5 +163,33 @@ export async function kioskRefusal(kiosk) {
   }
   if (entry.archived) return "account_archived";
   if (!KIOSK_ROLES.includes(entry.role) || entry.role !== kiosk.role) return "kiosk_revoked";
+  return terminalRefusal(kiosk);
+}
+
+const terminalCache = new Map(); // terminal id -> { status, key_version, at }
+
+/**
+ * The kiosk's terminal must exist, be Active and keep the key it was opened
+ * with. A kiosk opened before terminals were registered has none and must be
+ * unlocked again (choosing its terminal). Unreachable database: let it tap.
+ */
+async function terminalRefusal(kiosk) {
+  if (!kiosk.terminal_id) return "kiosk_no_terminal";
+  const cached = terminalCache.get(kiosk.terminal_id);
+  let entry = cached && Date.now() - cached.at < CACHE_TTL_MS ? cached : null;
+  if (!entry) {
+    const supabase = getAdminClient();
+    if (!supabase) return null;
+    try {
+      const result = await supabase.from("rfid_terminals").select("status,key_version").eq("id", kiosk.terminal_id).maybeSingle();
+      if (result.error) return null;
+      entry = { status: result.data?.status || "missing", key_version: Number(result.data?.key_version || 0), at: Date.now() };
+      terminalCache.set(kiosk.terminal_id, entry);
+    } catch {
+      return null;
+    }
+  }
+  if (entry.status !== "active") return "terminal_inactive";
+  if (entry.key_version !== Number(kiosk.terminal_key || 0)) return "terminal_reset";
   return null;
 }

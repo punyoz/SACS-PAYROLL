@@ -575,6 +575,7 @@ describe("Matrix stays in step with the SQL seed", () => {
       "supabase/migrations/20261018010000_hr_view_payroll_records_payslips.sql",
       "supabase/migrations/20261020010000_role_separation.sql",
       "supabase/migrations/20261020020000_admin_branch_oversight.sql",
+      "supabase/migrations/20261021030000_rfid_cards_terminals.sql",
     ].map((file) => readFileSync(file, "utf8")).join("\n");
   });
 

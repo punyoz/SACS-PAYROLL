@@ -32,7 +32,7 @@ export function tapDevice(body, manualEntry) {
   return label || "RFID Terminal";
 }
 
-export async function recordRawTap(supabase, { employee, dateKey, tappedAt, rfidCode, device, source, recordedBy }) {
+export async function recordRawTap(supabase, { employee, dateKey, tappedAt, rfidCode, device, source, recordedBy, terminalId = null }) {
   try {
     const result = await supabase.from("attendance_taps").insert({
       employee_id: employee.id,
@@ -44,6 +44,8 @@ export async function recordRawTap(supabase, { employee, dateKey, tappedAt, rfid
       device: device || null,
       source: source === "manual_entry" ? "manual_entry" : "rfid_tap",
       recorded_by: recordedBy || null,
+      // The registered terminal it came from (rfid_terminals, 2026-10-21).
+      ...(terminalId ? { terminal_id: terminalId } : {}),
     });
     if (result.error) throw result.error;
     return true;

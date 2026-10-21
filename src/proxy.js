@@ -97,6 +97,9 @@ const API_MODULES = [
   // Unlocking the RFID Terminal: a device function of Admin / Super Admin
   // (rfid_devices), not attendance management, which is HR's.
   ["/api/admin/attendance/verify-password", "rfid_devices"],
+  // RFID cards and terminals (2026-10-21): HR, Super Admin, branch Admin.
+  ["/api/rfid/cards", "rfid_devices"],
+  ["/api/rfid/terminals", "rfid_devices"],
   ["/api/admin/audit-logs", "audit_logs"],
   ["/api/admin/branch-employees", "branch_assignment"],
   ["/api/admin/branch-reports", "branch_reports"],
@@ -408,7 +411,8 @@ async function route(request) {
       loginUrl.searchParams.set("reason", rejection.reason);
       return clearSession(NextResponse.redirect(loginUrl));
     }
-    if (session.role !== "admin" && session.role !== "super_admin") {
+    // HR, the Super Admin and the branch Admin run terminals (2026-10-21).
+    if (!can(session.role, "rfid_devices", "update")) {
       return NextResponse.redirect(new URL(ROLE_HOME[session.role] || "/login", request.url));
     }
     return withRenewedSession(request, NextResponse.next(), session, pathname);

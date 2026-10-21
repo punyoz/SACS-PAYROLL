@@ -135,7 +135,7 @@ export const MODULES = {
   },
   rfid_devices: {
     order: 9, label: "RFID Devices", section: "Attendance",
-    page: {},
+    page: { hr: "hr-rfid-cards" },
   },
   process_payroll: {
     order: 10, label: "Process Payroll", section: "Payroll",
@@ -337,8 +337,9 @@ export const ROLE_PERMISSIONS = {
     roles_permissions: none(),
     transfer_requests: none(),
     leave_approval: none(),
-    // Registering, replacing and voiding RFID cards for the Admin's own branch.
-    rfid_devices: { scope: SCOPE_BRANCH, actions: READ_WRITE },
+    // RFID cards and terminals of the Admin's own branch: register, replace,
+    // deactivate; add and manage terminals (2026-10-21).
+    rfid_devices: { scope: SCOPE_BRANCH, actions: ["create", "read", "update"] },
     process_payroll: none(),
     payroll_records: none(),
     payslips: none(),
@@ -382,7 +383,9 @@ export const ROLE_PERMISSIONS = {
     roles_permissions: none(),
     transfer_requests: full(SCOPE_ALL),
     leave_approval: full(SCOPE_ALL),
-    rfid_devices: none(),
+    // RFID cards and terminals for every branch (2026-10-21), alongside the
+    // Super Admin and each branch's Admin. Nothing is ever deleted.
+    rfid_devices: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     process_payroll: none(),
     // Matrix rows 11-12: HR views every branch's processed payslips, read-only
     // (/api/hr/payroll-records). Restored in the database by
