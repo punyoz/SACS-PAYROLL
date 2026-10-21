@@ -61,6 +61,15 @@ function statusBadge(loan) {
   return <StatusBadge tone="info">Active</StatusBadge>;
 }
 
+
+/** What the Accountant may propose for a refused excess advance; HR decides (2026-10-21). */
+const EXCESS_PROPOSALS = [
+  ["offset_next_subsidy", "Offset against next year's subsidy"],
+  ["waive", "Waive (write off)"],
+  ["final_pay", "Recover from final pay on separation"],
+  ["collect", "Refer for collection"],
+];
+
 export function LoansPage({ refreshKey }) {
   const { load: reloadPayroll } = useAccountant();
   const { notify } = usePortalSession();
@@ -149,8 +158,9 @@ export function LoansPage({ refreshKey }) {
         action: "create_subsidy_advance", employee_id: balance.employee_id, subsidy_balance_id: balance.id,
         principal: advance.amount, date_granted: advance.granted, description: advance.description.trim(),
       }));
-      setFeedback({ text: `Advance recorded — not deducted from salary; the year-end payout is reduced by ${money(advance.amount)}.`, ok: true });
-      notify("Subsidy Advance Recorded", "Release it in cash or by bank transfer.", "success");
+      // Processed, not released: HR approves it first (2026-10-21).
+      setFeedback({ text: `Advance of ${money(advance.amount)} processed and sent to HR. Release it once HR approves (Subsidies shows the status).`, ok: true });
+      notify("Subsidy Advance Processed", "Waiting for HR's approval. Release it in cash or by bank transfer once approved.", "success");
       setAdvance((c) => ({ ...c, amount: "", description: "" }));
       await load();
     } catch (error) {
@@ -162,7 +172,7 @@ export function LoansPage({ refreshKey }) {
 
   function openDialog(kind, loan) {
     setDialog({ kind, loan });
-    setDialogInput({ reason: "", payrolls: "3", start: starts[0].value, signed: false });
+    setDialogInput({ reason: "", payrolls: "3", start: starts[0].value, signed: false, option: "offset_next_subsidy" });
     setDialogError("");
   }
 
@@ -174,13 +184,13 @@ export function LoansPage({ refreshKey }) {
         await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "set_status", loan_id: loan.id, status: "suspended", reason: dialogInput.reason.trim() }));
         notify("Loan Suspended", "Payroll skips it until resumed.", "info");
       } else if (kind === "refusal") {
-        if (dialogInput.reason.trim().length < 5) { setDialogError("Record what the teacher said (at least 5 characters)."); return; }
-        await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "record_refusal", loan_id: loan.id, reason: dialogInput.reason.trim() }));
-        notify("Sent to HR and Admin", "Nothing is deducted from salary until they decide.", "info");
+        if (dialogInput.reason.trim().length < 10) { setDialogError("Record what the teacher said (at least 10 characters)."); return; }
+        await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "record_refusal", loan_id: loan.id, reason: dialogInput.reason.trim(), option: dialogInput.option }));
+        notify("Processed for HR", "HR approves or rejects your proposal. Nothing is deducted from salary meanwhile.", "info");
       } else if (kind === "convert") {
         if (!dialogInput.signed) { setDialogError("The teacher's signed consent is required."); return; }
         await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "convert_excess", loan_id: loan.id, consent_signed: true, number_of_payrolls: Number(dialogInput.payrolls) || 1, start_period: dialogInput.start }));
-        notify("Converted to a Cash Advance", "Repaid on 16–end payslips.", "success");
+        notify("Conversion Processed", "It becomes a cash advance repaid on 16–end payslips once HR approves.", "success");
       }
       setDialog(null);
       await load();
@@ -257,7 +267,7 @@ export function LoansPage({ refreshKey }) {
         <StatCard label="Open loans" value={summary.open_count || 0} hint="Active, suspended or awaiting a decision" icon={HandCoinsIcon} tone="info" loading={first} />
         <StatCard label="Outstanding balance" value={moneyCompact(summary.outstanding || 0)} hint="Still to be repaid" icon={WalletIcon} tone="danger" loading={first} />
         <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips and final pay" icon={CoinsIcon} tone="success" loading={first} />
-        <StatCard label="Awaiting decision" value={summary.awaiting_decision || 0} hint="Excess subsidy advances (HR / Admin)" icon={HourglassIcon} tone="gold" loading={first} />
+        <StatCard label="Awaiting decision" value={summary.awaiting_decision || 0} hint="Excess subsidy advances (HR decides)" icon={HourglassIcon} tone="gold" loading={first} />
       </section>
 
       {canEdit ? (
@@ -307,7 +317,8 @@ export function LoansPage({ refreshKey }) {
                     {field("amount", "Advance (₱)", <Input id="ac-ln-amount" type="number" min="0" step="0.01" inputMode="decimal" value={advance.amount} onChange={(e) => setAdvance((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />, selectedBalance ? `Available ${money(selectedBalance.available)} of ${money(selectedBalance.entitlement)}` : null)}
                     {field("adv-granted", "Release date", <DatePicker id="ac-ln-adv-granted" value={advance.granted} onChange={(v) => setAdvance((c) => ({ ...c, granted: v }))} />)}
                     <div className="sm:col-span-2">{field("adv-description", <>Note <span className="font-normal text-muted-foreground">(optional)</span></>, <Input id="ac-ln-adv-description" maxLength={200} value={advance.description} onChange={(e) => setAdvance((c) => ({ ...c, description: e.target.value }))} />)}</div>
-                    <Button type="submit" className="sm:col-span-2" disabled={busy || !balances.length}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <GiftIcon aria-hidden="true" />}Record subsidy advance</Button>
+                    <p className="text-xs text-muted-foreground sm:col-span-2">HR approves an advance before it is released. Follow it under Payroll → Subsidies.</p>
+                    <Button type="submit" className="sm:col-span-2" disabled={busy || !balances.length}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <GiftIcon aria-hidden="true" />}Process subsidy advance</Button>
                     {feedback.text ? <p role="status" className={cn("text-sm sm:col-span-2", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
                   </form>
                 </TabsContent>
@@ -363,8 +374,8 @@ export function LoansPage({ refreshKey }) {
                 <DialogTitle>{dialog.kind === "suspend" ? "Suspend this loan?" : dialog.kind === "refusal" ? "Teacher refused to sign" : "Convert the excess to a cash advance"}</DialogTitle>
                 <DialogDescription>
                   {dialog.kind === "suspend" ? "Payroll skips it until resumed. The balance stays." : dialog.kind === "refusal"
-                    ? "The excess advance goes to HR (recommends) and the Admin (approves). Nothing is deducted from salary meanwhile."
-                    : "Only with the teacher's signed consent: the excess becomes a cash advance repaid on 16–end payslips."}
+                    ? "Propose what happens to the excess. HR approves or rejects it. Nothing is deducted from salary meanwhile."
+                    : "Only with the teacher's signed consent. Once HR approves, the excess becomes a cash advance repaid on 16–end payslips."}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3">
@@ -382,17 +393,28 @@ export function LoansPage({ refreshKey }) {
                     <label className="flex items-start gap-2 text-sm"><Checkbox checked={dialogInput.signed} onCheckedChange={(v) => setDialogInput((c) => ({ ...c, signed: v === true }))} className="mt-0.5" /><span>The teacher signed consent to the salary deduction.</span></label>
                   </>
                 ) : (
+                  <>
+                  {dialog.kind === "refusal" ? (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="ac-ln-option">Your proposal to HR</Label>
+                      <Select value={dialogInput.option} onValueChange={(v) => setDialogInput((c) => ({ ...c, option: v }))}>
+                        <SelectTrigger id="ac-ln-option" className="w-full"><SelectValue /></SelectTrigger>
+                        <SelectContent>{EXCESS_PROPOSALS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
                   <div className="space-y-1.5">
                     <Label htmlFor="ac-ln-reason">{dialog.kind === "refusal" ? "What the teacher said" : "Reason"}</Label>
-                    <Input id="ac-ln-reason" maxLength={300} placeholder="Required, at least 5 characters" value={dialogInput.reason} onChange={(e) => { setDialogInput((c) => ({ ...c, reason: e.target.value })); setDialogError(""); }} autoFocus />
+                    <Input id="ac-ln-reason" maxLength={300} placeholder={dialog.kind === "refusal" ? "Required, at least 10 characters" : "Required, at least 5 characters"} value={dialogInput.reason} onChange={(e) => { setDialogInput((c) => ({ ...c, reason: e.target.value })); setDialogError(""); }} autoFocus />
                   </div>
+                  </>
                 )}
                 {dialogError ? <p className="text-sm text-destructive">{dialogError}</p> : null}
               </div>
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button>
                 <Button variant={dialog.kind === "convert" ? "default" : "destructive"} onClick={confirmDialog}>
-                  {dialog.kind === "suspend" ? "Suspend" : dialog.kind === "refusal" ? "Send to HR & Admin" : "Convert"}
+                  {dialog.kind === "suspend" ? "Suspend" : dialog.kind === "refusal" ? "Send to HR" : "Process conversion"}
                 </Button>
               </DialogFooter>
             </>

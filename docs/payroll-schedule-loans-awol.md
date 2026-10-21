@@ -582,6 +582,11 @@ PRC number appear in either log.
 
 ### 6.7 Excess advance when the teacher refuses consent (decision 11)
 
+> **Replaced 2026-10-21 by §6.9:** the Accountant processes the settlement
+> (convert with signed consent, offset, waive, final pay or collect) and HR
+> approves or rejects it. The Admin has no step. The table below is the
+> original design, kept for reference.
+
 | Step | Who | What |
 |---|---|---|
 | 1 | System (at payout or license loss) | Excess = advances − entitlement > 0. The subsidy advance stays open with the excess as its balance, `suspended`, flagged **awaiting decision**. Payroll never deducts a subsidy advance, so salary is untouched |
@@ -591,6 +596,10 @@ PRC number appear in either log.
 | 5 | System | The decision, who recommended it and who approved it are stored on the loan. Until the Admin approves, the loan stays suspended and nothing is deducted |
 
 ### 6.8 Missed months: manual adjustment (decision 15)
+
+> **Replaced 2026-10-21 by §6.9:** the Accountant processes, **HR** (not the
+> Admin) approves or rejects, and a rejection goes back to the Accountant to
+> fix and resubmit.
 
 License changes are never backdated, so months can be missed. For
 example, a teacher submitted a valid license in May, but HR only verified
@@ -613,6 +622,40 @@ paid **once, as a manual adjustment** on a later 2nd-half payslip.
   he starts in August: 5 months, ₱10,000. The Accountant requests 1 month
   (July) = ₱2,000, reason "Verified late; license valid since Jul 12".
   The Admin approves on Aug 3, and ₱2,000 is paid on the Aug 16–31 payslip.
+
+
+### 6.9 Who processes a subsidy (decision of 2026-10-21)
+
+Every subsidy item is one record (`payroll_subsidy_requests`,
+`20261021010000_subsidy_processing.sql`) with one owner per step. The
+database functions check the person's role themselves, and the money records
+(an advance, an excess decision or conversion, a waiver, an adjustment's
+approval) are refused if written any other way.
+
+| Step | Owner | Status after |
+|---|---|---|
+| An advance exceeds the teacher's subsidy | System raises it | Pending |
+| Prepare it: amount / months / settlement, reason | **Accountant** (own branch, never their own) | Processed |
+| Approve, or reject with a reason | **HR** (never the person who processed it) | Approved / Rejected |
+| A rejected item is fixed and resubmitted | **Accountant** | Processed |
+| It takes effect | System / payroll | Applied to payroll |
+
+What "applied" means per kind:
+
+| Kind | On HR's approval | Applied to payroll when |
+|---|---|---|
+| Missed-month adjustment | the adjustment is approved | paid on the next 16–end payslip the Accountant generates |
+| Subsidy advance | the advance is released (a `subsidy_advance` loan opens) | at once; never deducted from salary |
+| Excess: convert (signed consent) | a cash advance opens, repaid on 16–end payslips | at once |
+| Excess: waive | written off | at once |
+| Excess: offset / final pay / collect | the decision is recorded on the advance | it acts at next year's payout, in final pay, or outside payroll (stays "Approved") |
+
+Notifications: HR is told when something is processed; the Accountant is told
+when HR approves or rejects (with the reason). Every step is kept in the
+record's history and in the Decision history (who processed, who decided,
+when, why). Admin, Super Admin and Employee have no step.
+
+Checks: `scripts/checks/subsidy-processing-scenarios.sql` (local only).
 
 ---
 

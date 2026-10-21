@@ -7,11 +7,13 @@
  *            interest_pct, number_of_payrolls, amortization, date_granted,
  *            start_period, description, final_pay_authorized }
  *          { action: "create_subsidy_advance", employee_id, subsidy_balance_id,
- *            principal, date_granted, description }
+ *            principal, date_granted, description }   processed; released when HR approves
  *   PATCH  { action: "set_status", loan_id, status: active | suspended, reason }
  *          { action: "convert_excess", loan_id, amortization, number_of_payrolls,
- *            start_period, consent_signed: true }   excess subsidy advance → loan
- *          { action: "record_refusal", loan_id, reason }  consent refused (§6.7)
+ *            start_period, consent_signed: true }   excess → loan, processed for HR
+ *          { action: "record_refusal", loan_id, reason, option }  consent refused: processed for HR
+ *   (Subsidy items are processed by the Accountant and decided by HR:
+ *    src/app/api/admin/approvals/route.js, 20261021010000.)
  *
  * Balances are kept by the database (payroll_loan_payments_apply); payroll
  * deducts on the 2nd half (src/lib/payroll/loans.js). Accountant: own branch;
@@ -36,6 +38,7 @@ import {
   validateSubsidyAdvanceInput,
 } from "@/lib/payroll/loans";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
+import { describeSubsidyError } from "@/lib/payroll/subsidy-requests";
 
 const peso = (value) => roundPeso(value);
 const NOT_READY = "Loans are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
@@ -47,6 +50,12 @@ function dbError(error, fallback = "The loan was not saved.") {
     return NextResponse.json({ error: String(error.message || fallback).replace(/^ERROR:\s*/, "") }, { status: 400 });
   }
   return NextResponse.json({ error: sanitizeError(error, fallback) }, { status: 500 });
+}
+
+/** A refusal from subsidy processing (the database's own rules). */
+function subsidyRefused(error) {
+  const failure = describeSubsidyError(error);
+  return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });
 }
 
 function money(value) {
@@ -229,28 +238,27 @@ export async function POST(request) {
       const invalid = validateSubsidyAdvanceInput({ principal: body.principal, date_granted: dateGranted }, advanceAvailable(balance, dateGranted));
       if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
-      const row = {
-        employee_id: person.id,
-        branch_id: person.branch_id || null,
-        loan_type: "subsidy_advance",
-        description: normalizeText(body.description).slice(0, 200) || `Subsidy advance ${String(balance.subsidy_year_start).slice(0, 4)}`,
-        date_granted: dateGranted,
-        principal: peso(body.principal),
-        subsidy_balance_id: balance.id,
-        final_pay_authorized: body.final_pay_authorized !== false,
-        created_by: guard.userId || null,
-        created_by_name: actorName(guard),
-      };
-      const result = await supabase.from("payroll_loans").insert(row).select("id").maybeSingle();
-      if (result.error) return dbError(result.error, "The advance was not saved.");
+      // Processed here, released only when HR approves it (20261021010000):
+      // no loan exists until then.
+      const processed = await supabase.rpc("subsidy_request_process", {
+        p_actor: guard.userId, p_request_id: null, p_kind: "advance", p_employee_id: person.id, p_balance_id: balance.id,
+        p_loan_id: null, p_amount: peso(body.principal), p_reason: normalizeText(body.description).slice(0, 200) || null,
+        p_details: {
+          date_granted: dateGranted,
+          description: normalizeText(body.description).slice(0, 200) || `Subsidy advance ${String(balance.subsidy_year_start).slice(0, 4)}`,
+          final_pay_authorized: body.final_pay_authorized !== false,
+        },
+      });
+      if (processed.error) return subsidyRefused(processed.error);
+      const row = Array.isArray(processed.data) ? processed.data[0] : processed.data;
 
       await appendAuditLog({
-        actor: guard, module: "payroll", action: "subsidy_advance", entity_type: "payroll_loan",
-        entity_id: result.data?.id || person.id, status: "success", source: "api",
-        description: `Licensed teacher subsidy advance ${money(row.principal)} for ${personLabel(person)} (not deducted from salary).`,
-        metadata: row,
+        actor: guard, module: "payroll", action: "subsidy_processed", entity_type: "payroll_subsidy_request",
+        entity_id: row?.id || person.id, status: "success", source: "api",
+        description: `Licensed teacher subsidy advance ${money(body.principal)} for ${personLabel(person)} processed; released when HR approves.`,
+        metadata: { kind: "advance", principal: peso(body.principal), date_granted: dateGranted },
       });
-      return NextResponse.json({ success: true, id: result.data?.id || null });
+      return NextResponse.json({ success: true, request_id: row?.id || null, status: "processed" });
     }
 
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
@@ -281,7 +289,7 @@ export async function PATCH(request) {
       const status = normalizeText(body.status).toLowerCase();
       if (!["active", "suspended"].includes(status)) return NextResponse.json({ error: "Status must be active or suspended." }, { status: 400 });
       if (loan.status === "paid") return NextResponse.json({ error: "A paid loan cannot be changed." }, { status: 409 });
-      if (loan.awaiting_decision) return NextResponse.json({ error: "This advance waits for an HR / Admin decision (Approvals)." }, { status: 409 });
+      if (loan.awaiting_decision) return NextResponse.json({ error: "This advance waits for HR's decision (Subsidies)." }, { status: 409 });
       if (status === "suspended" && reason.length < 5) return NextResponse.json({ error: "Give a reason for suspending (at least 5 characters)." }, { status: 400 });
       const result = await supabase.from("payroll_loans").update({
         status, status_reason: reason || null, status_changed_by: guard.userId || null,
@@ -307,55 +315,43 @@ export async function PATCH(request) {
       if (excess <= 0) return NextResponse.json({ error: "This advance is still covered by the teacher's subsidy: nothing to settle." }, { status: 409 });
       const settle = Math.min(excess, peso(loan.remaining_balance));
 
+      // Processed here, decided by HR (20261021010000): a refusal proposes one
+      // of HR's options; a signed consent proposes the conversion.
+      let details;
       if (action === "record_refusal") {
-        if (reason.length < 5) return NextResponse.json({ error: "Record what the teacher said (at least 5 characters)." }, { status: 400 });
-        const result = await supabase.from("payroll_loans").update({
-          status: "suspended", awaiting_decision: true, consent_refused_at: now,
-          status_reason: `Consent refused: ${reason}`, status_changed_by: guard.userId || null,
-          status_changed_by_name: actorName(guard), status_changed_at: now,
-        }).eq("id", loan.id);
-        if (result.error) return dbError(result.error);
-        await appendAuditLog({
-          actor: guard, module: "payroll", action: "subsidy_excess_refused", entity_type: "payroll_loan", entity_id: loan.id,
-          status: "success", source: "api",
-          description: `${personLabel(person)} refused to sign for the ${money(settle)} excess subsidy advance; sent to HR and Admin. Nothing is deducted meanwhile.`,
-          metadata: { excess: settle, reason },
-        });
-        return NextResponse.json({ success: true, excess: settle });
+        if (reason.length < 10) return NextResponse.json({ error: "Record what the teacher said (at least 10 characters)." }, { status: 400 });
+        const option = normalizeText(body.option, "offset_next_subsidy");
+        if (!["offset_next_subsidy", "waive", "final_pay", "collect"].includes(option)) return NextResponse.json({ error: "Choose what you propose to HR." }, { status: 400 });
+        details = { option };
+      } else {
+        if (body.consent_signed !== true) return NextResponse.json({ error: "The teacher's signed consent is required to deduct from salary." }, { status: 400 });
+        const payrolls = Number(body.number_of_payrolls) || 1;
+        const amortization = body.amortization ? peso(body.amortization) : suggestedAmortization(settle, payrolls);
+        const input = {
+          loan_type: "cash_advance", principal: settle, interest_pct: 0, number_of_payrolls: payrolls, amortization,
+          date_granted: manilaDateKey(), start_period: normalizeText(body.start_period, nextSecondHalf(manilaDateKey())),
+        };
+        const invalid = validateLoanInput(input);
+        if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+        details = { option: "convert", consent_signed: true, number_of_payrolls: payrolls, amortization, start_period: input.start_period };
       }
-
-      // convert_excess: the teacher signed — a regular cash advance repaid on 2nd halves.
-      if (body.consent_signed !== true) return NextResponse.json({ error: "The teacher's signed consent is required to deduct from salary." }, { status: 400 });
-      const payrolls = Number(body.number_of_payrolls) || 1;
-      const amortization = body.amortization ? peso(body.amortization) : suggestedAmortization(settle, payrolls);
-      const input = {
-        loan_type: "cash_advance", principal: settle, interest_pct: 0, number_of_payrolls: payrolls, amortization,
-        date_granted: manilaDateKey(), start_period: normalizeText(body.start_period, nextSecondHalf(manilaDateKey())),
-      };
-      const invalid = validateLoanInput(input);
-      if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
-      const created = await supabase.from("payroll_loans").insert({
-        employee_id: person.id, branch_id: person.branch_id || null, loan_type: "cash_advance",
-        description: `Excess subsidy advance (signed consent)`, date_granted: input.date_granted, principal: settle,
-        interest_pct: 0, number_of_payrolls: payrolls, amortization, start_period: input.start_period,
-        final_pay_authorized: true, created_by: guard.userId || null, created_by_name: actorName(guard),
-      }).select("id").maybeSingle();
-      if (created.error) return dbError(created.error);
-      const linked = await supabase.from("payroll_loans").update({ converted_to_loan_id: created.data.id, awaiting_decision: false }).eq("id", loan.id);
-      if (linked.error) return dbError(linked.error);
-      const paid = await supabase.from("payroll_loan_payments").insert({
-        loan_id: loan.id, employee_id: person.id, kind: "converted", amount: settle, amount_due: settle,
-        note: "Converted to a cash advance with the teacher's signed consent",
-        created_by: guard.userId || null, created_by_name: actorName(guard),
+      const open = await supabase.from("payroll_subsidy_requests").select("id,status").eq("loan_id", loan.id)
+        .eq("kind", "excess_settlement").in("status", ["pending", "rejected"]).maybeSingle();
+      const processed = await supabase.rpc("subsidy_request_process", {
+        p_actor: guard.userId, p_request_id: open.data?.id || null, p_kind: "excess_settlement", p_employee_id: person.id,
+        p_balance_id: loan.subsidy_balance_id, p_loan_id: loan.id, p_amount: null,
+        p_reason: action === "record_refusal" ? `Consent refused: ${reason}` : (reason || "Teacher signed consent to a salary deduction"),
+        p_details: details,
       });
-      if (paid.error) return dbError(paid.error);
+      if (processed.error) return subsidyRefused(processed.error);
+      const row = Array.isArray(processed.data) ? processed.data[0] : processed.data;
       await appendAuditLog({
-        actor: guard, module: "payroll", action: "subsidy_excess_converted", entity_type: "payroll_loan", entity_id: loan.id,
+        actor: guard, module: "payroll", action: "subsidy_processed", entity_type: "payroll_subsidy_request", entity_id: row?.id || loan.id,
         status: "success", source: "api",
-        description: `${money(settle)} excess subsidy advance of ${personLabel(person)} converted to a cash advance, ${money(amortization)} per 16–end payslip (signed consent).`,
-        metadata: { new_loan_id: created.data.id, excess: settle, amortization, payrolls },
+        description: `${money(settle)} excess subsidy advance of ${personLabel(person)} processed (${details.option}); waits for HR.`,
+        metadata: { loan_id: loan.id, excess: settle, ...details },
       });
-      return NextResponse.json({ success: true, new_loan_id: created.data.id });
+      return NextResponse.json({ success: true, excess: settle, request_id: row?.id || null, status: "processed" });
     }
 
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
