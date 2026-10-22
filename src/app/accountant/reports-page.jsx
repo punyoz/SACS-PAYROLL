@@ -97,7 +97,7 @@ function PayrollSheet({ data }) {
 }
 
 export function ReportsPage() {
-  const { data } = useAccountant();
+  const { data, error, load } = useAccountant();
   const { notify } = usePortalSession();
   const [period, setPeriod] = React.useState("all");
   const [type, setType] = React.useState("summary");
@@ -207,6 +207,9 @@ export function ReportsPage() {
   ];
 
   const title = report ? `${report.type === "holidays" ? "Holiday work" : report.type === "sheet" ? "Payroll sheet" : "Payroll report"} — ${report.period === "all" ? "All periods" : report.period}` : "Report";
+
+  // A failed first load left the period list empty with no reason (E2E 2026-10-22).
+  if (error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={error} onRetry={() => load()} /></CardContent></Card>;
 
   return (
     <>

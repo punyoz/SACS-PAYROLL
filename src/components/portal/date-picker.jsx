@@ -13,6 +13,18 @@ function keyToDate(key) {
   return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : undefined;
 }
 
+/*
+ * The last month the year dropdown and arrows reach when the field has no
+ * `max`. react-day-picker otherwise stops a dropdown calendar at the end of
+ * the current year (getNavMonths), so no later date could be picked: a PRC
+ * license expiry, or a leave in January filed in late December (E2E
+ * 2026-10-22).
+ */
+const YEARS_AHEAD = 10;
+function latestMonth() {
+  return new Date(new Date().getFullYear() + YEARS_AHEAD, 11, 31);
+}
+
 function dateToKey(date) {
   if (!date) return "";
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -61,7 +73,7 @@ export const DatePicker = React.forwardRef(function DatePicker(
           captionLayout="dropdown"
           disabled={limits.length ? limits : undefined}
           startMonth={minDate}
-          endMonth={maxDate}
+          endMonth={maxDate || latestMonth()}
           onSelect={(date) => {
             onChange?.(dateToKey(date));
             setOpen(false);

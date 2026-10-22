@@ -390,6 +390,9 @@ function normalizePayrollEntry(row) {
       // Payslip generation (Generate / Regenerate): Draft or Final, attendance
       // counted up to, who and when, and the attendance snapshot used.
       generation: payrollObj?.generation && typeof payrollObj.generation === "object" ? payrollObj.generation : null,
+      // Branch and position printed on a batch-processed payslip (Process
+      // payroll for all keeps no generation record).
+      payslip_meta: payrollObj?.payslip_meta && typeof payrollObj.payslip_meta === "object" ? payrollObj.payslip_meta : null,
       // Semi-monthly payroll (src/lib/payroll/semi-monthly.js): the month's
       // computation behind a 1st / 2nd half payslip, and the basic pay it
       // earned for the 13th month.
@@ -3459,6 +3462,9 @@ async function handleBatchSubmit(supabase, body, guard) {
   const candidates = [];
   // Branch runs waiting for HR or approved take no new payslips.
   const runs = await loadRunsFor(supabase, employees.map((e) => e.branch_id), period.label);
+  // Printed on each payslip, as Generate does (generation.branch_name /
+  // position_title): batch payslips showed Branch "—" without it.
+  const branchNames = new Map(((await supabase.from("branches").select("id,name")).data || []).map((b) => [b.id, b.name]));
 
   // Pure in-memory work — no DB calls here, so this loop costs nothing extra
   // regardless of how many employees are in the batch.
@@ -3540,6 +3546,10 @@ async function handleBatchSubmit(supabase, body, guard) {
     const computedPayroll = built.payroll;
     if (own) computedPayroll.own_payslip = ownPayslipMark(guard);
     if (batchWindow.state === "closed") computedPayroll.late_processing = lateMark(batchWindow, guard);
+    computedPayroll.payslip_meta = {
+      branch_name: branchNames.get(employee.branch_id) || null,
+      position_title: employee.position_title || employee.position,
+    };
 
     const baseEntry = {
       // Reuse an existing draft's id for this employee+period (there can be

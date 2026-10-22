@@ -11,6 +11,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:seed": "node e2e/seed-e2e.mjs --reset",
     "supabase:check": "node scripts/check-supabase-connection.mjs",
     "supabase:seed-users": "node scripts/seed-auth-users.mjs",
     "supabase:purge-archived": "node scripts/purge-archived-employees.mjs",
@@ -48,6 +50,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@tailwindcss/postcss": "^4.3.3",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.4",

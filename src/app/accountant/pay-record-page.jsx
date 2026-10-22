@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/portal/empty-state";
+import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession, useSystemName } from "@/components/portal/session";
 import { apiFetch } from "@/lib/portal/api";
@@ -255,7 +255,7 @@ export function PayslipDocument({ payslip }) {
 }
 
 export function PayRecordPage() {
-  const { data, loading, load } = useAccountant();
+  const { data, loading, error, load } = useAccountant();
   const { notify } = usePortalSession();
   const options = React.useMemo(() => data?.payslip_options || [], [data]);
   const payslip = data?.payslip || null;
@@ -293,6 +293,9 @@ export function PayRecordPage() {
       setDownloading(false);
     }
   }
+
+  // A failed first load showed an empty payslip picker and no reason (E2E 2026-10-22).
+  if (error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={error} onRetry={() => load()} /></CardContent></Card>;
 
   return (
     <>
