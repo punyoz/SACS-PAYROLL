@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CreditCardIcon, HistoryIcon, Loader2Icon, PlusIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
+import { CreditCardIcon, HistoryIcon, ListPlusIcon, Loader2Icon, PlusIcon, RefreshCwIcon, ScanLineIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -44,6 +45,10 @@ export function RfidCardsPanel({ refreshKey }) {
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const uidRef = React.useRef(null);
+  // Many cards at once: new cards for a batch of hires, or a mass replacement
+  // (scenarios SC-11 / HR-10, 2026-10-22).
+  const [bulk, setBulk] = React.useState(false);
+  const [bulkInput, setBulkInput] = React.useState({ mode: "register", reason: "", lost: false });
 
   const load = React.useCallback(async () => {
     setState((c) => ({ ...c, loading: true, error: null }));
@@ -171,8 +176,9 @@ export function RfidCardsPanel({ refreshKey }) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><CreditCardIcon className="size-4 text-gold-text" aria-hidden="true" />RFID cards</CardTitle>
           <CardDescription>Only an Active card records attendance. One active card per employee; a card number belongs to one employee.</CardDescription>
-          <CardAction className="flex gap-2">
+          <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+            <Button variant="outline" size="sm" onClick={() => setBulk(true)} disabled={!employees.length}><ListPlusIcon aria-hidden="true" />Many cards</Button>
             <Button size="sm" onClick={() => open("register")} disabled={!employees.length}><PlusIcon aria-hidden="true" />Register card</Button>
           </CardAction>
         </CardHeader>
@@ -266,6 +272,55 @@ export function RfidCardsPanel({ refreshKey }) {
           ) : null}
         </DialogContent>
       </Dialog>
+      <BulkLinesDialog
+        open={bulk}
+        onOpenChange={setBulk}
+        title={bulkInput.mode === "replace" ? "Replace many cards" : "Register many cards"}
+        description={bulkInput.mode === "replace"
+          ? "One line per employee: their employee ID and the NEW card number. The old card stops recording attendance at once."
+          : "One line per employee: their employee ID and the card number (a reader types it). Each employee may have one active card."}
+        placeholder={"SACS-0101, 1234567890\nSACS-0102, 1234567891"}
+        inputLabel="Employee ID, card number"
+        reportName={`sacs-rfid-${bulkInput.mode}-report.csv`}
+        runLabel={bulkInput.mode === "replace" ? "Replace" : "Register"}
+        ready={bulkInput.reason.trim().length >= (bulkInput.mode === "replace" ? 5 : 0)}
+        parseLine={(text) => {
+          const [code, number] = text.split(/[,;\t]/).map((part) => part.trim());
+          const person = employees.find((e) => String(e.employee_code || "").toLowerCase() === String(code || "").toLowerCase());
+          if (!person) return { label: text, error: `No employee with ID ${code || "(blank)"} in reach.` };
+          const uid = String(number || "").replace(/\D/g, "");
+          if (!uid || uid.length > 16) return { label: person.full_name, error: "The card number must be 1-16 digits." };
+          if (bulkInput.mode === "register") {
+            if (person.has_active_card) return { label: person.full_name, error: "Already has an active card (use Replace)." };
+            return { label: `${person.full_name} → ${uid}`, payload: { employee: person, uid } };
+          }
+          const card = (data?.cards || []).find((c) => c.employee_id === person.id && c.status === "active");
+          if (!card) return { label: person.full_name, error: "Has no active card to replace (use Register)." };
+          return { label: `${person.full_name} → ${uid}`, payload: { card, uid } };
+        }}
+        run={(item) => (bulkInput.mode === "replace"
+          ? fetchJson("/api/rfid/cards", jsonBody("PATCH", { action: "replace", card_id: item.card.id, new_uid: item.uid, reason: bulkInput.reason.trim(), lost: bulkInput.lost }))
+          : fetchJson("/api/rfid/cards", jsonBody("POST", { action: "register", employee_id: item.employee.id, uid: item.uid, reason: bulkInput.reason.trim() || "Bulk registration" })))}
+        onDone={(n) => { if (n) { notify("Cards Saved", `${n} card${n === 1 ? "" : "s"} ${bulkInput.mode === "replace" ? "replaced" : "registered"}.`, "success"); load(); } }}
+        extra={(
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="rf-bulk-mode">Action</Label>
+              <Select value={bulkInput.mode} onValueChange={(mode) => setBulkInput((c) => ({ ...c, mode }))}>
+                <SelectTrigger id="rf-bulk-mode" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="register">Register new cards</SelectItem><SelectItem value="replace">Replace cards</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="rf-bulk-reason">{bulkInput.mode === "replace" ? "Reason (required)" : "Reason (optional)"}</Label>
+              <Input id="rf-bulk-reason" maxLength={300} placeholder={bulkInput.mode === "replace" ? "e.g. New card batch 2027" : "e.g. June 2027 hires"} value={bulkInput.reason} onChange={(e) => setBulkInput((c) => ({ ...c, reason: e.target.value }))} />
+            </div>
+            {bulkInput.mode === "replace" ? (
+              <label className="flex items-start gap-2 text-sm sm:col-span-2"><Checkbox checked={bulkInput.lost} onCheckedChange={(v) => setBulkInput((c) => ({ ...c, lost: v === true }))} className="mt-0.5" /><span>The old cards were lost (their numbers can never be used again)</span></label>
+            ) : null}
+          </div>
+        )}
+      />
     </>
   );
 }

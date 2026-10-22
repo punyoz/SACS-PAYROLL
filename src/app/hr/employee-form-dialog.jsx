@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DatePicker } from "@/components/portal/date-picker";
 import { LicenseSection } from "@/components/portal/license-section";
+import { SeparateEmployeeDialog } from "./separate-employee-dialog";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField } from "@/lib/portal/format";
@@ -233,6 +234,8 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   const [feedback, setFeedback] = React.useState({ text: "", tone: "" });
   const [busy, setBusy] = React.useState(false);
   const [archiving, setArchiving] = React.useState(false);
+  // Separate (resigned, end of contract, …): src/app/hr/separate-employee-dialog.jsx.
+  const [separating, setSeparating] = React.useState(false);
   const [confirmDialog, confirm] = useConfirm();
   const activeBranches = (branches || []).filter((b) => String(b.status || "Active").toLowerCase() === "active");
 
@@ -290,10 +293,17 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
     setBusy(true);
     setFeedback({ text: creating ? "Creating employee…" : "Saving…", tone: "info" });
     try {
-      const response = creating
+      let response = creating
         ? await apiFetch("/api/admin/employees", jsonBody("POST", result.payload))
-        : await apiFetch("/api/hr/employees", jsonBody("PATCH", { ...result.payload, id: employee.id }));
-      const data = await response.json().catch(() => ({}));
+        : await apiFetch("/api/hr/employees", jsonBody("PATCH", { ...result.payload, id: employee.id, expected_updated_at: employee.updated_at || undefined }));
+      let data = await response.json().catch(() => ({}));
+      // Same name and birthday as someone on file: HR confirms it is another person.
+      if (creating && response.status === 409 && data.code === "possible_duplicate") {
+        const ok = await confirm({ title: "Possible duplicate employee", description: data.error, confirmLabel: "Create anyway" });
+        if (!ok) { setFeedback({ text: "Not created.", tone: "info" }); return; }
+        response = await apiFetch("/api/admin/employees", jsonBody("POST", { ...result.payload, confirm_duplicate: true }));
+        data = await response.json().catch(() => ({}));
+      }
       if (!response.ok) throw new Error(data.error || (creating ? "Failed to create employee." : "Update failed."));
       if (creating) {
         const created = data.employee || {};
@@ -450,6 +460,9 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
                   {employee.archived ? "Restore employee" : "Archive employee"}
                 </Button>
               ) : null}
+              {!creating && employee && !employee.archived && employee.employee_status !== "Separated" ? (
+                <Button type="button" variant="outline" onClick={() => setSeparating(true)} disabled={archiving || busy}>Separate…</Button>
+              ) : null}
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button type="submit" disabled={busy || archiving}>
                 {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />{creating ? "Creating…" : "Saving…"}</> : creating ? "Create employee" : "Save changes"}
@@ -458,6 +471,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
           </form>
         </DialogContent>
       </Dialog>
+      <SeparateEmployeeDialog employee={separating ? employee : null} onClose={() => setSeparating(false)} onDone={() => { onOpenChange(false); onSaved(); }} />
       {confirmDialog}
     </>
   );

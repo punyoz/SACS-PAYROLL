@@ -25,6 +25,7 @@
  */
 
 import { roundPeso } from "@/lib/payroll/money";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const peso = (value) => roundPeso(value);
 export const DEFAULT_BENEFITS_CEILING = 90000;
@@ -144,16 +145,16 @@ export async function loadSubsidyContext(supabase, employeeIds, period) {
   const monthStart = `${String(period.start_key).slice(0, 7)}-01`;
   const year = String(period.end_key).slice(0, 4);
 
-  const balances = await supabase.from("payroll_subsidy_balances").select("*")
-    .in("employee_id", employeeIds).eq("payout_period_start", period.start_key);
+  const balances = await fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("*")
+    .eq("payout_period_start", period.start_key).order("id", { ascending: true }), "employee_id", employeeIds);
   if (balances.error) {
     if (isMissingRelation(balances.error)) return { ready: true, byEmployee };
     return { ready: false, byEmployee };
   }
   const [loans, adjustments, benefits] = await Promise.all([
-    supabase.from("payroll_loans").select("*").in("employee_id", employeeIds).eq("loan_type", "subsidy_advance"),
-    supabase.from("payroll_subsidy_adjustments").select("*").in("employee_id", employeeIds).eq("status", "approved"),
-    supabase.from("payroll_exempt_benefits_paid").select("employee_id,tax_year,kind,amount,paid_on").in("employee_id", employeeIds).eq("tax_year", Number(year)),
+    fetchAllIn(() => supabase.from("payroll_loans").select("*").eq("loan_type", "subsidy_advance").order("id", { ascending: true }), "employee_id", employeeIds),
+    fetchAllIn(() => supabase.from("payroll_subsidy_adjustments").select("*").eq("status", "approved").order("id", { ascending: true }), "employee_id", employeeIds),
+    fetchAllIn(() => supabase.from("payroll_exempt_benefits_paid").select("employee_id,tax_year,kind,amount,paid_on").eq("tax_year", Number(year)).order("employee_id", { ascending: true }).order("paid_on", { ascending: true }), "employee_id", employeeIds),
   ]);
   if (loans.error || adjustments.error || benefits.error) return { ready: false, byEmployee };
 
@@ -161,7 +162,7 @@ export async function loadSubsidyContext(supabase, employeeIds, period) {
   const allBalances = new Map();
   const balanceIds = [...new Set([...(loans.data || []), ...(adjustments.data || [])].map((r) => r.subsidy_balance_id).filter(Boolean))];
   if (balanceIds.length) {
-    const rows = await supabase.from("payroll_subsidy_balances").select("id,tax_treatment,subsidy_year_start,status").in("id", balanceIds);
+    const rows = await fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("id,tax_treatment,subsidy_year_start,status").order("id", { ascending: true }), "id", balanceIds);
     (rows.data || []).forEach((row) => { balanceTreatment.set(row.id, row.tax_treatment); allBalances.set(row.id, row); });
   }
 
@@ -191,8 +192,9 @@ export async function loadSubsidyContext(supabase, employeeIds, period) {
   // Excess already taxed on this year's earlier payslips.
   const withSubsidy = [...byEmployee.keys()];
   if (withSubsidy.length) {
-    const entries = await supabase.from("payroll_entries").select("employee_id,pay_period,status,payroll")
-      .in("employee_id", withSubsidy).eq("status", "paid");
+    // This tax year's payslips only (pay_period ends with the year).
+    const entries = await fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,pay_period,status,payroll")
+      .eq("status", "paid").like("pay_period", `%${year}`).order("id", { ascending: true }), "employee_id", withSubsidy);
     (entries.data || []).forEach((entry) => {
       if (!String(entry.pay_period || "").endsWith(year) || entry.pay_period === period.label) return;
       const taxed = Number(entry.payroll?.benefits_excess_taxed || 0);

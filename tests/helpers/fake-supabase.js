@@ -60,6 +60,9 @@ function query(name) {
   let countMode = false;
   let headMode = false;
   const orders = [];
+  // select("alias:payroll->totals->net_pay"): JSON paths read into an alias,
+  // as PostgREST does (other columns: the whole row, as before).
+  let aliases = [];
 
   const matches = (row) => filters.every((f) => f(row));
   const run = () => {
@@ -107,11 +110,28 @@ function query(name) {
     if (limitN !== null) out = out.slice(0, limitN);
     if (state.maxRows !== null) out = out.slice(0, state.maxRows);
     if (headMode) return { data: null, count: total, error: null };
+    if (aliases.length) {
+      out = out.map((row) => {
+        const copy = { ...row };
+        aliases.forEach(({ alias, base, path }) => {
+          let value = row[base];
+          path.forEach((key) => { value = value && typeof value === "object" ? value[key] : undefined; });
+          copy[alias] = value === undefined ? null : value;
+        });
+        return copy;
+      });
+    }
     return { data: single ? out[0] || null : out, error: null, ...(countMode ? { count: total } : {}) };
   };
 
   const builder = {
-    select(_columns, options = {}) { countMode = Boolean(options.count); headMode = Boolean(options.head); return builder; },
+    select(columns, options = {}) {
+      countMode = Boolean(options.count);
+      headMode = Boolean(options.head);
+      aliases = String(columns || "").split(",").map((c) => c.trim()).map((c) => /^(\w+):(\w+)->(.+)$/.exec(c)).filter(Boolean)
+        .map(([, alias, base, rest]) => ({ alias, base, path: rest.split("->") }));
+      return builder;
+    },
     insert(rows) { op = "insert"; payload = rows; return builder; },
     // onConflict names the unique columns a real upsert matches on;
     // without it, the id or (employee_id, pay_period) as before.
@@ -120,6 +140,18 @@ function query(name) {
     delete() { op = "delete"; return builder; },
     eq(column, value) { filters.push((row) => row[column] === value); return builder; },
     neq(column, value) { filters.push((row) => row[column] !== value); return builder; },
+    // .not(column, "is", null), the column may be a JSON path ("payroll->x").
+    not(column, op, value) {
+      const [base, ...path] = String(column).split("->");
+      const read = (row) => path.reduce((v, key) => (v && typeof v === "object" ? v[key] : undefined), row[base]);
+      filters.push((row) => {
+        const v = read(row);
+        if (op === "is" && value === null) return v !== null && v !== undefined;
+        if (op === "in") return !String(value).replace(/^\(|\)$/g, "").split(",").includes(String(v));
+        return String(v) !== String(value);
+      });
+      return builder;
+    },
     // .is(column, null): a missing value counts as NULL, as in SQL.
     is(column, value) { filters.push((row) => (value === null ? row[column] === null || row[column] === undefined : row[column] === value)); return builder; },
     in(column, values) { filters.push((row) => values.includes(row[column])); return builder; },
@@ -132,9 +164,25 @@ function query(name) {
       filters.push((row) => String(row[column] || "").toLowerCase().includes(needle));
       return builder;
     },
+    // SQL LIKE: % anywhere (any text), _ one character.
     like(column, pattern) {
-      const prefix = pattern.replace(/%$/, "");
-      filters.push((row) => String(row[column] || "").startsWith(prefix));
+      const escaped = String(pattern).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = new RegExp(`^${escaped.replace(/%/g, ".*").replace(/_/g, ".")}$`);
+      filters.push((row) => re.test(String(row[column] || "")));
+      return builder;
+    },
+    // or("a.ilike.*x*,b.eq.y"): any one of the conditions.
+    or(expression) {
+      const tests = String(expression).split(",").map((part) => {
+        const [column, op, ...rest] = part.split(".");
+        const value = rest.join(".");
+        if (op === "ilike") {
+          const needle = value.replace(/^\*|\*$/g, "").toLowerCase();
+          return (row) => String(row[column] || "").toLowerCase().includes(needle);
+        }
+        return (row) => String(row[column]) === value;
+      });
+      filters.push((row) => tests.some((t) => t(row)));
       return builder;
     },
     order(column, options = {}) { orders.push({ column, ascending: options.ascending !== false }); return builder; },

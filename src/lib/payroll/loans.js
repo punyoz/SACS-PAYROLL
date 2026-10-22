@@ -21,6 +21,7 @@
  */
 
 import { roundPeso } from "@/lib/payroll/money";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const peso = (value) => roundPeso(value);
 
@@ -145,11 +146,11 @@ export async function loadLoanContext(supabase, employeeIds, period) {
   const byEmployee = new Map();
   if (!employeeIds.length || String(period?.start_key || "").slice(8, 10) !== "16") return { ready: true, byEmployee };
 
-  const loanResult = await supabase.from("payroll_loans")
+  const loanResult = await fetchAllIn(() => supabase.from("payroll_loans")
     .select("id,employee_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,remaining_balance,status,created_at")
-    .in("employee_id", employeeIds)
     .eq("status", "active")
-    .lte("start_period", period.start_key);
+    .lte("start_period", period.start_key)
+    .order("id", { ascending: true }), "employee_id", employeeIds);
   if (loanResult.error) {
     if (isMissingRelation(loanResult.error)) return { ready: true, byEmployee };
     return { ready: false, byEmployee };
@@ -157,12 +158,12 @@ export async function loadLoanContext(supabase, employeeIds, period) {
   const loans = (loanResult.data || []).filter((loan) => loan.loan_type !== "subsidy_advance");
   if (!loans.length) return { ready: true, byEmployee };
 
-  const paidResult = await supabase.from("payroll_loan_payments")
-    .select("loan_id,amount,kind,period_start,reversed")
-    .in("loan_id", loans.map((loan) => loan.id))
+  const paidResult = await fetchAllIn(() => supabase.from("payroll_loan_payments")
+    .select("id,loan_id,amount,kind,period_start,reversed")
     .eq("kind", "payroll")
     .eq("period_start", period.start_key)
-    .eq("reversed", false);
+    .eq("reversed", false)
+    .order("id", { ascending: true }), "loan_id", loans.map((loan) => loan.id));
   if (paidResult.error) return { ready: false, byEmployee };
   const thisPeriod = new Map();
   (paidResult.data || []).forEach((row) => thisPeriod.set(row.loan_id, peso((thisPeriod.get(row.loan_id) || 0) + Number(row.amount || 0))));

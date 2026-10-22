@@ -28,6 +28,7 @@ import { manilaDateKey } from "@/lib/payroll/periods";
 import { validateProofUrl } from "@/lib/leave-requests/proof";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { DEFAULT_WARNING_DAYS, licenseStatus, maskedLicense, validateLicenseChange } from "@/lib/employees/teacher-license";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const NOT_READY = "Licensed-teacher fields are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
 const LICENSE_COLUMNS = "id,is_licensed_teacher,prc_license_no_last4,license_expires_on,prc_id_document_id,license_verified_by_name,license_verified_at,employee_type";
@@ -89,7 +90,7 @@ export async function GET(request) {
     if (employeeId && !targets.length) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     const ids = targets.map((p) => p.id);
 
-    const profiles = ids.length ? await supabase.from("profiles").select(LICENSE_COLUMNS).in("id", ids) : { data: [], error: null };
+    const profiles = ids.length ? await fetchAllIn(() => supabase.from("profiles").select(LICENSE_COLUMNS).order("id", { ascending: true }), "id", ids) : { data: [], error: null };
     if (profiles.error) return NextResponse.json({ available: false, error: NOT_READY, teachers: [] });
     const byId = new Map((profiles.data || []).map((row) => [row.id, row]));
     const teachers = targets.map((person) => shape(person, byId.get(person.id), today, days, { includeDocument: isHr }));

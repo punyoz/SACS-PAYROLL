@@ -32,6 +32,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_LAST4_COLUMNS, maskedPii } from "@/lib/employees/pii";
 import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
 import { canManageRole } from "@/lib/rbac/permissions";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 /**
  * GET lists accounts; PATCH edits, archives or restores one.
@@ -124,16 +125,16 @@ async function fetchAllUsers(supabase) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    let profileResult = await supabase
+    let profileResult = await fetchAllIn(() => supabase
       .from("profiles")
       .select(`${PROFILE_COLUMNS},${NAME_PART_COLUMNS},${EMERGENCY_COLUMNS}`)
-      .in("id", userIds);
+      .order("id", { ascending: true }), "id", userIds);
 
     // Before the name-parts migration runs, those columns do not exist and
     // the whole select fails. Fall back to the old column list rather than
     // dropping every profile (and with it every branch) from the listing.
     if (profileResult.error) {
-      profileResult = await supabase.from("profiles").select(PROFILE_COLUMNS).in("id", userIds);
+      profileResult = await fetchAllIn(() => supabase.from("profiles").select(PROFILE_COLUMNS).order("id", { ascending: true }), "id", userIds);
     }
 
     if (!profileResult.error) {

@@ -26,7 +26,11 @@ describe('Payroll Records keeps every period (vanishing-records regression)', ()
   it('the API always returns the all-period history, whatever ?period= asks for', () => {
     expect(route).toMatch(/history_records: historyRecords/);
     expect(route).toMatch(/history_panels: buildPayrollPanels\(historyRecords\)/);
-    expect(route).toMatch(/payslip_options: buildPayslipOptions\(historyRecords/);
+    // Scale (2026-10-22): the history is a window (last 12 months or a year,
+    // ?history=), never narrowed by ?period=; the Pay Record picker lists the
+    // period's payslips (and the one opened) out of that history.
+    expect(route).toMatch(/historyEntries = sortedEntries\.filter\(\(entry\) => entry\.status !== "draft" && windowLabels\.includes\(entry\.pay_period\)\)/);
+    expect(route).toMatch(/payslip_options: buildPayslipOptions\(\s*historyRecords\.filter/);
   });
 
   it('the page lists the history, not the period-scoped records', () => {

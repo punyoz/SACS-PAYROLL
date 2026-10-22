@@ -15,7 +15,7 @@ import { readHolidayMap } from "@/lib/attendance/holidays";
 import { readApprovedLeave, readBlockedTaps } from "@/lib/attendance/leave";
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
 /**
  * GET /api/attendance/logs — the attendance status board.
@@ -85,7 +85,7 @@ export async function GET(request) {
     // Paged: a 62-day range for ~200 employees is several thousand rows, past
     // PostgREST's max-rows (1000 by default); an unpaged read silently hides
     // the rest, including Incomplete days HR has to resolve.
-    const result = await fetchAllRows(() => {
+    const buildLogs = () => {
       let query = supabase
         .from("attendance_logs")
         .select(engineReady ? LOG_COLUMNS : "id,employee_id,employee_name,employee_type,branch_id,log_date,time_in,time_out,total_hours,status")
@@ -95,12 +95,17 @@ export async function GET(request) {
         .order("log_date", { ascending: false })
         .order("employee_name", { ascending: true })
         .order("id", { ascending: true });
-      if (employeeIds) query = query.in("employee_id", employeeIds);
       if (statusFilter === "unresolved") query = query.in("status", UNRESOLVED_STATUSES);
       else if (statusFilter && statusFilter !== "all") query = query.eq("status", normalizeAttendanceStatus(statusFilter, statusFilter));
       return query;
-    });
+    };
+    // A branch's employees in chunks (the whole id list made the URL too long).
+    const result = employeeIds ? await fetchAllIn(buildLogs, "employee_id", employeeIds) : await fetchAllRows(buildLogs);
     if (result.error) throw new Error(result.error.message);
+    if (employeeIds) {
+      result.data.sort((a, b) => String(b.log_date).localeCompare(String(a.log_date))
+        || String(a.employee_name || "").localeCompare(String(b.employee_name || "")) || String(a.id).localeCompare(String(b.id)));
+    }
 
     const logs = (result.data || []).map((row) => ({
       ...row,
@@ -113,14 +118,13 @@ export async function GET(request) {
     const today = manilaDateKey();
     const wantsAbsent = !statusFilter || statusFilter === "all" || normalizeAttendanceStatus(statusFilter, "") === "Absent";
     if (!selfOnly && wantsAbsent && today >= range.from && today <= range.to) {
-      let todayQuery = supabase
+      const buildToday = () => supabase
         .from("attendance_logs")
-        .select("employee_id")
+        .select("employee_id,id")
         .eq("log_date", today)
         .eq("archived_duplicate", false)
-        .limit(5000);
-      if (employeeIds) todayQuery = todayQuery.in("employee_id", employeeIds);
-      const todayRows = await todayQuery;
+        .order("id", { ascending: true });
+      const todayRows = employeeIds ? await fetchAllIn(buildToday, "employee_id", employeeIds) : await fetchAllRows(buildToday);
       const loggedIds = new Set((todayRows.error ? [] : todayRows.data || []).map((row) => String(row.employee_id)));
       logs.push(...await listNotTapped(supabase, { dateKey: today, loggedIds, employeeIds }));
     }
@@ -129,11 +133,11 @@ export async function GET(request) {
     // the employee cannot file a second one.
     const pendingByLog = new Map();
     if (engineReady && logs.length) {
-      const pending = await supabase
+      const pending = await fetchAllIn(() => supabase
         .from("attendance_corrections")
         .select("id,log_id,corrected_time_out,reason,requested_at,status")
         .eq("status", "pending")
-        .in("log_id", logs.map((row) => row.id).filter(Boolean).slice(0, 1000));
+        .order("id", { ascending: true }), "log_id", logs.map((row) => row.id));
       if (!pending.error) (pending.data || []).forEach((row) => pendingByLog.set(row.log_id, row));
     }
 

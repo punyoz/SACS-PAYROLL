@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable } from "@/components/portal/data-table";
+import { DatePicker } from "@/components/portal/date-picker";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
@@ -75,6 +76,9 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
   const [query, setQuery] = React.useState("");
   const [module, setModule] = React.useState("all");
   const [action, setAction] = React.useState("all");
+  // A date range reaches entries from any year (the newest `limit` that match).
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
   const [state, setState] = React.useState({ loading: true, error: null, logs: [], summary: { total: 0, success: 0, failed: 0 } });
   const seq = React.useRef(0);
 
@@ -89,6 +93,8 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
       const params = new URLSearchParams({ module, action, search: query, limit: String(limit) });
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
       const payload = await fetchJson(`/api/admin/audit-logs?${params}`);
       if (mine !== seq.current) return;
       setState({ loading: false, error: null, logs: payload.logs || [], summary: payload.summary || { total: 0, success: 0, failed: 0 } });
@@ -96,7 +102,7 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
       if (mine !== seq.current) return;
       setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load audit logs" }));
     }
-  }, [module, action, query, limit]);
+  }, [module, action, query, limit, from, to]);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
@@ -134,7 +140,7 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
 
       <Card className="min-w-0 shadow-xs">
         <CardContent className="space-y-4">
-          <div className="grid items-end gap-3 md:grid-cols-[1.4fr_1fr_1fr_auto]">
+          <div className="grid items-end gap-3 md:grid-cols-2 xl:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_auto]">
             <div className="space-y-2">
               <Label htmlFor="adm-audit-search">Search logs</Label>
               <div className="relative">
@@ -156,6 +162,14 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
                 <SelectContent>{ACTIONS.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="adm-audit-from">From</Label>
+              <DatePicker id="adm-audit-from" value={from} onChange={setFrom} max={to || undefined} placeholder="Any date" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="adm-audit-to">To</Label>
+              <DatePicker id="adm-audit-to" value={to} onChange={setTo} min={from || undefined} placeholder="Any date" />
+            </div>
             <Button variant="outline" onClick={exportCsv} disabled={!state.logs.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
           </div>
 
@@ -171,6 +185,9 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
             caption="Audit logs"
             minWidth={1100}
           />
+          {state.summary.total > (state.summary.shown ?? state.logs.length) ? (
+            <p className="text-xs text-muted-foreground">The newest {state.logs.length} of {state.summary.total} matching entries. Narrow the search or the dates to reach older ones.</p>
+          ) : null}
         </CardContent>
       </Card>
     </>

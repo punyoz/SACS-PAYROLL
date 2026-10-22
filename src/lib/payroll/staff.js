@@ -13,6 +13,7 @@
 import { normalizeText } from "@/lib/auth/normalize";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const PAID_ROLES = new Set(["employee", "accountant"]);
 
@@ -35,11 +36,11 @@ export async function loadPayrollStaff(supabase, guard, { includeArchived = fals
   const profiles = new Map();
   if (ids.length) {
     const base = "id,full_name,email,branch_id,position,employee_type,employee_status,archived,date_hired";
-    let result = await supabase.from("profiles")
+    let result = await fetchAllIn(() => supabase.from("profiles")
       .select(`${base},payroll_hold,payroll_hold_reason,separated_on,separation_reason,is_licensed_teacher`)
-      .in("id", ids);
+      .order("id", { ascending: true }), "id", ids);
     // Before 20261009010000 the payroll-hold / license columns do not exist.
-    if (result.error && isMissingColumn(result.error)) result = await supabase.from("profiles").select(base).in("id", ids);
+    if (result.error && isMissingColumn(result.error)) result = await fetchAllIn(() => supabase.from("profiles").select(base).order("id", { ascending: true }), "id", ids);
     if (result.error) throw new Error(`Failed to fetch profiles: ${result.error.message}`);
     (result.data || []).forEach((row) => profiles.set(row.id, row));
   }

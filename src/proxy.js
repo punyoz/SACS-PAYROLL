@@ -150,6 +150,13 @@ const API_MODULES = [
   // Accountant submits through process_payroll.
   ["/api/hr/payroll-runs", "payroll_run_approval"],
   ["/api/accountant/payroll-runs", "process_payroll"],
+  // Payroll corrections after approval (20261022020000): the Accountant files
+  // (process_payroll), HR decides (payroll_run_approval). The route checks the
+  // right one per method, so the session is the requirement here.
+  ["/api/payroll/corrections", null],
+  // BIR Form 2316 and the 1604-C alphalist (read-only): the Accountant's
+  // branch, HR every branch (payroll_records scope).
+  ["/api/payroll/bir-forms", "payroll_records"],
   // Processed payslips, read-only (HR every branch; Admin its own). The route
   // also requires "payslips" to open a single payslip.
   ["/api/hr/payroll-records", "payroll_records"],
@@ -158,6 +165,8 @@ const API_MODULES = [
   // The session's own stored notifications (every role).
   ["/api/notifications", "profile"],
   ["/api/employee/payslips", "payslips"],
+  // The employee's own BIR Form 2316, for a finished year.
+  ["/api/employee/bir-2316", "payslips"],
   ["/api/employee/timesheet", "timesheet"],
   ["/api/employee/leave-requests", "leave_approval"],
   ["/api/employee/stats", "dashboard"],

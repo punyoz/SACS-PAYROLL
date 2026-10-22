@@ -14,6 +14,8 @@ export async function GET(request) {
     const action = normalizeText(url.searchParams.get("action"), "all");
     const search = normalizeText(url.searchParams.get("search"));
     const limit = Number(url.searchParams.get("limit") || 150);
+    const from = normalizeText(url.searchParams.get("from"));
+    const to = normalizeText(url.searchParams.get("to"));
 
     // Admin sees their own branch's activity only; Super Admin (branch-exempt)
     // sees every branch plus system-level events.
@@ -21,6 +23,8 @@ export async function GET(request) {
       module: moduleFilter,
       action,
       search,
+      from,
+      to,
       limit,
       branch_id: guard.branchExempt ? null : guard.branchId,
     });

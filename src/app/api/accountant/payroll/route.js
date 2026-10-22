@@ -76,7 +76,7 @@ import {
   scheduleCashAdvances,
   validateCashAdvanceInput,
 } from "@/lib/payroll/cash-advance";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
@@ -238,11 +238,11 @@ function shapeEmployee(user, profile, index) {
 async function readPayrollHolds(supabase, userIds) {
   const held = new Map();
   if (!userIds.length) return held;
-  const result = await supabase
+  const result = await fetchAllIn(() => supabase
     .from("profiles")
     .select("id,payroll_hold,payroll_hold_reason")
-    .in("id", userIds)
-    .eq("payroll_hold", true);
+    .eq("payroll_hold", true)
+    .order("id", { ascending: true }), "id", userIds);
   if (result.error) {
     if (isInternalDbSchemaError(result.error.message)) return held;
     throw new Error(`Failed to read payroll holds: ${result.error.message}`);
@@ -277,10 +277,10 @@ async function fetchEmployees(supabase, guard = null) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    const profileResult = await supabase
+    const profileResult = await fetchAllIn(() => supabase
       .from("profiles")
       .select("id,email,full_name,branch_id,position,date_hired")
-      .in("id", userIds);
+      .order("id", { ascending: true }), "id", userIds);
 
     if (profileResult.error) {
       throw new Error(`Failed to fetch profiles: ${profileResult.error.message}`);
@@ -547,21 +547,108 @@ function computeTotals(payroll) {
   };
 }
 
-async function readPayrollEntries(supabase) {
-  // Every entry, paged: this list drives the duplicate-payment checks and the
-  // period picker, and a .limit(2000) used to drop the oldest history
-  // silently once the table outgrew it.
-  const result = await fetchAllRows(() => supabase
-    .from("payroll_entries")
-    .select("*")
-    .order("updated_at", { ascending: false })
-    .order("id", { ascending: true }));
+// History rows carry these, not the whole payroll object (~9 KB each): the
+// list pages and reports read only the totals and the deduction lines.
+const LIGHT_ENTRY_COLUMNS = "id,employee_id,employee_name,employee_code,employee_type,position,pay_period,status,approval_id,"
+  + "payslip_no,branch_id,submitted_at,created_at,updated_at,basic_salary,sss,philhealth,pagibig,withholding_tax,gross_pay,"
+  + "total_deductions,net_pay,totals:payroll->totals,deductions:payroll->deductions,incentives:payroll->incentives,"
+  + "monthly_cutoff:payroll->monthly->cutoff";
+
+// Small parts of the payroll object some views read on top of the light
+// columns: alias -> [JSON path, where it goes in the payroll object].
+const ENTRY_EXTRAS = {
+  cash_advances: ["payroll->cash_advances", ["cash_advances"]],
+  incentive_lines: ["payroll->audit->lines->incentives", ["audit", "lines", "incentives"]],
+  basic_earned: ["payroll->basic_earned", ["basic_earned"]],
+};
+
+function lightRowToEntry(row, extras = []) {
+  const { totals, deductions, incentives, monthly_cutoff: cutoff, ...rest } = row;
+  const payroll = { totals: totals || {}, deductions: deductions || {}, incentives: incentives || {}, monthly: cutoff ? { cutoff } : null, light: true };
+  extras.forEach((alias) => {
+    const value = rest[alias];
+    delete rest[alias];
+    if (value === null || value === undefined) return;
+    const path = ENTRY_EXTRAS[alias][1];
+    let node = payroll;
+    path.slice(0, -1).forEach((key) => { node[key] = node[key] || {}; node = node[key]; });
+    node[path[path.length - 1]] = value;
+  });
+  return normalizePayrollEntry({ ...rest, payroll });
+}
+
+/**
+ * The payroll entries a request needs. Every entry ever made (5 years:
+ * ~140k rows of ~9 KB) used to be read on every call, which ran the server
+ * out of memory (scale test 2026-10-22). A scope is now given:
+ *   employeeIds  only these employees (in chunks; a long list made the URL too long)
+ *   labels       only these pay periods
+ *   ids          only these entries
+ *   status       only this status
+ *   light        history columns only (lightRowToEntry), never the payroll object
+ *   extras       with light: small parts of the payroll object too (ENTRY_EXTRAS)
+ *   withJson     only entries whose payroll object has this key
+ * With no scope it still reads everything, paged.
+ */
+async function readPayrollEntries(supabase, { employeeIds = null, labels = null, ids = null, status = null, light = false, extras = [], withJson = null } = {}) {
+  const columns = light ? [LIGHT_ENTRY_COLUMNS, ...extras.map((alias) => `${alias}:${ENTRY_EXTRAS[alias][0]}`)].join(",") : "*";
+  const build = () => {
+    let query = supabase.from("payroll_entries").select(columns);
+    if (labels) query = query.in("pay_period", labels.length ? labels : ["__none__"]);
+    if (status) query = query.eq("status", status);
+    // Only entries whose payroll object has this part (e.g. "cash_advances").
+    if (withJson) query = query.not(`payroll->${withJson}`, "is", null);
+    return query.order("updated_at", { ascending: false }).order("id", { ascending: true });
+  };
+  let result;
+  if (ids) result = await fetchAllIn(build, "id", ids);
+  else if (employeeIds) result = await fetchAllIn(build, "employee_id", employeeIds);
+  else result = await fetchAllRows(build);
 
   if (result.error) {
     throw new Error(result.error.message);
   }
+  const rows = Array.isArray(result.data) ? result.data : [];
+  if (ids || employeeIds) rows.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")) || String(a.id).localeCompare(String(b.id)));
+  return { entries: rows.map((row) => (light ? lightRowToEntry(row, extras) : normalizePayrollEntry(row))) };
+}
 
-  return { entries: Array.isArray(result.data) ? result.data.map(normalizePayrollEntry) : [] };
+/** Every semi-monthly period label from `fromKey` to `toKey` ("YYYY-MM-DD"), newest first. */
+function periodLabelsBetween(fromKey, toKey) {
+  const labels = [];
+  const [fy, fm] = fromKey.split("-").map(Number);
+  let [y, m] = toKey.split("-").map(Number);
+  while (y > fy || (y === fy && m >= fm)) {
+    labels.push(getPayPeriodRange(new Date(y, m - 1, 16)).label, getPayPeriodRange(new Date(y, m - 1, 1)).label);
+    m -= 1;
+    if (m === 0) { m = 12; y -= 1; }
+  }
+  return labels;
+}
+
+/**
+ * The pay periods a history request covers: "recent" (default) = the last
+ * 12 months up to next month; "YYYY" = that calendar year. Older years stay
+ * one click away (history_years), never loaded all at once.
+ */
+function historyLabels(param) {
+  const year = /^\d{4}$/.test(String(param || "")) ? Number(param) : null;
+  if (year) return periodLabelsBetween(`${year}-01-01`, `${year}-12-01`);
+  const today = manilaDateKey();
+  const [y, m] = today.split("-").map(Number);
+  const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  const from = `${y - 1}-${String(m).padStart(2, "0")}-01`;
+  return periodLabelsBetween(from, next);
+}
+
+/** The years that have payroll runs (for the history year filter), newest first. */
+async function historyYears(supabase, guard) {
+  let query = supabase.from("payroll_runs").select("period_start,id");
+  if (!guard.branchExempt && guard.branchId) query = query.eq("branch_id", guard.branchId);
+  const result = await fetchAllRows(() => query.order("id", { ascending: true }));
+  const years = new Set([Number(manilaDateKey().slice(0, 4))]);
+  (result.data || []).forEach((row) => years.add(Number(String(row.period_start).slice(0, 4))));
+  return [...years].filter(Boolean).sort((a, b) => b - a);
 }
 
 async function syncPayrollEntryToDb(supabase, entry) {
@@ -768,7 +855,8 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
   // Payroll only ever needs approved requests — filtering server-side avoids
   // transferring every leave request ever filed (pending, rejected, from
   // years ago) on every payroll page load.
-  const approved = await readAllLeaveRequests({ status: "approved" });
+  // Only leave touching the period (every row of it, paged).
+  const approved = await readAllLeaveRequests({ status: "approved", overlapFrom: periodStart, overlapTo: periodEnd });
 
   const summaries = [];
   const leaveDaysByEmployee = new Map();
@@ -886,7 +974,7 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
   return Array.from(grouped.values()).sort((a, b) => a.employee_name.localeCompare(b.employee_name));
 }
 
-const ENGINE_ATTENDANCE_COLUMNS = "id,employee_id,status,log_date,time_in,time_out,created_at,late_minutes,undertime_minutes,is_half_day,is_early_bird";
+const ENGINE_ATTENDANCE_COLUMNS = "id,employee_id,branch_id,status,log_date,time_in,time_out,created_at,late_minutes,undertime_minutes,is_half_day,is_early_bird";
 
 /**
  * The period's attendance rows. Closes the period's finished days first
@@ -912,10 +1000,17 @@ async function readPeriodAttendance(supabase, periodStart, periodEnd, employeeId
       .gte("log_date", periodStart)
       .lte("log_date", periodEnd)
       .eq("archived_duplicate", false);
-    if (employeeIds && employeeIds.length && employeeIds.length <= 200) query = query.in("employee_id", employeeIds);
     return query.order("created_at", { ascending: false }).order("id", { ascending: true });
   };
-  const engine = await fetchAllRows(buildQuery);
+  // The caller's employees, in chunks (a long id list made the URL too long);
+  // the whole school's rows when no list is given.
+  const engine = employeeIds && employeeIds.length
+    ? await fetchAllIn(buildQuery, "employee_id", employeeIds)
+    : await fetchAllRows(buildQuery);
+  if (!engine.error && employeeIds && employeeIds.length) {
+    // One order across the chunks: newest first, id breaking ties.
+    engine.data.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+  }
 
   if (!engine.error) return { rows: engine.data || [], engineReady: !closed?.error };
 
@@ -1056,12 +1151,13 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     cutoff_window: perCutoff ? (half === "first" ? firstWindow : secondWindow) : window,
   };
 
-  const entriesResult = await supabase
-    .from("payroll_entries")
-    .select("id,employee_id,pay_period,status,payroll,payslip_no")
-    .in("pay_period", [month.first_half_label, month.second_half_label, previous.second_half_label]);
-  if (entriesResult.error) throw new Error(entriesResult.error.message);
-  const entries = (entriesResult.data || []).map(normalizePayrollEntry);
+  // These employees' entries of the three periods, every row: one unpaged
+  // read stopped at PostgREST's 1,000 rows, so past ~330 employees a 1st-half
+  // payslip looked missing to the 2nd half (scale test 2026-10-22).
+  const { entries } = await readPayrollEntries(supabase, {
+    employeeIds: employees.map((employee) => employee.id),
+    labels: [month.first_half_label, month.second_half_label, previous.second_half_label],
+  });
   const find = (employeeId, label) => entries.find((entry) => entry.employee_id === employeeId && entry.pay_period === label) || null;
 
   const byEmployee = new Map();
@@ -1253,11 +1349,10 @@ async function loadCashAdvanceContext(supabase, employeeIds, period) {
   const advances = (advanceResult.data || []).filter((row) => employeeIds.includes(row.employee_id));
   const borrowers = [...new Set(advances.map((row) => row.employee_id))];
   const paidResult = borrowers.length
-    ? await fetchAllRows(() => supabase.from("payroll_entries")
+    ? await fetchAllIn(() => supabase.from("payroll_entries")
       .select("id,employee_id,pay_period,status,payroll")
       .eq("status", "paid")
-      .in("employee_id", borrowers)
-      .order("id", { ascending: true }))
+      .order("id", { ascending: true }), "employee_id", borrowers)
     : { data: [], error: null };
   return {
     ready: !paidResult.error,
@@ -1358,6 +1453,21 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     logsByEmployee.get(employeeId).push({ ...row, log_date: dayKey(row) });
   });
 
+  // Days worked in each branch (a transfer mid-period: one payslip in the
+  // branch at processing, the days per branch listed on it; decision
+  // 2026-10-22, scenario EM-07). Each tapped day keeps the branch it was
+  // recorded at.
+  const branchNames = new Map(((await supabase.from("branches").select("id,name")).data || []).map((b) => [b.id, b.name]));
+  const branchDaysFor = (employeeId, own) => {
+    const counts = new Map();
+    (logsByEmployee.get(employeeId) || [])
+      .filter((row) => row.time_in && row.branch_id && row.log_date >= own.start_key && row.log_date <= own.end_key)
+      .forEach((row) => counts.set(row.branch_id, (counts.get(row.branch_id) || 0) + 1));
+    if (counts.size < 2) return null;
+    return [...counts.entries()].map(([branchId, days]) => ({ branch_id: branchId, branch_name: branchNames.get(branchId) || "—", days }))
+      .sort((a, b) => b.days - a.days);
+  };
+
   const byEmployee = new Map();
   employees.forEach((employee) => {
     const resolved = resolveRates(
@@ -1401,6 +1511,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       // The attendance days this payslip deducts.
       attendance_span: own,
       early_bird: earlyBird,
+      branch_days: branchDaysFor(employee.id, own),
     });
   });
 
@@ -2446,6 +2557,23 @@ function mapEntryToRecord(entry) {
   };
 }
 
+/**
+ * A history row as the list pages use it: the payroll object cut down to the
+ * figures Reports shows (statutory deductions and the absence deduction).
+ * A year of a 300-employee branch was 13 MB with the whole object.
+ */
+function compactHistoryRecord(record) {
+  const deductions = record.payroll?.deductions || {};
+  const totals = record.payroll?.totals || {};
+  return {
+    ...record,
+    payroll: {
+      deductions: { sss: deductions.sss, philhealth: deductions.philhealth, pagibig: deductions.pagibig, withholding_tax: deductions.withholding_tax },
+      totals: { absence_deduction: totals.absence_deduction },
+    },
+  };
+}
+
 /** "branch_id|period label" -> run status, for every branch and period the entries cover. */
 async function loadRunStatuses(supabase, entries) {
   const out = new Map();
@@ -2621,7 +2749,10 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
     return NextResponse.json({ error: `The ${year} 13th month pay is processed in December, from ${formatDateKey(`${year}-12-01`)}.`, code: "thirteenth_month_window" }, { status: 403 });
   }
 
-  const [employees, { entries }] = await Promise.all([fetchEmployees(supabase, guard), readPayrollEntries(supabase)]);
+  const [employees, { entries }] = await Promise.all([
+    fetchEmployees(supabase, guard),
+    readPayrollEntries(supabase, { labels: periodLabelsBetween(`${year}-01-01`, `${year}-12-01`), status: "paid", light: true, extras: ["basic_earned"] }),
+  ]);
   const wanted = Array.isArray(body.employee_ids) && body.employee_ids.length ? new Set(body.employee_ids.map(String)) : null;
   const existing = await supabase.from("payroll_thirteenth_month").select("employee_id").eq("year", year);
   if (existing.error) return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
@@ -2944,7 +3075,7 @@ async function handlePayrollSheetView(supabase, employees, entries, url) {
   const [branchResult, profileResult, configResult] = await Promise.all([
     supabase.from("branches").select("id,name"),
     ids.length
-      ? supabase.from("profiles").select("id,first_name,middle_name,last_name").in("id", ids)
+      ? fetchAllIn(() => supabase.from("profiles").select("id,first_name,middle_name,last_name").order("id", { ascending: true }), "id", ids)
       : { data: [], error: null },
     supabase.from("system_config").select("key,value").eq("section", "payroll").in("key", SHEET_CONFIG_KEYS),
   ]);
@@ -3221,23 +3352,49 @@ export async function GET(request) {
     const selectedPeriod = normalizeText(url.searchParams.get("period"));
 
     const supabase = getAdminClient();
-    const [employees, entriesResult] = await Promise.all([
-      fetchEmployees(supabase, guard),
-      readPayrollEntries(supabase),
-    ]);
+    const employees = await fetchEmployees(supabase, guard);
+    // Only what this request shows, never every payslip ever made (scale
+    // test 2026-10-22: five years of payslips ran the server out of memory).
+    // Branch-scoped callers read their own employees' entries only.
+    const scopeIds = guard.branchExempt ? null : employees.map((e) => e.id);
+    const scoped = (options) => readPayrollEntries(supabase, { employeeIds: scopeIds, ...options });
+    const historyParam = normalizeText(url.searchParams.get("history"), "recent");
 
     // ?view=thirteenth_month&year=… and ?view=monthly_items&month=YYYY-MM
     const view = normalizeText(url.searchParams.get("view")).toLowerCase();
-    if (view === "thirteenth_month") return await handleThirteenthMonthView(supabase, employees, entriesResult.entries, url, guard);
+    if (view === "thirteenth_month") {
+      const year = Number(url.searchParams.get("year")) || Number(manilaDateKey().slice(0, 4));
+      const { entries } = await scoped({ labels: periodLabelsBetween(`${year}-01-01`, `${year}-12-01`), status: "paid", light: true, extras: ["basic_earned"] });
+      return await handleThirteenthMonthView(supabase, employees, entries, url, guard);
+    }
     if (view === "monthly_items") return await handleMonthlyItemsView(supabase, employees, url);
-    if (view === "payroll_sheet") return await handlePayrollSheetView(supabase, employees, entriesResult.entries, url);
-    if (view === "cash_advances") return await handleCashAdvancesView(supabase, employees, entriesResult.entries);
-    if (view === "holiday_work") return handleHolidayWorkView(employees, entriesResult.entries, url);
+    if (view === "payroll_sheet") {
+      const sheetPeriod = normalizeText(url.searchParams.get("period"));
+      const { entries } = await scoped({ labels: sheetPeriod ? [sheetPeriod] : [] });
+      return await handlePayrollSheetView(supabase, employees, entries, url);
+    }
+    if (view === "cash_advances") {
+      // Repayments are on the payslips of people who had an advance, and
+      // only those payslips that carry repayment lines (reading every paid
+      // payslip of the branch took 27 s with five years of history).
+      const borrowers = await fetchAllRows(() => supabase.from("payroll_cash_advances").select("employee_id,id").order("id", { ascending: true }));
+      const inScope = new Set(employees.map((e) => e.id));
+      const ids = [...new Set((borrowers.data || []).map((row) => row.employee_id))].filter((id) => inScope.has(id));
+      const { entries } = ids.length
+        ? await readPayrollEntries(supabase, { employeeIds: ids, status: "paid", light: true, extras: ["cash_advances"], withJson: "cash_advances" })
+        : { entries: [] };
+      return await handleCashAdvancesView(supabase, employees, entries.filter((entry) => Array.isArray(entry.payroll?.cash_advances)));
+    }
+    if (view === "holiday_work") {
+      const holidayPeriod = normalizeText(url.searchParams.get("period"), "all");
+      const { entries } = await scoped({ labels: holidayPeriod === "all" ? historyLabels(historyParam) : [holidayPeriod], light: true, extras: ["incentive_lines"] });
+      return handleHolidayWorkView(employees, entries, url);
+    }
 
     // ?format=pdf&entry_id=… : the payslip as a PDF download.
     if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
       const visible = new Set(employees.map((e) => e.id));
-      const entry = entriesResult.entries.find((row) => row.id === requestedEntryId);
+      const entry = requestedEntryId ? (await readPayrollEntries(supabase, { ids: [requestedEntryId] })).entries[0] : null;
       if (!entry || (!guard.branchExempt && !visible.has(entry.employee_id))) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
@@ -3258,9 +3415,43 @@ export async function GET(request) {
     // branch — payroll_entries carries no branch_id of its own, but every
     // entry's employee_id ties back to an employee already filtered above.
     const visibleEmployeeIds = new Set(employees.map((e) => e.id));
-    const branchEntries = guard.branchExempt
-      ? entriesResult.entries
-      : entriesResult.entries.filter((entry) => visibleEmployeeIds.has(entry.employee_id));
+    // The period on screen (or today's), every draft and the payslip asked
+    // for in full; the history window (?history=recent|YYYY) in light rows.
+    // Attendance and leave figures must reflect the period actually being
+    // viewed/prepared, not always "today" — otherwise preparing the next
+    // cutoff ahead of time (see getPeriodOptions()) shows the wrong half's
+    // numbers.
+    const activePeriod = periodFromLabel(selectedPeriod)
+      || findPeriodRangeByLabel(selectedPeriod)
+      || getPayPeriodRange(manilaToday());
+    const activeLabel = activePeriod.label;
+    // The period's pay context does not need the entries: it is read at the
+    // same time as them (one after the other took ~6 s at 300 employees).
+    const contextPromise = (async () => {
+      // When payslips for this period may be generated, and attendance counted
+      // up to today while it is still open.
+      const window = await periodWindow(supabase, activePeriod);
+      // Attendance lines, leave and the rate versions in force on the period's
+      // first day, per employee (loadPeriodPayContext above).
+      const context = await loadPeriodPayContext(supabase, employees, activePeriod, {
+        through: window.attendance_through,
+        actor: { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) },
+      });
+      return { genWindow: window, payContext: context };
+    })();
+    contextPromise.catch(() => {});
+    const windowLabels = historyLabels(historyParam);
+    const [periodRows, draftRows, historyRows, requestedRows, years] = await Promise.all([
+      scoped({ labels: [activeLabel] }),
+      scoped({ status: "draft" }),
+      scoped({ labels: windowLabels, light: true }),
+      requestedEntryId ? readPayrollEntries(supabase, { ids: [requestedEntryId] }) : { entries: [] },
+      historyYears(supabase, guard),
+    ]);
+    const byEntryId = new Map();
+    [historyRows, periodRows, draftRows, requestedRows].forEach(({ entries }) => entries.forEach((entry) => byEntryId.set(entry.id, entry)));
+    const branchEntries = [...byEntryId.values()]
+      .filter((entry) => guard.branchExempt || visibleEmployeeIds.has(entry.employee_id));
 
     const sortedEntries = branchEntries
       .map((entry) => ({
@@ -3273,9 +3464,8 @@ export async function GET(request) {
         return dateB - dateA;
       });
 
-    const filteredByPeriod = selectedPeriod
-      ? sortedEntries.filter((entry) => entry.pay_period === selectedPeriod)
-      : sortedEntries;
+    // The chosen period's (or, with none chosen, the current period's) entries.
+    const filteredByPeriod = sortedEntries.filter((entry) => entry.pay_period === (selectedPeriod || activeLabel));
 
     // Final payslips whose attendance was corrected after they were
     // finalized: they no longer match the records until a Super Admin
@@ -3291,7 +3481,7 @@ export async function GET(request) {
     // the whole history. Without it, the first load (no period) listed all
     // periods but every later load (e.g. opening a payslip) narrowed
     // `records` to the current period, and the history appeared to vanish.
-    const historyEntries = sortedEntries.filter((entry) => entry.status !== "draft");
+    const historyEntries = sortedEntries.filter((entry) => entry.status !== "draft" && windowLabels.includes(entry.pay_period));
     // Each record's HR approval state (its branch run for its period): a
     // processed payslip is not paid until HR approves the run.
     const runStatusByKey = await loadRunStatuses(supabase, historyEntries);
@@ -3299,7 +3489,7 @@ export async function GET(request) {
       ...record,
       run_status: runStatusByKey.get(`${record.branch_id}|${record.pay_period}`) || null,
     });
-    const historyRecords = historyEntries.map(mapEntryToRecord).map(withRunStatus);
+    const historyRecords = historyEntries.map(mapEntryToRecord).map(compactHistoryRecord).map(withRunStatus);
 
     const payslipSource = requestedEntryId
       ? sortedEntries.find((entry) => entry.id === requestedEntryId)
@@ -3307,22 +3497,7 @@ export async function GET(request) {
           ? sortedEntries.find((entry) => entry.id === payrollRecords[0].id)
           : null);
 
-    // Attendance and leave figures must reflect the period actually being
-    // viewed/prepared, not always "today" — otherwise preparing the next
-    // cutoff ahead of time (see getPeriodOptions()) shows the wrong half's
-    // numbers.
-    const activePeriod = periodFromLabel(selectedPeriod)
-      || findPeriodRangeByLabel(selectedPeriod)
-      || getPayPeriodRange(manilaToday());
-    // When payslips for this period may be generated, and attendance counted
-    // up to today while it is still open.
-    const genWindow = await periodWindow(supabase, activePeriod);
-    // Attendance lines, leave and the rate versions in force on the period's
-    // first day, per employee (loadPeriodPayContext above).
-    const payContext = await loadPeriodPayContext(supabase, employees, activePeriod, {
-      through: genWindow.attendance_through,
-      actor: { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) },
-    });
+    const { genWindow, payContext } = await contextPromise;
     const leaveSummary = payContext.leaveSummary;
     const attendanceRows = payContext.attendanceRows.map((row) => ({
       ...row,
@@ -3341,7 +3516,13 @@ export async function GET(request) {
       generated_at: new Date().toISOString(),
       employees,
       period_options: getPeriodOptions(sortedEntries),
-      records: payrollRecords.map(withRunStatus),
+      // The history shown (Payroll Records, Monitoring, Reports): the last 12
+      // months, or one year; history_years lists the years there are.
+      history: historyParam,
+      history_years: years,
+      // Compact like the history: the full payroll object stays on the server
+      // (the Pay Record view is built there); drafts are sent whole below.
+      records: payrollRecords.map(compactHistoryRecord).map(withRunStatus),
       panels: buildPayrollPanels(payrollRecords),
       history_records: historyRecords,
       history_panels: buildPayrollPanels(historyRecords),
@@ -3353,7 +3534,12 @@ export async function GET(request) {
       payroll_ready: payContext.engineReady && payContext.ratesReady,
       payroll_not_ready_message: payContext.engineReady && payContext.ratesReady ? null : PAYROLL_NOT_READY_MESSAGE,
       draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
-      payslip_options: buildPayslipOptions(historyRecords, generatedDrafts),
+      // The period's payslips (and the one opened): Payroll Records opens any
+      // other. All of them made a dropdown of thousands at scale.
+      payslip_options: buildPayslipOptions(
+        historyRecords.filter((record) => record.pay_period === (selectedPeriod || activeLabel) || record.id === requestedEntryId),
+        generatedDrafts,
+      ),
       payslip: buildPayslipDetails(payslipSource),
       generation_window: genWindow,
       // Super Admin only: change a Final payslip, with a reason.
@@ -3440,7 +3626,9 @@ async function handleBatchSubmit(supabase, body, guard) {
   // together, the same way GET() already issues this pair.
   const [employees, entriesResult] = await Promise.all([
     fetchEmployees(supabase, guard),
-    readPayrollEntries(supabase),
+    // This period's entries only: the batch looks up each employee's
+    // existing entry for it.
+    readPayrollEntries(supabase, { labels: [payPeriod] }),
   ]);
   const entries = entriesResult.entries;
   const nowIso = new Date().toISOString();
@@ -3549,6 +3737,8 @@ async function handleBatchSubmit(supabase, body, guard) {
     computedPayroll.payslip_meta = {
       branch_name: branchNames.get(employee.branch_id) || null,
       position_title: employee.position_title || employee.position,
+      // Worked in more than one branch this period (a transfer).
+      branch_days: payContext.byEmployee.get(employee.id)?.branch_days || null,
     };
 
     const baseEntry = {
@@ -3696,7 +3886,12 @@ export async function POST(request) {
     const computedPayroll = built.payroll;
 
     const nowIso = new Date().toISOString();
-    const entriesResult = await readPayrollEntries(supabase);
+    // This employee's entries (and the one being edited), not every entry.
+    const [ownRows, editedRows] = await Promise.all([
+      readPayrollEntries(supabase, { employeeIds: [employee.id] }),
+      normalizeText(body.entry_id) ? readPayrollEntries(supabase, { ids: [normalizeText(body.entry_id)] }) : { entries: [] },
+    ]);
+    const entriesResult = { entries: [...ownRows.entries, ...editedRows.entries.filter((row) => !ownRows.entries.some((own) => own.id === row.id))] };
     const entries = entriesResult.entries;
     const existingId = normalizeText(body.entry_id);
     // payroll_entries now carries a real UNIQUE(employee_id, pay_period)
@@ -3930,7 +4125,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   }
   const lateProcessing = genWindow.state === "closed";
 
-  const { entries } = await readPayrollEntries(supabase);
+  const { entries } = await readPayrollEntries(supabase, { employeeIds: [employee.id], labels: [period.label] });
   const existing = entries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label) || null;
   const existingFinal = existing && existing.status !== "draft";
   if (existingFinal && !override && !reprocess) {
@@ -3990,6 +4185,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     }),
     branch_name: branch?.data?.name || null,
     position_title: employee.position_title || employee.position,
+    // Worked in more than one branch this period (a transfer).
+    branch_days: context.branch_days || null,
     override: override
       ? { reason, by: guard.userId || null, by_name: actor.name || null, at: nowIso, replaced_payslip_no: existing?.payslip_no || null }
       : null,
@@ -4108,7 +4305,7 @@ export async function PATCH(request) {
 
     const supabase = getAdminClient();
 
-    const entriesResult = await readPayrollEntries(supabase);
+    const entriesResult = await readPayrollEntries(supabase, { ids: entryId ? [entryId] : [] });
     const entries = entriesResult.entries;
     const index = entries.findIndex((entry) => entry.id === entryId);
 

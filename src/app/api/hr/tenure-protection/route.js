@@ -30,7 +30,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { isDateKey, manilaDateKey } from "@/lib/payroll/periods";
 import { actorName } from "@/lib/payroll/staff";
@@ -114,11 +114,11 @@ async function loadEmployees(supabase, guard) {
 /** Per grant: how many deductions it waived, how much, on which payslips. */
 async function loadApplications(supabase, grantIds) {
   if (!grantIds.length) return new Map();
-  const result = await fetchAllRows(() => supabase.from("tenure_protection_applications")
-    .select("grant_id,pay_period,amount,category")
-    .in("grant_id", grantIds)
+  const result = await fetchAllIn(() => supabase.from("tenure_protection_applications")
+    .select("grant_id,pay_period,amount,category,created_at")
     .order("created_at", { ascending: true })
-    .order("id", { ascending: true }));
+    .order("id", { ascending: true }), "grant_id", grantIds);
+  if (!result.error) result.data.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
   if (result.error) {
     if (isMissingTable(result.error)) return new Map();
     throw new Error(result.error.message);

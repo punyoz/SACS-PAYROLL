@@ -37,7 +37,20 @@ const TODAY_CHART = {
   on_leave: { label: "On Leave", color: "var(--info)" },
 };
 
-/** The four health rows (updateSAHealthRow). */
+/**
+ * Database size against the hosting plan: amber from 350 MB, red at the
+ * Free plan's 500 MB (the database turns read-only). Decision 2026-10-22:
+ * keep every year online and move to Supabase Pro before the limit.
+ */
+function databaseSizeRow(size) {
+  const mb = (bytes) => `${Math.round(Number(bytes || 0) / (1024 * 1024))} MB`;
+  const meta = `${mb(size.bytes)} of ${mb(size.limit_bytes)} (Supabase Free)`;
+  if (size.bytes >= size.limit_bytes) return { key: "size", icon: DatabaseIcon, label: "Database size", meta: `${meta}: over the limit, upgrade to Supabase Pro now`, pill: "Full", tone: "danger" };
+  if (size.bytes >= size.warn_bytes) return { key: "size", icon: DatabaseIcon, label: "Database size", meta: `${meta}: plan the upgrade to Supabase Pro`, pill: "Upgrade soon", tone: "warning" };
+  return { key: "size", icon: DatabaseIcon, label: "Database size", meta, pill: "OK", tone: "success" };
+}
+
+/** The four health rows (updateSAHealthRow), and the database size. */
 export function healthRows(system, failed) {
   if (failed || !system) {
     return [
@@ -58,6 +71,7 @@ export function healthRows(system, failed) {
     { key: "users", icon: UsersIcon, label: "User accounts", meta: `${total} registered`, pill: "OK", tone: "success" },
     { key: "att", icon: ClipboardListIcon, label: "Attendance records", ...table("attendance_logs") },
     { key: "pay", icon: ReceiptTextIcon, label: "Payroll records", ...table("payroll_records") },
+    ...(system.database_size ? [databaseSizeRow(system.database_size)] : []),
   ];
 }
 

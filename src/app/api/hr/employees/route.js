@@ -13,6 +13,8 @@ import {
 } from "@/lib/employees/emergency-contact";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_FIELDS, fetchProfilesPii, withoutPiiMetadata } from "@/lib/employees/pii";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { separateEmployee, validateSeparation } from "@/lib/employees/separation";
 
 function toTitleCaseWords(value) {
   const normalized = normalizeText(value).toLowerCase();
@@ -68,6 +70,9 @@ function shapeEmployee(user, profile) {
     date_of_birth: normalizeText(meta.date_of_birth),
     archived: Boolean(meta.archived),
     created_at: user.created_at,
+    // Sent back on save: a record changed since it was opened is not
+    // overwritten (409 stale_record).
+    updated_at: profile?.updated_at || null,
     // profiles is authoritative for these (real, constrained columns —
     // see supabase/migrations/20260914010000_profile_id_fields_and_perf.sql);
     // metadata is only a fallback for a profile row not yet backfilled.
@@ -105,10 +110,13 @@ export async function GET(request) {
     const profileMap = new Map();
 
     if (userIds.length) {
-      const { data: profiles } = await supabase
+      // In chunks (the whole id list made the URL too long), and a failure is
+      // an error, not a list of employees without their profiles.
+      const { data: profiles, error: profileError } = await fetchAllIn(() => supabase
         .from("profiles")
-        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address")
-        .in("id", userIds);
+        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,updated_at")
+        .order("id", { ascending: true }), "id", userIds);
+      if (profileError) throw new Error(profileError.message);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
     }
 
@@ -166,11 +174,46 @@ export async function PATCH(request) {
     const escalation = denyRoleEscalation(guard, currentRole);
     if (escalation) return escalation;
 
+    // { action: "separate", effective, reason, note }: resigned, end of
+    // contract, retired, terminated, deceased (src/lib/employees/separation.js).
+    if (normalizeText(body.action).toLowerCase() === "separate") {
+      const profile = await supabase.from("profiles").select("id,full_name,employee_id,branch_id,date_hired,employee_status").eq("id", id).maybeSingle();
+      if (profile.error || !profile.data) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+      const person = profile.data;
+      if (!guard.branchExempt) {
+        const foreign = denyForeignBranch(guard, person.branch_id);
+        if (foreign) return foreign;
+      }
+      if (person.employee_status === "Separated") return NextResponse.json({ error: `${person.full_name} is already separated.` }, { status: 409 });
+      const separation = { effective: normalizeText(body.effective), reason: normalizeText(body.reason), note: normalizeText(body.note).slice(0, 1000) };
+      const invalidSeparation = validateSeparation(separation, { dateHired: person.date_hired });
+      if (invalidSeparation) return NextResponse.json({ error: invalidSeparation }, { status: 400 });
+      const failed = await separateEmployee(supabase, { employee: person, ...separation, guard });
+      if (failed) return NextResponse.json({ error: sanitizeError(failed) }, { status: 500 });
+      await appendAuditLog({
+        actor: guard, module: "user_management", action: "employee_separated", entity_type: "employee", entity_id: person.employee_id || id,
+        description: `${person.full_name} separated (${separation.reason}), last day ${separation.effective}. Pay settles through Final Pay.`,
+        status: "success", source: "api", branch_id: person.branch_id || null,
+        metadata: { employee_id: id, reason: separation.reason, effective: separation.effective, note: separation.note || null },
+      });
+      return NextResponse.json({ success: true, separated: { id, effective: separation.effective, reason: separation.reason } });
+    }
+
     const profileResult = await supabase
       .from("profiles")
-      .select("branch_id,emergency_contact_name,employee_status")
+      .select("branch_id,emergency_contact_name,employee_status,updated_at")
       .eq("id", id)
       .maybeSingle();
+    // Two people editing the same employee: the second save would silently
+    // overwrite the first. The form sends the version it opened.
+    const expected = normalizeText(body.expected_updated_at);
+    const current = profileResult.data?.updated_at || null;
+    if (expected && current && new Date(expected).getTime() !== new Date(current).getTime()) {
+      return NextResponse.json({
+        error: "Someone else changed this employee after you opened it. Close and reopen the record to see the latest, then make your change again.",
+        code: "stale_record",
+      }, { status: 409 });
+    }
     const targetBranch = profileResult.data?.branch_id || currentMeta.branch_id || null;
     if (!guard.branchExempt) {
       if (!targetBranch) {

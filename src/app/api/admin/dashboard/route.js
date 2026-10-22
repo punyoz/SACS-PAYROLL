@@ -6,6 +6,7 @@ import { getAttendancePanels } from "@/app/api/admin/attendance/route";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 function parseEmployeeIdNumber(employeeId) {
   const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
@@ -60,10 +61,10 @@ async function fetchEmployees(supabase) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    const profileResult = await supabase
+    const profileResult = await fetchAllIn(() => supabase
       .from("profiles")
       .select("id,email,full_name,branch_id")
-      .in("id", userIds);
+      .order("id", { ascending: true }), "id", userIds);
 
     if (profileResult.error) {
       throw new Error(`Failed to fetch profiles: ${profileResult.error.message}`);

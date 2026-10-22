@@ -9,12 +9,15 @@ import { ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
-import { useAccountant } from "./accountant-data";
+import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
+import { CorrectionDialog, CorrectionsCard } from "@/components/portal/payroll-corrections";
 
 /* Payroll Records (renderRecordsPanels / renderPayrollRecordsTable, accountant.js). */
 
 export function RecordsPage() {
-  const { data, loading, error, load, openPayslip } = useAccountant();
+  const { data, loading, error, load, openPayslip, history } = useAccountant();
+  const [correcting, setCorrecting] = React.useState(null);
+  const [correctionsKey, setCorrectionsKey] = React.useState(0);
   // Every period's processed entries (history_records), not just the
   // current period's: the page must not empty out when a later load (e.g.
   // opening a payslip) is scoped to one period.
@@ -33,7 +36,13 @@ export function RecordsPage() {
       key: "payslip",
       header: <span className="sr-only">Payslip</span>,
       align: "right",
-      cell: (r) => <Button variant="outline" size="sm" disabled={String(r.status || "").toLowerCase() === "draft"} onClick={() => openPayslip(r.id)}>Payslip</Button>,
+      cell: (r) => (
+        <div className="flex justify-end gap-1">
+          <Button variant="outline" size="sm" disabled={String(r.status || "").toLowerCase() === "draft"} onClick={() => openPayslip(r.id)}>Payslip</Button>
+          {/* A payslip HR approved is corrected on a later payslip, never changed. */}
+          {r.run_status === "approved" ? <Button variant="outline" size="sm" onClick={() => setCorrecting(r)}>Correct</Button> : null}
+        </div>
+      ),
     },
   ];
 
@@ -45,13 +54,14 @@ export function RecordsPage() {
         <Card className="shadow-xs"><CardContent><ErrorState message={`${error} The figures below are from the last successful load.`} onRetry={() => load()} /></CardContent></Card>
       ) : null}
       <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Total gross pay" value={moneyCompact(panels.total_gross || 0)} hint="All periods" icon={BanknoteIcon} tone="gold" loading={first} />
+        <StatCard label="Total gross pay" value={moneyCompact(panels.total_gross || 0)} hint={historyLabel(history)} icon={BanknoteIcon} tone="gold" loading={first} />
         <StatCard label="Total deductions" value={moneyCompact(panels.total_deductions || 0)} icon={MinusCircleIcon} tone="danger" loading={first} />
         <StatCard label="Total net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" loading={first} />
       </section>
       <Card className="min-w-0 shadow-xs">
         <CardContent>
           <DataTable
+            toolbar={<HistorySelect />}
             columns={columns}
             rows={records}
             loading={first}
@@ -63,6 +73,8 @@ export function RecordsPage() {
           />
         </CardContent>
       </Card>
+      <CorrectionsCard refreshKey={correctionsKey} />
+      <CorrectionDialog record={correcting} onClose={() => setCorrecting(null)} onSaved={() => setCorrectionsKey((k) => k + 1)} />
     </>
   );
 }

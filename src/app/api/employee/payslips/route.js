@@ -6,6 +6,7 @@ import { floorNetPay } from "@/lib/payroll/net-pay";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { payslipVisible, requiresApproval } from "@/lib/payroll/runs";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 function toAmount(value) {
   const n = Number(value || 0);
@@ -115,7 +116,7 @@ function mapRecordToPayslip(rec) {
 async function approvedRunIds(supabase, rows) {
   const ids = [...new Set((rows || []).map((row) => row.run_id).filter(Boolean))];
   if (!ids.length) return new Set();
-  const result = await supabase.from("payroll_runs").select("id,status").in("id", ids);
+  const result = await fetchAllIn(() => supabase.from("payroll_runs").select("id,status").order("id", { ascending: true }), "id", ids);
   if (result.error) return new Set();
   return new Set((result.data || []).filter((run) => run.status === "approved").map((run) => run.id));
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { PlusIcon, UsersIcon } from "lucide-react";
+import { DownloadIcon, FileUpIcon, PlusIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,6 +11,13 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { fetchJson } from "@/lib/portal/api";
 import { formatContactNumber } from "@/lib/portal/format";
 import { EmployeeFormDialog } from "./employee-form-dialog";
+import { EmployeeImportDialog } from "./employee-import-dialog";
+import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { fetchJson as fetchJsonApi, jsonBody } from "@/lib/portal/api";
+import { SEPARATION_REASONS } from "@/lib/employees/separation-rules";
+import { downloadCsv } from "@/lib/portal/attendance";
 
 /*
  * User Management (loadHREmployees / renderHREmployeeTable,
@@ -42,6 +49,11 @@ export function EmployeesPage({ refreshKey }) {
   const [filter, setFilter] = React.useState("all");
   const [branch, setBranch] = React.useState("all");
   const [dialog, setDialog] = React.useState(null); // { mode, employee }
+  // Import CSV: onboard many at once (scenario SC-10 / HR-02).
+  const [importing, setImporting] = React.useState(false);
+  // Offboard many (scenario HR-03): one line per employee, the same reason.
+  const [offboarding, setOffboarding] = React.useState(false);
+  const [offboard, setOffboard] = React.useState({ reason: "End of contract", note: "" });
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: !current.employees.length, error: null }));
@@ -115,13 +127,27 @@ export function EmployeesPage({ refreshKey }) {
     { key: "edit", header: <span className="sr-only">Edit</span>, align: "right", cell: (e) => <Button variant="outline" size="sm" onClick={() => setDialog({ mode: "edit", employee: e })}>Edit</Button> },
   ], [branchName, licenses]);
 
+  // The list as shown (tab and branch filter), for a master list or a
+  // report (scenario SC-13). Government IDs are left out (data privacy).
+  function exportList() {
+    downloadCsv(`sacs-employees-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Employee ID", "Name", "Email", "Branch", "Type", "Position", "Status", "Date hired", "Contact number"],
+      rows.map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "", e.position || "",
+        e.archived ? "Archived" : e.employee_status || "Active", e.date_hired || "", e.cp_number || ""]));
+  }
+
   return (
     <>
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Staff list</CardTitle>
           <CardDescription>Employee and Accountant accounts in every branch.</CardDescription>
-          <CardAction><Button onClick={() => setDialog({ mode: "add" })}><PlusIcon aria-hidden="true" />Add employee</Button></CardAction>
+          <CardAction className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={exportList} disabled={!rows.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
+            <Button variant="outline" onClick={() => setImporting(true)}><FileUpIcon aria-hidden="true" />Import CSV</Button>
+            <Button variant="outline" onClick={() => setOffboarding(true)}><UserMinusIcon aria-hidden="true" />Offboard many</Button>
+            <Button onClick={() => setDialog({ mode: "add" })}><PlusIcon aria-hidden="true" />Add employee</Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -166,6 +192,43 @@ export function EmployeesPage({ refreshKey }) {
         open={Boolean(dialog)}
         onOpenChange={(open) => { if (!open) setDialog(null); }}
         onSaved={load}
+      />
+      <EmployeeImportDialog open={importing} onOpenChange={setImporting} onImported={load} />
+      <BulkLinesDialog
+        open={offboarding}
+        onOpenChange={setOffboarding}
+        title="Offboard many employees"
+        description="One line per employee: their employee ID and their last day (YYYY-MM-DD). Each becomes Separated from that day: no more taps, card deactivated, pay settled through Final Pay."
+        placeholder={"SACS-0101, 2027-05-31\nSACS-0102, 2027-05-31"}
+        inputLabel="Employee ID, last day"
+        reportName="sacs-offboarding-report.csv"
+        runLabel="Separate"
+        ready={!["Terminated", "Other"].includes(offboard.reason) || offboard.note.trim().length >= 10}
+        parseLine={(text) => {
+          const [code, day] = text.split(/[,;\t]/).map((part) => part.trim());
+          const person = state.employees.find((e) => String(e.employee_id || "").toLowerCase() === String(code || "").toLowerCase());
+          if (!person) return { label: text, error: `No employee with ID ${code || "(blank)"}.` };
+          if (person.archived || person.employee_status === "Separated") return { label: person.full_name, error: "Already archived or separated." };
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "")) return { label: person.full_name, error: "Give the last day as YYYY-MM-DD." };
+          return { label: `${person.full_name} (${day})`, payload: { id: person.id, effective: day } };
+        }}
+        run={(item) => fetchJsonApi("/api/hr/employees", jsonBody("PATCH", { id: item.id, action: "separate", effective: item.effective, reason: offboard.reason, note: offboard.note.trim() }))}
+        onDone={(n) => { if (n) load(); }}
+        extra={(
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="off-reason">Reason</Label>
+              <Select value={offboard.reason} onValueChange={(reason) => setOffboard((c) => ({ ...c, reason }))}>
+                <SelectTrigger id="off-reason" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>{SEPARATION_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="off-note">{["Terminated", "Other"].includes(offboard.reason) ? "Grounds (required)" : "Note (optional)"}</Label>
+              <Input id="off-note" maxLength={1000} value={offboard.note} onChange={(e) => setOffboard((c) => ({ ...c, note: e.target.value }))} />
+            </div>
+          </div>
+        )}
       />
     </>
   );

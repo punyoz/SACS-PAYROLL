@@ -13,7 +13,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateTime, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
-import { useAccountant } from "./accountant-data";
+import { HistorySelect, useAccountant } from "./accountant-data";
 
 /*
  * Payroll Monitoring (renderMonitoringPage / monFilter / editDraftEntry /
@@ -79,7 +79,7 @@ export function MonitoringPage() {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Payroll history</CardTitle>
-          <CardAction><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+          <CardAction className="flex flex-wrap gap-2"><HistorySelect /><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
           <Tabs value={filter} onValueChange={setFilter} className="overflow-x-auto">

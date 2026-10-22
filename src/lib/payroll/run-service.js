@@ -6,7 +6,7 @@
  * messages.
  */
 
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { periodFromLabel } from "@/lib/payroll/periods";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { getEmployeeAttendancePolicy, levelLabel } from "@/lib/attendance/work-schedules";
@@ -135,9 +135,9 @@ export async function submitRun(supabase, guard, { branchId, periodLabel }) {
   const previousLabel = previousSameCutoffLabel(period.label);
   const [previous, profiles] = await Promise.all([
     previousLabel
-      ? supabase.from("payroll_entries").select("employee_id,payroll,status").eq("pay_period", previousLabel).eq("status", "paid").in("employee_id", ids)
+      ? fetchAllIn(() => supabase.from("payroll_entries").select("employee_id,payroll,status,id").eq("pay_period", previousLabel).eq("status", "paid").order("id", { ascending: true }), "employee_id", ids)
       : Promise.resolve({ data: [] }),
-    supabase.from("profiles").select("id,employee_level,branch_id").in("id", ids),
+    fetchAllIn(() => supabase.from("profiles").select("id,employee_level,branch_id").order("id", { ascending: true }), "id", ids),
   ]);
   const previousNet = new Map((previous.data || []).map((row) => [row.employee_id, Math.max(0, Number(row.payroll?.totals?.net_pay) || 0)]));
   const profileOf = new Map((profiles.data || []).map((row) => [row.id, row]));

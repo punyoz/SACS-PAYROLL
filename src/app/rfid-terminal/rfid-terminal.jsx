@@ -278,6 +278,7 @@ export function RfidTerminal() {
             : data.code === "card_inactive" ? "Card inactive. Please see HR."
               : data.code === "wrong_branch" ? "This card belongs to another branch"
                 : data.code === "employee_inactive" ? "This employee is not active"
+                  : data.code === "too_early" ? "Too early to time in. Please see HR."
                   : "";
         showLight("error", message, message ? MESSAGE_MS : LIGHT_MS);
         flushPending();

@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 export async function GET(request) {
   try {
@@ -38,10 +39,10 @@ export async function GET(request) {
       const userIds = candidateEmployees.map((u) => u.id);
       const branchMap = new Map();
       if (userIds.length) {
-        const { data: profileRows } = await supabase
+        const { data: profileRows } = await fetchAllIn(() => supabase
           .from("profiles")
           .select("id,branch_id")
-          .in("id", userIds);
+          .order("id", { ascending: true }), "id", userIds);
         (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
       }
       employees = candidateEmployees.filter(
@@ -84,11 +85,11 @@ export async function GET(request) {
     // Pending leave requests
     let pendingLeaves = 0;
     try {
-      const allLeaves = await readAllLeaveRequests();
-      pendingLeaves = allLeaves.filter(
-        (r) => (r.status === "pending_admin" || r.status === "pending_accountant")
-          && (guard.branchExempt || String(r.branch_id || "") === String(guard.branchId || "")),
-      ).length;
+      const pendingRows = await readAllLeaveRequests({
+        statuses: ["pending_admin", "pending_accountant"],
+        ...(guard.branchExempt ? {} : { branchId: guard.branchId || "00000000-0000-0000-0000-000000000000" }),
+      });
+      pendingLeaves = pendingRows.length;
     } catch { /* ignore */ }
 
     // Recent attendance activity (last 10 employee-days). Fetches more raw

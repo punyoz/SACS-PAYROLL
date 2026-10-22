@@ -28,6 +28,7 @@ import { useLivePayrollRuns } from "@/components/portal/use-live-payroll-runs";
 import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel, dateTime, money, shortDate } from "@/lib/portal/payroll-preview";
 import { FLAG_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES } from "@/lib/payroll/runs";
+import { CorrectionsCard } from "@/components/portal/payroll-corrections";
 import { cn } from "@/lib/utils";
 
 /*
@@ -601,6 +602,8 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
         </CardContent>
       </Card>
       <DecisionDialog decision={decision} onClose={() => setDecision(null)} onDone={() => { setDecision(null); setSelected(new Set()); load(); onChanged?.(); }} />
+      {/* Corrections to approved payslips: HR approves or rejects them. */}
+      <CorrectionsCard refreshKey={refreshKey} />
     </>
   );
 }

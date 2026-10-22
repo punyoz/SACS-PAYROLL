@@ -45,6 +45,7 @@ accounts are in `e2e/accounts.mjs` (local only).
 | `70-incentives-late` | incentive after the cutoff is deferred (notice shown), late recorded at 0% |
 | `80-layout-states` | every page at phone width in dark mode; loading and error states |
 | `90-page-sweep` | every page and sub-tab: refresh and navigate-away-and-back keep the data; every search, filter, sort, pagination, dialog and export |
+| `95-scenarios` | real-world scenarios (SCENARIOS.md): concurrent edits, duplicate people, CSV onboarding, separation, payroll corrections, a forgotten card, a far-early tap, role change, audit search, a new branch, database size |
 
 Every page is watched the whole time: a console error, uncaught exception,
 crash or unexpected failed request fails the test (`e2e/support/monitor.mjs`).
@@ -58,3 +59,16 @@ Everything goes to `test-results/` (git-ignored):
   (`npx playwright show-trace <file>`) and a screenshot on failure
 - `test-results/screens/`: phone-width dark-mode screenshots of every page
 - `test-results/issues.jsonl`: console errors, failed and slow requests per test
+
+## Scale test (1,200 employees, 5 years)
+
+Local only; see SCENARIOS.md for the results.
+
+| Command | Does |
+| --- | --- |
+| `node e2e/scale/seed-scale.mjs --reset` | fresh database + the E2E accounts + 1,210 people in 6 branches, 1.56M attendance rows, 142k payslips, 708 approved runs, 18k leave requests, 1M audit rows (~2 GB, ~10 min) |
+| `node e2e/scale/serve.mjs` | production build + `next start` on port 3200 against the local stack |
+| `node e2e/scale/measure.mjs [role …]` | times every role's main APIs and every sidebar page; `E2E_SKIP_PAGES=1` for APIs only; results in `test-results/scale/` |
+| `node e2e/scale/payroll-run.mjs` | the Main Campus Accountant processes October 1-15 for ~300 people (timed), then the same request twice at once: no duplicate payslips |
+
+Running the normal suite afterwards resets the database (the scale data goes).

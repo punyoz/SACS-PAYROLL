@@ -12,6 +12,7 @@
  */
 
 import { normalizeText } from "@/lib/auth/normalize";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
 function isWeekend(dateKey) {
   const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
@@ -45,12 +46,12 @@ export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds 
   if (!dateKey || isWeekend(dateKey) || await isHoliday(supabase, dateKey)) return [];
   if (Array.isArray(employeeIds) && !employeeIds.length) return [];
 
-  let query = supabase
+  // Paged (PostgREST answers 1,000 rows at most) and, for a list, in chunks.
+  const build = () => supabase
     .from("profiles")
     .select("id,full_name,employee_type,branch_id,role,archived,employee_status,date_hired,created_at,employee_id")
-    .limit(5000);
-  if (Array.isArray(employeeIds)) query = query.in("id", employeeIds);
-  const roster = await query;
+    .order("id", { ascending: true });
+  const roster = Array.isArray(employeeIds) ? await fetchAllIn(build, "id", employeeIds) : await fetchAllRows(build);
   if (roster.error) return [];
 
   const people = (roster.data || []).filter((p) => {

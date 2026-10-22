@@ -26,7 +26,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { manilaDateKey, periodForDateKey } from "@/lib/payroll/periods";
 import { roundPeso } from "@/lib/payroll/money";
 import {
@@ -85,15 +85,15 @@ export async function GET(request) {
     const ids = staff.map((person) => person.id);
     if (!ids.length) return NextResponse.json({ available: true, loans: [], people: [], subsidy_balances: [], summary: {} });
 
-    const loanResult = await fetchAllRows(() => supabase.from("payroll_loans").select("*")
-      .in("employee_id", ids).order("date_granted", { ascending: false }).order("id", { ascending: true }));
+    const loanResult = await fetchAllIn(() => supabase.from("payroll_loans").select("*")
+      .order("date_granted", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
     if (loanResult.error) return NextResponse.json({ available: false, error: NOT_READY, loans: [] });
     const loanRows = loanResult.data || [];
 
     const paymentResult = loanRows.length
-      ? await fetchAllRows(() => supabase.from("payroll_loan_payments")
+      ? await fetchAllIn(() => supabase.from("payroll_loan_payments")
         .select("id,loan_id,kind,period_start,pay_period,amount,amount_due,balance_after,reversed,note,created_at,created_by_name")
-        .in("loan_id", loanRows.map((loan) => loan.id)).order("created_at", { ascending: true }).order("id", { ascending: true }))
+        .order("created_at", { ascending: true }).order("id", { ascending: true }), "loan_id", loanRows.map((loan) => loan.id))
       : { data: [], error: null };
     if (paymentResult.error) throw new Error(paymentResult.error.message);
     const paymentsByLoan = new Map();
@@ -124,7 +124,7 @@ export async function GET(request) {
     // Open subsidy balances of the licensed teachers in reach (for advances).
     let subsidyBalances = [];
     if (guard.scope !== "self") {
-      const balanceResult = await supabase.from("payroll_subsidy_balances").select("*").in("employee_id", ids).eq("status", "open");
+      const balanceResult = await fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("*").eq("status", "open").order("id", { ascending: true }), "employee_id", ids);
       if (!balanceResult.error) {
         const today = manilaDateKey();
         subsidyBalances = (balanceResult.data || []).map((balance) => ({

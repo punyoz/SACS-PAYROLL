@@ -26,18 +26,20 @@ export async function GET(request) {
 
     // Narrowed in the query itself for a branch-scoped caller, instead of
     // downloading every branch's requests (and their proof documents) first.
-    const allRequests = guard.branchExempt
-      ? await readAllLeaveRequests()
-      : await readAllLeaveRequests({ branchId: guard.branchId });
+    // Every pending request, however old, and the decided ones of the last
+    // 12 months (all of them at once was every request ever filed; past
+    // 1,000 the oldest pending ones vanished from this queue).
     // pending_accountant is a legacy status from before Leave Approval moved to HR —
     // treat it the same as pending_admin so any request stuck in that state (submitted
     // before this fix) still surfaces here instead of being invisible.
-    const pending = allRequests.filter(
-      (r) => r.status === "pending_admin" || r.status === "pending_accountant",
-    );
-    const history = allRequests.filter(
-      (r) => r.status !== "pending_admin" && r.status !== "pending_accountant",
-    );
+    const PENDING = ["pending_admin", "pending_accountant"];
+    const scope = guard.branchExempt ? {} : { branchId: guard.branchId };
+    const since = new Date(Date.now() - 366 * 86400000).toISOString();
+    const [pending, history] = await Promise.all([
+      readAllLeaveRequests({ ...scope, statuses: PENDING }),
+      status === "pending" ? [] : readAllLeaveRequests({ ...scope, excludeStatuses: PENDING, submittedSince: since }),
+    ]);
+    const allRequests = [...pending, ...history];
 
     let requests;
     if (status === "all") {

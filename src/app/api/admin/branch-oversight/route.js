@@ -27,7 +27,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { manilaDateKey, dateKeysBetween } from "@/lib/payroll/periods";
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
@@ -93,12 +93,12 @@ async function branchRequests(supabase, branchId, kinds) {
 
 async function attendanceLogs(supabase, ids, from, to) {
   if (!ids.length) return [];
-  const result = await fetchAllRows(() => supabase.from("attendance_logs")
+  const result = await fetchAllIn(() => supabase.from("attendance_logs")
     .select("id,employee_id,employee_name,log_date,time_in,time_out,status,late_minutes,undertime_minutes,total_hours,is_half_day")
-    .in("employee_id", ids).gte("log_date", from).lte("log_date", to).eq("archived_duplicate", false)
-    .order("log_date", { ascending: false }).order("id", { ascending: true }));
+    .gte("log_date", from).lte("log_date", to).eq("archived_duplicate", false)
+    .order("log_date", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
   if (result.error) throw new Error(result.error.message);
-  return result.data || [];
+  return (result.data || []).sort((a, b) => String(b.log_date).localeCompare(String(a.log_date)) || String(a.id).localeCompare(String(b.id)));
 }
 
 async function branchLeaves(supabase, branchId, ids) {

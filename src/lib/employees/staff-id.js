@@ -12,6 +12,7 @@
  */
 
 import { STAFF_ROLES } from "@/lib/employees/staff-record";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const STAFF_ID_PATTERN = /^STAFF-(\d+)$/i;
 
@@ -55,10 +56,10 @@ export async function fetchStaffIds(supabase) {
 export async function fetchStaffIdMap(supabase, ids = []) {
   const map = new Map();
   if (!ids.length) return map;
-  const { data, error } = await supabase
+  const { data, error } = await fetchAllIn(() => supabase
     .from("profiles")
     .select("id,staff_id")
-    .in("id", ids);
+    .order("id", { ascending: true }), "id", ids);
   if (error) return map;
   (data || []).forEach((row) => {
     if (row.staff_id) map.set(row.id, row.staff_id);

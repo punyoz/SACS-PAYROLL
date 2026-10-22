@@ -19,6 +19,7 @@
  */
 
 import { periodFromLabel } from "@/lib/payroll/periods";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 function payrollOf(entry) {
   const payroll = entry?.payroll;
@@ -107,12 +108,11 @@ export async function attendanceChangesAfterFinal(supabase, entries) {
   const time = (value) => Date.parse(String(value || "")) || 0;
   const since = new Date(Math.min(...finals.map((item) => time(item.finalizedAt)))).toISOString();
   try {
-    const result = await supabase
+    const result = await fetchAllIn(() => supabase
       .from("attendance_logs_history")
       .select("employee_id,changed_at,old_log_date,new_log_date,old_time_in,new_time_in,old_time_out,new_time_out,old_status,new_status")
-      .in("employee_id", employeeIds.slice(0, 500))
       .gte("changed_at", since)
-      .limit(5000);
+      .order("changed_at", { ascending: true }), "employee_id", employeeIds);
     if (result.error) return out;
     const history = (result.data || []).filter(changed);
 
