@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirm } from "@/components/portal/confirm-dialog";
-import { EmptyState } from "@/components/portal/empty-state";
+import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
@@ -773,7 +773,9 @@ function SingleEntry({ onNavigate }) {
 }
 
 export function ProcessPage({ onNavigate }) {
-  const { data } = useAccountant();
+  const { data, error, load } = useAccountant();
+  // A failed first load said "No employees found" with Process enabled (E2E 2026-10-22).
+  if (error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={error} onRetry={() => load()} /></CardContent></Card>;
   return (
     <>
       <Banners data={data} />

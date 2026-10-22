@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState } from "@/components/portal/empty-state";
+import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { usePortalSession } from "@/components/portal/session";
 import { formatPeso, initialsOf, leaveSummary } from "@/lib/portal/format";
@@ -59,7 +59,7 @@ function nextHolidayText(holiday, todayKey) {
   return `${holiday.name} · ${when}${holiday.note ? ` (${holiday.note})` : ""}`;
 }
 
-function AttendanceDonut({ data, loading }) {
+function AttendanceDonut({ data, loading, error, onRetry }) {
   const slices = Object.keys(ATTENDANCE_CHART).map((key) => ({ key, value: Number(data?.[key] || 0), fill: `var(--color-${key})` }));
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
 
@@ -72,6 +72,9 @@ function AttendanceDonut({ data, loading }) {
       <CardContent>
         {loading ? (
           <Skeleton className="mx-auto aspect-square w-full max-w-[220px] rounded-full" />
+        ) : error && !data ? (
+          // A failed load said "No attendance yet this month" (E2E 2026-10-22).
+          <ErrorState message={error} onRetry={onRetry} />
         ) : total === 0 ? (
           <EmptyState icon={CalendarCheckIcon} title="No attendance yet this month" description="Days appear here once you tap in with your RFID card." />
         ) : (
@@ -113,6 +116,9 @@ function NetPayChart({ payslips }) {
       <CardContent>
         {payslips.loading ? (
           <Skeleton className="h-[220px] w-full" />
+        ) : payslips.error && !points.length ? (
+          // A failed load said "No payslips yet" (E2E 2026-10-22).
+          <ErrorState message={payslips.error} onRetry={() => payslips.reload()} />
         ) : points.length === 0 ? (
           <EmptyState icon={ReceiptTextIcon} title="No payslips yet" description="Your payslips will show here once payroll is processed." />
         ) : (
@@ -176,7 +182,7 @@ export function DashboardPage({ stats, payslips, onNavigate }) {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <AttendanceDonut data={data} loading={loading} />
+        <AttendanceDonut data={data} loading={loading} error={stats.error} onRetry={() => stats.reload()} />
         <NetPayChart payslips={payslips} />
       </div>
 

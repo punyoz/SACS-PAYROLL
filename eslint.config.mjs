@@ -31,6 +31,14 @@ const config = [
       "no-undef": "error",
     },
   },
+  {
+    // Playwright fixtures hand the value on with a function named `use`,
+    // which the React hooks rule mistakes for React's use().
+    files: ["e2e/**/*.mjs"],
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+    },
+  },
 ];
 
 export default config;

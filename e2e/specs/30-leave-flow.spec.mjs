@@ -1,0 +1,85 @@
+// Leave: the Employee files, the branch Admin recommends, HR decides, the
+// Employee sees the result. Also the form's empty / invalid submissions.
+import { test, expect } from "../support/test.mjs";
+import { as } from "../support/auth.mjs";
+import { step } from "../support/banner.mjs";
+import { main, settle } from "../support/portal.mjs";
+import { choose, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
+import { db, profileByEmail, rows } from "../support/db.mjs";
+import { ACCOUNTS } from "../accounts.mjs";
+
+const REASON = `E2E family event ${Date.now()}`;
+
+test("leave: employee files → admin recommends → HR approves → employee sees Approved", async ({ page, monitor }) => {
+  const start = manilaDay(10);
+  const end = manilaDay(11);
+
+  await step(page, "Employee > Leave > submit the empty form (refused)", async () => {
+    monitor.at("Employee > Leave");
+    await as(page, "employee", "emp-leave");
+    const form = main(page).locator("form").first();
+    await form.getByRole("button", { name: /Submit/ }).click();
+    await expect(form.getByText("Leave type is required.")).toBeVisible();
+    await expect(form.getByText("Reason is required.")).toBeVisible();
+  });
+
+  await step(page, "Employee > Leave > file Vacation Leave", async () => {
+    const form = main(page).locator("form").first();
+    await choose(page, form.getByRole("combobox").first(), "Vacation Leave");
+    await pickDate(page, form.getByLabel("Start date"), start);
+    await pickDate(page, form.getByLabel("End date"), end);
+    await form.getByPlaceholder("State the reason for your leave request").fill(REASON);
+    await form.getByRole("button", { name: /Submit/ }).click();
+    await settle(page);
+    await expect(main(page).getByRole("cell", { name: REASON })).toBeVisible();
+    const emp = await profileByEmail(ACCOUNTS.employee.email);
+    const saved = await rows(db().from("leave_requests").select("id,status,start_date").eq("employee_id", emp.id).eq("reason", REASON));
+    expect(saved, "the leave request reached the database").toHaveLength(1);
+    await refresh(page);
+    await expect(main(page).getByRole("cell", { name: REASON })).toBeVisible();
+  });
+
+  await step(page, "Admin > Leave Recommendations > Recommend (endorse)", async () => {
+    monitor.at("Admin > Leave Recommendations");
+    await as(page, "admin", "adm-leaves");
+    const row = main(page).locator("tr", { hasText: "Ana" }).filter({ hasText: "Vacation Leave" }).first();
+    await row.getByRole("button", { name: "Recommend" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.locator("#ov-note").fill("E2E: coverage arranged, recommend approval");
+    await dialog.getByRole("button", { name: "Endorse", exact: true }).click();
+    await expect(dialog).toBeHidden({ timeout: 30000 });
+    await refresh(page);
+    await expect(main(page).getByText("E2E: coverage arranged, recommend approval")).toBeVisible();
+  });
+
+  await step(page, "HR > Leave Approval > sees the recommendation, approves", async () => {
+    monitor.at("HR > Leave Approval");
+    await as(page, "hr", "hr-leaves");
+    await settle(page);
+    const card = main(page).locator("li", { hasText: REASON });
+    await expect(card.getByText(/coverage arranged/)).toBeVisible();
+    await card.getByRole("button", { name: "Approve" }).click();
+    await confirm(page, "Approve");
+    const emp = await profileByEmail(ACCOUNTS.employee.email);
+    const saved = await rows(db().from("leave_requests").select("status").eq("employee_id", emp.id).eq("reason", REASON).single());
+    expect(saved.status).toBe("approved");
+    await refresh(page);
+    await expect(main(page).locator("li", { hasText: REASON }), "the decided request left the pending list").toHaveCount(0);
+  });
+
+  await step(page, "Admin > Leave Recommendations > Decided tab shows Approved", async () => {
+    monitor.at("Admin > Leave Recommendations (decided)");
+    await as(page, "admin", "adm-leaves");
+    await page.getByRole("tab", { name: "Decided" }).click();
+    await settle(page);
+    await expect(main(page).locator("tr", { hasText: "Ana" }).filter({ hasText: "Approved" }).first()).toBeVisible();
+  });
+
+  await step(page, "Employee > Leave > the request shows Approved", async () => {
+    monitor.at("Employee > Leave (after decision)");
+    await as(page, "employee", "emp-leave");
+    await expect(main(page).locator("tr", { hasText: "Vacation Leave" }).filter({ hasText: "Approved" }).first()).toBeVisible();
+    await refresh(page);
+    await expect(main(page).locator("tr", { hasText: "Vacation Leave" }).filter({ hasText: "Approved" }).first()).toBeVisible();
+  });
+});

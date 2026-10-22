@@ -65,8 +65,8 @@ export function buildPayslipDetails(entry) {
       id: entry.employee_code,
       name: entry.employee_name,
       type: entry.employee_type,
-      position: generation?.position_title || entry.position,
-      branch: generation?.branch_name || null,
+      position: generation?.position_title || entry.payroll?.payslip_meta?.position_title || entry.position,
+      branch: generation?.branch_name || entry.payroll?.payslip_meta?.branch_name || null,
     },
     earnings: {
       basic_salary: entry.payroll.basic_salary,

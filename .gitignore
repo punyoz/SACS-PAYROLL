@@ -38,3 +38,7 @@ next-env.d.ts
 
 # Database backups (npm run db:backup): payroll data, never commit
 /backups/
+
+# Playwright E2E output (videos, traces, screenshots, saved sign-ins)
+/test-results/
+/playwright-report/
