@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { correctionPayrollNotice } from "@/lib/payroll/final-payslips";
 import { SCOPE_BRANCH, SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 /**
  * Missed tap-out / disputed record corrections.
@@ -64,22 +65,27 @@ export async function GET(request) {
     const status = normalizeText(url.searchParams.get("status"), "pending").toLowerCase();
     const supabase = getAdminClient();
 
-    let query = supabase
-      .from("attendance_corrections")
-      .select(COLUMNS)
-      .order("requested_at", { ascending: false })
-      .limit(500);
-    if (status !== "all") query = query.eq("status", status);
+    const build = () => {
+      let query = supabase
+        .from("attendance_corrections")
+        .select(COLUMNS)
+        .order("requested_at", { ascending: false })
+        .limit(500);
+      if (status !== "all") query = query.eq("status", status);
+      if (guard.scope === SCOPE_SELF) query = query.eq("employee_id", guard.userId);
+      return query;
+    };
 
-    if (guard.scope === SCOPE_SELF) {
-      query = query.eq("employee_id", guard.userId);
-    } else if (guard.scope === SCOPE_BRANCH) {
+    let result;
+    if (guard.scope === SCOPE_BRANCH) {
       const ids = await branchEmployeeIds(supabase, guard.branchId);
       if (!ids.length) return NextResponse.json({ corrections: [] });
-      query = query.in("employee_id", ids);
+      // In chunks: a branch's whole id list made the URL too long.
+      result = await fetchAllIn(build, "employee_id", ids);
+      if (!result.error) result.data = result.data.sort((a, b) => String(b.requested_at || "").localeCompare(String(a.requested_at || ""))).slice(0, 500);
+    } else {
+      result = await build();
     }
-
-    const result = await query;
     if (result.error) throw new Error(result.error.message);
     return NextResponse.json({ corrections: result.data || [] });
   } catch (error) {

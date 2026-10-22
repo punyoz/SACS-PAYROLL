@@ -29,7 +29,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { shapeWinner } from "@/lib/payroll/early-bird";
 import { money } from "@/lib/payroll/payslip-summary";
 import { buildXlsx } from "@/lib/export/xlsx";
@@ -309,7 +309,7 @@ export async function GET(request) {
     // Search by branch, the people who handled the run, or an employee in it.
     if (q) {
       const byEmployee = runs.length
-        ? await supabase.from("payroll_run_items").select("run_id").in("run_id", runs.map((r) => r.id)).ilike("employee_name", `%${q}%`)
+        ? await fetchAllIn(() => supabase.from("payroll_run_items").select("id,run_id").ilike("employee_name", `%${q}%`).order("id", { ascending: true }), "run_id", runs.map((r) => r.id))
         : { data: [] };
       const withEmployee = new Set((byEmployee.data || []).map((row) => row.run_id));
       runs = runs.filter((run) => withEmployee.has(run.id)

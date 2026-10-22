@@ -9,6 +9,7 @@ import { loadAttendanceConfig, resolveAttendancePolicy } from "@/lib/attendance/
 import { minutesToHHMM } from "@/lib/attendance/work-schedules";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
 /**
  * Overtime approval.
@@ -67,11 +68,11 @@ async function policiesFor(supabase, branchIds) {
 /** Pay periods already processed for these employees: Set of "employeeId|label". */
 async function paidPeriods(supabase, employeeIds) {
   if (!employeeIds.length) return new Set();
-  const result = await supabase
+  const result = await fetchAllIn(() => supabase
     .from("payroll_entries")
-    .select("employee_id,pay_period,status")
-    .in("employee_id", employeeIds.slice(0, 1000))
-    .eq("status", "paid");
+    .select("id,employee_id,pay_period,status")
+    .eq("status", "paid")
+    .order("id", { ascending: true }), "employee_id", employeeIds);
   if (result.error) throw new Error(result.error.message);
   return new Set((result.data || []).map((row) => `${row.employee_id}|${row.pay_period}`));
 }
@@ -98,7 +99,7 @@ export async function GET(request) {
     } else {
       const branchFilter = guard.branchExempt ? normalizeText(url.searchParams.get("branch_id")) : guard.branchId;
       if (branchFilter) {
-        const roster = await supabase.from("profiles").select("id").eq("branch_id", branchFilter).limit(5000);
+        const roster = await fetchAllRows(() => supabase.from("profiles").select("id").eq("branch_id", branchFilter).order("id", { ascending: true }));
         if (roster.error) throw new Error(roster.error.message);
         employeeIds = (roster.data || []).map((row) => row.id);
       }
@@ -108,7 +109,9 @@ export async function GET(request) {
       return NextResponse.json({ range, overtime: [], can_review: canReview, min_minutes: OVERTIME_MIN_MINUTES });
     }
 
-    let query = supabase
+    // Every row of the range, paged (a .limit(5000) silently dropped the rest
+    // of a big branch), and a branch's ids in chunks (URL length).
+    const buildLogs = () => supabase
       .from("attendance_logs")
       // "*": includes shift_end_minutes, the end of the schedule the day was
       // judged on (20261013010000), when the column exists.
@@ -117,9 +120,9 @@ export async function GET(request) {
       .lte("log_date", range.to)
       .eq("archived_duplicate", false)
       .order("log_date", { ascending: false })
-      .limit(5000);
-    if (employeeIds) query = query.in("employee_id", employeeIds);
-    const logsResult = await query;
+      .order("id", { ascending: true });
+    const logsResult = employeeIds ? await fetchAllIn(buildLogs, "employee_id", employeeIds) : await fetchAllRows(buildLogs);
+    if (!logsResult.error) logsResult.data.sort((a, b) => String(b.log_date).localeCompare(String(a.log_date)));
     if (logsResult.error) throw new Error(logsResult.error.message);
 
     const logs = (logsResult.data || []).filter((row) => row.time_in && row.time_out
@@ -135,10 +138,10 @@ export async function GET(request) {
 
     const approvals = new Map();
     if (candidates.length) {
-      const result = await supabase
+      const result = await fetchAllIn(() => supabase
         .from("attendance_overtime_approvals")
         .select("log_id,approved_minutes,status,note,decided_by_name,decided_at")
-        .in("log_id", candidates.map((item) => item.row.id).slice(0, 1000));
+        .order("log_id", { ascending: true }), "log_id", candidates.map((item) => item.row.id));
       if (result.error) throw new Error(result.error.message);
       (result.data || []).forEach((row) => approvals.set(String(row.log_id), row));
     }

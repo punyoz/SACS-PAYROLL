@@ -16,6 +16,7 @@ import { apiFetch, fetchJson } from "@/lib/portal/api";
 import { dateTime, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
+import { BirFormsCard } from "@/components/portal/bir-forms";
 
 /*
  * HR → Payroll Records (/api/hr/payroll-records). Every branch's processed
@@ -34,17 +35,27 @@ export function PayrollRecordsPage({ refreshKey }) {
   const [branchParam, setBranch] = useUrlParam("pr_branch", ALL);
   const [open, setOpen] = React.useState(null);   // { id, loading, error, payslip }
   const [downloading, setDownloading] = React.useState(false);
+  // One page at a time, searched and filtered by the server (five years of
+  // payslips are far too many to send to the browser).
+  const [paging, setPaging] = React.useState({ page: 1, pageSize: 15, query: "" });
 
   const load = React.useCallback(async () => {
     setState((c) => ({ ...c, loading: true, error: null }));
     try {
-      const data = await fetchJson("/api/hr/payroll-records");
+      const params = new URLSearchParams({ page: String(paging.page), page_size: String(paging.pageSize) });
+      if (periodParam !== ALL) params.set("period", periodParam);
+      if (branchParam !== ALL) params.set("branch", branchParam);
+      if (paging.query.trim()) params.set("q", paging.query.trim());
+      const data = await fetchJson(`/api/hr/payroll-records?${params.toString()}`);
       setState({ loading: false, error: null, data });
     } catch (err) {
       setState((c) => ({ loading: false, error: err.message || "Unable to load payroll records.", data: c.data }));
     }
-  }, []);
+  }, [paging, periodParam, branchParam]);
   React.useEffect(() => { load(); }, [load, refreshKey]);
+  const onPaging = React.useCallback((next) => setPaging((c) => ({ ...c, ...next })), []);
+  const choosePeriod = (value) => { setPeriod(value); setPaging((c) => ({ ...c, page: 1 })); };
+  const chooseBranch = (value) => { setBranch(value); setPaging((c) => ({ ...c, page: 1 })); };
 
   async function view(id) {
     setOpen({ id, loading: true, error: null, payslip: null });
@@ -88,14 +99,13 @@ export function PayrollRecordsPage({ refreshKey }) {
   // link) shows everything instead of an empty table.
   const period = !data || periodParam === ALL || (data.periods || []).includes(periodParam) ? periodParam : ALL;
   const branch = !data || branchParam === ALL || (data.branches || []).some((b) => b.id === branchParam) ? branchParam : ALL;
-  const rows = React.useMemo(() => (data?.records || [])
-    .filter((r) => period === ALL || r.pay_period === period)
-    .filter((r) => branch === ALL || r.branch_id === branch), [data, period, branch]);
-  const totals = rows.reduce((t, r) => ({
-    gross: toAmount(t.gross + Number(r.gross_pay || 0)),
-    deductions: toAmount(t.deductions + Number(r.total_deductions || 0)),
-    net: toAmount(t.net + Number(r.net_pay || 0)),
-  }), { gross: 0, deductions: 0, net: 0 });
+  const rows = data?.records || [];
+  // The totals of every payslip the filters match, summed by the database.
+  const totals = {
+    gross: toAmount(data?.totals?.gross || 0),
+    deductions: toAmount(data?.totals?.deductions || 0),
+    net: toAmount(data?.totals?.net || 0),
+  };
 
   // One payslip, with the way back to the list.
   if (open) {
@@ -138,14 +148,14 @@ export function PayrollRecordsPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Processed payslips</CardTitle>
           <CardAction className="flex flex-wrap gap-2">
-            <Select value={period} onValueChange={setPeriod}>
+            <Select value={period} onValueChange={choosePeriod}>
               <SelectTrigger size="sm" className="w-48" aria-label="Pay period"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>All periods</SelectItem>
                 {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={branch} onValueChange={setBranch}>
+            <Select value={branch} onValueChange={chooseBranch}>
               <SelectTrigger size="sm" className="w-40" aria-label="Branch"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value={ALL}>All branches</SelectItem>
@@ -163,6 +173,7 @@ export function PayrollRecordsPage({ refreshKey }) {
             error={state.error}
             onRetry={load}
             pageSize={15}
+            server={{ total: data?.total || 0, page: paging.page, pageSize: paging.pageSize, query: paging.query, onChange: onPaging }}
             searchPlaceholder="Search employee, payslip no. or period…"
             empty={{ title: "No processed payslips yet", icon: ReceiptTextIcon }}
             caption="Processed payslips"
@@ -171,6 +182,8 @@ export function PayrollRecordsPage({ refreshKey }) {
           <p className="mt-3 text-xs text-muted-foreground">Read-only. Payslips are processed by each branch&apos;s Accountant; drafts are not listed.</p>
         </CardContent>
       </Card>
+      {/* Every branch's BIR 2316 and alphalist, read-only (AC-11). */}
+      <BirFormsCard refreshKey={refreshKey} />
     </>
   );
 }

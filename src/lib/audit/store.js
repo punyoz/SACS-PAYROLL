@@ -160,35 +160,56 @@ export async function appendAuditLog(payload) {
   }
 }
 
+/** A search word safe inside a PostgREST or() filter. */
+function auditSearchTerm(value) {
+  return normalizeText(value).replace(/[,()*%\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+/**
+ * The newest `limit` entries matching the filters, filtered in the database:
+ * module, action, words in the description / actor / entity, and a date
+ * range. The filters used to run in memory over only the newest 150 rows, so
+ * nothing older could be found (scenario HR-07 / SA-03, 2026-10-22). The
+ * summary counts every match, not just the rows returned.
+ */
 export async function listAuditLogs(options = {}) {
   const limit = Math.max(1, Math.min(500, Number(options.limit || 150)));
   const supabase = getAdminClient();
+  const moduleFilter = normalizeText(options.module, "all").toLowerCase();
+  const actionFilter = normalizeText(options.action, "all").toLowerCase();
+  const search = auditSearchTerm(options.search);
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(options.from || "")) ? options.from : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(String(options.to || "")) ? options.to : null;
 
-  let query = supabase
-    .from("audit_logs")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const filtered = (query) => {
+    // options.branch_id is set by the route from the caller's session when the
+    // caller is branch-scoped. Super Admin passes it as null and sees everything,
+    // system-level events included.
+    if (options.branch_id) query = query.eq("branch_id", options.branch_id).eq("is_system_event", false);
+    if (moduleFilter !== "all") query = query.eq("module", moduleFilter);
+    if (actionFilter !== "all") query = query.eq("action", actionFilter);
+    if (from) query = query.gte("created_at", `${from}T00:00:00+08:00`);
+    if (to) query = query.lte("created_at", `${to}T23:59:59.999+08:00`);
+    if (search) query = query.or(`description.ilike.*${search}*,actor_name.ilike.*${search}*,entity_id.ilike.*${search}*,entity_type.ilike.*${search}*`);
+    return query;
+  };
 
-  // options.branch_id is set by the route from the caller's session when the
-  // caller is branch-scoped. Super Admin passes it as null and sees everything,
-  // system-level events included.
-  if (options.branch_id) {
-    query = query.eq("branch_id", options.branch_id).eq("is_system_event", false);
-  }
-
-  const queryResult = await query;
+  const [queryResult, total, failed] = await Promise.all([
+    filtered(supabase.from("audit_logs").select("*")).order("created_at", { ascending: false }).limit(limit),
+    filtered(supabase.from("audit_logs").select("id", { count: "exact", head: true })),
+    filtered(supabase.from("audit_logs").select("id", { count: "exact", head: true }).eq("status", "failed")),
+  ]);
 
   if (queryResult.error) {
     throw new Error(queryResult.error.message);
   }
 
-  const shaped = (queryResult.data || []).map(shapeLogRow);
-  const filtered = applyFilters(shaped, options).slice(0, limit);
-
+  const logs = (queryResult.data || []).map(shapeLogRow);
+  const matching = total.error ? logs.length : total.count ?? logs.length;
+  const failedCount = failed.error ? buildSummary(logs).failed : failed.count ?? 0;
   return {
-    logs: filtered,
-    summary: buildSummary(filtered),
+    logs,
+    summary: { total: matching, success: Math.max(0, matching - failedCount), failed: failedCount, shown: logs.length },
     source_mode: "table",
   };
 }

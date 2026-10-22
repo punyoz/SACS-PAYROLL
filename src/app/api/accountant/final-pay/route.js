@@ -38,6 +38,7 @@ import { basicEarnedFromPayroll } from "@/lib/payroll/thirteenth-month";
 import { DEFAULT_BENEFITS_CEILING } from "@/lib/payroll/teacher-subsidy";
 import { computeFinalPay, paidDaysBetween } from "@/lib/payroll/final-pay";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const peso = (value) => roundPeso(value);
 const DEADLINE_DAYS = 30;
@@ -192,7 +193,7 @@ export async function GET(request) {
     }
 
     const saved = people.length
-      ? await supabase.from("payroll_entries").select("employee_id,pay_period,payslip_no,payroll,status").in("employee_id", people.map((p) => p.id)).like("pay_period", "Final pay%")
+      ? await fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,pay_period,payslip_no,payroll,status").like("pay_period", "Final pay%").order("id", { ascending: true }), "employee_id", people.map((p) => p.id))
       : { data: [] };
     return NextResponse.json({
       people: people.map((p) => {

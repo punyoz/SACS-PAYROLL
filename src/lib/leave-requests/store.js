@@ -7,6 +7,7 @@
 
 import crypto from "node:crypto";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 
 export function normalizeLeaveRequest(row) {
   return {
@@ -46,27 +47,49 @@ export function normalizeLeaveRequest(row) {
 // `employeeId`, `branchId` and `id` narrow it the same way, so a route that
 // only needs one person's, one branch's or one request's rows no longer
 // downloads the whole table (and every base64 proof document in it) first.
-export async function readAllLeaveRequests({ status, employeeId, branchId, id } = {}) {
+/**
+ * Leave requests, every matching row (paged). A plain select stopped at
+ * PostgREST's 1,000 rows, so at scale (1,200 employees, ~3,600 requests a
+ * year) older PENDING requests dropped out of HR's queue and payroll missed
+ * approved leave filed well ahead (scale test 2026-10-22). Optional filters:
+ *   statuses / excludeStatuses   in / not in these statuses
+ *   overlapFrom, overlapTo       leave days touching this range ("YYYY-MM-DD")
+ *   submittedSince               submitted on or after this instant
+ */
+export async function readAllLeaveRequests({
+  status, employeeId, branchId, id, statuses = null, excludeStatuses = null,
+  overlapFrom = null, overlapTo = null, submittedSince = null,
+} = {}) {
   const supabase = getAdminClient();
-  let query = supabase
-    .from("leave_requests")
-    .select("*")
-    .order("submitted_at", { ascending: false });
+  const build = () => {
+    let query = supabase
+      .from("leave_requests")
+      .select("*")
+      .order("submitted_at", { ascending: false })
+      .order("id", { ascending: true });
 
-  if (status) {
-    query = query.eq("status", status);
-  }
-  if (employeeId) {
-    query = query.eq("employee_id", employeeId);
-  }
-  if (branchId) {
-    query = query.eq("branch_id", branchId);
-  }
-  if (id) {
-    query = query.eq("id", id);
-  }
+    if (status) {
+      query = query.eq("status", status);
+    }
+    if (Array.isArray(statuses)) query = query.in("status", statuses.length ? statuses : ["__none__"]);
+    if (Array.isArray(excludeStatuses) && excludeStatuses.length) query = query.not("status", "in", `(${excludeStatuses.join(",")})`);
+    if (employeeId) {
+      query = query.eq("employee_id", employeeId);
+    }
+    if (branchId) {
+      query = query.eq("branch_id", branchId);
+    }
+    if (id) {
+      query = query.eq("id", id);
+    }
+    // Dates are "YYYY-MM-DD" text, so they compare in order.
+    if (overlapTo) query = query.lte("start_date", overlapTo);
+    if (overlapFrom) query = query.gte("end_date", overlapFrom);
+    if (submittedSince) query = query.gte("submitted_at", submittedSince);
+    return query;
+  };
 
-  const { data, error } = await query;
+  const { data, error } = await fetchAllRows(build);
 
   if (error) throw new Error(error.message);
 

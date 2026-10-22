@@ -16,6 +16,7 @@ import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { LEAVE_TAP_MESSAGE, isEmployeeOnLeave, recordBlockedTap } from "@/lib/attendance/leave";
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { isDayOff, readHolidayMap } from "@/lib/attendance/holidays";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -99,10 +100,10 @@ async function fetchEmployees(supabase) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    const profileResult = await supabase
+    const profileResult = await fetchAllIn(() => supabase
       .from("profiles")
       .select("id,email,full_name,branch_id,employee_status,rfid_uid")
-      .in("id", userIds);
+      .order("id", { ascending: true }), "id", userIds);
 
     if (profileResult.error) {
       throw new Error(`Failed to fetch profiles: ${profileResult.error.message}`);
@@ -369,6 +370,29 @@ async function readDayTaps(supabase, employeeId, dateKey) {
  *
  * @returns {{ record: object, tap: "time_in" | "time_out" | "after_correction" }}
  */
+/** How far before the shift start a card's Time In is still accepted. */
+const EARLY_TAP_LIMIT_HOURS = 3;
+
+/**
+ * { at, start } ("HH:MM", Manila) when this tap would be the day's Time In
+ * more than EARLY_TAP_LIMIT_HOURS before the employee's shift start; null
+ * otherwise (a later tap of the day, no schedule, or within the limit).
+ */
+async function tooEarlyTimeIn(supabase, employee, dateKey, tappedAt, policy) {
+  const [h, m] = String(policy?.work_start || "").split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(tappedAt);
+  const tapH = Number(parts.find((p) => p.type === "hour")?.value) % 24;
+  const tapM = Number(parts.find((p) => p.type === "minute")?.value);
+  const startMinutes = h * 60 + m;
+  if (tapH * 60 + tapM >= startMinutes - EARLY_TAP_LIMIT_HOURS * 60) return null;
+  const day = await supabase.from("attendance_logs").select("id")
+    .eq("employee_id", employee.id).eq("log_date", dateKey).eq("archived_duplicate", false).not("time_in", "is", null).limit(1);
+  if (day.error || (day.data || []).length) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return { at: `${pad(tapH)}:${pad(tapM)}`, start: `${pad(h)}:${pad(m)}` };
+}
+
 async function persistScanToTable(supabase, employee, dateKey, nowIso, rfidCode, retriesLeft = 1, policy = null, actor = null, source = "rfid_tap") {
   const lookupResult = await supabase
     .from("attendance_logs")
@@ -828,6 +852,25 @@ export async function POST(request) {
         employee: { name: employee.full_name, branch_id: employee.branch_id || null },
         tapped_at: repeat.repeated,
       });
+    }
+
+    // A card tap that would be the day's Time In more than 3 hours before the
+    // employee's own shift start (e.g. 2:00 AM for a 7:00 AM shift) is
+    // refused and kept in Blocked Taps for HR to record by hand. It used to
+    // become the time in, and could even win the Early Bird tie-break
+    // (decision 2026-10-22, scenario EM-03). A manual entry is deliberate and
+    // is not judged.
+    if (!manualEntry) {
+      const tooEarly = await tooEarlyTimeIn(supabase, employee, dateKey, tappedAt, policy);
+      if (tooEarly) {
+        return refuse({
+          refusedEmployee: employee,
+          reason: `Time In at ${tooEarly.at} refused: more than ${EARLY_TAP_LIMIT_HOURS} hours before ${employee.full_name}'s shift starts (${tooEarly.start}).`,
+          status: 422,
+          error: `Too early to time in: your shift starts at ${tooEarly.start}. Please see HR.`,
+          code: "too_early",
+        });
+      }
     }
 
     // Every accepted tap is kept as its own raw row first, then the day's

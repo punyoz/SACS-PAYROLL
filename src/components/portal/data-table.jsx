@@ -60,8 +60,12 @@ export function DataTable({
   caption,
   minWidth,
   className,
+  // Server-side paging and search for long lists (scale test 2026-10-22):
+  // { total, page, pageSize, query, onChange({ page?, pageSize?, query? }) }.
+  // The rows given are the current page; search and paging ask the server.
+  server = null,
 }) {
-  const [query, setQuery] = React.useState("");
+  const [query, setQuery] = React.useState(server ? server.query || "" : "");
   const [sort, setSort] = React.useState(initialSort);
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(initialPageSize);
@@ -70,12 +74,12 @@ export function DataTable({
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return list;
+    if (!q || server) return list;
     return list.filter((row) => columns.some((column) => {
       const text = column.searchValue ? column.searchValue(row) : (column.cell ? null : row[column.key]);
       return text !== null && text !== undefined && String(text).toLowerCase().includes(q);
     }));
-  }, [list, query, columns]);
+  }, [list, query, columns, server]);
 
   const sorted = React.useMemo(() => {
     if (!sort) return filtered;
@@ -85,17 +89,28 @@ export function DataTable({
     return [...filtered].sort((a, b) => factor * compare(sortValueOf(column, a), sortValueOf(column, b)));
   }, [filtered, sort, columns]);
 
-  const total = sorted.length;
+  const total = server ? Number(server.total || 0) : sorted.length;
+  const sizeNow = server ? Number(server.pageSize || initialPageSize) : pageSize;
   // The table's own page size is always one of the choices.
-  const sizes = [...new Set([initialPageSize, ...PAGE_SIZES])].sort((a, b) => a - b);
-  const pageCount = paginate ? Math.max(1, Math.ceil(total / pageSize)) : 1;
-  const currentPage = Math.min(page, pageCount);
-  const start = paginate ? (currentPage - 1) * pageSize : 0;
-  const visible = paginate ? sorted.slice(start, start + pageSize) : sorted;
+  const sizes = [...new Set([initialPageSize, sizeNow, ...PAGE_SIZES])].sort((a, b) => a - b);
+  const pageCount = paginate ? Math.max(1, Math.ceil(total / sizeNow)) : 1;
+  const currentPage = server ? Math.min(Number(server.page || 1), pageCount) : Math.min(page, pageCount);
+  const start = paginate ? (currentPage - 1) * sizeNow : 0;
+  const visible = server ? sorted : (paginate ? sorted.slice(start, start + pageSize) : sorted);
+  const goTo = (next) => (server ? server.onChange({ page: next }) : setPage(next));
+  const resize = (size) => (server ? server.onChange({ pageSize: size, page: 1 }) : setPageSize(size));
 
   // A new search or page size starts again from page 1. New rows (a timed
   // refresh) keep the page; currentPage above clamps it if the list shrank.
-  React.useEffect(() => { setPage(1); }, [query, pageSize]);
+  React.useEffect(() => { if (!server) setPage(1); }, [query, pageSize, server]);
+  // Server mode: the search goes to the server once typing pauses.
+  const onServerChange = server?.onChange;
+  const serverQuery = server?.query || "";
+  React.useEffect(() => {
+    if (!onServerChange || query === serverQuery) return undefined;
+    const timer = setTimeout(() => onServerChange({ query, page: 1 }), 350);
+    return () => clearTimeout(timer);
+  }, [query, serverQuery, onServerChange]);
 
   const toggleSort = (column) => {
     setSort((current) => {
@@ -121,7 +136,7 @@ export function DataTable({
                 placeholder={searchPlaceholder}
                 aria-label={searchPlaceholder.replace(/…$/, "")}
                 className="pl-8"
-                disabled={loading}
+                disabled={loading && !server}
               />
             </div>
           ) : null}
@@ -218,11 +233,11 @@ export function DataTable({
       {paginate && !loading && total > 0 ? (
         <div className="flex flex-col-reverse gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p aria-live="polite">
-            Showing {start + 1}–{Math.min(start + pageSize, total)} of {total}
+            Showing {start + 1}–{Math.min(start + sizeNow, total)} of {total}
           </p>
           <div className="flex items-center gap-2">
             <span className="hidden sm:inline">Rows</span>
-            <Select value={String(pageSize)} onValueChange={(value) => setPageSize(Number(value))}>
+            <Select value={String(sizeNow)} onValueChange={(value) => resize(Number(value))}>
               <SelectTrigger size="sm" className="w-18" aria-label="Rows per page">
                 <SelectValue />
               </SelectTrigger>
@@ -231,10 +246,10 @@ export function DataTable({
               </SelectContent>
             </Select>
             <span className="tabular-nums">Page {currentPage} of {pageCount}</span>
-            <Button variant="outline" size="icon" className="size-8" onClick={() => setPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">
+            <Button variant="outline" size="icon" className="size-8" onClick={() => goTo(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">
               <ChevronLeftIcon />
             </Button>
-            <Button variant="outline" size="icon" className="size-8" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= pageCount} aria-label="Next page">
+            <Button variant="outline" size="icon" className="size-8" onClick={() => goTo(currentPage + 1)} disabled={currentPage >= pageCount} aria-label="Next page">
               <ChevronRightIcon />
             </Button>
           </div>

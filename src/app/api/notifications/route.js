@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { forEachInChunk } from "@/lib/supabase/fetch-all";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -43,10 +44,10 @@ export async function PATCH(request) {
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
     const ids = (Array.isArray(body.ids) ? body.ids : []).map(String).filter((id) => UUID.test(id)).slice(0, 200);
-    let query = getAdminClient().from("notifications").update({ read_at: new Date().toISOString() })
+    const markRead = () => getAdminClient().from("notifications").update({ read_at: new Date().toISOString() })
       .eq("recipient_id", guard.userId).is("read_at", null);
-    if (ids.length) query = query.in("id", ids);
-    const result = await query;
+    // A list of ids goes in chunks (200 UUIDs make too long a URL).
+    const result = ids.length ? await forEachInChunk(ids, (part) => markRead().in("id", part)) : await markRead();
     if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
     return NextResponse.json({ success: true });
   } catch (error) {

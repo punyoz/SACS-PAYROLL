@@ -7,6 +7,7 @@ import { attendanceBucket } from "@/lib/attendance/status";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 export async function GET(request) {
   try {
@@ -87,10 +88,10 @@ export async function GET(request) {
       const branchMap = new Map();
       const candidateIds = (usersResult.data.users || []).map((u) => u.id);
       if (candidateIds.length) {
-        const { data: profileRows } = await supabase
+        const { data: profileRows } = await fetchAllIn(() => supabase
           .from("profiles")
           .select("id,branch_id")
-          .in("id", candidateIds);
+          .order("id", { ascending: true }), "id", candidateIds);
         (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
       }
 

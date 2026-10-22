@@ -9,6 +9,8 @@
  * tap. Only APPROVED leave counts -- pending, rejected and cancelled never do.
  */
 
+import { chunkValues, fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
+
 export const LEAVE_TAP_MESSAGE = "You are on leave today. Attendance tap is not allowed.";
 
 const LEAVE_COLUMNS = "id,leave_type,pay_status,start_date,end_date,decided_by_name,decided_at";
@@ -70,15 +72,18 @@ export async function readApprovedLeave(supabase, { employeeIds = null, from, to
   const none = () => null;
   if (!from || !to || (Array.isArray(employeeIds) && !employeeIds.length)) return none;
 
-  let query = supabase
+  // Every approved leave of the range: paged, and a list of employees in
+  // chunks. A long id list made the URL too long and this returned no leave
+  // at all, so approved leave days were charged as absences (scale test
+  // 2026-10-22); past 500 employees the rest were dropped.
+  const build = () => supabase
     .from("leave_requests")
     .select(`employee_id,${LEAVE_COLUMNS}`)
     .eq("status", "approved")
     .lte("start_date", to)
     .gte("end_date", from)
-    .limit(2000);
-  if (Array.isArray(employeeIds)) query = query.in("employee_id", employeeIds.slice(0, 500));
-  const result = await query;
+    .order("id", { ascending: true });
+  const result = Array.isArray(employeeIds) ? await fetchAllIn(build, "employee_id", employeeIds) : await fetchAllRows(build);
   if (result.error) return none;
 
   const byEmployee = new Map();
@@ -109,7 +114,8 @@ export async function readBlockedTaps(supabase, { employeeIds = null, branchId =
   const queries = [];
   if (!Array.isArray(employeeIds)) queries.push(base());
   else {
-    if (employeeIds.length) queries.push(base().in("employee_id", employeeIds));
+    // In chunks: a branch's whole id list made the URL too long.
+    chunkValues(employeeIds).forEach((part) => queries.push(base().in("employee_id", part)));
     if (branchId) queries.push(base().eq("branch_id", branchId));
   }
   if (!queries.length) return [];
@@ -118,7 +124,7 @@ export async function readBlockedTaps(supabase, { employeeIds = null, branchId =
   const byId = new Map();
   // A table not there yet (migration not applied) reads as nothing to show.
   results.forEach((result) => (result.error ? [] : result.data || []).forEach((row) => byId.set(row.id, row)));
-  return [...byId.values()].sort((a, b) => String(b.attempted_at || "").localeCompare(String(a.attempted_at || "")));
+  return [...byId.values()].sort((a, b) => String(b.attempted_at || "").localeCompare(String(a.attempted_at || ""))).slice(0, 1000);
 }
 
 /**

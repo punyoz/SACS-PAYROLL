@@ -67,6 +67,8 @@ export function buildPayslipDetails(entry) {
       type: entry.employee_type,
       position: generation?.position_title || entry.payroll?.payslip_meta?.position_title || entry.position,
       branch: generation?.branch_name || entry.payroll?.payslip_meta?.branch_name || null,
+      // Days worked in each branch when there was more than one (a transfer).
+      branch_days: generation?.branch_days || entry.payroll?.payslip_meta?.branch_days || null,
     },
     earnings: {
       basic_salary: entry.payroll.basic_salary,

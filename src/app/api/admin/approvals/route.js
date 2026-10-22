@@ -27,7 +27,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { roundPeso } from "@/lib/payroll/money";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { nextSecondHalf, suggestedAmortization, validateLoanInput, validateSubsidyAdvanceInput } from "@/lib/payroll/loans";
@@ -71,13 +71,14 @@ export async function GET(request) {
     // teacher's subsidy (idempotent), so the Accountant sees it to process.
     await supabase.rpc("subsidy_requests_raise_excess", { p_employee_ids: ids }).then(() => {}, () => {});
 
-    const rows = await fetchAllRows(() => supabase.from("payroll_subsidy_requests").select("*").in("employee_id", ids)
-      .order("requested_at", { ascending: false }).order("id", { ascending: true }));
+    const rows = await fetchAllIn(() => supabase.from("payroll_subsidy_requests").select("*")
+      .order("requested_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
+    if (!rows.error) rows.data.sort((a, b) => String(b.requested_at || "").localeCompare(String(a.requested_at || "")));
     if (rows.error) return NextResponse.json({ available: false, error: NOT_READY, role, ...empty });
 
     const balanceIds = [...new Set((rows.data || []).map((r) => r.subsidy_balance_id).filter(Boolean))];
     const balanceRows = balanceIds.length
-      ? (await supabase.from("payroll_subsidy_balances").select("id,subsidy_year_start").in("id", balanceIds)).data || []
+      ? (await fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("id,subsidy_year_start").order("id", { ascending: true }), "id", balanceIds)).data || []
       : [];
     const yearOf = new Map(balanceRows.map((b) => [b.id, String(b.subsidy_year_start || "").slice(0, 4)]));
     const name = (id) => byId.get(id)?.full_name || "—";
@@ -86,7 +87,7 @@ export async function GET(request) {
     // Accountant: the open balances it can process an adjustment or an advance against.
     let balances = [];
     if (role === "accountant") {
-      const open = await supabase.from("payroll_subsidy_balances").select("*").in("employee_id", ids).eq("status", "open");
+      const open = await fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("*").eq("status", "open").order("id", { ascending: true }), "employee_id", ids);
       const today = manilaDateKey();
       balances = (open.data || []).filter((b) => b.employee_id !== guard.userId).map((b) => ({
         id: b.id, employee_id: b.employee_id, employee_name: name(b.employee_id), year: String(b.subsidy_year_start).slice(0, 4),

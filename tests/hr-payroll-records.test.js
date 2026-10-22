@@ -55,11 +55,12 @@ beforeEach(async () => {
     { id: "u-adm", role: "admin", branch_id: MAIN, archived: false },
     { id: "u-acct", role: "accountant", branch_id: MAIN, archived: false },
   );
-  table("payroll_runs").push({ id: "run-1", status: "approved" });
+  table("payroll_runs").push({ id: "run-1", status: "approved", branch_id: MAIN, period_label: "October 1-15, 2026", period_start: "2026-10-01" });
+  // payroll_entries.branch_id is stamped by the database (payroll_entries_stamp_branch).
   table("payroll_entries").push(
-    { id: "e-paolo", employee_id: "u-paolo", employee_name: "Paolo Diaz", employee_code: "SACS-010", employee_type: "Teaching", pay_period: "October 1-15, 2026", status: "final", payslip_no: "PS-0001", run_id: "run-1", payroll: payroll(10000, 600), submitted_at: "2026-10-15T08:00:00Z", updated_at: "2026-10-15T08:00:00Z" },
-    { id: "e-far", employee_id: "u-far", employee_name: "Far Away", employee_code: "SACS-011", employee_type: "Teaching", pay_period: "October 1-15, 2026", status: "final", payslip_no: "PS-0002", payroll: payroll(12000, 600), submitted_at: "2026-10-15T08:00:00Z", updated_at: "2026-10-15T08:00:00Z" },
-    { id: "e-draft", employee_id: "u-paolo", employee_name: "Paolo Diaz", pay_period: "October 16-31, 2026", status: "draft", payroll: payroll(10000, 0), updated_at: "2026-10-16T08:00:00Z" },
+    { id: "e-paolo", branch_id: MAIN, employee_id: "u-paolo", employee_name: "Paolo Diaz", employee_code: "SACS-010", employee_type: "Teaching", pay_period: "October 1-15, 2026", status: "final", payslip_no: "PS-0001", run_id: "run-1", payroll: payroll(10000, 600), submitted_at: "2026-10-15T08:00:00Z", updated_at: "2026-10-15T08:00:00Z" },
+    { id: "e-far", branch_id: OTHER, employee_id: "u-far", employee_name: "Far Away", employee_code: "SACS-011", employee_type: "Teaching", pay_period: "October 1-15, 2026", status: "final", payslip_no: "PS-0002", payroll: payroll(12000, 600), submitted_at: "2026-10-15T08:00:00Z", updated_at: "2026-10-15T08:00:00Z" },
+    { id: "e-draft", branch_id: MAIN, employee_id: "u-paolo", employee_name: "Paolo Diaz", pay_period: "October 16-31, 2026", status: "draft", payroll: payroll(10000, 0), updated_at: "2026-10-16T08:00:00Z" },
   );
   ({ createSessionToken, SESSION_COOKIE } = await import("@/lib/rbac/session"));
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClockIcon, InfoIcon, Loader2Icon, LockIcon, SettingsIcon, WalletIcon, XIcon } from "lucide-react";
+import { CalendarClockIcon, FileTextIcon, InfoIcon, Loader2Icon, LockIcon, SettingsIcon, WalletIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -16,6 +16,7 @@ import { ErrorState } from "@/components/portal/empty-state";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
+import { BIR_EMPLOYER_FIELDS, BIR_EMPLOYER_SECTION, birEmployerErrors } from "@/lib/payroll/bir-employer";
 import { RatesSection } from "./rates-section";
 import { PayrollSettingsSection } from "./tax-section";
 import { HolidaysSection } from "./holidays-section";
@@ -227,6 +228,57 @@ function SimpleSection({ section, config, onConfig, icon, title, description, no
     <SectionCard icon={icon} title={title} description={description} note={note} footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}>
       <div className="grid gap-4 sm:grid-cols-2">
         <SettingInputs fields={fields} values={values} errors={errors} onChange={change} idPrefix={`cfg-${section}`} />
+      </div>
+      {confirmDialog}
+    </SectionCard>
+  );
+}
+
+/** The employer's details on BIR Form 2316 and the alphalist (AC-11); each one optional. */
+function BirEmployerSection({ config, onConfig }) {
+  const fields = BIR_EMPLOYER_FIELDS.map(([key, label, placeholder, maxLength]) => ({ key, label, placeholder, maxLength, type: "text" }));
+  const [values, setValues] = React.useState(() => initialValues(fields, config?.[BIR_EMPLOYER_SECTION]));
+  const [errors, setErrors] = React.useState({});
+  const [feedback, setFeedback] = React.useState({ text: "", ok: false });
+  const [busy, setBusy] = React.useState(false);
+  const [confirmDialog, saveConfig] = useSaveConfig();
+
+  const change = (key, value) => {
+    setValues((current) => ({ ...current, [key]: value }));
+    if (errors[key]) setErrors((e) => ({ ...e, [key]: "" }));
+  };
+
+  async function save() {
+    const nextErrors = birEmployerErrors(values);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      setFeedback({ text: "Fix the highlighted settings.", ok: false });
+      return;
+    }
+    setBusy(true);
+    try {
+      const next = await saveConfig(BIR_EMPLOYER_SECTION, "BIR employer details", Object.fromEntries(fields.map((f) => [f.key, String(values[f.key] || "").trim()])));
+      if (next) {
+        onConfig(next);
+        setFeedback({ text: "BIR employer details saved.", ok: true });
+      }
+    } catch (error) {
+      setFeedback({ text: error.message || "Failed to save configuration.", ok: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={FileTextIcon}
+      title="BIR employer details"
+      description="Printed on each employee's BIR Form 2316 and on the alphalist the Accountant makes under Payroll Reports → BIR forms."
+      applies="Leave a field blank if you do not have it yet; the forms say which details are missing."
+      footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <SettingInputs fields={fields} values={values} errors={errors} onChange={change} idPrefix="cfg-bir" />
       </div>
       {confirmDialog}
     </SectionCard>
@@ -457,6 +509,7 @@ export function ConfigPage({ refreshKey }) {
               note="Saved for reference only — not yet applied by the system. Dates and times are currently shown in Asia/Manila throughout."
             />
           ) : null}
+          {state.config ? <BirEmployerSection key={`bir-${state.version}`} config={config} onConfig={onConfig} /> : null}
         </TabsContent>
         <TabsContent value="attendance" className="flex flex-col gap-4">
           {state.config ? <AttendanceSection key={`att-${state.version}`} config={config} onConfig={onConfig} branches={state.branches} /> : null}

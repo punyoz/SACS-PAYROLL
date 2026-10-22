@@ -17,7 +17,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   CARD_ACTION_LABELS,
   CARD_STATUS_LABELS,
@@ -57,11 +57,13 @@ export async function GET(request) {
     const branchName = new Map(branches.map((b) => [b.id, b.name]));
     if (!ids.length) return NextResponse.json({ available: true, cards: [], events: [], employees: [], branches: guard.branchExempt ? branches : branches.filter((b) => b.id === guard.branchId) });
 
-    const cards = await fetchAllRows(() => supabase.from("rfid_cards").select("*").in("employee_id", ids)
-      .order("registered_at", { ascending: false }).order("id", { ascending: true }));
+    const cards = await fetchAllIn(() => supabase.from("rfid_cards").select("*")
+      .order("registered_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
+    if (!cards.error) cards.data.sort((a, b) => String(b.registered_at || "").localeCompare(String(a.registered_at || "")));
     if (cards.error) return NextResponse.json({ available: false, error: NOT_READY, cards: [], events: [], employees: [], branches: [] });
-    const events = await fetchAllRows(() => supabase.from("rfid_card_events").select("*").in("employee_id", ids)
-      .order("created_at", { ascending: false }).order("id", { ascending: true }));
+    const events = await fetchAllIn(() => supabase.from("rfid_card_events").select("*")
+      .order("created_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
+    if (!events.error) events.data.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 
     const name = (id) => byId.get(id)?.full_name || "—";
     // The branch shown is the employee's branch now (a transferred employee's

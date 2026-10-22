@@ -22,6 +22,8 @@ import {
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_LAST4_COLUMNS, maskedPii, withoutPiiMetadata } from "@/lib/employees/pii";
 import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
+import { findLikelyDuplicates } from "@/lib/employees/duplicates";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -212,10 +214,10 @@ async function fetchEmployees(supabase) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    const profileResult = await supabase
+    const profileResult = await fetchAllIn(() => supabase
       .from("profiles")
       .select(`id,email,full_name,role,branch_id,cp_number,date_hired,address,${PII_LAST4_COLUMNS}`)
-      .in("id", userIds);
+      .order("id", { ascending: true }), "id", userIds);
 
     // Degrade to auth-metadata-only (matching /api/admin/users and
     // /api/hr/employees) instead of failing the whole list — this keeps
@@ -324,6 +326,20 @@ export async function POST(request) {
         { error: `Full name may contain ${PERSON_NAME_RULE}.` },
         { status: 400 },
       );
+    }
+
+    // Same name and birthday as someone on file (archived included): HR
+    // confirms it is a different person before a second account is made.
+    if (body.confirm_duplicate !== true) {
+      const everyone = await listUsersCached(supabase);
+      const matches = findLikelyDuplicates(record, everyone.data?.users || []);
+      if (matches.length) {
+        return NextResponse.json({
+          error: `${matches.map((m) => `${m.full_name}${m.employee_id ? ` (${m.employee_id})` : ""}${m.archived ? ", archived" : ""}`).join("; ")} has the same name and date of birth. If this is the same person, restore or edit that record instead.`,
+          code: "possible_duplicate",
+          matches,
+        }, { status: 409 });
+      }
     }
 
     const employeesBefore = await fetchEmployees(supabase);

@@ -14,7 +14,8 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson } from "@/lib/portal/api";
 import { dateLabel, money, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
-import { useAccountant } from "./accountant-data";
+import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
+import { BirFormsCard } from "@/components/portal/bir-forms";
 
 /*
  * Payroll Reports (generateReport / generatePayrollSheet /
@@ -97,7 +98,7 @@ function PayrollSheet({ data }) {
 }
 
 export function ReportsPage() {
-  const { data, error, load } = useAccountant();
+  const { data, error, load, history } = useAccountant();
   const { notify } = usePortalSession();
   const [period, setPeriod] = React.useState("all");
   const [type, setType] = React.useState("summary");
@@ -126,7 +127,7 @@ export function ReportsPage() {
         setBranchOptions(sheet.branch_options || []);
         setReport({ type, period, sheet });
       } else {
-        const holiday = await fetchJson(`/api/accountant/payroll?view=holiday_work&period=${encodeURIComponent(period)}`);
+        const holiday = await fetchJson(`/api/accountant/payroll?view=holiday_work&period=${encodeURIComponent(period)}&history=${encodeURIComponent(history)}`);
         setReport({ type, period, holiday });
       }
       setState({ loading: false, error: null });
@@ -222,8 +223,12 @@ export function ReportsPage() {
                 <Label htmlFor="rpt-period">Pay period</Label>
                 <Select value={period} onValueChange={setPeriod}>
                   <SelectTrigger id="rpt-period" className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">All periods</SelectItem>{periods.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectItem value="all">{`All periods (${historyLabel(history).toLowerCase()})`}</SelectItem>{periods.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Showing</Label>
+                <HistorySelect className="w-full" />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="rpt-type">Report type</Label>
@@ -295,6 +300,9 @@ export function ReportsPage() {
                 )}
         </CardContent>
       </Card>
+
+      {/* BIR Form 2316 and the 1604-C alphalist (AC-11). */}
+      <BirFormsCard />
     </>
   );
 }

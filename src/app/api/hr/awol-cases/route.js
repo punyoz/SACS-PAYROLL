@@ -35,6 +35,7 @@ import {
   setEmployeeStatus,
   shapeCase,
 } from "@/lib/awol/cases";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 const NOT_READY = "AWOL cases are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
 const HR_CLOSE_OUTCOMES = ["false_alarm", "returned", "excused_by_leave"];
@@ -59,8 +60,8 @@ export async function GET(request) {
     const absences = new Map();
     if (openIds.length) {
       const earliest = rows.reduce((min, row) => (row.first_absent_on < min ? row.first_absent_on : min), "9999-12-31");
-      const logs = await supabase.from("attendance_logs").select("employee_id,log_date,status")
-        .in("employee_id", openIds).gte("log_date", earliest).eq("status", "Absent");
+      const logs = await fetchAllIn(() => supabase.from("attendance_logs").select("employee_id,log_date,status,id")
+        .gte("log_date", earliest).eq("status", "Absent").order("id", { ascending: true }), "employee_id", openIds);
       (logs.data || []).forEach((log) => {
         const list = absences.get(log.employee_id) || [];
         list.push(String(log.log_date).slice(0, 10));

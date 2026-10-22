@@ -16,7 +16,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
@@ -44,21 +44,28 @@ function normalizeEntry(row) {
   };
 }
 
-/** Processed entries the caller may see (branch-scoped callers: their own staff only). */
-async function readEntries(supabase, guard) {
-  const staff = await loadPayrollStaff(supabase, guard, { includeArchived: true });
-  const byId = new Map(staff.map((person) => [person.id, person]));
-  const result = await fetchAllRows(() => supabase
-    .from("payroll_entries")
-    .select("*")
-    .neq("status", "draft")
-    .order("updated_at", { ascending: false })
-    .order("id", { ascending: true }));
-  if (result.error) throw new Error(result.error.message);
-  const entries = (result.data || [])
-    .filter((row) => guard.branchExempt || byId.has(row.employee_id))
-    .map(normalizeEntry);
-  return { entries, byId };
+const LIST_COLUMNS = "id,employee_id,employee_name,employee_code,branch_id,pay_period,payslip_no,status,submitted_at,updated_at,created_at,"
+  + "run_id,gross_pay,total_deductions,net_pay,basic_salary,totals:payroll->totals,cutoff_gross:payroll->monthly->cutoff->gross_pay";
+const PAGE_SIZES = [10, 15, 25, 50, 100];
+
+/** A search word made safe for a PostgREST or() filter (no commas, parentheses or wildcards). */
+function searchTerm(value) {
+  return normalizeText(value).replace(/[,()*%\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+/**
+ * One page of processed payslips, filtered and searched in the database.
+ * Every payslip ever made (5 years: ~140k, ~9 KB each) used to be read and
+ * filtered in the browser, which ran the server out of memory (scale test
+ * 2026-10-22). Branch-scoped callers see their own branch's only.
+ */
+function listQuery(supabase, guard, { period, branch, q }) {
+  let query = supabase.from("payroll_entries").select(LIST_COLUMNS, { count: "exact" }).neq("status", "draft");
+  if (period) query = query.eq("pay_period", period);
+  if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId || "00000000-0000-0000-0000-000000000000");
+  else if (branch) query = query.eq("branch_id", branch);
+  if (q) query = query.or(`employee_name.ilike.*${q}*,employee_code.ilike.*${q}*,payslip_no.ilike.*${q}*,pay_period.ilike.*${q}*`);
+  return query;
 }
 
 export async function GET(request) {
@@ -75,11 +82,16 @@ export async function GET(request) {
     }
 
     const supabase = getAdminClient();
-    const { entries, byId } = await readEntries(supabase, guard);
 
     // One payslip (and its PDF).
     if (entryId) {
-      const entry = entries.find((row) => row.id === entryId);
+      const found = await supabase.from("payroll_entries").select("*").eq("id", entryId).neq("status", "draft").maybeSingle();
+      if (found.error) throw new Error(found.error.message);
+      let entry = found.data ? normalizeEntry(found.data) : null;
+      if (entry && !guard.branchExempt) {
+        const staff = await loadPayrollStaff(supabase, guard, { includeArchived: true });
+        if (!staff.some((person) => person.id === entry.employee_id)) entry = null;
+      }
       if (!entry) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       const details = buildPayslipDetails(entry);
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
@@ -93,44 +105,76 @@ export async function GET(request) {
       return NextResponse.json({ payslip: details });
     }
 
-    // The list: branch names and each payslip's Payroll Approval state.
-    const branchIds = [...new Set(entries.map((row) => byId.get(row.employee_id)?.branch_id || row.branch_id).filter(Boolean))];
-    const runIds = [...new Set(entries.map((row) => row.run_id).filter(Boolean))];
-    const [branches, runs] = await Promise.all([
-      branchIds.length ? supabase.from("branches").select("id,name").in("id", branchIds) : { data: [] },
-      runIds.length ? supabase.from("payroll_runs").select("id,status").in("id", runIds) : { data: [] },
+    // The list: one page, filtered, with the filters' totals.
+    const filters = {
+      period: normalizeText(url.searchParams.get("period")),
+      branch: normalizeText(url.searchParams.get("branch")),
+      q: searchTerm(url.searchParams.get("q")),
+    };
+    const pageSize = PAGE_SIZES.includes(Number(url.searchParams.get("page_size"))) ? Number(url.searchParams.get("page_size")) : 15;
+    const page = Math.max(1, Math.floor(Number(url.searchParams.get("page")) || 1));
+    const from = (page - 1) * pageSize;
+    const [list, totals, branches, runs] = await Promise.all([
+      listQuery(supabase, guard, filters).order("updated_at", { ascending: false }).order("id", { ascending: true }).range(from, from + pageSize - 1),
+      supabase.rpc("payroll_entries_totals", {
+        p_period: filters.period || null,
+        p_branch: guard.branchExempt ? (filters.branch || null) : (guard.branchId || "00000000-0000-0000-0000-000000000000"),
+        p_q: filters.q || null,
+      }),
+      supabase.from("branches").select("id,name").order("name", { ascending: true }),
+      // The periods there are (newest first), from the runs: a few hundred rows.
+      fetchAllRows(() => {
+        let query = supabase.from("payroll_runs").select("id,period_label,period_start");
+        if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId || "00000000-0000-0000-0000-000000000000");
+        return query.order("period_start", { ascending: false }).order("id", { ascending: true });
+      }),
     ]);
-    const branchName = new Map((branches.data || []).map((b) => [b.id, b.name]));
-    const runStatus = new Map((runs.data || []).map((r) => [r.id, r.status]));
+    if (list.error) throw new Error(list.error.message);
 
-    const records = entries.map((row) => {
-      const totals = row.payroll.totals;
-      const person = byId.get(row.employee_id);
-      const branchId = person?.branch_id || row.branch_id || null;
+    const rows = list.data || [];
+    const runIds = [...new Set(rows.map((row) => row.run_id).filter(Boolean))];
+    const runStatus = new Map(((runIds.length
+      ? (await fetchAllIn(() => supabase.from("payroll_runs").select("id,status").order("id", { ascending: true }), "id", runIds)).data
+      : []) || []).map((r) => [r.id, r.status]));
+    const branchName = new Map((branches.data || []).map((b) => [b.id, b.name]));
+
+    const records = rows.map((row) => {
       const run = row.run_id ? runStatus.get(row.run_id) || null : null;
+      const rowTotals = row.totals || {};
       return {
         id: row.id,
         employee_id: row.employee_id,
-        employee_name: person?.full_name || row.employee_name || "—",
-        employee_code: row.employee_code || person?.employee_id || "",
-        branch_id: branchId,
-        branch_name: branchName.get(branchId) || "—",
+        employee_name: row.employee_name || "—",
+        employee_code: row.employee_code || "",
+        branch_id: row.branch_id || null,
+        branch_name: branchName.get(row.branch_id) || "—",
         pay_period: row.pay_period,
         payslip_no: row.payslip_no || null,
         processed_at: row.submitted_at || row.updated_at || row.created_at,
         // Per-cutoff payslips: the cutoff's gross, incentives and subsidy included.
-        gross_pay: amount(row.payroll?.monthly?.cutoff?.gross_pay ?? totals.gross_pay ?? row.payroll.basic_salary),
-        total_deductions: amount(totals.total_deductions),
-        net_pay: floorNetPay(totals.net_pay ?? 0),
+        gross_pay: amount(row.cutoff_gross ?? rowTotals.gross_pay ?? row.gross_pay ?? row.basic_salary),
+        total_deductions: amount(rowTotals.total_deductions ?? row.total_deductions),
+        net_pay: floorNetPay(rowTotals.net_pay ?? row.net_pay ?? 0),
         run_status: run,
         run_label: run ? RUN_LABELS[run] || run : null,
       };
     });
+    const sums = Array.isArray(totals.data) ? totals.data[0] : totals.data;
 
     return NextResponse.json({
       records,
-      periods: [...new Set(records.map((r) => r.pay_period).filter(Boolean))],
-      branches: [...new Map(records.filter((r) => r.branch_id).map((r) => [r.branch_id, { id: r.branch_id, name: r.branch_name }])).values()],
+      total: list.count ?? records.length,
+      page,
+      page_size: pageSize,
+      totals: {
+        gross: amount(sums?.gross),
+        deductions: amount(sums?.deductions),
+        net: amount(sums?.net),
+        available: !totals.error,
+      },
+      // Submitted periods (runs), and any on this page not submitted yet.
+      periods: [...new Set([...(runs.data || []).map((r) => r.period_label), ...records.map((r) => r.pay_period)].filter(Boolean))],
+      branches: guard.branchExempt ? (branches.data || []) : (branches.data || []).filter((b) => b.id === guard.branchId),
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });

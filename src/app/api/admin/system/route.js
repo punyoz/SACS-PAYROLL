@@ -5,6 +5,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog, listAuditLogs } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, scopeListToBranch } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 async function fetchSystemStats(supabase) {
   const usersResult = await listUsersCached(supabase);
@@ -47,10 +48,10 @@ async function fetchRfidDevices(supabase) {
   const profileMap = new Map();
 
   if (userIds.length) {
-    const profileResult = await supabase
+    const profileResult = await fetchAllIn(() => supabase
       .from("profiles")
       .select("id,email,full_name,branch_id")
-      .in("id", userIds);
+      .order("id", { ascending: true }), "id", userIds);
     if (!profileResult.error) {
       (profileResult.data || []).forEach((p) => profileMap.set(p.id, p));
     }
@@ -92,12 +93,13 @@ export async function GET(request) {
     // staff of its own branch.
     const rfidDevices = scopeListToBranch(allRfidDevices, guard, (d) => d.branch_id);
 
-    const [attendanceOk, payrollOk, branchesOk, configOk, auditResult] = await Promise.all([
+    const [attendanceOk, payrollOk, branchesOk, configOk, auditResult, sizeResult] = await Promise.all([
       checkTableExists(supabase, "attendance_logs"),
       checkTableExists(supabase, "payroll_records"),
       checkTableExists(supabase, "branches"),
       checkTableExists(supabase, "system_config"),
       listAuditLogs({ module: "all", action: "all", search: "", limit: 10 }),
+      supabase.rpc("system_database_size"),
     ]);
 
     return NextResponse.json({
@@ -110,6 +112,13 @@ export async function GET(request) {
         profiles: "ok",
         branches: branchesOk ? "ok" : "missing",
         system_config: configOk ? "ok" : "missing",
+      },
+      // Database size against the hosting plan (Supabase Free: 500 MB, then
+      // read-only). Warned from 350 MB: move to Pro before the limit.
+      database_size: sizeResult?.error ? null : {
+        bytes: Number(sizeResult.data) || 0,
+        warn_bytes: 350 * 1024 * 1024,
+        limit_bytes: 500 * 1024 * 1024,
       },
       rfid_devices: rfidDevices,
       recent_security_events: auditResult.logs || [],

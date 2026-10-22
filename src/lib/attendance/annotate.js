@@ -15,6 +15,8 @@
  * Never throws: on a read error the rows come back without the labels.
  */
 
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function annotateAttendanceRows(supabase, rows) {
@@ -34,16 +36,17 @@ export async function annotateAttendanceRows(supabase, rows) {
   try {
     const [profiles, branches, done] = await Promise.all([
       employeeIds.length
-        ? supabase.from("profiles").select("id,employee_id,branch_id").in("id", employeeIds.slice(0, 1000))
+        ? fetchAllIn(() => supabase.from("profiles").select("id,employee_id,branch_id").order("id", { ascending: true }), "id", employeeIds)
         : Promise.resolve({ data: [] }),
       supabase.from("branches").select("id,name"),
       correctedIds.length
-        ? supabase
+        ? fetchAllIn(() => supabase
           .from("attendance_corrections")
-          .select("log_id,approved_by_name,approved_at,reason,review_note,correction_type,original_time_in,original_time_out")
+          .select("id,log_id,approved_by_name,approved_at,reason,review_note,correction_type,original_time_in,original_time_out")
           .eq("status", "approved")
-          .in("log_id", correctedIds.slice(0, 1000))
           .order("approved_at", { ascending: true })
+          .order("id", { ascending: true }), "log_id", correctedIds)
+          .then((r) => ({ ...r, data: (r.data || []).sort((a, b) => String(a.approved_at || "").localeCompare(String(b.approved_at || ""))) }))
         : Promise.resolve({ data: [] }),
     ]);
     if (!profiles.error) (profiles.data || []).forEach((row) => people.set(row.id, row));
@@ -52,10 +55,10 @@ export async function annotateAttendanceRows(supabase, rows) {
     if (!done.error) (done.data || []).forEach((row) => corrections.set(row.log_id, row));
     // Read on its own: the column only exists once the raw-taps migration is in.
     if (correctedIds.length) {
-      const flags = await supabase
+      const flags = await fetchAllIn(() => supabase
         .from("attendance_logs")
         .select("id,tap_after_correction_at")
-        .in("id", correctedIds.slice(0, 1000));
+        .order("id", { ascending: true }), "id", correctedIds);
       if (!flags.error) (flags.data || []).forEach((row) => tapFlags.set(row.id, row.tap_after_correction_at || null));
     }
   } catch {

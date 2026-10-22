@@ -4,7 +4,7 @@
  * client roles, so these run with the service-role client.
  */
 
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
 export const TENURE_NOT_READY = "Tenure Pay Protection is not set up yet: apply supabase/migrations/20261015010000_tenure_pay_protection.sql.";
 
@@ -22,11 +22,10 @@ export function isMissingTable(error) {
 export async function loadTenureProtection(supabase, { employeeIds = null } = {}) {
   const [policies, grants, breaks] = await Promise.all([
     fetchAllRows(() => supabase.from("tenure_protection_policies").select("*").order("id", { ascending: true })),
-    fetchAllRows(() => {
-      let query = supabase.from("tenure_protection_grants").select("*");
-      if (Array.isArray(employeeIds)) query = query.in("employee_id", employeeIds.length ? employeeIds : ["00000000-0000-0000-0000-000000000000"]);
-      return query.order("granted_at", { ascending: false }).order("id", { ascending: true });
-    }),
+    Array.isArray(employeeIds)
+      ? fetchAllIn(() => supabase.from("tenure_protection_grants").select("*").order("granted_at", { ascending: false }).order("id", { ascending: true }), "employee_id", employeeIds)
+        .then((r) => ({ ...r, data: (r.data || []).sort((a, b) => String(b.granted_at || "").localeCompare(String(a.granted_at || ""))) }))
+      : fetchAllRows(() => supabase.from("tenure_protection_grants").select("*").order("granted_at", { ascending: false }).order("id", { ascending: true })),
     fetchAllRows(() => supabase.from("school_break_periods").select("*").order("start_date", { ascending: true }).order("id", { ascending: true })),
   ]);
   const error = policies.error || grants.error || breaks.error;

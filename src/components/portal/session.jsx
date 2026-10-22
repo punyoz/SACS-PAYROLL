@@ -27,6 +27,7 @@ const SessionContext = React.createContext(null);
 
 const HEARTBEAT_MS = 10000;
 const MAX_HISTORY = 30;
+const ACTIVITY_RENEW_MS = 60000;
 
 /**
  * Leave for /login with the server session ended first: /login sends a live
@@ -117,6 +118,27 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", check);
+    };
+  }, [ready]);
+
+  // Typing or clicking is activity too. A long form never reaches the server
+  // until it is saved, so the idle timeout used to end the session under
+  // someone filling it in, and the save then lost every field (scenario X-03,
+  // 2026-10-22). Real input renews the session at most once a minute, the way
+  // the RFID terminal's keep-alive does; the 8-hour limit still applies.
+  React.useEffect(() => {
+    if (!ready) return undefined;
+    let last = Date.now();
+    const onInput = () => {
+      if (Date.now() - last < ACTIVITY_RENEW_MS) return;
+      last = Date.now();
+      fetch("/api/legacy-auth/session", { headers: { "x-sacs-activity": "1" }, cache: "no-store", credentials: "same-origin" }).catch(() => {});
+    };
+    window.addEventListener("keydown", onInput, true);
+    window.addEventListener("pointerdown", onInput, true);
+    return () => {
+      window.removeEventListener("keydown", onInput, true);
+      window.removeEventListener("pointerdown", onInput, true);
     };
   }, [ready]);
 

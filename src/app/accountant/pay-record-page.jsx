@@ -221,6 +221,7 @@ export function PayslipDocument({ payslip }) {
             ["Position", portalPosition(payslip.employee?.position, payslip.employee?.role)],
             ["Type", payslip.employee?.type || "N/A"],
             ["Branch", payslip.employee?.branch || "—"],
+            ...(payslip.employee?.branch_days?.length ? [["Days by branch", payslip.employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(" · ")]] : []),
           ].map(([label, value]) => (
             <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="font-medium">{value}</dd></div>
           ))}

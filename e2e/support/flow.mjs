@@ -41,9 +41,16 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
  */
 export async function pickDate(page, trigger, key) {
   const [y, m, d] = key.split("-").map(Number);
-  await trigger.click();
+  // A Select chosen just before may still be closing and swallow the click
+  // (flaky in the full run 2026-10-22): wait for it, and click again if the
+  // calendar did not open.
+  await expect(page.getByRole("listbox")).toHaveCount(0);
   const pop = page.locator("[data-radix-popper-content-wrapper]:visible").last();
-  await pop.waitFor();
+  await trigger.click();
+  if (!(await pop.waitFor({ timeout: 3000 }).then(() => true, () => false))) {
+    await trigger.click();
+    await pop.waitFor();
+  }
   const selects = pop.locator("select");
   if (await selects.count() >= 2) {
     await selects.nth(1).selectOption(String(y)).catch(() => {});

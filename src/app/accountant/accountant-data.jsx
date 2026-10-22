@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { fetchJson } from "@/lib/portal/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 /*
  * The Accountant portal's shared data (runAccountantLoad, public/legacy/js/
@@ -43,6 +44,50 @@ function keepPeriodInUrl(next) {
   }
 }
 
+/*
+ * The payroll history Payroll Records, Monitoring and Reports list: the last
+ * 12 months ("recent", the default) or one year (?hy=YYYY). Five years of
+ * payslips are never sent at once (scale test 2026-10-22).
+ */
+function historyFromUrl() {
+  try {
+    const value = new URLSearchParams(window.location.search).get("hy") || "";
+    return /^\d{4}$/.test(value) ? value : "recent";
+  } catch {
+    return "recent";
+  }
+}
+
+function keepHistoryInUrl(next) {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (next && next !== "recent") params.set("hy", next);
+    else params.delete("hy");
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+  } catch {
+    // history unavailable: the choice still applies to this visit
+  }
+}
+
+/** "Last 12 months" or a year, for the history pages' headers. */
+export function HistorySelect({ className }) {
+  const { data, history, setHistory } = useAccountant();
+  const years = data?.history_years || [];
+  return (
+    <Select value={history} onValueChange={setHistory}>
+      <SelectTrigger size="sm" className={className || "w-40"} aria-label="Showing"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="recent">Last 12 months</SelectItem>
+        {years.map((year) => <SelectItem key={year} value={String(year)}>{year}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function historyLabel(history) {
+  return history && history !== "recent" ? `Year ${history}` : "Last 12 months";
+}
+
 export function AccountantDataProvider({ children, navigate }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [period, setPeriodState] = React.useState("");
@@ -50,6 +95,8 @@ export function AccountantDataProvider({ children, navigate }) {
   const seq = React.useRef(0);
   // The latest choices, read by load() without re-creating it.
   const periodRef = React.useRef(typeof window === "undefined" ? "" : periodFromUrl());
+  const historyRef = React.useRef(typeof window === "undefined" ? "recent" : historyFromUrl());
+  const [history, setHistoryState] = React.useState(historyRef.current);
   const entryRef = React.useRef("");
   const chooseEntry = React.useCallback((id) => {
     entryRef.current = String(id || "");
@@ -64,6 +111,7 @@ export function AccountantDataProvider({ children, navigate }) {
       const chosen = options.period || periodRef.current;
       if (chosen) params.set("period", chosen);
       if (options.entryId) params.set("entry_id", options.entryId);
+      if (historyRef.current !== "recent") params.set("history", historyRef.current);
       const query = params.toString();
       const data = await fetchJson(`/api/accountant/payroll${query ? `?${query}` : ""}`);
       if (mine !== seq.current) return data;
@@ -88,6 +136,9 @@ export function AccountantDataProvider({ children, navigate }) {
     ...state,
     period,
     entryId,
+    history,
+    /** Another history window: the last 12 months or a year. */
+    setHistory: (next) => { historyRef.current = next || "recent"; setHistoryState(historyRef.current); keepHistoryInUrl(historyRef.current); load(); },
     setEntryId: chooseEntry,
     load,
     /** A new period for both Process Payroll selectors, and everything reloads. */
@@ -96,7 +147,7 @@ export function AccountantDataProvider({ children, navigate }) {
     openPayslip: (id) => { load({ entryId: id }); navigate("ac-payslips"); },
     /** Edit a draft in the Process Payroll form (editDraftEntry). */
     editDraft: (id) => { chooseEntry(id); navigate("ac-process"); load({ entryId: id }); },
-  }), [state, period, entryId, load, navigate, chooseEntry]);
+  }), [state, period, entryId, history, load, navigate, chooseEntry]);
 
   return <AccountantContext.Provider value={value}>{children}</AccountantContext.Provider>;
 }

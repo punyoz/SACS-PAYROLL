@@ -227,6 +227,11 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   p.pair("Payroll period", details?.pay_period || "-", MARGIN + col, p.y);
   p.pair("Status", final ? "Final (locked)" : "Draft", MARGIN + 2 * col, p.y);
   p.y -= 30;
+  // Worked in more than one branch this period (a transfer).
+  if (Array.isArray(employee.branch_days) && employee.branch_days.length) {
+    p.text(MARGIN, p.y, `Days by branch: ${employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(", ")}`, { size: 9, gray: 0.35 });
+    p.y -= 14;
+  }
   if (!final && generation.attendance_through_label) {
     p.text(MARGIN, p.y, `Includes attendance up to ${generation.attendance_through_label}.`, { size: 9, gray: 0.35 });
     p.y -= 14;

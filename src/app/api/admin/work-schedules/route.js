@@ -34,7 +34,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { can } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows, forEachInChunk } from "@/lib/supabase/fetch-all";
 import { loadAttendanceConfig, resolveAttendancePolicy } from "@/lib/attendance/policy";
 import { describeWorkingDays, LEVEL_VALUES, levelLabel, validateScheduleInput } from "@/lib/attendance/work-schedules";
 import { isDateKey, manilaDateKey } from "@/lib/payroll/periods";
@@ -368,7 +368,7 @@ async function assign(supabase, guard, body, data) {
   const ids = [...new Set((Array.isArray(body.employee_ids) ? body.employee_ids : []).map(normalizeText))].filter((id) => UUID.test(id));
   if (!ids.length) return NextResponse.json({ error: "Choose at least one employee." }, { status: 400 });
   if (ids.length > 500) return NextResponse.json({ error: "Assign at most 500 employees at a time." }, { status: 400 });
-  const known = await supabase.from("profiles").select("id,full_name").in("id", ids).in("role", PAID_ROLES);
+  const known = await fetchAllIn(() => supabase.from("profiles").select("id,full_name").in("role", PAID_ROLES).order("id", { ascending: true }), "id", ids);
   if (known.error) throw new Error(known.error.message);
   if ((known.data || []).length !== ids.length) return NextResponse.json({ error: "One of the chosen employees was not found." }, { status: 404 });
 
@@ -395,10 +395,10 @@ async function setLevel(supabase, guard, body) {
   if (!ids.length) return NextResponse.json({ error: "Choose at least one employee." }, { status: 400 });
   if (ids.length > 500) return NextResponse.json({ error: "Change at most 500 employees at a time." }, { status: 400 });
 
-  const before = await supabase.from("profiles").select("id,full_name,employee_level").in("id", ids).in("role", PAID_ROLES);
+  const before = await fetchAllIn(() => supabase.from("profiles").select("id,full_name,employee_level").in("role", PAID_ROLES).order("id", { ascending: true }), "id", ids);
   if (before.error) throw new Error(before.error.message);
   if ((before.data || []).length !== ids.length) return NextResponse.json({ error: "One of the chosen employees was not found." }, { status: 404 });
-  const result = await supabase.from("profiles").update({ employee_level: level }).in("id", ids);
+  const result = await forEachInChunk(ids, (part) => supabase.from("profiles").update({ employee_level: level }).in("id", part));
   if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 400 });
 
   await audit(guard, "employee_level_update",

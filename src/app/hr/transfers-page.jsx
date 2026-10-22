@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { BranchGroupedTable } from "@/components/portal/branch-grouped-table";
+import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { StatCard } from "@/components/portal/stat-card";
@@ -148,6 +149,10 @@ export function TransfersPage({ refreshKey }) {
   const [history, setHistory] = React.useState({ loading: true, error: null, rows: [] });
   const [filter, setFilter] = React.useState("all");
   const [editing, setEditing] = React.useState(null);
+  // Move many (a branch closing or merging, scenario AD-05): each move is
+  // recorded in Transfer History like a single transfer.
+  const [moving, setMoving] = React.useState(false);
+  const [move, setMove] = React.useState({ to: "", remarks: "" });
   const { notify } = usePortalSession();
   const [confirmDialogNode, confirmDecision] = useConfirm();
   // The branch Admins' endorsements, by transfer request (2026-10-20).
@@ -288,7 +293,10 @@ export function TransfersPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Employee branch list</CardTitle>
           <CardDescription>Where every Employee and Accountant is assigned.</CardDescription>
-          <CardAction><Button variant="outline" size="sm" onClick={load} disabled={roster.loading}><RefreshCwIcon className={cn(roster.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+          <CardAction className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setMoving(true)} disabled={!all.length}><UsersIcon aria-hidden="true" />Move many</Button>
+            <Button variant="outline" size="sm" onClick={load} disabled={roster.loading}><RefreshCwIcon className={cn(roster.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="-mx-1 overflow-x-auto px-1 pb-1">
@@ -339,6 +347,40 @@ export function TransfersPage({ refreshKey }) {
       </Card>
 
       <TransferDialog employee={editing} branches={branches} onOpenChange={(open) => { if (!open) setEditing(null); }} onDone={async () => { await Promise.all([load(), loadEndorsements()]); }} />
+      <BulkLinesDialog
+        open={moving}
+        onOpenChange={setMoving}
+        title="Move many employees"
+        description="One employee ID per line. Each moves to the chosen branch now and the move is kept in Transfer History (e.g. a branch closing or merging into another)."
+        placeholder={"SACS-0101\nSACS-0102"}
+        inputLabel="Employee IDs"
+        reportName="sacs-move-report.csv"
+        runLabel="Move"
+        ready={Boolean(move.to) && move.remarks.trim().length >= 5}
+        parseLine={(text) => {
+          const person = all.find((e) => String(e.employee_id || "").toLowerCase() === text.toLowerCase());
+          if (!person) return { label: text, error: `No employee with ID ${text}.` };
+          if (person.branch === move.to) return { label: person.full_name, error: "Already in that branch." };
+          return { label: person.full_name, payload: person };
+        }}
+        run={(person) => fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: person.id, to_branch_id: move.to, remarks: move.remarks.trim(), wait_for_endorsement: false }))}
+        onDone={(n) => { if (n) { notify("Employees Moved", `${n} moved. Each move is in Transfer History.`, "success"); load(); } }}
+        extra={(
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="mv-to">Move to</Label>
+              <Select value={move.to} onValueChange={(to) => setMove((c) => ({ ...c, to }))}>
+                <SelectTrigger id="mv-to" className="w-full"><SelectValue placeholder="Choose the branch" /></SelectTrigger>
+                <SelectContent>{branches.filter((b) => String(b.status || "Active").toLowerCase() === "active").map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mv-remarks">Reason (required)</Label>
+              <Input id="mv-remarks" maxLength={300} placeholder="e.g. East Campus merged into Main Campus" value={move.remarks} onChange={(e) => setMove((c) => ({ ...c, remarks: e.target.value }))} />
+            </div>
+          </div>
+        )}
+      />
       {confirmDialogNode}
     </>
   );

@@ -10,6 +10,7 @@ import { DataTable } from "@/components/portal/data-table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { formatIssued, formatPeso, formatPesoShort, holidayLineLabel } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
+import { MyBir2316Card } from "@/components/portal/bir-forms";
 
 /*
  * The payslip breakdown, row for row as public/legacy/js/employee.js
@@ -225,24 +226,28 @@ export function PayslipsPage({ payslips }) {
         <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{selected === 0 ? "My latest payslip" : "Selected payslip"}</p>
         <PayslipCard payslip={current} />
       </section>
-      <Card className="min-w-0 shadow-xs">
-        <CardHeader>
-          <CardTitle>All payslips</CardTitle>
-          <CardDescription>Choose View to open an earlier payslip.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={columns}
-            rows={list}
-            rowKey={(p, i) => p.id || `${p.period_label}-${i}`}
-            rowClassName={(p) => (list[selected] === p ? "bg-primary/5" : undefined)}
-            searchPlaceholder="Search payslips…"
-            empty={{ title: "No payslips yet", icon: ReceiptTextIcon }}
-            caption="Payslips"
-            minWidth={560}
-          />
-        </CardContent>
-      </Card>
+      <div className="min-w-0 space-y-4">
+        <Card className="min-w-0 shadow-xs">
+          <CardHeader>
+            <CardTitle>All payslips</CardTitle>
+            <CardDescription>Choose View to open an earlier payslip.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DataTable
+              columns={columns}
+              rows={list}
+              rowKey={(p, i) => p.id || `${p.period_label}-${i}`}
+              rowClassName={(p) => (list[selected] === p ? "bg-primary/5" : undefined)}
+              searchPlaceholder="Search payslips…"
+              empty={{ title: "No payslips yet", icon: ReceiptTextIcon }}
+              caption="Payslips"
+              minWidth={560}
+            />
+          </CardContent>
+        </Card>
+        {/* The year-end BIR 2316 (AC-11). */}
+        <MyBir2316Card />
+      </div>
     </div>
   );
 }
