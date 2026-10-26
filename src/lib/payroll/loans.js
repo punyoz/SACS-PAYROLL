@@ -22,6 +22,7 @@
 
 import { roundPeso } from "@/lib/payroll/money";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { isApproved } from "@/lib/payroll/adjustment-approvals";
 
 const peso = (value) => roundPeso(value);
 
@@ -147,7 +148,7 @@ export async function loadLoanContext(supabase, employeeIds, period) {
   if (!employeeIds.length || String(period?.start_key || "").slice(8, 10) !== "16") return { ready: true, byEmployee };
 
   const loanResult = await fetchAllIn(() => supabase.from("payroll_loans")
-    .select("id,employee_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,remaining_balance,status,created_at")
+    .select("id,employee_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,remaining_balance,status,created_at,approval_status")
     .eq("status", "active")
     .lte("start_period", period.start_key)
     .order("id", { ascending: true }), "employee_id", employeeIds);
@@ -155,7 +156,8 @@ export async function loadLoanContext(supabase, employeeIds, period) {
     if (isMissingRelation(loanResult.error)) return { ready: true, byEmployee };
     return { ready: false, byEmployee };
   }
-  const loans = (loanResult.data || []).filter((loan) => loan.loan_type !== "subsidy_advance");
+  // Only loans HR approved (20261027020000); a pending or rejected one is never deducted.
+  const loans = (loanResult.data || []).filter((loan) => loan.loan_type !== "subsidy_advance" && isApproved(loan));
   if (!loans.length) return { ready: true, byEmployee };
 
   const paidResult = await fetchAllIn(() => supabase.from("payroll_loan_payments")

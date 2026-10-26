@@ -52,6 +52,7 @@ import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRate, resolveRates }
 import { periodFromLabel, manilaDateKey } from "@/lib/payroll/periods";
 import { loadSssMscRows, mscTableOn } from "@/lib/payroll/sss-msc";
 import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
+import { approvalFields, filedAtOf, isApproved } from "@/lib/payroll/adjustment-approvals";
 import {
   SEMI_MONTHLY_TAX_TABLE,
   contributionLabel,
@@ -1186,7 +1187,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       .select("employee_id,effective_date,sss,philhealth,pagibig,created_at")
       .lte("effective_date", period.start_key),
     fetchAllRows(() => supabase.from("payroll_monthly_incentives")
-      .select("id,employee_id,item_date,kind,description,amount,hours,created_at")
+      .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at")
       .eq("archived", false)
       .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
       .lte("item_date", window.end_key)
@@ -1235,7 +1236,8 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
 
     // Filed after the lock: counted next month.
     const items = (itemResult.data || []).filter((item) => item.employee_id === employee.id
-      && payrollMonthFor(String(item.item_date).slice(0, 10), manilaDateKey(new Date(item.created_at || Date.now())), lockDayFor) === month.month_key);
+      && isApproved(item)
+      && payrollMonthFor(String(item.item_date).slice(0, 10), manilaDateKey(new Date(filedAtOf(item) || Date.now())), lockDayFor) === month.month_key);
 
     byEmployee.set(employee.id, {
       ...base,
@@ -1305,7 +1307,7 @@ async function loadPerHalfContext(supabase, employees, period, configs, holidays
       .lte("effective_date", period.start_key),
     half === "second"
       ? fetchAllRows(() => supabase.from("payroll_monthly_incentives")
-        .select("id,employee_id,item_date,kind,description,amount,hours,created_at")
+        .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at")
         .eq("archived", false)
         .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
         .lte("item_date", month.end_key)
@@ -1328,7 +1330,8 @@ async function loadPerHalfContext(supabase, employees, period, configs, holidays
       if (fixed && fixed[type] !== null && fixed[type] !== undefined) contributionAmounts[type] = toAmount(fixed[type]);
     });
     const items = (itemResult.data || []).filter((item) => item.employee_id === employee.id
-      && payrollMonthFor(String(item.item_date).slice(0, 10), manilaDateKey(new Date(item.created_at || Date.now())), lockDayFor) === month.month_key);
+      && isApproved(item)
+      && payrollMonthFor(String(item.item_date).slice(0, 10), manilaDateKey(new Date(filedAtOf(item) || Date.now())), lockDayFor) === month.month_key);
     byEmployee.set(employee.id, {
       half,
       month_key: month.month_key,
@@ -2992,7 +2995,8 @@ async function resolveCutoffs(supabase, configs) {
 function itemPayrollMonth(item, lockDayFor) {
   return payrollMonthFor(
     String(item.item_date).slice(0, 10),
-    manilaDateKey(new Date(item.created_at || Date.now())),
+    // Its HR approval date once approved (20261027020000), else when filed.
+    manilaDateKey(new Date(filedAtOf(item) || Date.now())),
     lockDayFor,
   );
 }
@@ -3007,7 +3011,7 @@ async function handleMonthlyItemsView(supabase, employees, url) {
 
   const result = await fetchAllRows(() => supabase
     .from("payroll_monthly_incentives")
-    .select("id,employee_id,item_date,kind,description,amount,hours,created_at,created_by_name")
+    .select("id,employee_id,item_date,kind,description,amount,hours,created_at,created_by_name,approval_status,decided_by_name,decided_at,decision_note")
     .eq("archived", false)
     .gte("item_date", monthInfo(shiftMonth(monthKey, -1)).start_key)
     .lte("item_date", month.end_key)
@@ -3026,6 +3030,8 @@ async function handleMonthlyItemsView(supabase, employees, url) {
         item_date: String(item.item_date).slice(0, 10),
         employee_name: names.get(item.employee_id).full_name,
         employee_code: names.get(item.employee_id).employee_id,
+        // HR approval (20261027020000): only an approved item is paid.
+        ...approvalFields(item),
         payroll_month: payrollMonth,
         payroll_month_label: monthInfo(payrollMonth).label,
         moved_to_next_month: payrollMonth !== monthKeyOf(item.item_date),
@@ -3099,6 +3105,8 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     created_by: guard.userId || null,
     created_by_name: actorName || null,
     created_at: new Date().toISOString(),
+    // Waits for HR approval before payroll pays it (20261027020000).
+    approval_status: "pending",
   };
   const result = await supabase.from("payroll_monthly_incentives").insert(row);
   if (result.error) {
@@ -3112,14 +3120,20 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     action: "monthly_item_add",
     entity_type: "payroll_monthly_incentive",
     entity_id: employee.id,
-    description: `${kind === "incentive" ? `Incentive ₱${money(row.amount)}` : `Overload ${row.hours} h`} for ${employee.full_name} (${description}), counted in ${monthInfo(payrollMonth).label} payroll.`,
+    description: `${kind === "incentive" ? `Incentive ₱${money(row.amount)}` : `Overload ${row.hours} h`} for ${employee.full_name} (${description}) filed for HR approval; counts in ${monthInfo(payrollMonth).label} payroll once approved by the lock date.`,
     status: "success",
     source: "api",
     metadata: { ...row, payroll_month: payrollMonth },
   });
 
+  await notifyHrOfAdjustment(supabase, {
+    title: `${kind === "incentive" ? "Incentive" : "Overload"} to approve: ${employee.full_name}`,
+    body: `${actorName} filed ${kind === "incentive" ? `an incentive of ${money(row.amount)}` : `${row.hours} h of overload`} for ${employee.full_name} (${description}).`,
+  });
+
   return NextResponse.json({
     success: true,
+    approval_status: "pending",
     payroll_month: payrollMonth,
     payroll_month_label: monthInfo(payrollMonth).label,
     // Filed after the lock day: paid with next month's payroll (intended).
@@ -3938,6 +3952,14 @@ async function handleBatchSubmit(supabase, body, guard) {
   });
 
   return NextResponse.json({ success: true, processed, skipped });
+}
+
+/** Tells every active HR account that an item waits for its approval (20261027020000). */
+async function notifyHrOfAdjustment(supabase, { title, body }) {
+  const reviewers = await supabase.from("profiles").select("id,role,archived").eq("role", "hr");
+  return notify(supabase, (reviewers.data || []).filter((row) => !row.archived).map((row) => row.id), {
+    kind: "adjustment_approval", title, body, link_page: "hr-adjustment-approvals",
+  });
 }
 
 const FLAG_FIELDS = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax" };

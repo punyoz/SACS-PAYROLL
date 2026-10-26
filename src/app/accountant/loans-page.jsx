@@ -21,6 +21,7 @@ import { dateLabel, money, moneyCompact } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { EmployeeSelect, HowItWorks } from "./incentives-page";
+import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 
 /*
  * Loans (/api/accountant/loans; docs/payroll-schedule-loans-awol.md §4, §6):
@@ -55,6 +56,9 @@ const totalOf = (principal, pct) => round2((Number(principal) || 0) * (1 + (Numb
 const perPayroll = (total, n) => (Number(n) > 0 ? Math.ceil((total / Number(n)) * 100) / 100 : 0);
 
 function statusBadge(loan) {
+  // HR approval first (20261027020000): nothing is deducted before it.
+  if (loan.approval_status === "pending") return <StatusBadge tone="gold">Pending HR approval</StatusBadge>;
+  if (loan.approval_status === "rejected") return <StatusBadge tone="danger">Rejected by HR</StatusBadge>;
   if (loan.awaiting_decision) return <StatusBadge tone="gold">Awaiting decision</StatusBadge>;
   if (loan.status === "paid") return <StatusBadge tone="success">Paid</StatusBadge>;
   if (loan.status === "suspended") return <StatusBadge tone="danger">Suspended</StatusBadge>;
@@ -131,7 +135,7 @@ export function LoansPage({ refreshKey }) {
       }));
       const startLabel = starts.find((s) => s.value === form.start)?.label || form.start;
       setFeedback({ text: `Added — ${money(amort)} deducted from the ${startLabel} payslip on.`, ok: true });
-      notify("Loan Added", `Deducted on 16–end payslips from ${startLabel}.`, "success");
+      notify("Sent for HR Approval", `Deducted on 16–end payslips from ${startLabel} once HR approves it.`, "success");
       setForm((c) => ({ ...c, principal: "", amortization: "", description: "" }));
       await load();
       reloadPayroll();
@@ -229,7 +233,7 @@ export function LoansPage({ refreshKey }) {
     { key: "per", header: "Per 16–end payslip", align: "right", className: "tabular-nums", cell: (l) => (l.loan_type === "subsidy_advance" ? <span className="text-muted-foreground">Not from salary</span> : <div><p>{money(l.amortization)}</p><p className="text-xs text-muted-foreground">from {dateLabel(l.start_period)}</p></div>) },
     { key: "repaid", header: "Repaid", align: "right", className: "tabular-nums", cell: (l) => <button type="button" className="underline-offset-2 hover:underline" onClick={() => openDialog("history", l)}>{money(l.repaid)}</button> },
     { key: "balance", header: "Balance", align: "right", className: "tabular-nums font-semibold", sortValue: (l) => Number(l.remaining_balance || 0), cell: (l) => money(l.remaining_balance) },
-    { key: "status", header: "Status", cell: (l) => <div className="space-y-1">{statusBadge(l)}{l.status_reason ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{l.status_reason}</p> : null}</div> },
+    { key: "status", header: "Status", cell: (l) => <div className="space-y-1">{statusBadge(l)}{l.status_reason ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{l.status_reason}</p> : null}{l.decided_by_name && l.approval_status !== "pending" && l.loan_type !== "subsidy_advance" ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{l.approval_status === "rejected" ? "Rejected" : "Approved"} by {l.decided_by_name}{l.decision_note ? `: ${l.decision_note}` : ""}</p> : null}</div> },
     {
       key: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -421,6 +425,8 @@ export function LoansPage({ refreshKey }) {
           ) : null}
         </DialogContent>
       </Dialog>
+      {/* What HR approved, rejected or has not decided yet (20261027020000). */}
+      <AdjustmentApprovalsPanel refreshKey={refreshKey} />
     </>
   );
 }
