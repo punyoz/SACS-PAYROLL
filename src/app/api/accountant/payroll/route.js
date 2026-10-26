@@ -51,6 +51,7 @@ import { loadTenureProtection } from "@/lib/payroll/tenure-protection-store";
 import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { periodFromLabel, manilaDateKey } from "@/lib/payroll/periods";
 import { loadSssMscRows, mscTableOn } from "@/lib/payroll/sss-msc";
+import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
 import {
   SEMI_MONTHLY_TAX_TABLE,
   contributionLabel,
@@ -1386,6 +1387,13 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
   // The SSS salary credit table in force on the period's first day; null
   // (the ₱500-step formula) until 20261026020000 is applied.
   const mscTable = mscTableOn((await loadSssMscRows(supabase)).rows, period.start_key);
+  // The basic salary in force on the period's first day (HR's salary changes,
+  // 20261027010000): a raise from a later month leaves this period on the old
+  // salary. Before the migration there is no history and nothing changes.
+  const salaryHistory = await loadSalaryChanges(supabase);
+  employees.forEach((employee) => {
+    employee.basic_salary = salaryOn(salaryHistory.rows, employee.id, period.start_key, employee.basic_salary);
+  });
   // The school's payroll sheet: each half paid on its own attendance
   // (payroll_per_half), so neither half settles the month.
   const perHalf = usesPerHalfRule(rateResult.configs, period.start_key);
@@ -1632,6 +1640,17 @@ function differs(a, b) {
 // none of which can be negative; a negative one would raise net pay (e.g. SSS
 // -5,000 adds 5,000). The form has min="0" but the API is reachable directly,
 // so the floor is enforced here too.
+/**
+ * The basic salary is the one in force on the period's first day, from the
+ * employee's record and HR's salary changes (2026-10-26): never typed while
+ * processing payroll. A different value sent is refused (code salary_locked).
+ */
+const SALARY_LOCKED = "The basic salary comes from the employee's record (HR changes it, with the month it starts) and cannot be changed while processing payroll.";
+
+function basicTyped(input, computed) {
+  return input !== undefined && input !== null && input !== "" && differs(input, computed);
+}
+
 function pickAmount(value, fallback) {
   if (value === undefined || value === null || value === "") return Math.max(0, toAmount(fallback));
   return Math.max(0, toAmount(value));
@@ -1669,10 +1688,9 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     divisor: rates.working_days_per_year,
   });
   const defaultBasic = hire ? hire.amount : halfPay;
-  const basic = pickAmount(input.basic_salary, defaultBasic);
-  const deviations = differs(defaultBasic, basic)
-    ? [{ field: "basic_salary", default: toAmount(defaultBasic), value: toAmount(basic) }]
-    : [];
+  const salaryTyped = basicTyped(input.basic_salary, defaultBasic);
+  const basic = toAmount(defaultBasic);
+  const deviations = [];
 
   const none = { absent: 0, late: 0, undertime: 0, half_day: 0, perfect_attendance: 0 };
   const payroll = computeTotals({ basic_salary: basic, rates, deductions: {}, incentives: {}, attendance_amounts: none, earnings: {} });
@@ -1724,12 +1742,12 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     reason,
     // Attendance is counted in the 2nd half, so nothing here waits on it.
     blocking: [],
-    refusal: hire?.not_hired
+    refusal: salaryTyped ? SALARY_LOCKED : hire?.not_hired
       ? notHiredRefusal(hire, period.label)
       : semi.second_half_final
         ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
         : null,
-    refusal_code: hire?.not_hired ? "not_hired_yet" : "month_settled",
+    refusal_code: salaryTyped ? "salary_locked" : hire?.not_hired ? "not_hired_yet" : "month_settled",
     defaults: {
       statutory_method: "semi_monthly_first",
       semi_monthly: "first",
@@ -1856,8 +1874,8 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     ? hireProration({ dateHired: employee.date_hired, ...hireSpan, dailyRate: rates.daily, cap: normalBasic, divisor: rates.working_days_per_year })
     : null;
   const defaultBasic = hire ? hire.amount : normalBasic;
-  const basic = pickAmount(input.basic_salary, defaultBasic);
-  note("basic_salary", defaultBasic, basic);
+  const salaryTyped = basicTyped(input.basic_salary, defaultBasic);
+  const basic = toAmount(defaultBasic);
 
   // From LEGAL_RULES_EFFECTIVE: SSS / PhilHealth / Pag-IBIG from the legal
   // base of the MONTHLY salary, half per payslip, and withholding tax from the
@@ -2052,7 +2070,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     }))
     : 0;
   const withholdingTax = firstCutoff ? 0 : governmentValue("Withholding tax", deductionsIn.withholding_tax, taxDefault);
-  const governmentRefusal = governmentChanges.length
+  const governmentRefusal = salaryTyped ? SALARY_LOCKED : governmentChanges.length
     ? `${governmentChanges.join(", ")} ${governmentChanges.length === 1 ? "is" : "are"} computed from the government rate tables and cannot be changed here. If a figure looks wrong, use Flag for review.`
     : null;
   if (legal) note("withholding_tax", taxDefault, withholdingTax);
@@ -2437,7 +2455,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       : monthSettled
         ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
         : null),
-    refusal_code: governmentRefusal ? "government_deduction_locked" : hire?.not_hired ? "not_hired_yet" : monthSettled ? "month_settled" : null,
+    refusal_code: salaryTyped ? "salary_locked" : governmentRefusal ? "government_deduction_locked" : hire?.not_hired ? "not_hired_yet" : monthSettled ? "month_settled" : null,
     // What the form and the batch table pre-fill (GET).
     defaults: {
       statutory_method: firstCutoff ? "semi_monthly_first" : legal ? "legal" : "flat",

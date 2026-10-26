@@ -12,6 +12,7 @@ import { fetchJson } from "@/lib/portal/api";
 import { formatContactNumber } from "@/lib/portal/format";
 import { EmployeeFormDialog } from "./employee-form-dialog";
 import { EmployeeImportDialog } from "./employee-import-dialog";
+import { SalaryChangeDialog } from "./salary-change-dialog";
 import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,7 @@ export function EmployeesPage({ refreshKey }) {
   const [filter, setFilter] = React.useState("all");
   const [branch, setBranch] = React.useState("all");
   const [dialog, setDialog] = React.useState(null); // { mode, employee }
+  const [salaryFor, setSalaryFor] = React.useState(null); // Change salary (2026-10-26)
   // Import CSV: onboard many at once (scenario SC-10 / HR-02).
   const [importing, setImporting] = React.useState(false);
   // Offboard many (scenario HR-03): one line per employee, the same reason.
@@ -124,7 +126,17 @@ export function EmployeesPage({ refreshKey }) {
         : <StatusBadge tone={e.employee_status?.toLowerCase() === "active" ? "success" : "gold"}>{e.employee_status || "Active"}</StatusBadge>),
     },
     { key: "email", header: "Email", className: "text-xs text-muted-foreground", cell: (e) => e.email || "—", searchValue: (e) => e.email },
-    { key: "edit", header: <span className="sr-only">Edit</span>, align: "right", cell: (e) => <Button variant="outline" size="sm" onClick={() => setDialog({ mode: "edit", employee: e })}>Edit</Button> },
+    {
+      key: "edit", header: <span className="sr-only">Edit</span>, align: "right",
+      cell: (e) => (
+        <div className="flex justify-end gap-1.5">
+          {/* A raise (or any salary change) has its own flow: the month it starts and a reason. */}
+          {!e.archived && ["employee", "accountant"].includes(String(e.role || "employee").toLowerCase())
+            ? <Button variant="outline" size="sm" onClick={() => setSalaryFor(e)}>Salary</Button> : null}
+          <Button variant="outline" size="sm" onClick={() => setDialog({ mode: "edit", employee: e })}>Edit</Button>
+        </div>
+      ),
+    },
   ], [branchName, licenses]);
 
   // The list as shown (tab and branch filter), for a master list or a
@@ -183,6 +195,7 @@ export function EmployeesPage({ refreshKey }) {
         </CardContent>
       </Card>
 
+      <SalaryChangeDialog employee={salaryFor} open={Boolean(salaryFor)} onOpenChange={(open) => { if (!open) setSalaryFor(null); }} onSaved={load} />
       <EmployeeFormDialog
         mode={dialog?.mode || "add"}
         employee={dialog?.employee || null}

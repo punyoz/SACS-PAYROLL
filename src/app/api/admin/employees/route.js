@@ -24,6 +24,8 @@ import { PII_LAST4_COLUMNS, maskedPii, withoutPiiMetadata } from "@/lib/employee
 import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
 import { findLikelyDuplicates } from "@/lib/employees/duplicates";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { applyDueSalaryChanges } from "@/lib/employees/salary-history";
+import { manilaDateKey } from "@/lib/payroll/periods";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -247,6 +249,8 @@ export async function GET(request) {
 
   try {
     const supabase = getAdminClient();
+    // A salary change whose month has come becomes the salary on record (2026-10-26).
+    await applyDueSalaryChanges(supabase, manilaDateKey());
     const employees = await fetchEmployees(supabase);
 
     // Super Admin sees every branch; everyone else only their own.
@@ -579,8 +583,16 @@ export async function PATCH(request) {
             { status: 400 },
           );
         }
+        // A salary changes only through HR's salary change, with an effective
+        // month, a reason and its history (/api/hr/salary-changes, 2026-10-26).
+        if (Math.abs(requestedSalary - Number(currentMetadata.basic_salary || 0)) > 0.005) {
+          return NextResponse.json(
+            { error: "Change a salary with Change salary (HR → User Management): it needs the month it starts and a reason.", code: "salary_change_required" },
+            { status: 409 },
+          );
+        }
       }
-      nextMetadata.basic_salary = Number(body.basic_salary ?? currentMetadata.basic_salary ?? 0);
+      nextMetadata.basic_salary = Number(currentMetadata.basic_salary ?? 0);
       nextMetadata.employee_status = normalizeText(
         body.employee_status,
         normalizeText(currentMetadata.employee_status, normalizeText(currentMetadata.rfid_status, "Active")),
