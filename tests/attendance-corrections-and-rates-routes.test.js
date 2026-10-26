@@ -40,14 +40,36 @@ describe("Payroll rates", () => {
   it("adds a version as given when no processed period is in the way", async () => {
     const { POST } = await import("@/app/api/admin/payroll-rates/route");
     const response = await POST(requestAs(SUPER, "/api/admin/payroll-rates", "POST", {
-      rate_type: "hourly", scope: "global", value: 110, effective_date: "2026-10-01",
+      rate_type: "daily", scope: "global", value: 880, effective_date: "2026-10-01",
     }));
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ effective_date: "2026-10-01", adjusted: false, warning: null });
     expect(table("payroll_rate_configs")[0]).toMatchObject({
-      rate_type: "hourly", value: 110, effective_date: "2026-10-01", created_by: "u-sa", created_by_name: "Sam Super", scope_ref: null,
+      rate_type: "daily", value: 880, effective_date: "2026-10-01", created_by: "u-sa", created_by_name: "Sam Super", scope_ref: null,
     });
+  });
+
+  it("refuses an hourly rate of its own from Oct 1, 2026 (it is the daily rate ÷ 8)", async () => {
+    const { POST } = await import("@/app/api/admin/payroll-rates/route");
+    const response = await POST(requestAs(SUPER, "/api/admin/payroll-rates", "POST", {
+      rate_type: "hourly", scope: "global", value: 72, effective_date: "2026-10-16",
+    }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toMatch(/daily rate ÷ 8/);
+    expect(table("payroll_rate_configs")).toHaveLength(0);
+  });
+
+  it("shows the hourly rate as the default daily rate ÷ 8, with nothing to edit", async () => {
+    // Live 2026-10-26: daily ₱600 from Oct 1 and a stray hourly ₱72 from Oct 16.
+    table("payroll_rate_configs").push(
+      { id: "d1", rate_type: "daily", scope: "global", scope_ref: null, value: 600, effective_date: "2026-10-01", created_at: "2026-09-28" },
+      { id: "h1", rate_type: "hourly", scope: "global", scope_ref: null, value: 72, effective_date: "2026-10-16", created_at: "2026-10-13" },
+    );
+    const { GET } = await import("@/app/api/admin/payroll-rates/route");
+    const body = await (await GET(requestAs(SUPER, "/api/admin/payroll-rates", "GET"))).json();
+    const hourly = body.rates.find((r) => r.rate_type === "hourly");
+    expect(hourly).toMatchObject({ derived: true, current: { value: 75, source: "derived" }, next_period: { value: 75 } });
   });
 
   it("moves a date inside an already-processed period to the next period, and says so", async () => {

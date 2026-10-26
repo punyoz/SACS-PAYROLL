@@ -181,6 +181,167 @@ function TaxTableCard({ data, loading, onReload }) {
   );
 }
 
+/** The checks of validateMscRows (src/lib/payroll/sss-msc.js); "" when the table can be saved. */
+function mscTableError(rows) {
+  if (!rows.length) return "Add at least one salary bracket.";
+  if (rows.some((row) => [row.salary_from, row.msc].some((v) => !Number.isFinite(v) || v < 0))) return "Every amount must be 0 or more.";
+  if (rows.some((row) => row.msc <= 0)) return "Every salary credit must be more than 0.";
+  if (rows[0].salary_from !== 0) return "The first bracket must start at a salary of 0.";
+  if (rows.some((row, i) => i > 0 && row.salary_from <= rows[i - 1].salary_from)) return "Each bracket must start above the one before it.";
+  if (rows.some((row, i) => i > 0 && row.msc < rows[i - 1].msc)) return "A higher salary bracket cannot have a lower salary credit.";
+  return "";
+}
+
+/*
+ * SSS monthly salary credit table (payroll_sss_msc_brackets,
+ * 20261026020000): SSS is sss_pct % of the credit the salary falls in. Saved
+ * as a new version from an effective date, like the tax table.
+ */
+function SssMscCard({ data, loading, onReload }) {
+  const { notify } = usePortalSession();
+  const [confirmDialog, confirm] = useConfirm();
+  const [rows, setRows] = React.useState([]);
+  const [effective, setEffective] = React.useState("");
+  const [note, setNote] = React.useState("");
+  const [feedback, setFeedback] = React.useState({ text: "", tone: "" });
+  const [busy, setBusy] = React.useState(false);
+
+  const msc = data?.sss_msc || null;
+  const versions = React.useMemo(() => msc?.versions || [], [msc]);
+  const currentVersion = versions.find((v) => v.version_id === msc?.current_version_id) || null;
+
+  // The editor starts from the version payroll will use next.
+  React.useEffect(() => {
+    if (!data) return;
+    const upcoming = versions.find((v) => v.version_id === data.sss_msc?.next_period_version_id) || currentVersion || versions[0];
+    setRows((upcoming?.rows || [{ salary_from: 0, msc: 5000 }]).map((row) => ({ ...row })));
+    setEffective((value) => value || data.default_effective_date || "");
+    // currentVersion follows versions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, versions]);
+
+  const setCell = (index, field, value) => setRows((current) => current.map((row, i) => (i === index ? { ...row, [field]: value === "" ? "" : Number(value) } : row)));
+  const addRow = () => setRows((current) => {
+    const last = current[current.length - 1] || { salary_from: 0, msc: 0 };
+    return [...current, { salary_from: Number(last.salary_from || 0) + 500, msc: Number(last.msc || 0) + 500 }];
+  });
+  const removeRow = (index) => setRows((current) => current.filter((_, i) => i !== index));
+  const rangeOf = (index) => {
+    const next = rows[index + 1];
+    return next ? `${peso(rows[index].salary_from)} – ${peso(Number(next.salary_from) - 0.01)}` : `${peso(rows[index].salary_from)} and above`;
+  };
+
+  async function save() {
+    const clean = rows.map((row) => ({ salary_from: Number(row.salary_from), msc: Number(row.msc) }));
+    const problem = mscTableError(clean) || (!effective ? "Choose the date it takes effect." : "");
+    if (problem) {
+      setFeedback({ text: problem, tone: "error" });
+      if (!effective) document.getElementById("sa-msc-effective")?.focus();
+      return;
+    }
+    const ok = await confirm({
+      title: "Confirm SSS salary credit table",
+      description: `Save the SSS salary credit table from ${rateDate(effective)}? A new version is added; the current one stays in the history. Past payslips are not affected.`,
+      confirmLabel: "Save",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setFeedback({ text: "Saving…", tone: "" });
+    try {
+      const result = await fetchJson("/api/admin/payroll-settings", jsonBody("POST", { kind: "sss_msc_table", effective_date: effective, rows: clean, note: note.trim() }));
+      setFeedback({ text: result.warning || `Saved — applies from ${rateDate(result.effective_date)}.`, tone: result.warning ? "warning" : "success" });
+      notify(result.warning ? "SSS Table Scheduled" : "SSS Table Saved", result.warning || `Applies from ${rateDate(result.effective_date)}.`, result.warning ? "info" : "success");
+      await onReload();
+    } catch (error) {
+      setFeedback({ text: error.message || "Unable to save the SSS salary credit table.", tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="min-w-0 shadow-xs">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><ReceiptTextIcon className="size-4 text-gold-text" aria-hidden="true" />SSS salary credit table</CardTitle>
+        <CardDescription>
+          SSS is the SSS contribution % (Payroll Rates) of the monthly salary credit the salary falls in, not of the salary itself.
+          Saved as a new version from the effective date — past payslips are not affected.
+          {data?.finalized_period ? ` ${data.finalized_period.label} is already processed; new versions start ${rateDate(data.earliest_effective_date)} or later.` : ""}
+        </CardDescription>
+        <CardAction>
+          <Button variant="outline" size="sm" onClick={onReload} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {msc && !msc.available ? (
+          <Alert><AlertDescription>The SSS salary credit table is not set up yet (apply 20261026020000_sss_msc_brackets.sql). Payroll rounds the salary to the nearest ₱500 between the lowest and highest salary credit in Payroll Rates.</AlertDescription></Alert>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            A salary from &quot;Salary from&quot; up to the next row has that salary credit.{" "}
+            {currentVersion ? `In force since ${rateDate(currentVersion.effective_date)}.` : "No table saved yet — payroll rounds to the nearest ₱500 between the Payroll Rates limits."}
+          </p>
+        )}
+        {loading && !data ? <Skeleton className="h-40 w-full" /> : (
+          <div className="max-h-96 overflow-auto rounded-md border">
+            <Table className="min-w-160">
+              <TableCaption className="sr-only">SSS salary credit brackets</TableCaption>
+              <TableHeader>
+                <TableRow><TableHead>Salary from (₱)</TableHead><TableHead>Salary credit (₱)</TableHead><TableHead>Salary range</TableHead><TableHead><span className="sr-only">Remove</span></TableHead></TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row, index) => (
+                  <TableRow key={index}>
+                    {[["salary_from", "Salary from"], ["msc", "Salary credit"]].map(([field, label]) => (
+                      <TableCell key={field}>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          aria-label={`${label}, bracket ${index + 1}`}
+                          value={row[field]}
+                          onChange={(e) => setCell(index, field, e.target.value)}
+                          className="max-w-36 tabular-nums"
+                        />
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-xs text-muted-foreground tabular-nums">{rangeOf(index)}</TableCell>
+                    <TableCell className="text-right">
+                      {index > 0 ? <Button variant="ghost" size="icon-sm" onClick={() => removeRow(index)} aria-label={`Remove bracket ${index + 1}`}><Trash2Icon aria-hidden="true" /></Button> : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <Button variant="outline" size="sm" onClick={addRow} disabled={msc && !msc.available}><PlusIcon aria-hidden="true" />Add bracket</Button>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="sa-msc-effective">Effective starting</Label>
+            <DatePicker id="sa-msc-effective" value={effective} onChange={setEffective} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="sa-msc-note">Note (optional)</Label>
+            <Input id="sa-msc-note" maxLength={300} placeholder="e.g. SSS Circular 2024-006" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={save} disabled={busy || !data || (msc && !msc.available)}>{busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Saving…</> : "Save new version"}</Button>
+          <p role="status" aria-live="polite" className={cn("text-sm", { "text-success": feedback.tone === "success", "text-destructive": feedback.tone === "error", "text-warning": feedback.tone === "warning", "text-muted-foreground": !feedback.tone })}>{feedback.text}</p>
+        </div>
+        {versions.length ? (
+          <p className="text-xs text-muted-foreground">
+            History: {versions.map((v) => `${rateDate(v.effective_date)}${v.created_by_name ? ` · ${v.created_by_name}` : ""}${v.note ? ` (${v.note})` : ""}`).join(" → ")}
+          </p>
+        ) : null}
+      </CardContent>
+      {confirmDialog}
+    </Card>
+  );
+}
+
 function amountOf(row, type) {
   const fixed = row.fixed && row.fixed[type] !== null && row.fixed[type] !== undefined;
   return { amount: fixed ? Number(row.fixed[type]) : Number(row.computed?.[type] || 0), fixed };
@@ -378,6 +539,7 @@ export function PayrollSettingsSection({ refreshKey }) {
   return (
     <>
       <TaxTableCard data={state.data} loading={state.loading} onReload={load} />
+      <SssMscCard data={state.data} loading={state.loading} onReload={load} />
       <ContributionsCard data={state.data} loading={state.loading} onReload={load} />
     </>
   );

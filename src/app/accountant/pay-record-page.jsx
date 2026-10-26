@@ -15,6 +15,7 @@ import { apiFetch } from "@/lib/portal/api";
 import { holidayLineLabel } from "@/lib/portal/format";
 import { dateLabel, dateTime, money, shortDate, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { useAccountant } from "./accountant-data";
 
 /*
@@ -123,11 +124,11 @@ function SemiMonthly({ payslip }) {
         <Row label="Monthly gross" value={money(m.monthly_gross)} strong tone="gold" />
       </Section>
       <Section title="Contributions & tax">
-        <Row label="SSS" value={`- ${money(m.sss)}`} />
-        <Row label="PhilHealth" value={`- ${money(m.philhealth)}`} />
-        <Row label="Pag-IBIG" value={`- ${money(m.pagibig)}`} />
+        <Row label={contributionLabel("SSS", m.contribution_basis?.sss)} value={`- ${money(m.sss)}`} />
+        <Row label={contributionLabel("PhilHealth", m.contribution_basis?.philhealth)} value={`- ${money(m.philhealth)}`} />
+        <Row label={contributionLabel("Pag-IBIG", m.contribution_basis?.pagibig)} value={`- ${money(m.pagibig)}`} />
         <Row muted label="Taxable income" value={money(m.taxable_income)} />
-        <Row label="Withholding tax (monthly)" value={`- ${money(m.withholding_tax)}`} />
+        <Row label={withholdingTaxLabel("Withholding tax (monthly)", m.tax_bracket)} value={`- ${money(m.withholding_tax)}`} />
         <Row label="Monthly net" value={money(m.monthly_net)} strong />
         <Row label={m.first_half_status === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)"} value={`- ${money(m.first_half_paid)}`} />
         {Number(m.carry_in) > 0 ? <Row label={`Balance carried from ${m.carry_from || "last month"}`} value={`- ${money(m.carry_in)}`} tone="minus" /> : null}

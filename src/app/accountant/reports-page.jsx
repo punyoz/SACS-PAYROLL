@@ -16,6 +16,7 @@ import { dateLabel, money, moneyCompact, recordStatusMeta, toAmount } from "@/li
 import { cn } from "@/lib/utils";
 import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
 import { BirFormsCard } from "@/components/portal/bir-forms";
+import { RemittanceCard } from "@/components/portal/remittance-report";
 
 /*
  * Payroll Reports (generateReport / generatePayrollSheet /
@@ -302,6 +303,7 @@ export function ReportsPage() {
       </Card>
 
       {/* BIR Form 2316 and the 1604-C alphalist (AC-11). */}
+      <RemittanceCard />
       <BirFormsCard />
     </>
   );

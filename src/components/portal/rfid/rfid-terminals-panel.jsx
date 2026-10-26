@@ -21,11 +21,14 @@ import { cn } from "@/lib/utils";
  * are recorded against it and its last tap shows here, so a reader that has
  * gone quiet is easy to spot. Switching a terminal off, or resetting its key,
  * locks every kiosk opened on it until someone unlocks it again.
+ *
+ * canAdd false (HR, 2026-10-26): no Add terminal. Each branch Admin adds its
+ * own branch's terminals; HR views, renames, switches and resets them.
  */
 
 const EVERY_BRANCH = "__all__";
 
-export function RfidTerminalsPanel({ refreshKey, showOpen = true }) {
+export function RfidTerminalsPanel({ refreshKey, showOpen = true, canAdd = true }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [dialog, setDialog] = React.useState(null);   // { kind: add | rename | off | on | reset, terminal? }
@@ -124,14 +127,14 @@ export function RfidTerminalsPanel({ refreshKey, showOpen = true }) {
         <CardDescription>Each reader by branch, whether it is on, and when it last took a tap. A terminal with no recent taps may be offline.</CardDescription>
         <CardAction className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
-          <Button variant="outline" size="sm" onClick={() => open("add")} disabled={!data}><PlusIcon aria-hidden="true" />Add terminal</Button>
+          {canAdd ? <Button variant="outline" size="sm" onClick={() => open("add")} disabled={!data}><PlusIcon aria-hidden="true" />Add terminal</Button> : null}
           {showOpen ? <Button size="sm" onClick={() => hardNavigate("/rfid-terminal")} disabled={!data?.terminals?.some((t) => t.status === "active")}>Open RFID Terminal</Button> : null}
         </CardAction>
       </CardHeader>
       <CardContent>
         <DataTable columns={columns} rows={data?.terminals || []} loading={first} error={state.error} onRetry={load} pageSize={10}
           searchPlaceholder="Search terminal or branch…" caption="RFID terminals" minWidth={900}
-          empty={{ title: "No terminals yet", description: "Add one, then open the RFID Terminal on that computer.", icon: RadioTowerIcon }} />
+          empty={{ title: "No terminals yet", description: canAdd ? "Add one, then open the RFID Terminal on that computer." : "A branch Admin adds its terminals (Maintenance → RFID terminals).", icon: RadioTowerIcon }} />
       </CardContent>
 
       <Dialog open={Boolean(dialog)} onOpenChange={(o) => { if (!o && !busy) setDialog(null); }}>

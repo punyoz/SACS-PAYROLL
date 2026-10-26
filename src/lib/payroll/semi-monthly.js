@@ -185,12 +185,24 @@ export function overloadPayFor(hourlyRate, hours, premiumPct = 0) {
  * the highest `over` the taxable income exceeds.
  */
 export function monthlyWithholdingTax(taxable, table) {
+  const bracket = withholdingTaxBracket(taxable, table);
+  if (!bracket) return 0;
+  const amount = Math.max(0, Number(taxable) || 0);
+  return peso(Math.max(0, bracket.base + (amount - bracket.over) * bracket.rate));
+}
+
+/**
+ * The bracket of the table the taxable income falls in ({ over, base,
+ * rate_pct }), or null without a table. Income exactly at a bracket's "over"
+ * stays in the bracket below (BIR: "over ₱20,833").
+ */
+export function withholdingTaxBracket(taxable, table) {
   const amount = Math.max(0, Number(taxable) || 0);
   const rows = [...(table || [])].sort((a, b) => Number(a.over) - Number(b.over));
-  if (!rows.length) return 0;
+  if (!rows.length) return null;
   let bracket = rows[0];
   rows.forEach((row) => { if (amount > Number(row.over)) bracket = row; });
-  return peso(Math.max(0, Number(bracket.base) + (amount - Number(bracket.over)) * Number(bracket.rate)));
+  return { over: Number(bracket.over), base: Number(bracket.base), rate: Number(bracket.rate), rate_pct: Math.round(Number(bracket.rate) * 10000) / 100 };
 }
 
 /** payroll_tax_brackets rows -> the { over, base, rate } table above. */
@@ -321,6 +333,7 @@ export function computeSecondHalf({
   const contributionTotal = peso(sss + philhealth + pagibig);
   const taxable = Math.max(0, peso(monthlyGross - peso(nonTaxableEarnings) + peso(extraTaxable) - contributionTotal));
   const tableTax = monthlyWithholdingTax(taxable, taxTable);
+  const taxBracket = withholdingTaxBracket(taxable, taxTable);
   const tax = withholdingTax !== undefined && withholdingTax !== null ? peso(withholdingTax) : tableTax;
   const cashAdvanceTotal = peso(cashAdvance);
   const monthlyNet = peso(monthlyGross - contributionTotal - tax - cashAdvanceTotal);
@@ -354,6 +367,8 @@ export function computeSecondHalf({
     contributions: contributionTotal,
     taxable_income: taxable,
     table_withholding_tax: tableTax,
+    // The bracket the table tax came from; null when the tax was overridden.
+    tax_bracket: taxBracket && tax === tableTax ? { over: taxBracket.over, base: taxBracket.base, rate_pct: taxBracket.rate_pct } : null,
     withholding_tax: tax,
     cash_advance: cashAdvanceTotal,
     monthly_net: monthlyNet,

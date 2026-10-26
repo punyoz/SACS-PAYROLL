@@ -92,6 +92,7 @@ const MODULE_ICON = {
   early_bird_incentive: { default: "star" },
   payroll_run_approval: { default: "check" },
   tenure_protection: { default: "check" },
+  government_rates: { default: "records" },
 };
 
 /**

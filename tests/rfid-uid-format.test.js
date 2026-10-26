@@ -11,6 +11,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
@@ -133,5 +134,21 @@ describe("who reaches RFID cards and terminals", () => {
     rpc.results.rfid_terminal_save = (args) => ({ data: { id: "t-new", name: args.p_name, branch_id: args.p_branch }, error: null });
     await call(who.admin, "rfid/terminals", "POST", { name: "Side Gate", branch_id: NORTH });
     expect(rpc.calls.find((c) => c.fn === "rfid_terminal_save").args).toMatchObject({ p_actor: "u-adm", p_branch: MAIN });
+  });
+
+  it("HR adds no terminal (2026-10-26) but still renames and switches them", async () => {
+    rpc.results.rfid_terminal_save = (args) => ({ data: { id: args.p_terminal || "t-new", name: args.p_name, branch_id: args.p_branch }, error: null });
+    const added = await call(who.hr, "rfid/terminals", "POST", { name: "HR Gate", branch_id: MAIN });
+    expect(added.status).toBe(403);
+    expect(rpc.calls.filter((c) => c.fn === "rfid_terminal_save")).toHaveLength(0);
+    expect(table("audit_logs").filter((row) => row.action === "rfid_terminal_added")).toHaveLength(0);
+
+    const GATE = "00000000-0000-4000-8000-0000000000e1";
+    table("rfid_terminals").push({ id: GATE, name: "Main Gate", branch_id: MAIN, status: "active", created_by_name: "Ada Admin", created_by_role: "admin" });
+    const renamed = await call(who.hr, "rfid/terminals", "PATCH", { terminal_id: GATE, name: "Main Gate 1" });
+    expect(renamed.status).toBe(200);
+    expect(rpc.calls.find((c) => c.fn === "rfid_terminal_save").args).toMatchObject({ p_actor: "u-hr", p_terminal: GATE, p_name: "Main Gate 1" });
+    const migration = readFileSync("supabase/migrations/20261026010000_hr_no_terminal_create.sql", "utf8");
+    expect(migration).toMatch(/IF p_terminal IS NULL AND v_actor\.role = 'hr' THEN/);
   });
 });

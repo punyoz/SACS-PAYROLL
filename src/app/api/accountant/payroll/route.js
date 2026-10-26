@@ -49,13 +49,17 @@ import { buildProtection } from "@/lib/payroll/tenure-protection";
 import { loadTenureProtection } from "@/lib/payroll/tenure-protection-store";
 import { DEFAULT_RATES, loadRateConfigs, rateValues, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { periodFromLabel, manilaDateKey } from "@/lib/payroll/periods";
+import { loadSssMscRows, mscTableOn } from "@/lib/payroll/sss-msc";
 import {
   SEMI_MONTHLY_TAX_TABLE,
+  contributionLabel,
+  employerContributions,
   monthlyContributions,
   periodContributions,
   taxableCompensation,
   usesLegalRules,
   withholdingTax as computeWithholdingTax,
+  withholdingTaxLabel,
 } from "@/lib/payroll/statutory";
 import { roundPeso } from "@/lib/payroll/money";
 import {
@@ -1249,6 +1253,9 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
           window: firstPerCutoff ? firstMonthly.window : null,
           attendance_deductions: firstPerCutoff ? toAmount(firstMonthly.attendance_deductions) : 0,
           extra_earnings: firstPerCutoff ? toAmount(firstMonthly.extra_earnings) : 0,
+          // Its Early Bird / Perfect Attendance bonuses: "other benefits"
+          // under the exempt ceiling with this half's (2026-10-26).
+          bonuses: toAmount(toAmount(totals.early_bird_winner_incentive) + toAmount(totals.perfect_attendance_incentive)),
         }
         : { status: first ? "draft" : "not_processed", payslip_no: null, ...NO_FIRST_HALF },
       attendance_window: attendanceWindow,
@@ -1262,6 +1269,8 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       loans: loanContext.byEmployee.get(employee.id) || [],
       subsidy: subsidyContext.byEmployee.get(employee.id) || null,
       benefits_ceiling: benefitsCeiling,
+      // 13th month, subsidy and bonuses already paid this tax year.
+      benefits_ytd: subsidyContext.benefitsYtd?.get(employee.id) || 0,
       working_days: workingDaysIn(period.start_key, period.end_key),
     });
   });
@@ -1373,6 +1382,9 @@ async function loadCashAdvanceContext(supabase, employeeIds, period) {
 async function loadPeriodPayContext(supabase, employees, period, { through = null, actor = null } = {}) {
   const employeeIds = employees.map((employee) => employee.id);
   const rateResult = await loadRateConfigs(supabase);
+  // The SSS salary credit table in force on the period's first day; null
+  // (the ₱500-step formula) until 20261026020000 is applied.
+  const mscTable = mscTableOn((await loadSssMscRows(supabase)).rows, period.start_key);
   // The school's payroll sheet: each half paid on its own attendance
   // (payroll_per_half), so neither half settles the month.
   const perHalf = usesPerHalfRule(rateResult.configs, period.start_key);
@@ -1512,6 +1524,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       attendance_span: own,
       early_bird: earlyBird,
       branch_days: branchDaysFor(employee.id, own),
+      msc_table: mscTable,
     });
   });
 
@@ -1563,6 +1576,48 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     attendanceRows: enrichedRows,
     byEmployee,
     earlyBird,
+  };
+}
+
+/**
+ * The employer's share of the month's contributions and what the school
+ * remits to each agency (2026-10-26). Kept at payroll.employer_contributions,
+ * outside payroll.monthly and the totals: it never changes gross, taxable
+ * income or net pay, and the employee's payslip never shows it.
+ *
+ * No employer share for a type the employee is exempt from (an amount of 0
+ * set for them), nor in a month with no earnings (no contributions at all).
+ */
+function employerShare({ salary, rates, mscTable, used, source = {}, noEarnings = false, half = null, contributionHalf = 2 }) {
+  const monthly = noEarnings ? { sss: 0, sss_ec: 0, philhealth: 0, pagibig: 0 } : employerContributions(salary, rates, { mscTable });
+  const exempt = (type) => source?.[type] === "employee" && !(toAmount(used[type]) > 0);
+  let er = {
+    sss: exempt("sss") ? 0 : monthly.sss,
+    sss_ec: exempt("sss") ? 0 : monthly.sss_ec,
+    philhealth: exempt("philhealth") ? 0 : monthly.philhealth,
+    pagibig: exempt("pagibig") ? 0 : monthly.pagibig,
+  };
+  // The school's per-half sheet: the employer's share on the same payslip(s)
+  // as the employee's (contribution_half).
+  if (half) {
+    const split = contributionsForHalf({ sss: er.sss, philhealth: er.philhealth, pagibig: er.pagibig }, half, contributionHalf);
+    const ec = contributionsForHalf({ sss: er.sss_ec, philhealth: 0, pagibig: 0 }, half, contributionHalf).sss;
+    er = { ...split, sss_ec: ec };
+  }
+  const ee = { sss: toAmount(used.sss), philhealth: toAmount(used.philhealth), pagibig: toAmount(used.pagibig) };
+  const remit = {
+    sss: toAmount(ee.sss + er.sss + er.sss_ec),
+    philhealth: toAmount(ee.philhealth + er.philhealth),
+    pagibig: toAmount(ee.pagibig + er.pagibig),
+  };
+  return {
+    employee: ee,
+    employer: { ...er, total: toAmount(er.sss + er.sss_ec + er.philhealth + er.pagibig) },
+    remit: { ...remit, total: toAmount(remit.sss + remit.philhealth + remit.pagibig) },
+    rates: {
+      sss_er_pct: Number(rates.sss_er_pct) || 0, philhealth_er_pct: Number(rates.philhealth_er_pct) || 0, pagibig_er_pct: Number(rates.pagibig_er_pct) || 0,
+      sss_msc: monthly.sss_msc || null,
+    },
   };
 }
 
@@ -1816,14 +1871,14 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   // amounts when "Contributions as fixed amounts" is on (the school's sheet:
   // SSS ₱400, Pag-IBIG ₱200), and an employee's own amounts win (0 = exempt).
   const schoolMonthly = school || (legal && settling)
-    ? monthlyContributionsFor(employee.basic_salary, rates, (school || semi).contribution_amounts)
+    ? monthlyContributionsFor(employee.basic_salary, rates, (school || semi).contribution_amounts, { mscTable: context.msc_table })
     : null;
   const legalContributions = legal
     ? (settling
-      ? { ...monthlyContributions(employee.basic_salary, rates), ...schoolMonthly }
+      ? { ...monthlyContributions(employee.basic_salary, rates, { mscTable: context.msc_table }), ...schoolMonthly }
       : school
         ? contributionsForHalf(schoolMonthly, school.half, rates.contribution_half)
-        : periodContributions(employee.basic_salary, rates))
+        : periodContributions(employee.basic_salary, rates, { mscTable: context.msc_table }))
     : null;
   // A month with no earnings has no contributions (§5.3, decision of Oct
   // 10, 2026): set below, once the month's gross is known.
@@ -1910,6 +1965,22 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     priorAttendance: firstHalfCutoff?.attendance_deductions || 0,
     priorEarnings: firstHalfCutoff?.extra_earnings || 0,
   };
+  // Early Bird and Perfect Attendance bonuses are "other benefits" (decision
+  // 2026-10-26): with the 13th month and an "other benefit" subsidy they are
+  // tax-exempt up to the yearly ceiling (₱90,000); only the part above it is
+  // taxed. The month's own (both halves) are counted here; earlier months'
+  // are in the benefits ledger (payroll_exempt_benefits_paid, 20261026040000).
+  const bonuses = (() => {
+    if (!settling) return null;
+    const amount = toAmount(finalAmounts.perfect_attendance + earlyBirdPay + (firstHalfCutoff?.bonuses || 0));
+    const ceiling = Number(semi.benefits_ceiling) || 0;
+    const ytd = toAmount(semi.benefits_ytd || 0);
+    const subsidyBenefit = subsidy.tax_treatment === "other_benefit" ? toAmount(subsidy.earnings_total) : 0;
+    const room = Math.max(0, toAmount(ceiling - ytd - subsidyBenefit));
+    const exempt = Math.min(amount, room);
+    return { amount, exempt: toAmount(exempt), taxable: toAmount(amount - exempt), ceiling, benefits_ytd: ytd };
+  })();
+  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0));
   // 2nd half: the month's gross (contributions do not change it). Nothing
   // earned -> no SSS / PhilHealth / Pag-IBIG by default.
   if (settling) {
@@ -1945,7 +2016,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     overloadHours,
     overloadPay,
     otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
-    nonTaxableEarnings: subsidy.non_taxable,
+    nonTaxableEarnings: nonTaxable,
     extraTaxable: subsidy.extra_taxable,
     cashAdvance: cashAdvanceTotal,
     contributions: { sss, philhealth, pagibig },
@@ -2142,7 +2213,23 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     computed_by: actor?.userId || null,
     computed_by_name: actor?.name || null,
   };
-  if (settling) applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCutoff: firstHalfCutoff, window: context.attendance_span });
+  if (settling) {
+    applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCutoff: firstHalfCutoff, window: context.attendance_span });
+    // The rate and base of each contribution taken from the legal tables, for
+    // the payslip ("SSS (5% of ₱18,000 salary credit)"), as of processing:
+    // only when the amount deducted is that computed figure (not a fixed,
+    // employee or overridden amount).
+    const deducted = { sss, philhealth, pagibig };
+    const basis = Object.fromEntries(Object.entries(schoolMonthly?.basis || {})
+      .filter(([type]) => !differs(deducted[type], legalContributions?.[type])));
+    payroll.monthly.contribution_basis = Object.keys(basis).length ? basis : null;
+    if (bonuses) payroll.monthly.bonuses = bonuses;
+    if (legal) {
+      payroll.employer_contributions = employerShare({
+        salary: employee.basic_salary, rates, mscTable: context.msc_table, used: deducted, source: schoolMonthly?.source, noEarnings,
+      });
+    }
+  }
   if (firstCutoff) {
     const t = payroll.totals;
     // What this half paid beyond its Rate (overtime, holiday pay,
@@ -2295,6 +2382,12 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       .map((line) => ({ advance_id: line.advance_id, amount: line.amount, balance_after: line.balance_after, description: line.description }));
     // 13th month: basic pay less unpaid absences.
     payroll.basic_earned = Math.max(0, toAmount(basic - t.absence_deduction - t.leave_without_pay_deduction));
+    if (legal) {
+      payroll.employer_contributions = employerShare({
+        salary: employee.basic_salary, rates, mscTable: context.msc_table, used: { sss, philhealth, pagibig },
+        source: schoolMonthly?.source, half: school.half, contributionHalf: rates.contribution_half,
+      });
+    }
     payroll.audit.school_sheet = {
       rule: "per_half",
       half: school.half,
@@ -2430,10 +2523,12 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
   deduct(`Undertime (${plural(d.undertime_minutes || 0, "minute")})`, t.undertime_deduction);
   deduct(`Half day (${plural(d.half_days || 0, "day")})`, t.half_day_deduction);
   if (half === "second") {
-    deduct("SSS", d.sss);
-    deduct("PhilHealth", d.philhealth);
-    deduct("Pag-IBIG", d.pagibig);
-    deduct("Withholding tax", d.withholding_tax, m.taxable_income !== undefined
+    // Each with its rate and base, or the tax bracket (2026-10-26).
+    const basis = m.contribution_basis || {};
+    deduct(contributionLabel("SSS", basis.sss), d.sss);
+    deduct(contributionLabel("PhilHealth", basis.philhealth), d.philhealth);
+    deduct(contributionLabel("Pag-IBIG", basis.pagibig), d.pagibig);
+    deduct(withholdingTaxLabel("Withholding tax", m.tax_bracket), d.withholding_tax, m.taxable_income !== undefined
       ? `Monthly table on the whole month's taxable income, ${money(m.taxable_income)}`
       : null);
     const loanLines = (payroll.loans || []).filter((line) => toAmount(line.amount) > 0);

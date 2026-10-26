@@ -63,12 +63,18 @@ export function halfOfPeriod(periodStart) {
  * @param {number} monthlySalary
  * @param {object} rates          rateValues() for the employee and period
  * @param {object} [employeeAmounts]  { sss?, philhealth?, pagibig? } set for the employee
+ * @param {object} [options]
+ * @param {Array}  [options.mscTable]  the SSS salary credit table in force (sss-msc.js)
+ *
+ * `basis` holds the rate and base of each LEGAL amount (for the payslip
+ * label); a fixed or employee amount has none.
  */
-export function monthlyContributionsFor(monthlySalary, rates, employeeAmounts = {}) {
+export function monthlyContributionsFor(monthlySalary, rates, employeeAmounts = {}, { mscTable = null } = {}) {
   const fixed = Number(rates?.contribution_method) === 1;
-  const legal = fixed ? null : monthlyContributions(monthlySalary, rates);
+  const legal = fixed ? null : monthlyContributions(monthlySalary, rates, { mscTable });
   const result = {};
   const source = {};
+  const basis = {};
   CONTRIBUTION_TYPES.forEach((type) => {
     const own = employeeAmounts?.[type];
     if (own !== undefined && own !== null && own !== "") {
@@ -80,9 +86,10 @@ export function monthlyContributionsFor(monthlySalary, rates, employeeAmounts = 
     } else {
       result[type] = peso(legal[type]);
       source[type] = "legal";
+      if (legal.basis?.[type]) basis[type] = legal.basis[type];
     }
   });
-  return { ...result, source };
+  return { ...result, source, basis };
 }
 
 /**

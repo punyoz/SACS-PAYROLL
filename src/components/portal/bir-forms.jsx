@@ -49,7 +49,7 @@ const SETTLEMENT = {
   refund: { tone: "info", label: "Over-withheld" },
 };
 
-function useDownloader() {
+export function useDownloader() {
   const { notify } = usePortalSession();
   const [busy, setBusy] = React.useState("");
   const run = React.useCallback(async (key, url, name) => {

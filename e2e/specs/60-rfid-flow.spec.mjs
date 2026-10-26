@@ -7,7 +7,7 @@ import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { choose, manilaDay, refresh } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
-import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
+import { ACCOUNTS } from "../accounts.mjs";
 
 const ANA_CARD = "1000000001";
 const BEA_CARD = "1000000002";
@@ -26,19 +26,34 @@ test("RFID: register card → unlock terminal → tap → attendance; duplicate,
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const today = manilaDay(0);
 
-  await step(page, "HR > RFID Terminals > Add terminal", async () => {
-    monitor.at("HR > RFID Terminals");
-    await as(page, "hr", "hr-rfid-terminals");
+  // HR no longer adds terminals (2026-10-26): the branch Admin does.
+  await step(page, "Admin > RFID Terminal & Cards > Add terminal", async () => {
+    monitor.at("Admin > RFID Terminal & Cards");
+    await as(page, "admin", "adm-maintenance");
     if (!(await main(page).getByText(TERMINAL).count())) {
       await main(page).getByRole("button", { name: "Add terminal" }).click();
       const dialog = page.getByRole("dialog");
       await dialog.locator("#rt-name").fill(TERMINAL);
-      await choose(page, dialog.locator("#rt-branch"), BRANCH_MAIN);
       await dialog.locator('button[type="submit"]').click();
       await expect(dialog).toBeHidden({ timeout: 30000 });
     }
     await refresh(page);
     await expect(main(page).getByText(TERMINAL).first()).toBeVisible();
+    const terminals = await rows(db().from("rfid_terminals").select("branch_id,created_by_role").eq("name", TERMINAL));
+    expect(terminals[0]?.created_by_role).toBe("admin");
+  });
+
+  await step(page, "HR > RFID Terminals > lists it, no Add terminal; API refuses HR", async () => {
+    monitor.at("HR > RFID Terminals");
+    monitor.allow(/^403 POST \/api\/rfid\/terminals/);
+    await as(page, "hr", "hr-rfid-terminals");
+    await expect(main(page).getByText(TERMINAL).first()).toBeVisible();
+    await expect(main(page).getByRole("button", { name: "Add terminal" })).toHaveCount(0);
+    await expect(main(page).getByRole("button", { name: "Edit" }).first()).toBeVisible();
+    const status = await page.evaluate(async () => (await fetch("/api/rfid/terminals", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "HR Sneaky Gate", branch_id: null }),
+    })).status);
+    expect(status).toBe(403);
   });
 
   await step(page, "HR > RFID Cards > Register with no number / letters only (refused)", async () => {

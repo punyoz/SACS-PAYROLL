@@ -356,7 +356,10 @@ export function RatesSection({ refreshKey }) {
       key: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
-      cell: (r) => <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, rateType: r.rate_type, branch: null })} aria-label={`Edit ${r.label}`}><PencilIcon aria-hidden="true" />Edit</Button>,
+      // The hourly rate is the daily rate ÷ 8 (rates.js derivedHourly): nothing to edit.
+      cell: (r) => (r.derived
+        ? <span className="text-xs text-muted-foreground whitespace-nowrap">Daily ÷ 8</span>
+        : <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, rateType: r.rate_type, branch: null })} aria-label={`Edit ${r.label}`}><PencilIcon aria-hidden="true" />Edit</Button>),
     },
   ], [today]);
 

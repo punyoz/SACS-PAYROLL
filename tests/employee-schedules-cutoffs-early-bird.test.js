@@ -212,10 +212,10 @@ describe("GET / POST /api/admin/work-schedules", () => {
       .toEqual(["schedule_assign_employee", "schedule_create", "schedule_update", "schedule_delete"]);
   });
 
-  it("the Admin, the Super Admin and the Accountant are blocked by the server (HR only)", async () => {
+  it("the Admin, the Super Admin, the Accountant and the Employee are blocked by the server (HR only)", async () => {
     const CORA = "cccccccc-0000-4000-8000-00000000000c";
     expect((await GET(as("admin"))).status).toBe(403);
-    for (const role of ["admin", "accountant", "super_admin"]) {
+    for (const role of ["admin", "accountant", "super_admin", "employee"]) {
       const response = await POST(as(role, "POST", { action: "assign", target: "employee", employee_ids: [CORA], schedule_key: PRE, effective_from: "2026-10-14" }));
       expect(response.status).toBe(403);
     }
@@ -491,15 +491,19 @@ describe("Semi-monthly payroll per cutoff, with the Early Bird incentive", () =>
     expect(ana.payroll.monthly).toMatchObject({ attendance_rule: "per_cutoff", window: { start_key: "2026-10-16", end_key: "2026-10-31" }, taxable_income: 46295, withholding_tax: 4467.4 });
     expect(ana.payroll.totals).toMatchObject({ absence_deduction: 2400, late_deduction: 0, undertime_deduction: 0, net_pay: 15977.6 });
     expect(ana.payroll.monthly.cutoff.deductions.map((l) => [l.label, l.amount])).toEqual([
-      ["Absences (1 day)", 2400], ["SSS", 1750], ["PhilHealth", 1305], ["Pag-IBIG", 200], ["Withholding tax", 4467.4],
+      ["Absences (1 day)", 2400], ["SSS (5% of ₱35,000 salary credit)", 1750], ["PhilHealth (2.5% of ₱52,200 basic)", 1305],
+      ["Pag-IBIG (2% of ₱10,000 fund salary cap)", 200], ["Withholding tax (₱1,875 + 20% over ₱33,333)", 4467.4],
     ]);
     expect(ana.payroll.monthly.cutoff).toMatchObject({ gross_pay: 26100, total_deductions: 10122.4, net_pay: 15977.6 });
 
-    // Ben: the 1st cutoff's ₱500 incentive and ₱50 late are in the month taxed:
-    // 52,200 − 50 + 500 = 52,650; taxable 49,395 → 5,087.40; net 26,100 − 3,255 − 5,087.40.
+    // Ben: the 1st cutoff's ₱500 Early Bird bonus and ₱50 late are in the month:
+    // 52,200 − 50 + 500 = 52,650 gross. The bonus is an "other benefit" under
+    // the ₱90,000 ceiling (2026-10-26), so taxable = 52,650 − 3,255 − 500 =
+    // 48,895 → 1,875 + 20% × 15,562 = 4,987.40; net 26,100 − 3,255 − 4,987.40.
     const ben = table("payroll_entries").find((e) => e.employee_id === BEN && e.pay_period === SECOND);
-    expect(ben.payroll.monthly).toMatchObject({ taxable_income: 49395, withholding_tax: 5087.4 });
-    expect(ben.payroll.totals.net_pay).toBe(17757.6);
+    expect(ben.payroll.monthly).toMatchObject({ monthly_gross: 52650, taxable_income: 48895, withholding_tax: 4987.4 });
+    expect(ben.payroll.monthly.bonuses).toMatchObject({ amount: 500, exempt: 500, taxable: 0, ceiling: 90000 });
+    expect(ben.payroll.totals.net_pay).toBe(17857.6);
 
     // Nobody qualified in the 2nd cutoff: Ana was absent and 14 minutes early does not count.
     expect(table("early_bird_winners").find((row) => row.period_label === SECOND)).toMatchObject({ employee_id: null, amount: 0 });

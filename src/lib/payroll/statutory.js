@@ -5,10 +5,12 @@
  * each contribution from the legal base instead of a flat % of the half-month
  * basic, and withholds income tax from the BIR table:
  *
- *   SSS         sss_pct (5) % of the monthly salary credit (MSC). The MSC is
- *               the monthly salary rounded to the nearest ₱500 bracket
- *               (₱5,250–5,749.99 → ₱5,500), kept within sss_msc_min–max
- *               (₱5,000–₱35,000).
+ *   SSS         sss_pct (5) % of the monthly salary credit (MSC): the bracket
+ *               of the SSS salary credit table the salary falls in
+ *               (payroll_sss_msc_brackets, src/lib/payroll/sss-msc.js). Without
+ *               a saved table, the salary rounded to the nearest ₱500
+ *               (₱5,250–5,749.99 → ₱5,500) within sss_msc_min–max
+ *               (₱5,000–₱35,000), the same credits.
  *   PhilHealth  philhealth_pct (2.5) % of the monthly basic salary, kept
  *               within philhealth_floor–ceiling (₱10,000–₱100,000). The
  *               premium is 5%, shared equally with the employer.
@@ -62,9 +64,20 @@ function peso(value) {
 
 const num = (rates, key) => Number(rates?.[key]?.value ?? rates?.[key] ?? 0) || 0;
 
-/** The SSS monthly salary credit for a monthly salary. */
-export function sssMonthlySalaryCredit(monthlySalary, rates) {
+/**
+ * The SSS monthly salary credit for a monthly salary. With an MSC table
+ * (public.payroll_sss_msc_brackets, src/lib/payroll/sss-msc.js) the credit is
+ * the bracket the salary falls in; without one (table not set up yet) the
+ * salary rounded to the nearest ₱500 within sss_msc_min–max, which gives the
+ * same result as the 2025 SSS schedule.
+ */
+export function sssMonthlySalaryCredit(monthlySalary, rates, mscTable = null) {
   const salary = Math.max(0, Number(monthlySalary) || 0);
+  if (Array.isArray(mscTable) && mscTable.length) {
+    let msc = mscTable[0].msc;
+    mscTable.forEach((row) => { if (salary >= row.from) msc = row.msc; });
+    return msc;
+  }
   const min = num(rates, "sss_msc_min");
   const max = num(rates, "sss_msc_max");
   const bracket = Math.floor((salary + 250) / 500) * 500;
@@ -77,34 +90,109 @@ export function sssMonthlySalaryCredit(monthlySalary, rates) {
  * @param {number} monthlySalary  the employee's monthly basic salary
  * @param {object} rates          rateValues() / resolveRates() output
  */
-export function monthlyContributions(monthlySalary, rates) {
+export function monthlyContributions(monthlySalary, rates, { mscTable = null } = {}) {
   const salary = Math.max(0, Number(monthlySalary) || 0);
-  if (!salary) return { sss: 0, philhealth: 0, pagibig: 0, sss_msc: 0 };
+  if (!salary) return { sss: 0, philhealth: 0, pagibig: 0, sss_msc: 0, basis: null };
 
-  const msc = sssMonthlySalaryCredit(salary, rates);
-  const sss = peso(msc * num(rates, "sss_pct") / 100);
+  const msc = sssMonthlySalaryCredit(salary, rates, mscTable);
+  const sssPct = num(rates, "sss_pct");
+  const sss = peso(msc * sssPct / 100);
 
   const floor = num(rates, "philhealth_floor");
   const ceiling = num(rates, "philhealth_ceiling");
   const philhealthBase = Math.min(Math.max(salary, floor), ceiling || salary);
-  const philhealth = peso(philhealthBase * num(rates, "philhealth_pct") / 100);
+  const philhealthPct = num(rates, "philhealth_pct");
+  const philhealth = peso(philhealthBase * philhealthPct / 100);
 
   const maxFund = num(rates, "pagibig_max_salary");
   const pagibigPct = salary <= PAGIBIG_LOW_SALARY ? Math.min(PAGIBIG_LOW_PCT, num(rates, "pagibig_pct")) : num(rates, "pagibig_pct");
-  const pagibig = peso(Math.min(salary, maxFund || salary) * pagibigPct / 100);
+  const pagibigBase = Math.min(salary, maxFund || salary);
+  const pagibig = peso(pagibigBase * pagibigPct / 100);
 
-  return { sss, philhealth, pagibig, sss_msc: msc };
+  // The rate and the base each share was taken from, for the payslip
+  // ("SSS (5% of ₱18,000 salary credit)").
+  const basis = {
+    sss: { pct: sssPct, base: msc, base_label: "salary credit" },
+    philhealth: { pct: philhealthPct, base: peso(philhealthBase), base_label: philhealthBase > salary ? "floor" : philhealthBase < salary ? "ceiling" : "basic" },
+    pagibig: { pct: pagibigPct, base: peso(pagibigBase), base_label: pagibigBase < salary ? "fund salary cap" : "basic" },
+  };
+  return { sss, philhealth, pagibig, sss_msc: msc, basis };
+}
+
+/**
+ * The EMPLOYER's monthly share of each contribution (2026-10-26): the
+ * school's own cost on top of the employee's pay. It is never deducted from
+ * the employee, never part of gross, taxable income or net pay, and never on
+ * the employee's payslip; the remittance report adds it to the employee
+ * share for what the school pays each agency.
+ *
+ *   SSS         sss_er_pct (10) % of the same salary credit, plus EC
+ *               (Employees' Compensation, employer only): sss_ec_low (₱10)
+ *               below sss_ec_threshold (₱15,000) of salary credit, else
+ *               sss_ec_high (₱30)
+ *   PhilHealth  philhealth_er_pct (2.5) % of the same base as the employee's
+ *   Pag-IBIG    pagibig_er_pct (2) % of the salary up to the maximum fund
+ *               salary (the employer's 2% has no low-salary reduction)
+ *
+ * Withholding tax has no employer share: the school only remits what it
+ * withheld.
+ */
+export function employerContributions(monthlySalary, rates, { mscTable = null } = {}) {
+  const salary = Math.max(0, Number(monthlySalary) || 0);
+  if (!salary) return { sss: 0, sss_ec: 0, philhealth: 0, pagibig: 0, total: 0 };
+
+  const msc = sssMonthlySalaryCredit(salary, rates, mscTable);
+  const sss = peso(msc * num(rates, "sss_er_pct") / 100);
+  const sssEc = peso(msc >= num(rates, "sss_ec_threshold") ? num(rates, "sss_ec_high") : num(rates, "sss_ec_low"));
+
+  const floor = num(rates, "philhealth_floor");
+  const ceiling = num(rates, "philhealth_ceiling");
+  const philhealthBase = Math.min(Math.max(salary, floor), ceiling || salary);
+  const philhealth = peso(philhealthBase * num(rates, "philhealth_er_pct") / 100);
+
+  const maxFund = num(rates, "pagibig_max_salary");
+  const pagibig = peso(Math.min(salary, maxFund || salary) * num(rates, "pagibig_er_pct") / 100);
+
+  return { sss, sss_ec: sssEc, philhealth, pagibig, total: peso(sss + sssEc + philhealth + pagibig), sss_msc: msc };
 }
 
 /** Half of each monthly share: what one semi-monthly payslip deducts. */
-export function periodContributions(monthlySalary, rates) {
-  const monthly = monthlyContributions(monthlySalary, rates);
+export function periodContributions(monthlySalary, rates, options = {}) {
+  const monthly = monthlyContributions(monthlySalary, rates, options);
   return {
     sss: peso(monthly.sss / 2),
     philhealth: peso(monthly.philhealth / 2),
     pagibig: peso(monthly.pagibig / 2),
     sss_msc: monthly.sss_msc,
   };
+}
+
+const formatBase = (value) => {
+  const amount = Number(value) || 0;
+  const digits = Number.isInteger(amount) ? 0 : 2;
+  return `₱${amount.toLocaleString("en-PH", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+};
+
+/**
+ * A contribution's payslip label with its rate and base, e.g.
+ * "SSS (5% of ₱18,000 salary credit)". Just the name when the payslip has no
+ * basis (a fixed amount, one set for the employee, or a payslip from before).
+ */
+export function contributionLabel(name, basis) {
+  if (!basis || !Number.isFinite(Number(basis.pct))) return name;
+  const base = basis.base_label ? ` ${basis.base_label}` : "";
+  return `${name} (${Number(basis.pct)}% of ${formatBase(basis.base)}${base})`;
+}
+
+/**
+ * The withholding tax label with its bracket, e.g. "Withholding tax (15% over
+ * ₱20,833)"; "(exempt)" in the lowest bracket. Just the name without one.
+ */
+export function withholdingTaxLabel(name, bracket) {
+  if (!bracket || !Number.isFinite(Number(bracket.rate_pct))) return name;
+  if (!(Number(bracket.rate_pct) > 0)) return `${name} (exempt bracket)`;
+  const base = Number(bracket.base) > 0 ? `${formatBase(bracket.base)} + ` : "";
+  return `${name} (${base}${Number(bracket.rate_pct)}% over ${formatBase(bracket.over)})`;
 }
 
 /** Withholding tax on one semi-monthly period's taxable compensation. */

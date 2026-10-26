@@ -157,6 +157,13 @@ const API_MODULES = [
   // BIR Form 2316 and the 1604-C alphalist (read-only): the Accountant's
   // branch, HR every branch (payroll_records scope).
   ["/api/payroll/bir-forms", "payroll_records"],
+  // Government deduction tables, read-only (2026-10-26): the Super Admin,
+  // the Accountant and HR. Any write is refused (the Super Admin edits them
+  // in System Configuration, /api/admin/payroll-*).
+  ["/api/payroll/government-rates", "government_rates"],
+  // Remittance (employee + employer shares, withholding tax), read-only:
+  // the Accountant's branch, HR every branch (payroll_records scope).
+  ["/api/payroll/remittance", "payroll_records"],
   // Processed payslips, read-only (HR every branch; Admin its own). The route
   // also requires "payslips" to open a single payslip.
   ["/api/hr/payroll-records", "payroll_records"],

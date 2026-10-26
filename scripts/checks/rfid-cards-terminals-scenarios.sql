@@ -117,7 +117,7 @@ BEGIN
   BEGIN DELETE FROM public.rfid_card_events WHERE card_id = c1.id; EXCEPTION WHEN OTHERS THEN v_failed := TRUE; END;
   IF NOT v_failed THEN RAISE EXCEPTION '7: the history must never be deleted'; END IF;
 
-  -- 8. Terminals: an Admin for its own branch only; HR / Super Admin any, or every branch.
+  -- 8. Terminals: an Admin adds for its own branch only; the Super Admin any, or every branch; HR changes any but adds none.
   t1 := public.rfid_terminal_save(adm, NULL, 'Main Gate', main, 'active', FALSE, NULL);
   v_failed := FALSE;
   BEGIN PERFORM public.rfid_terminal_save(adm, NULL, 'North Gate', north, 'active', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
@@ -128,8 +128,15 @@ BEGIN
   v_failed := FALSE;
   BEGIN PERFORM public.rfid_terminal_save(acct, NULL, 'Office', main, 'active', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
   IF NOT v_failed THEN RAISE EXCEPTION '8: the Accountant must not add a terminal'; END IF;
-  t2 := public.rfid_terminal_save(hr, NULL, 'HR Office', NULL, 'active', FALSE, NULL);
-  IF t2.branch_id IS NOT NULL OR t2.created_by_role <> 'hr' THEN RAISE EXCEPTION '8: HR adds an every-branch terminal'; END IF;
+  -- HR no longer adds terminals (20261026010000); the Super Admin may add an every-branch one.
+  v_failed := FALSE;
+  BEGIN PERFORM public.rfid_terminal_save(hr, NULL, 'HR Office', NULL, 'active', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
+  IF NOT v_failed THEN RAISE EXCEPTION '8: HR must not add a terminal'; END IF;
+  t2 := public.rfid_terminal_save(sa, NULL, 'HR Office', NULL, 'active', FALSE, NULL);
+  IF t2.branch_id IS NOT NULL OR t2.created_by_role <> 'super_admin' THEN RAISE EXCEPTION '8: the Super Admin adds an every-branch terminal'; END IF;
+  -- HR still renames / switches an existing terminal.
+  t2 := public.rfid_terminal_save(hr, t2.id, 'HR Office 1', NULL, 'active', FALSE, NULL);
+  IF t2.name <> 'HR Office 1' THEN RAISE EXCEPTION '8: HR renames a terminal'; END IF;
   t1 := public.rfid_terminal_save(sa, t1.id, 'Main Gate', main, 'inactive', FALSE, 'Reader broken');
   IF t1.status <> 'inactive' OR t1.key_version <> 2 THEN RAISE EXCEPTION '8: switching off locks out its kiosks (key %)', t1.key_version; END IF;
   t1 := public.rfid_terminal_save(adm, t1.id, 'Main Gate', main, 'active', TRUE, 'Reader replaced');

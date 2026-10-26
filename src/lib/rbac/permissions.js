@@ -164,6 +164,14 @@ export const MODULES = {
     order: 15, label: "System Configuration", section: "System",
     page: { super_admin: "sa-config" },
   },
+  // SSS / PhilHealth / Pag-IBIG rates, the SSS salary credit table and the
+  // withholding tax table (2026-10-26). The Super Admin edits them in System
+  // Configuration; the Accountant and HR see them read-only, with the history
+  // of every change; an Employee only sees its own deductions on its payslip.
+  government_rates: {
+    order: 15.5, label: "Government Rates", section: "Reference",
+    page: { accountant: "ac-gov-rates", hr: "hr-gov-rates" },
+  },
   audit_logs: {
     // Super Admin's is system-wide (logins, config changes, backups);
     // Admin's is their own branch's activity only.
@@ -295,6 +303,8 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: none(),
     system_maintenance: full(SCOPE_ALL),
     system_configuration: full(SCOPE_ALL),
+    // Government deduction tables (2026-10-26): the only role that changes them.
+    government_rates: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     audit_logs: full(SCOPE_ALL),
     backup_recovery: full(SCOPE_ALL),
     hr_reports: none(),
@@ -346,6 +356,7 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: none(),
     system_maintenance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     system_configuration: none(),
+    government_rates: none(),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
@@ -396,6 +407,8 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: none(),
     system_maintenance: none(),
     system_configuration: none(),
+    // Read-only: answers employees' questions about their deductions.
+    government_rates: view(SCOPE_ALL),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: full(SCOPE_ALL),
@@ -448,6 +461,8 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: full(SCOPE_BRANCH),
     system_maintenance: none(),
     system_configuration: none(),
+    // Read-only: checks and explains the deductions it processes.
+    government_rates: view(SCOPE_BRANCH),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
@@ -493,6 +508,7 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: none(),
     system_maintenance: none(),
     system_configuration: none(),
+    government_rates: none(),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
