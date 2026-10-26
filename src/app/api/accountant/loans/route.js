@@ -25,6 +25,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
+import { notify } from "@/lib/branch-requests-server";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { manilaDateKey, periodForDateKey } from "@/lib/payroll/periods";
@@ -213,6 +214,8 @@ export async function POST(request) {
         final_pay_authorized: body.final_pay_authorized !== false,
         created_by: guard.userId || null,
         created_by_name: actorName(guard),
+        // Waits for HR approval before any payslip deducts it (20261027020000).
+        approval_status: "pending",
       };
       const result = await supabase.from("payroll_loans").insert(row).select("id,total_payable").maybeSingle();
       if (result.error) return dbError(result.error);
@@ -220,8 +223,15 @@ export async function POST(request) {
       await appendAuditLog({
         actor: guard, module: "payroll", action: "loan_create", entity_type: "payroll_loan",
         entity_id: result.data?.id || person.id, status: "success", source: "api",
-        description: `${LOAN_TYPE_LABELS[row.loan_type]} ${money(row.principal)} for ${personLabel(person)}: ${money(row.amortization)} per 16–end payslip from ${row.start_period}.`,
+        description: `${LOAN_TYPE_LABELS[row.loan_type]} ${money(row.principal)} for ${personLabel(person)}: ${money(row.amortization)} per 16–end payslip from ${row.start_period}, filed for HR approval.`,
         metadata: row,
+      });
+      const hr = await supabase.from("profiles").select("id,role,archived").eq("role", "hr");
+      await notify(supabase, (hr.data || []).filter((p) => !p.archived).map((p) => p.id), {
+        kind: "adjustment_approval",
+        title: `${LOAN_TYPE_LABELS[row.loan_type]} to approve: ${person.full_name}`,
+        body: `${row.created_by_name || "The Accountant"} filed ${LOAN_TYPE_LABELS[row.loan_type].toLowerCase()} ${money(row.principal)} for ${personLabel(person)}, ${money(row.amortization)} per 16–end payslip from ${row.start_period}.`,
+        link_page: "hr-adjustment-approvals",
       });
       return NextResponse.json({ success: true, id: result.data?.id || null, total_payable: result.data?.total_payable ?? totalPayable(row.principal, row.interest_pct) });
     }

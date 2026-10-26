@@ -26,6 +26,7 @@ import { loadRateConfigs, rateValues, resolveRate, resolveRates } from "@/lib/pa
 import { monthlyContributionsFor } from "@/lib/payroll/school-sheet";
 import { loadSssMscRows, mscTableOn } from "@/lib/payroll/sss-msc";
 import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
+import { isApproved } from "@/lib/payroll/adjustment-approvals";
 import {
   dailyRateFor,
   monthInfo,
@@ -153,7 +154,8 @@ async function gather(supabase, person) {
   const lastSecond = entries.filter((e) => /\s16-\d{2},/.test(e.pay_period)).sort((a, b) => String(b.pay_period).localeCompare(String(a.pay_period)))[0];
   const carryIn = peso(lastSecond?.payroll?.monthly?.carry_over_out || 0);
 
-  const loans = (loansResult.data || []).filter((loan) => loan.status !== "paid" && Number(loan.remaining_balance) > 0
+  // Only loans HR approved (20261027020000).
+  const loans = (loansResult.data || []).filter((loan) => isApproved(loan) && loan.status !== "paid" && Number(loan.remaining_balance) > 0
     && (!loan.awaiting_decision || (loan.decision === "final_pay" && loan.decision_approved_at)));
   const ceilingRate = resolveRate(configs, "benefits_exempt_ceiling", {}, separatedOn);
 

@@ -18,6 +18,7 @@ import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money, shortDate } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
+import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 
 /*
  * Incentives & Overload (loadMonthlyItems / submitMonthlyItem /
@@ -173,9 +174,9 @@ export function IncentivesPage({ refreshKey }) {
         amount: form.kind === "incentive" ? form.amount : undefined,
         hours: form.kind === "overload" ? form.hours : undefined,
       }));
-      setFeedback({ text: data.deferred ? `Added — deferred to next month's payroll [${data.payroll_month_label}] (filed after the cutoff).` : `Added — counted in the ${data.payroll_month_label} payroll.`, ok: true });
+      setFeedback({ text: data.deferred ? `Sent for HR approval — deferred to next month's payroll [${data.payroll_month_label}] (filed after the cutoff).` : `Sent for HR approval — counted in the ${data.payroll_month_label} payroll once HR approves it.`, ok: true });
       setForm((c) => ({ ...c, amount: "", hours: "", description: "" }));
-      notify("Added to Payroll", `Counted in the ${data.payroll_month_label} 2nd half payroll.`, "success");
+      notify("Sent for HR Approval", `Paid in the ${data.payroll_month_label} 2nd half payroll once HR approves it.`, "success");
       await load();
       reloadPayroll();
     } catch (error) {
@@ -210,7 +211,12 @@ export function IncentivesPage({ refreshKey }) {
     { key: "kind", header: "Type", cell: (i) => (i.kind === "overload" ? <StatusBadge tone="info">Overload</StatusBadge> : <StatusBadge tone="success">Incentive</StatusBadge>) },
     { key: "description", header: "Description", className: "max-w-64 whitespace-normal", searchValue: (i) => i.description },
     { key: "amount", header: "Amount / hours", align: "right", className: "tabular-nums", cell: (i) => (i.kind === "overload" ? `${i.hours} h` : money(i.amount)) },
-    { key: "month", header: "Counted in", cell: (i) => (i.moved_to_next_month ? <DeferredBadge item={i} /> : <p>{i.payroll_month_label}</p>) },
+    // HR approval (20261027020000): only an approved item is paid.
+    {
+      key: "approval", header: "HR approval",
+      cell: (i) => <div className="max-w-52 space-y-1 whitespace-normal"><StatusBadge tone={i.approval_tone || "success"}>{i.approval_label || "Approved by HR"}</StatusBadge>{i.decision_note ? <p className="text-xs text-muted-foreground">{i.decided_by_name ? `${i.decided_by_name}: ` : ""}{i.decision_note}</p> : null}</div>,
+    },
+    { key: "month", header: "Counted in", cell: (i) => (i.approval_status === "rejected" ? <span className="text-muted-foreground">Not paid</span> : i.moved_to_next_month ? <DeferredBadge item={i} /> : <p>{i.payroll_month_label}</p>) },
     { key: "by", header: "Added by", className: "text-xs text-muted-foreground", cell: (i) => i.created_by_name || "" },
     { key: "remove", header: <span className="sr-only">Remove</span>, align: "right", cell: (i) => <Button variant="outline" size="sm" onClick={() => remove(i)}>Remove</Button> },
   ];
@@ -271,7 +277,7 @@ export function IncentivesPage({ refreshKey }) {
                 <Input id="ac-item-description" maxLength={200} placeholder="e.g. Coaching incentive, extra Math class" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} aria-invalid={Boolean(errors.description) || undefined} />
                 {errors.description ? <p className="text-sm text-destructive">{errors.description}</p> : null}
               </div>
-              <Button type="submit" className="sm:col-span-2" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Add to payroll →</Button>
+              <Button type="submit" className="sm:col-span-2" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Send for HR approval →</Button>
               {feedback.text ? <p role="status" className={cn("text-sm sm:col-span-2", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
             </form>
           </CardContent>
@@ -336,6 +342,8 @@ export function IncentivesPage({ refreshKey }) {
           />
         </CardContent>
       </Card>
+      {/* What HR approved, rejected or has not decided yet (20261027020000). */}
+      <AdjustmentApprovalsPanel refreshKey={refreshKey} />
       {confirmDialog}
     </>
   );

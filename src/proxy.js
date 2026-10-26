@@ -166,6 +166,9 @@ const API_MODULES = [
   ["/api/payroll/remittance", "payroll_records"],
   // Basic salary changes (2026-10-26): HR only; the route also checks the role.
   ["/api/hr/salary-changes", "employee_information"],
+  // Incentives, overload and loans waiting for HR (20261027020000): HR decides,
+  // the Accountant follows its own branch's items.
+  ["/api/hr/adjustment-approvals", "payroll_approvals"],
   // Processed payslips, read-only (HR every branch; Admin its own). The route
   // also requires "payslips" to open a single payslip.
   ["/api/hr/payroll-records", "payroll_records"],

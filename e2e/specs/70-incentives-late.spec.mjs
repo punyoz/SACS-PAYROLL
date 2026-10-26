@@ -34,7 +34,7 @@ test("incentive filed after the cutoff is deferred to next month, with the notic
   await step(page, "Accountant > Incentives & Overload > Add with no employee (refused)", async () => {
     monitor.at("Accountant > Incentives & Overload");
     await as(page, "accountant", "ac-incentives");
-    await main(page).getByRole("button", { name: "Add to payroll →" }).click();
+    await main(page).getByRole("button", { name: "Send for HR approval →" }).click();
     await expect(main(page).locator('[aria-invalid="true"]').first()).toBeVisible();
   });
 
@@ -44,8 +44,8 @@ test("incentive filed after the cutoff is deferred to next month, with the notic
     await expect(main(page).getByRole("status").filter({ hasText: /deferred to next month/ }).first()).toBeVisible();
     await main(page).locator("#ac-item-amount").fill("750");
     await main(page).locator("#ac-item-description").fill(description);
-    await main(page).getByRole("button", { name: "Add to payroll →" }).click();
-    await expect(main(page).getByText(/Added — deferred to next month's payroll/)).toBeVisible({ timeout: 30000 });
+    await main(page).getByRole("button", { name: "Send for HR approval →" }).click();
+    await expect(main(page).getByText(/Sent for HR approval — deferred to next month's payroll/)).toBeVisible({ timeout: 30000 });
   });
 
   await step(page, "Accountant > Incentives & Overload > listed under Deferred incentives after refresh", async () => {
@@ -54,6 +54,22 @@ test("incentive filed after the cutoff is deferred to next month, with the notic
     const row = deferred.locator("tr", { hasText: description }).or(main(page).locator("tr", { hasText: description })).first();
     await expect(row).toBeVisible();
     await expect(row.getByText(/Deferred to next month's payroll/)).toBeVisible();
+  });
+
+  // Incentives wait for HR before payroll pays them (20261027020000).
+  await step(page, "HR > Incentive & Loan Approvals > approve it; the Accountant sees Approved", async () => {
+    monitor.at("HR > Incentive & Loan Approvals");
+    await as(page, "hr", "hr-adjustment-approvals");
+    const row = main(page).locator("tr", { hasText: description }).first();
+    await expect(row.getByText("Pending HR approval")).toBeVisible({ timeout: 30000 });
+    await row.getByRole("button", { name: /^Approve/ }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Approve" }).click();
+    await expect(dialog).toBeHidden({ timeout: 30000 });
+    const item = await rows(db().from("payroll_monthly_incentives").select("approval_status").eq("description", description));
+    expect(item[0]?.approval_status).toBe("approved");
+    await as(page, "accountant", "ac-incentives");
+    await expect(main(page).locator("tr", { hasText: description }).getByText("Approved by HR").first()).toBeVisible({ timeout: 30000 });
   });
 
   await step(page, "Accountant > Process Payroll > the deferred-items notice", async () => {

@@ -105,6 +105,8 @@ export async function PATCH(request) {
         description: `${d.description} (recommended by ${row.created_by_name || "the branch Admin"})`.slice(0, 200),
         amount: d.kind === "incentive" ? d.amount : null, hours: d.kind === "overload" ? d.hours : null,
         created_by: guard.userId || null, created_by_name: actorName, created_at: now,
+        // Approved here by HR (or the Super Admin): no second approval (20261027020000).
+        approval_status: "approved", decided_by: guard.userId || null, decided_by_name: actorName, decided_at: now,
       }).select("id").maybeSingle();
       if (item.error) return NextResponse.json({ error: sanitizeError(item.error) }, { status: 400 });
       outcomeRef = item.data?.id || null;

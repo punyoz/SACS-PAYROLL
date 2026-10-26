@@ -9,6 +9,7 @@ import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
+import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
@@ -82,6 +83,8 @@ const NAV = [
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
       // Moved from Leave (2026-10-20): subsidy decisions are payroll, not leave.
       { id: "hr-subsidy-approvals", label: "Subsidy Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
+      // Incentives, overload and loans the Accountant filed (20261027020000).
+      { id: "hr-adjustment-approvals", label: "Incentive & Loan Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
       // Read-only (2026-10-26): to answer employees' questions about deductions.
       { id: "hr-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
     ],
@@ -109,6 +112,7 @@ const TITLES = {
   "hr-awol": "AWOL Cases",
   "hr-branch-requests": "Branch Requests",
   "hr-subsidy-approvals": "Subsidy Approvals",
+  "hr-adjustment-approvals": "Incentive & Loan Approvals",
   "hr-gov-rates": "Government Rates",
   "hr-reports": "HR Reports",
   "hr-profile": "Profile",
@@ -128,6 +132,7 @@ const DESCRIPTIONS = {
   "hr-awol": "Unexcused absences flagged by the nightly check or reported by a branch Admin: confirm, send the notices, and separate or close each case.",
   "hr-branch-requests": "Attendance flags, schedule requests, incentive recommendations, RFID issues and overtime confirmations sent by the branch Admins. HR decides; the Admin is notified.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
+  "hr-adjustment-approvals": "Approve or reject the incentives, overload, loans and cash advances the Accountant filed. Payroll pays or deducts only approved ones; a rejection needs a reason and the Accountant is notified.",
   "hr-gov-rates": "View-only — the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
@@ -210,6 +215,7 @@ function HrScreens() {
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
+        {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
       </AppShell>
     </AttendanceActionsProvider>
