@@ -137,6 +137,15 @@ export function usesLegalTables(info) {
   return info.row?.defaults?.statutory_method === "legal";
 }
 
+/**
+ * True when SSS, PhilHealth, Pag-IBIG and withholding tax are computed by the
+ * server and cannot be typed (2026-10-26): the form shows them read-only,
+ * never counts them as overrides and never sends them.
+ */
+export function governmentLocked(info) {
+  return info.row?.defaults?.government_locked === true;
+}
+
 /** SSS / PhilHealth / Pag-IBIG defaults (legal tables from the server, else flat % of basic). */
 export function contributionDefaults(data, info, basic) {
   const defaults = info.row?.defaults;
@@ -235,12 +244,15 @@ export function computeSummary(data, employee, rawForm) {
   const form = lockFirstHalf(data, rawForm);
   const g = (key) => toAmount(form[key]);
   const basic = g("basic");
-  const sss = g("sss");
-  const philhealth = g("philhealth");
-  const pagibig = g("pagibig");
   const lwpDays = g("lwp");
   const lwopDays = g("lwop");
   const info = employeePayInfo(data, employee?.id);
+  // Locked: the computed contributions, never what a form field holds.
+  const locked = governmentLocked(info);
+  const computedContributions = locked ? contributionDefaults(data, info, basic) : null;
+  const sss = locked ? computedContributions.sss : g("sss");
+  const philhealth = locked ? computedContributions.philhealth : g("philhealth");
+  const pagibig = locked ? computedContributions.pagibig : g("pagibig");
   const amounts = computeAttendanceAmounts(info, {
     absences_days: g("absences"),
     late_days: g("late"),
@@ -266,8 +278,8 @@ export function computeSummary(data, employee, rawForm) {
     contributions: sss + philhealth + pagibig,
     incentives: incentives + extras.other + (extras.subsidyTaxable || 0),
   });
-  // The tax follows the figures until the accountant types one.
-  const tax = form.taxEdited ? g("tax") : taxDefault;
+  // The tax follows the figures (until the accountant types one, where typing is allowed).
+  const tax = form.taxEdited && !locked ? g("tax") : taxDefault;
   const totalDeductions = toAmount(sss + philhealth + pagibig + tax + amounts.absent + amounts.late + amounts.undertime + amounts.half_day + lwopDeduct + cashAdvance);
   const monthNet = toAmount(gross - totalDeductions + incentives + extras.other + (extras.subsidy || 0)
     + (extras.priorEarnings || 0) - (extras.priorAttendance || 0));
@@ -294,12 +306,16 @@ export function formDeviations(data, employee, rawForm, taxDefault) {
   }
   const contributions = contributionDefaults(data, info, basic);
   const tax = form.taxEdited ? g("tax") : taxDefault;
-  const checks = [
-    ["Basic Salary", basicDefaultFor(data, employee), basic],
+  // Computed government deductions are never an override (2026-10-26).
+  const government = governmentLocked(info) ? [] : [
     ["SSS", contributions.sss, g("sss")],
     ["PhilHealth", contributions.philhealth, g("philhealth")],
     ["Pag-IBIG", contributions.pagibig, g("pagibig")],
     ...(usesLegalTables(info) ? [["Withholding Tax", taxDefault, tax]] : []),
+  ];
+  const checks = [
+    ["Basic Salary", basicDefaultFor(data, employee), basic],
+    ...government,
     ["Leave Without Pay", leave?.without_pay_days || 0, g("lwop")],
     ["Absent", counts.absent_days || 0, g("absences")],
     ["Late", counts.late_days || 0, g("late")],
@@ -317,6 +333,10 @@ export function formDeviations(data, employee, rawForm, taxDefault) {
 export function submissionPayload(action, { entryId, employee, period, form: rawForm, tax, data }) {
   const form = lockFirstHalf(data, rawForm);
   const g = (key) => toAmount(form[key]);
+  // Computed government deductions are not sent at all (the server computes
+  // them and refuses a different value).
+  const locked = governmentLocked(employeePayInfo(data, employee.id));
+  const government = locked ? {} : { sss: g("sss"), philhealth: g("philhealth"), pagibig: g("pagibig"), withholding_tax: tax };
   return {
     action,
     entry_id: entryId || undefined,
@@ -325,10 +345,7 @@ export function submissionPayload(action, { entryId, employee, period, form: raw
     basic_salary: g("basic"),
     allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
     deductions: {
-      sss: g("sss"),
-      philhealth: g("philhealth"),
-      pagibig: g("pagibig"),
-      withholding_tax: tax,
+      ...government,
       absences_days: g("absences"),
       late_days: g("late"),
       undertime_minutes: g("undertime"),

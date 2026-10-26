@@ -4,6 +4,7 @@ import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { notify } from "@/lib/branch-requests-server";
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
@@ -1996,10 +1997,21 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       ...prior,
     }).monthly_gross <= 0;
   }
+  // From LEGAL_RULES_EFFECTIVE SSS, PhilHealth, Pag-IBIG and withholding tax
+  // are computed from the government rate tables and never typed (decision
+  // 2026-10-26): a different value sent is refused (government_deduction_locked)
+  // instead of becoming an override; the Accountant flags a figure for review
+  // (action "flag_deduction") instead. Attendance overrides are unchanged.
+  const governmentChanges = [];
+  const governmentValue = (label, input, computed) => {
+    if (!legal) return pickAmount(input, computed);
+    if (input !== undefined && input !== null && input !== "" && differs(input, computed)) governmentChanges.push(label);
+    return Math.max(0, toAmount(computed));
+  };
   // The 1st cutoff never deducts contributions or tax.
-  const sss = firstCutoff ? 0 : pickAmount(deductionsIn.sss, contributionDefault("sss"));
-  const philhealth = firstCutoff ? 0 : pickAmount(deductionsIn.philhealth, contributionDefault("philhealth"));
-  const pagibig = firstCutoff ? 0 : pickAmount(deductionsIn.pagibig, contributionDefault("pagibig"));
+  const sss = firstCutoff ? 0 : governmentValue("SSS", deductionsIn.sss, contributionDefault("sss"));
+  const philhealth = firstCutoff ? 0 : governmentValue("PhilHealth", deductionsIn.philhealth, contributionDefault("philhealth"));
+  const pagibig = firstCutoff ? 0 : governmentValue("Pag-IBIG", deductionsIn.pagibig, contributionDefault("pagibig"));
   note("sss", contributionDefault("sss"), sss);
   note("philhealth", contributionDefault("philhealth"), philhealth);
   note("pagibig", contributionDefault("pagibig"), pagibig);
@@ -2039,7 +2051,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       contributions: sss + philhealth + pagibig,
     }))
     : 0;
-  const withholdingTax = firstCutoff ? 0 : pickAmount(deductionsIn.withholding_tax, taxDefault);
+  const withholdingTax = firstCutoff ? 0 : governmentValue("Withholding tax", deductionsIn.withholding_tax, taxDefault);
+  const governmentRefusal = governmentChanges.length
+    ? `${governmentChanges.join(", ")} ${governmentChanges.length === 1 ? "is" : "are"} computed from the government rate tables and cannot be changed here. If a figure looks wrong, use Flag for review.`
+    : null;
   if (legal) note("withholding_tax", taxDefault, withholdingTax);
   // Loans first, oldest first, from what this payslip can still pay after
   // contributions, tax and any carry-over: partial when pay is short, the
@@ -2417,15 +2432,21 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     deviations,
     reason,
     blocking: auto.blocking,
-    refusal: hire?.not_hired
+    refusal: governmentRefusal || (hire?.not_hired
       ? notHiredRefusal(hire, period.label)
       : monthSettled
         ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
-        : null,
-    refusal_code: hire?.not_hired ? "not_hired_yet" : monthSettled ? "month_settled" : null,
+        : null),
+    refusal_code: governmentRefusal ? "government_deduction_locked" : hire?.not_hired ? "not_hired_yet" : monthSettled ? "month_settled" : null,
     // What the form and the batch table pre-fill (GET).
     defaults: {
       statutory_method: firstCutoff ? "semi_monthly_first" : legal ? "legal" : "flat",
+      // The government deductions are computed, never typed (2026-10-26).
+      government_locked: legal,
+      // Each legal contribution's rate and base, and the tax bracket, for
+      // the form's labels ("SSS (5% of ₱15,000 salary credit)").
+      contribution_basis: schoolMonthly?.basis || null,
+      tax_bracket: settling ? settle(withholdingTax).tax_bracket : null,
       basic_salary: defaultBasic,
       // The period's Early Bird incentive when this employee won it.
       early_bird_winner: earlyBirdPay,
@@ -3901,6 +3922,44 @@ async function handleBatchSubmit(supabase, body, guard) {
   return NextResponse.json({ success: true, processed, skipped });
 }
 
+const FLAG_FIELDS = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax" };
+
+/**
+ * "Flag for review" (2026-10-26): the Accountant cannot change a computed
+ * government deduction, but can question one. The flag notifies HR and the
+ * Super Admin (who owns the rate tables) and is written to the audit log;
+ * the figure itself stays as computed.
+ *   { action: "flag_deduction", employee_id, pay_period, field, amount?, note }
+ */
+async function handleFlagDeduction(supabase, body, guard) {
+  const field = normalizeText(body.field).toLowerCase();
+  const note = normalizeText(body.note).slice(0, 500);
+  const periodLabel = normalizeText(body.pay_period);
+  if (!FLAG_FIELDS[field]) return NextResponse.json({ error: "Choose SSS, PhilHealth, Pag-IBIG or withholding tax." }, { status: 400 });
+  if (note.length < 10) return NextResponse.json({ error: "Say what looks wrong (at least 10 characters)." }, { status: 400 });
+  if (!periodFromLabel(periodLabel)) return NextResponse.json({ error: "Choose the pay period." }, { status: 400 });
+  const employee = (await fetchEmployees(supabase, guard)).find((row) => row.id === normalizeText(body.employee_id));
+  if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  const amount = body.amount === undefined || body.amount === null || body.amount === "" ? null : toAmount(body.amount);
+  const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
+  const label = FLAG_FIELDS[field];
+
+  const reviewers = await supabase.from("profiles").select("id,role,archived").in("role", ["hr", "super_admin"]);
+  const recipients = (reviewers.data || []).filter((row) => !row.archived).map((row) => row.id);
+  const sent = await notify(supabase, recipients, {
+    kind: "deduction_flag",
+    title: `${label} flagged for review: ${employee.full_name}`,
+    body: `${actorName} flagged ${employee.full_name}'s ${label}${amount === null ? "" : ` (${money(amount)})`} for ${periodLabel}: ${note}`,
+  });
+  await appendAuditLog({
+    actor: guard, module: "payroll", action: "deduction_flagged", entity_type: "payroll_entry", entity_id: employee.id,
+    branch_id: employee.branch_id || null, status: "success", source: "api",
+    description: `${label} for ${employee.full_name} (${periodLabel}) flagged for review by ${actorName}: ${note}`,
+    metadata: { field, amount, pay_period: periodLabel, note, notified: sent },
+  });
+  return NextResponse.json({ success: true, notified: sent });
+}
+
 export async function POST(request) {
   try {
     const guard = await requirePermission(request, "process_payroll", "create");
@@ -3911,6 +3970,7 @@ export async function POST(request) {
 
     if (action === "add_monthly_item") return await handleAddMonthlyItem(getAdminClient(), body, guard);
     if (action === "add_cash_advance") return await handleAddCashAdvance(getAdminClient(), body, guard);
+    if (action === "flag_deduction") return await handleFlagDeduction(getAdminClient(), body, guard);
 
     if (action !== "save_draft" && action !== "submit" && action !== "batch_submit") {
       return NextResponse.json({ error: "Action must be save_draft, submit, or batch_submit." }, { status: 400 });
