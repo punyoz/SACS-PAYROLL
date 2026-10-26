@@ -342,7 +342,7 @@ export function submissionPayload(action, { entryId, employee, period, form: raw
     entry_id: entryId || undefined,
     employee_id: employee.id,
     pay_period: period,
-    basic_salary: g("basic"),
+    // The basic salary is never sent: the server uses the one in force (2026-10-26).
     allowances: { transportation: 0, rice: 0, overtime: 0, bonus: 0 },
     deductions: {
       ...government,

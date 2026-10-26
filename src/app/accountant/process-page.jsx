@@ -290,7 +290,6 @@ function BatchCard({ onNavigate }) {
     if (!ok) return;
     const entries = eligible.map((r) => ({
       employee_id: r.employee.id,
-      basic_salary: r.base.basic,
       deductions: {
         // Computed on the server when locked: not sent (a different value is refused).
         ...(r.locked ? {} : {
@@ -757,7 +756,8 @@ function SingleEntry({ onNavigate }) {
                   <SelectContent>{(data?.period_options || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              {numberField("pc-basic", "Basic salary (₱)", "basic", { disabled: false })}
+              {/* From the employee's record: HR changes a salary (2026-10-26), never payroll processing. */}
+              {numberField("pc-basic", "Basic salary (₱)", "basic", { disabled: false, readOnly: true, hint: "(from the employee's record; HR changes it)" })}
             </div>
 
             <Separator />

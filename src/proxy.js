@@ -164,6 +164,8 @@ const API_MODULES = [
   // Remittance (employee + employer shares, withholding tax), read-only:
   // the Accountant's branch, HR every branch (payroll_records scope).
   ["/api/payroll/remittance", "payroll_records"],
+  // Basic salary changes (2026-10-26): HR only; the route also checks the role.
+  ["/api/hr/salary-changes", "employee_information"],
   // Processed payslips, read-only (HR every branch; Admin its own). The route
   // also requires "payslips" to open a single payslip.
   ["/api/hr/payroll-records", "payroll_records"],
