@@ -397,11 +397,11 @@ describe("October 16-31, 2026 (2nd half settles the month)", () => {
     expect(body.attendance_rows.find((r) => r.employee_id === EMP).defaults.overtime).toBe(0);
   });
 
-  it("treats a changed withholding tax as a deviation that needs a reason", async () => {
+  it("refuses a changed withholding tax outright, even with a reason (computed, never typed: 2026-10-26)", async () => {
     const entry = { employee_id: EMP, basic_salary: 52200, deductions: { sss: EXPECTED.sss, philhealth: EXPECTED.philhealth, pagibig: EXPECTED.pagibig, withholding_tax: 0 } };
-    const body = await (await POST(request("POST", { action: "batch_submit", pay_period: SECOND, entries: [entry] }))).json();
+    const body = await (await POST(request("POST", { action: "batch_submit", pay_period: SECOND, entries: [entry], override_reason: "Typed a different tax" }))).json();
     expect(body.processed).toHaveLength(0);
-    expect(body.skipped[0].code).toBe("override_reason_required");
+    expect(body.skipped[0].code).toBe("government_deduction_locked");
   });
 
   it("refuses to process when no monthly tax table is set", async () => {

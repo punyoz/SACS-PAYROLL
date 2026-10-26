@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangleIcon, CheckCircle2Icon, InfoIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckCircle2Icon, FlagIcon, InfoIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,6 +19,7 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
+import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import {
   SALARY_MAX,
   batchRowBase,
@@ -31,6 +33,7 @@ import {
   employeePayInfo,
   formDeviations,
   formFromDraft,
+  governmentLocked,
   money,
   perCutoffFirst,
   same,
@@ -233,7 +236,9 @@ function BatchCard({ onNavigate }) {
   const rows = employees.map((employee) => {
     const base = batchRowBase(data, employee);
     const e = edits[employee.id] || {};
-    const value = (field, def) => (e[field] !== undefined ? e[field] : String(def));
+    // Computed government deductions cannot be typed (2026-10-26).
+    const locked = governmentLocked(base.info);
+    const value = (field, def) => (e[field] !== undefined && !(locked && GOVERNMENT_FIELDS.includes(field)) ? e[field] : String(def));
     const sss = value("sss", base.contributions.sss);
     const philhealth = value("philhealth", base.contributions.philhealth);
     const pagibig = value("pagibig", base.contributions.pagibig);
@@ -241,7 +246,7 @@ function BatchCard({ onNavigate }) {
     const nums = { sss: toAmount(sss), philhealth: toAmount(philhealth), pagibig: toAmount(pagibig), lwop: toAmount(lwop) };
     // With the legal tables the tax follows this row's figures until typed.
     const taxDefault = base.legal ? batchTaxDefault(data, base, nums) : batchTaxDefault(data, base, { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop });
-    const tax = e.tax !== undefined ? e.tax : String(taxDefault);
+    const tax = e.tax !== undefined && !locked ? e.tax : String(taxDefault);
     const net = batchRowNet({
       basic_salary: base.basic, sss: nums.sss, philhealth: nums.philhealth, pagibig: nums.pagibig, tax: toAmount(tax),
       leave_without_pay_days: nums.lwop, daily_rate: base.info.unit.daily, attendance_deductions: base.attendanceDeductions,
@@ -252,9 +257,9 @@ function BatchCard({ onNavigate }) {
     const defaults = { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop, tax: taxDefault };
     const values = { sss, philhealth, pagibig, lwop, tax };
     // Withholding tax counts as a change only with the legal tables.
-    const fields = ["sss", "philhealth", "pagibig", "lwop", ...(base.legal ? ["tax"] : [])];
+    const fields = locked ? ["lwop"] : ["sss", "philhealth", "pagibig", "lwop", ...(base.legal ? ["tax"] : [])];
     const changed = fields.filter((f) => !same(values[f], defaults[f]));
-    return { employee, base, values, defaults, net, changed };
+    return { employee, base, values, defaults, net, changed, locked };
   });
 
   const anyChanged = rows.some((r) => !r.base.blocking.length && r.changed.length);
@@ -287,10 +292,13 @@ function BatchCard({ onNavigate }) {
       employee_id: r.employee.id,
       basic_salary: r.base.basic,
       deductions: {
-        sss: toAmount(r.values.sss),
-        philhealth: toAmount(r.values.philhealth),
-        pagibig: toAmount(r.values.pagibig),
-        withholding_tax: toAmount(r.values.tax),
+        // Computed on the server when locked: not sent (a different value is refused).
+        ...(r.locked ? {} : {
+          sss: toAmount(r.values.sss),
+          philhealth: toAmount(r.values.philhealth),
+          pagibig: toAmount(r.values.pagibig),
+          withholding_tax: toAmount(r.values.tax),
+        }),
         // Absent / Late / Undertime / Half Day / incentives are computed on the server.
         leave_with_pay_days: r.base.lwp,
         leave_without_pay_days: toAmount(r.values.lwop),
@@ -375,7 +383,9 @@ function BatchCard({ onNavigate }) {
     </div>
   );
 
-  const numberInput = (row, field, step = "0.01") => (
+  const numberInput = (row, field, step = "0.01") => (row.locked && GOVERNMENT_FIELDS.includes(field) ? (
+    <span className="tabular-nums" title="Computed from the government rate tables">{row.base.half === "first" ? "—" : money(row.values[field])}</span>
+  ) : (
     <Input
       type="number"
       min="0"
@@ -387,7 +397,7 @@ function BatchCard({ onNavigate }) {
       onChange={(e) => setField(row.employee.id, field, e.target.value)}
       className={cn("h-8 w-24 px-2 text-right tabular-nums", !same(row.values[field], row.defaults[field]) && "border-warning ring-1 ring-warning/40")}
     />
-  );
+  ));
 
   return (
     <Card className="min-w-0 shadow-xs">
@@ -470,7 +480,7 @@ function BatchCard({ onNavigate }) {
 
         {anyChanged ? (
           <div className="space-y-2">
-            <Label htmlFor="pc-batch-reason">Reason for manual changes <span className="font-normal text-muted-foreground">(required — SSS, PhilHealth, Pag-IBIG, tax or Leave w/o Pay was changed from the computed value; logged with your name)</span></Label>
+            <Label htmlFor="pc-batch-reason">Reason for manual changes <span className="font-normal text-muted-foreground">(required — {rows.some((r) => r.locked) ? "Leave w/o Pay" : "SSS, PhilHealth, Pag-IBIG, tax or Leave w/o Pay"} was changed from the computed value; logged with your name)</span></Label>
             <Input id="pc-batch-reason" maxLength={300} placeholder="e.g. Contribution table update for this employee" value={reason} onChange={(e) => { setReason(e.target.value); setReasonError(""); }} aria-invalid={Boolean(reasonError) || undefined} />
             {reasonError ? <p className="text-sm text-destructive">{reasonError}</p> : null}
           </div>
@@ -483,6 +493,65 @@ function BatchCard({ onNavigate }) {
       </CardContent>
       {confirmDialog}
     </Card>
+  );
+}
+
+/** SSS, PhilHealth, Pag-IBIG and tax: computed, never typed (2026-10-26). */
+const GOVERNMENT_FIELDS = ["sss", "philhealth", "pagibig", "tax"];
+
+/*
+ * Flag for review: the Accountant questions a computed government deduction
+ * without changing it. HR and the Super Admin are notified; the flag is in the
+ * audit log (POST /api/accountant/payroll, action "flag_deduction").
+ */
+function FlagDeductionDialog({ flag, employee, period, onClose }) {
+  const { notify } = usePortalSession();
+  const [note, setNote] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { if (flag) { setNote(""); setError(""); } }, [flag]);
+
+  async function send(event) {
+    event.preventDefault();
+    if (note.trim().length < 10) { setError("Say what looks wrong (at least 10 characters)."); return; }
+    setBusy(true);
+    try {
+      const response = await apiFetch("/api/accountant/payroll", jsonBody("POST", {
+        action: "flag_deduction", employee_id: employee?.id, pay_period: period, field: flag.field, amount: flag.amount, note: note.trim(),
+      }));
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "The flag was not sent.");
+      notify("Flagged for Review", "HR and the Super Admin were notified. The computed figure stays as it is.", "success");
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={Boolean(flag)} onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        {flag ? (
+          <form onSubmit={send} className="contents">
+            <DialogHeader>
+              <DialogTitle>Flag {flag.name} for review</DialogTitle>
+              <DialogDescription>{employee?.full_name} · {period} · computed {money(flag.amount)}. The figure is not changed: HR and the Super Admin are asked to check it.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5">
+              <Label htmlFor="pc-flag-note">What looks wrong</Label>
+              <Textarea id="pc-flag-note" rows={3} maxLength={500} value={note} onChange={(e) => { setNote(e.target.value); setError(""); }} autoFocus aria-invalid={Boolean(error) || undefined} />
+              {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+              <Button type="submit" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <FlagIcon aria-hidden="true" />}Send for review</Button>
+            </DialogFooter>
+          </form>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -505,6 +574,7 @@ function SingleEntry({ onNavigate }) {
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [reasonError, setReasonError] = React.useState("");
   const [processedBanner, setProcessedBanner] = React.useState(false);
+  const [flag, setFlag] = React.useState(null); // { field, name, amount }: Flag for review
 
   // After every load: the open draft fills the form, otherwise the selected
   // employee's computed defaults (populateFormFromDraft / syncFormForEmployee).
@@ -547,6 +617,28 @@ function SingleEntry({ onNavigate }) {
   const contributionHint = (type, pctLabel) => (legal
     ? (source && sourceWords[source[type]] ? `(${sourceWords[source[type]]}, editable)` : pctLabel)
     : `(default ${info.rates[`${type}_pct`]}% of Basic, editable)`);
+  // Computed government deductions (2026-10-26): read-only, each labelled with
+  // its rate and base (or "fixed monthly amount" / "set for this employee"),
+  // the tax with its bracket.
+  const locked = governmentLocked(info);
+  const basis = info.row?.defaults?.contribution_basis || {};
+  const govLabel = (type, name) => (source?.[type] === "fixed" ? `${name} (fixed monthly amount)`
+    : source?.[type] === "employee" ? `${name} (set for this employee)`
+      : contributionLabel(name, basis[type]));
+  const computedField = (id, label, field, name, amount) => (
+    <div className="space-y-1.5">
+      <p id={id} className="text-sm font-medium">{label}</p>
+      <div aria-labelledby={id} className="flex h-9 items-center justify-between gap-2 rounded-md border bg-muted px-3 text-sm tabular-nums">
+        <span>{firstHalf ? "On the 2nd half" : money(amount)}</span>
+        {!firstHalf && employee ? (
+          <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setFlag({ field, name, amount })} aria-label={`Flag ${name} for review`}>
+            <FlagIcon className="size-3.5" aria-hidden="true" />Flag for review
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+  const unitDays = (n, rate) => `${toAmount(n)} day${toAmount(n) === 1 ? "" : "s"} × ${peso(rate)}/day`;
   const lateRules = [
     unit.late_days_per_absent > 0 ? `${unit.late_days_per_absent} late = 1 absent (${peso(unit.absent)})` : "",
     unit.late_minute_pct > 0 ? `+ ${unit.late_minute_pct}% of hourly per minute` : "",
@@ -554,6 +646,9 @@ function SingleEntry({ onNavigate }) {
 
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const shownTax = form.taxEdited ? form.tax : String(summary.taxDefault);
+  const taxLabel = same(summary.tax, info.row?.defaults?.withholding_tax)
+    ? withholdingTaxLabel("Withholding tax", info.row?.defaults?.tax_bracket)
+    : "Withholding tax (BIR monthly table)";
   const dates = (list) => (list || []).map((key) => {
     const d = new Date(`${key}T00:00:00+08:00`);
     return Number.isNaN(d.getTime()) ? key : new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" }).format(d);
@@ -668,10 +763,22 @@ function SingleEntry({ onNavigate }) {
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Deductions</p>
             <div className="grid items-start gap-4 sm:grid-cols-2">
-              {numberField("pc-sss", "SSS", "sss", { disabled: firstHalf, hint: contributionHint("sss", `(legal table: ${info.rates.sss_pct}% of salary credit, editable)`) })}
-              {numberField("pc-philhealth", "PhilHealth", "philhealth", { disabled: firstHalf, hint: contributionHint("philhealth", `(legal table: ${info.rates.philhealth_pct}% of monthly salary, editable)`) })}
-              {numberField("pc-pagibig", "Pag-IBIG", "pagibig", { disabled: firstHalf, hint: contributionHint("pagibig", `(legal table: ${info.rates.pagibig_pct}% up to the cap, editable)`) })}
-              {numberField("pc-tax", "Withholding tax (₱)", "tax", { disabled: firstHalf })}
+              {locked ? (
+                <>
+                  {computedField("pc-sss", govLabel("sss", "SSS"), "sss", "SSS", summary.sss)}
+                  {computedField("pc-philhealth", govLabel("philhealth", "PhilHealth"), "philhealth", "PhilHealth", summary.philhealth)}
+                  {computedField("pc-pagibig", govLabel("pagibig", "Pag-IBIG"), "pagibig", "Pag-IBIG", summary.pagibig)}
+                  {computedField("pc-tax", taxLabel, "withholding_tax", "withholding tax", summary.tax)}
+                  <p className="text-xs text-muted-foreground sm:col-span-2">SSS, PhilHealth, Pag-IBIG and withholding tax are computed from the government rate tables (Government Rates) and cannot be changed here. If one looks wrong, flag it for review: HR and the Super Admin are notified.</p>
+                </>
+              ) : (
+                <>
+                  {numberField("pc-sss", "SSS", "sss", { disabled: firstHalf, hint: contributionHint("sss", `(legal table: ${info.rates.sss_pct}% of salary credit, editable)`) })}
+                  {numberField("pc-philhealth", "PhilHealth", "philhealth", { disabled: firstHalf, hint: contributionHint("philhealth", `(legal table: ${info.rates.philhealth_pct}% of monthly salary, editable)`) })}
+                  {numberField("pc-pagibig", "Pag-IBIG", "pagibig", { disabled: firstHalf, hint: contributionHint("pagibig", `(legal table: ${info.rates.pagibig_pct}% up to the cap, editable)`) })}
+                  {numberField("pc-tax", "Withholding tax (₱)", "tax", { disabled: firstHalf })}
+                </>
+              )}
               <p className="text-xs text-muted-foreground sm:col-span-2">Absent, Late, Undertime, Half Day and incentives are filled in from the attendance logs. Changing one is an override: it needs a reason and is logged.</p>
               {numberField("pc-absences", "Absent (days)", "absences", { hint: `${peso(unit.absent)}/day`, step: "1" })}
               {numberField("pc-late", "Late (days)", "late", { hint: lateRules, step: "1" })}
@@ -724,16 +831,17 @@ function SingleEntry({ onNavigate }) {
               <SummaryRow label="Overtime (approved)" value={`+ ${money(summary.earnings.overtime)}`} tone="plus" />
               <SummaryRow label="Holiday pay" value={`+ ${money(summary.earnings.holiday)}`} tone="plus" />
               <SummaryRow label="Gross pay" value={money(summary.gross)} strong />
-              <SummaryRow label="SSS" value={`- ${money(summary.sss)}`} tone="minus" />
-              <SummaryRow label="PhilHealth" value={`- ${money(summary.philhealth)}`} tone="minus" />
-              <SummaryRow label="Pag-IBIG" value={`- ${money(summary.pagibig)}`} tone="minus" />
-              <SummaryRow label="Withholding tax" value={`- ${money(summary.tax)}`} tone="minus" />
-              <SummaryRow label="Absences" value={`- ${money(summary.amounts.absent)}`} tone="minus" />
-              <SummaryRow label="Late" value={`- ${money(summary.amounts.late)}`} tone="minus" />
-              <SummaryRow label="Undertime" value={`- ${money(summary.amounts.undertime)}`} tone="minus" />
-              <SummaryRow label="Half day" value={`- ${money(summary.amounts.half_day)}`} tone="minus" />
-              <SummaryRow label="Leave with pay" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} />
-              <SummaryRow label="Leave without pay" value={`- ${money(summary.lwopDeduct)}`} tone="minus" />
+              {/* Percentage of salary (rate and base) vs rate × units (2026-10-26). */}
+              <SummaryRow label={locked ? govLabel("sss", "SSS") : "SSS"} value={`- ${money(summary.sss)}`} tone="minus" />
+              <SummaryRow label={locked ? govLabel("philhealth", "PhilHealth") : "PhilHealth"} value={`- ${money(summary.philhealth)}`} tone="minus" />
+              <SummaryRow label={locked ? govLabel("pagibig", "Pag-IBIG") : "Pag-IBIG"} value={`- ${money(summary.pagibig)}`} tone="minus" />
+              <SummaryRow label={locked ? taxLabel : "Withholding tax"} value={`- ${money(summary.tax)}`} tone="minus" />
+              <SummaryRow label={`Absences (${unitDays(form.absences, unit.absent)})`} value={`- ${money(summary.amounts.absent)}`} tone="minus" />
+              <SummaryRow label={`Late (${lateRules})`} value={`- ${money(summary.amounts.late)}`} tone="minus" />
+              <SummaryRow label={`Undertime (${toAmount(form.undertime)} min × ${peso(unit.hourly)}/hour)`} value={`- ${money(summary.amounts.undertime)}`} tone="minus" />
+              <SummaryRow label={`Half day (${unitDays(form.halfDays, unit.half_day)})`} value={`- ${money(summary.amounts.half_day)}`} tone="minus" />
+              <SummaryRow label="Leave with pay (no deduction)" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} />
+              <SummaryRow label={`Leave without pay (${unitDays(form.lwop, unit.daily)})`} value={`- ${money(summary.lwopDeduct)}`} tone="minus" />
               <SummaryRow label="Loans / cash advance" value={`- ${money(summary.cashAdvance)}`} tone="minus" />
               {summary.extras.subsidy ? <SummaryRow label="Licensed teacher subsidy" value={`+ ${money(summary.extras.subsidy)}`} tone="plus" /> : null}
               {winnerPay ? <SummaryRow label="Early Bird Incentive (period winner)" value={`+ ${money(winnerPay)}`} tone="plus" /> : null}
@@ -742,11 +850,17 @@ function SingleEntry({ onNavigate }) {
                 <>
                   <SummaryRow label="Incentives / overload pay" value={`+ ${money(summary.extras.other)}`} tone="plus" />
                   {summary.extras.priorAttendance || summary.extras.priorEarnings ? (
-                    <SummaryRow label="1st cutoff, in the month's tax" value={`${summary.extras.priorEarnings ? `+ ${money(summary.extras.priorEarnings)} earnings ` : ""}${summary.extras.priorAttendance ? `- ${money(summary.extras.priorAttendance)} attendance` : ""}`} />
+                    <>
+                      {/* The month is computed once: what the 1st cutoff already deducted
+                          (and paid beyond its Rate) is part of it; "Paid in 1st half" then
+                          takes that payslip's actual pay back out, so nothing counts twice. */}
+                      {summary.extras.priorAttendance ? <SummaryRow label="1st cutoff absences (already on that payslip, part of the month)" value={`- ${money(summary.extras.priorAttendance)}`} tone="minus" /> : null}
+                      {summary.extras.priorEarnings ? <SummaryRow label="1st cutoff extra earnings (part of the month)" value={`+ ${money(summary.extras.priorEarnings)}`} tone="plus" /> : null}
+                    </>
                   ) : null}
                   <SummaryRow label="Monthly net" value={money(summary.monthNet)} strong />
                   <SummaryRow label={summary.extras.firstHalfStatus === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)"} value={`- ${money(summary.extras.firstHalfPaid)}`} />
-                  <SummaryRow label="Balance carried over" value={`- ${money(summary.extras.carryIn)}`} tone="minus" />
+                  <SummaryRow label="Balance carried from last month (negative 2nd half)" value={`- ${money(summary.extras.carryIn)}`} tone="minus" />
                   {summary.secondHalfNet < 0 ? <SummaryRow label="Carried to next month" value={money(Math.max(0, -summary.secondHalfNet))} tone="warn" /> : null}
                 </>
               ) : null}
@@ -768,6 +882,7 @@ function SingleEntry({ onNavigate }) {
           </Card>
         </div>
       </div>
+      <FlagDeductionDialog flag={flag} employee={employee} period={period} onClose={() => setFlag(null)} />
     </>
   );
 }
