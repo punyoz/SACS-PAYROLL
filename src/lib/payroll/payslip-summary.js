@@ -9,6 +9,7 @@
  */
 
 import { roundPeso } from "@/lib/payroll/money";
+import { contributionLabel } from "@/lib/payroll/statutory";
 
 /** 1300 -> "1,300.00" (no currency sign: the PDF font has no peso sign). */
 export function money(value) {
@@ -95,6 +96,8 @@ export function buildDeductionBasis({ payroll, auto, rates, legal, taxBasis, con
     ? "fixed monthly amount"
     : contributionSource?.[type] === "employee"
       ? "amount set for this employee"
+      : legal && payroll?.monthly?.contribution_basis?.[type]
+        ? contributionLabel("employee share", payroll.monthly.contribution_basis[type]).replace(/^employee share \((.*)\)$/, "employee share: $1")
       : legal
         ? "employee share per the contribution table"
         : `${Number(rates?.[`${type}_pct`]) || 0}% of basic ${money(payroll?.basic_salary)}`);

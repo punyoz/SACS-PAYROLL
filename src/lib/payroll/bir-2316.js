@@ -40,7 +40,8 @@
  */
 
 import { roundPeso } from "@/lib/payroll/money";
-import { monthlyWithholdingTax } from "@/lib/payroll/semi-monthly";
+import { monthlyWithholdingTax, usesSemiMonthlyRules } from "@/lib/payroll/semi-monthly";
+import { periodFromLabel } from "@/lib/payroll/periods";
 
 const peso = (value) => roundPeso(Number(value) || 0);
 const num = (value) => Number(value) || 0;
@@ -113,7 +114,11 @@ export function payslipFigures(entry, { subsidyTreatment = null } = {}) {
   out.withheld = peso(d.withholding_tax);
   out.overtime = peso(t.overtime_pay);
   out.holiday_overload = peso(num(t.holiday_pay) + num(t.overload_pay));
-  out.incentives = peso(num(t.other_incentive) + num(t.early_bird_winner_incentive) + num(t.perfect_attendance_incentive));
+  // Early Bird / Perfect Attendance bonuses on semi-monthly payslips are
+  // "other benefits" in the benefits ledger (2026-10-26), counted there.
+  const bonusesAreBenefits = usesSemiMonthlyRules(periodFromLabel(entry?.pay_period)?.start_key);
+  out.incentives = peso(num(t.other_incentive)
+    + (bonusesAreBenefits ? 0 : num(t.early_bird_winner_incentive) + num(t.perfect_attendance_incentive)));
   const subsidyPaid = peso(t.subsidy_pay);
   const treatment = payroll.subsidy?.tax_treatment || "other_benefit";
   if (subsidyPaid > 0 && treatment === "exempt") out.subsidy_exempt = subsidyPaid;

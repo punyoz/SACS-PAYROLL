@@ -3,13 +3,18 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
+import { can } from "@/lib/rbac/permissions";
 import {
   RATE_TYPES,
+  GOVERNMENT_RATE_TYPES,
   RATE_TYPE_KEYS,
+  derivedHourly,
+  hourlyIsDerived,
   loadRateConfigs,
   rateHistory,
   resolveRate,
   validateRateInput,
+  validateRatePair,
 } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
@@ -69,13 +74,19 @@ export async function GET(request) {
     const current = periodForDateKey(today);
     const upcoming = nextPeriod(today);
 
+    // From LEGAL_RULES_EFFECTIVE the hourly rate is the daily rate ÷ 8, never
+    // a stored version: show what payroll uses, and offer no Edit for it.
+    const inForce = (type, periodStart) => (type === "hourly" && hourlyIsDerived(periodStart)
+      ? derivedHourly(resolveRate(configs, "daily", {}, periodStart))
+      : resolveRate(configs, type, {}, periodStart));
     const rates = RATE_TYPE_KEYS.map((type) => ({
       rate_type: type,
       ...RATE_TYPES[type],
-      current: resolveRate(configs, type, {}, current.start_key),
-      next_period: resolveRate(configs, type, {}, upcoming.start_key),
+      current: inForce(type, current.start_key),
+      next_period: inForce(type, upcoming.start_key),
       history: rateHistory(configs, type, "global"),
       overrides: configs.filter((c) => c.rate_type === type && c.scope !== "global"),
+      derived: type === "hourly" && hourlyIsDerived(upcoming.start_key),
     }));
 
     // Salary per day, branch by branch. A branch without its own rate uses
@@ -123,9 +134,17 @@ export async function POST(request) {
 
     const invalid = validateRateInput(input);
     if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+    // A government deduction rate needs government_rates "create" as well
+    // (the Super Admin only, 2026-10-26); the database checks it again
+    // (payroll_rate_writer_guard, 20261026030000).
+    const government = GOVERNMENT_RATE_TYPES.includes(input.rate_type);
+    if (government && !can(guard.role, "government_rates", "create")) {
+      return NextResponse.json({ error: "Only the Super Admin changes government deduction rates." }, { status: 403 });
+    }
 
     const supabase = getAdminClient();
     const finalized = await latestFinalizedPeriod(supabase);
+    const { configs } = await loadRateConfigs(supabase);
 
     // Only finalized periods are protected; a date in a period nobody has
     // been paid for yet is taken as given.
@@ -135,6 +154,13 @@ export async function POST(request) {
       effectiveDate = earliestEffectiveDate(finalized);
       warning = `${finalized.label} has already been processed, so this change will apply from the next pay period instead, starting ${effectiveDate}.`;
     }
+
+    const pairProblem = validateRatePair(configs, { ...input, effective_date: effectiveDate });
+    if (pairProblem) return NextResponse.json({ error: pairProblem }, { status: 400 });
+    // What this version replaces on its effective date (the audit's old value).
+    const who = input.scope === "branch" ? { branchId: input.scope_ref } : input.scope === "employee" ? { employeeId: input.scope_ref } : input.scope === "position" ? { position: input.scope_ref } : {};
+    const previous = resolveRate(configs, input.rate_type, who, effectiveDate);
+    const previousValue = previous.source === "config" && previous.scope === input.scope ? Number(previous.value) : null;
 
     const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
     const { data, error } = await supabase
@@ -160,7 +186,7 @@ export async function POST(request) {
       action: "rate_version",
       entity_type: "payroll_rate_config",
       entity_id: data?.id || input.rate_type,
-      description: `${label} set to ${Number(input.value)} from ${effectiveDate}${input.scope === "global" ? "" : ` (${input.scope}: ${input.scope_ref})`} by ${actorName}.`,
+      description: `${label}: ${previousValue === null ? "(not set)" : previousValue} → ${Number(input.value)} from ${effectiveDate}${input.scope === "global" ? "" : ` (${input.scope}: ${input.scope_ref})`} by ${actorName}.`,
       status: "success",
       source: "api",
       metadata: {
@@ -168,6 +194,11 @@ export async function POST(request) {
         scope: input.scope,
         scope_ref: input.scope_ref,
         value: Number(input.value),
+        // Old → new: the version this one replaces from its effective date.
+        previous_value: previousValue,
+        previous_config_id: previousValue === null ? null : previous.config_id,
+        previous_effective_date: previousValue === null ? null : previous.effective_date,
+        government,
         requested_effective_date: input.effective_date,
         effective_date: effectiveDate,
         moved_past_finalized_period: Boolean(warning),

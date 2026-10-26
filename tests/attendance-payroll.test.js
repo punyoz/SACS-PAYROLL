@@ -127,7 +127,10 @@ describe("Effective-dated rates", () => {
     expect(validateRateInput({ rate_type: "sss_pct", scope: "global", value: 120, effective_date: "2026-10-01" })).toMatch(/100/);
     expect(validateRateInput({ rate_type: "hourly", scope: "branch", value: 5, effective_date: "2026-10-01" })).toMatch(/branch/);
     expect(validateRateInput({ rate_type: "hourly", scope: "global", value: "", effective_date: "2026-10-01" })).toMatch(/value/);
-    expect(validateRateInput({ rate_type: "hourly", scope: "global", value: 110, effective_date: "2026-10-01" })).toBeNull();
+    // From Oct 1, 2026 the hourly rate is always daily ÷ 8 (2026-10-26): never set on its own.
+    expect(validateRateInput({ rate_type: "hourly", scope: "global", value: 110, effective_date: "2026-10-01" })).toMatch(/daily rate ÷ 8/);
+    expect(validateRateInput({ rate_type: "hourly", scope: "global", value: 110, effective_date: "2026-09-16" })).toBeNull();
+    expect(validateRateInput({ rate_type: "daily", scope: "global", value: 880, effective_date: "2026-10-01" })).toBeNull();
     expect(validateRateInput({ rate_type: "late_days_per_absent", scope: "global", value: 2.5, effective_date: "2026-10-01" })).toMatch(/whole number/);
     expect(validateRateInput({ rate_type: "late_days_per_absent", scope: "global", value: 0, effective_date: "2026-10-01" })).toBeNull();
   });

@@ -158,6 +158,17 @@ export async function loadSubsidyContext(supabase, employeeIds, period) {
   ]);
   if (loans.error || adjustments.error || benefits.error) return { ready: false, byEmployee };
 
+  // Every employee's benefits paid this tax year (13th month, "other
+  // benefit" subsidy, and from 2026-10-26 the Early Bird / Perfect
+  // Attendance bonuses), without this month's own bonuses: the 2nd half
+  // counts the month's bonuses itself, so reprocessing never counts them twice.
+  const ownMonthBonus = (row) => row.kind === "bonus" && String(row.paid_on) >= monthStart && String(row.paid_on) <= period.end_key;
+  const benefitsYtd = new Map();
+  (benefits.data || []).forEach((row) => {
+    if (ownMonthBonus(row)) return;
+    benefitsYtd.set(row.employee_id, peso((benefitsYtd.get(row.employee_id) || 0) + Number(row.amount || 0)));
+  });
+
   const balanceTreatment = new Map();
   const allBalances = new Map();
   const balanceIds = [...new Set([...(loans.data || []), ...(adjustments.data || [])].map((r) => r.subsidy_balance_id).filter(Boolean))];
@@ -178,14 +189,14 @@ export async function loadSubsidyContext(supabase, employeeIds, period) {
     const approved = (adjustments.data || []).filter((adj) => adj.employee_id === id)
       .map((adj) => ({ ...adj, tax_treatment: balanceTreatment.get(adj.subsidy_balance_id) || "other_benefit" }));
     // Benefits already paid this tax year, without this period's own payout (a regenerated payslip).
-    let benefitsYtd = peso((benefits.data || []).filter((row) => row.employee_id === id).reduce((sum, row) => sum + Number(row.amount || 0), 0));
+    let ownYtd = benefitsYtd.get(id) || 0;
     if (balance?.status === "paid_out" && balance.paid_out_on && String(balance.paid_out_on).slice(0, 4) === year) {
-      benefitsYtd = peso(benefitsYtd - Number(balance.paid_out || 0));
+      ownYtd = peso(ownYtd - Number(balance.paid_out || 0));
     }
     if (!balance && !approved.length && !memoAdvances.length && !priorOffsets.length) return;
     byEmployee.set(id, {
       balance, advances, prior_offsets: priorOffsets, memo_advances: memoAdvances, adjustments: approved,
-      benefits_ytd: benefitsYtd, excess_taxed_ytd: 0,
+      benefits_ytd: ownYtd, excess_taxed_ytd: 0,
     });
   });
 
@@ -201,5 +212,5 @@ export async function loadSubsidyContext(supabase, employeeIds, period) {
       if (taxed > 0) byEmployee.get(entry.employee_id).excess_taxed_ytd = peso(byEmployee.get(entry.employee_id).excess_taxed_ytd + taxed);
     });
   }
-  return { ready: true, byEmployee };
+  return { ready: true, byEmployee, benefitsYtd };
 }

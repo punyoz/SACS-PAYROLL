@@ -18,7 +18,7 @@ import { usesLegalRules } from "@/lib/payroll/statutory";
 import { dailyRateFor } from "@/lib/payroll/semi-monthly";
 
 export const RATE_TYPES = Object.freeze({
-  hourly: { label: "Hourly rate", unit: "peso", hint: "Undertime: minutes ÷ 60 × this rate" },
+  hourly: { label: "Hourly rate", unit: "peso", hint: "Undertime: minutes ÷ 60 × this rate. From Oct 1, 2026 it is always the daily rate ÷ 8 and is not set on its own: change the daily rate or Working days per year instead" },
   daily: { label: "Daily rate", unit: "peso", hint: "Absent, Late (as absences), Half Day and Leave Without Pay are a share of this. From Oct 1, 2026 it is each employee's monthly salary × 12 ÷ working days per year; this value then applies only to an employee with no salary on file, or when set for one employee." },
   half_day_pct: { label: "Half Day deduction", unit: "percent", hint: "% of the daily rate deducted for a Half Day" },
   absent_pct: { label: "Absent deduction", unit: "percent", hint: "% of the daily rate deducted for an Absent day" },
@@ -33,8 +33,8 @@ export const RATE_TYPES = Object.freeze({
   pagibig_pct: { label: "Pag-IBIG contribution", unit: "percent", hint: "Employee share: % of monthly salary up to the maximum fund salary (before Oct 1, 2026: % of the period's basic salary)" },
   // Legal contribution limits and overtime / holiday pay
   // (src/lib/payroll/statutory.js, 20260926090000_payroll_legal_rules_and_atomic_commit.sql).
-  sss_msc_min: { label: "SSS lowest salary credit", unit: "peso", hint: "Monthly salary credit for the lowest bracket" },
-  sss_msc_max: { label: "SSS highest salary credit", unit: "peso", hint: "Monthly salary credit cap" },
+  sss_msc_min: { label: "SSS lowest salary credit", unit: "peso", hint: "Monthly salary credit for the lowest bracket. Used only while no SSS salary credit table is saved (Payroll Settings)" },
+  sss_msc_max: { label: "SSS highest salary credit", unit: "peso", hint: "Monthly salary credit cap. Used only while no SSS salary credit table is saved (Payroll Settings)" },
   philhealth_floor: { label: "PhilHealth salary floor", unit: "peso", hint: "Monthly salary used when the actual salary is lower" },
   philhealth_ceiling: { label: "PhilHealth salary ceiling", unit: "peso", hint: "Monthly salary cap for the premium" },
   pagibig_max_salary: { label: "Pag-IBIG maximum fund salary", unit: "peso", hint: "Monthly salary cap for the Pag-IBIG share" },
@@ -55,10 +55,57 @@ export const RATE_TYPES = Object.freeze({
   philhealth_fixed: { label: "PhilHealth fixed amount", unit: "peso", hint: "Monthly PhilHealth when contributions are fixed amounts (0 = none)" },
   pagibig_fixed: { label: "Pag-IBIG fixed amount", unit: "peso", hint: "Monthly Pag-IBIG when contributions are fixed amounts" },
   // Licensed-teacher subsidy tax (src/lib/payroll/teacher-subsidy.js, 20261009010000).
+  // Employer shares (2026-10-26): the school's own cost on top of the
+  // employee's pay. Never deducted from the employee, never on a payslip;
+  // in the remittance report with the employee share.
+  sss_er_pct: { label: "SSS employer share", unit: "percent", hint: "Employer share: % of the monthly salary credit (10 from Jan 2025). Not deducted from the employee" },
+  sss_ec_low: { label: "SSS EC (lower)", unit: "peso", hint: "Employees' Compensation, employer only: monthly amount when the salary credit is below the EC threshold" },
+  sss_ec_high: { label: "SSS EC (higher)", unit: "peso", hint: "Employees' Compensation, employer only: monthly amount when the salary credit is at or above the EC threshold" },
+  sss_ec_threshold: { label: "SSS EC threshold", unit: "peso", hint: "Salary credit from which the higher EC applies (₱15,000)" },
+  philhealth_er_pct: { label: "PhilHealth employer share", unit: "percent", hint: "Employer share: % of monthly basic salary within the floor and ceiling (2.5). Not deducted from the employee" },
+  pagibig_er_pct: { label: "Pag-IBIG employer share", unit: "percent", hint: "Employer share: % of monthly salary up to the maximum fund salary (2). Not deducted from the employee" },
   benefits_exempt_ceiling: { label: "Other benefits exempt ceiling", unit: "peso", hint: "13th month + the licensed-teacher subsidy (when its tax treatment is 'other benefit') are tax-exempt up to this amount a calendar year; only the part above it is taxed (TRAIN law: 90,000)" },
 });
 
 export const RATE_TYPE_KEYS = Object.freeze(Object.keys(RATE_TYPES));
+
+/**
+ * The government deduction rates (2026-10-26): only the Super Admin changes
+ * them (permissions.js government_rates); the Accountant and HR read them.
+ */
+export const GOVERNMENT_RATE_TYPES = Object.freeze([
+  "sss_pct", "sss_msc_min", "sss_msc_max",
+  "philhealth_pct", "philhealth_floor", "philhealth_ceiling",
+  "pagibig_pct", "pagibig_max_salary",
+  "contribution_method", "contribution_half", "sss_fixed", "philhealth_fixed", "pagibig_fixed",
+  "benefits_exempt_ceiling",
+  "sss_er_pct", "sss_ec_low", "sss_ec_high", "sss_ec_threshold", "philhealth_er_pct", "pagibig_er_pct",
+]);
+
+/** An employee share above this is not a government contribution rate (a typo). */
+export const MAX_EMPLOYEE_SHARE_PCT = 20;
+
+/** Limits that come in pairs: the lower one may never be above the upper one. */
+const RATE_PAIRS = [["sss_msc_min", "sss_msc_max", "SSS lowest salary credit", "highest"], ["philhealth_floor", "philhealth_ceiling", "PhilHealth salary floor", "ceiling"]];
+
+/**
+ * Checks a new version against the rate it pairs with, as both will stand on
+ * its effective date. Returns an error message, or null.
+ */
+export function validateRatePair(configs, { rate_type: rateType, scope = "global", scope_ref: scopeRef = null, value, effective_date: effectiveDate }) {
+  const pair = RATE_PAIRS.find(([low, high]) => low === rateType || high === rateType);
+  if (!pair) return null;
+  const [low, high, label, highWord] = pair;
+  const other = low === rateType ? high : low;
+  const who = scope === "branch" ? { branchId: scopeRef } : scope === "employee" ? { employeeId: scopeRef } : scope === "position" ? { position: scopeRef } : {};
+  const otherValue = Number(resolveRate(configs, other, who, effectiveDate).value) || 0;
+  const lowValue = rateType === low ? Number(value) : otherValue;
+  const highValue = rateType === high ? Number(value) : otherValue;
+  if (lowValue > 0 && highValue > 0 && lowValue > highValue) {
+    return `${label} (${lowValue}) cannot be above the ${highWord} (${highValue}) on ${effectiveDate}.`;
+  }
+  return null;
+}
 
 /**
  * Used only when the rate table cannot be read at all (migration not applied
@@ -95,6 +142,12 @@ export const DEFAULT_RATES = Object.freeze({
   philhealth_fixed: 0,
   pagibig_fixed: 0,
   benefits_exempt_ceiling: 90000,
+  sss_er_pct: 10,
+  sss_ec_low: 10,
+  sss_ec_high: 30,
+  sss_ec_threshold: 15000,
+  philhealth_er_pct: 2.5,
+  pagibig_er_pct: 2,
 });
 
 export const RATE_SCOPES = Object.freeze(["employee", "position", "branch", "global"]);
@@ -166,6 +219,21 @@ export function resolveRate(configs, rateType, who = {}, periodStart) {
 /** Hours in a working day, for deriving an hourly rate from a daily one. */
 export const HOURS_PER_DAY = 8;
 
+/** True when the hourly rate is always the daily rate ÷ 8 (never set on its own). */
+export function hourlyIsDerived(periodStart) {
+  return usesLegalRules(periodStart);
+}
+
+/** The hourly rate that goes with a resolved daily rate: daily ÷ 8. */
+export function derivedHourly(daily) {
+  return {
+    ...daily,
+    rate_type: "hourly",
+    value: Math.round(((Number(daily?.value) || 0) / HOURS_PER_DAY) * 100) / 100,
+    source: "derived",
+  };
+}
+
 /**
  * Every rate type resolved for one employee and period.
  *
@@ -179,12 +247,14 @@ export function resolveRates(configs, who, periodStart) {
 
   // From LEGAL_RULES_EFFECTIVE the daily rate is the employee's own salary
   // (monthly × 12 ÷ working days per year) unless a daily rate was set for
-  // that one employee; hourly follows it (÷ 8) unless an hourly rate was set
-  // for that one employee.
+  // that one employee, and the hourly rate is ALWAYS that daily rate ÷ 8:
+  // a stored hourly version is never read, so the two can never disagree
+  // (a global daily ₱600 next to an hourly ₱72 did, 2026-10-26).
   const monthlySalary = Number(who?.monthlySalary) || 0;
   const workingDays = Number(resolved.working_days_per_year?.value) || 0;
-  if (usesLegalRules(periodStart) && monthlySalary > 0 && workingDays > 0) {
-    if (!(resolved.daily.source === "config" && resolved.daily.scope === "employee")) {
+  if (usesLegalRules(periodStart)) {
+    if (monthlySalary > 0 && workingDays > 0
+      && !(resolved.daily.source === "config" && resolved.daily.scope === "employee")) {
       resolved.daily = {
         rate_type: "daily",
         value: dailyRateFor(monthlySalary, workingDays),
@@ -195,14 +265,7 @@ export function resolveRates(configs, who, periodStart) {
         source: "salary",
       };
     }
-    if (!(resolved.hourly.source === "config" && resolved.hourly.scope === "employee")) {
-      resolved.hourly = {
-        ...resolved.daily,
-        rate_type: "hourly",
-        value: Math.round((resolved.daily.value / HOURS_PER_DAY) * 100) / 100,
-        source: "derived",
-      };
-    }
+    resolved.hourly = derivedHourly(resolved.daily);
     return resolved;
   }
 
@@ -276,11 +339,17 @@ export function validateRateInput({ rate_type: rateType, scope, scope_ref: scope
     return "Enter a value of 0 or more.";
   }
   if (RATE_TYPES[rateType].unit === "percent" && amount > 100) return "A percentage cannot be more than 100.";
+  if (["sss_pct", "philhealth_pct", "pagibig_pct", "sss_er_pct", "philhealth_er_pct", "pagibig_er_pct"].includes(rateType) && amount > MAX_EMPLOYEE_SHARE_PCT) {
+    return `A ${rateType.includes("_er_") ? "employer" : "employee"} share of ${amount}% is not a government contribution rate (at most ${MAX_EMPLOYEE_SHARE_PCT}%). Check the circular.`;
+  }
   if (RATE_TYPES[rateType].unit === "count" && (!Number.isInteger(amount) || amount > 31)) return "Enter a whole number from 0 to 31.";
   if (RATE_TYPES[rateType].unit === "days" && (!Number.isInteger(amount) || amount < 1 || amount > 366)) return "Enter a whole number of days from 1 to 366.";
   if (RATE_TYPES[rateType].unit === "day_of_month" && (!Number.isInteger(amount) || amount > 31)) return "Enter a day of the month from 0 (month end) to 31.";
   if (RATE_TYPES[rateType].unit === "switch" && amount !== 0 && amount !== 1) return "Enter 1 (on) or 0 (off).";
   if (RATE_TYPES[rateType].unit === "half" && ![1, 2, 3].includes(amount)) return "Enter 1 (1-15 payslip), 2 (16-end payslip) or 3 (half on each).";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate || ""))) return "Choose the date the new value takes effect.";
+  if (rateType === "hourly" && hourlyIsDerived(effectiveDate)) {
+    return "From October 1, 2026 the hourly rate is always the daily rate ÷ 8. Change the daily rate or Working days per year instead.";
+  }
   return null;
 }

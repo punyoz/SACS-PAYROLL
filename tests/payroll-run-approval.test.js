@@ -447,7 +447,11 @@ describe("Payroll Approval workflow", () => {
     const ana = detail.items.find((i) => i.employee_name === "Ana Preschool");
     expect(ana).toMatchObject({ absence_deduction: 2400, sss: 1750, philhealth: 1305, pagibig: 200 });
     expect(ana.withholding_tax).toBeGreaterThan(0);
-    expect(ana.breakdown.cutoff.deductions.map((l) => l.label)).toEqual(["Absences (1 day)", "SSS", "PhilHealth", "Pag-IBIG", "Withholding tax"]);
+    // Each with its rate and base, the tax with its bracket (2026-10-26).
+    expect(ana.breakdown.cutoff.deductions.map((l) => l.label)).toEqual([
+      "Absences (1 day)", "SSS (5% of ₱35,000 salary credit)", "PhilHealth (2.5% of ₱52,200 basic)",
+      "Pag-IBIG (2% of ₱10,000 fund salary cap)", "Withholding tax (₱1,875 + 20% over ₱33,333)",
+    ]);
   });
 
   it("HR approves two branches at once: one record each", async () => {

@@ -17,6 +17,7 @@ import { dateTime, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal
 import { cn } from "@/lib/utils";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
 import { BirFormsCard } from "@/components/portal/bir-forms";
+import { RemittanceCard } from "@/components/portal/remittance-report";
 
 /*
  * HR → Payroll Records (/api/hr/payroll-records). Every branch's processed
@@ -183,6 +184,7 @@ export function PayrollRecordsPage({ refreshKey }) {
         </CardContent>
       </Card>
       {/* Every branch's BIR 2316 and alphalist, read-only (AC-11). */}
+      <RemittanceCard refreshKey={refreshKey} />
       <BirFormsCard refreshKey={refreshKey} />
     </>
   );

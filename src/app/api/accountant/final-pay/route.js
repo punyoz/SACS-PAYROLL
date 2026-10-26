@@ -24,6 +24,7 @@ import { manilaDateKey } from "@/lib/payroll/periods";
 import { roundPeso } from "@/lib/payroll/money";
 import { loadRateConfigs, rateValues, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { monthlyContributionsFor } from "@/lib/payroll/school-sheet";
+import { loadSssMscRows, mscTableOn } from "@/lib/payroll/sss-msc";
 import {
   dailyRateFor,
   monthInfo,
@@ -80,7 +81,7 @@ async function gather(supabase, person) {
   if (entriesResult.error) throw new Error(entriesResult.error.message);
 
   const salary = peso(profile.data?.basic_salary || 0);
-  const rates = rateValues(resolveRates(configs, { employeeId: person.id, branchId: person.branch_id, position: profile.data?.position }, separatedOn));
+  const rates = rateValues(resolveRates(configs, { employeeId: person.id, branchId: person.branch_id, position: profile.data?.position, monthlySalary: salary }, separatedOn));
   const daily = dailyRateFor(salary, rates.working_days_per_year);
   const entries = entriesResult.data || [];
   const paidLabels = new Set(entries.map((e) => e.pay_period));
@@ -158,7 +159,7 @@ async function gather(supabase, person) {
     salary, daily, rates,
     input: {
       monthlySalary: salary, dailyRate: daily, separatedOn, months: monthInputs,
-      contributions: monthlyContributionsFor(salary, rates),
+      contributions: monthlyContributionsFor(salary, rates, {}, { mscTable: mscTableOn((await loadSssMscRows(supabase)).rows, separatedOn) }),
       taxTable: taxTableFromRows(resolveTaxTableRows(taxRows.data || [], separatedOn)),
       basicEarnedYtd, thirteenthPaid: Boolean(thirteenth.data), subsidy,
       benefitsYtd: peso((benefitsResult.data || []).reduce((s, r) => s + Number(r.amount || 0), 0)),

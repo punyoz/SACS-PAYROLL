@@ -10,6 +10,7 @@ import { DataTable } from "@/components/portal/data-table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { formatIssued, formatPeso, formatPesoShort, holidayLineLabel } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
+import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { MyBir2316Card } from "@/components/portal/bir-forms";
 
 /*
@@ -51,10 +52,10 @@ function semiMonthlyRows(m, holidayLines = []) {
   if (Number(m.holiday_pay) > 0) rows.push(...holidayRows(holidayLines));
   plus("Licensed Teacher Subsidy", m.subsidy_pay);
   row("Monthly Gross", formatPeso(m.monthly_gross), "total");
-  minus("SSS", m.sss);
-  minus("PhilHealth", m.philhealth);
-  minus("Pag-IBIG", m.pagibig);
-  minus("Withholding Tax (monthly)", m.withholding_tax);
+  minus(contributionLabel("SSS", m.contribution_basis?.sss), m.sss);
+  minus(contributionLabel("PhilHealth", m.contribution_basis?.philhealth), m.philhealth);
+  minus(contributionLabel("Pag-IBIG", m.contribution_basis?.pagibig), m.pagibig);
+  minus(withholdingTaxLabel("Withholding Tax (monthly)", m.tax_bracket), m.withholding_tax);
   minus("Loans and Cash Advances", m.cash_advance);
   (m.subsidy_memos || []).forEach((memo) => row(memo, "", "note"));
   row("Monthly Net", formatPeso(m.monthly_net), "total");

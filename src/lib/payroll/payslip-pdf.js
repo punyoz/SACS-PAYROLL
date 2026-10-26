@@ -11,6 +11,7 @@
  */
 
 import { money } from "@/lib/payroll/payslip-summary";
+import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
 import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 
@@ -178,10 +179,10 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   p.row("Monthly gross", m.monthly_gross || 0, { bold: true });
 
   p.heading("Contributions and tax");
-  p.row("SSS", m.sss || 0);
-  p.row("PhilHealth", m.philhealth || 0);
-  p.row("Pag-IBIG", m.pagibig || 0);
-  p.row("Withholding tax (monthly table)", m.withholding_tax || 0, { note: `Taxable income ${money(m.taxable_income)}` });
+  p.row(contributionLabel("SSS", m.contribution_basis?.sss), m.sss || 0);
+  p.row(contributionLabel("PhilHealth", m.contribution_basis?.philhealth), m.philhealth || 0);
+  p.row(contributionLabel("Pag-IBIG", m.contribution_basis?.pagibig), m.pagibig || 0);
+  p.row(withholdingTaxLabel("Withholding tax (monthly table)", m.tax_bracket), m.withholding_tax || 0, { note: `Taxable income ${money(m.taxable_income)}` });
   minus("Loans and cash advances", m.cash_advance);
   (m.subsidy_memos || []).forEach((memo) => p.row(memo, null));
   p.row("Monthly net", m.monthly_net || 0, { bold: true });

@@ -1,11 +1,11 @@
 /**
  * RFID terminals (20261021030000_rfid_cards_terminals.sql): the readers, by
- * branch. HR and the Super Admin manage every branch's (and may add one for
- * every branch); an Admin only its own branch's (checked again by the
- * database function).
+ * branch. HR and the Super Admin manage every branch's (and the Super Admin
+ * may add one for every branch); an Admin only its own branch's (checked
+ * again by the database function).
  *
  *   GET    the terminals in reach, with their last tap
- *   POST   { name, branch_id }                       register a terminal
+ *   POST   { name, branch_id }                       register a terminal (not HR)
  *   PATCH  { terminal_id, name?, branch_id?, status?: active | inactive,
  *            reset_key?: true, reason? }             switching it off or resetting
  *                                                    its key locks its kiosks
@@ -63,6 +63,12 @@ export async function POST(request) {
   try {
     const guard = await requirePermission(request, "rfid_devices", "create");
     if (guard.denied) return guard.denied;
+    // HR keeps "create" on rfid_devices for registering cards, but no longer
+    // adds terminals (2026-10-26): each branch Admin adds its own. Refused
+    // again by rfid_terminal_save (20261026010000).
+    if (guard.role === "hr") {
+      return NextResponse.json({ error: "HR does not add RFID terminals. The branch Admin adds them on the Maintenance page.", code: "forbidden" }, { status: 403 });
+    }
     const body = await request.json().catch(() => ({}));
     const name = normalizeText(body.name).slice(0, 60);
     // An Admin's terminal is always its own branch's.

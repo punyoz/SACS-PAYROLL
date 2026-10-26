@@ -12,6 +12,7 @@ import {
   ClipboardCheckIcon,
   FileTextIcon,
   HandCoinsIcon,
+  LandmarkIcon,
   LayoutDashboardIcon,
   ReceiptTextIcon,
   StarIcon,
@@ -23,6 +24,7 @@ import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { GovernmentRatesPanel } from "@/components/portal/government-rates";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { AccountantDataProvider, useAccountant } from "./accountant-data";
 import { ProcessPage } from "./process-page";
@@ -63,7 +65,14 @@ const NAV = [
       { id: "ac-final-pay", label: "Final Pay", icon: UserMinusIcon, module: "process_payroll" },
     ],
   },
-  { section: "Reference", items: [{ id: "ac-attendance", label: "View Attendance", icon: CalendarCheckIcon, module: "attendance" }] },
+  {
+    section: "Reference",
+    items: [
+      { id: "ac-attendance", label: "View Attendance", icon: CalendarCheckIcon, module: "attendance" },
+      // Read-only (2026-10-26): to check and explain each deduction.
+      { id: "ac-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
+    ],
+  },
   { section: "Monitoring", items: [{ id: "ac-monitoring", label: "Payroll Monitoring", icon: ActivityIcon, module: "payroll_monitoring" }] },
   { section: "Reports", items: [{ id: "ac-reports", label: "Payroll Reports", icon: FileTextIcon, module: "payroll_reports" }] },
   { section: "Account", items: [{ id: "ac-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
@@ -86,6 +95,7 @@ const DESCRIPTIONS = {
   "ac-attendance": "View-only — for payroll deduction reference.",
   "ac-monitoring": "Monitor all payroll status and history across all periods.",
   "ac-reports": "Generate and export payroll reports for documentation and audit purposes.",
+  "ac-gov-rates": "View-only — the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
   "ac-profile": null,
 };
 
@@ -126,6 +136,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
+      {current === "ac-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
       {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}
     </AppShell>
   );
