@@ -32,7 +32,7 @@ export function tapDevice(body, manualEntry) {
   return label || "RFID Terminal";
 }
 
-export async function recordRawTap(supabase, { employee, dateKey, tappedAt, rfidCode, device, source, recordedBy, terminalId = null }) {
+export async function recordRawTap(supabase, { employee, dateKey, tappedAt, rfidCode, device, source, recordedBy }) {
   try {
     const result = await supabase.from("attendance_taps").insert({
       employee_id: employee.id,
@@ -44,8 +44,6 @@ export async function recordRawTap(supabase, { employee, dateKey, tappedAt, rfid
       device: device || null,
       source: source === "manual_entry" ? "manual_entry" : "rfid_tap",
       recorded_by: recordedBy || null,
-      // The registered terminal it came from (rfid_terminals, 2026-10-21).
-      ...(terminalId ? { terminal_id: terminalId } : {}),
     });
     if (result.error) throw result.error;
     return true;
@@ -75,7 +73,7 @@ export async function readRawTaps(supabase, { employeeId, from, to }) {
 
 /**
  * Keep a tap refused for a reason other than leave. `employee` is null for
- * an unregistered card. `branchId` is the terminal's branch (null for Super
+ * an unregistered card. `branchId` is the kiosk's branch (null for Super
  * Admin), so the Admin of the branch where the card was tapped sees it.
  */
 export async function recordRefusedTap(supabase, { employee = null, branchId = null, dateKey, reason, rfidCode, source, recordedBy }) {
@@ -83,7 +81,7 @@ export async function recordRefusedTap(supabase, { employee = null, branchId = n
     const result = await supabase.from("attendance_blocked_taps").insert({
       employee_id: employee?.id || null,
       employee_name: employee?.full_name || null,
-      // Where the tap happened (the terminal's branch), else the employee's.
+      // Where the tap happened (the kiosk's branch), else the employee's.
       branch_id: branchId || employee?.branch_id || null,
       log_date: dateKey,
       reason,

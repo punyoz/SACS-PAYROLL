@@ -657,16 +657,11 @@ export async function POST(request) {
   const terminalTap = Boolean(readKioskSession(request)) || request.headers.get(KIOSK_HEADER) === "1";
   const guard = await requirePermission(request, terminalTap ? "rfid_devices" : "attendance", "update");
   if (guard.denied) return guard.denied;
-  // The registered terminal this kiosk is (src/lib/auth/kiosk-session.js).
+  // The kiosk session (src/lib/auth/kiosk-session.js): a branch Admin's kiosk carries its branch.
   const kioskClaims = readKioskSession(request);
-  const terminalId = kioskClaims?.terminal_id || null;
 
   try {
     const body = await request.json();
-    // Every tap the terminal sends updates its "last tap" (offline check).
-    const touchTerminal = (result) => (terminalId
-      ? getAdminClient().rpc("rfid_terminal_touch", { p_terminal: terminalId, p_result: result }).then(() => {}, () => {})
-      : Promise.resolve());
     const rfidCode = normalizeText(body.rfid_code || body.employee_id || body.employee_code);
 
     if (!rfidCode) {
@@ -715,7 +710,6 @@ export async function POST(request) {
         source: "api",
         metadata: { rfid_code: maskCardCode(rfidCode), manual_entry: manualEntry, date_key: dateKey, employee_id: refusedEmployee?.id || null },
       });
-      await touchTerminal("refused");
       return NextResponse.json({ error, persisted: false, refused: true, code: refusedCode }, { status });
     };
 
@@ -827,7 +821,6 @@ export async function POST(request) {
         source: "api",
         metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: repeat.repeated, resent_at: nowIso, offline: Boolean(offline), branch_id: employee.branch_id },
       });
-      await touchTerminal(tap);
       return NextResponse.json({ success: true, persisted: true, tap, message: "Tap recorded.", record, employee: { name: employee.full_name, branch_id: employee.branch_id || null }, tapped_at: repeat.repeated });
     }
     if (repeat) {
@@ -842,7 +835,6 @@ export async function POST(request) {
         source: "api",
         metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: nowIso, repeated: repeat.repeated, offline: Boolean(offline) },
       });
-      await touchTerminal("duplicate");
       return NextResponse.json({
         success: true,
         persisted: false,
@@ -880,11 +872,10 @@ export async function POST(request) {
       dateKey,
       tappedAt: nowIso,
       rfidCode: normalizeText(rfidCode),
-      device: offline ? `${tapDevice(kioskClaims?.terminal_name ? { device: kioskClaims.terminal_name } : body, manualEntry)} (sent late)`
-        : tapDevice(kioskClaims?.terminal_name ? { device: kioskClaims.terminal_name } : body, manualEntry),
+      device: offline ? `${tapDevice(body, manualEntry)} (sent late)`
+        : tapDevice(body, manualEntry),
       source: tapSource,
       recordedBy: guard.userId || null,
-      terminalId,
     });
 
     const { record, tap } = await persistScanToTable(
@@ -922,7 +913,6 @@ export async function POST(request) {
       after_correction: "Tap recorded. This day was corrected by HR / Admin, so its times stay as corrected; the tap is flagged for review.",
     };
 
-    await touchTerminal(tap);
     return NextResponse.json({
       success: true,
       persisted: true,

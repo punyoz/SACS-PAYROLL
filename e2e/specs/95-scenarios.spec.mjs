@@ -321,10 +321,10 @@ test("HR-07 / SA-03 / SC-14 / SA-01: audit search reaches old entries; size warn
   const name = `E2E Scenario Campus ${stamp}`;
   const branch = await api(page, "POST", "/api/admin/branches", { name, location: "Scenario City", status: "Active" });
   expect(branch.status, JSON.stringify(branch.data)).toBe(201);
+  // No registered terminals (removed 2026-10-27): a new branch needs none; its
+  // Admin opens the RFID Terminal with the password.
   await as(page, "hr", "hr-rfid-terminals");
-  const terminal = await api(page, "POST", "/api/rfid/terminals", { action: "add", name: `Gate ${stamp}`, branch_id: branch.data.branch.id });
-  expect([200, 201], JSON.stringify(terminal.data)).toContain(terminal.status);
-  const branches = await api(page, "GET", "/api/rfid/terminals");
+  const branches = await api(page, "GET", "/api/admin/branches");
   expect(JSON.stringify(branches.data)).toContain(name);
 });
 

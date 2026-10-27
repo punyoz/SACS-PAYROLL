@@ -112,18 +112,15 @@ export async function POST(request) {
     // exiting it ends that session.
     const purpose = String(body.purpose || "").toLowerCase();
     if (valid && purpose === "unlock") {
-      // The kiosk is one registered terminal (2026-10-21): Active, and one
-      // this person may run (an Admin only its own branch's terminals).
-      const terminalId = String(body.terminal_id || "").trim();
-      const terminal = /^[0-9a-f-]{36}$/i.test(terminalId)
-        ? (await getServiceClient().from("rfid_terminals").select("id,name,branch_id,status,key_version").eq("id", terminalId).maybeSingle()).data
+      // No registered terminals any more (2026-10-27): the password opens the
+      // kiosk. A branch Admin's kiosk takes its own branch's cards only (the
+      // kiosk's branch); HR's and the Super Admin's take every branch's.
+      const branchId = guard.branchExempt ? null : (guard.branchId || null);
+      const branch = branchId
+        ? (await getServiceClient().from("branches").select("name").eq("id", branchId).maybeSingle()).data
         : null;
-      if (!terminal) return NextResponse.json({ valid: true, error: "Choose the terminal this screen is.", code: "terminal_required" }, { status: 400 });
-      if (terminal.status !== "active") return NextResponse.json({ valid: true, error: "That terminal is switched off. Turn it on in RFID Terminals first.", code: "terminal_inactive" }, { status: 409 });
-      if (!guard.branchExempt && String(terminal.branch_id || "") !== String(guard.branchId || "")) {
-        return NextResponse.json({ valid: true, error: "That terminal belongs to another branch.", code: "forbidden" }, { status: 403 });
-      }
-      return attachKioskSession(NextResponse.json({ valid, terminal: { id: terminal.id, name: terminal.name, branch_id: terminal.branch_id } }), guard.session, terminal);
+      const kiosk = { branch_id: branchId, branch_name: branchId ? (branch?.name || "—") : "All branches" };
+      return attachKioskSession(NextResponse.json({ valid, kiosk }), guard.session, { id: null, name: null, branch_id: branchId, key_version: 0 });
     }
     const response = NextResponse.json({ valid });
     if (valid && purpose === "exit") return clearKioskSession(response);
