@@ -741,7 +741,7 @@ function SingleEntry({ onNavigate }) {
                 </AlertDescription>
               </Alert>
             ) : null}
-            <div className="grid items-start gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="pc-employee">Select employee</Label>
                 <Select value={employeeId} onValueChange={(id) => { setEmployeeId(id); setEntryId(""); setForm(defaultForm(data, employees.find((e) => e.id === id))); }} disabled={!employees.length}>
@@ -762,7 +762,7 @@ function SingleEntry({ onNavigate }) {
 
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Deductions</p>
-            <div className="grid items-start gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               {locked ? (
                 <>
                   {computedField("pc-sss", govLabel("sss", "SSS"), "sss", "SSS", summary.sss)}
@@ -796,7 +796,7 @@ function SingleEntry({ onNavigate }) {
 
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Incentives</p>
-            <div className="grid items-start gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <p className="text-sm font-medium">Early Bird Incentive</p>
                 <p className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground tabular-nums">

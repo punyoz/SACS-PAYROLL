@@ -47,9 +47,9 @@ export function createKioskToken({ user_id: userId, role, branch_id: branchId, e
     branch_id: branchId ? String(branchId) : null,
     email: String(email || ""),
     full_name: String(fullName || ""),
-    // The registered terminal this kiosk is (rfid_terminals): its taps are
-    // recorded against it, and switching it off or resetting its key
-    // (key_version) ends this session at once.
+    // No registered terminals since 2026-10-27: terminal_id / terminal_name
+    // stay null; terminal_branch_id is the branch Admin's branch (its kiosk
+    // takes that branch's cards only), null for HR and the Super Admin.
     terminal_id: terminal?.id ? String(terminal.id) : null,
     terminal_name: terminal?.name ? String(terminal.name) : null,
     terminal_branch_id: terminal?.branch_id ? String(terminal.branch_id) : null,
@@ -163,33 +163,7 @@ export async function kioskRefusal(kiosk) {
   }
   if (entry.archived) return "account_archived";
   if (!KIOSK_ROLES.includes(entry.role) || entry.role !== kiosk.role) return "kiosk_revoked";
-  return terminalRefusal(kiosk);
-}
-
-const terminalCache = new Map(); // terminal id -> { status, key_version, at }
-
-/**
- * The kiosk's terminal must exist, be Active and keep the key it was opened
- * with. A kiosk opened before terminals were registered has none and must be
- * unlocked again (choosing its terminal). Unreachable database: let it tap.
- */
-async function terminalRefusal(kiosk) {
-  if (!kiosk.terminal_id) return "kiosk_no_terminal";
-  const cached = terminalCache.get(kiosk.terminal_id);
-  let entry = cached && Date.now() - cached.at < CACHE_TTL_MS ? cached : null;
-  if (!entry) {
-    const supabase = getAdminClient();
-    if (!supabase) return null;
-    try {
-      const result = await supabase.from("rfid_terminals").select("status,key_version").eq("id", kiosk.terminal_id).maybeSingle();
-      if (result.error) return null;
-      entry = { status: result.data?.status || "missing", key_version: Number(result.data?.key_version || 0), at: Date.now() };
-      terminalCache.set(kiosk.terminal_id, entry);
-    } catch {
-      return null;
-    }
-  }
-  if (entry.status !== "active") return "terminal_inactive";
-  if (entry.key_version !== Number(kiosk.terminal_key || 0)) return "terminal_reset";
+  // Registered terminals were removed (2026-10-27): the kiosk is no longer
+  // tied to one, so nothing else can end it.
   return null;
 }

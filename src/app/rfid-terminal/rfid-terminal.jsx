@@ -7,14 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PasswordInput } from "@/components/portal/account-dialogs";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hardNavigate } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 
 /*
  * RFID Attendance Terminal, the kiosk page opened by HR, a branch Admin or the
- * Super Admin on one registered terminal (RFID Terminals, 2026-10-21). It shares the signed-in user's session but
+ * Super Admin (no registered terminals since 2026-10-27; a branch Admin's kiosk takes its own branch's cards). It shares the signed-in user's session but
  * adds its own password lock: opening and leaving the terminal both need
  * that user's password again.
  *   GET  /api/rbac/me, /api/admin/branches
@@ -27,7 +25,6 @@ import { cn } from "@/lib/utils";
  */
 
 const PENDING_KEY = "sacs-kiosk-pending";
-const TERMINAL_KEY = "sacs-kiosk-terminal";
 /** Who may run a terminal, and where "Back" / "Exit" goes. */
 const RUNNERS = {
   hr: { homePath: "/hr", portalLabel: "HR" },
@@ -36,9 +33,6 @@ const RUNNERS = {
 };
 /** Why the server locked the kiosk (src/lib/auth/kiosk-session.js kioskRefusal). */
 const LOCK_REASONS = {
-  terminal_inactive: "This terminal was switched off. Switch it on in RFID Terminals, then unlock it again.",
-  terminal_reset: "This terminal's key was reset. Unlock it again.",
-  kiosk_no_terminal: "Choose which terminal this screen is, then unlock it.",
 };
 const TAP_WORDS = { time_in: "Time In", time_out: "Time Out", after_correction: "Recorded (day under review)", duplicate: "Already recorded" };
 const PENDING_MAX = 500;
@@ -123,9 +117,7 @@ export function RfidTerminal() {
   const [clock, setClock] = React.useState({ time: "", date: "" });
   const [scan, setScan] = React.useState("");
   const [scanReadOnly, setScanReadOnly] = React.useState(true);
-  const [terminals, setTerminals] = React.useState([]);
-  const [terminalId, setTerminalId] = React.useState("");
-  const [terminal, setTerminal] = React.useState(null);   // the one this kiosk is, once unlocked
+  const [kiosk, setKiosk] = React.useState(null);   // { branch_name } once unlocked (no registered terminals since 2026-10-27)
   const [online, setOnline] = React.useState(true);
 
   const scanRef = React.useRef(null);
@@ -148,7 +140,7 @@ export function RfidTerminal() {
   }, []);
 
   // Who is signed in: HR, an Administrator or a Super Admin (rfid_devices),
-  // and the registered terminals this person may open (2026-10-21).
+  // (no terminal to choose since 2026-10-27).
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -165,16 +157,7 @@ export function RfidTerminal() {
         hardNavigate("/login");
         return;
       }
-      let list = [];
-      try {
-        const res = await fetch("/api/rfid/terminals");
-        if (res.ok) list = ((await res.json()).terminals || []).filter((t) => t.status === "active");
-      } catch { /* shown below as "no terminal" */ }
       if (cancelled) return;
-      setTerminals(list);
-      let saved = "";
-      try { saved = localStorage.getItem(TERMINAL_KEY) || ""; } catch { /* storage blocked */ }
-      setTerminalId(list.some((t) => t.id === saved) ? saved : list[0]?.id || "");
       setIdentity({ name: user.full_name || "", ...RUNNERS[user.role], branchName: "—" });
     })();
     return () => { cancelled = true; };
@@ -328,7 +311,7 @@ export function RfidTerminal() {
     const res = await fetch("/api/admin/attendance/verify-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password, purpose, ...(purpose === "unlock" ? { terminal_id: terminalId } : {}) }),
+      body: JSON.stringify({ password, purpose }),
     });
     if (res.status === 401) {
       // The user's own sign-in has ended: sign in again first.
@@ -337,11 +320,9 @@ export function RfidTerminal() {
     }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Could not verify password.");
-    if (purpose === "unlock" && data.terminal) {
-      const chosen = terminals.find((t) => t.id === data.terminal.id);
-      setTerminal({ ...data.terminal, branch_name: chosen?.branch_name || "—" });
-      branchRef.current = data.terminal.name;
-      try { localStorage.setItem(TERMINAL_KEY, data.terminal.id); } catch { /* storage blocked */ }
+    if (purpose === "unlock" && data.kiosk) {
+      setKiosk(data.kiosk);
+      branchRef.current = data.kiosk.branch_name || "—";
     }
     return Boolean(data.valid);
   }
@@ -350,7 +331,6 @@ export function RfidTerminal() {
     event.preventDefault();
     const password = lockPassword.trim();
     if (!password) { setLockError("Enter your password."); return; }
-    if (!terminalId) { setLockError("Choose which terminal this screen is. Add one in RFID Terminals first."); return; }
     setLockBusy(true);
     setLockError("");
     try {
@@ -426,17 +406,6 @@ export function RfidTerminal() {
           </CardHeader>
           <CardContent>
             <form onSubmit={unlock} noValidate className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="rt-terminal">This screen is</Label>
-                {terminals.length ? (
-                  <Select value={terminalId} onValueChange={setTerminalId}>
-                    <SelectTrigger id="rt-terminal" className="w-full"><SelectValue placeholder="Choose the terminal" /></SelectTrigger>
-                    <SelectContent>{terminals.map((t) => <SelectItem key={t.id} value={t.id}>{`${t.name} — ${t.branch_name}`}</SelectItem>)}</SelectContent>
-                  </Select>
-                ) : (
-                  <p className="rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">{identity ? "No active terminal. Add one in RFID Terminals first." : "Loading terminals…"}</p>
-                )}
-              </div>
               <PasswordInput
                 id="rt-lock-password"
                 label="Your password"
@@ -479,8 +448,8 @@ export function RfidTerminal() {
         <Brand inverse />
         <div className="ml-auto flex flex-wrap items-center gap-4 sm:gap-6">
           <div className="text-right leading-tight">
-            <p className="text-[11px] font-semibold tracking-wider text-white/60 uppercase">{terminal?.name || "Terminal"}</p>
-            <p className="font-semibold">{terminal?.branch_name || "—"}</p>
+            <p className="text-[11px] font-semibold tracking-wider text-white/60 uppercase">RFID Terminal</p>
+            <p className="font-semibold">{kiosk?.branch_name || "—"}</p>
           </div>
           <p className="font-mono text-xl font-semibold tabular-nums sm:text-2xl" aria-label="Current time">{clock.time}</p>
           <Button

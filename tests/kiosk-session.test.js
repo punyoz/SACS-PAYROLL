@@ -41,9 +41,6 @@ beforeEach(async () => {
     { id: EMP, full_name: "Ella Employee", email: "emp@sacs.test", branch_id: BRANCH, role: "employee", employee_status: "Active", rfid_uid: CARD, archived: false },
   );
   rpc.results.attendance_approved_leave = { data: [], error: null };
-  // The registered terminal the kiosk was unlocked on (2026-10-21).
-  table("rfid_terminals").push({ id: TERMINAL, name: "Main Gate", branch_id: BRANCH, status: "active", key_version: 1 });
-  rpc.results.rfid_terminal_touch = { data: null, error: null };
   kiosk = await import("@/lib/auth/kiosk-session");
 });
 
@@ -51,9 +48,11 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const TERMINAL = "t-main-gate";
+// No registered terminals since 2026-10-27: a branch Admin's kiosk carries its
+// branch (verify-password), HR's and the Super Admin's none.
+const ADMIN_KIOSK = { id: null, name: null, branch_id: BRANCH, key_version: 0 };
 
-function kioskToken(role = "admin", terminal = { id: TERMINAL, name: "Main Gate", branch_id: BRANCH, key_version: 1 }) {
+function kioskToken(role = "admin", terminal = role === "admin" ? ADMIN_KIOSK : null) {
   return kiosk.createKioskToken({ user_id: "u-admin", role, branch_id: BRANCH, email: "admin@sacs.test", full_name: "Ada Admin", terminal });
 }
 
@@ -112,18 +111,11 @@ describe("proxy", () => {
     expect(response.status).toBe(401);
   });
 
-  it("refuses a kiosk whose terminal was switched off, or whose key was reset, or that has no terminal", async () => {
-    table("rfid_terminals")[0].status = "inactive";
-    let response = await viaProxy({ cookie: `${kiosk.KIOSK_COOKIE}=${kioskToken()}` });
-    expect(response.status).toBe(401);
-    expect((await response.json()).code).toBe("terminal_inactive");
-    vi.resetModules();
-    kiosk = await import("@/lib/auth/kiosk-session");
-    Object.assign(table("rfid_terminals")[0], { status: "active", key_version: 2 });
-    response = await viaProxy({ cookie: `${kiosk.KIOSK_COOKIE}=${kioskToken()}` });
-    expect((await response.json()).code).toBe("terminal_reset");
-    response = await viaProxy({ cookie: `${kiosk.KIOSK_COOKIE}=${kioskToken("admin", null)}` });
-    expect((await response.json()).code).toBe("kiosk_no_terminal");
+  it("needs no registered terminal (removed 2026-10-27), and a kiosk opened on an old terminal keeps tapping", async () => {
+    expect((await viaProxy({ cookie: `${kiosk.KIOSK_COOKIE}=${kioskToken("admin", null)}` })).status).toBe(200);
+    const old = kioskToken("admin", { id: "t-old", name: "Main Gate", branch_id: BRANCH, key_version: 3 });
+    expect((await viaProxy({ cookie: `${kiosk.KIOSK_COOKIE}=${old}` })).status).toBe(200);
+    expect(rpc.calls.some((c) => String(c.fn).startsWith("rfid_terminal"))).toBe(false);
   });
 
   it("lets HR run a terminal too", async () => {
@@ -145,18 +137,20 @@ describe("taps on the kiosk session", () => {
     expect(response.status).toBe(200);
     expect(body.tap).toBe("time_in");
     expect(table("attendance_logs")[0]).toMatchObject({ employee_id: EMP, time_in: manila("07:00:00") });
-    // Stored against the registered terminal, named after it, and the
-    // terminal's last tap is updated; the screen gets the name to show.
-    expect(table("attendance_taps")[0]).toMatchObject({ terminal_id: TERMINAL, device: "Main Gate", branch_id: BRANCH });
-    expect(rpc.calls.some((c) => c.fn === "rfid_terminal_touch" && c.args.p_terminal === TERMINAL)).toBe(true);
+    // Stored with the kiosk's device label; no terminal record (2026-10-27).
+    expect(table("attendance_taps")[0]).toMatchObject({ device: "RFID Terminal · Main", branch_id: BRANCH });
+    expect(table("attendance_taps")[0].terminal_id).toBeUndefined();
+    expect(rpc.calls.some((c) => String(c.fn).startsWith("rfid_terminal"))).toBe(false);
     expect(body.employee).toMatchObject({ name: "Ella Employee" });
   });
 
-  it("a branch's terminal refuses another branch's card, whoever unlocked it", async () => {
+  it("a branch Admin's kiosk refuses another branch's card; the Super Admin's takes every branch's", async () => {
     table("profiles")[1].branch_id = "b-other";
-    const { response, body } = await tap({ rfid_code: CARD }, { token: kioskToken("super_admin") });
+    const { response, body } = await tap({ rfid_code: CARD });
     expect(response.status).toBe(403);
     expect(body.code).toBe("wrong_branch");
+    table("profiles")[0].role = "super_admin";
+    expect((await tap({ rfid_code: CARD }, { token: kioskToken("super_admin") })).response.status).toBe(200);
   });
 
   it("names an unknown card, and an inactive one", async () => {
@@ -179,7 +173,7 @@ describe("taps on the kiosk session", () => {
     expect(response.status).toBe(200);
     expect(body.tap).toBe("time_in");
     expect(table("attendance_logs")[0]).toMatchObject({ log_date: DAY, time_in: manila("07:52:00") });
-    expect(table("attendance_taps")[0]).toMatchObject({ tapped_at: manila("07:52:00"), device: "Main Gate (sent late)", terminal_id: TERMINAL });
+    expect(table("attendance_taps")[0]).toMatchObject({ tapped_at: manila("07:52:00"), device: "RFID Terminal (sent late)" });
   });
 
   it("refuses a saved tap more than a day old, and keeps it in Blocked Taps for HR", async () => {

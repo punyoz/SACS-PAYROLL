@@ -27,7 +27,7 @@ import { PayrollRecordsPage } from "./payroll-records-page";
 import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { RfidCardsPanel } from "@/components/portal/rfid/rfid-cards-panel";
-import { RfidTerminalsPanel } from "@/components/portal/rfid/rfid-terminals-panel";
+import { RfidTerminalLauncher } from "../admin/maintenance-page";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -61,7 +61,7 @@ const NAV = [
     section: "RFID",
     items: [
       { id: "hr-rfid-cards", label: "RFID Cards", icon: CreditCardIcon, module: "rfid_devices" },
-      { id: "hr-rfid-terminals", label: "RFID Terminals", icon: RadioTowerIcon, module: "rfid_devices" },
+      { id: "hr-rfid-terminals", label: "RFID Terminal", icon: RadioTowerIcon, module: "rfid_devices" },
     ],
   },
   {
@@ -104,7 +104,7 @@ const TITLES = {
   "hr-attendance": "Attendance Monitoring",
   "hr-schedules": "Work Schedules",
   "hr-rfid-cards": "RFID Cards",
-  "hr-rfid-terminals": "RFID Terminals",
+  "hr-rfid-terminals": "RFID Terminal",
   "hr-payroll-approval": "Payroll Approval",
   "hr-payroll-records": "Payroll Records",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
@@ -125,7 +125,7 @@ const DESCRIPTIONS = {
   "hr-tenure": "Set who is not deducted for absence, lateness, holidays, suspensions and school breaks under a tenure contract clause, and grant or revoke it per employee. Every change is logged.",
   "hr-schedules": "Create, change and assign employee work schedules, and set the Early Bird incentive. Every change takes effect from a date and is logged.",
   "hr-rfid-cards": "Register, replace, deactivate and reactivate employees' RFID cards for every branch. Only an Active card records attendance; every action is kept in the card history.",
-  "hr-rfid-terminals": "The RFID readers of every branch: add and name them, switch them on or off, and open the RFID Terminal on one.",
+  "hr-rfid-terminals": "Open the tap-in / tap-out screen for an RFID reader.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
   "hr-leaves": "Review, approve, or reject employee leave applications and monitor leave history.",
   "hr-subsidy-approvals": "Approve or reject the subsidies the Accountant processed: missed-month adjustments, subsidy advances and excess-advance settlements. HR is the only approver; every decision stays in the history.",
@@ -183,7 +183,7 @@ function HrScreens() {
         {current === "hr-tenure" ? <TenureProtectionPanel refreshKey={refreshKey} /> : null}
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
         {current === "hr-rfid-cards" ? <RfidCardsPanel refreshKey={refreshKey} /> : null}
-        {current === "hr-rfid-terminals" ? <RfidTerminalsPanel refreshKey={refreshKey} canAdd={false} /> : null}
+        {current === "hr-rfid-terminals" ? <RfidTerminalLauncher text="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your HR password." /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
         {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
         {current === "hr-schedules" ? (

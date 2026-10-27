@@ -97,9 +97,9 @@ const API_MODULES = [
   // Unlocking the RFID Terminal: a device function of Admin / Super Admin
   // (rfid_devices), not attendance management, which is HR's.
   ["/api/admin/attendance/verify-password", "rfid_devices"],
-  // RFID cards and terminals (2026-10-21): HR, Super Admin, branch Admin.
+  // RFID cards (2026-10-21): HR, Super Admin, branch Admin. Registered
+  // terminals and /api/rfid/terminals were removed 2026-10-27.
   ["/api/rfid/cards", "rfid_devices"],
-  ["/api/rfid/terminals", "rfid_devices"],
   ["/api/admin/audit-logs", "audit_logs"],
   ["/api/admin/branch-employees", "branch_assignment"],
   ["/api/admin/branch-reports", "branch_reports"],

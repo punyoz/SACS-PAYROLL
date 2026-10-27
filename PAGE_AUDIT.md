@@ -90,6 +90,8 @@ Every page reads `/api/admin/branch-oversight?view=…` (own branch only, from t
 | Payroll Approval (`hr-payroll-approval`) | `/api/hr/payroll-runs` (payroll_run_summaries, payroll_run_items, payroll_approval_history), live stream | Tabs, filters, Review, Approve (one or many), Reject (reason required), PDF / Excel / Print | 🔧 tabs and badges use the payroll labels; the tab and open run survive a refresh |
 | Payroll Records (`hr-payroll-records`) | `/api/hr/payroll-records` (payroll_entries, payroll_runs) | Period / branch filters, View payslip, print / PDF | 🔧 filters survive a refresh; an old period in a link shows all records |
 | Subsidy Approvals (`hr-subsidy-approvals`) | `/api/admin/approvals` (payroll_subsidy_requests; applies to payroll_subsidy_adjustments, payroll_loans) | Status tabs, Approve / Reject (reason required) what the Accountant processed, Decision history | 🔧 2026-10-21: Accountant processes, HR approves; Requested / Processed / Approved-by columns; statuses Pending · Processed · Approved · Rejected · Applied to payroll; tab survives refresh |
+| Incentive & Loan Approvals (`hr-adjustment-approvals`) | `/api/hr/adjustment-approvals` (payroll_monthly_incentives, payroll_loans; RPC payroll_adjustment_decide) | Approve / Reject (reason required) what the Accountant filed | ✅ 2026-10-27: approve flow in E2E 70; Super Admin and Accountant refused (E2E 57) |
+| Government Rates (`hr-gov-rates`) | `/api/payroll/government-rates` (tax, SSS MSC, contribution rates, change history) | View only | ✅ 2026-10-27: read 200, every write path 403 (E2E 57); page sweep + phone/dark pass |
 | HR Reports (`hr-reports`) | `/api/hr/reports` | Report type, date range, export | ✅ |
 | Profile (`hr-profile`) | `/api/legacy-auth/update-profile` | Change password, edit contact | ✅ |
 
@@ -100,7 +102,7 @@ Most pages share one load: `/api/accountant/payroll[?period=]` (payroll_entries,
 | Page | Loads | Actions | Status |
 |---|---|---|---|
 | Dashboard (`ac-dashboard`) | shared load | Shortcuts | 🔧 recent-activity table shows a failed refresh |
-| Process Payroll (`ac-process`) | shared load, `/api/accountant/payroll-runs` | Pay period, Generate / Regenerate / Generate final, batch, save draft, Submit / Resubmit for HR Approval (confirm) | 🔧 **the chosen pay period survives a refresh** (a run being resubmitted used to drop out of view) |
+| Process Payroll (`ac-process`) | shared load, `/api/accountant/payroll-runs` | Pay period, Generate / Regenerate / Generate final, batch, save draft, Submit / Resubmit for HR Approval (confirm) | 🔧 **the chosen pay period survives a refresh** (a run being resubmitted used to drop out of view); 2026-10-27: the entry form no longer scrolls sideways at phone width when a long employee name is selected; government deductions shown read-only and a typed amount is refused (E2E 57) |
 | Payroll Records (`ac-records`) | shared load (`history_records`, every period) | Search, Payslip | ✅ |
 | Payslips / Pay Record (`ac-payslips`) | shared load (`entry_id`) | Choose entry, print, PDF | ✅ |
 | Loans (`ac-loans`) | `/api/accountant/loans` | Add, suspend / resume; subsidy advance and excess conversion / refusal are processed for HR | 🔧 2026-10-21: a subsidy advance is released only after HR approves |
@@ -110,6 +112,7 @@ Most pages share one load: `/api/accountant/payroll[?period=]` (payroll_entries,
 | Subsidies (`ac-approvals`) | `/api/admin/approvals` | Process adjustment / advance / excess settlement, Fix & resubmit what HR rejected | 🔧 2026-10-21: renamed from "Subsidy Adjustments"; processes every subsidy item; HR's reason shown on rejection |
 | Final Pay (`ac-final-pay`) | `/api/accountant/final-pay` | Compute, release | ✅ |
 | View Attendance (`ac-attendance`) | shared load, `/api/attendance/logs`, OT confirmations | View only | 🔧 table shows load errors with Try again |
+| Government Rates (`ac-gov-rates`) | `/api/payroll/government-rates` | View only | ✅ 2026-10-27: read 200, every write path 403 (E2E 57) |
 | Payroll Monitoring (`ac-monitoring`) | shared load | Status tabs, Edit / Cancel draft (confirm), Payslip | 🔧 tabs are the payroll labels; a failed load shows an error (it showed "No payroll records found") |
 | Payroll Reports (`ac-reports`) | shared load | Type, period, branch, export, print | ✅ |
 | Profile (`ac-profile`) | `/api/legacy-auth/update-profile` | Change password, edit contact | ✅ |
@@ -174,6 +177,24 @@ A change shows within a minute. The school's full legal name on payslips and the
 - Leaked password protection: skipped for now, listed in `docs/go-live.md` §11 as a future improvement.
 - Timezone, Date format, Currency, Pay frequency: kept, read-only, showing the real values. Organization name: applied (above).
 
+## Deployment-readiness audit (2026-10-27)
+
+Local: fresh replay of all 110 migration files, full E2E suite (95 tests) + new `57-decided-rules` and `65-rfid-to-payroll`, 1058 unit tests, lint, production build. Live: read-only checks only.
+
+| Area | Result |
+|---|---|
+| E2E | 94/95 on the full run; the one failure was a stale test (HR adding a terminal, refused since 2026-10-26), fixed so the Super Admin adds it. Re-run from a fresh reset: 12/12, plus the fixed scenario and the three newly listed pages |
+| New E2E 57 | Accountant own branch only (list, process, draft, batch, incentive, loan: 404 for another branch, nothing written); government deductions server-computed, shown read-only, a typed SSS refused (`government_deduction_locked`); government rates read by Accountant/HR, every write 403, Admin/Employee 403; HR salary change through the dialog (1st of a future month, old → new, HR role, audit entry); payslip PDF from Accountant and HR carries the seal and the stored net pay; seven pages idle 35 s + focus change keep every row; Super Admin refused HR/payroll decisions |
+| New E2E 65 | today's RFID tap → attendance log + raw tap → counted in the Accountant's payroll attendance |
+| Fixed | Process Payroll entry form scrolled sideways at phone width with a long employee name (`grid-cols-1` on its three field grids) |
+| Live DB | RLS on 58/58 tables, 0 client table grants; a signed-in Accountant session is refused on every table (42501); the 22 client-callable functions are SECURITY INVOKER helpers; advisors: security = leaked-password only, performance = unused-index INFO only; cron 4 jobs, 0 failures in 14 days; no errors in the logs (24 h) |
+| Live drift | 108 history rows vs 110 files: `20261022010000_scale_indexes_and_totals` and `20261022020000_payroll_corrections` are not applied (HR Payroll Records totals show ₱0, corrections unavailable, DB size hidden). Seven rows from 2026-10-26/27 carry apply-time versions, not the file versions |
+| Backup / restore | `backups/2026-10-27_1918` taken; restored into a separate local stack: every count equal to live (12 accounts, 208 attendance, 1301 audit, 108 migrations), 4 jobs, 0 client grants; decrypt check not run (key not used); stack deleted |
+| OTP (real RPCs) | expires after its TTL, locks after 5 wrong codes, single use, 60 s resend cooldown; no Supabase OTP / magic-link code left; mail.tm route 404 on production for POST |
+| Production | `ef1a381` live and READY; HTTPS + HSTS, CSP; a foreign origin gets no CORS allow header; protected APIs 401 without a session |
+
 ## Still open
 
+- ✅ 2026-10-27 (later): `20261022020000_payroll_corrections` applied to live (its two `DROP … IF EXISTS` lines left out: no-ops there, and the MCP tool refuses any DROP); payroll corrections load again. `20261027030000_terminals_admin_only` written and applied: only the branch Admin adds RFID terminals. Then the user's final decision: **registered RFID terminals are removed** — nobody (Admin, HR or Super Admin) adds or edits one. `20261027040000_rfid_terminals_removed` (live) makes `rfid_terminal_save` refuse every call; the table and its rows stay, unused. `/api/rfid/terminals` and the RFID terminals panel are deleted; HR's page is now **RFID Terminal** (Open RFID Terminal only); the kiosk unlocks with the account password, no terminal to choose; a branch Admin's kiosk still takes its own branch's cards only, HR's and the Super Admin's every branch's. Lost on purpose: per-reader "last tap" and locking one kiosk remotely (ending a kiosk now = archive the account or change its role).
+- ⚠️ 2026-10-27: apply `20261022010000_scale_indexes_and_totals` to live (HR Payroll Records totals); rename the seven apply-time history rows to the file versions; remove the unused `SEED_*_PASSWORD` variables from Vercel production; add `SENTRY_DSN` if monitoring is wanted; give the live SA/HR/Admin/Accountant/Employee accounts real (not mail.tm) addresses; clear the live test data (6 ₱0 payslips, AWOL test cases) before real payroll.
 - ⚠️ The last-viewed tab on some pages (Admin Leave Recommendations, Accountant Monitoring, HR Attendance date) still resets to its default on refresh; data stays, only the view resets.

@@ -1,4 +1,4 @@
-// RFID: HR adds a terminal and registers a card, unlocks the terminal, the
+// RFID: no registered terminals (removed 2026-10-27); HR registers a card, unlocks the terminal with the password, the
 // tap shows up as attendance; a duplicate tap, a deactivated card and an
 // unknown card are refused.
 import { test, expect } from "../support/test.mjs";
@@ -11,7 +11,6 @@ import { ACCOUNTS } from "../accounts.mjs";
 
 const ANA_CARD = "1000000001";
 const BEA_CARD = "1000000002";
-const TERMINAL = "E2E Main Gate";
 
 async function tap(page, uid) {
   const response = page.waitForResponse((r) => r.url().includes("/api/admin/attendance") && r.request().method() === "POST", { timeout: 30000 });
@@ -26,35 +25,32 @@ test("RFID: register card → unlock terminal → tap → attendance; duplicate,
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const today = manilaDay(0);
 
-  // HR no longer adds terminals (2026-10-26): the branch Admin does.
-  await step(page, "Admin > RFID Terminal & Cards > Add terminal", async () => {
-    monitor.at("Admin > RFID Terminal & Cards");
-    await as(page, "admin", "adm-maintenance");
-    if (!(await main(page).getByText(TERMINAL).count())) {
-      await main(page).getByRole("button", { name: "Add terminal" }).click();
-      const dialog = page.getByRole("dialog");
-      await dialog.locator("#rt-name").fill(TERMINAL);
-      await dialog.locator('button[type="submit"]').click();
-      await expect(dialog).toBeHidden({ timeout: 30000 });
-    }
-    await refresh(page);
-    await expect(main(page).getByText(TERMINAL).first()).toBeVisible();
-    const terminals = await rows(db().from("rfid_terminals").select("branch_id,created_by_role").eq("name", TERMINAL));
-    expect(terminals[0]?.created_by_role).toBe("admin");
-  });
-
-  await step(page, "HR > RFID Terminals > lists it, no Add terminal; API refuses HR", async () => {
-    monitor.at("HR > RFID Terminals");
-    monitor.allow(/^403 POST \/api\/rfid\/terminals/);
-    await as(page, "hr", "hr-rfid-terminals");
-    await expect(main(page).getByText(TERMINAL).first()).toBeVisible();
-    await expect(main(page).getByRole("button", { name: "Add terminal" })).toHaveCount(0);
-    await expect(main(page).getByRole("button", { name: "Edit" }).first()).toBeVisible();
-    const status = await page.evaluate(async () => (await fetch("/api/rfid/terminals", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "HR Sneaky Gate", branch_id: null }),
-    })).status);
-    expect(status).toBe(403);
-  });
+  // Registered terminals were removed (2026-10-27): no one adds or edits one.
+  // Every role that runs the kiosk only has "Open RFID Terminal".
+  for (const [role, pageId, where] of [
+    ["admin", "adm-maintenance", "Admin > RFID Terminal & Cards"],
+    ["hr", "hr-rfid-terminals", "HR > RFID Terminal"],
+    ["super_admin", "sa-maintenance", "Super Admin > System Maintenance"],
+  ]) {
+    await step(page, `${where} > Open RFID Terminal only; no terminals to add or edit`, async () => {
+      monitor.at(where);
+      monitor.allow(/^40[345] (GET|POST|PATCH) \/api\/rfid\/terminals/);
+      await as(page, role, pageId);
+      await expect(main(page).getByRole("button", { name: "Open RFID Terminal" })).toBeEnabled();
+      for (const name of ["Add terminal", "Edit", "Reset key", "Switch off", "Switch on"]) {
+        await expect(main(page).getByRole("button", { name, exact: true })).toHaveCount(0);
+      }
+      await expect(main(page).getByText("RFID terminals", { exact: true })).toHaveCount(0);
+      const statuses = await page.evaluate(async () => Promise.all([
+        fetch("/api/rfid/terminals").then((r) => r.status),
+        fetch("/api/rfid/terminals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Sneaky Gate" }) }).then((r) => r.status),
+      ]));
+      // Gone: the proxy refuses an API path it does not know (403) before Next.js would say 404.
+      for (const status of statuses) expect([403, 404, 405], "the terminals API is gone").toContain(status);
+    });
+  }
+  const before = await rows(db().from("rfid_terminals").select("id"));
+  expect(before, "no terminal was created").toHaveLength(0);
 
   await step(page, "HR > RFID Cards > Register with no number / letters only (refused)", async () => {
     monitor.at("HR > RFID Cards");
@@ -108,7 +104,8 @@ test("RFID: register card → unlock terminal → tap → attendance; duplicate,
     await as(page, "hr", "hr-rfid-terminals");
     await main(page).getByRole("button", { name: "Open RFID Terminal" }).click();
     await page.waitForURL(/rfid-terminal/);
-    await choose(page, page.locator("#rt-terminal"), new RegExp(TERMINAL));
+    // No terminal to choose: the password opens it (2026-10-27).
+    await expect(page.locator("#rt-terminal")).toHaveCount(0);
     await page.locator("#rt-lock-password").fill(ACCOUNTS.hr.password);
     await page.getByRole("button", { name: "Unlock terminal" }).click();
     await page.locator("#rt-scan-input").waitFor({ timeout: 30000 });

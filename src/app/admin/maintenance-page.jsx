@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RfidCardsPanel } from "@/components/portal/rfid/rfid-cards-panel";
-import { RfidTerminalsPanel } from "@/components/portal/rfid/rfid-terminals-panel";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, hardNavigate, jsonBody } from "@/lib/portal/api";
 import { logAuditMovement } from "@/lib/portal/audit";
@@ -118,7 +117,7 @@ function ScanCard({ auditActor }) {
   );
 }
 
-const ADMIN_REGISTRATION_TEXT = "Register, replace and deactivate the RFID cards of your branch, and manage its terminals. HR and the Super Admin see the same cards.";
+const ADMIN_REGISTRATION_TEXT = "Register, replace and deactivate the RFID cards of your branch. HR and the Super Admin see the same cards.";
 
 /**
  * Also the Super Admin's System Maintenance (loadSASystemData and friends,
@@ -127,6 +126,22 @@ const ADMIN_REGISTRATION_TEXT = "Register, replace and deactivate the RFID cards
  */
 const ADMIN_TERMINAL_TEXT = "Open the dedicated tap-in/tap-out screen for your branch's RFID reader. It replaces this view and is locked behind your Administration password.";
 
+/** Opens the RFID Terminal (kiosk). Also HR's RFID Terminal page (2026-10-27). */
+export function RfidTerminalLauncher({ text = ADMIN_TERMINAL_TEXT }) {
+  return (
+    <Card className="border-brand-gold/60 bg-gradient-to-r from-brand-gold/10 to-transparent shadow-xs">
+      <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><RadioTowerIcon className="size-5" aria-hidden="true" /></span>
+        <div className="flex-1">
+          <p className="font-semibold">RFID Terminal</p>
+          <p className="text-sm text-muted-foreground">{text}</p>
+        </div>
+        <Button onClick={() => hardNavigate("/rfid-terminal")}>Open RFID Terminal</Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin", terminalText = ADMIN_TERMINAL_TEXT }) {
   const { can } = usePortalSession();
 
@@ -134,23 +149,12 @@ export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRAT
     <>
       {/* The RFID reader is a device: HR, the Admin and the Super Admin run it
           from here (it used to sit on their Attendance pages). */}
-      {can("rfid_devices", "update") ? (
-        <Card className="border-brand-gold/60 bg-gradient-to-r from-brand-gold/10 to-transparent shadow-xs">
-          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><RadioTowerIcon className="size-5" aria-hidden="true" /></span>
-            <div className="flex-1">
-              <p className="font-semibold">RFID Terminal</p>
-              <p className="text-sm text-muted-foreground">{terminalText}</p>
-            </div>
-            <Button onClick={() => hardNavigate("/rfid-terminal")}>Open RFID Terminal</Button>
-          </CardContent>
-        </Card>
-      ) : null}
-      {/* Cards and terminals: the same records HR and the Super Admin see
-          (an Admin: its own branch). 2026-10-21. */}
+      {can("rfid_devices", "update") ? <RfidTerminalLauncher text={terminalText} /> : null}
+      {/* Cards: the same records HR and the Super Admin see (an Admin: its own
+          branch). 2026-10-21. Registered terminals were removed 2026-10-27:
+          nobody adds or edits them; the password opens the kiosk. */}
       <p className="text-sm text-muted-foreground">{registrationText}</p>
       <RfidCardsPanel refreshKey={refreshKey} />
-      <RfidTerminalsPanel refreshKey={refreshKey} showOpen={false} />
 
       {/* Recording a scan writes attendance, which only HR manages (2026-10-20). */}
       {can("attendance", "update") ? <ScanCard auditActor={auditActor} /> : null}
