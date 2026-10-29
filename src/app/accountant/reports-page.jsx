@@ -15,7 +15,7 @@ import { fetchJson } from "@/lib/portal/api";
 import { dateLabel, money, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
-import { BirFormsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
+import { BirExportsCard, BirFormsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
 import { RemittanceCard } from "@/components/portal/remittance-report";
 
 /*
@@ -306,6 +306,7 @@ export function ReportsPage() {
       <RemittanceCard />
       <YearEndTaxCard />
       <BirFormsCard />
+      <BirExportsCard />
     </>
   );
 }

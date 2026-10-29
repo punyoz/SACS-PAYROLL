@@ -246,7 +246,9 @@ describe("BIR forms routes", () => {
     const csv = await call("/api/payroll/bir-forms?year=2026&format=csv", who.accountant);
     const text = await csv.text();
     expect(text).toContain("123-456-789-00000");
-    expect(text.split("\r\n")[1].startsWith("1,1,123-456-789-00000,Diaz,Paolo")).toBe(true);
+    // School-wide (decision 2026-10-29): the other branch's Far Away is listed too, by last name.
+    expect(text.split("\r\n")[1].startsWith("1,1,,Away,Far")).toBe(true);
+    expect(text.split("\r\n")[2].startsWith("1,2,123-456-789-00000,Diaz,Paolo")).toBe(true);
 
     const xlsx = await call("/api/payroll/bir-forms?year=2026&format=xlsx", who.accountant);
     expect(Buffer.from(await xlsx.arrayBuffer()).subarray(0, 2).toString()).toBe("PK");

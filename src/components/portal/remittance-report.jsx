@@ -77,6 +77,8 @@ export function RemittanceCard({ refreshKey = 0 }) {
     { ...amount("pagibig_er"), header: "Pag-IBIG ER" },
     { ...amount("pagibig_total", true), header: "Pag-IBIG remit" },
     { ...amount("withholding_tax", true), header: "Tax (BIR)" },
+    // Year-end tax adjustment (+ collected / − refunded), 2026-10-29.
+    { ...amount("year_end_tax", true), header: "Year-end tax adj." },
     { ...amount("total_remit", true), header: "Total remit" },
   ];
   const t = data?.totals || {};
@@ -110,7 +112,7 @@ export function RemittanceCard({ refreshKey = 0 }) {
         ) : null}
         {data && data.rows.length ? (
           <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            {[["SSS", t.sss_total], ["PhilHealth", t.philhealth_total], ["Pag-IBIG", t.pagibig_total], ["BIR (tax withheld)", t.withholding_tax]].map(([label, value]) => (
+            {[["SSS", t.sss_total], ["PhilHealth", t.philhealth_total], ["Pag-IBIG", t.pagibig_total], [t.year_end_tax ? "BIR (tax withheld + year-end adj.)" : "BIR (tax withheld)", (t.withholding_tax || 0) + (t.year_end_tax || 0)]].map(([label, value]) => (
               <div key={label} className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="text-lg font-semibold tabular-nums">{moneyCompact(value)}</p></div>
             ))}
           </div>

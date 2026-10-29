@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 const LABELS = {
   salary: "Unpaid salary", thirteenth_month: "Pro-rated 13th month", subsidy: "Licensed teacher subsidy",
   sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax",
-  carry_over: "Carry-over owed", loan: "Loan balance",
+  carry_over: "Carry-over owed", loan: "Loan balance", year_end_tax: "Year-end tax adjustment",
 };
 
 export function FinalPayPage({ refreshKey }) {
@@ -122,7 +122,7 @@ export function FinalPayPage({ refreshKey }) {
                         <TableRow key={`e${i}`}><TableCell>+ {LABELS[e.kind] || e.kind}{e.month_key ? ` (${e.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{e.note}</TableCell><TableCell className="text-right tabular-nums">{money(e.amount)}</TableCell></TableRow>
                       ))}
                       {b.deductions.map((d, i) => (
-                        <TableRow key={`d${i}`}><TableCell>− {LABELS[d.kind] || d.kind}{d.month_key ? ` (${d.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{d.note || ""}</TableCell><TableCell className="text-right tabular-nums">{money(d.amount)}</TableCell></TableRow>
+                        <TableRow key={`d${i}`}><TableCell>{d.credit ? "+" : "−"} {d.label || LABELS[d.kind] || d.kind}{d.month_key ? ` (${d.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{d.note || ""}</TableCell><TableCell className="text-right tabular-nums">{money(d.amount)}</TableCell></TableRow>
                       ))}
                     </TableBody>
                     <TableFooter>

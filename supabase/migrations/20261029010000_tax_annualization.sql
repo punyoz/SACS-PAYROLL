@@ -277,3 +277,148 @@ ALTER TABLE public.payroll_incentives ADD CONSTRAINT payroll_incentives_traceabl
   OR source_log_id IS NOT NULL
   OR COALESCE(array_length(source_log_ids, 1), 0) > 0
 );
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- Who may read, who may generate (decisions 2026-10-29)
+--
+--   Accountant   runs the annualization and generates 2316s for its own
+--                branch only; generates the 1604-C alphalist school-wide (one
+--                filing under one TIN) — a read of every branch's approved
+--                payroll for that export only, never an edit.
+--   Super Admin  read-only oversight: the annualization records and the BIR
+--                files already generated (payroll_bir_exports), every branch.
+--                It never runs, generates, schedules or edits anything.
+--   Everyone else (HR, Admin, Employee): nothing here. An employee still
+--                downloads their own 2316 through /api/employee/bir-2316.
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- Every 2316 / alphalist file the Accountant generates, as it was generated:
+-- the figures (not the TINs, which stay encrypted in profiles and are filled
+-- in again when the file is shown), so it can be viewed later without
+-- computing anything again.
+CREATE TABLE IF NOT EXISTS public.payroll_bir_exports (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  kind               TEXT NOT NULL CHECK (kind IN ('bir_2316', 'alphalist')),
+  tax_year           INTEGER NOT NULL CHECK (tax_year BETWEEN 2000 AND 2100),
+  format             TEXT NOT NULL CHECK (format IN ('pdf', 'xlsx', 'csv')),
+  -- 'branch': the generating Accountant's branch (2316); 'school': every branch (alphalist).
+  scope              TEXT NOT NULL CHECK (scope IN ('branch', 'school')),
+  branch_id          UUID REFERENCES public.branches(id),
+  employee_id        UUID REFERENCES public.profiles(id),
+  employee_count     INTEGER NOT NULL DEFAULT 0,
+  employer           JSONB NOT NULL DEFAULT '{}'::JSONB,
+  rows               JSONB NOT NULL DEFAULT '[]'::JSONB,
+  totals             JSONB NOT NULL DEFAULT '{}'::JSONB,
+  generated_by       UUID REFERENCES public.profiles(id),
+  generated_by_name  TEXT,
+  generated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT payroll_bir_exports_scope_chk CHECK ((kind = 'alphalist') = (scope = 'school'))
+);
+
+CREATE INDEX IF NOT EXISTS payroll_bir_exports_year_idx ON public.payroll_bir_exports (tax_year, generated_at DESC);
+CREATE INDEX IF NOT EXISTS payroll_bir_exports_branch_idx ON public.payroll_bir_exports (branch_id);
+CREATE INDEX IF NOT EXISTS payroll_bir_exports_employee_idx ON public.payroll_bir_exports (employee_id);
+CREATE INDEX IF NOT EXISTS payroll_bir_exports_generated_by_idx ON public.payroll_bir_exports (generated_by);
+
+ALTER TABLE public.payroll_bir_exports ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.payroll_bir_exports FROM anon, authenticated;
+DROP POLICY IF EXISTS payroll_bir_exports_no_client_access ON public.payroll_bir_exports;
+CREATE POLICY payroll_bir_exports_no_client_access ON public.payroll_bir_exports
+  FOR ALL TO anon, authenticated USING (FALSE) WITH CHECK (FALSE);
+
+DROP TRIGGER IF EXISTS payroll_bir_exports_block_hard_delete ON public.payroll_bir_exports;
+CREATE TRIGGER payroll_bir_exports_block_hard_delete BEFORE DELETE ON public.payroll_bir_exports
+  FOR EACH ROW EXECUTE FUNCTION public.block_hard_delete();
+
+-- A generated file is kept exactly as it was generated.
+CREATE OR REPLACE FUNCTION public.payroll_bir_exports_no_update()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  RAISE EXCEPTION 'forbidden: a generated BIR file is kept as it was generated.' USING ERRCODE = 'insufficient_privilege';
+END;
+$$;
+DROP TRIGGER IF EXISTS payroll_bir_exports_no_update ON public.payroll_bir_exports;
+CREATE TRIGGER payroll_bir_exports_no_update BEFORE UPDATE ON public.payroll_bir_exports
+  FOR EACH ROW EXECUTE FUNCTION public.payroll_bir_exports_no_update();
+
+/*
+ * What an account may READ of the year-end records and generated BIR files:
+ * the Accountant its own branch (branch_id), the Super Admin every branch
+ * (branch_id NULL, read only). Anyone else is refused.
+ */
+CREATE OR REPLACE FUNCTION public.payroll_bir_read_scope(p_actor UUID)
+RETURNS TABLE (role TEXT, branch_id UUID, read_only BOOLEAN)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_actor public.profiles;
+BEGIN
+  SELECT * INTO v_actor FROM public.profiles WHERE id = p_actor;
+  IF v_actor.id IS NULL OR COALESCE(v_actor.archived, FALSE) THEN
+    RAISE EXCEPTION 'forbidden: no such account.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF v_actor.role::TEXT = 'accountant' THEN
+    IF v_actor.branch_id IS NULL THEN
+      RAISE EXCEPTION 'forbidden: your account has no branch.' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN QUERY SELECT 'accountant'::TEXT, v_actor.branch_id, FALSE;
+  ELSIF v_actor.role::TEXT = 'super_admin' THEN
+    RETURN QUERY SELECT 'super_admin'::TEXT, NULL::UUID, TRUE;
+  ELSE
+    RAISE EXCEPTION 'forbidden: only the Accountant and (read-only) the Super Admin see the year-end tax records.' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+END;
+$$;
+
+/*
+ * Record a generated file. The Accountant only. A 2316 covers only
+ * employees of its own branch; the alphalist is school-wide.
+ * p_rows: [{ employee_id, ... the file's figures }].
+ */
+CREATE OR REPLACE FUNCTION public.payroll_bir_export_save(
+  p_actor UUID, p_kind TEXT, p_year INTEGER, p_format TEXT, p_employee UUID, p_rows JSONB, p_employer JSONB, p_totals JSONB
+) RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_actor public.profiles;
+  v_id UUID;
+  v_outside INTEGER;
+BEGIN
+  v_actor := public.payroll_tax_annualization_actor(p_actor);
+  IF p_kind NOT IN ('bir_2316', 'alphalist') THEN
+    RAISE EXCEPTION 'invalid: unknown BIR file.' USING ERRCODE = 'check_violation';
+  END IF;
+  IF jsonb_typeof(COALESCE(p_rows, 'null'::JSONB)) <> 'array' THEN
+    RAISE EXCEPTION 'invalid: nothing to record.' USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_kind = 'bir_2316' THEN
+    SELECT count(*) INTO v_outside
+    FROM jsonb_array_elements(p_rows) r
+    LEFT JOIN public.profiles p ON p.id = NULLIF(r ->> 'employee_id', '')::UUID
+    WHERE p.id IS NULL OR p.branch_id IS DISTINCT FROM v_actor.branch_id;
+    IF v_outside > 0 THEN
+      RAISE EXCEPTION 'forbidden: a 2316 covers only employees of your branch.' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+  INSERT INTO public.payroll_bir_exports (kind, tax_year, format, scope, branch_id, employee_id, employee_count, employer, rows, totals,
+    generated_by, generated_by_name)
+  VALUES (p_kind, p_year, p_format, CASE WHEN p_kind = 'alphalist' THEN 'school' ELSE 'branch' END, v_actor.branch_id, p_employee,
+    jsonb_array_length(p_rows), COALESCE(p_employer, '{}'::JSONB), p_rows, COALESCE(p_totals, '{}'::JSONB), v_actor.id, v_actor.full_name)
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.payroll_bir_read_scope(UUID) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.payroll_bir_export_save(UUID, TEXT, INTEGER, TEXT, UUID, JSONB, JSONB, JSONB) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.payroll_bir_read_scope(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.payroll_bir_export_save(UUID, TEXT, INTEGER, TEXT, UUID, JSONB, JSONB, JSONB) TO service_role;

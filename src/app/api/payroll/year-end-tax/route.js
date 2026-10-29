@@ -1,7 +1,8 @@
 /**
  * Year-end tax annualization (2026-10-29, src/lib/payroll/year-end-tax.js).
- * The Accountant only, its own branch (src/lib/payroll/bir-access.js); HR,
- * Admin and Super Admin are refused. The database functions of
+ * The Accountant runs and schedules, its own branch (src/lib/payroll/
+ * bir-access.js). The Super Admin reads every branch's records, read-only
+ * (GET only; decision 2026-10-29). HR and Admin are refused. The database functions of
  * 20261029010000_tax_annualization.sql check the role and the branch again.
  *
  *   GET  ?year=YYYY                          the year's annualizations, with
@@ -20,7 +21,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { birBranchScope, describeYearEndError, requireBirAccountant } from "@/lib/payroll/bir-access";
+import { birBranchScope, describeYearEndError, requireBirAccountant, requireBirReader } from "@/lib/payroll/bir-access";
 import { birYears, loadBirYear } from "@/lib/payroll/bir-forms";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { annualizationFigures, yearEndTargetAllowed, yearEndTargetOptions } from "@/lib/payroll/year-end-tax";
@@ -79,15 +80,20 @@ function shapeRecord(row, carried) {
   };
 }
 
-async function readYear(supabase, guard, year) {
-  const branchId = birBranchScope(guard) || NO_BRANCH;
-  // The branch's employees now (a record follows its employee's branch).
-  const people = await fetchAllRows(() => supabase.from("profiles").select("id").eq("branch_id", branchId).order("id", { ascending: true }));
-  if (people.error) throw new Error(`Employees: ${people.error.message}`);
-  const ids = (people.data || []).map((p) => p.id);
-  const records = ids.length
-    ? await fetchAllIn(() => supabase.from("payroll_tax_annualizations").select(RECORD_COLUMNS).eq("tax_year", year).order("id", { ascending: true }), "employee_id", ids)
-    : { data: [], error: null };
+/** The year's records: a branch's employees now (null: every branch, the Super Admin's read-only view). */
+async function readYear(supabase, branchId, year) {
+  let records;
+  if (branchId) {
+    // The branch's employees now (a record follows its employee's branch).
+    const people = await fetchAllRows(() => supabase.from("profiles").select("id").eq("branch_id", branchId).order("id", { ascending: true }));
+    if (people.error) throw new Error(`Employees: ${people.error.message}`);
+    const ids = (people.data || []).map((p) => p.id);
+    records = ids.length
+      ? await fetchAllIn(() => supabase.from("payroll_tax_annualizations").select(RECORD_COLUMNS).eq("tax_year", year).order("id", { ascending: true }), "employee_id", ids)
+      : { data: [], error: null };
+  } else {
+    records = await fetchAllRows(() => supabase.from("payroll_tax_annualizations").select(RECORD_COLUMNS).eq("tax_year", year).order("id", { ascending: true }));
+  }
   if (records.error) return { available: false, error: describeYearEndError(records.error).error, rows: [] };
   const rows = records.data || [];
   // Payslips (draft or Final) carrying an adjustment of this tax year.
@@ -102,16 +108,18 @@ async function readYear(supabase, guard, year) {
       employee_id: e.employee_id, pay_period: e.pay_period, status: e.status, kind: e.year_end_tax.kind,
       amount: num(e.year_end_tax.amount), signed: num(e.year_end_tax.signed), shortfall: num(e.year_end_tax.shortfall),
     }));
+  const branches = await supabase.from("branches").select("id,name");
+  const branchName = new Map((branches.data || []).map((b) => [b.id, b.name]));
   return {
     available: true,
-    rows: rows.map((row) => shapeRecord(row, carried))
+    rows: rows.map((row) => ({ ...shapeRecord(row, carried), branch_name: branchName.get(row.branch_id) || "—" }))
       .sort((a, b) => a.employee_name.localeCompare(b.employee_name)),
   };
 }
 
-async function payload(supabase, guard, year) {
+async function payload(supabase, branchId, year, { readOnly = false } = {}) {
   const thisYear = Number(manilaDateKey().slice(0, 4));
-  const [data, years] = await Promise.all([readYear(supabase, guard, year), birYears(supabase)]);
+  const [data, years] = await Promise.all([readYear(supabase, branchId, year), birYears(supabase)]);
   const totals = data.rows.reduce((acc, r) => {
     acc.tax_due += r.tax_due;
     acc.tax_withheld += r.tax_withheld;
@@ -125,18 +133,22 @@ async function payload(supabase, guard, year) {
     finished: year < thisYear,
     ...data,
     totals,
-    targets: yearEndTargetOptions(year, manilaDateKey()),
+    // The Super Admin's oversight: nothing can be run or scheduled.
+    read_only: readOnly,
+    targets: readOnly ? [] : yearEndTargetOptions(year, manilaDateKey()),
   };
 }
 
 export async function GET(request) {
-  const guard = await requireBirAccountant(request, "read");
+  // The Accountant (its branch) or, read-only, the Super Admin (every branch).
+  const supabase = getAdminClient();
+  const guard = await requireBirReader(request, supabase);
   if (guard.denied) return guard.denied;
   try {
     const thisYear = Number(manilaDateKey().slice(0, 4));
     const year = yearOf(new URL(request.url).searchParams.get("year") ?? thisYear, thisYear);
     if (!year) return NextResponse.json({ error: "Choose a year up to this one." }, { status: 400 });
-    return NextResponse.json(await payload(getAdminClient(), guard, year));
+    return NextResponse.json(await payload(supabase, guard.birScope.branch_id, year, { readOnly: guard.birScope.read_only }));
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -173,7 +185,7 @@ export async function POST(request) {
         description: `Year-end tax annualization ${year}: ${rows.length} employee${rows.length === 1 ? "" : "s"} (${collect} under-withheld, ${refund} over-withheld).`,
         status: "success", source: "api", metadata: { year, count: rows.length, collect, refund },
       });
-      return NextResponse.json({ ...(await payload(supabase, guard, year)), saved: rows.length });
+      return NextResponse.json({ ...(await payload(supabase, birBranchScope(guard) || NO_BRANCH, year)), saved: rows.length });
     }
 
     if (action === "schedule" || action === "unschedule") {
@@ -196,7 +208,7 @@ export async function POST(request) {
           : `Year-end tax adjustment ${current.data.tax_year} of ${current.data.employee_name || "an employee"} unscheduled.`,
         status: "success", source: "api", metadata: { id, year: current.data.tax_year, period },
       });
-      return NextResponse.json(await payload(supabase, guard, current.data.tax_year));
+      return NextResponse.json(await payload(supabase, birBranchScope(guard) || NO_BRANCH, current.data.tax_year));
     }
 
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });

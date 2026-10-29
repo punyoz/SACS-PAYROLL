@@ -169,6 +169,7 @@ export function BirFormsCard({ refreshKey = 0 }) {
               {rows.length} employee{rows.length === 1 ? "" : "s"} · tax due {moneyCompact(data.totals?.tax_due || 0)} · withheld {moneyCompact(data.totals?.tax_withheld || 0)}
               {noTin ? ` · ${noTin} without a TIN` : ""}
             </p>
+            <p className="basis-full text-xs text-muted-foreground">The 2316s cover your branch. The alphalist is one school-wide filing: it lists every branch&apos;s employees (approved payroll only).</p>
           </div>
         ) : null}
         {data || state.loading ? (
@@ -260,8 +261,12 @@ export function YearEndTaxCard() {
 
   const unschedule = (row) => post(row.id, { action: "unschedule", id: row.id }, () => "Schedule cleared.");
 
+  // The Super Admin's oversight: records only, nothing to run or schedule.
+  const readOnly = Boolean(data?.read_only);
+
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code} · {r.payslip_count} payslip{r.payslip_count === 1 ? "" : "s"}</p></div>, searchValue: (r) => `${r.employee_name} ${r.employee_code}` },
+    ...(readOnly ? [{ key: "branch_name", header: "Branch", sortable: true }] : []),
     { key: "taxable_compensation", header: "Taxable", align: "right", className: "tabular-nums", sortValue: (r) => r.taxable_compensation, cell: (r) => moneyCompact(r.taxable_compensation) },
     { key: "tax_due", header: "Tax due", align: "right", className: "tabular-nums", sortValue: (r) => r.tax_due, cell: (r) => moneyCompact(r.tax_due) },
     {
@@ -282,7 +287,7 @@ export function YearEndTaxCard() {
           <span className="text-sm">{r.target_period}</span>
           <div className="flex items-center gap-1">
             <StatusBadge tone={(SCHEDULE_STATE[r.schedule_state] || SCHEDULE_STATE.waiting).tone}>{(SCHEDULE_STATE[r.schedule_state] || SCHEDULE_STATE.waiting).label}</StatusBadge>
-            {r.schedule_state !== "final" ? (
+            {r.schedule_state !== "final" && !readOnly ? (
               <Button variant="ghost" size="icon-sm" disabled={busy === r.id} onClick={() => unschedule(r)} aria-label={`Clear the schedule of ${r.employee_name}`}>
                 {busy === r.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <XIcon aria-hidden="true" />}
               </Button>
@@ -294,7 +299,7 @@ export function YearEndTaxCard() {
             </span>
           ))}
         </div>
-      ) : targets.length ? (
+      ) : readOnly ? <span className="text-xs text-muted-foreground">Not scheduled</span> : targets.length ? (
         <Select value="" onValueChange={(period) => schedule(r, period)} disabled={busy === r.id}>
           <SelectTrigger size="sm" className="w-48" aria-label={`Schedule the adjustment of ${r.employee_name}`}><SelectValue placeholder="Schedule on…" /></SelectTrigger>
           <SelectContent>{targets.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
@@ -309,8 +314,10 @@ export function YearEndTaxCard() {
       <CardHeader>
         <CardTitle>Year-end tax annualization</CardTitle>
         <CardDescription>
-          Each employee&apos;s tax due for the whole year from the BIR annual table, against the tax withheld on every cutoff. Run it again whenever payslips change;
-          schedule a difference onto a 2nd-cutoff payslip (usually December 16-31), where it is its own line and the regular withholding tax is not changed.
+          {readOnly
+            ? "Every branch's annualization records, read-only for oversight: each Accountant runs and schedules its own branch's."
+            : <>Each employee&apos;s tax due for the whole year from the BIR annual table, against the tax withheld on every cutoff. Run it again whenever payslips change;
+              schedule a difference onto a 2nd-cutoff payslip (usually December 16-31), where it is its own line and the regular withholding tax is not changed.</>}
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
           <Select value={shownYear} onValueChange={setYear}>
@@ -336,9 +343,11 @@ export function YearEndTaxCard() {
         ) : null}
         {data && data.available !== false ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={busy === "run" || !shownYear} onClick={runAnnualization}>
-              {busy === "run" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <CalculatorIcon aria-hidden="true" />}{rows.length ? "Run again" : "Run annualization"}
-            </Button>
+            {readOnly ? <StatusBadge tone="info">Read-only</StatusBadge> : (
+              <Button size="sm" disabled={busy === "run" || !shownYear} onClick={runAnnualization}>
+                {busy === "run" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <CalculatorIcon aria-hidden="true" />}{rows.length ? "Run again" : "Run annualization"}
+              </Button>
+            )}
             <p className="text-xs text-muted-foreground">
               {rows.length} employee{rows.length === 1 ? "" : "s"} · to collect {moneyCompact(data.totals?.to_collect || 0)} · to refund {moneyCompact(data.totals?.to_refund || 0)}
             </p>
@@ -352,9 +361,93 @@ export function YearEndTaxCard() {
             loading={state.loading && !data}
             pageSize={15}
             searchPlaceholder="Search employee…"
-            empty={{ title: `No annualization for ${shownYear || "this year"} yet`, description: "Choose Run annualization.", icon: CalculatorIcon }}
+            empty={{ title: `No annualization for ${shownYear || "this year"} yet`, description: readOnly ? "No Accountant has run it for this year." : "Choose Run annualization.", icon: CalculatorIcon }}
             caption={`Year-end tax annualization ${shownYear}`}
             minWidth={900}
+          />
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+const EXPORT_KIND = { bir_2316: "BIR Form 2316", alphalist: "1604-C alphalist" };
+
+/**
+ * The BIR files already generated, as they were generated (GET
+ * /api/payroll/bir-exports): the Accountant its branch's, the Super Admin
+ * every branch's, read-only. Viewing one computes nothing.
+ */
+export function BirExportsCard({ refreshKey = 0 }) {
+  const [year, setYear] = React.useState(String(new Date().getFullYear()));
+  const [state, setState] = React.useState({ loading: true, error: null, data: null });
+  const [busy, run] = useDownloader();
+
+  const load = React.useCallback(async () => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const data = await fetchJson(`/api/payroll/bir-exports?year=${year}`);
+      setState({ loading: false, error: null, data });
+    } catch (error) {
+      setState({ loading: false, error: error.message || "Unable to load the generated files.", data: null });
+    }
+  }, [year]);
+
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+
+  const data = state.data;
+  const thisYear = new Date().getFullYear();
+  const years = [thisYear, thisYear - 1, thisYear - 2].map(String);
+  const columns = [
+    { key: "generated_at", header: "Generated", sortable: true, cell: (r) => <div><p className="font-medium">{new Date(r.generated_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</p><p className="text-xs text-muted-foreground">by {r.generated_by_name || "—"}</p></div> },
+    { key: "kind", header: "File", sortable: true, cell: (r) => <div><p>{EXPORT_KIND[r.kind] || r.kind} ({String(r.format).toUpperCase()})</p><p className="text-xs text-muted-foreground">{r.employee_id ? "One employee" : `${r.employee_count} employee${r.employee_count === 1 ? "" : "s"}`}</p></div>, searchValue: (r) => `${EXPORT_KIND[r.kind]} ${r.generated_by_name}` },
+    { key: "branch_name", header: "Covers", sortable: true },
+    { key: "tax_withheld", header: "Tax withheld", align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.totals?.tax_withheld || 0) },
+    {
+      key: "view", header: <span className="sr-only">View</span>, align: "right",
+      cell: (r) => (
+        <Button variant="outline" size="sm" disabled={busy === r.id} onClick={() => run(r.id, `/api/payroll/bir-exports?id=${r.id}`, "BIR-file")} aria-label={`View the ${EXPORT_KIND[r.kind] || "file"} generated ${r.generated_at}`}>
+          {busy === r.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}View
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <Card className="min-w-0 shadow-xs">
+      <CardHeader>
+        <CardTitle>Generated BIR files</CardTitle>
+        <CardDescription>
+          Every BIR Form 2316 and 1604-C alphalist generated{data?.read_only ? " in every branch" : " in your branch"}, kept exactly as generated.
+          {data?.read_only ? " Read-only: only the Accountant generates them." : ""}
+        </CardDescription>
+        <CardAction className="flex flex-wrap gap-2">
+          <Select value={year} onValueChange={setYear}>
+            <SelectTrigger size="sm" className="w-28" aria-label="Generated files year"><SelectValue placeholder="Year" /></SelectTrigger>
+            <SelectContent>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {state.error ? <ErrorState message={state.error} onRetry={load} /> : null}
+        {data && data.available === false ? (
+          <Alert className="border-warning/40 bg-warning/5">
+            <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+            <AlertDescription>{data.error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {(data && data.available !== false) || state.loading ? (
+          <DataTable
+            columns={columns}
+            rows={data?.exports || []}
+            rowKey={(r) => r.id}
+            loading={state.loading && !data}
+            pageSize={10}
+            searchPlaceholder="Search file…"
+            empty={{ title: `No BIR files generated for ${year}`, icon: FileTextIcon }}
+            caption={`Generated BIR files ${year}`}
+            minWidth={760}
           />
         ) : null}
       </CardContent>

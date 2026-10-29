@@ -153,7 +153,9 @@ export function applyYearEndTax(payroll, adjustment, { annualizationId = null, t
   if (Math.abs(signed) < 0.01) return payroll;
 
   t.year_end_tax_adjustment = signed;
-  t.total_deductions = peso(num(t.total_deductions) + signed);
+  // A collection is a deduction; a refund is added to net pay and never
+  // lowers the total deductions (they stay the sum of what was deducted).
+  if (signed > 0) t.total_deductions = peso(num(t.total_deductions) + signed);
   t.net_pay = after > 0 ? after : 0;
   if (m) {
     m.year_end_tax = payroll.year_end_tax;
@@ -185,4 +187,26 @@ export function yearEndCutoffLine(yearEndTax) {
     note: yearEndTax.note,
     ...(yearEndTax.kind === "refund" ? { credit: true } : {}),
   };
+}
+
+/**
+ * Put an adjustment on a final pay breakdown (computeFinalPay, src/lib/payroll/
+ * final-pay.js) of an employee separated during the tax year: its own
+ * deduction line ("year_end_tax"), a credit when it is a refund. The
+ * withholding tax lines are never touched. Returns the payroll.year_end_tax
+ * record for the entry (null when there is nothing to settle).
+ */
+export function applyYearEndToFinalPay(breakdown, adjustment, { annualizationId = null, taxYear } = {}) {
+  if (!adjustment) return null;
+  const record = applyYearEndTax({ totals: { total_deductions: 0, net_pay: breakdown.net_pay } }, adjustment, { annualizationId, taxYear }).year_end_tax;
+  if (!(record.amount > 0)) return record;
+  const signed = record.signed;
+  breakdown.deductions.push({
+    kind: "year_end_tax", label: record.label, amount: record.amount, note: record.note,
+    ...(adjustment.kind === "refund" ? { credit: true } : {}),
+  });
+  if (signed > 0) breakdown.total_deductions = peso(num(breakdown.total_deductions) + signed);
+  breakdown.net_pay = Math.max(0, peso(num(breakdown.net_pay) - signed));
+  breakdown.year_end_tax = record;
+  return record;
 }
