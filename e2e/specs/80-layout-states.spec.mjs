@@ -13,8 +13,9 @@ import { ACCOUNTS } from "../accounts.mjs";
 const SHOTS = join(process.cwd(), "test-results", "screens");
 // Session and shell calls keep working; everything else is page data.
 const SHELL = /\/api\/(rbac\/me|legacy-auth\/|notifications|health|dev\/)/;
-// Pages that show the signed-in person from the session (no list to load).
-const SESSION_ONLY = /-profile$/;
+// Pages that show the signed-in person from the session (no list to load),
+// and HR's RFID Terminal launcher (one button since 2026-10-27, no data).
+const SESSION_ONLY = /-profile$|^hr-rfid-terminals$/;
 // Pages that load nothing until Generate: the failure must show after it.
 const ON_DEMAND = { "emp-timesheet": "Generate", "hr-reports": "Generate", "ac-reports": null };
 

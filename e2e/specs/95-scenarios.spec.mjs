@@ -243,7 +243,7 @@ test("EM-01 / EM-03: a forgotten card is recorded by HR; a 'time in' hours befor
     expect([200, 201, 409]).toContain(reg.status);
     await main(page).getByRole("button", { name: "Open RFID Terminal" }).click();
     await page.waitForURL(/rfid-terminal/);
-    await choose(page, page.locator("#rt-terminal"), /E2E Main Gate|Main/);
+    // No terminal to choose: the password opens it (2026-10-27).
     await page.locator("#rt-lock-password").fill(ACCOUNTS.hr.password);
     await page.getByRole("button", { name: "Unlock terminal" }).click();
     await page.locator("#rt-scan-input").waitFor({ timeout: 30000 });
@@ -303,7 +303,9 @@ test("HR-07 / SA-03 / SC-14 / SA-01: audit search reaches old entries; size warn
   expect(all.status).toBe(200);
   const oldest = await rows(db().from("audit_logs").select("description,created_at").order("created_at", { ascending: true }).limit(1));
   const word = String(oldest[0].description).split(/\s+/).find((w) => w.length > 6) || String(oldest[0].description).slice(0, 8);
-  const day = String(oldest[0].created_at).slice(0, 10);
+  // The filter uses the Manila calendar day (a run before 08:00 Manila would
+  // otherwise take yesterday's UTC date).
+  const day = new Date(new Date(oldest[0].created_at).getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
   const found = await api(page, "GET", `/api/admin/audit-logs?search=${encodeURIComponent(word)}&from=${day}&to=${day}&limit=50`);
   expect(found.data.logs.some((l) => l.description === oldest[0].description), "the oldest entry is found by a word and its date").toBe(true);
   expect(found.data.summary.total).toBeGreaterThanOrEqual(1);
