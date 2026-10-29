@@ -19,9 +19,10 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { can } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_SECTION, loadEarlyBirdSettings, shapeWinner } from "@/lib/payroll/early-bird";
+import { INCENTIVE_MAX, pesoLimit } from "@/lib/input-limits";
 
 const NOT_READY = "The Early Bird incentive is not set up yet: apply supabase/migrations/20261013010000_employee_schedules_cutoffs_early_bird.sql.";
-const AMOUNT_MAX = 1_000_000;
+const AMOUNT_MAX = INCENTIVE_MAX;
 
 /** Super Admin and HR change every setting (the route's "update" permission). */
 function permissions(guard) {
@@ -70,7 +71,7 @@ export async function PATCH(request) {
     if (body.incentive_amount !== undefined) {
       const amount = Number(body.incentive_amount);
       if (!Number.isFinite(amount) || amount < 0 || amount > AMOUNT_MAX) {
-        return NextResponse.json({ error: "The incentive amount is ₱0 to ₱1,000,000 (0 switches the incentive off)." }, { status: 400 });
+        return NextResponse.json({ error: `The incentive amount is ₱0 to ${pesoLimit(INCENTIVE_MAX)} (0 switches the incentive off).` }, { status: 400 });
       }
       fields.incentive_amount = String(Math.round(amount * 100) / 100);
     }

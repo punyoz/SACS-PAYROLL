@@ -51,6 +51,10 @@ import {
   validatePolicyInput,
 } from "@/lib/payroll/tenure-protection";
 import { isMissingTable, loadTenureProtection, TENURE_NOT_READY } from "@/lib/payroll/tenure-protection-store";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { notes: [500, "The notes"], note: [500, "The note"] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PAID_ROLES = ["employee", "accountant"];
@@ -454,6 +458,9 @@ export async function POST(request) {
     if (guard.denied) return guard.denied;
 
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action).toLowerCase();
     const supabase = getAdminClient();
     const data = await loadTenureProtection(supabase);

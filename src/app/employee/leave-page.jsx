@@ -19,6 +19,7 @@ import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { LEAVE_ADVANCE_DAYS, LEAVE_ADVANCE_MESSAGE, earliestLeaveStart } from "@/lib/leave-requests/advance-rule";
+import { REASON_MAX } from "@/lib/input-limits";
 
 /*
  * Leave request (submitLeaveRequest, public/legacy/js/employee.js): the same
@@ -163,7 +164,7 @@ function LeaveRequestForm({ onSubmitted }) {
           render={({ field }) => (
             <FormItem className="sm:col-span-2">
               <FormLabel>Reason</FormLabel>
-              <FormControl><Textarea rows={3} placeholder="State the reason for your leave request" {...field} /></FormControl>
+              <FormControl><Textarea rows={3} maxLength={REASON_MAX} placeholder="State the reason for your leave request" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )}

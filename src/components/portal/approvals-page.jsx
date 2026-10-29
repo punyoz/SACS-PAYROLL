@@ -22,6 +22,7 @@ import { dateLabel, dateTime, money } from "@/lib/portal/payroll-preview";
 import { nextSecondHalf } from "@/lib/payroll/loans";
 import { SUBSIDY_STATUS_LABELS, SUBSIDY_STATUS_TONES } from "@/lib/payroll/subsidy-requests";
 import { cn } from "@/lib/utils";
+import { PESO_MAX } from "@/lib/input-limits";
 
 /*
  * Subsidies (/api/admin/approvals; decision of 2026-10-21): the Accountant
@@ -277,7 +278,7 @@ export function ApprovalsPage({ refreshKey }) {
                     <div className="grid gap-3 sm:grid-cols-3">
                       {fieldFor("months", "Months missed", <Input id="sb-months" type="number" min="1" max="12" value={input.months} onChange={(e) => setInput((c) => ({ ...c, months: e.target.value }))} />)}
                       {fieldFor("label", "Which months", <Input id="sb-label" maxLength={60} placeholder="e.g. May–Jul 2027" value={input.label} onChange={(e) => setInput((c) => ({ ...c, label: e.target.value }))} />)}
-                      {fieldFor("amount", "Amount (₱)", <Input id="sb-amount" type="number" min="0" step="0.01" placeholder={selectedBalance ? (selectedBalance.monthly * Number(input.months || 0)).toFixed(2) : ""} value={input.amount} onChange={(e) => setInput((c) => ({ ...c, amount: e.target.value }))} />)}
+                      {fieldFor("amount", "Amount (₱)", <Input id="sb-amount" type="number" min="0" max={PESO_MAX} step="0.01" placeholder={selectedBalance ? (selectedBalance.monthly * Number(input.months || 0)).toFixed(2) : ""} value={input.amount} onChange={(e) => setInput((c) => ({ ...c, amount: e.target.value }))} />)}
                     </div>
                     {fieldFor("reason", "Reason", <Textarea id="sb-reason" rows={3} maxLength={1000} placeholder="e.g. License valid since May 2; verification delayed" value={input.reason} onChange={(e) => setInput((c) => ({ ...c, reason: e.target.value }))} />)}
                   </>
@@ -285,7 +286,7 @@ export function ApprovalsPage({ refreshKey }) {
                 {dialog.kind === "advance" ? (
                   <>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {fieldFor("amount", "Amount (₱)", <Input id="sb-amount" type="number" min="0" step="0.01" value={input.amount} onChange={(e) => setInput((c) => ({ ...c, amount: e.target.value }))} />)}
+                      {fieldFor("amount", "Amount (₱)", <Input id="sb-amount" type="number" min="0" max={PESO_MAX} step="0.01" value={input.amount} onChange={(e) => setInput((c) => ({ ...c, amount: e.target.value }))} />)}
                       {fieldFor("date", "Release date", <Input id="sb-date" type="date" value={input.date} onChange={(e) => setInput((c) => ({ ...c, date: e.target.value }))} />)}
                     </div>
                     {fieldFor("desc", "Description (optional)", <Input id="sb-desc" maxLength={200} value={input.description} onChange={(e) => setInput((c) => ({ ...c, description: e.target.value }))} />)}

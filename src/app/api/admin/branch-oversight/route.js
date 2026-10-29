@@ -45,6 +45,12 @@ import {
   shapeRequest,
 } from "@/lib/branch-requests";
 import { hrAccountIds, loadBranchStaff, notify, superAdminIds } from "@/lib/branch-requests-server";
+import { INCENTIVE_MAX, pesoLimit } from "@/lib/input-limits";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [1000, "The remark for HR"] };
+const DETAIL_TEXT_CAPS = { requested: [500, "What should change"], device: [120, "The device"], description: [200, "The description"], covered_for: [120, "Covered for"] };
 
 const NOT_READY = "Branch oversight is not set up yet: apply 20261020020000_admin_branch_oversight.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -419,6 +425,9 @@ export async function POST(request) {
     const branchId = guard.branchId;
     if (!branchId) return bad("Your account has no branch.", 403);
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS) || textLimitError(body.details, DETAIL_TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     if (normalizeText(body.action) !== "file") return bad("Unknown action.");
     const kind = normalizeText(body.kind);
     if (!REQUEST_KINDS[kind]) return bad("Choose what you are sending.");
@@ -514,7 +523,7 @@ export async function POST(request) {
       const description = normalizeText(d.description).slice(0, 200);
       if (!itemKind) return bad("Choose incentive or overload.");
       if (!isDateKey(date) || date < "2026-10-01") return bad("Choose the date it is for (from Oct 1, 2026).");
-      if (itemKind === "incentive" && !(Number.isFinite(amount) && amount > 0 && amount <= 9999999.99)) return bad("Enter an amount greater than 0.");
+      if (itemKind === "incentive" && !(Number.isFinite(amount) && amount > 0 && amount <= INCENTIVE_MAX)) return bad(`Enter an amount greater than 0 and at most ${pesoLimit(INCENTIVE_MAX)}.`);
       if (itemKind === "overload" && !(Number.isFinite(hours) && hours > 0 && hours <= 744)) return bad("Enter overload hours greater than 0.");
       if (!description) return bad("Describe what it is for.");
       details = { employee_name: person.full_name, kind: itemKind, item_date: date, amount: itemKind === "incentive" ? roundPeso(amount) : null, hours: itemKind === "overload" ? Math.round(hours * 100) / 100 : null, description };

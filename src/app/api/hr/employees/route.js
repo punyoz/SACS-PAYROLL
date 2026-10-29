@@ -15,6 +15,10 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { PII_FIELDS, fetchProfilesPii, withoutPiiMetadata } from "@/lib/employees/pii";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { separateEmployee, validateSeparation } from "@/lib/employees/separation";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [1000, "The note"] };
 
 function toTitleCaseWords(value) {
   const normalized = normalizeText(value).toLowerCase();
@@ -157,6 +161,9 @@ export async function PATCH(request) {
   try {
     const supabase = getAdminClient();
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const id = normalizeText(body.id);
 
     if (!id) {

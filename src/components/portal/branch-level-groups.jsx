@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/portal/empty-state";
 import { cn } from "@/lib/utils";
+import { SEARCH_MAX } from "@/lib/input-limits";
 
 /**
  * Rows grouped by branch, then by level inside each branch, with a
@@ -150,7 +151,7 @@ export function BranchLevelGroups({
       {search ? (
         <div className="relative sm:max-w-sm">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input type="search" className="pl-8" placeholder={searchPlaceholder} aria-label={searchPlaceholder.replace(/…$/, "")} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <Input maxLength={SEARCH_MAX} type="search" className="pl-8" placeholder={searchPlaceholder} aria-label={searchPlaceholder.replace(/…$/, "")} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       ) : null}
       <div className="overflow-x-auto rounded-lg border bg-card">

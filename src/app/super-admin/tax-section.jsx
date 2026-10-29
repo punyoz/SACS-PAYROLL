@@ -18,6 +18,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { peso, rateDate, taxFor } from "./config-format";
+import { CONTRIBUTION_MAX, TAX_AMOUNT_MAX } from "@/lib/input-limits";
 
 /*
  * Semi-monthly payroll settings (loadSAPayrollSettings / submitSATaxTable /
@@ -134,7 +135,7 @@ function TaxTableCard({ data, loading, onReload }) {
                         <Input
                           type="number"
                           min="0"
-                          max={field === "rate_pct" ? "100" : undefined}
+                          max={field === "rate_pct" ? "100" : TAX_AMOUNT_MAX}
                           step="0.01"
                           inputMode="decimal"
                           aria-label={`${label}, bracket ${index + 1}`}
@@ -296,6 +297,7 @@ function SssMscCard({ data, loading, onReload }) {
                         <Input
                           type="number"
                           min="0"
+                          max={CONTRIBUTION_MAX}
                           step="0.01"
                           inputMode="decimal"
                           aria-label={`${label}, bracket ${index + 1}`}
@@ -411,7 +413,7 @@ function ContributionDialog({ row, defaultDate, open, onOpenChange, onSaved }) {
           {TYPES.map(([type, label]) => (
             <div key={type} className="space-y-2">
               <Label htmlFor={`sa-contrib-${type}`}>{label}{type === "sss" ? " (₱/month)" : ""}</Label>
-              <Input id={`sa-contrib-${type}`} type="number" min="0" step="0.01" inputMode="decimal" placeholder="Computed" value={values[type]} onChange={(e) => set(type, e.target.value)} className="tabular-nums" autoFocus={type === "sss"} />
+              <Input id={`sa-contrib-${type}`} type="number" min="0" max="999999.99" step="0.01" inputMode="decimal" placeholder="Computed" value={values[type]} onChange={(e) => set(type, e.target.value)} className="tabular-nums" autoFocus={type === "sss"} />
             </div>
           ))}
           <div className="space-y-2 sm:col-span-3">

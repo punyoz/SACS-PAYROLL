@@ -24,6 +24,10 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { DECISION_STATUS, REQUEST_KINDS, STATUS_LABELS, historyEntry, shapeRequest } from "@/lib/branch-requests";
 import { notify } from "@/lib/branch-requests-server";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [1000, "The remark"] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A request id as stored (a UUID); anything else is simply not found.
@@ -73,6 +77,9 @@ export async function PATCH(request) {
     const allowed = allowedKinds(guard.role);
     if (!allowed.length) return NextResponse.json({ error: "Only HR decides what the branch Admins send." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const id = normalizeText(body.id);
     const decision = normalizeText(body.decision);
     const note = normalizeText(body.note).slice(0, 1000);

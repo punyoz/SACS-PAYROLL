@@ -246,10 +246,10 @@ describe("POST batch_submit", () => {
     const result = await (await POST(request("POST", {
       action: "batch_submit", pay_period: PERIOD, entries: [entry], override_reason: "crafted request",
     }))).json();
-    expect(result.processed).toHaveLength(1);
-    const record = table("payroll_records").find((r) => r.employee_id === EMP_OK);
-    expect(record.deviations.items).toEqual([{ field: "sss", default: 200, value: 0 }]);
-    expect(record.net_pay).toBeLessThanOrEqual(record.gross_pay);
+    // Refused outright (input limits): an amount below ₱0 is not a number the box takes.
+    expect(result.processed).toHaveLength(0);
+    expect(result.skipped).toEqual([expect.objectContaining({ employee_id: EMP_OK, code: "invalid_attendance_input" })]);
+    expect(table("payroll_records").some((r) => r.employee_id === EMP_OK)).toBe(false);
     expect(table("payroll_deductions").some((d) => d.amount < 0 && d.type === "sss")).toBe(false);
   });
 });

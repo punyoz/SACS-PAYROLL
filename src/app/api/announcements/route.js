@@ -21,6 +21,10 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { ANNOUNCEMENT_CATEGORIES } from "@/lib/branch-requests";
 import { branchEmployeeIds, notify } from "@/lib/branch-requests-server";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { title: [150, "The title"], body: [4000, "The message"] };
 
 // An announcement id as stored (a UUID); anything else is simply not found.
 const ANNOUNCEMENT_ID = /^[\w-]{1,64}$/;
@@ -36,6 +40,8 @@ function branchOf(guard) {
 }
 
 function validate(body) {
+  const tooLong = textLimitError(body, TEXT_CAPS);
+  if (tooLong) return { error: tooLong };
   const title = normalizeText(body.title).slice(0, 150);
   const text = normalizeText(body.body).slice(0, 4000);
   const category = ANNOUNCEMENT_CATEGORIES[body.category] ? body.category : "general";
@@ -103,6 +109,9 @@ export async function PATCH(request) {
     if (guard.denied) return guard.denied;
     if (guard.role !== "admin" || !branchOf(guard)) return NextResponse.json({ error: "Only the branch Admin changes announcements." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const id = normalizeText(body.id);
     if (!ANNOUNCEMENT_ID.test(id)) return NextResponse.json({ error: "Announcement not found." }, { status: 404 });
     const supabase = getAdminClient();

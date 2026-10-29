@@ -19,6 +19,7 @@ import { dateLabel, money, shortDate } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
+import { INCENTIVE_MAX } from "@/lib/input-limits";
 
 /*
  * Incentives & Overload (loadMonthlyItems / submitMonthlyItem /
@@ -262,7 +263,7 @@ export function IncentivesPage({ refreshKey }) {
               {form.kind === "incentive" ? (
                 <div className="space-y-1.5">
                   <Label htmlFor="ac-item-amount">Amount (₱)</Label>
-                  <Input id="ac-item-amount" type="number" min="0" max="9999999.99" step="0.01" inputMode="decimal" value={form.amount} onChange={(e) => setForm((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />
+                  <Input id="ac-item-amount" type="number" min="0" max={INCENTIVE_MAX} step="0.01" inputMode="decimal" value={form.amount} onChange={(e) => setForm((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />
                   {errors.amount ? <p className="text-sm text-destructive">{errors.amount}</p> : null}
                 </div>
               ) : (

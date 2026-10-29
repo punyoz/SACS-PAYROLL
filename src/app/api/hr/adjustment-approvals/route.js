@@ -22,6 +22,10 @@ import { notify } from "@/lib/branch-requests-server";
 import { roundPeso } from "@/lib/payroll/money";
 import { approvalFields, describeDecisionError } from "@/lib/payroll/adjustment-approvals";
 import { LOAN_TYPE_LABELS } from "@/lib/payroll/loans";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [500, "The note"] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const money = (v) => `₱${roundPeso(v).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -86,6 +90,9 @@ export async function PATCH(request) {
   if (guard.role !== "hr") return NextResponse.json({ error: "Only HR approves or rejects incentives, overload and loans." }, { status: 403 });
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const kind = normalizeText(body.kind);
     const id = normalizeText(body.id);
     const decision = normalizeText(body.decision);

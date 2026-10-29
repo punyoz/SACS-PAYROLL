@@ -17,6 +17,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { manilaToday, rateDate, rateDisplay, rateHistory } from "./config-format";
+import { CONTRIBUTION_MAX } from "@/lib/input-limits";
 
 /*
  * Payroll Rates, effective-dated (loadSAPayrollRates / renderSABranchDailyRates
@@ -56,7 +57,7 @@ const VALUE_LABEL = {
   half: "1 = 1–15 payslip, 2 = 16–end payslip, 3 = half on each",
 };
 
-const VALUE_MAX = { percent: "100", count: "31", day_of_month: "31", days: "366", switch: "1", half: "3" };
+const VALUE_MAX = { percent: "100", count: "31", day_of_month: "31", days: "366", switch: "1", half: "3", peso: String(CONTRIBUTION_MAX) };
 const WHOLE_UNITS = new Set(["count", "days", "day_of_month", "switch", "half"]);
 
 /** The value check of submitSARate. */

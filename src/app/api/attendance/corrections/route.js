@@ -7,6 +7,10 @@ import { correctionPayrollNotice } from "@/lib/payroll/final-payslips";
 import { SCOPE_BRANCH, SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { reason: [500, "The reason"], note: [500, "The note"] };
 
 /**
  * Missed tap-out / disputed record corrections.
@@ -99,6 +103,9 @@ export async function POST(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const logId = normalizeText(body.log_id);
     const time = normalizeText(body.corrected_time);
     const reason = normalizeText(body.reason);
@@ -433,6 +440,9 @@ export async function PATCH(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action).toLowerCase();
     if (action === "resolve") return await handleResolve(guard, body);
     if (action === "correct_absence") return await handleCorrectAbsence(guard, body);

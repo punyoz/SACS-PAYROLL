@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { cn } from "@/lib/utils";
+import { SEARCH_MAX } from "@/lib/input-limits";
 
 /**
  * A table whose rows sit under one heading per group (HR Reports and the
@@ -88,7 +89,7 @@ export function BranchGroupedTable({
           {search ? (
             <div className="relative sm:max-w-sm sm:flex-1">
               <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <Input type="search" className="pl-8" placeholder={searchPlaceholder} aria-label={searchPlaceholder.replace(/…$/, "")} value={query} onChange={(e) => setQuery(e.target.value)} />
+              <Input maxLength={SEARCH_MAX} type="search" className="pl-8" placeholder={searchPlaceholder} aria-label={searchPlaceholder.replace(/…$/, "")} value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
           ) : null}
           {toolbar ? <div className="flex flex-wrap gap-2 sm:ml-auto">{toolbar}</div> : null}

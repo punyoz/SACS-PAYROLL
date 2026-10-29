@@ -16,6 +16,7 @@
  */
 
 import { resolveTaxTableRows } from "@/lib/payroll/semi-monthly";
+import { CONTRIBUTION_MAX, pesoLimit } from "@/lib/input-limits";
 
 export const MSC_COLUMNS = "id,version_id,effective_date,salary_from,msc,note,created_by_name,created_at";
 export const MAX_MSC_ROWS = 200;
@@ -72,6 +73,8 @@ export function validateMscRows(rows) {
   const parsed = rows.map((row) => ({ from: Number(row.salary_from), msc: Number(row.msc) }));
   if (parsed.some((r) => !Number.isFinite(r.from) || !Number.isFinite(r.msc) || r.from < 0)) return "Every amount must be a number, 0 or more.";
   if (parsed.some((r) => r.msc <= 0)) return "Every salary credit must be more than 0.";
+  // numeric(12,2) columns: a larger amount would fail as a database error.
+  if (parsed.some((r) => r.from > CONTRIBUTION_MAX || r.msc > CONTRIBUTION_MAX)) return `Every amount must be at most ${pesoLimit(CONTRIBUTION_MAX)}.`;
   if (parsed[0].from !== 0) return "The first bracket must start at a salary of 0.";
   if (parsed.some((r, i) => i > 0 && r.from <= parsed[i - 1].from)) return "Each bracket must start above the one before it.";
   if (parsed.some((r, i) => i > 0 && r.msc < parsed[i - 1].msc)) return "A higher salary bracket cannot have a lower salary credit.";

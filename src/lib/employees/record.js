@@ -14,8 +14,9 @@
  *   TIN         9 digits, or 12 with the 3-digit branch code   123-456-789-000
  */
 
-import { normalizeDigits, normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
+import { normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
+import { EMAIL_MAX, NAME_PART_MAX, POSITION_MAX, SALARY_MAX, digitsOrNull, pesoLimit } from "@/lib/input-limits";
 
 export const SEX_OPTIONS = ["Male", "Female"];
 export const CIVIL_STATUS_OPTIONS = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
@@ -23,9 +24,11 @@ export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time", "Part-time"];
 export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual", "Substitute"];
 export const EMPLOYEE_TYPE_OPTIONS = ["Teaching", "Non-Teaching"];
 export const ACCOUNT_STATUS_OPTIONS = ["Active", "Pending", "On Leave", "Inactive"];
+// profiles_suffix_valid; the form's Suffix list.
+export const SUFFIX_OPTIONS = ["Jr.", "Sr.", "II", "III", "IV", "V"];
 
 export const MIN_WORKING_AGE = 15;
-export const SALARY_MAX = 9_999_999.99;
+export { SALARY_MAX };
 
 // The shared rule for a person's name (src/lib/person-name.js).
 const NAME_PATTERN = PERSON_NAME_PATTERN;
@@ -56,13 +59,19 @@ function yearsBetween(earlier, later) {
   return years;
 }
 
+// Number fields that take digits, spaces and dashes only.
+const DIGIT_FIELDS = ["cp_number", "sss_number", "philhealth_number", "pagibig_number", "tin_number"];
+
 /** Normalised copies of every field the employee record carries. */
 export function normalizeEmployeeFields(body = {}) {
+  // A letter in a number field is refused (validateEmployeeRecord), not dropped.
+  const notDigits = DIGIT_FIELDS.filter((field) => digitsOrNull(body[field]) === null);
   return {
+    not_digits: notDigits,
     first_name: normalizeText(body.first_name),
     middle_initial: normalizeText(body.middle_initial),
     last_name: normalizeText(body.last_name),
-    suffix: normalizeText(body.suffix).slice(0, 16),
+    suffix: normalizeText(body.suffix),
     // Kept as typed (lower-cased) so an invalid address is reported as
     // invalid rather than as missing; validateEmployeeRecord checks the format.
     email: normalizeText(body.email).toLowerCase(),
@@ -77,11 +86,11 @@ export function normalizeEmployeeFields(body = {}) {
     date_hired: normalizeText(body.date_hired),
     basic_salary: body.basic_salary === undefined || body.basic_salary === "" ? NaN : Number(body.basic_salary),
     address: normalizeText(body.address),
-    cp_number: normalizeDigits(body.cp_number),
-    sss_number: normalizeDigits(body.sss_number),
-    philhealth_number: normalizeDigits(body.philhealth_number),
-    pagibig_number: normalizeDigits(body.pagibig_number),
-    tin_number: normalizeDigits(body.tin_number),
+    cp_number: digitsOrNull(body.cp_number) ?? "",
+    sss_number: digitsOrNull(body.sss_number) ?? "",
+    philhealth_number: digitsOrNull(body.philhealth_number) ?? "",
+    pagibig_number: digitsOrNull(body.pagibig_number) ?? "",
+    tin_number: digitsOrNull(body.tin_number) ?? "",
     branch_id: normalizeText(body.branch_id),
   };
 }
@@ -134,6 +143,8 @@ function isBlank(field, value) {
  */
 export function validateEmployeeRecord(record, { creating = false, today = new Date() } = {}) {
   const required = creating ? [...REQUIRED_FIELDS, ...CREATE_ONLY_REQUIRED_FIELDS] : REQUIRED_FIELDS;
+  const notDigits = record.not_digits || [];
+  if (notDigits.length) return `${FIELD_LABELS[notDigits[0]]} may contain digits only.`;
   const missing = required.filter((field) => isBlank(field, record[field]));
   if (missing.length) {
     const labels = missing.map((field) => FIELD_LABELS[field] || field);
@@ -143,12 +154,22 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
   for (const [field, label] of [["first_name", "First name"], ["last_name", "Last name"]]) {
     if (!NAME_PATTERN.test(record[field])) return `${label} may contain ${PERSON_NAME_RULE}.`;
   }
+  // Checked before the account is created: the database refuses a longer
+  // name part (is_valid_name_part), which would leave an account with no profile.
+  for (const [field, label] of [["first_name", "First name"], ["middle_initial", "Middle name"], ["last_name", "Last name"]]) {
+    if (String(record[field] || "").length > NAME_PART_MAX) return `${label} must be at most ${NAME_PART_MAX} characters.`;
+  }
+  if (record.suffix && !SUFFIX_OPTIONS.includes(record.suffix)) {
+    return `Suffix must be one of ${SUFFIX_OPTIONS.join(", ")}, or blank.`;
+  }
   if (record.middle_initial && !NAME_PATTERN.test(record.middle_initial)) {
     return `Middle name may contain ${PERSON_NAME_RULE}.`;
   }
+  if (record.email.length > EMAIL_MAX) return `Email must be at most ${EMAIL_MAX} characters.`;
   if (!EMAIL_PATTERN.test(record.email) || !normalizeRoleEmail(record.email)) {
     return "Enter a valid email address.";
   }
+  if (record.position.length > POSITION_MAX) return `Position must be at most ${POSITION_MAX} characters.`;
 
   const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
   const birthDate = parseIsoDate(record.date_of_birth);
@@ -166,7 +187,7 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
 
   if (creating || Number.isFinite(record.basic_salary)) {
     if (!(record.basic_salary > 0) || record.basic_salary > SALARY_MAX) {
-      return "Basic salary must be greater than 0 and at most ₱9,999,999.99.";
+      return `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.`;
     }
   }
 
@@ -183,5 +204,39 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
     return "TIN must be 9 digits, or 12 digits including the branch code.";
   }
 
+  return null;
+}
+
+/**
+ * The fields an edit sends (HR's Edit Employee, PATCH /api/admin/employees),
+ * checked by the same rules as a new record. A field left out is not checked;
+ * a government number sent blank clears it.
+ */
+export function validateEmployeePatch(body = {}) {
+  for (const field of DIGIT_FIELDS) {
+    if (body[field] === undefined || body[field] === null) continue;
+    const digits = digitsOrNull(body[field]);
+    if (digits === null) return `${FIELD_LABELS[field]} may contain digits only.`;
+    if (field === "cp_number") {
+      if (digits && !/^09\d{9}$/.test(digits)) return "Contact number must be an 11-digit PH mobile number starting with 09.";
+      continue;
+    }
+    if (!digits) continue;
+    if (field === "sss_number" && digits.length !== 10) return "SSS number must be exactly 10 digits.";
+    if ((field === "philhealth_number" || field === "pagibig_number") && digits.length !== 12) {
+      return `${FIELD_LABELS[field]} must be exactly 12 digits.`;
+    }
+    if (field === "tin_number" && digits.length !== 9 && digits.length !== 12) {
+      return "TIN must be 9 digits, or 12 digits including the branch code.";
+    }
+  }
+  if (body.address !== undefined && body.address !== null) {
+    const address = normalizeText(body.address);
+    if (address && address.length < 5) return "Enter the complete home address.";
+    if (address.length > 200) return "Home address must be at most 200 characters.";
+  }
+  if (body.email !== undefined && normalizeText(body.email).length > EMAIL_MAX) {
+    return `Email must be at most ${EMAIL_MAX} characters.`;
+  }
   return null;
 }

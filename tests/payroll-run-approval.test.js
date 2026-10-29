@@ -127,12 +127,13 @@ function fakeRunRpcs() {
     table("payroll_run_summaries").splice(0, Infinity, ...summaries());
     return { data: run, error: null };
   };
-  rpc.results.submit_payroll_run = ({ p_run_id, p_actor, p_items }) => {
+  rpc.results.submit_payroll_run = ({ p_run_id, p_actor, p_items, p_exclusions = [] }) => {
     const run = runs().find((r) => r.id === p_run_id);
     const who = actor(p_actor);
     if (!who || !["accountant", "super_admin"].includes(who.role)) return fail("forbidden: only an Accountant or a Super Admin submits payroll.");
     if (!["draft", "rejected"].includes(run.status)) return fail(`invalid_transition: this run is ${run.status} and cannot be submitted.`);
-    const finals = table("payroll_entries").filter((e) => e.branch_id === run.branch_id && e.pay_period === run.period_label && e.status === "paid");
+    // The run's payslips: the Final ones not already in another run (20261029080000).
+    const finals = table("payroll_entries").filter((e) => e.branch_id === run.branch_id && e.pay_period === run.period_label && e.status === "paid" && (!e.run_id || e.run_id === run.id));
     if (finals.map((e) => e.id).sort().join() !== p_items.map((i) => i.entry_id).sort().join()) return fail("snapshot_mismatch: the snapshot must cover exactly the run's Final payslips.");
     const bad = p_items.find((i) => {
       const t = finals.find((e) => e.id === i.entry_id).payroll.totals;
@@ -144,6 +145,7 @@ function fakeRunRpcs() {
     run.submission_no += 1;
     p_items.forEach((i) => table("payroll_run_items").push({ id: `item-${table("payroll_run_items").length}`, run_id: run.id, submission_no: run.submission_no, ...i }));
     finals.forEach((e) => { e.run_id = run.id; });
+    (p_exclusions || []).forEach((x) => table("payroll_run_exclusions").push({ id: `x-${table("payroll_run_exclusions").length}`, run_id: run.id, submission_no: run.submission_no, employee_id: x.employee_id, employee_name: x.employee_name, employee_code: x.employee_code || null, reason: x.reason || null, acknowledged_by: who.id, acknowledged_by_name: who.full_name, created_at: new Date().toISOString() }));
     const totals = runTotals(p_items);
     Object.assign(run, { status: "pending", submitted_by: who.id, submitted_by_name: who.full_name, submitted_at: new Date().toISOString(), remarks: null, total_employees: totals.employees, total_gross: totals.gross, total_deductions: totals.deductions, total_net: totals.net });
     record(run, from === "rejected" ? "resubmitted" : "submitted", from, who, null);
@@ -266,12 +268,26 @@ describe("Payroll Approval workflow", () => {
     ({ createSessionToken, SESSION_COOKIE } = await import("@/lib/rbac/session"));
   });
 
-  it("refuses to submit while an employee has no Final payslip", async () => {
+  it("an employee with no Final payslip is never left out silently: confirmation required", async () => {
     await json(payroll.POST(req(ACCT, "/api/accountant/payroll", "POST", { action: "batch_submit", pay_period: FIRST, entries: [{ employee_id: ANA }] })));
     const result = await submitBranchA();
     expect(result.status).toBe(409);
-    expect(result.body).toMatchObject({ code: "missing_payslips", missing: [{ name: "Ben Senior High" }] });
+    expect(result.body).toMatchObject({ code: "exclusions_unacknowledged", missing: [{ name: "Ben Senior High" }] });
     expect(table("payroll_runs")).toHaveLength(0);
+  });
+
+  it("left out on purpose: the run is submitted, the list and note go to HR and stay on record", async () => {
+    await json(payroll.POST(req(ACCT, "/api/accountant/payroll", "POST", { action: "batch_submit", pay_period: FIRST, entries: [{ employee_id: ANA }] })));
+    const ben = table("profiles").find((p) => p.full_name === "Ben Senior High");
+    const tooLong = await json(runsRoute.PATCH(req(ACCT, "/api/accountant/payroll-runs", "PATCH", { action: "submit", branch_id: BRANCH_A, period: FIRST, acknowledge_exclusions: true, exclusion_notes: { [ben.id]: "x".repeat(501) } })));
+    expect(tooLong.status).toBe(400);
+    const result = await json(runsRoute.PATCH(req(ACCT, "/api/accountant/payroll-runs", "PATCH", { action: "submit", branch_id: BRANCH_A, period: FIRST, acknowledge_exclusions: true, exclusion_notes: { [ben.id]: "New hire, pending documents" } })));
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ items: 1, excluded: 1 });
+    const call = rpc.calls.find((c) => c.fn === "submit_payroll_run");
+    expect(call.args.p_items.map((i) => i.employee_name)).toEqual(["Ana Preschool"]);
+    expect(call.args.p_exclusions).toEqual([expect.objectContaining({ employee_id: ben.id, employee_name: "Ben Senior High", reason: "New hire, pending documents" })]);
+    expect(table("payroll_run_exclusions")).toEqual([expect.objectContaining({ employee_id: ben.id, reason: "New hire, pending documents", acknowledged_by: ACCT })]);
   });
 
   it("Accountant submits: Pending, the snapshot saved, HR notified, the run locked", async () => {

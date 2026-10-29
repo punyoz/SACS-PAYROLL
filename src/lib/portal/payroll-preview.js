@@ -20,7 +20,7 @@ export function toAmount(value) {
 
 export const same = (a, b) => Math.abs(toAmount(a) - toAmount(b)) < 0.005;
 
-export const SALARY_MAX = 9999999.99;
+export { SALARY_MAX } from "@/lib/input-limits";
 
 /** "₱ 12,345.00" (formatMoney, accountant.js). */
 export function money(value) {

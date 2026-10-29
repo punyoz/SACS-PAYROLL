@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { cn } from "@/lib/utils";
+import { SEARCH_MAX } from "@/lib/input-limits";
 
 /**
  * The portals' table: search, click-to-sort headers, pagination, a skeleton
@@ -134,6 +135,7 @@ export function DataTable({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={searchPlaceholder}
+                maxLength={SEARCH_MAX}
                 aria-label={searchPlaceholder.replace(/…$/, "")}
                 className="pl-8"
                 disabled={loading && !server}

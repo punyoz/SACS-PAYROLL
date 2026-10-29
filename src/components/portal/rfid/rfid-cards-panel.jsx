@@ -20,6 +20,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateTime } from "@/lib/portal/payroll-preview";
 import { CARD_STATUS_LABELS, CARD_STATUS_TONES } from "@/lib/rfid/cards";
 import { cn } from "@/lib/utils";
+import { RFID_UID_LENGTH, RFID_UID_PATTERN } from "@/lib/input-limits";
 
 /*
  * RFID Cards (/api/rfid/cards, 20261021030000): the same cards for HR, the
@@ -83,7 +84,7 @@ export function RfidCardsPanel({ refreshKey }) {
     const uid = String(input.uid || "").replace(/\D/g, "");
     setError("");
     if (kind === "register" && !input.employee) { setError("Choose the employee."); return; }
-    if (["register", "replace"].includes(kind) && !/^\d{1,16}$/.test(uid)) { setError("Tap the card on the reader, or type its number (digits only, up to 16)."); return; }
+    if (["register", "replace"].includes(kind) && !RFID_UID_PATTERN.test(uid)) { setError(`Tap the card on the reader, or type its number (exactly ${RFID_UID_LENGTH} digits).`); return; }
     if (kind !== "register" && String(input.reason || "").trim().length < 5) { setError("Give the reason (at least 5 characters)."); return; }
     setBusy(true);
     try {
@@ -242,7 +243,7 @@ export function RfidCardsPanel({ refreshKey }) {
                   {["register", "replace"].includes(dialog.kind) ? (
                     <div className="space-y-1.5">
                       <Label htmlFor="rf-uid" className="flex items-center gap-1.5"><ScanLineIcon className="size-4 text-gold-text" aria-hidden="true" />{dialog.kind === "replace" ? "New card UID" : "Card UID"}</Label>
-                      <Input id="rf-uid" ref={uidRef} inputMode="numeric" autoComplete="off" maxLength={16} className="h-11 font-mono text-base"
+                      <Input id="rf-uid" ref={uidRef} inputMode="numeric" autoComplete="off" maxLength={RFID_UID_LENGTH} className="h-11 font-mono text-base"
                         placeholder="Tap the card now, or type its number" value={input.uid}
                         onChange={(e) => { setInput((c) => ({ ...c, uid: e.target.value.replace(/\D/g, "") })); setError(""); }} />
                       <p className="text-xs text-muted-foreground">The reader types the number and Enter. No reader? Type the number printed on the card.</p>
@@ -289,7 +290,7 @@ export function RfidCardsPanel({ refreshKey }) {
           const person = employees.find((e) => String(e.employee_code || "").toLowerCase() === String(code || "").toLowerCase());
           if (!person) return { label: text, error: `No employee with ID ${code || "(blank)"} in reach.` };
           const uid = String(number || "").replace(/\D/g, "");
-          if (!uid || uid.length > 16) return { label: person.full_name, error: "The card number must be 1-16 digits." };
+          if (!RFID_UID_PATTERN.test(uid)) return { label: person.full_name, error: `The card number must be exactly ${RFID_UID_LENGTH} digits.` };
           if (bulkInput.mode === "register") {
             if (person.has_active_card) return { label: person.full_name, error: "Already has an active card (use Replace)." };
             return { label: `${person.full_name} → ${uid}`, payload: { employee: person, uid } };

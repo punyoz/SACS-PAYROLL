@@ -8,6 +8,8 @@
  *                                        snapshot row, history, Early Bird winner
  *   GET   ?run_id=…&format=xlsx|pdf      the same as Excel or PDF
  *   GET   ?view=history[&branch_id][&period][&q]
+ *   GET   ?view=excluded                 employees left out of a submitted run and
+ *                                        not in any run of that period since (follow-up)
  *                                        every approve / reject decision, newest
  *                                        first, each with the submission it
  *                                        decided (kept for good: a rejected run
@@ -35,7 +37,12 @@ import { money } from "@/lib/payroll/payslip-summary";
 import { buildXlsx } from "@/lib/export/xlsx";
 import { buildTablePdf } from "@/lib/export/table-pdf";
 import { FLAG_LABELS, RUN_STATUS_LABELS, describeRunError, runTotals, shapeRun } from "@/lib/payroll/runs";
+import { listOpenExclusions } from "@/lib/payroll/run-service";
 import { notify } from "@/lib/branch-requests-server";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { remarks: [1000, "The remarks"] };
 
 const NOT_READY = "Payroll Approval is not set up yet: apply supabase/migrations/20261014010000_payroll_run_approval.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -148,12 +155,15 @@ async function loadRunDetail(supabase, guard, runId) {
   if (runResult.error) return { error: NOT_READY, status: 503 };
   if (!runResult.data) return { error: "Payroll run not found.", status: 404 };
   const run = shapeRun(runResult.data);
-  const [items, history, winner] = await Promise.all([
+  const [items, history, winner, excluded] = await Promise.all([
     fetchAllRows(() => supabase.from("payroll_run_items").select("*")
       .eq("run_id", run.id).eq("submission_no", run.submission_no)
       .order("employee_name", { ascending: true }).order("id", { ascending: true })),
     supabase.from("payroll_approval_history").select("*").eq("run_id", run.id).order("created_at", { ascending: true }),
     supabase.from("early_bird_winners").select("*").eq("period_label", run.period_label).maybeSingle(),
+    // Who the Accountant left out of this snapshot, and why (20261029080000).
+    supabase.from("payroll_run_exclusions").select("employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at")
+      .eq("run_id", run.id).eq("submission_no", run.submission_no).order("employee_name", { ascending: true }),
   ]);
   if (items.error) throw new Error(items.error.message);
   const rows = (items.data || []).map(shapeItem);
@@ -167,6 +177,10 @@ async function loadRunDetail(supabase, guard, runId) {
     run: { ...run, totals },
     items: rows,
     history: history.data || [],
+    exclusions: (excluded.data || []).map((x) => ({
+      employee_id: x.employee_id, employee_name: x.employee_name, employee_code: x.employee_code || null,
+      reason: x.reason || null, acknowledged_by_name: x.acknowledged_by_name || null, at: x.created_at,
+    })),
     early_bird: visibleWinner,
     can_review: guard.role === "hr" && run.status === "pending",
   };
@@ -265,6 +279,10 @@ export async function GET(request) {
       return NextResponse.json({ available: !result.error, pending: result.error ? 0 : result.count || 0 });
     }
 
+    if (normalizeText(url.searchParams.get("view")) === "excluded") {
+      return NextResponse.json({ excluded: await listOpenExclusions(supabase, guard) });
+    }
+
     const runId = normalizeText(url.searchParams.get("run_id"));
     if (runId) {
       if (!UUID.test(runId)) return NextResponse.json({ error: "Payroll run not found." }, { status: 404 });
@@ -351,6 +369,9 @@ export async function PATCH(request) {
     if (guard.role !== "hr") return NextResponse.json({ error: "Only HR approves or rejects payroll.", code: "forbidden" }, { status: 403 });
 
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action).toLowerCase();
     const remarks = normalizeText(body.remarks).slice(0, 1000);
     const supabase = getAdminClient();

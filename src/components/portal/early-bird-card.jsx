@@ -15,6 +15,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel, money, shortDate } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { INCENTIVE_MAX } from "@/lib/input-limits";
 
 /*
  * Early Bird incentive (/api/admin/early-bird; src/lib/payroll/early-bird.js):
@@ -110,7 +111,7 @@ export function EarlyBirdCard({ refreshKey }) {
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="eb-amount">Incentive amount (₱)</Label>
-            <Input id="eb-amount" type="number" min="0" step="0.01" inputMode="decimal" className="tabular-nums" value={form.amount} disabled={!canAmount}
+            <Input id="eb-amount" type="number" min="0" max={INCENTIVE_MAX} step="0.01" inputMode="decimal" className="tabular-nums" value={form.amount} disabled={!canAmount}
               onChange={(e) => setForm((c) => ({ ...c, amount: e.target.value }))} />
             <p className="text-xs text-muted-foreground">₱0 switches the incentive off.</p>
           </div>

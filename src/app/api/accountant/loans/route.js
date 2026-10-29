@@ -40,6 +40,10 @@ import {
 } from "@/lib/payroll/loans";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { describeSubsidyError } from "@/lib/payroll/subsidy-requests";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { description: [200, "The description"], reason: [300, "The reason"] };
 
 const peso = (value) => roundPeso(value);
 const NOT_READY = "Loans are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
@@ -168,6 +172,9 @@ export async function POST(request) {
     const guard = await requirePermission(request, "loans", "create");
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action);
     const supabase = getAdminClient();
 
@@ -282,6 +289,9 @@ export async function PATCH(request) {
     const guard = await requirePermission(request, "loans", "update");
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action);
     const supabase = getAdminClient();
 

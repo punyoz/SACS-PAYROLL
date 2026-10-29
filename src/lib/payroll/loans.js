@@ -23,6 +23,7 @@
 import { roundPeso } from "@/lib/payroll/money";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { isApproved } from "@/lib/payroll/adjustment-approvals";
+import { CASH_ADVANCE_MAX, LOAN_MAX, pesoLimit } from "@/lib/input-limits";
 
 const peso = (value) => roundPeso(value);
 
@@ -65,7 +66,10 @@ export function validateLoanInput(input) {
   const type = String(input?.loan_type || "");
   if (!SALARY_LOAN_TYPES.includes(type)) return "Choose the loan type.";
   const principal = Number(input.principal);
-  if (!(Number.isFinite(principal) && principal > 0 && principal <= 9999999.99)) return "Enter the amount lent (more than 0).";
+  // A loan of the "cash advance" type keeps to the cash advance limit.
+  const max = type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX;
+  if (!(Number.isFinite(principal) && principal > 0)) return "Enter the amount lent (more than 0).";
+  if (principal > max) return `The amount lent can be at most ${pesoLimit(max)}.`;
   const pct = Number(input.interest_pct ?? 0);
   if (!(Number.isFinite(pct) && pct >= 0 && pct <= 100)) return "Interest must be between 0 and 100%.";
   const payrolls = Number(input.number_of_payrolls);
@@ -82,6 +86,7 @@ export function validateLoanInput(input) {
 export function validateSubsidyAdvanceInput(input, available) {
   const principal = Number(input?.principal);
   if (!(Number.isFinite(principal) && principal > 0)) return "Enter the advance amount (more than 0).";
+  if (principal > LOAN_MAX) return `The advance can be at most ${pesoLimit(LOAN_MAX)}.`;
   if (principal > Number(available || 0)) return `The advance is more than the subsidy balance available (${peso(available).toFixed(2)}).`;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(input?.date_granted || ""))) return "Choose the date the advance is released.";
   return null;

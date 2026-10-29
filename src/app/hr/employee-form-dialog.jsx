@@ -19,6 +19,7 @@ import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField } from "@/lib/portal/format";
 import { cleanNameInput, NAME_TYPING_HINT, PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
 import { cn } from "@/lib/utils";
+import { EMAIL_MAX, SALARY_MAX, pesoLimit } from "@/lib/input-limits";
 
 /*
  * Add Employee / Edit Employee Information (openHrAddEmployeeModal,
@@ -169,7 +170,7 @@ function validate(values, { creating, ecOnFile }) {
   let basicSalary;
   if (creating) {
     basicSalary = Number(v("basic_salary"));
-    if (!(basicSalary > 0) || basicSalary > 9999999.99) return fail("basic_salary", "Basic salary must be greater than 0 and at most ₱9,999,999.99.");
+    if (!(basicSalary > 0) || basicSalary > SALARY_MAX) return fail("basic_salary", `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.`);
   }
   if (v("address").length < 5) return fail("address", "Enter the complete home address.");
 
@@ -357,7 +358,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   const aria = (key) => ({ id: `emp-form-${key}`, "aria-invalid": errors[key] ? true : undefined, "aria-describedby": errors[key] ? `emp-form-${key}-error` : undefined });
 
   const text = (key, props = {}) => <Input {...aria(key)} value={values[key]} onChange={(e) => set(key, e.target.value)} {...props} />;
-  const name = (key, props = {}) => <Input {...aria(key)} value={values[key]} onChange={(e) => setName(key, e.target.value)} maxLength={30} autoComplete="off" {...props} />;
+  const name = (key, props = {}) => <Input {...aria(key)} value={values[key]} onChange={(e) => setName(key, e.target.value)} maxLength={50} autoComplete="off" {...props} />;
   const digits = (key, props = {}) => <Input {...aria(key)} inputMode="numeric" value={values[key]} onChange={(e) => set(key, formatDigitField(e.target.value, DIGIT_SPEC[key]))} {...props} />;
   const readOnly = (key, value) => <Input id={`emp-form-${key}`} value={value} readOnly tabIndex={-1} className="bg-muted text-muted-foreground" />;
   const select = (key, options, placeholder, { allowNone = false } = {}) => (
@@ -392,7 +393,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
             {field("middle_initial", name("middle_initial", { placeholder: "e.g. Santos" }))}
             {field("last_name", name("last_name", { placeholder: "e.g. Dela Cruz" }), { required: true })}
             {field("suffix", select("suffix", SUFFIXES, "None", { allowNone: true }))}
-            {field("email", text("email", { type: "email", maxLength: 100, placeholder: "e.g. juan.delacruz@example.com", autoComplete: "off" }), { wide: true, required: true })}
+            {field("email", text("email", { type: "email", maxLength: EMAIL_MAX, placeholder: "e.g. juan.delacruz@example.com", autoComplete: "off" }), { wide: true, required: true })}
             {creating ? (
               <>
                 {field("role", select("role", [{ value: "employee", label: "Employee" }, { value: "accountant", label: "Accountant" }], "Select role"), { required: true })}
@@ -419,7 +420,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
             {field("employment_status", select("employment_status", EMPLOYMENT_STATUSES, "Select employment status"), { required: true })}
             {field("date_hired", date("date_hired"), { required: true })}
             {creating
-              ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: "9999999.99", step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
+              ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: String(SALARY_MAX), step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
               : ["AWOL", "Separated"].includes(values.employee_status)
                 // Set by the AWOL case flow only (HR → AWOL Cases).
                 ? field("employee_status", readOnly("employee_status", values.employee_status), { required: true, hint: "Changed only through the AWOL case." })

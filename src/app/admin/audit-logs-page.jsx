@@ -15,6 +15,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson } from "@/lib/portal/api";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { logAuditMovement } from "@/lib/portal/audit";
+import { SEARCH_MAX } from "@/lib/input-limits";
 
 /*
  * Audit Logs (loadAuditLogs / exportAuditLogsCsv, public/legacy/js/admin.js):
@@ -145,7 +146,7 @@ export function AuditLogsPage({ refreshKey, limit = 250, csvName = () => "sacs-a
               <Label htmlFor="adm-audit-search">Search logs</Label>
               <div className="relative">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                <Input id="adm-audit-search" type="search" className="pl-8" placeholder="Module, action, description, entity" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <Input maxLength={SEARCH_MAX} id="adm-audit-search" type="search" className="pl-8" placeholder="Module, action, description, entity" value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
             </div>
             <div className="space-y-2">
