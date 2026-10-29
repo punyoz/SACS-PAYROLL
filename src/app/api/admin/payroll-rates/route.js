@@ -18,6 +18,10 @@ import {
 } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [300, "The note"] };
 
 /**
  * Effective-dated payroll rates (Super Admin, System Configuration).
@@ -123,6 +127,9 @@ export async function POST(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const input = {
       rate_type: normalizeText(body.rate_type),
       scope: normalizeText(body.scope, "global").toLowerCase(),

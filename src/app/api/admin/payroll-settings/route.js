@@ -13,6 +13,11 @@ import { resolveTaxTableRows } from "@/lib/payroll/semi-monthly";
 import { loadSssMscRows, mscTableOn, mscVersions, validateMscRows } from "@/lib/payroll/sss-msc";
 import { roundPeso } from "@/lib/payroll/money";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { CONTRIBUTION_MAX, TAX_AMOUNT_MAX, pesoLimit } from "@/lib/input-limits";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [300, "The note"] };
 
 /**
  * Semi-monthly payroll settings (Super Admin, System Configuration).
@@ -85,6 +90,7 @@ function validateTaxRows(rows) {
   const parsed = rows.map((row) => ({ over: Number(row.bracket_over), base: Number(row.base_tax), pct: Number(row.rate_pct) }));
   if (parsed.some((r) => ![r.over, r.base, r.pct].every(Number.isFinite) || r.over < 0 || r.base < 0 || r.pct < 0)) return "Every amount must be 0 or more.";
   if (parsed.some((r) => r.pct > 100)) return "A rate cannot be more than 100%.";
+  if (parsed.some((r) => r.over > TAX_AMOUNT_MAX || r.base > TAX_AMOUNT_MAX)) return `Every amount must be at most ${pesoLimit(TAX_AMOUNT_MAX)}.`;
   if (parsed[0].over !== 0) return "The first bracket must start at 0.";
   if (parsed.some((r, i) => i > 0 && r.over <= parsed[i - 1].over)) return "Each bracket must start above the one before it.";
   return null;
@@ -241,6 +247,9 @@ export async function POST(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const kind = normalizeText(body.kind).toLowerCase();
     const requested = normalizeText(body.effective_date);
     const note = normalizeText(body.note).slice(0, 300) || null;
@@ -345,7 +354,7 @@ export async function POST(request) {
       if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
       const amount = (value) => (value === "" || value === null || value === undefined ? null : Number(value));
       const values = { sss: amount(body.sss), philhealth: amount(body.philhealth), pagibig: amount(body.pagibig) };
-      if (Object.values(values).some((v) => v !== null && (!Number.isFinite(v) || v < 0 || v > 999999.99))) {
+      if (Object.values(values).some((v) => v !== null && (!Number.isFinite(v) || v < 0 || v > CONTRIBUTION_MAX))) {
         return NextResponse.json({ error: "Enter each amount as 0 or more, or leave it blank to use the legal table." }, { status: 400 });
       }
       const { effectiveDate, warning } = protectEffectiveDate(requested, await latestFinalizedPeriod(supabase));

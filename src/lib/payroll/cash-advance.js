@@ -22,6 +22,7 @@
  */
 
 import { roundPeso } from "@/lib/payroll/money";
+import { CASH_ADVANCE_MAX, pesoLimit } from "@/lib/input-limits";
 
 const peso = (value) => roundPeso(value);
 
@@ -115,7 +116,8 @@ export function scheduleCashAdvances({ advances, repaid, period, available }) {
 export function validateCashAdvanceInput({ principal, installment_amount: installment, deduct_on: deductOn, date_granted: granted, start_date: start }) {
   const amount = Number(principal);
   const each = Number(installment);
-  if (!(Number.isFinite(amount) && amount > 0 && amount <= 9999999.99)) return "Enter the amount advanced (more than 0).";
+  if (!(Number.isFinite(amount) && amount > 0)) return "Enter the amount advanced (more than 0).";
+  if (amount > CASH_ADVANCE_MAX) return `A cash advance can be at most ${pesoLimit(CASH_ADVANCE_MAX)}.`;
   if (!(Number.isFinite(each) && each > 0)) return "Enter the installment deducted per payslip (more than 0).";
   if (each > amount) return "The installment cannot be more than the amount advanced.";
   if (!CASH_ADVANCE_DEDUCT_ON.includes(String(deductOn || ""))) return "Choose which payslips deduct it.";

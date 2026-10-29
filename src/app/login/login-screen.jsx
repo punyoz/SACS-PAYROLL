@@ -19,6 +19,7 @@ import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/comp
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme";
 import { ResetPasswordDialog } from "./reset-password-dialog";
+import { EMAIL_MAX } from "@/lib/input-limits";
 import {
   LOGIN_REASON_MESSAGES,
   ROLE_ROUTES,
@@ -145,6 +146,7 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
               id="login-identity"
               autoComplete="username"
               placeholder="Enter your username or email"
+              maxLength={EMAIL_MAX}
               value={identity}
               onChange={(e) => setIdentity(e.target.value)}
               aria-invalid={Boolean(error) && !identity.trim()}
@@ -166,6 +168,7 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 placeholder="Enter your password"
+                maxLength={72}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 aria-invalid={Boolean(error) && !password.trim()}

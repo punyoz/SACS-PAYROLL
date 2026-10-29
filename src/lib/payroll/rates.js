@@ -16,6 +16,7 @@
 
 import { usesLegalRules } from "@/lib/payroll/statutory";
 import { dailyRateFor } from "@/lib/payroll/semi-monthly";
+import { CONTRIBUTION_MAX, pesoLimit } from "@/lib/input-limits";
 
 export const RATE_TYPES = Object.freeze({
   hourly: { label: "Hourly rate", unit: "peso", hint: "Undertime: minutes ÷ 60 × this rate. From Oct 1, 2026 it is always the daily rate ÷ 8 and is not set on its own: change the daily rate or Working days per year instead" },
@@ -339,6 +340,7 @@ export function validateRateInput({ rate_type: rateType, scope, scope_ref: scope
     return "Enter a value of 0 or more.";
   }
   if (RATE_TYPES[rateType].unit === "percent" && amount > 100) return "A percentage cannot be more than 100.";
+  if (RATE_TYPES[rateType].unit === "peso" && amount > CONTRIBUTION_MAX) return `Enter an amount of at most ${pesoLimit(CONTRIBUTION_MAX)}.`;
   if (["sss_pct", "philhealth_pct", "pagibig_pct", "sss_er_pct", "philhealth_er_pct", "pagibig_er_pct"].includes(rateType) && amount > MAX_EMPLOYEE_SHARE_PCT) {
     return `A ${rateType.includes("_er_") ? "employer" : "employee"} share of ${amount}% is not a government contribution rate (at most ${MAX_EMPLOYEE_SHARE_PCT}%). Check the circular.`;
   }

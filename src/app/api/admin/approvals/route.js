@@ -32,6 +32,11 @@ import { roundPeso } from "@/lib/payroll/money";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { nextSecondHalf, suggestedAmortization, validateLoanInput, validateSubsidyAdvanceInput } from "@/lib/payroll/loans";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { reason: [1000, "The reason"], note: [1000, "The note"] };
+const DETAIL_TEXT_CAPS = { description: [200, "The description"], months_label: [60, "The months"] };
 import {
   EXCESS_OPTIONS,
   SUBSIDY_KIND_LABELS,
@@ -116,6 +121,9 @@ export async function POST(request) {
     if (guard.denied) return guard.denied;
     if (guard.role !== "accountant") return NextResponse.json({ error: "Only the Accountant processes a subsidy.", code: "forbidden" }, { status: 403 });
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS) || textLimitError(body.details, DETAIL_TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action);
     if (action !== "process" && action !== "request_adjustment") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     const supabase = getAdminClient();
@@ -207,6 +215,9 @@ export async function PATCH(request) {
     if (guard.denied) return guard.denied;
     if (guard.role !== "hr") return NextResponse.json({ error: "Only HR approves or rejects a subsidy.", code: "forbidden" }, { status: 403 });
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS) || textLimitError(body.details, DETAIL_TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action);
     if (["decide_adjustment", "decide_loan_decision", "recommend_loan_decision"].includes(action)) {
       // The one-step decisions are gone (2026-10-21): the Accountant processes first.

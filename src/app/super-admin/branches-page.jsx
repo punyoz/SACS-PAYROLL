@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
+import { BRANCH_NAME_MAX, SEARCH_MAX } from "@/lib/input-limits";
 
 /*
  * Branch Management (loadSABranches / openSABranchModal / submitSABranch,
@@ -184,8 +185,10 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
             <Label htmlFor="sa-branch-name">Branch name<span className="text-destructive" aria-hidden="true"> *</span></Label>
             <Input
               id="sa-branch-name"
+              maxLength={BRANCH_NAME_MAX}
               value={values.name}
-              onChange={(e) => set("name", e.target.value)}
+              // Letters, digits, spaces and . ' - only (BRANCH_NAME_PATTERN); anything else is not typed in.
+              onChange={(e) => set("name", e.target.value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ0-9 .'-]/g, ""))}
               placeholder="e.g. Main Campus"
               aria-invalid={errors.name ? true : undefined}
               aria-describedby={errors.name ? "sa-branch-name-error" : undefined}
@@ -257,7 +260,7 @@ export function BranchesPage({ refreshKey }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1 sm:max-w-sm">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input type="search" aria-label="Search branches" placeholder="Search name, location or code…" className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input maxLength={SEARCH_MAX} type="search" aria-label="Search branches" placeholder="Search name, location or code…" className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <Button className="sm:ml-auto" onClick={() => setDialog({ open: true, branch: null, code: nextCode() })}><PlusIcon aria-hidden="true" />Add branch</Button>
       </div>

@@ -23,6 +23,10 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { readSession } from "@/lib/rbac/session";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [500, "The note"] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NO_BRANCH = "00000000-0000-0000-0000-000000000000";
@@ -73,6 +77,9 @@ export async function PATCH(request) {
     }
 
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const id = normalizeText(body?.id);
     const note = normalizeText(body?.note).slice(0, 500);
     if (!UUID.test(id)) return NextResponse.json({ error: "Choose a review flag." }, { status: 400 });

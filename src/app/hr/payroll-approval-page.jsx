@@ -27,9 +27,11 @@ import { usePortalSession } from "@/components/portal/session";
 import { useLivePayrollRuns } from "@/components/portal/use-live-payroll-runs";
 import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel, dateTime, money, shortDate } from "@/lib/portal/payroll-preview";
-import { FLAG_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES } from "@/lib/payroll/runs";
+import { FLAG_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES, runNoLabel } from "@/lib/payroll/runs";
 import { CorrectionsCard } from "@/components/portal/payroll-corrections";
+import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exclusions";
 import { cn } from "@/lib/utils";
+import { SEARCH_MAX } from "@/lib/input-limits";
 
 /*
  * HR → Payroll Approval (/api/hr/payroll-runs). One row per branch per pay
@@ -138,6 +140,15 @@ function DecisionDialog({ decision, onClose, onDone }) {
               ) : null}
             </Table>
           </div>
+          {runs.some((r) => r.excluded_employees > 0) ? (
+            <Alert className="border-warning/40 bg-warning/5">
+              <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+              <AlertDescription>
+                Employees were left out: {runs.filter((r) => r.excluded_employees > 0).map((r) => `${r.branch_name} ${r.excluded_employees}`).join(", ")}.
+                {runs.length > 1 ? " Open a run to see who and why." : " They are listed on the run, with the Accountant's notes."}
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <dl className="grid grid-cols-3 gap-2 text-sm">
             <div className="rounded-lg border bg-muted/40 px-3 py-2"><dt className="text-xs text-muted-foreground">Gross</dt><dd className="font-semibold tabular-nums">{money(grand.gross)}</dd></div>
             <div className="rounded-lg border bg-muted/40 px-3 py-2"><dt className="text-xs text-muted-foreground">Deductions</dt><dd className="font-semibold tabular-nums">{money(grand.deductions)}</dd></div>
@@ -302,7 +313,7 @@ function RunDetail({ runId, onBack, onChanged }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
-            {run ? <>{run.branch_name} · {run.period_label} <RunStatusBadge status={run.status} /></> : <Skeleton className="h-6 w-64" />}
+            {run ? <>{run.branch_name} · {run.period_label}{runNoLabel(run) ? ` · ${runNoLabel(run)}` : ""} <RunStatusBadge status={run.status} /></> : <Skeleton className="h-6 w-64" />}
           </CardTitle>
           <CardDescription>
             {run ? <>{cutoffLabel(run)}: {first ? "attendance deductions only (late, undertime, absences)" : "attendance for the 16th to month end, plus withholding tax, SSS, PhilHealth, Pag-IBIG, loans and other deductions"}. Submitted by {run.submitted_by_name || "—"}{run.submitted_at ? ` on ${dateTime(run.submitted_at)}` : ""} · snapshot {run.submission_no}.</> : null}
@@ -315,6 +326,7 @@ function RunDetail({ runId, onBack, onChanged }) {
           {run?.status === "approved" ? (
             <Alert className="border-success/40 bg-success/5"><CheckCircle2Icon className="text-success" aria-hidden="true" /><AlertDescription>Approved by {run.reviewed_by_name} on {dateTime(run.reviewed_at)}{run.remarks ? ` — ${run.remarks}` : ""}. Locked; payslips are visible to employees.</AlertDescription></Alert>
           ) : null}
+          <ExclusionsAlert exclusions={data?.exclusions} title="Left out of this run by the Accountant" />
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total employees" value={run?.totals.employees} icon={UsersIcon} loading={state.loading && !data} />
             <StatCard label="Total gross" value={run ? money(run.totals.gross) : null} icon={WalletIcon} tone="info" loading={state.loading && !data} />
@@ -515,6 +527,10 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
     { key: "branch_name", header: "Branch", sortable: true, className: "font-medium", searchValue: (r) => r.branch_name },
     { key: "period_start", header: "Period", sortable: true, cell: (r) => <span className="whitespace-nowrap">{r.period_label}<span className="block text-xs text-muted-foreground">{cutoffLabel(r)}</span></span>, searchValue: (r) => r.period_label },
     { key: "total_employees", header: "Employees", align: "right", sortable: true, className: "tabular-nums" },
+    {
+      key: "excluded_employees", header: "Left out", sortable: true,
+      cell: (r) => (r.excluded_employees ? <StatusBadge tone="warning">{r.excluded_employees} left out</StatusBadge> : <span className="text-xs text-muted-foreground">None</span>),
+    },
     { key: "total_gross", header: "Total gross", align: "right", sortable: true, className: "tabular-nums whitespace-nowrap", cell: (r) => money(r.total_gross) },
     { key: "total_deductions", header: "Total deductions", align: "right", sortable: true, className: "tabular-nums whitespace-nowrap", cell: (r) => money(r.total_deductions) },
     { key: "total_net", header: "Total net pay", align: "right", sortable: true, className: "tabular-nums whitespace-nowrap font-medium", cell: (r) => money(r.total_net) },
@@ -578,7 +594,7 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="pa-search">Search</Label>
-              <Input id="pa-search" placeholder="Branch, submitter or employee name" value={filters.q} onChange={(e) => setFilters((c) => ({ ...c, q: e.target.value }))} />
+              <Input maxLength={SEARCH_MAX} id="pa-search" placeholder="Branch, submitter or employee name" value={filters.q} onChange={(e) => setFilters((c) => ({ ...c, q: e.target.value }))} />
             </div>
           </div>
           {state.error && !data ? <ErrorState message={state.error} onRetry={load} /> : (
@@ -603,6 +619,9 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
         </CardContent>
       </Card>
       <DecisionDialog decision={decision} onClose={() => setDecision(null)} onDone={() => { setDecision(null); setSelected(new Set()); load(); onChanged?.(); }} />
+      {/* Employees left out of a submitted run and not paid for that period yet. */}
+      <OpenExclusionsCard endpoint="/api/hr/payroll-runs?view=excluded" refreshKey={refreshKey} showBranch
+        description="Left out of a submitted run by the Accountant and not paid for that period yet. The Accountant processes them and submits a supplemental run for you to approve." />
       {/* Corrections to approved payslips: HR approves or rejects them. */}
       <CorrectionsCard refreshKey={refreshKey} />
     </>

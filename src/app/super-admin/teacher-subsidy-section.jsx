@@ -14,6 +14,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel, dateTime, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { PESO_MAX } from "@/lib/input-limits";
 
 /*
  * Licensed Teacher Subsidy (docs/payroll-schedule-loans-awol.md §6.2, §9.2;
@@ -127,7 +128,7 @@ export function TeacherSubsidySection({ refreshKey }) {
           ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5"><Label htmlFor="sub-amount">Annual subsidy amount (₱)</Label>
-              <Input id="sub-amount" type="number" min="0" step="0.01" value={form.amount} onChange={(e) => set("amount", e.target.value)} /></div>
+              <Input id="sub-amount" type="number" min="0" max={PESO_MAX} step="0.01" value={form.amount} onChange={(e) => set("amount", e.target.value)} /></div>
             <div className="space-y-1.5"><Label htmlFor="sub-basis">Subsidy year</Label>
               {select("sub-basis", "basis", [["calendar", "Calendar year (Jan 1 – Dec 31)"], ["school_year", "School year"]])}</div>
             {form.basis === "school_year" ? (

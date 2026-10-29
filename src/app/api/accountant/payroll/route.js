@@ -88,10 +88,11 @@ import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
-import { isLockedRun, loadRunsFor, lockedRunMessage, requiresApproval, shapeRun } from "@/lib/payroll/runs";
+import { governingRunFor, governingRunMessage, isLockedRun, loadRunsFor, lockedForNewPayslip, lockedRunMessage, requiresApproval, shapeRun } from "@/lib/payroll/runs";
 import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadYearEndTaxContext } from "@/lib/payroll/bir-forms";
 import { applyYearEndTax, yearEndAdjustment, yearEndCutoffLine } from "@/lib/payroll/year-end-tax";
+import { CONTRIBUTION_MAX, DAYS_MAX, INCENTIVE_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX, pesoLimit } from "@/lib/input-limits";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -341,6 +342,8 @@ function normalizePayrollEntry(row) {
     approval_id: normalizeText(row.approval_id),
     // Stamped by trigger; ties the entry to its branch's payroll run.
     branch_id: row.branch_id || null,
+    // The run it was submitted in (a period can also have a supplemental run).
+    run_id: row.run_id || null,
     payslip_no: normalizeText(row.payslip_no) || null,
     submitted_at: row.submitted_at || null,
     created_at: row.created_at || new Date().toISOString(),
@@ -560,7 +563,7 @@ function computeTotals(payroll) {
 // History rows carry these, not the whole payroll object (~9 KB each): the
 // list pages and reports read only the totals and the deduction lines.
 const LIGHT_ENTRY_COLUMNS = "id,employee_id,employee_name,employee_code,employee_type,position,pay_period,status,approval_id,"
-  + "payslip_no,branch_id,submitted_at,created_at,updated_at,basic_salary,sss,philhealth,pagibig,withholding_tax,gross_pay,"
+  + "payslip_no,branch_id,run_id,submitted_at,created_at,updated_at,basic_salary,sss,philhealth,pagibig,withholding_tax,gross_pay,"
   + "total_deductions,net_pay,totals:payroll->totals,deductions:payroll->deductions,incentives:payroll->incentives,"
   + "monthly_cutoff:payroll->monthly->cutoff";
 
@@ -1664,6 +1667,49 @@ function basicTyped(input, computed) {
   return input !== undefined && input !== null && input !== "" && differs(input, computed);
 }
 
+/**
+ * An attendance figure the form overrides must be a number from 0 to what
+ * the period can hold (its days; undertime: its minutes), never letters
+ * (which pickAmount would read as 0). Returns an error message, or null.
+ */
+function attendanceInputError(deductions, period) {
+  const days = period?.start_key && period?.end_key
+    ? Math.round((Date.parse(`${period.end_key}T00:00:00Z`) - Date.parse(`${period.start_key}T00:00:00Z`)) / 86400000) + 1
+    : 31;
+  const limits = [
+    ["absences_days", "Absent days", days],
+    ["late_days", "Late days", days],
+    ["half_days", "Half days", days],
+    ["leave_without_pay_days", "Leave without pay days", days],
+    ["undertime_minutes", "Undertime minutes", days * 24 * 60],
+  ];
+  for (const [field, label, max] of limits) {
+    const raw = deductions?.[field];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > max) return `${label} must be a number from 0 to ${max} for this period.`;
+  }
+  // Amounts sent with the payslip: a number within its limit, never letters.
+  const amounts = [
+    ["sss", "SSS", CONTRIBUTION_MAX],
+    ["philhealth", "PhilHealth", CONTRIBUTION_MAX],
+    ["pagibig", "Pag-IBIG", CONTRIBUTION_MAX],
+    ["withholding_tax", "Withholding tax", PESO_MAX],
+  ];
+  for (const [field, label, max] of amounts) {
+    const raw = deductions?.[field];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > max) return `${label} must be an amount from ₱0 to ${pesoLimit(max)}.`;
+  }
+  return null;
+}
+
+/** An attendance override reason longer than REASON_MAX, as a message. */
+function overrideReasonError(reason) {
+  return normalizeText(reason).length > REASON_MAX ? `The override reason can be at most ${REASON_MAX} characters.` : null;
+}
+
 function pickAmount(value, fallback) {
   if (value === undefined || value === null || value === "") return Math.max(0, toAmount(fallback));
   return Math.max(0, toAmount(value));
@@ -1689,7 +1735,7 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
   const { resolved, auto } = context;
   const semi = context.semi;
   const rates = rateValues(resolved);
-  const reason = normalizeText(input.override_reason);
+  const reason = normalizeText(input.override_reason).slice(0, REASON_MAX);
   const halfPay = computeFirstHalf({ monthlySalary: employee.basic_salary }).semi_monthly_pay;
   // A new hire is paid by the day from the hire date (§7.6), not the full Rate.
   const hire = hireProration({
@@ -1870,7 +1916,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
   const rates = rateValues(resolved);
   const deductionsIn = input.deductions || {};
   const incentivesIn = input.incentives || {};
-  const reason = normalizeText(input.override_reason);
+  const reason = normalizeText(input.override_reason).slice(0, REASON_MAX);
   const deviations = [];
   const note = (field, def, value) => {
     if (differs(def, value)) deviations.push({ field, default: toAmount(def), value: toAmount(value) });
@@ -2532,6 +2578,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         subsidy_taxable: toAmount(subsidy.earnings_total - subsidy.non_taxable + subsidy.extra_taxable),
         // Year-end tax adjustment on this payslip (+ deducted, − refunded).
         year_end_tax: payroll.year_end_tax ? toAmount(payroll.year_end_tax.signed) : 0,
+        // This payslip's own gross (the 16-end basic plus its incentives), as
+        // HR, Payroll Records and the employee see it; the summary shows the
+        // month's gross separately (decision 2026-10-29).
+        cutoff_gross: toAmount(payroll.monthly?.cutoff?.gross_pay ?? payroll.totals?.gross_pay),
         year_end_tax_detail: payroll.year_end_tax || null,
         monthly: payroll.monthly,
         sheet: payroll.sheet,
@@ -2724,6 +2774,8 @@ function mapEntryToRecord(entry) {
     branch_id: entry.branch_id || null,
     pay_period: entry.pay_period,
     payslip_no: entry.payslip_no || null,
+    // The payroll run it was submitted in (a period can have a supplemental run).
+    run_id: entry.run_id || null,
     gross_pay: grossPay,
     total_deductions: totalDeductions,
     net_pay: netPay,
@@ -2751,15 +2803,29 @@ function compactHistoryRecord(record) {
   };
 }
 
-/** "branch_id|period label" -> run status, for every branch and period the entries cover. */
+/**
+ * Run statuses for every branch and period the entries cover:
+ * "branch_id|period label" -> the period's latest run, and "run:<id>" -> that run.
+ */
 async function loadRunStatuses(supabase, entries) {
   const out = new Map();
   const branchIds = [...new Set(entries.map((entry) => entry.branch_id).filter(Boolean).map(String))];
   if (!branchIds.length) return out;
-  const result = await supabase.from("payroll_runs").select("branch_id,period_label,status").in("branch_id", branchIds);
+  const result = await supabase.from("payroll_runs").select("id,branch_id,period_label,status,run_no").in("branch_id", branchIds);
   if (result.error) return out; // approval migration not applied: no run states
-  (result.data || []).forEach((row) => out.set(`${row.branch_id}|${row.period_label}`, row.status));
+  [...(result.data || [])].sort((a, b) => (Number(a.run_no) || 1) - (Number(b.run_no) || 1)).forEach((row) => {
+    out.set(`${row.branch_id}|${row.period_label}`, row.status);
+    out.set(`run:${row.id}`, row.status);
+  });
   return out;
+}
+
+/** A Final payslip's HR state: its own run's; not in a run yet = not submitted (null). */
+function recordRunStatus(statuses, record) {
+  if (record.run_id) return statuses.get(`run:${record.run_id}`) || null;
+  const latest = statuses.get(`${record.branch_id}|${record.pay_period}`) || null;
+  // Processed after the period's run was approved: waits for a supplemental run.
+  return latest === "approved" ? null : latest;
 }
 
 function buildPayrollPanels(records) {
@@ -2830,12 +2896,15 @@ function addDayKey(dateKey, days) {
 }
 
 /** The employee's payslip state for the period, for the Generate buttons. */
-function payslipStateFor(entries, employeeId, periodLabel) {
+function payslipStateFor(entries, employeeId, periodLabel, runStatuses = null) {
   const entry = entries.find((row) => row.employee_id === employeeId && row.pay_period === periodLabel);
   if (!entry) return null;
   const generation = entry.payroll?.generation || null;
   return {
     entry_id: entry.id,
+    // The run this payslip is in, and its status (a period can have a supplemental run).
+    run_id: entry.run_id || null,
+    run_status: entry.run_id && runStatuses ? runStatuses.get(`run:${entry.run_id}`) || null : null,
     status: entry.status === "draft" ? (generation ? "draft" : "form_draft") : "final",
     payslip_no: entry.payslip_no || null,
     attendance_through: generation?.attendance_through || null,
@@ -3117,6 +3186,7 @@ async function handleAddMonthlyItem(supabase, body, guard) {
 
   const kind = normalizeText(body.kind).toLowerCase();
   const itemDate = normalizeText(body.item_date);
+  if (normalizeText(body.description).length > 200) return NextResponse.json({ error: "The description can be at most 200 characters." }, { status: 400 });
   const description = normalizeText(body.description).slice(0, 200);
   const amount = Number(body.amount);
   const hours = Number(body.hours);
@@ -3126,8 +3196,8 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     return NextResponse.json({ error: `Incentives and overload are paid by the semi-monthly payroll, from ${formatDateKey(SEMI_MONTHLY_RULES_EFFECTIVE)}.` }, { status: 400 });
   }
   if (!description) return NextResponse.json({ error: "Describe what it is for." }, { status: 400 });
-  if (kind === "incentive" && !(Number.isFinite(amount) && amount > 0 && amount <= 9999999.99)) {
-    return NextResponse.json({ error: "Enter an incentive amount greater than 0." }, { status: 400 });
+  if (kind === "incentive" && !(Number.isFinite(amount) && amount > 0 && amount <= INCENTIVE_MAX)) {
+    return NextResponse.json({ error: `Enter an incentive amount greater than 0 and at most ${pesoLimit(INCENTIVE_MAX)}.` }, { status: 400 });
   }
   if (kind === "overload" && !(Number.isFinite(hours) && hours > 0 && hours <= 744)) {
     return NextResponse.json({ error: "Enter overload hours greater than 0 (at most 744)." }, { status: 400 });
@@ -3429,6 +3499,7 @@ async function handleAddCashAdvance(supabase, body, guard) {
     date_granted: normalizeText(body.date_granted),
     start_date: normalizeText(body.start_date),
   };
+  if (normalizeText(body.description).length > 200) return NextResponse.json({ error: "The note can be at most 200 characters." }, { status: 400 });
   const invalid = validateCashAdvanceInput(input);
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
@@ -3484,6 +3555,7 @@ async function handleAddCashAdvance(supabase, body, guard) {
 async function handleSetCashAdvanceStatus(supabase, body, guard) {
   const advanceId = normalizeText(body.advance_id);
   const status = normalizeText(body.status).toLowerCase();
+  if (normalizeText(body.reason).length > 300) return NextResponse.json({ error: "The reason can be at most 300 characters." }, { status: 400 });
   const reason = normalizeText(body.reason).slice(0, 300);
   if (!advanceId) return NextResponse.json({ error: "advance_id is required." }, { status: 400 });
   if (!CASH_ADVANCE_STATUSES.includes(status)) return NextResponse.json({ error: "Status must be active, on_hold or cancelled." }, { status: 400 });
@@ -3675,7 +3747,7 @@ export async function GET(request) {
     const runStatusByKey = await loadRunStatuses(supabase, historyEntries);
     const withRunStatus = (record) => ({
       ...record,
-      run_status: runStatusByKey.get(`${record.branch_id}|${record.pay_period}`) || null,
+      run_status: recordRunStatus(runStatusByKey, record),
     });
     const historyRecords = historyEntries.map(mapEntryToRecord).map(compactHistoryRecord).map(withRunStatus);
 
@@ -3689,7 +3761,7 @@ export async function GET(request) {
     const leaveSummary = payContext.leaveSummary;
     const attendanceRows = payContext.attendanceRows.map((row) => ({
       ...row,
-      payslip: payslipStateFor(sortedEntries, row.employee_id, activePeriod.label),
+      payslip: payslipStateFor(sortedEntries, row.employee_id, activePeriod.label, runStatusByKey),
     }));
     const generatedDrafts = sortedEntries.filter((entry) => entry.status === "draft"
       && entry.payroll?.generation
@@ -3853,7 +3925,9 @@ async function handleBatchSubmit(supabase, body, guard) {
       continue;
     }
 
-    const runLock = lockedRunMessage(runs.get(String(employee.branch_id || "")));
+    // A payslip already in a run is skipped below (already processed); a new
+    // one waits only while the latest run is with HR (then: supplemental run).
+    const runLock = lockedForNewPayslip(runs.get(String(employee.branch_id || "")));
     if (runLock) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: runLock, code: "payroll_run_locked" });
       continue;
@@ -3873,6 +3947,11 @@ async function handleBatchSubmit(supabase, body, guard) {
 
     if (existingForPeriod?.status === "paid") {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: DUPLICATE_SUBMISSION_MESSAGE });
+      continue;
+    }
+    const badAttendance = (own ? null : attendanceInputError(item.deductions, period)) || overrideReasonError(item.override_reason ?? body.override_reason);
+    if (badAttendance) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: badAttendance, code: "invalid_attendance_input" });
       continue;
     }
 
@@ -4013,6 +4092,7 @@ const FLAG_FIELDS = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG",
  */
 async function handleFlagDeduction(supabase, body, guard) {
   const field = normalizeText(body.field).toLowerCase();
+  if (normalizeText(body.note).length > 500) return NextResponse.json({ error: "The note can be at most 500 characters." }, { status: 400 });
   const note = normalizeText(body.note).slice(0, 500);
   const periodLabel = normalizeText(body.pay_period);
   if (!FLAG_FIELDS[field]) return NextResponse.json({ error: "Choose SSS, PhilHealth, Pag-IBIG or withholding tax." }, { status: 400 });
@@ -4077,8 +4157,10 @@ export async function POST(request) {
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
+    const badAttendance = attendanceInputError(body.deductions, period) || overrideReasonError(body.override_reason);
+    if (badAttendance) return NextResponse.json({ error: badAttendance, code: "invalid_attendance_input" }, { status: 400 });
     // A branch run waiting for HR or approved takes no new payslip or draft.
-    const runLock = lockedRunMessage((await loadRunsFor(supabase, [employee.branch_id], period.label)).get(String(employee.branch_id || "")));
+    const runLock = governingRunMessage(await governingRunFor(supabase, employee, period.label));
     if (runLock) return NextResponse.json({ error: runLock, code: "payroll_run_locked" }, { status: 409 });
     if (action === "submit") {
       const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
@@ -4310,7 +4392,10 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const period = periodFromLabel(payPeriod);
   if (!period) return NextResponse.json({ error: "Choose a valid pay period." }, { status: 400 });
 
-  const reason = normalizeText(body.reason).slice(0, 500);
+  const reason = normalizeText(body.reason);
+  if (override && reason.length > REASON_MAX) {
+    return NextResponse.json({ error: `The override reason can be at most ${REASON_MAX} characters.`, code: "override_reason_too_long" }, { status: 400 });
+  }
   if (override) {
     // payroll_override is the Super Admin's alone; checked by role as well,
     // and again in the database (payroll_override_final).
@@ -4340,7 +4425,9 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   // correct it. The override (2026-10-29) is the reverse: only a payslip HR
   // has approved; one still in the Accountant -> HR flow is corrected there
   // (the database checks this too).
-  const run = (await loadRunsFor(supabase, [employee.branch_id], period.label)).get(String(employee.branch_id || "")) || null;
+  // The run this employee's payslip is in (or, not in one yet, the period's latest).
+  const governing = await governingRunFor(supabase, employee, period.label);
+  const run = governing.run;
   if (override) {
     if (requiresApproval(period.label) && run?.status !== "approved") {
       const where = run?.status === "pending" ? "is waiting for HR approval" : run?.status === "rejected" ? "was sent back by HR" : "has not been approved yet";
@@ -4351,7 +4438,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       }, { status: 409 });
     }
   } else {
-    const locked = lockedRunMessage(run);
+    const locked = governingRunMessage(governing);
     if (locked) return NextResponse.json({ error: locked, code: "payroll_run_locked", run_status: run.status }, { status: 409 });
   }
   const reprocess = !override && body.reprocess === true;
@@ -4369,7 +4456,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     if (reprocess && genWindow.state === "closed" && run?.status !== "rejected") {
       return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
     }
-  } else if (!genWindow.can_generate && !(genWindow.state === "closed" && !isLockedRun(run))) {
+  } else if (!genWindow.can_generate && !(genWindow.state === "closed" && !(governing.attached ? isLockedRun(run) : run?.status === "pending"))) {
     // Closed: still allowed (late) while the branch's run is Draft or Rejected.
     return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
   }
@@ -4638,7 +4725,7 @@ export async function PATCH(request) {
 
     // Nothing of a run waiting for HR or approved is removed.
     const branchRow = await supabase.from("payroll_entries").select("branch_id").eq("id", entryId).maybeSingle();
-    const runLock = lockedRunMessage((await loadRunsFor(supabase, [branchRow.data?.branch_id], entry.pay_period)).get(String(branchRow.data?.branch_id || "")));
+    const runLock = lockedForNewPayslip((await loadRunsFor(supabase, [branchRow.data?.branch_id], entry.pay_period)).get(String(branchRow.data?.branch_id || "")));
     if (runLock) return NextResponse.json({ error: runLock, code: "payroll_run_locked" }, { status: 409 });
 
     await deletePayrollEntryFromDb(supabase, entryId);

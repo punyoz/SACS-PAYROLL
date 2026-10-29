@@ -25,6 +25,7 @@
 
 import { normalizeDigits, normalizeText } from "@/lib/auth/normalize";
 import { PERSON_NAME_PATTERN } from "@/lib/person-name";
+import { digitsOrNull } from "@/lib/input-limits";
 
 export const EMERGENCY_RELATIONSHIP_OPTIONS = [
   "Spouse", "Parent", "Child", "Sibling", "Guardian", "Relative", "Partner", "Friend", "Other",
@@ -58,7 +59,8 @@ export function normalizeEmergencyContact(body = {}) {
     emergency_contact_relationship:
       EMERGENCY_RELATIONSHIP_OPTIONS.find((option) => option.toLowerCase() === relationship) || "",
     emergency_contact_address: collapseSpaces(body.emergency_contact_address),
-    emergency_contact_number: normalizeDigits(body.emergency_contact_number),
+    // Letters are kept, so the number check refuses them instead of dropping them.
+    emergency_contact_number: digitsOrNull(body.emergency_contact_number) ?? normalizeText(body.emergency_contact_number),
   };
 }
 

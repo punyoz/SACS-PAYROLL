@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { EmployeeSelect, HowItWorks } from "./incentives-page";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
+import { CASH_ADVANCE_MAX, LOAN_MAX } from "@/lib/input-limits";
 
 /*
  * Loans (/api/accountant/loans; docs/payroll-schedule-loans-awol.md §4, §6):
@@ -291,10 +292,10 @@ export function LoansPage({ refreshKey }) {
                       </Select>
                     ))}
                     {field("granted", "Date given", <DatePicker id="ac-ln-granted" value={form.granted} onChange={(v) => setForm((c) => ({ ...c, granted: v }))} aria-invalid={Boolean(errors.granted) || undefined} />)}
-                    {field("principal", "Amount lent (₱)", <Input id="ac-ln-principal" type="number" min="0" step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />)}
+                    {field("principal", "Amount lent (₱)", <Input id="ac-ln-principal" type="number" min="0" max={form.type === "cash_advance" ? CASH_ADVANCE_MAX : LOAN_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />)}
                     {field("interest", "Interest (%, flat)", <Input id="ac-ln-interest" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={form.interest} onChange={(e) => setForm((c) => ({ ...c, interest: e.target.value }))} aria-invalid={Boolean(errors.interest) || undefined} />, total ? `Total payable ${money(total)}` : null)}
                     {field("payrolls", "Number of payrolls", <Input id="ac-ln-payrolls" type="number" min="1" max="120" step="1" inputMode="numeric" value={form.payrolls} onChange={(e) => setForm((c) => ({ ...c, payrolls: e.target.value }))} aria-invalid={Boolean(errors.payrolls) || undefined} />, "16–end payslips")}
-                    {field("amortization", "Per payroll (₱)", <Input id="ac-ln-amortization" type="number" min="0" step="0.01" inputMode="decimal" placeholder={suggested ? suggested.toFixed(2) : ""} value={form.amortization} onChange={(e) => setForm((c) => ({ ...c, amortization: e.target.value }))} aria-invalid={Boolean(errors.amortization) || undefined} />, suggested ? `Blank = ${money(suggested)}` : null)}
+                    {field("amortization", "Per payroll (₱)", <Input id="ac-ln-amortization" type="number" min="0" max={LOAN_MAX * 2} step="0.01" inputMode="decimal" placeholder={suggested ? suggested.toFixed(2) : ""} value={form.amortization} onChange={(e) => setForm((c) => ({ ...c, amortization: e.target.value }))} aria-invalid={Boolean(errors.amortization) || undefined} />, suggested ? `Blank = ${money(suggested)}` : null)}
                     <div className="sm:col-span-2">{field("start", "First payslip to deduct", (
                       <Select value={form.start} onValueChange={(v) => setForm((c) => ({ ...c, start: v }))}>
                         <SelectTrigger id="ac-ln-start" className="w-full"><SelectValue /></SelectTrigger>
@@ -318,7 +319,7 @@ export function LoansPage({ refreshKey }) {
                         <SelectContent>{balances.map((b) => <SelectItem key={b.id} value={b.id}>{`${b.employee_name} — ${String(b.subsidy_year_start).slice(0, 4)} · up to ${money(b.available)}`}</SelectItem>)}</SelectContent>
                       </Select>
                     ), "Verified, unexpired licenses only (HR → Employees).")}</div>
-                    {field("amount", "Advance (₱)", <Input id="ac-ln-amount" type="number" min="0" step="0.01" inputMode="decimal" value={advance.amount} onChange={(e) => setAdvance((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />, selectedBalance ? `Available ${money(selectedBalance.available)} of ${money(selectedBalance.entitlement)}` : null)}
+                    {field("amount", "Advance (₱)", <Input id="ac-ln-amount" type="number" min="0" max={LOAN_MAX} step="0.01" inputMode="decimal" value={advance.amount} onChange={(e) => setAdvance((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />, selectedBalance ? `Available ${money(selectedBalance.available)} of ${money(selectedBalance.entitlement)}` : null)}
                     {field("adv-granted", "Release date", <DatePicker id="ac-ln-adv-granted" value={advance.granted} onChange={(v) => setAdvance((c) => ({ ...c, granted: v }))} />)}
                     <div className="sm:col-span-2">{field("adv-description", <>Note <span className="font-normal text-muted-foreground">(optional)</span></>, <Input id="ac-ln-adv-description" maxLength={200} value={advance.description} onChange={(e) => setAdvance((c) => ({ ...c, description: e.target.value }))} />)}</div>
                     <p className="text-xs text-muted-foreground sm:col-span-2">HR approves an advance before it is released. Follow it under Payroll → Subsidies.</p>

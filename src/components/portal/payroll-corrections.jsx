@@ -16,6 +16,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateTime, moneyCompact } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { CORRECTION_KIND_LABELS, CORRECTION_STATUS_TONES } from "@/lib/payroll/corrections";
+import { PESO_MAX } from "@/lib/input-limits";
 
 /*
  * Payroll corrections after HR approval (/api/payroll/corrections,
@@ -80,7 +81,7 @@ export function CorrectionDialog({ record = null, correction = null, onClose, on
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="pc-amount">Amount (₱)</Label>
-              <Input id="pc-amount" type="number" min="0" step="0.01" inputMode="decimal" value={input.amount} onChange={(e) => setInput((c) => ({ ...c, amount: e.target.value }))} />
+              <Input id="pc-amount" type="number" min="0" max={PESO_MAX} step="0.01" inputMode="decimal" value={input.amount} onChange={(e) => setInput((c) => ({ ...c, amount: e.target.value }))} />
             </div>
             {input.kind === "overpayment" ? (
               <div className="space-y-1.5">

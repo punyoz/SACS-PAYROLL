@@ -221,6 +221,7 @@ export function EditAccountDialog({ open, onOpenChange, payrollReadOnly = true, 
           <FormControl>
             <Input
               {...field}
+              maxLength={50}
               {...props}
               onChange={(event) => {
                 const { value, removed } = cleanNameInput(event.target.value);

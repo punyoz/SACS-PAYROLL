@@ -23,6 +23,7 @@ import {
 } from "@/lib/portal/attendance";
 import { formatDateKey, formatTime, leaveSummary, normalizeAttendanceStatus } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
+import { SEARCH_MAX } from "@/lib/input-limits";
 
 /**
  * An attendance table with branch and day headings (attWithGroupHeadings /
@@ -192,6 +193,7 @@ export function EmployeeSearch({ value, onChange, className }) {
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder="Search employees…"
+        maxLength={SEARCH_MAX}
         aria-label="Search employees"
         className="h-8 pl-8"
       />

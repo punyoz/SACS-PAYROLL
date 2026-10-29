@@ -22,6 +22,10 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey, periodForDateKey } from "@/lib/payroll/periods";
 import { createPayslipSchedule, DEFAULT_FIRST_HALF_RULE, NON_WORKING_DAY_RULES } from "@/lib/payroll/schedule";
 import { actorName } from "@/lib/payroll/staff";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [500, "The reason for the change"] };
 
 const NOT_READY = "The payslip schedule is not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
 
@@ -101,6 +105,9 @@ export async function POST(request) {
     const guard = await requirePermission(request, "system_configuration", "update");
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action, "save");
     const parsed = parseInput(body);
     if (parsed.error) return NextResponse.json({ error: parsed.error }, { status: 400 });

@@ -14,6 +14,10 @@ import {
 } from "@/lib/transfer-requests/store";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { notify, notifyEndorsers } from "@/lib/branch-requests-server";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { remarks: [300, "The remarks"] };
 
 /**
  * Put the employee in the destination branch. The approval trigger on
@@ -90,6 +94,9 @@ export async function POST(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const employeeId = normalizeText(body.employee_id);
     const toBranchId = normalizeText(body.to_branch_id);
     const remarks = normalizeText(body.remarks);
@@ -226,6 +233,9 @@ export async function PATCH(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const id = normalizeText(body.id);
     const action = normalizeText(body.action).toLowerCase();
 

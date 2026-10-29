@@ -97,7 +97,7 @@ export async function POST(request) {
       new_salary: body.new_salary,
       effective_date: normalizeText(body.effective_date),
       reason: normalizeText(body.reason),
-      note: normalizeText(body.note).slice(0, 500),
+      note: normalizeText(body.note),
     };
     const invalid = validateSalaryChange(input, { todayKey: today, settledMonths: await settledMonths(supabase, employee.id) });
     if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });

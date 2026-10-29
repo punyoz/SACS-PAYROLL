@@ -29,6 +29,10 @@ import { validateProofUrl } from "@/lib/leave-requests/proof";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { DEFAULT_WARNING_DAYS, licenseStatus, maskedLicense, validateLicenseChange } from "@/lib/employees/teacher-license";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { reason: [500, "The reason"] };
 
 const NOT_READY = "Licensed-teacher fields are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
 const LICENSE_COLUMNS = "id,is_licensed_teacher,prc_license_no_last4,license_expires_on,prc_id_document_id,license_verified_by_name,license_verified_at,employee_type";
@@ -123,6 +127,9 @@ export async function POST(request) {
     if (guard.denied) return guard.denied;
     if (guard.role !== "hr") return NextResponse.json({ error: "Only HR changes licensed-teacher fields." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action);
     const supabase = getAdminClient();
 

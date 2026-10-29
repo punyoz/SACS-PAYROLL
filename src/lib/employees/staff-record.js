@@ -46,8 +46,9 @@
  * required lists and their reasons for existing all differ.
  */
 
-import { normalizeText, normalizeDigits } from "@/lib/auth/normalize";
+import { normalizeText } from "@/lib/auth/normalize";
 import { PERSON_NAME_PATTERN } from "@/lib/person-name";
+import { digitsOrNull } from "@/lib/input-limits";
 
 /** Roles this flow can mint. Super Admin only -- enforced in the route. */
 export const STAFF_ROLES = ["super_admin", "admin", "hr"];
@@ -224,7 +225,8 @@ export function normalizeStaffFields(body = {}) {
     date_hired: normalizeText(body.date_hired),
     employee_status: pickOption(body.employee_status, ACCOUNT_STATUS_OPTIONS),
     address: collapseSpaces(body.address),
-    cp_number: normalizeDigits(body.cp_number),
+    // Letters are kept, so the number check refuses them instead of dropping them.
+    cp_number: digitsOrNull(body.cp_number) ?? normalizeText(body.cp_number),
   };
 }
 

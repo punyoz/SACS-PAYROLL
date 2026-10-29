@@ -15,7 +15,7 @@
 
 import { roundPeso } from "@/lib/payroll/money";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
-import { SALARY_MAX } from "@/lib/employees/record";
+import { REASON_MAX, SALARY_MAX, pesoLimit } from "@/lib/input-limits";
 import { fetchAllIn, fetchAllRows, forEachInChunk } from "@/lib/supabase/fetch-all";
 
 export const SALARY_REASONS = Object.freeze(["Performance review", "Contract renewal", "Promotion", "Salary adjustment", "Correction", "Other"]);
@@ -52,12 +52,13 @@ export function dayBefore(dateKey) {
  */
 export function validateSalaryChange({ new_salary: newSalary, effective_date: effectiveDate, reason, note }, { todayKey, settledMonths = [] }) {
   const amount = Number(newSalary);
-  if (!(amount > 0) || amount > SALARY_MAX) return "Enter the new monthly salary: more than ₱0 and at most ₱9,999,999.99.";
+  if (!(amount > 0) || amount > SALARY_MAX) return `Enter the new monthly salary: more than ₱0 and at most ${pesoLimit(SALARY_MAX)}.`;
   if (!isDateKey(effectiveDate)) return "Choose the month the new salary starts.";
   if (String(effectiveDate).slice(8) !== "01") return "A salary change starts on the 1st of a month.";
   if (String(effectiveDate).slice(0, 7) < String(todayKey).slice(0, 7)) return "A salary change cannot start in a past month.";
   if (settledMonths.includes(String(effectiveDate).slice(0, 7))) return "That month's payroll is already Final for this employee. Choose the next month.";
   if (!SALARY_REASONS.includes(reason)) return `Choose the reason: ${SALARY_REASONS.join(", ")}.`;
+  if (String(note || "").trim().length > REASON_MAX) return `The note can be at most ${REASON_MAX} characters.`;
   if (["Correction", "Other"].includes(reason) && String(note || "").trim().length < 10) return "Explain the change in the note (at least 10 characters).";
   return null;
 }

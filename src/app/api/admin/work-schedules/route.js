@@ -39,6 +39,10 @@ import { loadAttendanceConfig, resolveAttendancePolicy } from "@/lib/attendance/
 import { describeWorkingDays, LEVEL_VALUES, levelLabel, validateScheduleInput } from "@/lib/attendance/work-schedules";
 import { isDateKey, manilaDateKey } from "@/lib/payroll/periods";
 import { actorName } from "@/lib/payroll/staff";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [500, "The note"] };
 
 const NOT_READY = "Employee work schedules are not set up yet: apply supabase/migrations/20261013010000_employee_schedules_cutoffs_early_bird.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -415,6 +419,9 @@ export async function POST(request) {
     if (guard.denied) return guard.denied;
 
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action).toLowerCase();
     const supabase = getAdminClient();
 

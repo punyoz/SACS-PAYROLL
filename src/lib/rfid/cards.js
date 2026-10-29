@@ -4,6 +4,8 @@
  * this file shapes what the routes send and show.
  */
 
+import { RFID_UID_PATTERN } from "@/lib/input-limits";
+
 export const CARD_STATUS_LABELS = Object.freeze({
   active: "Active",
   inactive: "Inactive",
@@ -37,9 +39,12 @@ export function maskUid(uidOrLast4) {
   return last4 ? `••••••${last4}` : "—";
 }
 
-/** Digits only, 1–16 (what a reader types and the terminal matches). */
+/**
+ * Exactly 10 digits: what the school's readers type for a card (the cards in
+ * use read 0001234567-style, zero-padded; RFID_UID_PATTERN).
+ */
 export function isCardUid(value) {
-  return /^\d{1,16}$/.test(String(value ?? "").trim());
+  return RFID_UID_PATTERN.test(String(value ?? "").trim());
 }
 
 const STATUS_BY_CODE = {

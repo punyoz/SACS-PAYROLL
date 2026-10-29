@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { RunApprovalPanel } from "./run-approval-panel";
 import { DeferredIncentivesNotice } from "./incentives-page";
+import { CONTRIBUTION_MAX, DAYS_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX } from "@/lib/input-limits";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -62,6 +63,13 @@ function openIncompleteQueue(onNavigate) {
   try { sessionStorage.setItem(INCOMPLETE_TAB_KEY, "incomplete"); } catch { /* private mode */ }
   onNavigate("ac-attendance");
 }
+
+// The most each number box takes (the route's attendanceInputError):
+// days in a period, undertime minutes in a 31-day period, otherwise pesos.
+const NUMBER_MAX = {
+  absences: DAYS_MAX, late: DAYS_MAX, halfDays: DAYS_MAX, lwop: DAYS_MAX, lwp: DAYS_MAX, undertime: PERIOD_MINUTES_MAX,
+  sss: CONTRIBUTION_MAX, philhealth: CONTRIBUTION_MAX, pagibig: CONTRIBUTION_MAX, basic: SALARY_MAX,
+};
 
 /** Keeps a salary to 7 whole digits and the maximum (clampSalaryInput). */
 function clampSalary(raw) {
@@ -164,7 +172,10 @@ function PayslipCell({ data, employee, onGenerate, onView, busy }) {
   // The branch's payroll run (Payroll Approval): Pending / Approved locks it;
   // Draft / Rejected lets a Final payslip be reprocessed.
   const run = data?.payroll_runs?.[String(employee.branch_id || "")] || null;
-  const runLocked = run?.status === "pending" || run?.status === "approved";
+  // A Final payslip follows the run it is in (a period can also have a
+  // supplemental run); a new one waits only while the latest run is with HR.
+  const ownStatus = state?.status === "final" ? (state.run_status || (run?.status === "approved" ? null : run?.status)) : run?.status;
+  const runLocked = state?.status === "final" ? ownStatus === "pending" || ownStatus === "approved" : run?.status === "pending";
   if (state?.status === "final") {
     const canReprocess = !runLocked && (win?.state === "final" || (win?.state === "closed" && run?.status === "rejected"));
     return (
@@ -178,7 +189,7 @@ function PayslipCell({ data, employee, onGenerate, onView, busy }) {
             </Button>
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">{state.payslip_no || ""} · {runLocked ? (run.status === "pending" ? "waiting for HR" : "approved, locked") : "processed"}</p>
+        <p className="text-xs text-muted-foreground">{state.payslip_no || ""} · {runLocked ? (ownStatus === "pending" ? "waiting for HR" : "approved, locked") : "processed"}</p>
       </div>
     );
   }
@@ -231,7 +242,13 @@ function BatchCard({ onNavigate }) {
   const finalWindow = !win || win.state === "final" || win.state === "closed";
   // Every visible branch's run is Pending / Approved: nothing left to process.
   const branchIds = [...new Set(employees.map((e) => String(e.branch_id || "")))];
-  const allRunsLocked = branchIds.length > 0 && branchIds.every((id) => ["pending", "approved"].includes(data?.payroll_runs?.[id]?.status));
+  // Approved: locked once everyone has a Final payslip (anyone left out is
+  // processed into a supplemental run).
+  const finalFor = (id) => (data?.attendance_rows || []).find((r) => r.employee_id === id)?.payslip?.status === "final";
+  const allRunsLocked = branchIds.length > 0 && branchIds.every((id) => {
+    const status = data?.payroll_runs?.[id]?.status;
+    return status === "pending" || (status === "approved" && employees.filter((e) => String(e.branch_id || "") === id).every((e) => finalFor(e.id)));
+  });
 
   const rows = employees.map((employee) => {
     const base = batchRowBase(data, employee);
@@ -389,6 +406,7 @@ function BatchCard({ onNavigate }) {
     <Input
       type="number"
       min="0"
+      max={NUMBER_MAX[field] || PESO_MAX}
       step={step}
       inputMode={step === "1" ? "numeric" : "decimal"}
       aria-label={`${field.toUpperCase()} for ${row.employee.full_name}`}
@@ -482,7 +500,7 @@ function BatchCard({ onNavigate }) {
         {anyChanged ? (
           <div className="space-y-2">
             <Label htmlFor="pc-batch-reason">Reason for manual changes <span className="font-normal text-muted-foreground">(required — {rows.some((r) => r.locked) ? "Leave w/o Pay" : "SSS, PhilHealth, Pag-IBIG, tax or Leave w/o Pay"} was changed from the computed value; logged with your name)</span></Label>
-            <Input id="pc-batch-reason" maxLength={300} placeholder="e.g. Contribution table update for this employee" value={reason} onChange={(e) => { setReason(e.target.value); setReasonError(""); }} aria-invalid={Boolean(reasonError) || undefined} />
+            <Input id="pc-batch-reason" maxLength={REASON_MAX} placeholder="e.g. Contribution table update for this employee" value={reason} onChange={(e) => { setReason(e.target.value); setReasonError(""); }} aria-invalid={Boolean(reasonError) || undefined} />
             {reasonError ? <p className="text-sm text-destructive">{reasonError}</p> : null}
           </div>
         ) : null}
@@ -704,6 +722,7 @@ function SingleEntry({ onNavigate }) {
         id={id}
         type="number"
         min="0"
+        max={NUMBER_MAX[key] || PESO_MAX}
         step={step}
         inputMode={step === "1" ? "numeric" : "decimal"}
         value={key === "tax" ? shownTax : form[key]}
@@ -817,7 +836,7 @@ function SingleEntry({ onNavigate }) {
             {deviations.length ? (
               <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/8 p-3">
                 <Label htmlFor="pc-override-reason">Reason for override <span className="font-normal text-muted-foreground">(required to process; logged with your name)</span></Label>
-                <Textarea id="pc-override-reason" rows={2} maxLength={300} placeholder="Why the computed value was changed" value={form.overrideReason} onChange={set("overrideReason")} aria-invalid={Boolean(reasonError) || undefined} />
+                <Textarea id="pc-override-reason" rows={2} maxLength={REASON_MAX} placeholder="Why the computed value was changed" value={form.overrideReason} onChange={set("overrideReason")} aria-invalid={Boolean(reasonError) || undefined} />
                 {reasonError ? <p className="text-sm text-destructive">{reasonError}</p> : null}
                 <p className="text-xs text-warning">Changed from computed: {deviations.join(" · ")}</p>
               </div>
@@ -832,7 +851,9 @@ function SingleEntry({ onNavigate }) {
               <SummaryRow label="Basic salary" value={money(summary.basic)} />
               <SummaryRow label="Overtime (approved)" value={`+ ${money(summary.earnings.overtime)}`} tone="plus" />
               <SummaryRow label="Holiday pay" value={`+ ${money(summary.earnings.holiday)}`} tone="plus" />
-              <SummaryRow label="Gross pay" value={money(summary.gross)} strong />
+              {/* 2nd half: the month is worked out once, so this line is the month's;
+                  the payslip's own gross is shown above its net pay (2026-10-29). */}
+              <SummaryRow label={summary.settling ? "Monthly gross" : "Gross pay"} value={money(summary.gross)} strong />
               {/* Percentage of salary (rate and base) vs rate × units (2026-10-26). */}
               <SummaryRow label={locked ? govLabel("sss", "SSS") : "SSS"} value={`- ${money(summary.sss)}`} tone="minus" />
               <SummaryRow label={locked ? govLabel("philhealth", "PhilHealth") : "PhilHealth"} value={`- ${money(summary.philhealth)}`} tone="minus" />
@@ -872,6 +893,9 @@ function SingleEntry({ onNavigate }) {
                   <SummaryRow label="Balance carried from last month (negative 2nd half)" value={`- ${money(summary.extras.carryIn)}`} tone="minus" />
                   {summary.secondHalfNet < 0 ? <SummaryRow label="Carried to next month" value={money(Math.max(0, -summary.secondHalfNet))} tone="warn" /> : null}
                 </>
+              ) : null}
+              {summary.settling && summary.info.row?.defaults?.cutoff_gross !== undefined ? (
+                <SummaryRow label="Gross pay" value={money(summary.info.row.defaults.cutoff_gross)} strong />
               ) : null}
               <div className="mt-2 flex items-baseline justify-between gap-4 rounded-lg bg-primary/8 px-3 py-3">
                 <span className="font-semibold">{semiHalf(data) === "second" ? "2nd half net pay" : semiHalf(data) === "first" ? "1st half net pay" : "Net pay"}</span>

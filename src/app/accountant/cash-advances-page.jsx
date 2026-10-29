@@ -20,6 +20,7 @@ import { dateLabel, money, moneyCompact } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { EmployeeSelect, HowItWorks } from "./incentives-page";
+import { CASH_ADVANCE_MAX } from "@/lib/input-limits";
 
 /*
  * Cash Advances (loadCashAdvances / submitCashAdvance / setCashAdvanceStatus,
@@ -200,8 +201,8 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
           <CardContent>
             <form onSubmit={submit} noValidate className="grid items-start gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">{field("employee", "Employee", <EmployeeSelect id="ac-ca-employee" value={form.employee} onChange={(v) => setForm((c) => ({ ...c, employee: v }))} employees={employees} invalid={Boolean(errors.employee)} />)}</div>
-              {field("principal", "Amount advanced (₱)", <Input id="ac-ca-principal" type="number" min="0" max="9999999.99" step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />)}
-              {field("installment", "Deduct per payslip (₱)", <Input id="ac-ca-installment" type="number" min="0" max="9999999.99" step="0.01" inputMode="decimal" value={form.installment} onChange={(e) => setForm((c) => ({ ...c, installment: e.target.value }))} aria-invalid={Boolean(errors.installment) || undefined} />)}
+              {field("principal", "Amount advanced (₱)", <Input id="ac-ca-principal" type="number" min="0" max={CASH_ADVANCE_MAX} step="0.01" inputMode="decimal" value={form.principal} onChange={(e) => setForm((c) => ({ ...c, principal: e.target.value }))} aria-invalid={Boolean(errors.principal) || undefined} />)}
+              {field("installment", "Deduct per payslip (₱)", <Input id="ac-ca-installment" type="number" min="0" max={CASH_ADVANCE_MAX} step="0.01" inputMode="decimal" value={form.installment} onChange={(e) => setForm((c) => ({ ...c, installment: e.target.value }))} aria-invalid={Boolean(errors.installment) || undefined} />)}
               {field("granted", "Date given", <DatePicker id="ac-ca-granted" value={form.granted} onChange={(v) => setForm((c) => ({ ...c, granted: v }))} aria-invalid={Boolean(errors.granted) || undefined} />)}
               {field("deduct-on", "Deduct from", (
                 <Select value={form.deductOn} onValueChange={(v) => setForm((c) => ({ ...c, deductOn: v }))}>

@@ -12,7 +12,8 @@ import {
   denySelfScopeList,
 } from "@/lib/rbac/guard";
 import { hashTemporaryPassword, buildDefaultPassword } from "@/lib/auth/password-policy";
-import { normalizeEmployeeFields, validateEmployeeRecord, SALARY_MAX } from "@/lib/employees/record";
+import { normalizeEmployeeFields, validateEmployeeRecord, validateEmployeePatch, SALARY_MAX } from "@/lib/employees/record";
+import { pesoLimit } from "@/lib/input-limits";
 import { syncProfileArchive } from "@/lib/employees/archive";
 import {
   emergencyContactColumns,
@@ -561,6 +562,11 @@ export async function PATCH(request) {
         return NextResponse.json({ error: "Employee ID is required." }, { status: 400 });
       }
 
+      // The edited fields follow the same rules as a new record; before, a
+      // number was cut to length and stripped of letters without a word.
+      const patchError = validateEmployeePatch(body);
+      if (patchError) return NextResponse.json({ error: patchError }, { status: 400 });
+
       nextMetadata.full_name = normalizeText(body.full_name, normalizeText(currentMetadata.full_name, existingUser.email));
 
       if (!isValidEmployeeName(nextMetadata.full_name)) {
@@ -579,7 +585,7 @@ export async function PATCH(request) {
         const requestedSalary = Number(body.basic_salary);
         if (!(requestedSalary > 0) || requestedSalary > SALARY_MAX) {
           return NextResponse.json(
-            { error: "Basic salary must be greater than 0 and at most ₱9,999,999.99." },
+            { error: `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.` },
             { status: 400 },
           );
         }

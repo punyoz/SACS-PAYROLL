@@ -7,6 +7,14 @@ import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { requirePermission } from "@/lib/rbac/guard";
 import { can, isBranchExempt } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { BRANCH_NAME_MAX, BRANCH_NAME_PATTERN } from "@/lib/input-limits";
+
+/** The branch-name rule the Add / Edit branch box and branches_name_valid share. */
+function branchNameError(name) {
+  if (name.length > BRANCH_NAME_MAX) return `Branch name must be at most ${BRANCH_NAME_MAX} characters.`;
+  if (!BRANCH_NAME_PATTERN.test(name)) return "Branch name may contain letters, numbers, spaces, periods, apostrophes and hyphens only.";
+  return null;
+}
 
 function shapeBranch(row) {
   return {
@@ -84,6 +92,7 @@ export async function POST(request) {
     if (!name) {
       return NextResponse.json({ error: "Branch name is required." }, { status: 400 });
     }
+    if (branchNameError(name)) return NextResponse.json({ error: branchNameError(name) }, { status: 400 });
     if (!location) {
       return NextResponse.json({ error: "Branch location is required." }, { status: 400 });
     }
@@ -141,6 +150,7 @@ export async function PATCH(request) {
     const status = normalizeText(body.status, existing.data.status);
 
     if (!name) return NextResponse.json({ error: "Branch name is required." }, { status: 400 });
+    if (branchNameError(name)) return NextResponse.json({ error: branchNameError(name) }, { status: 400 });
     if (!location) return NextResponse.json({ error: "Branch location is required." }, { status: 400 });
 
     const result = await supabase

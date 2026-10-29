@@ -1,7 +1,7 @@
 import { listUsersCached, invalidateUsersCache } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { normalizeText, normalizeDigits } from "@/lib/auth/normalize";
+import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission, resolveTargetEmail } from "@/lib/rbac/guard";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeNameParts, validateNameParts } from "@/lib/employees/staff-record";
@@ -13,6 +13,7 @@ import {
 } from "@/lib/employees/emergency-contact";
 import { PII_FIELDS, PII_LAST4_COLUMNS, maskLast4, maskedPii, withoutPiiMetadata } from "@/lib/employees/pii";
 import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
+import { digitsOrNull } from "@/lib/input-limits";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -157,7 +158,10 @@ export async function POST(request) {
   // both to reach the person.
   let cp_number;
   if (body.cp_number !== undefined) {
-    cp_number = normalizeDigits(body.cp_number, 11);
+    cp_number = digitsOrNull(body.cp_number);
+    if (cp_number === null) {
+      return NextResponse.json({ error: "Contact number may contain digits only." }, { status: 400 });
+    }
     if (!cp_number && currentProfile?.cp_number) {
       return NextResponse.json({ error: "Contact number cannot be removed. Enter the new number instead." }, { status: 400 });
     }
@@ -204,7 +208,8 @@ export async function POST(request) {
   if (!payrollLocked) {
     for (const [key, lengths, message] of GOVERNMENT_ID_RULES) {
       if (body[key] === undefined) continue;
-      const digits = normalizeDigits(body[key]);
+      const digits = digitsOrNull(body[key]);
+      if (digits === null) return NextResponse.json({ error: message }, { status: 400 });
       if (digits && !lengths.includes(digits.length)) {
         return NextResponse.json({ error: message }, { status: 400 });
       }

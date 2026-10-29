@@ -17,8 +17,29 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { describeCorrectionError, shapeCorrection } from "@/lib/payroll/corrections";
+import { PESO_MAX, pesoLimit } from "@/lib/input-limits";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [500, "The note"] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The Correct dialog's limits (payroll-corrections.jsx), checked before the
+ * database: an amount past numeric(12,2) would otherwise fail as a 500.
+ * Returns an error message, or null.
+ */
+function correctionInputError(body) {
+  const amount = Number(body.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > PESO_MAX) return `Enter an amount more than ₱0 and at most ${pesoLimit(PESO_MAX)}.`;
+  if (body.payrolls !== undefined && body.payrolls !== null && body.payrolls !== "") {
+    const payrolls = Number(body.payrolls);
+    if (!Number.isInteger(payrolls) || payrolls < 1 || payrolls > 24) return "Recover over 1 to 24 payslips.";
+  }
+  if (normalizeText(body.reason).length > 500) return "The reason can be at most 500 characters.";
+  return null;
+}
 
 function refused(error) {
   const failure = describeCorrectionError(error);
@@ -63,8 +84,13 @@ export async function POST(request) {
   if (guard.denied) return guard.denied;
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const entryId = normalizeText(body.entry_id);
     if (!UUID.test(entryId)) return NextResponse.json({ error: "Choose the approved payslip to correct." }, { status: 400 });
+    const badInput = correctionInputError(body);
+    if (badInput) return NextResponse.json({ error: badInput }, { status: 400 });
     const supabase = getAdminClient();
     const result = await supabase.rpc("payroll_correction_file", {
       p_actor: guard.userId,
@@ -90,6 +116,9 @@ export async function POST(request) {
 export async function PATCH(request) {
   try {
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action).toLowerCase();
     const id = normalizeText(body.id);
     if (!UUID.test(id)) return NextResponse.json({ error: "Choose the correction." }, { status: 400 });
@@ -100,6 +129,10 @@ export async function PATCH(request) {
     if (guard.denied) return guard.denied;
     if (!resubmit && !["approve", "reject"].includes(action)) {
       return NextResponse.json({ error: "Approve, reject or resubmit." }, { status: 400 });
+    }
+    if (resubmit) {
+      const badInput = correctionInputError(body);
+      if (badInput) return NextResponse.json({ error: badInput }, { status: 400 });
     }
     const supabase = getAdminClient();
     const result = resubmit

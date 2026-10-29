@@ -18,6 +18,10 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { invalidateUsersCache } from "@/lib/auth/users-cache";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { reason: [300, "The reason"] };
 import {
   CARD_ACTION_LABELS,
   CARD_STATUS_LABELS,
@@ -118,12 +122,15 @@ export async function POST(request) {
     const guard = await requirePermission(request, "rfid_devices", "create");
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     if (normalizeText(body.action) !== "register") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     const employeeId = normalizeText(body.employee_id);
     const uid = normalizeText(body.uid);
     if (!UUID.test(employeeId)) return NextResponse.json({ error: "Choose the employee." }, { status: 400 });
     // The terminal keeps only the digits a reader types: anything else could never be matched.
-    if (!isCardUid(uid)) return NextResponse.json({ error: "The RFID UID must be the card's number: digits only, up to 16." }, { status: 400 });
+    if (!isCardUid(uid)) return NextResponse.json({ error: "The RFID UID must be the card's number: exactly 10 digits." }, { status: 400 });
 
     const supabase = getAdminClient();
     const result = await supabase.rpc("rfid_card_register", {
@@ -148,6 +155,9 @@ export async function PATCH(request) {
     const guard = await requirePermission(request, "rfid_devices", "update");
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action);
     const cardId = normalizeText(body.card_id);
     if (!UUID.test(cardId)) return NextResponse.json({ error: "RFID card not found." }, { status: 404 });
@@ -157,7 +167,7 @@ export async function PATCH(request) {
     let result;
     if (action === "replace") {
       const newUid = normalizeText(body.new_uid);
-      if (!isCardUid(newUid)) return NextResponse.json({ error: "The new card's UID must be digits only, up to 16." }, { status: 400 });
+      if (!isCardUid(newUid)) return NextResponse.json({ error: "The new card's UID must be exactly 10 digits." }, { status: 400 });
       result = await supabase.rpc("rfid_card_replace", { p_actor: guard.userId, p_card: cardId, p_new_uid: newUid, p_reason: reason, p_lost: body.lost === true });
     } else if (["deactivate", "mark_lost", "reactivate"].includes(action)) {
       result = await supabase.rpc("rfid_card_set_status", { p_actor: guard.userId, p_card: cardId, p_action: action, p_reason: reason });

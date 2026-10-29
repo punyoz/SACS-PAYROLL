@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { REASON_MAX, SALARY_MAX, pesoLimit } from "@/lib/input-limits";
 
 /*
  * Change salary (HR → User Management, 2026-10-26): a new basic salary from
@@ -63,7 +64,7 @@ export function SalaryChangeDialog({ employee, open, onOpenChange, onSaved }) {
   async function save(event) {
     event.preventDefault();
     const amount = Number(form.salary);
-    if (!(amount > 0) || amount > 9999999.99) { setError("Enter the new monthly salary (more than ₱0)."); return; }
+    if (!(amount > 0) || amount > SALARY_MAX) { setError(`Enter the new monthly salary (more than ₱0, at most ${pesoLimit(SALARY_MAX)}).`); return; }
     if (!form.reason) { setError("Choose the reason."); return; }
     if (["Correction", "Other"].includes(form.reason) && form.note.trim().length < 10) { setError("Explain the change in the note (at least 10 characters)."); return; }
     setBusy(true);
@@ -97,7 +98,7 @@ export function SalaryChangeDialog({ employee, open, onOpenChange, onSaved }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="sal-new">New monthly salary (₱)</Label>
-              <Input id="sal-new" type="number" min="0.01" max="9999999.99" step="0.01" inputMode="decimal" value={form.salary} onChange={(e) => set("salary")(e.target.value)} className="tabular-nums" autoFocus />
+              <Input id="sal-new" type="number" min="0.01" max={SALARY_MAX} step="0.01" inputMode="decimal" value={form.salary} onChange={(e) => set("salary")(e.target.value)} className="tabular-nums" autoFocus />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sal-month">Starts</Label>
@@ -115,7 +116,7 @@ export function SalaryChangeDialog({ employee, open, onOpenChange, onSaved }) {
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="sal-note">{["Correction", "Other"].includes(form.reason) ? "Note (required)" : "Note (optional)"}</Label>
-              <Textarea id="sal-note" rows={2} maxLength={500} value={form.note} onChange={(e) => set("note")(e.target.value)} placeholder="e.g. Annual review, rating Very Satisfactory" />
+              <Textarea id="sal-note" rows={2} maxLength={REASON_MAX} value={form.note} onChange={(e) => set("note")(e.target.value)} placeholder="e.g. Annual review, rating Very Satisfactory" />
             </div>
           </div>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}

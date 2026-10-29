@@ -232,7 +232,15 @@ export function shapeRun(row) {
     total_deductions: peso(row.total_deductions),
     total_net: peso(row.total_net),
     flagged_employees: Number(row.flagged_employees) || 0,
+    // 1 = the period's run; 2+ = a supplemental run for employees processed late.
+    run_no: Number(row.run_no) || 1,
+    excluded_employees: Number(row.excluded_employees) || 0,
   };
+}
+
+/** "Supplemental run 2" for a later run of the same period, else "". */
+export function runNoLabel(run) {
+  return Number(run?.run_no) > 1 ? `Supplemental run ${run.run_no}` : "";
 }
 
 /** The runs of these branches for one period: Map branchId -> run row. */
@@ -242,8 +250,40 @@ export async function loadRunsFor(supabase, branchIds, periodLabel) {
   if (!ids.length || !periodLabel) return runs;
   const result = await supabase.from("payroll_runs").select("*").in("branch_id", ids).eq("period_label", periodLabel);
   if (result.error) return runs; // migration not applied: nothing is locked
-  (result.data || []).forEach((row) => runs.set(String(row.branch_id), row));
+  // The latest run of the period (a supplemental run comes after the first).
+  [...(result.data || [])].sort((a, b) => (Number(a.run_no) || 1) - (Number(b.run_no) || 1))
+    .forEach((row) => runs.set(String(row.branch_id), row));
   return runs;
+}
+
+/**
+ * A NEW payslip for the period (an employee not in any run yet) waits only
+ * while the latest run is with HR. After HR approves it, an employee who was
+ * left out is processed into a supplemental run (20261029080000).
+ */
+export function lockedForNewPayslip(run) {
+  return run?.status === "pending" ? lockedRunMessage(run) : null;
+}
+
+/**
+ * The run that governs one employee's payslip for a period: the run it is
+ * in, or (not in one yet) the period's latest run.
+ * @returns {Promise<{ run: object|null, attached: boolean }>}
+ */
+export async function governingRunFor(supabase, employee, periodLabel) {
+  const own = await supabase.from("payroll_entries").select("run_id")
+    .eq("employee_id", employee.id).eq("pay_period", periodLabel).not("run_id", "is", null).limit(1).maybeSingle();
+  if (!own.error && own.data?.run_id) {
+    const run = await supabase.from("payroll_runs").select("*").eq("id", own.data.run_id).maybeSingle();
+    if (!run.error && run.data) return { run: run.data, attached: true };
+  }
+  const latest = (await loadRunsFor(supabase, [employee.branch_id], periodLabel)).get(String(employee.branch_id || "")) || null;
+  return { run: latest, attached: false };
+}
+
+/** The refusal for changing this employee's payslip (null when it may change). */
+export function governingRunMessage({ run, attached }) {
+  return attached ? lockedRunMessage(run) : lockedForNewPayslip(run);
 }
 
 /** The refusal a locked run gives (null when the run may change). */

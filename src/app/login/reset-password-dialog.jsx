@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { PASSWORD_MIN_LENGTH, evaluatePasswordShape, saveAuthContext } from "./auth-context";
+import { EMAIL_MAX } from "@/lib/input-limits";
 
 /**
  * "Forgot password?" — three steps, all through POST /api/legacy-auth/reset-password,
@@ -246,6 +247,7 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
               id="reset-identity"
               autoComplete="off"
               placeholder="e.g. SACS-001 or your@email.com"
+              maxLength={EMAIL_MAX}
               value={identity}
               onChange={(e) => setIdentity(e.target.value)}
               readOnly={stage !== "identity"}

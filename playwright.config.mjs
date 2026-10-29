@@ -45,7 +45,11 @@ export default defineConfig({
   webServer: {
     command: `npx next dev -p ${PORT}`,
     url: `http://localhost:${PORT}/api/health`,
-    env: appEnv(),
+    // E2E_TIME_TRAVEL=1: the server's "today" can be moved by a spec
+    // (e2e/support/time-travel.mjs); sign-in clocks stay real.
+    env: process.env.E2E_TIME_TRAVEL === "1"
+      ? { ...appEnv(), NODE_OPTIONS: `${process.env.NODE_OPTIONS || ""} --require ${JSON.stringify(new URL("./e2e/support/fake-today.cjs", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"))}`.trim() }
+      : appEnv(),
     reuseExistingServer: process.env.E2E_REUSE_SERVER === "1",
     timeout: 180000,
     stdout: "ignore",

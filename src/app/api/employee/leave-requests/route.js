@@ -15,6 +15,7 @@ import { LEAVE_ADVANCE_MESSAGE, earliestLeaveStart, meetsAdvanceRule } from "@/l
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { getServiceClient } from "@/lib/supabase/admin";
+import { REASON_MAX } from "@/lib/input-limits";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -108,8 +109,11 @@ export async function POST(request) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
       return NextResponse.json({ error: "Dates must be in YYYY-MM-DD format." }, { status: 400 });
     }
-    if (leaveType.length > 64 || reason.length > 1000) {
-      return NextResponse.json({ error: "Leave type or reason is too long." }, { status: 400 });
+    if (leaveType.length > 64) {
+      return NextResponse.json({ error: "Leave type is too long." }, { status: 400 });
+    }
+    if (reason.length > REASON_MAX) {
+      return NextResponse.json({ error: `The reason can be at most ${REASON_MAX} characters.` }, { status: 400 });
     }
 
     if (startDate > endDate) {

@@ -21,6 +21,11 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { roundPeso } from "@/lib/payroll/money";
 import { actorName } from "@/lib/payroll/staff";
+import { PESO_MAX, pesoLimit } from "@/lib/input-limits";
+import { textLimitError } from "@/lib/input-limits";
+
+// The longest text each box takes; the form boxes match.
+const TEXT_CAPS = { note: [500, "The reason for the change"] };
 
 const peso = (value) => roundPeso(value);
 const NOT_READY = "The teacher subsidy is not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
@@ -73,6 +78,9 @@ export async function POST(request) {
     const guard = await requirePermission(request, "system_configuration", "update");
     if (guard.denied) return guard.denied;
     const body = await request.json().catch(() => ({}));
+    // Over-long text is refused, not cut short (input limits).
+    const tooLong = textLimitError(body, TEXT_CAPS);
+    if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action, "save");
     const supabase = getAdminClient();
 
@@ -102,7 +110,7 @@ export async function POST(request) {
       tax_treatment: normalizeText(body.tax_treatment, "other_benefit"),
       note: normalizeText(body.note).slice(0, 500),
     };
-    if (!(input.annual_amount > 0 && input.annual_amount <= 9999999.99)) return NextResponse.json({ error: "Enter the annual subsidy amount." }, { status: 400 });
+    if (!(input.annual_amount > 0 && input.annual_amount <= PESO_MAX)) return NextResponse.json({ error: `Enter the annual subsidy amount (at most ${pesoLimit(PESO_MAX)}).` }, { status: 400 });
     for (const [key, options] of Object.entries(CHOICES)) {
       if (!options.includes(input[key])) return NextResponse.json({ error: `Choose a value for ${key.replaceAll("_", " ")}.` }, { status: 400 });
     }
