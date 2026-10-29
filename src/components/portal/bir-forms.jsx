@@ -1,28 +1,33 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangleIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, CalculatorIcon, DownloadIcon, FileSpreadsheetIcon, FileTextIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { ErrorState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
-import { apiFetch, fetchJson } from "@/lib/portal/api";
+import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 import { moneyCompact } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 
 /*
- * BIR Form 2316 and the 1604-C alphalist (scenario AC-11, 2026-10-22).
- *   BirFormsCard     Accountant → Payroll Reports (its branch); HR → Payroll
- *                    Records (every branch, read-only). GET /api/payroll/bir-forms
+ * BIR Form 2316 and the 1604-C alphalist (scenario AC-11, 2026-10-22), and
+ * the year-end tax annualization (2026-10-29). The Accountant only.
+ *   YearEndTaxCard   Accountant → Payroll Reports (its branch): run the
+ *                    annualization, schedule each difference onto a 2nd-cutoff
+ *                    payslip. GET / POST /api/payroll/year-end-tax
+ *   BirFormsCard     Accountant → Payroll Reports (its branch).
+ *                    GET /api/payroll/bir-forms
  *   MyBir2316Card    Employee → Payslips: their own 2316 for a finished year.
  *                    GET /api/employee/bir-2316
  * The forms are computed from paid, approved payslips each time; nothing
- * here changes a figure. A year-end difference is settled by the Accountant
- * with a payroll correction.
+ * here changes a payslip. A year-end difference goes on the scheduled payslip
+ * as its own "Year-end tax adjustment" line when it is processed.
  */
 
 async function download(url, fallbackName) {
@@ -164,6 +169,7 @@ export function BirFormsCard({ refreshKey = 0 }) {
               {rows.length} employee{rows.length === 1 ? "" : "s"} · tax due {moneyCompact(data.totals?.tax_due || 0)} · withheld {moneyCompact(data.totals?.tax_withheld || 0)}
               {noTin ? ` · ${noTin} without a TIN` : ""}
             </p>
+            <p className="basis-full text-xs text-muted-foreground">The 2316s cover your branch. The alphalist is one school-wide filing: it lists every branch&apos;s employees (approved payroll only).</p>
           </div>
         ) : null}
         {data || state.loading ? (
@@ -181,9 +187,268 @@ export function BirFormsCard({ refreshKey = 0 }) {
         ) : null}
         {off ? (
           <p className="text-xs text-muted-foreground">
-            {off} employee{off === 1 ? "'s" : "s'"} tax withheld differs from the tax due for the year. Settle each one with a payroll correction on a payslip
-            (Payroll Records → Correct): under-withheld as a deduction, over-withheld as a refund.
+            {off} employee{off === 1 ? "'s" : "s'"} tax withheld differs from the tax due for the year. Settle each one with the year-end tax annualization
+            above: under-withheld as a deduction, over-withheld as a refund, on a 2nd-cutoff payslip.
           </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+const SCHEDULE_STATE = {
+  waiting: { tone: "info", label: "Scheduled" },
+  on_payslip: { tone: "warning", label: "On draft payslip" },
+  final: { tone: "success", label: "On Final payslip" },
+};
+
+export function YearEndTaxCard() {
+  const { notify } = usePortalSession();
+  const [confirmDialog, confirm] = useConfirm();
+  const [year, setYear] = React.useState("");
+  const [state, setState] = React.useState({ loading: true, error: null, data: null });
+  const [busy, setBusy] = React.useState("");
+
+  const load = React.useCallback(async () => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const data = await fetchJson(`/api/payroll/year-end-tax${year ? `?year=${year}` : ""}`);
+      setState({ loading: false, error: null, data });
+    } catch (error) {
+      setState({ loading: false, error: error.message || "Unable to load the annualization.", data: null });
+    }
+  }, [year]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const data = state.data;
+  const shownYear = String(data?.year || year || "");
+  const rows = data?.rows || [];
+  const targets = data?.targets || [];
+
+  const post = async (key, body, done) => {
+    setBusy(key);
+    try {
+      const next = await fetchJson("/api/payroll/year-end-tax", jsonBody("POST", body));
+      setState({ loading: false, error: null, data: next });
+      notify("Year-end Tax", done(next), "success");
+    } catch (error) {
+      notify("Year-end Tax", error.message, "error");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const runAnnualization = async () => {
+    const ok = await confirm({
+      title: `Run the ${shownYear} annualization?`,
+      description: `Computes each employee's tax due for ${shownYear} from the BIR annual table and compares it with the tax withheld. Running it again updates the figures; no payslip is changed.`,
+      confirmLabel: "Run annualization",
+    });
+    if (!ok) return;
+    post("run", { action: "run", year: Number(shownYear) }, (next) => `${next.saved} employee${next.saved === 1 ? "" : "s"} annualized for ${shownYear}.`);
+  };
+
+  const schedule = async (row, period) => {
+    const ok = await confirm({
+      title: `Put ${row.employee_name}'s adjustment on ${period}?`,
+      description: "That payslip computes the final amount when you process it (tax due on the whole year, that payslip included, less everything withheld) and shows it as its own line. Its withholding tax is not changed.",
+      confirmLabel: "Schedule",
+    });
+    if (!ok) return;
+    post(row.id, { action: "schedule", id: row.id, period }, () => `Scheduled on the ${period} payslip.`);
+  };
+
+  const unschedule = (row) => post(row.id, { action: "unschedule", id: row.id }, () => "Schedule cleared.");
+
+  // The Super Admin's oversight: records only, nothing to run or schedule.
+  const readOnly = Boolean(data?.read_only);
+
+  const columns = [
+    { key: "employee_name", header: "Employee", sortable: true, cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code} · {r.payslip_count} payslip{r.payslip_count === 1 ? "" : "s"}</p></div>, searchValue: (r) => `${r.employee_name} ${r.employee_code}` },
+    ...(readOnly ? [{ key: "branch_name", header: "Branch", sortable: true }] : []),
+    { key: "taxable_compensation", header: "Taxable", align: "right", className: "tabular-nums", sortValue: (r) => r.taxable_compensation, cell: (r) => moneyCompact(r.taxable_compensation) },
+    { key: "tax_due", header: "Tax due", align: "right", className: "tabular-nums", sortValue: (r) => r.tax_due, cell: (r) => moneyCompact(r.tax_due) },
+    {
+      key: "tax_withheld", header: "Withheld", align: "right", className: "tabular-nums", sortValue: (r) => r.tax_withheld + r.adjustments_settled,
+      cell: (r) => <div className="flex flex-col items-end"><span>{moneyCompact(r.tax_withheld)}</span>{r.adjustments_settled ? <span className="text-xs text-muted-foreground">{r.adjustments_settled > 0 ? "+" : "−"} {moneyCompact(Math.abs(r.adjustments_settled))} year-end</span> : null}</div>,
+    },
+    {
+      key: "balance", header: "Balance", align: "right", sortValue: (r) => r.balance,
+      cell: (r) => {
+        const s = SETTLEMENT[r.settlement] || SETTLEMENT.none;
+        return <div className="flex flex-col items-end gap-1"><span className="tabular-nums">{moneyCompact(Math.abs(r.balance))}</span><StatusBadge tone={s.tone}>{r.settlement === "collect" ? "To collect" : r.settlement === "refund" ? "To refund" : "Balanced"}</StatusBadge></div>;
+      },
+    },
+    {
+      key: "target_period", header: "Adjustment on", sortValue: (r) => r.target_period || "",
+      cell: (r) => (r.status === "scheduled" ? (
+        <div className="flex flex-col items-start gap-1">
+          <span className="text-sm">{r.target_period}</span>
+          <div className="flex items-center gap-1">
+            <StatusBadge tone={(SCHEDULE_STATE[r.schedule_state] || SCHEDULE_STATE.waiting).tone}>{(SCHEDULE_STATE[r.schedule_state] || SCHEDULE_STATE.waiting).label}</StatusBadge>
+            {r.schedule_state !== "final" && !readOnly ? (
+              <Button variant="ghost" size="icon-sm" disabled={busy === r.id} onClick={() => unschedule(r)} aria-label={`Clear the schedule of ${r.employee_name}`}>
+                {busy === r.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <XIcon aria-hidden="true" />}
+              </Button>
+            ) : null}
+          </div>
+          {r.adjustments.filter((a) => a.pay_period === r.target_period).map((a) => (
+            <span key={a.pay_period} className={cn("text-xs tabular-nums", a.kind === "refund" ? "text-success" : "text-destructive")}>
+              {a.kind === "refund" ? "+" : "−"} {moneyCompact(a.amount)}{a.shortfall ? ` (${moneyCompact(a.shortfall)} still to collect)` : ""}
+            </span>
+          ))}
+        </div>
+      ) : readOnly ? <span className="text-xs text-muted-foreground">Not scheduled</span> : targets.length ? (
+        <Select value="" onValueChange={(period) => schedule(r, period)} disabled={busy === r.id}>
+          <SelectTrigger size="sm" className="w-48" aria-label={`Schedule the adjustment of ${r.employee_name}`}><SelectValue placeholder="Schedule on…" /></SelectTrigger>
+          <SelectContent>{targets.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+        </Select>
+      ) : <span className="text-xs text-muted-foreground">No payslip left</span>),
+    },
+  ];
+
+  return (
+    <Card className="min-w-0 shadow-xs">
+      {confirmDialog}
+      <CardHeader>
+        <CardTitle>Year-end tax annualization</CardTitle>
+        <CardDescription>
+          {readOnly
+            ? "Every branch's annualization records, read-only for oversight: each Accountant runs and schedules its own branch's."
+            : <>Each employee&apos;s tax due for the whole year from the BIR annual table, against the tax withheld on every cutoff. Run it again whenever payslips change;
+              schedule a difference onto a 2nd-cutoff payslip (usually December 16-31), where it is its own line and the regular withholding tax is not changed.</>}
+        </CardDescription>
+        <CardAction className="flex flex-wrap gap-2">
+          <Select value={shownYear} onValueChange={setYear}>
+            <SelectTrigger size="sm" className="w-28" aria-label="Annualization year"><SelectValue placeholder="Year" /></SelectTrigger>
+            <SelectContent>{(data?.years || []).map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {state.error ? <ErrorState message={state.error} onRetry={load} /> : null}
+        {data && data.available === false ? (
+          <Alert className="border-warning/40 bg-warning/5">
+            <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+            <AlertDescription>{data.error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {data && !data.finished ? (
+          <Alert className="border-warning/40 bg-warning/5">
+            <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+            <AlertDescription>{data.year} is not over yet: the figures cover the payslips approved so far. The scheduled payslip recomputes its adjustment when processed.</AlertDescription>
+          </Alert>
+        ) : null}
+        {data && data.available !== false ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {readOnly ? <StatusBadge tone="info">Read-only</StatusBadge> : (
+              <Button size="sm" disabled={busy === "run" || !shownYear} onClick={runAnnualization}>
+                {busy === "run" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <CalculatorIcon aria-hidden="true" />}{rows.length ? "Run again" : "Run annualization"}
+              </Button>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {rows.length} employee{rows.length === 1 ? "" : "s"} · to collect {moneyCompact(data.totals?.to_collect || 0)} · to refund {moneyCompact(data.totals?.to_refund || 0)}
+            </p>
+          </div>
+        ) : null}
+        {(data && data.available !== false) || state.loading ? (
+          <DataTable
+            columns={columns}
+            rows={rows}
+            rowKey={(r) => r.id}
+            loading={state.loading && !data}
+            pageSize={15}
+            searchPlaceholder="Search employee…"
+            empty={{ title: `No annualization for ${shownYear || "this year"} yet`, description: readOnly ? "No Accountant has run it for this year." : "Choose Run annualization.", icon: CalculatorIcon }}
+            caption={`Year-end tax annualization ${shownYear}`}
+            minWidth={900}
+          />
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+const EXPORT_KIND = { bir_2316: "BIR Form 2316", alphalist: "1604-C alphalist" };
+
+/**
+ * The BIR files already generated, as they were generated (GET
+ * /api/payroll/bir-exports): the Accountant its branch's, the Super Admin
+ * every branch's, read-only. Viewing one computes nothing.
+ */
+export function BirExportsCard({ refreshKey = 0 }) {
+  const [year, setYear] = React.useState(String(new Date().getFullYear()));
+  const [state, setState] = React.useState({ loading: true, error: null, data: null });
+  const [busy, run] = useDownloader();
+
+  const load = React.useCallback(async () => {
+    setState((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const data = await fetchJson(`/api/payroll/bir-exports?year=${year}`);
+      setState({ loading: false, error: null, data });
+    } catch (error) {
+      setState({ loading: false, error: error.message || "Unable to load the generated files.", data: null });
+    }
+  }, [year]);
+
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+
+  const data = state.data;
+  const thisYear = new Date().getFullYear();
+  const years = [thisYear, thisYear - 1, thisYear - 2].map(String);
+  const columns = [
+    { key: "generated_at", header: "Generated", sortable: true, cell: (r) => <div><p className="font-medium">{new Date(r.generated_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" })}</p><p className="text-xs text-muted-foreground">by {r.generated_by_name || "—"}</p></div> },
+    { key: "kind", header: "File", sortable: true, cell: (r) => <div><p>{EXPORT_KIND[r.kind] || r.kind} ({String(r.format).toUpperCase()})</p><p className="text-xs text-muted-foreground">{r.employee_id ? "One employee" : `${r.employee_count} employee${r.employee_count === 1 ? "" : "s"}`}</p></div>, searchValue: (r) => `${EXPORT_KIND[r.kind]} ${r.generated_by_name}` },
+    { key: "branch_name", header: "Covers", sortable: true },
+    { key: "tax_withheld", header: "Tax withheld", align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.totals?.tax_withheld || 0) },
+    {
+      key: "view", header: <span className="sr-only">View</span>, align: "right",
+      cell: (r) => (
+        <Button variant="outline" size="sm" disabled={busy === r.id} onClick={() => run(r.id, `/api/payroll/bir-exports?id=${r.id}`, "BIR-file")} aria-label={`View the ${EXPORT_KIND[r.kind] || "file"} generated ${r.generated_at}`}>
+          {busy === r.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}View
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <Card className="min-w-0 shadow-xs">
+      <CardHeader>
+        <CardTitle>Generated BIR files</CardTitle>
+        <CardDescription>
+          Every BIR Form 2316 and 1604-C alphalist generated{data?.read_only ? " in every branch" : " in your branch"}, kept exactly as generated.
+          {data?.read_only ? " Read-only: only the Accountant generates them." : ""}
+        </CardDescription>
+        <CardAction className="flex flex-wrap gap-2">
+          <Select value={year} onValueChange={setYear}>
+            <SelectTrigger size="sm" className="w-28" aria-label="Generated files year"><SelectValue placeholder="Year" /></SelectTrigger>
+            <SelectContent>{years.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {state.error ? <ErrorState message={state.error} onRetry={load} /> : null}
+        {data && data.available === false ? (
+          <Alert className="border-warning/40 bg-warning/5">
+            <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+            <AlertDescription>{data.error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {(data && data.available !== false) || state.loading ? (
+          <DataTable
+            columns={columns}
+            rows={data?.exports || []}
+            rowKey={(r) => r.id}
+            loading={state.loading && !data}
+            pageSize={10}
+            searchPlaceholder="Search file…"
+            empty={{ title: `No BIR files generated for ${year}`, icon: FileTextIcon }}
+            caption={`Generated BIR files ${year}`}
+            minWidth={760}
+          />
         ) : null}
       </CardContent>
     </Card>

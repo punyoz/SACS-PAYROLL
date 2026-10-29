@@ -6,6 +6,9 @@
  *
  *   GET ?month=YYYY-MM[&format=csv]
  *
+ * The year-end tax adjustment of the month's payslips, and of final pays
+ * released in the month, is in its own column and in the total (2026-10-29).
+ *
  * payroll_records "read": the Accountant (its branch) and HR (every branch).
  * Not the Employee (it sees only its own deductions, on its payslip), not the
  * Admin, and not the Super Admin (no payroll data since the 2026-10-20 role
@@ -37,7 +40,7 @@ export async function GET(request) {
     const supabase = getAdminClient();
     const branchId = guard.branchExempt ? null : (guard.branchId || "00000000-0000-0000-0000-000000000000");
 
-    const [entries, branches] = await Promise.all([
+    const [entries, finals, branches] = await Promise.all([
       fetchAllRows(() => {
         let query = supabase.from("payroll_entries")
           .select("id,employee_id,employee_name,employee_code,branch_id,pay_period,status,payslip_no,payroll")
@@ -46,10 +49,25 @@ export async function GET(request) {
         if (branchId) query = query.eq("branch_id", branchId);
         return query;
       }),
+      // Final pays carrying a year-end tax adjustment (filtered by release month below).
+      fetchAllRows(() => {
+        let query = supabase.from("payroll_entries")
+          .select("id,employee_id,employee_name,employee_code,branch_id,pay_period,status,payslip_no,payroll")
+          .like("pay_period", "Final pay%")
+          .eq("status", "paid")
+          .not("payroll->year_end_tax", "is", null)
+          .order("id", { ascending: true });
+        if (branchId) query = query.eq("branch_id", branchId);
+        return query;
+      }),
       supabase.from("branches").select("id,name"),
     ]);
     if (entries.error) throw new Error(entries.error.message);
-    const report = buildRemittance(entries.data || [], new Map((branches.data || []).map((b) => [b.id, b.name])));
+    if (finals.error) throw new Error(finals.error.message);
+    const released = (finals.data || [])
+      .filter((entry) => String(entry.payroll?.final_pay?.release_on || "").slice(0, 7) === month)
+      .map((entry) => ({ ...entry, year_end_only: true }));
+    const report = buildRemittance([...(entries.data || []), ...released], new Map((branches.data || []).map((b) => [b.id, b.name])));
 
     if (String(url.searchParams.get("format") || "").toLowerCase() === "csv") {
       const head = ["Employee", "Employee ID", "Branch", "Status", ...REMITTANCE_COLUMNS.map(([, label]) => label), "Employer share recorded"];

@@ -16,7 +16,6 @@ import { apiFetch, fetchJson } from "@/lib/portal/api";
 import { dateTime, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
-import { BirFormsCard } from "@/components/portal/bir-forms";
 import { RemittanceCard } from "@/components/portal/remittance-report";
 
 /*
@@ -183,9 +182,9 @@ export function PayrollRecordsPage({ refreshKey }) {
           <p className="mt-3 text-xs text-muted-foreground">Read-only. Payslips are processed by each branch&apos;s Accountant; drafts are not listed.</p>
         </CardContent>
       </Card>
-      {/* Every branch's BIR 2316 and alphalist, read-only (AC-11). */}
+      {/* Every branch's remittance, read-only. BIR 2316, the alphalist and the
+          year-end tax annualization are the Accountant's only (2026-10-29). */}
       <RemittanceCard refreshKey={refreshKey} />
-      <BirFormsCard refreshKey={refreshKey} />
     </>
   );
 }

@@ -27,6 +27,7 @@ import { AccountsPage } from "./accounts-page";
 import { RolesPage } from "./roles-page";
 import { ConfigPage } from "./config-page";
 import { BackupPage } from "./backup-page";
+import { BirExportsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -136,6 +137,9 @@ function SuperAdminScreens() {
       {current === "sa-audit" ? (
         <AuditLogsPage refreshKey={refreshKey} limit={200} csvName={() => `sacs-sa-audit-${manilaDateKey()}.csv`} auditActor={null} />
       ) : null}
+      {/* Year-end tax records and generated BIR files: read-only oversight (decision 2026-10-29). */}
+      {current === "sa-audit" ? <YearEndTaxCard /> : null}
+      {current === "sa-audit" ? <BirExportsCard refreshKey={refreshKey} /> : null}
       {current === "sa-backup" ? <BackupPage refreshKey={refreshKey} /> : null}
       {current === "sa-profile" ? <StaffProfilePage roleLabel="Super Admin" accountOnly /> : null}
     </AppShell>

@@ -78,7 +78,8 @@ function Cutoff({ payslip }) {
         {Number(c.leave_with_pay_days) > 0 ? <Row label={`Leave with pay (${plural(c.leave_with_pay_days, "day")})`} value="No deduction" /> : null}
         {c.deductions.length ? c.deductions.map((line) => (
           <React.Fragment key={line.label}>
-            <Row label={line.label} value={`- ${money(line.amount)}`} tone="minus" />
+            {/* A credit (the year-end tax refund) is added to the pay. */}
+            <Row label={line.label} value={`${line.credit ? "+" : "-"} ${money(line.amount)}`} tone={line.credit ? "plus" : "minus"} />
             {line.note ? <Row indent muted label={line.note} value="" /> : null}
           </React.Fragment>
         )) : <Row label="None" value={money(0)} />}
@@ -132,6 +133,7 @@ function SemiMonthly({ payslip }) {
         <Row label="Monthly net" value={money(m.monthly_net)} strong />
         <Row label={m.first_half_status === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)"} value={`- ${money(m.first_half_paid)}`} />
         {Number(m.carry_in) > 0 ? <Row label={`Balance carried from ${m.carry_from || "last month"}`} value={`- ${money(m.carry_in)}`} tone="minus" /> : null}
+        {Number(m.year_end_tax?.amount) > 0 ? <Row label={m.year_end_tax.label} value={`${m.year_end_tax.kind === "refund" ? "+" : "-"} ${money(m.year_end_tax.amount)}`} tone={m.year_end_tax.kind === "refund" ? "plus" : "minus"} /> : null}
         {Number(m.carry_over_out) > 0 ? <Row label="Carried to next month" value={money(m.carry_over_out)} tone="warn" /> : null}
       </Section>
     </div>

@@ -1,27 +1,30 @@
 /**
  * BIR Form 2316 and the 1604-C alphalist (scenario AC-11, 2026-10-22;
- * src/lib/payroll/bir-forms.js). Read-only: the forms are computed from paid,
- * approved payslips each time, never stored.
+ * src/lib/payroll/bir-forms.js), computed from paid, approved payslips. Each
+ * file generated is recorded as generated (payroll_bir_exports; viewed later
+ * through /api/payroll/bir-exports, also by the Super Admin, read-only).
  *
  *   GET ?year=YYYY                        the year's certificates (summary; TINs masked)
  *   GET ?year=YYYY&format=pdf[&employee_id=]   2316 PDF (one page per employee)
  *   GET ?year=YYYY&format=xlsx | csv      the alphalist (Schedule 1 as of Dec 31,
  *                                         Schedule 2 separated during the year)
  *
- * The Accountant (its branch) generates them under Payroll Reports; HR
- * (every branch) can look and download, never change anything.
+ * The Accountant only, under Payroll Reports (2026-10-29,
+ * src/lib/payroll/bir-access.js): HR, Admin and Super Admin are refused.
+ * The summary and the 2316 cover its own branch; the alphalist every branch
+ * (one school-wide filing under one TIN).
+ * The tax withheld includes the year-end tax adjustments settled on payslips
+ * (/api/payroll/year-end-tax).
  */
 
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
-import { requirePermission } from "@/lib/rbac/guard";
+import { ALPHALIST_SCOPE, birBranchScope, describeYearEndError, requireBirAccountant } from "@/lib/payroll/bir-access";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { ALPHALIST_COLUMNS, alphalistRow, toCsv } from "@/lib/payroll/bir-2316";
-import { build2316Pdf } from "@/lib/payroll/bir-2316-pdf";
+import { buildBirFile, recordBirExport } from "@/lib/payroll/bir-exports";
 import { birYears, loadBirYear } from "@/lib/payroll/bir-forms";
 import { manilaDateKey } from "@/lib/payroll/periods";
-import { buildXlsx } from "@/lib/export/xlsx";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -47,6 +50,7 @@ function summary(row) {
     taxable: b[52],
     tax_due: b[24],
     tax_withheld: b[26],
+    year_end_adjustment: row.form.year_end_adjustment || 0,
     difference: row.form.difference,
     settlement: row.form.settlement,
   };
@@ -60,8 +64,8 @@ function file(buffer, name, type) {
 }
 
 export async function GET(request) {
-  // HR views every branch; the Accountant its own (payroll_records scope).
-  const guard = await requirePermission(request, "payroll_records", "read");
+  // The Accountant only, its own branch (src/lib/payroll/bir-access.js).
+  const guard = await requireBirAccountant(request, "read");
   if (guard.denied) return guard.denied;
   try {
     const url = new URL(request.url);
@@ -72,9 +76,13 @@ export async function GET(request) {
     const employeeId = url.searchParams.get("employee_id") || "";
     if (employeeId && !UUID.test(employeeId)) return NextResponse.json({ error: "Unknown employee." }, { status: 400 });
 
+    if (!["json", "pdf", "xlsx", "csv"].includes(format)) return NextResponse.json({ error: "Unknown format." }, { status: 400 });
     const supabase = getAdminClient();
-    const branchId = guard.branchExempt ? null : (guard.branchId || "00000000-0000-0000-0000-000000000000");
-    const data = await loadBirYear(supabase, { year, branchId, employeeId: employeeId || null });
+    // The alphalist is one school-wide filing: every branch's approved
+    // payroll, read for this export only. Everything else: the Accountant's branch.
+    const alphalist = format === "xlsx" || format === "csv";
+    const branchId = alphalist ? ALPHALIST_SCOPE : birBranchScope(guard);
+    const data = await loadBirYear(supabase, { year, branchId, employeeId: alphalist ? null : employeeId || null });
 
     if (format === "json") {
       const years = await birYears(supabase);
@@ -96,30 +104,21 @@ export async function GET(request) {
       });
     }
 
-    if (!["pdf", "xlsx", "csv"].includes(format)) return NextResponse.json({ error: "Unknown format." }, { status: 400 });
     if (employeeId && !data.rows.length) return NextResponse.json({ error: "No paid payslips for this employee in that year, or not in your branch." }, { status: 404 });
 
-    let response;
-    if (format === "pdf") {
-      const name = employeeId ? `BIR-2316-${year}-${data.rows[0].employee_code || "employee"}.pdf` : `BIR-2316-${year}.pdf`;
-      response = file(build2316Pdf(data.rows, { employer: data.employer, year }), name, "application/pdf");
-    } else {
-      const schedule1 = [];
-      const schedule2 = [];
-      data.rows.forEach((row) => (row.form.separated_in_year ? schedule2 : schedule1).push(row));
-      const toRows = (list) => list.map((row, i) => alphalistRow({ seq: i + 1, tin: row.tin, name: row.name, form: row.form }));
-      const headers = ALPHALIST_COLUMNS.map(([header]) => header);
-      if (format === "xlsx") {
-        const columns = headers.map((header, i) => ({ header, width: i === 0 ? 8 : i < 7 ? 16 : 20, integer: i === 0 }));
-        response = file(buildXlsx([
-          { name: "Schedule 1 - as of Dec 31", columns, rows: toRows(schedule1) },
-          { name: "Schedule 2 - separated", columns, rows: toRows(schedule2) },
-        ]), `Alphalist-1604C-${year}.xlsx`, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      } else {
-        const rows = [...toRows(schedule1).map((r) => ["1", ...r]), ...toRows(schedule2).map((r) => ["2", ...r])];
-        response = file(Buffer.from(`﻿${toCsv(["Schedule", ...headers], rows)}`, "utf8"), `Alphalist-1604C-${year}.csv`, "text/csv; charset=utf-8");
-      }
+    const kind = alphalist ? "alphalist" : "bir_2316";
+    const built = buildBirFile({ kind, format, rows: data.rows, employer: data.employer, year, employeeCode: employeeId ? data.rows[0].employee_code || "employee" : "" });
+    // Kept as generated, for the record and the Super Admin's oversight.
+    let exportId = null;
+    try {
+      exportId = await recordBirExport(supabase, guard, { kind, format, year, employeeId: employeeId && !alphalist ? employeeId : null, rows: data.rows, employer: data.employer });
+    } catch (error) {
+      const failure = describeYearEndError(error.dbError || error);
+      // Before 20261029010000 there is nowhere to record it: the file is still given.
+      if (failure.code !== "not_ready") return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });
     }
+    const response = file(built.buffer, built.name, built.type);
+    if (exportId) response.headers.set("X-Bir-Export-Id", String(exportId));
 
     await appendAuditLog({
       actor: guard,
@@ -127,10 +126,10 @@ export async function GET(request) {
       action: "bir_forms_export",
       entity_type: "bir_forms",
       entity_id: String(year),
-      description: `${format === "pdf" ? "BIR Form 2316" : "1604-C alphalist"} ${year} downloaded (${data.rows.length} employee${data.rows.length === 1 ? "" : "s"}).`,
+      description: `${format === "pdf" ? "BIR Form 2316" : "1604-C alphalist (all branches)"} ${year} generated (${data.rows.length} employee${data.rows.length === 1 ? "" : "s"}).`,
       status: "success",
       source: "api",
-      metadata: { year, format, employee_id: employeeId || null, count: data.rows.length },
+      metadata: { year, format, employee_id: employeeId || null, count: data.rows.length, export_id: exportId, scope: alphalist ? "school" : "branch" },
     });
     return response;
   } catch (error) {

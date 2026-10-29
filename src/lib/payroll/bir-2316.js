@@ -35,8 +35,11 @@
  * (16-18, 22, 25B), minimum wage earner (9-11, 29-33), de minimis (35),
  * allowances (40-44), commissions and fees (45-47), hazard pay (49).
  *
- * The year-end difference (tax due − tax withheld) is shown, never applied:
- * the Accountant settles it with a payroll correction (decided 2026-10-22).
+ * The year-end difference (tax due − tax withheld) is settled by the
+ * Accountant's year-end tax annualization (2026-10-29, src/lib/payroll/
+ * year-end-tax.js): a "Year-end tax adjustment" line on a 2nd-cutoff payslip.
+ * Those lines are `adjustments` here: box 25A is the tax withheld as
+ * adjusted (regular withholding + collected − refunded).
  */
 
 import { roundPeso } from "@/lib/payroll/money";
@@ -143,8 +146,9 @@ export function payslipFigures(entry, { subsidyTreatment = null } = {}) {
  * @param {Array<{ kind: string, amount: number }>} input.benefits     the year's benefits-ledger rows
  * @param {number} input.ceiling
  * @param {Array} input.taxTable                                       monthly { over, base, rate } rows
+ * @param {Array<{ amount: number }>} [input.adjustments]              year-end tax adjustments on Final payslips (+ collected, − refunded)
  */
-export function compute2316({ year, employee = {}, payslips = [], benefits = [], ceiling = DEFAULT_BENEFITS_CEILING, taxTable = [] }) {
+export function compute2316({ year, employee = {}, payslips = [], benefits = [], ceiling = DEFAULT_BENEFITS_CEILING, taxTable = [], adjustments = [] }) {
   const sum = (key, list = payslips) => peso(list.reduce((s, p) => s + num(p.figures[key]), 0));
 
   const contributions = sum("contributions");
@@ -170,7 +174,9 @@ export function compute2316({ year, employee = {}, payslips = [], benefits = [],
   box[22] = 0;
   box[23] = peso(box[21] + box[22]);
   box[24] = annualTaxDue(box[23], taxTable);
-  box["25A"] = sum("withheld");
+  const withheldRegular = sum("withheld");
+  const yearEndAdjustment = peso(adjustments.reduce((s, a) => s + num(a.amount), 0));
+  box["25A"] = peso(withheldRegular + yearEndAdjustment);
   box["25B"] = 0;
   box[26] = peso(box["25A"] + box["25B"]);
   box[27] = 0;
@@ -197,8 +203,12 @@ export function compute2316({ year, employee = {}, payslips = [], benefits = [],
     other_benefits: peso(benefitsTotal - thirteenth),
     basic_earned: basicEarned,
     payslip_count: payslips.length,
-    withheld_jan_nov: peso(box["25A"] - withheldDecember),
+    withheld_jan_nov: peso(withheldRegular - withheldDecember),
     withheld_december: withheldDecember,
+    // The regular withholding tax of the year's payslips, and the year-end
+    // adjustments settled on payslips (both inside box 25A).
+    withheld_regular: withheldRegular,
+    year_end_adjustment: yearEndAdjustment,
     // > 0: under-withheld (to collect); < 0: over-withheld (to refund).
     difference,
     settlement: Math.abs(difference) < 0.01 ? "none" : difference > 0 ? "collect" : "refund",
@@ -242,6 +252,8 @@ export const ALPHALIST_COLUMNS = [
   ["Tax due", (r) => r.form.boxes[24]],
   ["Tax withheld January - November", (r) => r.form.withheld_jan_nov],
   ["Tax withheld December", (r) => r.form.withheld_december],
+  // The year-end tax annualization's adjustment lines (2026-10-29).
+  ["Year-end tax adjustment (+ collected / - refunded)", (r) => r.form.year_end_adjustment || 0],
   ["Total tax withheld", (r) => r.form.boxes[26]],
   ["Under-withheld (to collect)", (r) => Math.max(0, r.form.difference)],
   ["Over-withheld (to refund)", (r) => Math.max(0, -r.form.difference)],

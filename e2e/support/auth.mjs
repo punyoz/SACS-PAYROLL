@@ -21,7 +21,9 @@ export const ROLE_LABEL = {
 /** Clear this page's sign-in (cookies and stored context). */
 export async function signOutLocally(page) {
   await page.context().clearCookies();
-  await page.goto("/api/health");
+  // The open portal notices the cleared cookie and redirects to /login, which
+  // can abort this navigation (net::ERR_ABORTED); the second try lands.
+  await page.goto("/api/health").catch(() => page.goto("/api/health"));
   await page.evaluate(() => { try { localStorage.clear(); sessionStorage.removeItem("sacs-auth"); } catch { /* blocked */ } });
 }
 

@@ -11,6 +11,11 @@
  * processing (payroll.employer_contributions); a payslip processed before
  * that existed has none, and the row says so (`employer_recorded` false)
  * instead of guessing it from today's rates.
+ *
+ * Year-end tax adjustment (2026-10-29, src/lib/payroll/year-end-tax.js): what
+ * a payslip of the month collected (+) or refunded (−) on top of its
+ * withholding tax, in its own column and in the total remitted to the BIR. A
+ * final pay released in the month adds only that column here (`year_end_only`).
  */
 
 import { roundPeso } from "@/lib/payroll/money";
@@ -22,7 +27,8 @@ export const REMITTANCE_COLUMNS = [
   ["sss_ee", "SSS employee"], ["sss_er", "SSS employer"], ["sss_ec", "SSS EC"], ["sss_total", "SSS remit"],
   ["philhealth_ee", "PhilHealth employee"], ["philhealth_er", "PhilHealth employer"], ["philhealth_total", "PhilHealth remit"],
   ["pagibig_ee", "Pag-IBIG employee"], ["pagibig_er", "Pag-IBIG employer"], ["pagibig_total", "Pag-IBIG remit"],
-  ["withholding_tax", "Withholding tax (BIR)"], ["total_remit", "Total remit"],
+  ["withholding_tax", "Withholding tax (BIR)"], ["year_end_tax", "Year-end tax adjustment (BIR, + collected / - refunded)"],
+  ["total_remit", "Total remit"],
 ];
 
 /**
@@ -38,9 +44,15 @@ export function buildRemittance(entries, branchNames = new Map()) {
     const row = byEmployee.get(entry.employee_id) || {
       employee_id: entry.employee_id, employee_name: entry.employee_name || "—", employee_code: entry.employee_code || "",
       branch_name: branchNames.get(entry.branch_id) || "—", statuses: [], payslips: [],
-      sss_ee: 0, sss_er: 0, sss_ec: 0, philhealth_ee: 0, philhealth_er: 0, pagibig_ee: 0, pagibig_er: 0, withholding_tax: 0,
+      sss_ee: 0, sss_er: 0, sss_ec: 0, philhealth_ee: 0, philhealth_er: 0, pagibig_ee: 0, pagibig_er: 0, withholding_tax: 0, year_end_tax: 0,
       employer_recorded: true, has_contributions: false,
     };
+    row.year_end_tax = peso(row.year_end_tax + num(payroll.year_end_tax?.signed));
+    if (entry.year_end_only) {
+      row.payslips.push(entry.payslip_no || entry.pay_period);
+      byEmployee.set(entry.employee_id, row);
+      return;
+    }
     row.statuses.push(entry.status === "paid" ? "Final" : "Draft");
     row.payslips.push(entry.payslip_no || entry.pay_period);
     row.sss_ee = peso(row.sss_ee + num(d.sss));
@@ -72,7 +84,7 @@ export function buildRemittance(entries, branchNames = new Map()) {
       sss_total: sssTotal,
       philhealth_total: philhealthTotal,
       pagibig_total: pagibigTotal,
-      total_remit: peso(sssTotal + philhealthTotal + pagibigTotal + row.withholding_tax),
+      total_remit: peso(sssTotal + philhealthTotal + pagibigTotal + row.withholding_tax + row.year_end_tax),
       status: [...new Set(row.statuses)].join(" / "),
     };
   }).sort((a, b) => String(a.employee_name).localeCompare(String(b.employee_name)));

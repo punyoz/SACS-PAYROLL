@@ -11,6 +11,11 @@
  *                             same transaction), records the pro-rated 13th
  *                             month, settles the subsidy balance and stamps
  *                             the AWOL case
+ *
+ * Year-end tax (2026-10-29, src/lib/payroll/year-end-tax.js): when the
+ * Accountant has run the annualization for the separation year, the final pay
+ * settles it: tax due on the year (the final pay included) less everything
+ * withheld, as its own "Year-end tax adjustment" line (a refund is a credit).
  */
 
 import crypto from "node:crypto";
@@ -42,6 +47,9 @@ import { DEFAULT_BENEFITS_CEILING } from "@/lib/payroll/teacher-subsidy";
 import { computeFinalPay, paidDaysBetween } from "@/lib/payroll/final-pay";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { payslipFigures } from "@/lib/payroll/bir-2316";
+import { loadBirYear } from "@/lib/payroll/bir-forms";
+import { applyYearEndToFinalPay, yearEndAdjustment } from "@/lib/payroll/year-end-tax";
 
 const peso = (value) => roundPeso(value);
 const DEADLINE_DAYS = 30;
@@ -174,6 +182,45 @@ async function gather(supabase, person) {
   };
 }
 
+/**
+ * The annualization of the separation year, if the Accountant ran one, and
+ * the year without this final pay (null: none run, or 20261029010000 not applied).
+ */
+async function pendingYearEndTax(supabase, person, year) {
+  const found = await supabase.from("payroll_tax_annualizations").select("id,tax_year,status").eq("employee_id", person.id).eq("tax_year", year).maybeSingle();
+  if (found.error || !found.data) return null;
+  const data = await loadBirYear(supabase, {
+    year, employeeIds: [person.id], approvedOnly: false, excludePeriod: finalPayLabel(person.separated_on), details: false,
+  });
+  const row = data.rows[0];
+  return {
+    record: found.data,
+    prior: row?.sources || { payslips: [], benefits: [], adjustments: [] },
+    employee: row?.employee || { separated_on: person.separated_on },
+    ceiling: data.ceiling,
+    taxTable: data.tax_table,
+  };
+}
+
+/** Settle the pending year-end tax on the final pay breakdown (mutates it). */
+function settleYearEndTax(fp, pending, { year, releaseOn, input }) {
+  if (!pending) return null;
+  const treatment = input.subsidy?.tax_treatment || null;
+  const current = {
+    figures: payslipFigures({ payroll: { final_pay: { breakdown: fp } } }, { subsidyTreatment: treatment }),
+    month: Number(String(releaseOn).slice(5, 7)) || 12,
+    // The 13th month and an "other benefit" subsidy join the benefits ledger once saved.
+    benefits: [
+      { kind: "thirteenth_month", amount: fp.thirteenth_month || 0 },
+      { kind: "subsidy_payout", amount: treatment === "other_benefit" ? fp.subsidy?.payout || 0 : 0 },
+    ].filter((b) => b.amount > 0),
+  };
+  const adjustment = yearEndAdjustment({
+    year, employee: pending.employee, prior: pending.prior, current, ceiling: pending.ceiling, taxTable: pending.taxTable, available: fp.net_pay,
+  });
+  return applyYearEndToFinalPay(fp, adjustment, { annualizationId: pending.record.id, taxYear: year });
+}
+
 async function separatedPeople(supabase, guard) {
   const staff = await loadPayrollStaff(supabase, guard, { includeArchived: true });
   return staff.filter((p) => p.employee_status === "Separated" && p.separated_on);
@@ -192,8 +239,9 @@ export async function GET(request) {
     if (employeeId) {
       const person = people.find((p) => p.id === employeeId);
       if (!person) return NextResponse.json({ error: "Separated employee not found in your branch." }, { status: 404 });
-      const { input, salary, daily } = await gather(supabase, person);
+      const { input, salary, daily, year } = await gather(supabase, person);
       const breakdown = computeFinalPay(input);
+      settleYearEndTax(breakdown, await pendingYearEndTax(supabase, person, year), { year, releaseOn: today, input });
       return NextResponse.json({ person: { id: person.id, full_name: person.full_name, employee_id: person.employee_id, separated_on: person.separated_on }, salary, daily, breakdown });
     }
 
@@ -236,6 +284,7 @@ export async function POST(request) {
 
     const { input, year } = await gather(supabase, person);
     const fp = computeFinalPay(input);
+    const yearEndTax = settleYearEndTax(fp, await pendingYearEndTax(supabase, person, year), { year, releaseOn, input });
     const now = new Date().toISOString();
     const entryId = crypto.randomUUID();
     const payroll = {
@@ -243,6 +292,7 @@ export async function POST(request) {
       basic_earned: fp.basic_earned,
       final_pay: { separated_on: person.separated_on, release_on: releaseOn, breakdown: fp, computed_by_name: actorName(guard) },
       totals: { gross_pay: fp.gross, total_deductions: fp.total_deductions, total_incentives: 0, net_pay: fp.net_pay },
+      ...(yearEndTax ? { year_end_tax: yearEndTax } : {}),
     };
     const item = {
       record: {
@@ -254,9 +304,11 @@ export async function POST(request) {
       },
       entry: { id: entryId, employee_id: person.id, employee_name: person.full_name, employee_code: person.employee_id, employee_type: person.employee_type,
         position: person.position || null, pay_period: label, status: "paid", payroll, submitted_at: now, created_at: now, updated_at: now },
-      deductions: fp.deductions.filter((d) => ["sss", "philhealth", "pagibig", "withholding_tax", "carry_over", "loan"].includes(d.kind))
+      deductions: fp.deductions.filter((d) => ["sss", "philhealth", "pagibig", "withholding_tax", "carry_over", "loan", "year_end_tax"].includes(d.kind) && !d.credit)
         .map((d) => ({ type: d.kind, quantity: null, unit: null, rate: null, amount: d.amount, is_override: true, note: d.note || `Final pay${d.month_key ? ` (${d.month_key})` : ""}` })),
-      incentives: [],
+      // A year-end tax refund is its own line.
+      incentives: fp.deductions.filter((d) => d.kind === "year_end_tax" && d.credit)
+        .map((d) => ({ type: "year_end_tax_refund", quantity: 1, unit: "year", rate: null, amount: d.amount, is_override: false, note: d.note })),
       loan_payments: fp.loan_payments,
     };
     const { data, error } = await supabase.rpc("payroll_commit_entries", { p_items: [item] });
