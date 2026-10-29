@@ -144,10 +144,14 @@ describe("the proxy refuses before any route runs", () => {
   const SA = { id: "u-sa", role: "super_admin" };
   const ADMIN = { id: "u-admin", role: "admin", branch: "branch-a" };
 
-  it("the Super Admin cannot process, generate, override or submit payroll, nor open Payroll Approval", async () => {
+  // 2026-10-29: the Super Admin's one payroll action is override_final
+  // (payroll_override). Its PATCH reaches the route, which refuses every
+  // other action (tests/payslip-generation.test.js).
+  it("the Super Admin cannot process, read or submit payroll, nor open Payroll Approval; only its PATCH reaches the route", async () => {
     expect((await call(SA, "/api/accountant/payroll", "POST", { action: "batch_submit" })).status).toBe(403);
-    expect((await call(SA, "/api/accountant/payroll", "PATCH", { action: "generate" })).status).toBe(403);
-    expect((await call(SA, "/api/accountant/payroll", "PATCH", { action: "override_final" })).status).toBe(403);
+    expect((await call(SA, "/api/accountant/payroll")).status).toBe(403);
+    expect((await call(SA, "/api/accountant/payroll", "PATCH", { action: "override_final" })).status).not.toBe(403);
+    expect((await call(ADMIN, "/api/accountant/payroll", "PATCH", { action: "override_final" })).status).toBe(403);
     expect((await call(SA, "/api/accountant/payroll-runs", "PATCH", { action: "submit" })).status).toBe(403);
     expect((await call(SA, "/api/hr/payroll-runs")).status).toBe(403);
   });

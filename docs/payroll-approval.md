@@ -41,6 +41,42 @@ Any other move is refused by the database (trigger `payroll_runs_guard`), whoeve
 - Payroll Records / Monitoring status: Not submitted to HR · Pending HR Approval ·
   Rejected by HR · Paid ("Paid" only once HR approved the run).
 
+## Emergency override of an approved payslip (October 29, 2026, `20261029040000_payroll_final_override.sql`)
+
+A recovery path, not a feature: there is no screen. Only the **Super Admin**
+(module `payroll_override`); the Accountant, HR, the Admin and employees are
+refused, and the Super Admin still cannot process, generate or submit payroll.
+
+- **When:** a payslip HR has **approved** is wrong (e.g. an absence confirmed
+  after approval). A payslip still in the flow (Draft, Pending, Rejected) is
+  corrected through Process Payroll and Payroll Approval instead; the override
+  refuses it. In a semi-monthly month whose 2nd half is Final, correct the 2nd
+  half (it settles the month); the 1st half is never recomputed.
+- **How:** fix the source first (attendance, salary, loan), then, signed in as
+  the Super Admin, in the browser console on the portal:
+
+  ```js
+  await fetch("/api/accountant/payroll", { method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "override_final", employee_id: "<uuid>", pay_period: "October 16-31, 2026",
+      reason: "Corrected a miscalculated loan deduction after HR dispute" }) }).then((r) => r.json());
+  ```
+
+  The reason (at least 10 characters) is required. The payslip is recomputed
+  by the engine from the records, with a new payslip number; the old payroll
+  record is archived.
+- **Logged:** `public.payroll_final_overrides` (append-only: who, which
+  payslip / employee / period, old and new values, reason, when;
+  `GET /api/payroll/overrides`), and an audit entry of module
+  `payroll_override` (Audit & Monitoring → Module → Payslip overrides).
+- **Downstream:** records that used the old figures are **flagged, never
+  changed** (`public.payroll_review_flags`, `GET /api/payroll/review-flags`):
+  the approved run's totals (HR), the month's remittance when a contribution
+  or the withholding tax changed, generated BIR 2316 / alphalist files, the
+  year-end annualization and the 13th month (the branch's Accountant). They are
+  notified; whoever redoes the record marks the flag reviewed with a note
+  (`PATCH /api/payroll/review-flags { id, note }`). The Super Admin reads the
+  flags but cannot mark them.
+
 ## Run the migrations in this order
 
 1. `20261013010000_employee_schedules_cutoffs_early_bird.sql` (schedules, cutoffs, Early Bird)

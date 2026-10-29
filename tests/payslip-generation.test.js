@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { resetDb, table, users } from "./helpers/fake-supabase.js";
+import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -248,10 +248,10 @@ describe("Draft, regenerate, Final", () => {
     expect(table("audit_logs").some((row) => row.action === "payslip_regenerate")).toBe(true);
   });
 
-  // 2026-10-20: the Super Admin no longer changes payroll; a Final payslip is
-  // corrected only by the Accountant's Reprocess while its run is Draft or
-  // Rejected by HR.
-  it("locks a Final payslip; no override changes it (Super Admin and Accountant refused)", async () => {
+  // 2026-10-20: a Final payslip is corrected by the Accountant's Reprocess
+  // while its run is Draft or Rejected by HR. 2026-10-29: the override is the
+  // Super Admin's alone (payroll_override); the Accountant is refused.
+  it("locks a Final payslip; the Accountant cannot override it", async () => {
     await generate("2026-10-01");
     const firstNo = entry().payslip_no;
 
@@ -260,46 +260,82 @@ describe("Draft, regenerate, Final", () => {
     expect(again.body.code).toBe("payslip_locked");
 
     vi.setSystemTime(new Date("2026-10-08T10:00:00+08:00"));
-    const superAdmin = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
-    expect(superAdmin.status).toBe(403);
     const accountant = await PATCH(request(ACCOUNTANT, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
     expect(accountant.status).toBe(403);
+    expect(rpc.calls.some((c) => c.fn === "payroll_override_final")).toBe(false);
     expect(entry().payslip_no).toBe(firstNo);
     expect(table("payroll_records").filter((row) => row.employee_id === EMP && row.archived)).toHaveLength(0);
   });
 
-  // No role reaches override_final (above); if one is ever granted it, the
-  // audit log alone must show who, which payslip, why, and old and new figures.
-  it("an override is logged with the replaced payslip's figures and the new ones", async () => {
+  // The database function writes the payslip and the override record (tested
+  // on Postgres: scripts/checks/payroll-override-scenarios.sql); here, what
+  // the route sends it and what the audit log keeps.
+  it("an override is logged on its own, with who, which payslip, why, and old and new figures", async () => {
     await generate("2026-10-01");
     const before = entry();
-    const oldTotals = before.payroll.totals;
+    const oldValues = { payslip_no: before.payslip_no, gross_pay: 10000, total_deductions: 1000, net_pay: 9000, withholding_tax: 0 };
+    const newValues = { payslip_no: "PS-202610-0009", gross_pay: 9500, total_deductions: 1000, net_pay: 8500, withholding_tax: 0 };
+    const flags = [{ id: "f-1", kind: "remittance", message: "contributions changed" }];
+    rpc.results.payroll_override_final = (args) => ({
+      data: { override_id: "o-1", entry_id: before.id, old_payslip_no: before.payslip_no, payslip_no: "PS-202610-0009", run_status: null,
+        old_values: oldValues, new_values: newValues, changed_fields: ["gross_pay", "net_pay"], review_flags: flags, args },
+      error: null,
+    });
 
-    const { ROLE_PERMISSIONS } = await import("@/lib/rbac/permissions");
-    const saved = ROLE_PERMISSIONS.super_admin.process_payroll;
-    ROLE_PERMISSIONS.super_admin.process_payroll = { scope: "all", actions: ["create", "read", "update", "delete"] };
-    try {
-      table("attendance_logs").push(absent("late-fix", "2026-09-17"));
-      vi.setSystemTime(new Date("2026-10-08T10:00:00+08:00"));
-      const response = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
-      expect(response.status).toBe(200);
-    } finally {
-      ROLE_PERMISSIONS.super_admin.process_payroll = saved;
-    }
+    table("attendance_logs").push(absent("late-fix", "2026-09-17"));
+    vi.setSystemTime(new Date("2026-10-08T10:00:00+08:00"));
+    const response = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Corrected a miscalculated absence after HR review" }));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.override).toMatchObject({ id: "o-1", old_payslip_no: before.payslip_no, payslip_no: "PS-202610-0009", review_flags: flags });
+
+    const call = rpc.calls.find((c) => c.fn === "payroll_override_final");
+    expect(call.args).toMatchObject({ p_actor: SUPER.user_id, p_reason: "Corrected a miscalculated absence after HR review" });
+    expect(call.args.p_item.entry).toMatchObject({ employee_id: EMP, pay_period: PERIOD, status: "paid" });
+    // The route itself neither archives nor commits: the database does both, in one transaction.
+    expect(rpc.calls.some((c) => c.fn === "payroll_commit_entries" && rpc.calls.indexOf(c) > rpc.calls.indexOf(call))).toBe(false);
 
     const log = table("audit_logs").find((row) => row.action === "payslip_override");
+    expect(log.module).toBe("payroll_override");
     // actor_id keeps only real (UUID) ids; the test ids are not.
     expect(log).toMatchObject({ entity_type: "payroll_entry", entity_id: before.id, actor_role: "super_admin", actor_name: SUPER.full_name });
     expect(log.created_at).toBeTruthy();
+    expect(log.description).toContain("Corrected a miscalculated absence after HR review");
     expect(log.metadata).toMatchObject({
       employee_id: EMP,
       pay_period: PERIOD,
+      override_id: "o-1",
       replaced_payslip_no: before.payslip_no,
-      reason: "Late correction approved by HR",
-      previous_totals: { gross_pay: oldTotals.gross_pay, total_deductions: oldTotals.total_deductions, net_pay: oldTotals.net_pay },
-      totals: { net_pay: entry().payroll.totals.net_pay },
+      payslip_no: "PS-202610-0009",
+      reason: "Corrected a miscalculated absence after HR review",
+      old_values: oldValues,
+      new_values: newValues,
+      previous_totals: { gross_pay: 10000, total_deductions: 1000, net_pay: 9000 },
+      review_flags: flags,
     });
-    expect(log.metadata.totals.net_pay).not.toBe(oldTotals.net_pay);
+  });
+
+  it("an override without a reason is refused before anything is written", async () => {
+    await generate("2026-10-01");
+    vi.setSystemTime(new Date("2026-10-08T10:00:00+08:00"));
+    for (const reason of [undefined, "", "   ", "too short"]) {
+      const response = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason }));
+      expect(response.status).toBe(400);
+      expect((await response.json()).code).toBe("override_reason_required");
+    }
+    expect(rpc.calls.some((c) => c.fn === "payroll_override_final")).toBe(false);
+    expect(table("audit_logs").some((row) => row.action === "payslip_override")).toBe(false);
+  });
+
+  it("the Super Admin still cannot generate, reprocess or cancel payroll", async () => {
+    await generate("2026-10-01");
+    for (const body of [
+      { action: "generate", employee_id: EMP, pay_period: PERIOD },
+      { action: "generate", employee_id: EMP, pay_period: PERIOD, reprocess: true },
+      { action: "cancel_draft", entry_id: entry().id },
+    ]) {
+      expect((await PATCH(request(SUPER, "PATCH", body))).status).toBe(403);
+    }
   });
 
   it("downloads the payslip as a PDF", async () => {
