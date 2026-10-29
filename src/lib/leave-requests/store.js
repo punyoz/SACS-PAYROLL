@@ -56,7 +56,28 @@ export function normalizeLeaveRequest(row) {
  *   overlapFrom, overlapTo       leave days touching this range ("YYYY-MM-DD")
  *   submittedSince               submitted on or after this instant
  */
-export async function readAllLeaveRequests({
+export async function readAllLeaveRequests(filters = {}) {
+  return readLeaveRequests("*", filters);
+}
+
+// Every column except proof_url, the base64 proof document (hundreds of KB a
+// row; on 2026-10-29 the 4 live rows held 2.9 MB of proof and 1.3 KB of
+// everything else).
+const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave_type,start_date,end_date,reason,status,submitted_at,decided_at,updated_at,pay_status,branch_id,decided_by,decided_by_name,cancelled_at,cancelled_by_name";
+
+/**
+ * readAllLeaveRequests without the proof document, for every caller that
+ * does not show it: payroll, counts, overlap and duplicate checks, the
+ * employee's own list. Same filters; the rows carry no proof_url key (rather
+ * than an empty one, which would read as "no proof attached"). Only HR's
+ * Leave Requests list (GET /api/hr/leave-requests) shows the proof.
+ */
+export async function readLeaveRequestsWithoutProof(filters = {}) {
+  const rows = await readLeaveRequests(LEAVE_COLUMNS_WITHOUT_PROOF, filters);
+  return rows.map(({ proof_url: _proof, ...row }) => row);
+}
+
+async function readLeaveRequests(columns, {
   status, employeeId, branchId, id, statuses = null, excludeStatuses = null,
   overlapFrom = null, overlapTo = null, submittedSince = null,
 } = {}) {
@@ -64,7 +85,7 @@ export async function readAllLeaveRequests({
   const build = () => {
     let query = supabase
       .from("leave_requests")
-      .select("*")
+      .select(columns)
       .order("submitted_at", { ascending: false })
       .order("id", { ascending: true });
 

@@ -43,14 +43,3 @@ export function compute13thMonthFromEntries(entries, year) {
   const total = peso(periods.reduce((sum, row) => sum + row.basic_earned, 0));
   return { year: Number(year), periods, total_basic_earned: total, amount: peso(total / 12) };
 }
-
-/** One employee's 13th month for a year, from their Final payslips. */
-export async function compute13thMonth(supabase, employeeId, year) {
-  const result = await supabase
-    .from("payroll_entries")
-    .select("pay_period,status,payroll")
-    .eq("employee_id", employeeId)
-    .eq("status", "paid");
-  if (result.error) throw new Error(result.error.message);
-  return { employee_id: employeeId, ...compute13thMonthFromEntries(result.data || [], year) };
-}

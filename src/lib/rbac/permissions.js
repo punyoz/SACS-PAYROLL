@@ -555,20 +555,6 @@ export const SUPER_ADMIN_ONLY_MODULES = [
   "backup_recovery",
 ];
 
-/** Public URL path -> module, for the frontend route guard and its tests. */
-export const ROUTE_MODULES = {
-  "/roles-permissions": "roles_permissions",
-  "/branch-management": "branch_management",
-  "/system-configuration": "system_configuration",
-  "/system-maintenance": "system_maintenance",
-  "/backup-recovery": "backup_recovery",
-  "/branch-reports": "branch_reports",
-  "/user-management": "user_management",
-  "/audit-logs": "audit_logs",
-  "/attendance": "attendance",
-  "/branch-assignment": "branch_assignment",
-};
-
 export function isKnownRole(role) {
   return ROLES.includes(String(role || "").toLowerCase());
 }

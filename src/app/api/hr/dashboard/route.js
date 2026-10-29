@@ -1,7 +1,7 @@
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
-import { readAllLeaveRequests } from "@/lib/leave-requests/store";
+import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -85,7 +85,7 @@ export async function GET(request) {
     // Pending leave requests
     let pendingLeaves = 0;
     try {
-      const pendingRows = await readAllLeaveRequests({
+      const pendingRows = await readLeaveRequestsWithoutProof({
         statuses: ["pending_admin", "pending_accountant"],
         ...(guard.branchExempt ? {} : { branchId: guard.branchId || "00000000-0000-0000-0000-000000000000" }),
       });

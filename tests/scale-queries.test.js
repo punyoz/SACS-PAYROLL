@@ -70,7 +70,7 @@ describe("no route passes a whole id list in one .in() any more", () => {
     const store = readFileSync("src/lib/leave-requests/store.js", "utf8");
     expect(store).toContain("await fetchAllRows(build)");
     const payroll = readFileSync("src/app/api/accountant/payroll/route.js", "utf8");
-    expect(payroll).toContain('readAllLeaveRequests({ status: "approved", overlapFrom: periodStart, overlapTo: periodEnd })');
+    expect(payroll).toContain('readLeaveRequestsWithoutProof({ status: "approved", overlapFrom: periodStart, overlapTo: periodEnd })');
   });
 
   it("the payroll GET reads a scope, never every payslip ever made", () => {

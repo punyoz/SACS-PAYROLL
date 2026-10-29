@@ -9,9 +9,7 @@ import {
   EyeOffIcon,
   InboxIcon,
   Loader2Icon,
-  LockKeyholeIcon,
   MailCheckIcon,
-  ShieldCheckIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -71,56 +69,6 @@ function formatClock(seconds) {
   const m = Math.floor(seconds / 60);
   const s = String(seconds % 60).padStart(2, "0");
   return `${m}:${s}`;
-}
-
-/* ── Brand panel ───────────────────────────────────────────────────────── */
-
-export function BrandPanel() {
-  return (
-    <aside className="relative hidden overflow-hidden bg-brand-green text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle at 15% 10%, rgba(232,199,102,.22), transparent 40%), radial-gradient(circle at 90% 85%, rgba(201,162,39,.18), transparent 45%), linear-gradient(160deg, #1B5E3C 0%, #0F3D28 100%)",
-        }}
-      />
-      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1.5 bg-brand-gold" />
-
-      <div className="relative flex items-center gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/logo-160.png" alt="" width="64" height="64" className="size-16 rounded-full bg-white/95 p-1 shadow-lg" />
-        <div>
-          <p className="text-lg font-semibold leading-tight">Shepherd Angels Christian School</p>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-brand-gold-light">Antipolo City</p>
-        </div>
-      </div>
-
-      <div className="relative max-w-md">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-gold-light">Payroll Management System</p>
-        <h1 className="mt-3 text-4xl font-semibold leading-tight">Attendance to payslip, in one place.</h1>
-        <ul className="mt-8 space-y-3 text-sm text-white/85">
-          <li className="flex items-center gap-3"><ShieldCheckIcon className="size-4 text-brand-gold-light" aria-hidden="true" />RFID attendance across all four branches</li>
-          <li className="flex items-center gap-3"><LockKeyholeIcon className="size-4 text-brand-gold-light" aria-hidden="true" />Emailed sign-in codes for staff accounts</li>
-          <li className="flex items-center gap-3"><MailCheckIcon className="size-4 text-brand-gold-light" aria-hidden="true" />Semi-monthly payroll and payslips</li>
-        </ul>
-      </div>
-
-      <p className="relative text-xs text-white/60">© {new Date().getFullYear()} Shepherd Angels Christian School</p>
-    </aside>
-  );
-}
-
-export function MobileBrand() {
-  return (
-    <div className="mb-6 flex flex-col items-center text-center lg:hidden">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/brand/logo-160.png" alt="Shepherd Angels Christian School seal" width="72" height="72" className="size-18 rounded-full shadow-md ring-4 ring-brand-gold/40" />
-      <p className="mt-3 text-base font-semibold text-foreground">Shepherd Angels Christian School</p>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gold-text">Payroll Management System</p>
-    </div>
-  );
 }
 
 /* ── Step 1: password ──────────────────────────────────────────────────── */

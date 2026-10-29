@@ -76,20 +76,3 @@ export async function notifyEndorsers(supabase, kind, refId, { title, body }) {
     link_page: kind === "leave_endorsement" ? "adm-leaves" : "adm-transfers",
   });
 }
-
-/** The endorsements of some records, by record id (HR's leave and transfer screens). */
-export async function endorsementsFor(supabase, kind, refIds) {
-  const ids = [...new Set((refIds || []).map(String).filter(Boolean))];
-  const out = new Map();
-  if (!ids.length) return out;
-  const result = await supabase.from("branch_admin_requests")
-    .select("id,ref_id,branch_id,status,admin_note,created_by_name,created_at,updated_at,history")
-    .eq("kind", kind).in("ref_id", ids);
-  if (result.error) return out;
-  (result.data || []).forEach((row) => {
-    const list = out.get(row.ref_id) || [];
-    list.push(row);
-    out.set(row.ref_id, list);
-  });
-  return out;
-}

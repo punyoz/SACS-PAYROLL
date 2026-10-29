@@ -8,6 +8,13 @@ Live project: `swtlmaupaarrppypxsip` (Supabase, region ap-south-1 Mumbai).
 
 ## 0. Before the day
 
+- [ ] **Seed accounts must not ship.** Remove or disable all seed/test
+      accounts using test email domains (maxxspace.com, mail.tm) across all
+      five roles before production deployment. On 2026-10-29 the live project
+      still had five: Super Admin, HR, Admin, Accountant and Employee on
+      `@maxxspace.com`. Section 2 removes them (clear-test-data.sql keeps only
+      the real Super Admin); afterwards, Super Admin → Admin & HR Accounts and
+      HR → Employees must show no `maxxspace.com` or `mail.tm` address.
 - [ ] **Supabase plan.** Staying on Free (decision of Oct 10, 2026): own
       backups, a tested restore and the keep-alive in
       [backup-and-restore.md](backup-and-restore.md) are required **before
