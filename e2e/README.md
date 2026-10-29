@@ -60,6 +60,12 @@ Everything goes to `test-results/` (git-ignored):
 - `test-results/screens/`: phone-width dark-mode screenshots of every page
 - `test-results/issues.jsonl`: console errors, failed and slow requests per test
 
+## Known flaky tests (to investigate)
+
+| Since | Spec | Symptom | What is known |
+| --- | --- | --- | --- |
+| 2026-10-29 | `57-decided-rules` (seen in "Government rate tables…" and "Payslip export…") | Fails on the page monitor: `401 GET /api/hr/dashboard`, `/api/hr/teacher-license`, `/api/admin/holidays?upcoming=5` while the test moves from HR to the next role. | Intermittent: failed in 2 of 4 runs on the payroll-override branch, passed 18/18 on a clean re-run; passed on the code before that change too, so not caused by it. The 401s come from HR's portal requests still in flight when `as()` (e2e/support/auth.mjs) clears HR's cookies for the next role, so they leave without a session. Not proven harmless: a real user switching accounts in one browser, or a session renewal racing a request, could see the same 401 (src/proxy.js `withRenewedSession` / `sessionRejection`). To do: reproduce with tracing on, check whether the portal treats such a 401 as "signed out" and redirects, and whether `as()` should wait for the page's requests to settle before switching. |
+
 ## Scale test (1,200 employees, 5 years)
 
 Local only; see SCENARIOS.md for the results.

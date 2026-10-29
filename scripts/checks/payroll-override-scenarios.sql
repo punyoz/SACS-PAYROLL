@@ -1,5 +1,6 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- Scenario checks for 20261029040000_payroll_final_override.sql
+-- Scenario checks for 20261029040000_payroll_final_override.sql and
+-- 20261029050000_payroll_override_employee_notice.sql
 -- ═══════════════════════════════════════════════════════════════════════════
 --
 -- LOCAL ONLY: never run against the live project. Everything runs in one
@@ -142,6 +143,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.notifications n WHERE n.kind = 'payroll_review' AND n.recipient_id = v_acct)
      OR NOT EXISTS (SELECT 1 FROM public.notifications n WHERE n.kind = 'payroll_review' AND n.recipient_id = v_hr) THEN
     RAISE EXCEPTION '6: the Accountant and HR were not notified';
+  END IF;
+  -- The employee is told, with the old and new net pay and the reason (20261029050000).
+  IF NOT EXISTS (SELECT 1 FROM public.notifications n WHERE n.kind = 'payslip_corrected' AND n.recipient_id = v_entry.employee_id
+                  AND n.link_page = 'emp-payslips' AND n.body LIKE '%Corrected a miscalculated loan deduction after HR dispute%'
+                  AND n.body LIKE '%' || to_char(COALESCE(v_entry.net_pay, 0) - 500, 'FM999,999,990.00') || '%') THEN
+    RAISE EXCEPTION '6: the employee was not notified of the correction';
   END IF;
 
   -- 7. The override record is never changed or removed.
