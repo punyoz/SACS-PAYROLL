@@ -66,8 +66,10 @@ refused, and the Super Admin still cannot process, generate or submit payroll.
   record is archived.
 - **Logged:** `public.payroll_final_overrides` (append-only: who, which
   payslip / employee / period, old and new values, reason, when;
-  `GET /api/payroll/overrides`), and an audit entry of module
-  `payroll_override` (Audit & Monitoring → Module → Payslip overrides).
+  `GET /api/payroll/overrides`, read by the Super Admin and, read-only for
+  compliance, HR: `20261029060000_hr_reads_override_log.sql`), and an audit
+  entry of module `payroll_override` (Super Admin: Audit & Monitoring →
+  Module → Payslip overrides). HR cannot run an override.
 - **Downstream:** records that used the old figures are **flagged, never
   changed** (`public.payroll_review_flags`, `GET /api/payroll/review-flags`):
   the approved run's totals (HR), the month's remittance when a contribution

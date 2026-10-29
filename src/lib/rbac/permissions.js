@@ -408,7 +408,8 @@ export const ROLE_PERMISSIONS = {
     // Super Admin and each branch's Admin. Nothing is ever deleted.
     rfid_devices: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     process_payroll: none(),
-    payroll_override: none(),
+    // Reads the override log (decision 2026-10-29); never runs an override.
+    payroll_override: view(SCOPE_ALL),
     // Matrix rows 11-12: HR views every branch's processed payslips, read-only
     // (/api/hr/payroll-records). Restored in the database by
     // supabase/migrations/20261018010000_hr_view_payroll_records_payslips.sql;

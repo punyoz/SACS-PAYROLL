@@ -1,7 +1,8 @@
 /**
  * The final-payslip override log (2026-10-29, 20261029040000): one record
- * per override, apart from the ordinary payroll logs. Super Admin only
- * (payroll_override); read-only, the records are never changed.
+ * per override, apart from the ordinary payroll logs. Read by the Super
+ * Admin and, for compliance, HR (payroll_override "read", 20261029060000);
+ * read-only, the records are never changed. Only the Super Admin overrides.
  *
  *   GET [?employee_id=&limit=]   newest first, each with its review flags
  *

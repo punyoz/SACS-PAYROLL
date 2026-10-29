@@ -6,7 +6,8 @@
  *     and by the route, called directly;
  *   - the Super Admin still has no process_payroll (it cannot generate,
  *     reprocess, read or submit payroll);
- *   - the override log is the Super Admin's; review flags are marked
+ *   - the override log is read by the Super Admin and, read-only, HR
+ *     (20261029060000); review flags are marked
  *     reviewed by the Accountant (its branch) and HR (run flags), never by
  *     the Super Admin.
  *
@@ -63,10 +64,12 @@ function request(role, path, method = "GET", body = null) {
 }
 
 describe("the matrix", () => {
-  it("payroll_override is the Super Admin's alone", () => {
+  it("running an override is the Super Admin's alone; HR reads the log", () => {
     expect(can("super_admin", "payroll_override", "update")).toBe(true);
     expect(can("super_admin", "payroll_override", "read")).toBe(true);
-    for (const role of ["accountant", "hr", "admin", "employee"]) {
+    expect(can("hr", "payroll_override", "read")).toBe(true);
+    for (const action of ["create", "update", "delete"]) expect(can("hr", "payroll_override", action), `hr ${action}`).toBe(false);
+    for (const role of ["accountant", "admin", "employee"]) {
       for (const action of ["create", "read", "update", "delete"]) expect(can(role, "payroll_override", action), `${role} ${action}`).toBe(false);
     }
   });
@@ -119,20 +122,33 @@ describe("the override log (GET /api/payroll/overrides)", () => {
     table("payroll_review_flags").push({ id: "f-1", override_id: "o-1", kind: "remittance", status: "open", message: "m", created_at: "2026-10-29T08:00:00Z" });
   });
 
-  it("the Super Admin reads every override with its flags", async () => {
+  it("the Super Admin and HR read every override with its flags", async () => {
     const { GET } = await import("@/app/api/payroll/overrides/route");
-    const response = await GET(request("super_admin", "/api/payroll/overrides"));
-    expect(response.status).toBe(200);
-    const { overrides } = await response.json();
-    expect(overrides).toEqual([expect.objectContaining({
-      id: "o-1", reason: OVERRIDE.reason, actor_role: "super_admin", old_values: { net_pay: 9000 }, new_values: { net_pay: 9500 },
-      review_flags: [expect.objectContaining({ id: "f-1", kind: "remittance" })],
-    })]);
+    for (const role of ["super_admin", "hr"]) {
+      const response = await GET(request(role, "/api/payroll/overrides"));
+      expect(response.status, role).toBe(200);
+      const { overrides } = await response.json();
+      expect(overrides).toEqual([expect.objectContaining({
+        id: "o-1", reason: OVERRIDE.reason, actor_role: "super_admin", old_values: { net_pay: 9000 }, new_values: { net_pay: 9500 },
+        review_flags: [expect.objectContaining({ id: "f-1", kind: "remittance" })],
+      })]);
+    }
+  });
+
+  it("the proxy lets HR read the log, never write anything there", async () => {
+    const { proxy } = await import("@/proxy");
+    const { NextRequest } = await import("next/server");
+    const status = async (role, method) => (await proxy(new NextRequest("https://sacs.test/api/payroll/overrides", {
+      method, headers: { cookie: `${SESSION_COOKIE}=${token(role)}` },
+    }))).status;
+    expect(await status("hr", "GET")).not.toBe(403);
+    for (const method of ["POST", "PATCH", "DELETE"]) expect(await status("hr", method), method).toBe(403);
+    for (const role of ["accountant", "admin", "employee"]) expect(await status(role, "GET"), role).toBe(403);
   });
 
   it("no other role reads it", async () => {
     const { GET } = await import("@/app/api/payroll/overrides/route");
-    for (const role of ["accountant", "hr", "admin", "employee"]) {
+    for (const role of ["accountant", "admin", "employee"]) {
       expect((await GET(request(role, "/api/payroll/overrides"))).status, role).toBe(403);
     }
   });

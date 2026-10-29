@@ -154,8 +154,9 @@ const API_MODULES = [
   // (process_payroll), HR decides (payroll_run_approval). The route checks the
   // right one per method, so the session is the requirement here.
   ["/api/payroll/corrections", null],
-  // Final-payslip overrides (20261029040000): their log is the Super Admin's
-  // (payroll_override); the review flags they raise are read and marked by
+  // Final-payslip overrides (20261029040000): their log is read by the Super
+  // Admin and HR (payroll_override "read"; only the Super Admin has "update",
+  // which runs one); the review flags they raise are read and marked by
   // the Accountant (own branch), HR (run flags) and the Super Admin, which
   // the route checks per role.
   ["/api/payroll/overrides", "payroll_override"],
