@@ -267,7 +267,7 @@ ALTER TABLE public.payroll_deductions ADD CONSTRAINT payroll_deductions_type_che
 ALTER TABLE public.payroll_incentives DROP CONSTRAINT IF EXISTS payroll_incentives_type_check;
 ALTER TABLE public.payroll_incentives ADD CONSTRAINT payroll_incentives_type_check CHECK (type IN (
   'early_bird', 'perfect_attendance', 'overtime', 'holiday_premium', 'incentive', 'overload',
-  'subsidy', 'subsidy_adjustment', 'year_end_tax_refund'
+  'subsidy', 'subsidy_adjustment', 'early_bird_incentive', 'year_end_tax_refund'
 ));
 
 ALTER TABLE public.payroll_incentives DROP CONSTRAINT IF EXISTS payroll_incentives_traceable_chk;
