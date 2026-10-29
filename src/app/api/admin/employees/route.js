@@ -668,7 +668,7 @@ export async function PATCH(request) {
       if (body.sss_number !== undefined) profilePatch.sss_number = normalizeDigits(body.sss_number, 10);
       if (body.pagibig_number !== undefined) profilePatch.pagibig_number = normalizeDigits(body.pagibig_number, 12);
       if (body.philhealth_number !== undefined) profilePatch.philhealth_number = normalizeDigits(body.philhealth_number, 12);
-      if (body.tin_number !== undefined) profilePatch.tin_number = normalizeDigits(body.tin_number, 12);
+      if (body.tin_number !== undefined) profilePatch.tin_number = normalizeDigits(body.tin_number, 14);
       // Position-scoped payroll rates read profiles.position, never user_metadata.
       if (nextMetadata.position) profilePatch.position = nextMetadata.position;
       // profiles holds the trusted salary payroll reads (src/lib/auth/users-cache.js).

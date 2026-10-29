@@ -49,6 +49,11 @@ describe("employee record", () => {
     expect(check({ basic_salary: SALARY_MAX })).toBeNull();
     expect(check({ basic_salary: SALARY_MAX + 0.01 })).toMatch(/at most ₱1,000,000/);
   });
+  it("accepts a TIN of 9, 12 or 14 digits, and no other length", () => {
+    for (const tin of ["123-456-789", "123-456-789-000", "123-456-789-00000"]) expect(check({ tin_number: tin })).toBeNull();
+    for (const tin of ["12345678", "1234567890", "1234567890123", "123456789000000"]) expect(check({ tin_number: tin })).toMatch(/9, 12 or 14/);
+    expect(validateEmployeePatch({ tin_number: "12345678900000" })).toBeNull();
+  });
   it("caps the email at 254 characters", () => {
     expect(check({ email: `${"a".repeat(245)}@ex.com` })).toBeNull();
     expect(check({ email: `${"a".repeat(250)}@ex.com` })).toMatch(/at most 254/);

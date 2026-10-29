@@ -41,6 +41,13 @@ export const EMAIL_MAX = 254;
 export const REASON_MAX = 500;
 /** General notes and remarks. */
 export const REMARKS_MAX = 1000;
+/**
+ * AWOL case records (the employee's reply, the grounds): a documented
+ * exception to REMARKS_MAX. A dismissal record may have to set out dates and
+ * incidents well enough to stand up if the termination is contested (NLRC),
+ * so it keeps 2,000 (decision 2026-10-29).
+ */
+export const AWOL_RECORD_MAX = 2000;
 /** A search box: longer than any name, ID or title it can match. */
 export const SEARCH_MAX = 100;
 
@@ -49,11 +56,26 @@ export const BRANCH_NAME_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9][A-Za-zÀ-ÖØ-ö
 
 // ── Identifiers ────────────────────────────────────────────────────────────
 /**
- * An RFID card number as the school's readers send it: 10 digits (the
- * cards in use read 0001234567-style, zero-padded).
+ * An RFID card number: MATCHES THE CURRENT RFID CARD FORMAT — UPDATE IF THE
+ * CARD TYPE CHANGES. The school's cards read as 10 zero-padded digits
+ * (0001234567). A card of another type is refused with "exactly 10 digits",
+ * never accepted half-read. Changing it: this constant, plus the database's
+ * copy in rfid_cards_uid_check and rfid_uid_free() (a new migration).
  */
 export const RFID_UID_LENGTH = 10;
-export const RFID_UID_PATTERN = /^[0-9]{10}$/;
+export const RFID_UID_PATTERN = new RegExp(`^[0-9]{${RFID_UID_LENGTH}}$`);
+
+/**
+ * TIN digit counts BIR has issued: 9 (older registrations), 12 (with the
+ * 3-digit branch code) and 14 (with the 5-digit branch code). All three are
+ * accepted (decision 2026-10-29); numeric only.
+ */
+export const TIN_LENGTHS = Object.freeze([9, 12, 14]);
+export const TIN_RULE = "TIN must be 9, 12 or 14 digits (with the branch code).";
+/** True for a TIN of an issued length (digits only). */
+export function isTinLength(digits) {
+  return /^[0-9]+$/.test(digits) && TIN_LENGTHS.includes(digits.length);
+}
 
 /**
  * The digits of a number box that may hold only digits, spaces and dashes
