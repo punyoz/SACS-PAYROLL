@@ -18,6 +18,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { AWOL_RECORD_MAX } from "@/lib/input-limits";
 
 /*
  * AWOL Cases (/api/hr/awol-cases; docs/payroll-schedule-loans-awol.md §5).
@@ -215,7 +216,7 @@ export function AwolCasesPage({ refreshKey }) {
                   <div className="sm:col-span-2">{fieldFor("effective", "Separation effective", <DatePicker id="hr-awol-effective" value={input.separation_effective} onChange={(v) => setInput((c) => ({ ...c, separation_effective: v }))} />)}</div>
                 ) : null}
                 {["record_reply", "separate"].includes(dialog.action) ? (
-                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={2000} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
+                  <div className="sm:col-span-2">{fieldFor("text", dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={AWOL_RECORD_MAX} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
                 ) : null}
                 {["open", "confirm", "close"].includes(dialog.action) ? (
                   <div className="sm:col-span-2">{fieldFor("note", dialog.action === "close" ? "Why it is closed" : "Note", <Input id="hr-awol-note" maxLength={1000} placeholder={dialog.action === "confirm" ? "e.g. Called Nov 12 and the emergency contact; no answer" : ""} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)}</div>

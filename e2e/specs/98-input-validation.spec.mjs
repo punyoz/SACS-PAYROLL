@@ -269,8 +269,10 @@ test("API fields: wrong type, oversized and empty values are refused server-side
   await E({ field: "SSS number", expected: "10 digits, no letters", body: { ...empBase, sss_number: "12a4567890" } });
   await E({ field: "PhilHealth number", expected: "12 digits", body: { ...empBase, philhealth_number: "12345678901" } });
   await E({ field: "Pag-IBIG number", expected: "12 digits", body: { ...empBase, pagibig_number: "1234567890123" } });
-  await E({ field: "TIN", expected: "9 or 12 digits", body: { ...empBase, tin_number: "1".repeat(40) } });
-  await E({ field: "TIN", expected: "9 or 12 digits", body: { ...empBase, tin_number: "1234567890" } });
+  await E({ field: "TIN", expected: "9, 12 or 14 digits", body: { ...empBase, tin_number: "1".repeat(40) } });
+  await E({ field: "TIN", expected: "9, 12 or 14 digits", body: { ...empBase, tin_number: "1234567890" } });
+  await E({ field: "TIN", expected: "9, 12 or 14 digits", body: { ...empBase, tin_number: "1234567890123" } });
+  await E({ field: "TIN 14 digits (valid)", expected: "accepted", body: { ...empBase, email: "probe.tin14@e2e.test", tin_number: "123-456-789-00000" }, valid: true });
   await E({ field: "Home address", expected: "text 5–200", body: { ...empBase, address: long("PRB-ADDR", 201) } });
   await E({ field: "Email", expected: "email ≤ 254", body: { ...empBase, email: `${"e".repeat(250)}@e2e.test` } });
   await E({ field: "Email", expected: "valid email", body: { ...empBase, email: "not-an-email" } });
@@ -353,8 +355,13 @@ test("API fields: wrong type, oversized and empty values are refused server-side
   await N({ field: "Announcement title", expected: "text ≤ 150", body: { title: long("PRB-ANT", 151), body: "probe body", category: "general" } });
   await N({ field: "Announcement message", expected: "text ≤ 4000", body: { title: "probe", body: long("PRB-ANB", 4001), category: "general" } });
   const O = (o) => probe(page, { where: "Admin > Profile > Edit account", path: "/api/legacy-auth/update-profile", ...o });
-  await O({ field: "TIN (own account)", expected: "digits only", body: { tin_number: "12345678a" } });
-  await O({ field: "Contact number (own account)", expected: "digits only", body: { cp_number: "0917-abc-4567" } });
+  // The route needs the account's own name with every save; sent unchanged, so only the number is judged.
+  const self = await profileByEmail(ACCOUNTS.admin.email);
+  const me = { first_name: self.first_name, middle_name: self.middle_name || "", last_name: self.last_name };
+  await O({ field: "TIN (own account)", expected: "digits only", body: { ...me, tin_number: "12345678a" } });
+  await O({ field: "TIN (own account)", expected: "9, 12 or 14 digits", body: { ...me, tin_number: "1234567890123" } });
+  await O({ field: "Contact number (own account)", expected: "digits only", body: { ...me, cp_number: "0917-abc-4567" } });
+  await O({ field: "TIN 14 digits, own account (valid)", expected: "accepted", body: { ...me, tin_number: "123-456-789-00000" }, valid: true });
 
   monitor.at("API > Employee");
   await as(page, "employee");

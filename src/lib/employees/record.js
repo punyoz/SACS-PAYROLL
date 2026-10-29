@@ -11,12 +11,12 @@
  *   SSS         10 digits   12-3456789-0
  *   PhilHealth  12 digits   12-345678901-2
  *   Pag-IBIG    12 digits   1234-5678-9012
- *   TIN         9 digits, or 12 with the 3-digit branch code   123-456-789-000
+ *   TIN         9, 12 or 14 digits (3- or 5-digit branch code)   123-456-789-000
  */
 
 import { normalizeRoleEmail, normalizeText } from "@/lib/auth/normalize";
 import { PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
-import { EMAIL_MAX, NAME_PART_MAX, POSITION_MAX, SALARY_MAX, digitsOrNull, pesoLimit } from "@/lib/input-limits";
+import { EMAIL_MAX, NAME_PART_MAX, POSITION_MAX, SALARY_MAX, TIN_RULE, digitsOrNull, isTinLength, pesoLimit } from "@/lib/input-limits";
 
 export const SEX_OPTIONS = ["Male", "Female"];
 export const CIVIL_STATUS_OPTIONS = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
@@ -200,9 +200,7 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
   if (record.sss_number.length !== 10) return "SSS number must be exactly 10 digits.";
   if (record.philhealth_number.length !== 12) return "PhilHealth number must be exactly 12 digits.";
   if (record.pagibig_number.length !== 12) return "Pag-IBIG number must be exactly 12 digits.";
-  if (record.tin_number.length !== 9 && record.tin_number.length !== 12) {
-    return "TIN must be 9 digits, or 12 digits including the branch code.";
-  }
+  if (!isTinLength(record.tin_number)) return TIN_RULE;
 
   return null;
 }
@@ -226,9 +224,7 @@ export function validateEmployeePatch(body = {}) {
     if ((field === "philhealth_number" || field === "pagibig_number") && digits.length !== 12) {
       return `${FIELD_LABELS[field]} must be exactly 12 digits.`;
     }
-    if (field === "tin_number" && digits.length !== 9 && digits.length !== 12) {
-      return "TIN must be 9 digits, or 12 digits including the branch code.";
-    }
+    if (field === "tin_number" && !isTinLength(digits)) return TIN_RULE;
   }
   if (body.address !== undefined && body.address !== null) {
     const address = normalizeText(body.address);

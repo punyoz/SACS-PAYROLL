@@ -155,7 +155,8 @@ export const DIGIT_FIELD_SPECS = {
   sss_number: { maxLength: 10, groups: [2, 7, 1] },
   pagibig_number: { maxLength: 12, groups: [4, 4, 4] },
   philhealth_number: { maxLength: 12, groups: [2, 9, 1] },
-  tin_number: { maxLength: 12, groups: [3, 3, 3, 3] },
+  // 9, 12 or 14 digits: 123-456-789, 123-456-789-000, 123-456-789-00000.
+  tin_number: { maxLength: 14, groups: [3, 3, 3, 5] },
   cp_number: { maxLength: 11, groups: [4, 3, 4], separator: " " },
   emergency_contact_number: { maxLength: 11, groups: [4, 3, 4], separator: " " },
 };

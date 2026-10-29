@@ -13,7 +13,7 @@ import {
 } from "@/lib/employees/emergency-contact";
 import { PII_FIELDS, PII_LAST4_COLUMNS, maskLast4, maskedPii, withoutPiiMetadata } from "@/lib/employees/pii";
 import { isPersonName, PERSON_NAME_RULE } from "@/lib/person-name";
-import { digitsOrNull } from "@/lib/input-limits";
+import { TIN_LENGTHS, TIN_RULE, digitsOrNull } from "@/lib/input-limits";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -32,7 +32,7 @@ const GOVERNMENT_ID_RULES = [
   ["sss_number", [10], "SSS number must be exactly 10 digits."],
   ["philhealth_number", [12], "PhilHealth number must be exactly 12 digits."],
   ["pagibig_number", [12], "Pag-IBIG number must be exactly 12 digits."],
-  ["tin_number", [9, 12], "TIN must be 9 digits, or 12 digits including the branch code."],
+  ["tin_number", TIN_LENGTHS, TIN_RULE],
 ];
 
 const PROFILE_SELECT = [

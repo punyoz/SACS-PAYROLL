@@ -42,3 +42,6 @@ next-env.d.ts
 # Playwright E2E output (videos, traces, screenshots, saved sign-ins)
 /test-results/
 /playwright-report/
+
+# Exported PDF of FUNCTIONS_DOCUMENTATION.md: kept outside the repo (7 MB binary).
+FUNCTIONS_DOCUMENTATION.pdf

@@ -19,7 +19,7 @@ import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField } from "@/lib/portal/format";
 import { cleanNameInput, NAME_TYPING_HINT, PERSON_NAME_PATTERN, PERSON_NAME_RULE } from "@/lib/person-name";
 import { cn } from "@/lib/utils";
-import { EMAIL_MAX, SALARY_MAX, pesoLimit } from "@/lib/input-limits";
+import { EMAIL_MAX, SALARY_MAX, TIN_RULE, isTinLength, pesoLimit } from "@/lib/input-limits";
 
 /*
  * Add Employee / Edit Employee Information (openHrAddEmployeeModal,
@@ -183,7 +183,7 @@ function validate(values, { creating, ecOnFile }) {
   const pagibig = digitsOnly(v("pagibig_number"));
   if (pagibig.length !== 12) return fail("pagibig_number", "Pag-IBIG number must be exactly 12 digits.");
   const tin = digitsOnly(v("tin_number"));
-  if (tin.length !== 9 && tin.length !== 12) return fail("tin_number", "TIN must be 9 digits, or 12 digits including the branch code.");
+  if (!isTinLength(tin)) return fail("tin_number", TIN_RULE);
 
   // Required on Add. On Edit a record with none on file may stay blank, but
   // once any field is filled, or one is already on file, all four must be valid.

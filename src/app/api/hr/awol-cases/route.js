@@ -36,10 +36,10 @@ import {
   shapeCase,
 } from "@/lib/awol/cases";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
-import { textLimitError } from "@/lib/input-limits";
+import { AWOL_RECORD_MAX, textLimitError } from "@/lib/input-limits";
 
 // The longest text each box takes; the form boxes match.
-const TEXT_CAPS = { notes: [1000, "The notes"], note: [1000, "The note"], employee_reply: [2000, "The employee's reply"], grounds: [2000, "The grounds"] };
+const TEXT_CAPS = { notes: [1000, "The notes"], note: [1000, "The note"], employee_reply: [AWOL_RECORD_MAX, "The employee's reply"], grounds: [AWOL_RECORD_MAX, "The grounds"] };
 
 const NOT_READY = "AWOL cases are not set up yet: apply 20261009010000_payslip_schedule_loans_awol_subsidy.sql.";
 const HR_CLOSE_OUTCOMES = ["false_alarm", "returned", "excused_by_leave"];
