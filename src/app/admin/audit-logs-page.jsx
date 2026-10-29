@@ -23,7 +23,7 @@ import { logAuditMovement } from "@/lib/portal/audit";
  * an older reply landing after a newer one is ignored.
  */
 
-const MODULES = [["all", "All modules"], ["ui", "UI"], ["employees", "Employees"], ["attendance", "Attendance"], ["reports", "Reports"]];
+const MODULES = [["all", "All modules"], ["ui", "UI"], ["employees", "Employees"], ["attendance", "Attendance"], ["reports", "Reports"], ["payroll_override", "Payslip overrides"]];
 const ACTIONS = [["all", "All actions"], ["event", "Event"], ["create", "Create"], ["update", "Update"], ["archive", "Archive"], ["restore", "Restore"], ["delete", "Delete"], ["approve", "Approve"], ["reject", "Reject"], ["view", "View"]];
 const ROLE_LABELS = { super_admin: "Super Admin", admin: "Admin", hr: "HR", accountant: "Accountant", employee: "Employee" };
 

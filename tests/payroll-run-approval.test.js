@@ -349,9 +349,24 @@ describe("Payroll Approval workflow", () => {
     // Locked: no reprocess, override, new payslip or cancel.
     const reprocess = await json(payroll.PATCH(req(ACCT, "/api/accountant/payroll", "PATCH", { action: "generate", employee_id: ANA, pay_period: FIRST, reprocess: true })));
     expect(reprocess).toMatchObject({ status: 409, body: { code: "payroll_run_locked" } });
-    // The Super Admin no longer reaches payroll at all (2026-10-20).
-    const override = await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "override_final", employee_id: ANA, pay_period: FIRST, reason: "Correcting a late tap" })));
-    expect(override.status).toBe(403);
+    // The Super Admin's emergency override (2026-10-29) is for exactly this,
+    // an approved payslip: it goes to the database function, which checks
+    // again and writes the payslip and its record in one transaction.
+    const override = await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "override_final", employee_id: ANA, pay_period: FIRST, reason: "Correcting a late tap after HR review" })));
+    expect(override.status).toBe(200);
+    expect(rpc.calls.filter((c) => c.fn === "payroll_override_final")).toEqual([
+      expect.objectContaining({ args: expect.objectContaining({ p_actor: SA, p_reason: "Correcting a late tap after HR review" }) }),
+    ]);
+  });
+
+  it("the override never bypasses Payroll Approval: refused while the run is Draft or Pending", async () => {
+    await processBranchA();
+    const draft = await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "override_final", employee_id: ANA, pay_period: FIRST, reason: "Correcting a late tap after HR review" })));
+    expect(draft).toMatchObject({ status: 409, body: { code: "override_not_approved", run_status: "draft" } });
+    await submitBranchA();
+    const pending = await json(payroll.PATCH(req(SA, "/api/accountant/payroll", "PATCH", { action: "override_final", employee_id: ANA, pay_period: FIRST, reason: "Correcting a late tap after HR review" })));
+    expect(pending).toMatchObject({ status: 409, body: { code: "override_not_approved", run_status: "pending" } });
+    expect(rpc.calls.some((c) => c.fn === "payroll_override_final")).toBe(false);
   });
 
   it("an Accountant cannot edit a Pending run, nor approve one", async () => {

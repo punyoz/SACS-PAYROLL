@@ -141,6 +141,13 @@ export const MODULES = {
     order: 10, label: "Process Payroll", section: "Payroll",
     page: { accountant: "ac-process" },
   },
+  // The emergency override of an approved Final payslip (20261029040000):
+  // PATCH /api/accountant/payroll { action: "override_final" } and its log.
+  // Backend only, no page.
+  payroll_override: {
+    order: 10.1, label: "Final Payslip Override", section: "Payroll",
+    page: {},
+  },
   payroll_records: {
     order: 11, label: "Payroll Records", section: "Payroll",
     page: { accountant: "ac-records", hr: "hr-payroll-records" },
@@ -298,6 +305,8 @@ export const ROLE_PERMISSIONS = {
     leave_approval: none(),
     rfid_devices: full(SCOPE_ALL),
     process_payroll: none(),
+    // Override of an approved Final payslip only (2026-10-29); still no process_payroll.
+    payroll_override: { scope: SCOPE_ALL, actions: ["read", "update"] },
     payroll_records: none(),
     payslips: none(),
     payroll_monitoring: none(),
@@ -351,6 +360,7 @@ export const ROLE_PERMISSIONS = {
     // deactivate; add and manage terminals (2026-10-21).
     rfid_devices: { scope: SCOPE_BRANCH, actions: ["create", "read", "update"] },
     process_payroll: none(),
+    payroll_override: none(),
     payroll_records: none(),
     payslips: none(),
     payroll_monitoring: none(),
@@ -398,6 +408,7 @@ export const ROLE_PERMISSIONS = {
     // Super Admin and each branch's Admin. Nothing is ever deleted.
     rfid_devices: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     process_payroll: none(),
+    payroll_override: none(),
     // Matrix rows 11-12: HR views every branch's processed payslips, read-only
     // (/api/hr/payroll-records). Restored in the database by
     // supabase/migrations/20261018010000_hr_view_payroll_records_payslips.sql;
@@ -456,6 +467,7 @@ export const ROLE_PERMISSIONS = {
     leave_approval: none(),
     rfid_devices: none(),
     process_payroll: full(SCOPE_BRANCH),
+    payroll_override: none(),
     payroll_records: full(SCOPE_BRANCH),
     payslips: full(SCOPE_BRANCH),
     payroll_monitoring: full(SCOPE_BRANCH),
@@ -503,6 +515,7 @@ export const ROLE_PERMISSIONS = {
     leave_approval: { scope: SCOPE_SELF, actions: ["create", "read"] },
     rfid_devices: none(),
     process_payroll: none(),
+    payroll_override: none(),
     payroll_records: none(),
     payslips: view(SCOPE_SELF),
     payroll_monitoring: none(),

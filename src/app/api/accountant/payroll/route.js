@@ -88,7 +88,7 @@ import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
-import { isLockedRun, loadRunsFor, lockedRunMessage, shapeRun } from "@/lib/payroll/runs";
+import { isLockedRun, loadRunsFor, lockedRunMessage, requiresApproval, shapeRun } from "@/lib/payroll/runs";
 import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadYearEndTaxContext } from "@/lib/payroll/bir-forms";
 import { applyYearEndTax, yearEndAdjustment, yearEndCutoffLine } from "@/lib/payroll/year-end-tax";
@@ -765,26 +765,28 @@ function buildEntryPayload(entry) {
  *   entry_id?: string, payslip_no?: string, code?: string, error?: string }>>}
  *   one result per entry, in order.
  */
+function commitItemFor(entry) {
+  const lines = buildPayrollLineRows(entry);
+  return {
+    record: buildRecordPayload(entry),
+    entry: buildEntryPayload(entry),
+    deductions: lines.deductions,
+    incentives: lines.incentives,
+    // 20261009020000: written in the same transaction; a regenerated
+    // payslip reverses its earlier repayments first.
+    loan_payments: [
+      ...(entry.payroll?.loans || [])
+        .filter((line) => Number(line.amount) > 0)
+        .map((line) => ({ loan_id: line.loan_id, kind: "payroll", amount: line.amount, amount_due: line.due })),
+      ...(entry.payroll?.subsidy_loan_payments || []),
+    ],
+    ...(entry.payroll?.subsidy_settlement ? { subsidy: entry.payroll.subsidy_settlement } : {}),
+    ...(entry.payroll?.subsidy_adjustment_ids?.length ? { subsidy_adjustments: entry.payroll.subsidy_adjustment_ids } : {}),
+  };
+}
+
 async function commitPayrollEntries(supabase, entries) {
-  const items = entries.map((entry) => {
-    const lines = buildPayrollLineRows(entry);
-    return {
-      record: buildRecordPayload(entry),
-      entry: buildEntryPayload(entry),
-      deductions: lines.deductions,
-      incentives: lines.incentives,
-      // 20261009020000: written in the same transaction; a regenerated
-      // payslip reverses its earlier repayments first.
-      loan_payments: [
-        ...(entry.payroll?.loans || [])
-          .filter((line) => Number(line.amount) > 0)
-          .map((line) => ({ loan_id: line.loan_id, kind: "payroll", amount: line.amount, amount_due: line.due })),
-        ...(entry.payroll?.subsidy_loan_payments || []),
-      ],
-      ...(entry.payroll?.subsidy_settlement ? { subsidy: entry.payroll.subsidy_settlement } : {}),
-      ...(entry.payroll?.subsidy_adjustment_ids?.length ? { subsidy_adjustments: entry.payroll.subsidy_adjustment_ids } : {}),
-    };
-  });
+  const items = entries.map(commitItemFor);
 
   const { data, error } = await supabase.rpc("payroll_commit_entries", { p_items: items });
   if (error) throw new Error(error.message);
@@ -4310,11 +4312,13 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
 
   const reason = normalizeText(body.reason).slice(0, 500);
   if (override) {
-    if (guard.scope !== SCOPE_ALL) {
+    // payroll_override is the Super Admin's alone; checked by role as well,
+    // and again in the database (payroll_override_final).
+    if (String(guard.role || "").toLowerCase() !== "super_admin" || guard.scope !== SCOPE_ALL) {
       return NextResponse.json({ error: "Only a Super Admin can override a Final payslip." }, { status: 403 });
     }
     if (reason.length < 10) {
-      return NextResponse.json({ error: "Give a reason for the override (at least 10 characters).", code: "override_reason_required" }, { status: 400 });
+      return NextResponse.json({ error: "Give a reason for the override (at least 10 characters): why was it necessary?", code: "override_reason_required" }, { status: 400 });
     }
   }
 
@@ -4331,12 +4335,25 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   if (heldPay) return heldPay;
 
   // Payroll Approval (20261014010000): a branch's run that is Pending HR
-  // Approval or Approved changes for nobody, a Super Admin override included
-  // (the database refuses it too). While the run is Draft or Rejected, the
-  // Accountant may reprocess a Final payslip to correct it.
+  // Approval or Approved changes for nobody but the override. While the run
+  // is Draft or Rejected, the Accountant may reprocess a Final payslip to
+  // correct it. The override (2026-10-29) is the reverse: only a payslip HR
+  // has approved; one still in the Accountant -> HR flow is corrected there
+  // (the database checks this too).
   const run = (await loadRunsFor(supabase, [employee.branch_id], period.label)).get(String(employee.branch_id || "")) || null;
-  const locked = lockedRunMessage(run);
-  if (locked) return NextResponse.json({ error: locked, code: "payroll_run_locked", run_status: run.status }, { status: 409 });
+  if (override) {
+    if (requiresApproval(period.label) && run?.status !== "approved") {
+      const where = run?.status === "pending" ? "is waiting for HR approval" : run?.status === "rejected" ? "was sent back by HR" : "has not been approved yet";
+      return NextResponse.json({
+        error: `This branch's ${period.label} payroll ${where}. An override is only for a payslip HR has approved; correct this one through Process Payroll and Payroll Approval.`,
+        code: "override_not_approved",
+        run_status: run?.status || "draft",
+      }, { status: 409 });
+    }
+  } else {
+    const locked = lockedRunMessage(run);
+    if (locked) return NextResponse.json({ error: locked, code: "payroll_run_locked", run_status: run.status }, { status: 409 });
+  }
   const reprocess = !override && body.reprocess === true;
 
   const genWindow = await periodWindow(supabase, period);
@@ -4361,6 +4378,12 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   const { entries } = await readPayrollEntries(supabase, { employeeIds: [employee.id], labels: [period.label] });
   const existing = entries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label) || null;
   const existingFinal = existing && existing.status !== "draft";
+  if (override && !existingFinal) {
+    return NextResponse.json({
+      error: "Only a Final payslip can be overridden. This employee has no Final payslip for the period.",
+      code: "override_not_final",
+    }, { status: 409 });
+  }
   if (existingFinal && !override && !reprocess) {
     return NextResponse.json({
       error: "This payslip is Final. While its branch's payroll run is Draft or Rejected you can Reprocess it; once submitted for HR approval it is locked.",
@@ -4444,10 +4467,30 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     processed_by_name: final ? actor.name || null : null,
   };
 
-  if (final) {
-    // An override replaces the live payroll record: the old one is archived
-    // (kept for the audit trail) so the new one can take its place, and put
-    // back if the new one cannot be written.
+  let overrideResult = null;
+  if (override) {
+    // One database transaction (20261029040000): checks the Super Admin, the
+    // reason and the approved run again, archives the old record, writes the
+    // payslip, logs the override with old and new values, and flags the
+    // records that used the old figures. Any failure leaves nothing changed.
+    const { data, error } = await supabase.rpc("payroll_override_final", {
+      p_actor: guard.userId,
+      p_item: commitItemFor(baseEntry),
+      p_reason: reason,
+    });
+    if (error) {
+      const message = String(error.message || "");
+      const [, code = "override_not_saved", text = message] = /^([a-z_]+):\s*(.*)$/s.exec(message) || [];
+      const status = code === "forbidden" ? 403 : code === "override_reason_required" ? 400
+        : ["override_not_final", "override_not_approved"].includes(code) ? 409 : 500;
+      return NextResponse.json({ error: sanitizeError(text, "The override was not saved."), code }, { status });
+    }
+    overrideResult = data || {};
+    baseEntry.payslip_no = overrideResult.payslip_no || null;
+  } else if (final) {
+    // A reprocessed Final payslip replaces the live payroll record: the old
+    // one is archived (kept for the audit trail) so the new one can take its
+    // place, and put back if the new one cannot be written.
     let archivedIds = [];
     if (existingFinal) {
       const archived = await supabase
@@ -4475,14 +4518,21 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
 
   const action = override ? "payslip_override" : reprocess && existingFinal ? "payslip_reprocess"
     : final ? "payslip_finalize" : previous ? "payslip_regenerate" : "payslip_generate";
+  const oldValues = overrideResult?.old_values || {};
+  const newValues = overrideResult?.new_values || {};
+  const reviewFlags = overrideResult?.review_flags || [];
   await appendAuditLog({
     actor: guard,
-    module: "payroll",
+    // Overrides are their own module, apart from ordinary payroll processing.
+    module: override ? "payroll_override" : "payroll",
     action,
     entity_type: "payroll_entry",
     entity_id: baseEntry.id,
     description: override
-      ? `Final payslip for ${employee.full_name}, ${period.label}, overridden by ${actor.name}: ${reason}`
+      ? `Final payslip for ${employee.full_name}, ${period.label}, overridden by ${actor.name}: ${reason}. `
+        + `Payslip ${overrideResult?.old_payslip_no || "—"} -> ${baseEntry.payslip_no || "—"}; `
+        + `gross ${money(oldValues.gross_pay)} -> ${money(newValues.gross_pay)}, net ${money(oldValues.net_pay)} -> ${money(newValues.net_pay)}. `
+        + `${reviewFlags.length} record${reviewFlags.length === 1 ? "" : "s"} flagged for review.`
       : `${final ? "Final" : "Draft"} payslip for ${employee.full_name}, ${period.label}, ${previous && !final ? "regenerated" : "generated"} (attendance up to ${formatDateKey(through)}).${ownPayslip ? " The Accountant's own payslip: system-computed, for HR approval with the run." : ""}`,
     status: "success",
     source: "api",
@@ -4491,16 +4541,19 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       pay_period: period.label,
       status: final ? "final" : "draft",
       payslip_no: baseEntry.payslip_no || null,
-      replaced_payslip_no: override ? existing?.payslip_no || null : undefined,
+      replaced_payslip_no: override ? overrideResult?.old_payslip_no || existing?.payslip_no || null : undefined,
       reason: override ? reason : undefined,
-      // The replaced payslip's figures, so the log alone shows old and new.
+      // The replaced payslip's figures, so the log alone shows old and new
+      // (the full record: public.payroll_final_overrides).
+      override_id: override ? overrideResult?.override_id || null : undefined,
+      run_status: override ? overrideResult?.run_status || null : undefined,
       previous_totals: override
-        ? {
-          gross_pay: existing?.payroll?.totals?.gross_pay ?? null,
-          total_deductions: existing?.payroll?.totals?.total_deductions ?? null,
-          net_pay: existing?.payroll?.totals?.net_pay ?? null,
-        }
+        ? { gross_pay: oldValues.gross_pay ?? null, total_deductions: oldValues.total_deductions ?? null, net_pay: oldValues.net_pay ?? null }
         : undefined,
+      old_values: override ? oldValues : undefined,
+      new_values: override ? newValues : undefined,
+      changed_fields: override ? overrideResult?.changed_fields || [] : undefined,
+      review_flags: override ? reviewFlags : undefined,
       attendance_through: through,
       attendance_summary: built.payroll.generation.attendance_summary,
       confirmed_incomplete: built.blocking.length ? built.blocking : undefined,
@@ -4518,16 +4571,29 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     entry: mapEntryToRecord(baseEntry),
     payslip: buildPayslipDetails(baseEntry),
     window: genWindow,
+    ...(override ? {
+      override: {
+        id: overrideResult?.override_id || null,
+        old_payslip_no: overrideResult?.old_payslip_no || null,
+        payslip_no: baseEntry.payslip_no || null,
+        old_values: oldValues,
+        new_values: newValues,
+        changed_fields: overrideResult?.changed_fields || [],
+        review_flags: reviewFlags,
+      },
+    } : {}),
   });
 }
 
 export async function PATCH(request) {
   try {
-    const guard = await requirePermission(request, "process_payroll", "update");
-    if (guard.denied) return guard.denied;
+    const body = await request.json().catch(() => ({}));
+    const action = normalizeText(body?.action).toLowerCase();
 
-    const body = await request.json();
-    const action = normalizeText(body.action).toLowerCase();
+    // override_final is the Super Admin's alone (payroll_override,
+    // 2026-10-29); every other action is the Accountant's (process_payroll).
+    const guard = await requirePermission(request, action === "override_final" ? "payroll_override" : "process_payroll", "update");
+    if (guard.denied) return guard.denied;
 
     if (action === "generate") return await handleGenerate(getAdminClient(), body, guard, { override: false });
     if (action === "override_final") return await handleGenerate(getAdminClient(), body, guard, { override: true });
