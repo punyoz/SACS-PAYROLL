@@ -8,6 +8,7 @@
 //   - the override rewrites the approved payslip, keeps its own record (who,
 //     which payslip, old and new values, reason, when) and an audit entry
 //     of its own module, shown on the Super Admin's Audit & Monitoring;
+//   - the employee is notified (old and new net pay, the reason);
 //   - the run, the BIR 2316 / alphalist and the annualization that used the
 //     old figures are flagged for review, the Accountant and HR notified,
 //     and the Accountant marks its flag reviewed.
@@ -124,13 +125,21 @@ test("override: Super Admin only, reason required, logged on its own, downstream
     expect(notified.map((n) => n.recipient_id)).toContain(acct.id);
   });
 
-  await step(page, "Employee > the payslip shows the corrected net pay", async () => {
+  await step(page, "Employee > the payslip shows the corrected net pay, and the employee was told", async () => {
     monitor.at("Employee > payslips");
     await as(page, "employee2");
     const res = await api(page, "GET", `/api/employee/payslips?email=${encodeURIComponent(ACCOUNTS.employee2.email)}`);
     const slip = res.data.payslips.find((p) => p.period_label === PERIOD);
     const after = await rows(db().from("payroll_entries").select("net_pay").eq("id", before.id).single());
     expect(Number(slip.net_pay)).toBe(Number(after.net_pay));
+    // Told, with the old and new net pay and the reason (20261029050000).
+    const notes = (await api(page, "GET", "/api/notifications")).data.notifications || [];
+    const note = notes.find((n) => n.kind === "payslip_corrected");
+    expect(note, "the employee was notified of the correction").toBeTruthy();
+    expect(note).toMatchObject({ link_page: "emp-payslips", title: `Your ${PERIOD} payslip was corrected` });
+    expect(note.body).toContain(REASON);
+    expect(note.body).toContain(Number(before.net_pay).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    expect(note.body).toContain(Number(after.net_pay).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   });
 
   await step(page, "Super Admin > Audit & Monitoring > Payslip overrides shows it", async () => {

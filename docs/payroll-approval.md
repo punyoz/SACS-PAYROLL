@@ -76,6 +76,20 @@ refused, and the Super Admin still cannot process, generate or submit payroll.
   notified; whoever redoes the record marks the flag reviewed with a note
   (`PATCH /api/payroll/review-flags { id, note }`). The Super Admin reads the
   flags but cannot mark them.
+- **The employee is told** (`20261029050000_payroll_override_employee_notice.sql`):
+  when an override changes any figure, the employee gets a notification
+  "Your <period> payslip was corrected" with the old and new net pay, the old
+  and new payslip numbers and the reason, linking to Payslips. It is written
+  in the same transaction as the override (a trigger on
+  `payroll_final_overrides`), so no override that changes a figure is saved
+  without it.
+- **One correction per month, on the 2nd half** (decided 2026-10-29): once
+  the month's 2nd half is Final it settles the month, so the 1st half is never
+  recomputed; correct the 2nd-half payslip.
+- **Not built yet (queued 2026-10-29):** a "Flagged for Review" screen listing
+  the flagged remittances, BIR 2316 / alphalist files and other records, who
+  raised them and when, so HR, the Accountant and the Super Admin act on them
+  without the API.
 
 ## Run the migrations in this order
 
