@@ -3,7 +3,8 @@
 // a recovery would be. Needs the approved October runs and the BIR files the
 // earlier specs leave (20-payroll-flow, 96-year-end-tax).
 //
-//   - the Accountant, HR, the Admin and an Employee are refused;
+//   - the Accountant, HR, the Admin and an Employee are refused; HR reads
+//     the override log (read only), the others cannot;
 //   - no reason, no override;
 //   - the override rewrites the approved payslip, keeps its own record (who,
 //     which payslip, old and new values, reason, when) and an audit entry
@@ -47,9 +48,14 @@ test("override: Super Admin only, reason required, logged on its own, downstream
     for (const role of ["accountant", "hr", "admin", "employee"]) {
       monitor.at(`${role} > override`);
       await as(page, role);
+      // Let the portal finish loading before the next role signs in: its
+      // requests still in flight would go out without a session (the known
+      // role-switch flake, e2e/README.md).
+      await page.waitForLoadState("networkidle").catch(() => {});
       const res = await api(page, "PATCH", "/api/accountant/payroll", { ...body, reason: REASON });
       expect(res.status, `${role} is refused`).toBe(403);
-      expect((await api(page, "GET", "/api/payroll/overrides")).status, `${role} cannot read the override log`).toBe(403);
+      // HR reads the log for compliance (20261029060000); the others cannot.
+      expect((await api(page, "GET", "/api/payroll/overrides")).status, `${role} and the override log`).toBe(role === "hr" ? 200 : 403);
     }
   });
 
@@ -160,11 +166,18 @@ test("override: Super Admin only, reason required, logged on its own, downstream
     expect(res.status).toBe(403);
   });
 
-  await step(page, "HR > sees the run flag", async () => {
+  await step(page, "HR > sees the run flag, and reads the override log (read only)", async () => {
     monitor.at("HR > review flags");
     await as(page, "hr");
+    await page.waitForLoadState("networkidle").catch(() => {});
     const res = await api(page, "GET", "/api/payroll/review-flags");
     expect(res.data.flags.map((f) => f.kind)).toEqual(["payroll_run"]);
+    const log = await api(page, "GET", "/api/payroll/overrides");
+    expect(log.status).toBe(200);
+    expect(log.data.overrides[0]).toMatchObject({ reason: REASON, actor_id: sa.id, employee_id: bea.id, pay_period: PERIOD });
+    expect(Number(log.data.overrides[0].old_values.net_pay)).toBe(Number(before.net_pay));
+    // Reading is all: the override itself is still refused.
+    expect((await api(page, "PATCH", "/api/accountant/payroll", { ...body, reason: REASON })).status).toBe(403);
   });
 
   await step(page, "Accountant > sees the BIR flag, regenerates nothing silently, marks it reviewed", async () => {
