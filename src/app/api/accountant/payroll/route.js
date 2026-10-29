@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { notify } from "@/lib/branch-requests-server";
-import { readAllLeaveRequests } from "@/lib/leave-requests/store";
+import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -866,7 +866,7 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
   // transferring every leave request ever filed (pending, rejected, from
   // years ago) on every payroll page load.
   // Only leave touching the period (every row of it, paged).
-  const approved = await readAllLeaveRequests({ status: "approved", overlapFrom: periodStart, overlapTo: periodEnd });
+  const approved = await readLeaveRequestsWithoutProof({ status: "approved", overlapFrom: periodStart, overlapTo: periodEnd });
 
   const summaries = [];
   const leaveDaysByEmployee = new Map();
@@ -4493,6 +4493,14 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       payslip_no: baseEntry.payslip_no || null,
       replaced_payslip_no: override ? existing?.payslip_no || null : undefined,
       reason: override ? reason : undefined,
+      // The replaced payslip's figures, so the log alone shows old and new.
+      previous_totals: override
+        ? {
+          gross_pay: existing?.payroll?.totals?.gross_pay ?? null,
+          total_deductions: existing?.payroll?.totals?.total_deductions ?? null,
+          net_pay: existing?.payroll?.totals?.net_pay ?? null,
+        }
+        : undefined,
       attendance_through: through,
       attendance_summary: built.payroll.generation.attendance_summary,
       confirmed_incomplete: built.blocking.length ? built.blocking : undefined,

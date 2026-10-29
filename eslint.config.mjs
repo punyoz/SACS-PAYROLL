@@ -1,6 +1,9 @@
 import nextVitals from "eslint-config-next/core-web-vitals";
 
 const config = [
+  // Playwright's output (git-ignored): its HTML report ships minified
+  // bundles that are not this project's code.
+  { ignores: ["test-results/**"] },
   ...nextVitals,
   {
     // no-undef is off in the Next preset, which is why two route handlers

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   readAllLeaveRequests,
+  readLeaveRequestsWithoutProof,
   updateLeaveRequestStatus,
   findOverlappingApprovedLeave,
   cancelApprovedLeaveRequest,
@@ -77,7 +78,7 @@ export async function PATCH(request) {
       return NextResponse.json({ error: "action must be approve, reject or cancel." }, { status: 400 });
     }
 
-    const [current] = await readAllLeaveRequests({ id });
+    const [current] = await readLeaveRequestsWithoutProof({ id });
 
     if (!current) {
       return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
@@ -152,7 +153,7 @@ export async function PATCH(request) {
     if (action === "approve") {
       // Only this employee's approved requests can overlap.
       const employeeApproved = current.employee_id
-        ? await readAllLeaveRequests({ employeeId: current.employee_id, status: "approved" })
+        ? await readLeaveRequestsWithoutProof({ employeeId: current.employee_id, status: "approved" })
         : [];
       const overlap = findOverlappingApprovedLeave(
         employeeApproved,

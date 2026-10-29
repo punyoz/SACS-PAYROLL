@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { sanitizeError } from "@/lib/api-error";
 import {
-  readAllLeaveRequests,
+  readLeaveRequestsWithoutProof,
   insertLeaveRequest,
   normalizeLeaveRequest,
   summarizeLeaveBalance,
@@ -51,7 +51,7 @@ export async function GET(request) {
       if (foreign) return foreign;
     }
 
-    const requests = await readAllLeaveRequests({ employeeId });
+    const requests = await readLeaveRequestsWithoutProof({ employeeId });
 
     const balance = summarizeLeaveBalance(requests, employeeId);
 
@@ -129,7 +129,7 @@ export async function POST(request) {
       );
     }
 
-    const allRequests = await readAllLeaveRequests({ employeeId });
+    const allRequests = await readLeaveRequestsWithoutProof({ employeeId });
     const hasDuplicatePending = allRequests.some((row) => {
       const isSameEmployee = employeeId
         ? row.employee_id === employeeId

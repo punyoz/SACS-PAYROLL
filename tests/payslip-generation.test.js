@@ -268,6 +268,40 @@ describe("Draft, regenerate, Final", () => {
     expect(table("payroll_records").filter((row) => row.employee_id === EMP && row.archived)).toHaveLength(0);
   });
 
+  // No role reaches override_final (above); if one is ever granted it, the
+  // audit log alone must show who, which payslip, why, and old and new figures.
+  it("an override is logged with the replaced payslip's figures and the new ones", async () => {
+    await generate("2026-10-01");
+    const before = entry();
+    const oldTotals = before.payroll.totals;
+
+    const { ROLE_PERMISSIONS } = await import("@/lib/rbac/permissions");
+    const saved = ROLE_PERMISSIONS.super_admin.process_payroll;
+    ROLE_PERMISSIONS.super_admin.process_payroll = { scope: "all", actions: ["create", "read", "update", "delete"] };
+    try {
+      table("attendance_logs").push(absent("late-fix", "2026-09-17"));
+      vi.setSystemTime(new Date("2026-10-08T10:00:00+08:00"));
+      const response = await PATCH(request(SUPER, "PATCH", { action: "override_final", employee_id: EMP, pay_period: PERIOD, reason: "Late correction approved by HR" }));
+      expect(response.status).toBe(200);
+    } finally {
+      ROLE_PERMISSIONS.super_admin.process_payroll = saved;
+    }
+
+    const log = table("audit_logs").find((row) => row.action === "payslip_override");
+    // actor_id keeps only real (UUID) ids; the test ids are not.
+    expect(log).toMatchObject({ entity_type: "payroll_entry", entity_id: before.id, actor_role: "super_admin", actor_name: SUPER.full_name });
+    expect(log.created_at).toBeTruthy();
+    expect(log.metadata).toMatchObject({
+      employee_id: EMP,
+      pay_period: PERIOD,
+      replaced_payslip_no: before.payslip_no,
+      reason: "Late correction approved by HR",
+      previous_totals: { gross_pay: oldTotals.gross_pay, total_deductions: oldTotals.total_deductions, net_pay: oldTotals.net_pay },
+      totals: { net_pay: entry().payroll.totals.net_pay },
+    });
+    expect(log.metadata.totals.net_pay).not.toBe(oldTotals.net_pay);
+  });
+
   it("downloads the payslip as a PDF", async () => {
     await generate("2026-10-01");
     const response = await GET(request(ACCOUNTANT, "GET", null, `?format=pdf&entry_id=${entry().id}`));
