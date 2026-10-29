@@ -92,6 +92,9 @@ function drawCertificate(p, row, { employer, year }) {
   p.field(7, "Date of birth", shortDate(row.date_of_birth), MARGIN + 2 * third, third / 2);
   p.field(8, "Contact number", row.contact, MARGIN + 2.5 * third, third / 2);
   p.y -= 24;
+  p.field("", "Position", row.position, MARGIN, 2 * third);
+  p.field("", "Branch", row.branch_name, MARGIN + 2 * third, third);
+  p.y -= 24;
   p.text(MARGIN, p.y, "9-11  Minimum wage earner: No", { size: 8, gray: 0.35 });
   p.y -= 12;
 
@@ -114,6 +117,9 @@ function drawCertificate(p, row, { employer, year }) {
   p.amount(23, "Gross taxable compensation income (21 + 22)", b[23], { bold: true });
   p.amount(24, "Tax due", b[24], { bold: true });
   p.amount("25A", "Amount of taxes withheld - present employer", b["25A"]);
+  if (Math.abs(Number(form.year_end_adjustment) || 0) >= 0.01) {
+    p.amount("", `   of which year-end tax adjustment (${form.year_end_adjustment > 0 ? "collected" : "refunded"})`, form.year_end_adjustment);
+  }
   p.amount("25B", "Amount of taxes withheld - previous employer", b["25B"]);
   p.amount(26, "Total amount of taxes withheld as adjusted (25A + 25B)", b[26]);
   p.amount(27, "5% tax credit (PERA Act of 2008)", b[27]);
@@ -143,8 +149,8 @@ function drawCertificate(p, row, { employer, year }) {
   const note = form.settlement === "none"
     ? "Tax withheld equals the tax due for the year."
     : form.settlement === "collect"
-      ? `Tax due is PHP ${money(diff)} more than the tax withheld: to be collected through a payroll correction.`
-      : `Tax withheld is PHP ${money(-diff)} more than the tax due: to be refunded through a payroll correction.`;
+      ? `Tax due is PHP ${money(diff)} more than the tax withheld: to be collected by the year-end tax adjustment.`
+      : `Tax withheld is PHP ${money(-diff)} more than the tax due: to be refunded by the year-end tax adjustment.`;
   p.text(MARGIN, p.y, `Year-end: ${note}`, { size: 8.5, bold: form.settlement !== "none" });
   p.y -= 18;
 

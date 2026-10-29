@@ -138,7 +138,8 @@ function cutoffRows(p, c, holidayLines = []) {
   p.heading("Deductions");
   if (Number(c.leave_with_pay_days) > 0) p.row(`Leave with pay (${c.leave_with_pay_days} days) - no deduction`, null);
   if (!c.deductions.length) p.row("No deductions", 0);
-  c.deductions.forEach((line) => p.row(line.label, line.amount, { note: line.note || "" }));
+  // A credit (the year-end tax refund) is added to the pay: shown negative here.
+  c.deductions.forEach((line) => p.row(line.credit ? `${line.label} - added to pay` : line.label, line.credit ? -line.amount : line.amount, { note: line.note || "" }));
   p.row("Total deductions", c.total_deductions || 0, { bold: true });
   if (c.half === "first") p.row("Tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.", null);
   if (Number(c.carry_over_out) > 0) p.row("Balance carried to next month", c.carry_over_out);
@@ -188,6 +189,9 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   p.row("Monthly net", m.monthly_net || 0, { bold: true });
   p.row(m.first_half_status === "final" ? "Less: paid in 1st half" : "Less: paid in 1st half (not processed)", m.first_half_paid || 0);
   minus(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);
+  // Year-end tax annualization (src/lib/payroll/year-end-tax.js).
+  if (m.year_end_tax?.kind === "refund") plus(m.year_end_tax.label, m.year_end_tax.amount, m.year_end_tax.note);
+  else if (m.year_end_tax) minus(m.year_end_tax.label, m.year_end_tax.amount, m.year_end_tax.note);
   if (Number(m.carry_over_out) > 0) p.row("Balance carried to next month", m.carry_over_out);
 }
 

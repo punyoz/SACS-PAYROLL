@@ -154,9 +154,11 @@ const API_MODULES = [
   // (process_payroll), HR decides (payroll_run_approval). The route checks the
   // right one per method, so the session is the requirement here.
   ["/api/payroll/corrections", null],
-  // BIR Form 2316 and the 1604-C alphalist (read-only): the Accountant's
-  // branch, HR every branch (payroll_records scope).
-  ["/api/payroll/bir-forms", "payroll_records"],
+  // BIR Form 2316, the 1604-C alphalist and the year-end tax annualization
+  // (2026-10-29): the Accountant only, its own branch. payroll_reports is held
+  // by no other role; the routes check the role again (src/lib/payroll/bir-access.js).
+  ["/api/payroll/bir-forms", "payroll_reports"],
+  ["/api/payroll/year-end-tax", "payroll_reports"],
   // Government deduction tables, read-only (2026-10-26): the Super Admin,
   // the Accountant and HR. Any write is refused (the Super Admin edits them
   // in System Configuration, /api/admin/payroll-*).

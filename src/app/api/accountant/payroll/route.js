@@ -89,6 +89,9 @@ import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
 import { isLockedRun, loadRunsFor, lockedRunMessage, shapeRun } from "@/lib/payroll/runs";
+import { payslipFigures } from "@/lib/payroll/bir-2316";
+import { loadYearEndTaxContext } from "@/lib/payroll/bir-forms";
+import { applyYearEndTax, yearEndAdjustment, yearEndCutoffLine } from "@/lib/payroll/year-end-tax";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -1201,9 +1204,13 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
   // Licensed-teacher subsidy (src/lib/payroll/teacher-subsidy.js) and the
   // exempt ceiling it shares with the 13th month (a Payroll Rate).
   const subsidyContext = await loadSubsidyContext(supabase, employees.map((employee) => employee.id), period);
+  // Year-end tax annualizations the Accountant scheduled onto this 2nd cutoff
+  // (src/lib/payroll/year-end-tax.js, 20261029010000).
+  const yearEndTax = await loadYearEndTaxContext(supabase, employees.map((employee) => employee.id), period);
   const ceilingRate = resolveRate(configs, "benefits_exempt_ceiling", {}, period.start_key);
   const benefitsCeiling = ceilingRate.source === "config" ? Number(ceilingRate.value) : DEFAULT_BENEFITS_CEILING;
-  const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready || !loanContext.ready || !subsidyContext.ready;
+  const failed = taxResult.error || contributionResult.error || itemResult.error || !cash.ready || !loanContext.ready || !subsidyContext.ready
+    || !yearEndTax.ready;
   const taxTable = failed ? [] : taxTableFromRows(resolveTaxTableRows(taxResult.data, period.start_key));
   if (failed || !taxTable.length) {
     return { ...base, ready: false, tax_table: [], byEmployee };
@@ -1276,6 +1283,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       // 13th month, subsidy and bonuses already paid this tax year.
       benefits_ytd: subsidyContext.benefitsYtd?.get(employee.id) || 0,
       working_days: workingDaysIn(period.start_key, period.end_key),
+      year_end_tax: yearEndTax.byEmployee.get(employee.id) || null,
     });
   });
 
@@ -2387,6 +2395,30 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       contribution_source: schoolMonthly.source,
       cash_advances: cashAdvance.lines,
     };
+    // Year-end tax annualization scheduled onto this payslip: tax due on the
+    // whole tax year (this payslip included when it is of that year) less
+    // everything withheld, as its own line. The withholding tax above stays
+    // as computed (src/lib/payroll/year-end-tax.js).
+    if (semi.year_end_tax) {
+      const yet = semi.year_end_tax;
+      const t = payroll.totals;
+      const current = Number(String(period.start_key).slice(0, 4)) === Number(yet.year)
+        ? {
+          figures: payslipFigures({ pay_period: period.label, payroll }),
+          month: Number(String(period.start_key).slice(5, 7)),
+          // This payslip's bonuses and "other benefit" subsidy join the
+          // benefits ledger only once it is Final.
+          benefits: [
+            { kind: "bonus", amount: toAmount(toAmount(t.early_bird_winner_incentive) + toAmount(t.perfect_attendance_incentive)) },
+            { kind: "subsidy_payout", amount: subsidy.tax_treatment === "other_benefit" ? toAmount(subsidy.earnings_total) : 0 },
+          ].filter((b) => b.amount > 0),
+        }
+        : null;
+      applyYearEndTax(payroll, yearEndAdjustment({
+        year: yet.year, employee: yet.employee, prior: yet.prior, current,
+        ceiling: yet.ceiling, taxTable: yet.taxTable, available: settlement.second_half_net,
+      }), { annualizationId: yet.record.id, taxYear: yet.year });
+    }
   }
   if (school) {
     const t = payroll.totals;
@@ -2496,6 +2528,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         // is taxable income (the preview's net and tax estimate).
         subsidy_pay: subsidy.earnings_total,
         subsidy_taxable: toAmount(subsidy.earnings_total - subsidy.non_taxable + subsidy.extra_taxable),
+        // Year-end tax adjustment on this payslip (+ deducted, − refunded).
+        year_end_tax: payroll.year_end_tax ? toAmount(payroll.year_end_tax.signed) : 0,
+        year_end_tax_detail: payroll.year_end_tax || null,
         monthly: payroll.monthly,
         sheet: payroll.sheet,
       } : {}),
@@ -2579,10 +2614,13 @@ function cutoffBreakdown(payroll, { half, window, rate, hire, lateRateZero = fal
     deduct("Subsidy advance offset", toAmount((d.loan || 0) - loanLines.reduce((sum, line) => sum + toAmount(line.amount), 0)));
     (payroll.cash_advances || []).forEach((line) => deduct(line.description ? `Cash advance: ${line.description}` : "Cash advance", line.amount));
     deduct(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);
+    // Year-end tax annualization: a deduction, or a refund (a credit line).
+    const yearEnd = yearEndCutoffLine(payroll.year_end_tax);
+    if (yearEnd) deductions.push(yearEnd);
   }
 
   const gross = toAmount(earnings.reduce((sum, line) => sum + line.amount, 0));
-  const totalDeductions = toAmount(deductions.reduce((sum, line) => sum + line.amount, 0));
+  const totalDeductions = toAmount(deductions.reduce((sum, line) => sum + (line.credit ? -line.amount : line.amount), 0));
   return {
     rule: PER_CUTOFF_RULE,
     half,

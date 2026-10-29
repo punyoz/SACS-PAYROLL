@@ -253,6 +253,7 @@ function BatchCard({ onNavigate }) {
       incentives: base.incentives, earnings: base.earnings, other_incentives: base.extras.other + (base.extras.subsidy || 0),
       first_half_paid: base.extras.firstHalfPaid, carry_in: base.extras.carryIn, cash_advance: base.cashAdvance,
       prior_attendance: base.extras.priorAttendance || 0, prior_earnings: base.extras.priorEarnings || 0,
+      year_end_tax: base.yearEndTax,
     });
     const defaults = { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop, tax: taxDefault };
     const values = { sss, philhealth, pagibig, lwop, tax };
@@ -456,6 +457,7 @@ function BatchCard({ onNavigate }) {
                       {money(row.net)}
                       {base.half === "second" ? <p className="text-xs font-normal whitespace-normal text-muted-foreground" title="Monthly net less what the 1st half paid">less 1st half {money(base.extras.firstHalfPaid)}{base.extras.carryIn ? ` and carried ${money(base.extras.carryIn)}` : ""}</p> : null}
                       {base.cashAdvance ? <p className="text-xs font-normal whitespace-normal text-destructive">less loans / cash advance {money(base.cashAdvance)}</p> : null}
+                      {base.yearEndTax ? <p className={cn("text-xs font-normal whitespace-normal", base.yearEndTax > 0 ? "text-destructive" : "text-success")}>{base.yearEndTax > 0 ? "less" : "plus"} year-end tax adjustment {money(Math.abs(base.yearEndTax))}</p> : null}
                     </TableCell>
                     <TableCell><PayslipCell data={data} employee={employee} onGenerate={generate} onView={openPayslip} busy={generating === employee.id} /></TableCell>
                   </TableRow>,
@@ -843,6 +845,13 @@ function SingleEntry({ onNavigate }) {
               <SummaryRow label="Leave with pay (no deduction)" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} />
               <SummaryRow label={`Leave without pay (${unitDays(form.lwop, unit.daily)})`} value={`- ${money(summary.lwopDeduct)}`} tone="minus" />
               <SummaryRow label="Loans / cash advance" value={`- ${money(summary.cashAdvance)}`} tone="minus" />
+              {summary.yearEndTax ? (
+                <SummaryRow
+                  label={summary.yearEndTax > 0 ? "Year-end tax adjustment (under-withheld)" : "Year-end tax refund (over-withheld)"}
+                  value={`${summary.yearEndTax > 0 ? "-" : "+"} ${money(Math.abs(summary.yearEndTax))}`}
+                  tone={summary.yearEndTax > 0 ? "minus" : "plus"}
+                />
+              ) : null}
               {summary.extras.subsidy ? <SummaryRow label="Licensed teacher subsidy" value={`+ ${money(summary.extras.subsidy)}`} tone="plus" /> : null}
               {winnerPay ? <SummaryRow label="Early Bird Incentive (period winner)" value={`+ ${money(winnerPay)}`} tone="plus" /> : null}
               <SummaryRow label="Perfect attendance / other incentives" value={`+ ${money(toAmount(summary.shownIncentives - winnerPay))}`} tone="plus" />

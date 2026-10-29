@@ -8,14 +8,16 @@
  *   GET ?year=YYYY&format=xlsx | csv      the alphalist (Schedule 1 as of Dec 31,
  *                                         Schedule 2 separated during the year)
  *
- * The Accountant (its branch) generates them under Payroll Reports; HR
- * (every branch) can look and download, never change anything.
+ * The Accountant only, its own branch, under Payroll Reports (2026-10-29,
+ * src/lib/payroll/bir-access.js): HR, Admin and Super Admin are refused.
+ * The tax withheld includes the year-end tax adjustments settled on payslips
+ * (/api/payroll/year-end-tax).
  */
 
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
-import { requirePermission } from "@/lib/rbac/guard";
+import { birBranchScope, requireBirAccountant } from "@/lib/payroll/bir-access";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { ALPHALIST_COLUMNS, alphalistRow, toCsv } from "@/lib/payroll/bir-2316";
 import { build2316Pdf } from "@/lib/payroll/bir-2316-pdf";
@@ -47,6 +49,7 @@ function summary(row) {
     taxable: b[52],
     tax_due: b[24],
     tax_withheld: b[26],
+    year_end_adjustment: row.form.year_end_adjustment || 0,
     difference: row.form.difference,
     settlement: row.form.settlement,
   };
@@ -60,8 +63,8 @@ function file(buffer, name, type) {
 }
 
 export async function GET(request) {
-  // HR views every branch; the Accountant its own (payroll_records scope).
-  const guard = await requirePermission(request, "payroll_records", "read");
+  // The Accountant only, its own branch (src/lib/payroll/bir-access.js).
+  const guard = await requireBirAccountant(request, "read");
   if (guard.denied) return guard.denied;
   try {
     const url = new URL(request.url);
@@ -73,7 +76,7 @@ export async function GET(request) {
     if (employeeId && !UUID.test(employeeId)) return NextResponse.json({ error: "Unknown employee." }, { status: 400 });
 
     const supabase = getAdminClient();
-    const branchId = guard.branchExempt ? null : (guard.branchId || "00000000-0000-0000-0000-000000000000");
+    const branchId = birBranchScope(guard);
     const data = await loadBirYear(supabase, { year, branchId, employeeId: employeeId || null });
 
     if (format === "json") {

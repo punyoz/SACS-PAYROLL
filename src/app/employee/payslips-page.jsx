@@ -61,6 +61,9 @@ function semiMonthlyRows(m, holidayLines = []) {
   row("Monthly Net", formatPeso(m.monthly_net), "total");
   row("Paid in 1st Half", `- ${formatPeso(m.first_half_paid)}`);
   minus(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);
+  // Year-end tax annualization (src/lib/payroll/year-end-tax.js).
+  if (m.year_end_tax?.kind === "refund") plus(m.year_end_tax.label, m.year_end_tax.amount);
+  else if (m.year_end_tax) minus(m.year_end_tax.label, m.year_end_tax.amount);
   if (Number(m.carry_over_out) > 0) row("Carried to next month", formatPeso(m.carry_over_out), "carry");
   return rows;
 }
@@ -78,7 +81,10 @@ function cutoffRows(c, holidayLines = []) {
   if (Number(c.leave_with_pay_days) > 0) rows.push({ label: `Leave With Pay (${c.leave_with_pay_days}d)`, value: "No deduction" });
   if (!c.deductions.length) rows.push({ label: "Deductions", value: "None", kind: "note" });
   c.deductions.forEach((line) => {
-    rows.push({ label: line.label, value: `- ${formatPeso(line.amount)}`, kind: "minus" });
+    // A credit (the year-end tax refund) is added to the pay.
+    rows.push(line.credit
+      ? { label: line.label, value: `+ ${formatPeso(line.amount)}`, kind: "plus" }
+      : { label: line.label, value: `- ${formatPeso(line.amount)}`, kind: "minus" });
     if (line.note) rows.push({ label: line.note, value: "", kind: "sub" });
   });
   rows.push({ label: "Total Deductions", value: `- ${formatPeso(c.total_deductions)}`, kind: "total" });

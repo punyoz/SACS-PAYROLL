@@ -202,7 +202,8 @@ function exportFile(detail, format) {
     const rows = items.map((item) => COLUMNS.map((c) => (c.key === "flags" ? flagText(item.flags) : item[c.key] ?? "")));
     const detailRows = items.flatMap((item) => [
       ...(item.breakdown?.cutoff?.earnings || []).map((line) => [item.employee_name, "Earning", line.label, line.note || "", line.amount]),
-      ...(item.breakdown?.cutoff?.deductions || []).map((line) => [item.employee_name, "Deduction", line.label, line.note || "", line.amount]),
+      // A credit (the year-end tax refund) is added to the pay: negative here.
+      ...(item.breakdown?.cutoff?.deductions || []).map((line) => [item.employee_name, "Deduction", line.label, line.note || "", line.credit ? -line.amount : line.amount]),
       ...(!item.breakdown?.cutoff ? (item.breakdown?.lines?.deductions || []).map((line) => [item.employee_name, "Deduction", line.type, `${line.quantity ?? ""} ${line.unit ?? ""} × ${line.rate ?? ""}`.trim(), Number(line.amount) || 0]) : []),
     ]);
     const file = buildXlsx([

@@ -212,7 +212,8 @@ function Breakdown({ item, firstCutoff }) {
             {deductions.map((line, i) => (
               <li key={`${line.label}-${i}`} className="flex items-baseline justify-between gap-3">
                 <span className="min-w-0">{line.label}{line.note ? <span className="block text-xs text-muted-foreground">{line.note}</span> : null}</span>
-                <span className="shrink-0 tabular-nums text-destructive">- {money(line.amount)}</span>
+                {/* A credit (the year-end tax refund) is added to the pay. */}
+                <span className={cn("shrink-0 tabular-nums", line.credit ? "text-success" : "text-destructive")}>{line.credit ? "+" : "-"} {money(line.amount)}</span>
               </li>
             ))}
           </ul>

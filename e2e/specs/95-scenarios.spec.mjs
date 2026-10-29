@@ -330,7 +330,7 @@ test("HR-07 / SA-03 / SC-14 / SA-01: audit search reaches old entries; size warn
   expect(JSON.stringify(branches.data)).toContain(name);
 });
 
-test("AC-11: BIR 2316 and the alphalist (SA sets the employer, Accountant generates, HR reads, employee waits for year end)", async ({ page, monitor }) => {
+test("AC-11: BIR 2316 and the alphalist (SA sets the employer, Accountant generates, HR refused, employee waits for year end)", async ({ page, monitor }) => {
   const year = Number(manilaDay().slice(0, 4));
   const paid = await rows(db().from("payroll_entries").select("id").eq("status", "paid").like("pay_period", `%, ${year}`).limit(1));
   test.skip(!paid.length, "needs a paid payslip from 20-payroll-flow");
@@ -372,18 +372,21 @@ test("AC-11: BIR 2316 and the alphalist (SA sets the employer, Accountant genera
     expect(logs.length).toBeGreaterThanOrEqual(2);
   });
 
-  await step(page, "HR > Payroll Records > BIR forms: every branch, read-only", async () => {
-    monitor.at("HR > BIR forms");
-    await as(page, "hr", "hr-payroll-records");
-    await settle(page);
-    const card = main(page).locator("[data-slot=card]").filter({ hasText: "BIR forms" }).last();
-    await expect(card.getByText("Read-only.")).toBeVisible();
+  await step(page, "Accountant > BIR forms API: TINs on screen are masked", async () => {
     const body = await api(page, "GET", `/api/payroll/bir-forms?year=${year}`);
     expect(body.status).toBe(200);
-    expect(body.data.can_generate).toBe(false);
     // TINs on screen are masked (the full ones are only in the files).
     expect(body.data.rows.every((r) => !/\d{5}/.test(r.tin_masked))).toBe(true);
     expect([403, 405]).toContain((await api(page, "POST", "/api/payroll/bir-forms", {})).status);
+  });
+
+  await step(page, "HR > Payroll Records > no BIR forms (the Accountant's only, 2026-10-29)", async () => {
+    monitor.at("HR > BIR forms refused");
+    monitor.allow(/^403 GET \/api\/payroll\/bir-forms/, /status of 403/);
+    await as(page, "hr", "hr-payroll-records");
+    await settle(page);
+    await expect(main(page).locator("[data-slot=card]").filter({ hasText: "BIR forms" })).toHaveCount(0);
+    expect((await api(page, "GET", `/api/payroll/bir-forms?year=${year}`)).status).toBe(403);
   });
 
   await step(page, "Employee > Payslips > My BIR 2316: this year's comes after year end", async () => {

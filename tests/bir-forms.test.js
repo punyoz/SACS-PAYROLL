@@ -2,8 +2,9 @@
  * BIR Form 2316 and the 1604-C alphalist (scenario AC-11, 2026-10-22):
  * the box mapping from paid payslips, the 13th month / benefits ceiling,
  * the annual tax, the year-end difference, the employer details, the PDF and
- * alphalist files, and who may see what (Accountant its branch, HR every
- * branch read-only, the employee their own for a finished year).
+ * alphalist files, and who may see what (the Accountant its branch only —
+ * HR, Admin and Super Admin are refused since 2026-10-29 — and the employee
+ * their own for a finished year).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -154,6 +155,7 @@ const who = {
   hr: { user_id: "u-hr", role: "hr", branch_id: null, full_name: "Rita HR" },
   accountant: { user_id: "u-acct", role: "accountant", branch_id: MAIN, full_name: "Ana Accountant" },
   admin: { user_id: "u-adm", role: "admin", branch_id: MAIN, full_name: "Ada Admin" },
+  super_admin: { user_id: "u-sa", role: "super_admin", branch_id: null, full_name: "Sam Super" },
   paolo: { user_id: "u-paolo", role: "employee", branch_id: MAIN, full_name: "Paolo Diaz" },
 };
 
@@ -225,10 +227,11 @@ describe("BIR forms routes", () => {
     expect(body.years).toEqual([2026, 2025]);
   });
 
-  it("lets HR see every branch, read-only, and refuses the Admin and the employee", async () => {
-    const body = await (await call("/api/payroll/bir-forms?year=2026", who.hr)).json();
-    expect(body.rows.map((r) => r.full_name).sort()).toEqual(["Far Away", "Paolo Diaz"]);
-    expect(body.can_generate).toBe(false);
+  it("refuses HR, the Super Admin, the Admin and the employee (Accountant only, 2026-10-29)", async () => {
+    for (const path of ["/api/payroll/bir-forms?year=2026", "/api/payroll/bir-forms?year=2026&format=pdf", "/api/payroll/bir-forms?year=2026&format=xlsx", "/api/payroll/bir-forms?year=2026&format=csv"]) {
+      expect((await call(path, who.hr)).status, `hr ${path}`).toBe(403);
+      expect((await call(path, who.super_admin)).status, `super_admin ${path}`).toBe(403);
+    }
     expect((await call("/api/payroll/bir-forms?year=2026", who.admin)).status).toBe(403);
     expect((await call("/api/payroll/bir-forms?year=2026", who.paolo)).status).toBe(403);
     const route = await import("@/app/api/payroll/bir-forms/route");
@@ -236,9 +239,9 @@ describe("BIR forms routes", () => {
   });
 
   it("downloads the 2316 PDF and the alphalist, and logs it", async () => {
-    const pdf = await call("/api/payroll/bir-forms?year=2026&format=pdf", who.hr);
+    const pdf = await call("/api/payroll/bir-forms?year=2026&format=pdf", who.accountant);
     expect(pdf.headers.get("Content-Type")).toBe("application/pdf");
-    expect(Buffer.from(await pdf.arrayBuffer()).toString("latin1")).toContain("/Count 2");
+    expect(Buffer.from(await pdf.arrayBuffer()).toString("latin1")).toContain("/Count 1");
 
     const csv = await call("/api/payroll/bir-forms?year=2026&format=csv", who.accountant);
     const text = await csv.text();
@@ -273,7 +276,11 @@ describe("BIR forms routes", () => {
     };
     users.find((u) => u.id === "u-paolo").app_metadata = { session_id: "s-1" };
     users.push({ id: "u-hr", email: "u-hr@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "hr" } });
-    expect((await proxy(as("hr", "/api/payroll/bir-forms"))).status).toBe(200);
+    users.push({ id: "u-acct", email: "u-acct@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "accountant" } });
+    users.push({ id: "u-sa", email: "u-sa@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "super_admin" } });
+    expect((await proxy(as("accountant", "/api/payroll/bir-forms"))).status).toBe(200);
+    expect((await proxy(as("hr", "/api/payroll/bir-forms"))).status).toBe(403);
+    expect((await proxy(as("super_admin", "/api/payroll/bir-forms"))).status).toBe(403);
     expect((await proxy(as("paolo", "/api/payroll/bir-forms"))).status).toBe(403);
     expect((await proxy(as("paolo", "/api/employee/bir-2316"))).status).toBe(200);
   });

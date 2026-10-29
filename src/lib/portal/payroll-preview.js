@@ -283,11 +283,13 @@ export function computeSummary(data, employee, rawForm) {
   const totalDeductions = toAmount(sss + philhealth + pagibig + tax + amounts.absent + amounts.late + amounts.undertime + amounts.half_day + lwopDeduct + cashAdvance);
   const monthNet = toAmount(gross - totalDeductions + incentives + extras.other + (extras.subsidy || 0)
     + (extras.priorEarnings || 0) - (extras.priorAttendance || 0));
+  // Year-end tax adjustment on a 2nd cutoff (+ deducted, − refunded; src/lib/payroll/year-end-tax.js).
+  const yearEndTax = settling ? toAmount(info.row?.defaults?.year_end_tax || 0) : 0;
   const secondHalfNet = toAmount(monthNet - extras.firstHalfPaid - extras.carryIn);
-  const net = Math.max(0, settling ? secondHalfNet : monthNet);
+  const net = Math.max(0, settling ? toAmount(secondHalfNet - yearEndTax) : monthNet);
   return {
     info, basic, sss, philhealth, pagibig, tax, taxDefault, amounts, lwpDays, lwopDeduct, incentives, earnings, gross,
-    settling, extras, cashAdvance, monthNet, secondHalfNet, net,
+    settling, extras, cashAdvance, monthNet, secondHalfNet, net, yearEndTax,
     shownIncentives: incentives + (settling ? 0 : extras.other),
   };
 }
@@ -367,7 +369,7 @@ export function batchRowNet(row) {
   const totalDeductions = toAmount(row.sss + row.philhealth + row.pagibig + row.tax + row.attendance_deductions + lwopDeduct + (row.cash_advance || 0));
   const monthNet = toAmount(row.basic_salary + (row.earnings || 0) - totalDeductions + row.incentives + (row.other_incentives || 0)
     + (row.prior_earnings || 0) - (row.prior_attendance || 0));
-  return Math.max(0, toAmount(monthNet - (row.first_half_paid || 0) - (row.carry_in || 0)));
+  return Math.max(0, toAmount(monthNet - (row.first_half_paid || 0) - (row.carry_in || 0) - (row.year_end_tax || 0)));
 }
 
 /** Everything one batch row starts from (loadBatchPayrollTable). */
@@ -378,6 +380,8 @@ export function batchRowBase(data, employee) {
   const extras = half === "second" || info.row?.defaults?.per_half ? semiExtras(info) : { other: 0, overloadHours: 0, firstHalfPaid: 0, carryIn: 0 };
   // Cash advance installments plus loan amortizations (both net-only).
   const cashAdvance = toAmount(Number(info.row?.defaults?.cash_advance || 0) + Number(info.row?.defaults?.loan || 0));
+  // Year-end tax adjustment (+ deducted, − refunded), 2nd cutoff only.
+  const yearEndTax = half === "second" ? toAmount(info.row?.defaults?.year_end_tax || 0) : 0;
   // Before per-cutoff attendance the 1st half counted no attendance at all.
   const noAttendance = half === "first" && !perCutoffFirst(data);
   const counts = noAttendance ? {} : info.pay?.counts || {};
@@ -392,7 +396,7 @@ export function batchRowBase(data, employee) {
   const incentives = toAmount((amounts.perfect_attendance || 0) + earlyBirdWinnerPay(info));
   const e = earningsFor(info);
   const earnings = toAmount(e.overtime + e.holiday);
-  return { info, half, basic, extras, cashAdvance, counts, amounts, blocking, legal, contributions, lwp, lwop, attendanceDeductions, incentives, earnings };
+  return { info, half, basic, extras, cashAdvance, yearEndTax, counts, amounts, blocking, legal, contributions, lwp, lwop, attendanceDeductions, incentives, earnings };
 }
 
 /** The row's tax default for its current figures (recalcBatchRow). */
