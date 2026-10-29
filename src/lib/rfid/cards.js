@@ -31,9 +31,6 @@ export const ROLE_LABELS = Object.freeze({
   system: "System",
 });
 
-/** No reader seen for this long: the terminal reads "No recent taps". */
-export const TERMINAL_QUIET_MINUTES = 60;
-
 /** "••••••5678": recognisable, never the whole number on screen. */
 export function maskUid(uidOrLast4) {
   const last4 = String(uidOrLast4 || "").slice(-4);
@@ -62,12 +59,4 @@ export function describeRfidError(error) {
     return { status: 503, error: "RFID cards are not set up yet: apply 20261021030000_rfid_cards_terminals.sql.", code: "not_ready" };
   }
   return { status: 500, error: "Not saved. Please try again.", code: "error" };
-}
-
-/** A terminal's health from its last tap. */
-export function terminalHealth(terminal, now = Date.now()) {
-  if (terminal.status !== "active") return { label: "Inactive", tone: "muted" };
-  if (!terminal.last_tap_at) return { label: "No taps yet", tone: "gold" };
-  const minutes = (now - new Date(terminal.last_tap_at).getTime()) / 60000;
-  return minutes <= TERMINAL_QUIET_MINUTES ? { label: "Recent taps", tone: "success" } : { label: "No recent taps", tone: "gold" };
 }

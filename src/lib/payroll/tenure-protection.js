@@ -40,17 +40,12 @@ export const PROTECTION_CATEGORIES = [
   { key: "summer_break", label: "Summer break", column: "cover_summer_break" },
   { key: "christmas_break", label: "Christmas break", column: "cover_christmas_break" },
 ];
-export const CATEGORY_KEYS = PROTECTION_CATEGORIES.map((c) => c.key);
 export const BREAK_KINDS = [
   { key: "summer", label: "Summer break", category: "summer_break" },
   { key: "christmas", label: "Christmas break", category: "christmas_break" },
 ];
 export const DEFAULT_MIN_TENURE_YEARS = 2;
 export const MAX_BREAK_DAYS = 120;
-
-export function categoryLabel(key) {
-  return PROTECTION_CATEGORIES.find((c) => c.key === key)?.label || key;
-}
 
 const isDateKey = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 const keyOf = (value) => String(value || "").slice(0, 10);
@@ -255,16 +250,4 @@ export function buildProtection({ employee, policies, grants, breaks, holidayTyp
     if (!category || !policy.categories[category]) return null;
     return { grant_id: grant.id, category, policy_source: policy.source, min_tenure_years: policy.min_tenure_years };
   };
-}
-
-/** Total waived per category, for summaries. */
-export function summarizeProtected(lines) {
-  const byCategory = {};
-  let total = 0;
-  (lines || []).forEach((line) => {
-    const amount = Number(line.amount) || 0;
-    total += amount;
-    byCategory[line.category] = Math.round(((byCategory[line.category] || 0) + amount) * 100) / 100;
-  });
-  return { total: Math.round(total * 100) / 100, by_category: byCategory, count: (lines || []).length };
 }
