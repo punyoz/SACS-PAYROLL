@@ -6,7 +6,7 @@ export const PAGES = {
   super_admin: [
     ["sa-dashboard", "SA Dashboard"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
     ["sa-roles", "Roles & Permissions"], ["sa-maintenance", "System Maintenance"], ["sa-config", "System Configuration"],
-    ["sa-audit", "Audit & Monitoring"], ["sa-backup", "Backup & Recovery"], ["sa-profile", "Profile"],
+    ["sa-audit", "Audit & Monitoring"], ["sa-announcements", "Announcements"], ["sa-backup", "Backup & Recovery"], ["sa-profile", "Profile"],
   ],
   admin: [
     ["adm-dashboard", "Branch Dashboard"], ["adm-attendance", "Branch Attendance"], ["adm-overtime", "Overtime & Substitute"],
@@ -19,7 +19,7 @@ export const PAGES = {
     ["hr-dashboard", "Dashboard"], ["hr-employees", "User Management"], ["hr-transfers", "Transfer Requests"],
     ["hr-tenure", "Tenure Pay Protection"], ["hr-attendance", "Attendance"], ["hr-schedules", "Work Schedules"],
     ["hr-rfid-cards", "RFID Cards"], ["hr-rfid-terminals", "RFID Terminal"], ["hr-leaves", "Leave Approval"],
-    ["hr-awol", "AWOL Cases"], ["hr-branch-requests", "Branch Requests"], ["hr-payroll-approval", "Payroll Approval"],
+    ["hr-awol", "AWOL Cases"], ["hr-branch-requests", "Branch Requests"], ["hr-announcements", "Announcements"], ["hr-payroll-approval", "Payroll Approval"],
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
     ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"],
     ["hr-profile", "Profile"],
@@ -28,12 +28,12 @@ export const PAGES = {
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
     ["ac-13th", "13th Month Pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
-    ["ac-attendance", "View Attendance"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-reports", "Payroll Reports"],
+    ["ac-attendance", "View Attendance"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
     ["ac-profile", "Profile"],
   ],
   employee: [
     ["emp-dash", "Dashboard"], ["emp-attendance", "Attendance"], ["emp-timesheet", "Timesheet"],
-    ["emp-payslips", "Payslips"], ["emp-leave", "Leave"], ["emp-profile", "Profile"],
+    ["emp-payslips", "Payslips"], ["emp-leave", "Leave"], ["emp-announcements", "Announcements"], ["emp-profile", "Profile"],
   ],
 };
 

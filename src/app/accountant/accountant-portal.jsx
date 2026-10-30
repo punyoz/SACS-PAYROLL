@@ -14,6 +14,7 @@ import {
   HandCoinsIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  MegaphoneIcon,
   ReceiptTextIcon,
   StarIcon,
   TableIcon,
@@ -24,6 +25,7 @@ import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { AccountantDataProvider, useAccountant } from "./accountant-data";
@@ -74,6 +76,7 @@ const NAV = [
     ],
   },
   { section: "Monitoring", items: [{ id: "ac-monitoring", label: "Payroll Monitoring", icon: ActivityIcon, module: "payroll_monitoring" }] },
+  { section: "Communication", items: [{ id: "ac-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
   { section: "Reports", items: [{ id: "ac-reports", label: "Payroll Reports", icon: FileTextIcon, module: "payroll_reports" }] },
   { section: "Account", items: [{ id: "ac-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
@@ -83,6 +86,7 @@ const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
 const TITLES = { ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])), "ac-payslips": "Pay Record", "ac-attendance": "Attendance Records" };
 const DESCRIPTIONS = {
   "ac-dashboard": "Payroll overview and activity summary for the current period.",
+  "ac-announcements": "Announcements for the whole school and for your branch.",
   "ac-process": "Compute employee salaries including deductions. Processed payrolls generate payslips automatically.",
   "ac-records": "All processed payroll entries for reference.",
   "ac-payslips": "Generate and print pay records for employees.",
@@ -137,6 +141,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
       {current === "ac-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
+      {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}
       {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}
     </AppShell>
   );

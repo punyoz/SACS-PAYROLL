@@ -333,7 +333,9 @@ export const ROLE_PERMISSIONS = {
     tenure_protection: none(),
     // RFID issue reports only (the route refuses every other kind): it marks them Resolved.
     branch_oversight: { scope: SCOPE_ALL, actions: READ_WRITE },
-    announcements: none(),
+    // Moderation only: reads every announcement and deletes any. Whether it
+    // posts routine announcements is an open decision (2026-10-30).
+    announcements: { scope: SCOPE_ALL, actions: ["read", "delete"] },
   },
 
   admin: {
@@ -448,7 +450,8 @@ export const ROLE_PERMISSIONS = {
     tenure_protection: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     // Sees every branch Admin's endorsements, reports and requests and decides them.
     branch_oversight: { scope: SCOPE_ALL, actions: READ_WRITE },
-    announcements: view(SCOPE_ALL),
+    // Posts, edits and deletes for the whole school or any branch (2026-10-30).
+    announcements: full(SCOPE_ALL),
   },
 
   accountant: {

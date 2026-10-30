@@ -48,6 +48,9 @@ export const REMARKS_MAX = 1000;
  * so it keeps 2,000 (decision 2026-10-29).
  */
 export const AWOL_RECORD_MAX = 2000;
+/** Announcements (decision 2026-10-30; branch_announcements_text_length in 20261030010000). */
+export const ANNOUNCEMENT_TITLE_MAX = 100;
+export const ANNOUNCEMENT_MESSAGE_MAX = 1000;
 /** A search box: longer than any name, ID or title it can match. */
 export const SEARCH_MAX = 100;
 

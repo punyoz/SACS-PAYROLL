@@ -14,6 +14,7 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { dateTime, money, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { useAccountant } from "./accountant-data";
+import { AnnouncementsCard } from "@/components/portal/announcements";
 
 /* Dashboard (renderDashboard, public/legacy/js/accountant.js). */
 
@@ -72,6 +73,8 @@ export function DashboardPage({ refreshKey, onNavigate }) {
 
   return (
     <>
+      {/* School-wide and branch announcements (2026-10-30). */}
+      <AnnouncementsCard refreshKey={refreshKey} />
       <section aria-label="This period at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard label="Total employees" value={employees.length} hint="Active staff" icon={UsersIcon} loading={first} />
         <StatCard label="Period gross pay" value={moneyCompact(panels.total_gross || 0)} hint={data?.active_period?.label || "Current period"} icon={BanknoteIcon} tone="gold" loading={first} />

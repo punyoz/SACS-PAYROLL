@@ -3,11 +3,12 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { AnnouncementsManager } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
@@ -76,6 +77,8 @@ const NAV = [
     section: "Branch Admins",
     items: [{ id: "hr-branch-requests", label: "Branch Requests", icon: InboxIcon, module: "branch_oversight" }],
   },
+  // School-wide and branch announcements (2026-10-30).
+  { section: "Communication", items: [{ id: "hr-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
   {
     section: "Payroll",
     items: [
@@ -119,6 +122,7 @@ const TITLES = {
 };
 const DESCRIPTIONS = {
   "hr-dashboard": "Attendance summaries, leave notifications, and quick HR access.",
+  "hr-announcements": "Announcements for the whole school or for one branch.",
   "hr-employees": "Create and maintain Employee and Accountant accounts and their 201 records for every branch.",
   "hr-transfers": "See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.",
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
@@ -216,6 +220,7 @@ function HrScreens() {
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
+        {current === "hr-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
       </AppShell>
     </AttendanceActionsProvider>
