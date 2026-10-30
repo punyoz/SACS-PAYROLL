@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { useBranchView } from "./oversight-shared";
+import { AnnouncementsCard } from "@/components/portal/announcements";
 
 /*
  * Branch Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
@@ -35,6 +36,8 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
   return (
     <>
       {view.error ? <p role="alert" className="text-sm text-destructive">{view.error} Showing the last loaded data.</p> : null}
+      {/* School-wide and branch announcements (2026-10-30). */}
+      <AnnouncementsCard refreshKey={refreshKey} />
       <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} />
         <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} />

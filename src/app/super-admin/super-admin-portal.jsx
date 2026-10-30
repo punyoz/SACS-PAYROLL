@@ -7,6 +7,7 @@ import {
   BuildingIcon,
   DatabaseBackupIcon,
   LayoutDashboardIcon,
+  MegaphoneIcon,
   ScrollTextIcon,
   SettingsIcon,
   ShieldCheckIcon,
@@ -18,6 +19,7 @@ import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
+import { AnnouncementsManager } from "@/components/portal/announcements";
 import { manilaDateKey } from "@/lib/portal/format";
 import { AuditLogsPage } from "../admin/audit-logs-page";
 import { MaintenancePage } from "../admin/maintenance-page";
@@ -61,6 +63,8 @@ const NAV = [
       { id: "sa-maintenance", label: "System Maintenance", icon: WrenchIcon, module: "system_maintenance" },
       { id: "sa-config", label: "System Configuration", icon: SettingsIcon, module: "system_configuration" },
       { id: "sa-audit", label: "Audit & Monitoring", icon: ScrollTextIcon, module: "audit_logs" },
+      // Moderation: delete any announcement (posting is an open decision, 2026-10-30).
+      { id: "sa-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
       { id: "sa-backup", label: "Backup & Recovery", icon: DatabaseBackupIcon, module: "backup_recovery" },
     ],
   },
@@ -79,6 +83,7 @@ const DESCRIPTIONS = {
   "sa-maintenance": "Run the RFID Terminal and manage RFID card registration.",
   "sa-config": "System-wide settings, payroll rules, attendance policies and holidays.",
   "sa-audit": "System-wide audit trails, login activity and transaction history across all branches.",
+  "sa-announcements": "Every announcement in the school, for moderation.",
   "sa-backup": "Database status, manual exports and recovery procedures.",
   "sa-profile": null,
 };
@@ -141,6 +146,7 @@ function SuperAdminScreens() {
       {current === "sa-audit" ? <YearEndTaxCard /> : null}
       {current === "sa-audit" ? <BirExportsCard refreshKey={refreshKey} /> : null}
       {current === "sa-backup" ? <BackupPage refreshKey={refreshKey} /> : null}
+      {current === "sa-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
       {current === "sa-profile" ? <StaffProfilePage roleLabel="Super Admin" accountOnly /> : null}
     </AppShell>
   );

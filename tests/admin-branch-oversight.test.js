@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { resetDb, table, users } from "./helpers/fake-supabase.js";
+import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -27,7 +27,57 @@ const who = {
   hr: { user_id: HR, role: "hr", branch_id: null, full_name: "Hana HR" },
   ana: { user_id: ANA, role: "employee", branch_id: A, full_name: "Ana Reyes" },
   ben: { user_id: BEN, role: "employee", branch_id: B, full_name: "Ben Cruz" },
+  sa: { user_id: "66666666-0000-4000-8000-000000000001", role: "super_admin", branch_id: null, full_name: "Sam Super" },
+  acct: { user_id: "77777777-0000-4000-8000-0000000000a1", role: "accountant", branch_id: A, full_name: "Ace Accountant" },
 };
+
+/*
+ * announcement_post / _edit / _remove (20261030010000), as the database
+ * decides: HR any audience; an Admin its own branch, its own posts; the
+ * Super Admin deletes only; nobody else writes.
+ */
+function fakeAnnouncements() {
+  const fail = (message) => ({ data: null, error: { message } });
+  const actor = (id) => table("profiles").find((p) => p.id === id && !p.archived);
+  const textError = ({ p_title, p_body }) => {
+    if (!String(p_title || "").trim() || String(p_title).trim().length > 100) return "invalid_title: the title is required, at most 100 characters.";
+    if (!String(p_body || "").trim() || String(p_body).trim().length > 1000) return "invalid_message: the message is required, at most 1,000 characters.";
+    return null;
+  };
+  const ownsIt = (who, row) => who.role === "admin" && row.created_by === who.id && who.branch_id && row.branch_id === who.branch_id;
+  rpc.results.announcement_post = (args) => {
+    const who = actor(args.p_actor);
+    if (!who || !["hr", "admin"].includes(who.role)) return fail("forbidden: only HR and the branch Admin post announcements.");
+    if (who.role === "admin" && (!who.branch_id || args.p_branch !== who.branch_id)) return fail("forbidden_audience: a branch Admin announces to its own branch only, never school-wide or to another branch.");
+    const bad = textError(args);
+    if (bad) return fail(bad);
+    const row = {
+      id: `a${String(table("branch_announcements").length + 1).padStart(7, "0")}-0000-4000-8000-000000000000`, branch_id: args.p_branch || null,
+      title: args.p_title.trim(), body: args.p_body.trim(), category: args.p_category || "general", archived: false, author_role: who.role,
+      expires_on: args.p_expires_on || null, created_by: who.id, created_by_name: who.full_name, created_at: new Date().toISOString(),
+    };
+    table("branch_announcements").push(row);
+    return { data: row, error: null };
+  };
+  rpc.results.announcement_edit = (args) => {
+    const who = actor(args.p_actor);
+    const row = table("branch_announcements").find((r) => r.id === args.p_id);
+    if (!row || row.archived) return fail("not_found: no such announcement.");
+    if (!who || !(who.role === "hr" || ownsIt(who, row))) return fail("forbidden: only its author (a branch Admin, in their branch) or HR can change this announcement.");
+    const bad = textError(args);
+    if (bad) return fail(bad);
+    Object.assign(row, { title: args.p_title.trim(), body: args.p_body.trim(), expires_on: args.p_expires_on || null, ...(who.role === "hr" && args.p_set_audience ? { branch_id: args.p_branch || null } : {}) });
+    return { data: row, error: null };
+  };
+  rpc.results.announcement_remove = (args) => {
+    const who = actor(args.p_actor);
+    const row = table("branch_announcements").find((r) => r.id === args.p_id);
+    if (!row || row.archived) return fail("not_found: no such announcement.");
+    if (!who || !(["hr", "super_admin"].includes(who.role) || ownsIt(who, row))) return fail("forbidden: only its author (a branch Admin, in their branch), HR or the Super Admin can delete this announcement.");
+    Object.assign(row, { archived: true, archived_at: new Date().toISOString() });
+    return { data: row, error: null };
+  };
+}
 
 let createSessionToken;
 let SESSION_COOKIE;
@@ -64,6 +114,7 @@ beforeEach(async () => {
     { id: ANA, role: "employee", branch_id: A, full_name: "Ana Reyes", employee_id: "SACS-001", employee_type: "Teaching", archived: false, basic_salary: 30000 },
     { id: BEN, role: "employee", branch_id: B, full_name: "Ben Cruz", employee_id: "SACS-002", employee_type: "Teaching", archived: false, basic_salary: 40000 },
   );
+  fakeAnnouncements();
   users.push(
     { id: ANA, email: "ana@sacs.test", user_metadata: { role: "employee", full_name: "Ana Reyes", branch_id: A } },
     { id: BEN, email: "ben@sacs.test", user_metadata: { role: "employee", full_name: "Ben Cruz", branch_id: B } },
@@ -166,13 +217,85 @@ describe("incident report", () => {
 });
 
 describe("announcements", () => {
+  // A Super Admin and an Accountant (branch A), for these tests only.
+  beforeEach(() => {
+    table("profiles").push(
+      { id: who.sa.user_id, role: "super_admin", branch_id: null, full_name: "Sam Super", archived: false },
+      { id: who.acct.user_id, role: "accountant", branch_id: A, full_name: "Ace Accountant", archived: false },
+    );
+  });
+  const post = (as, body) => json(announcements.POST(req(as, "/api/announcements", "POST", body)));
+  const feed = async (as) => (await json(announcements.GET(req(as, "/api/announcements")))).body.announcements.map((a) => a.title);
+
   it("reach the branch's employees only", async () => {
-    const posted = await json(announcements.POST(req(who.adminA, "/api/announcements", "POST", { title: "Faculty meeting", body: "Friday 3 PM", category: "meeting" })));
+    const posted = await post(who.adminA, { title: "Faculty meeting", body: "Friday 3 PM", category: "meeting" });
     expect(posted.status).toBe(200);
-    expect(table("notifications").filter((n) => n.kind === "branch_announcement").map((n) => n.recipient_id)).toEqual([ANA]);
-    expect((await json(announcements.GET(req(who.ana, "/api/announcements")))).body.announcements.map((a) => a.title)).toEqual(["Faculty meeting"]);
-    expect((await json(announcements.GET(req(who.ben, "/api/announcements")))).body.announcements).toEqual([]);
-    expect((await json(announcements.POST(req(who.ana, "/api/announcements", "POST", { title: "Hi", body: "x" })))).status).toBe(403);
+    expect(table("notifications").filter((n) => n.kind === "branch_announcement").map((n) => n.recipient_id).sort()).toEqual([ANA, who.acct.user_id].sort());
+    expect(await feed(who.ana)).toEqual(["Faculty meeting"]);
+    expect(await feed(who.ben)).toEqual([]);
+    expect((await post(who.ana, { title: "Hi", body: "x" })).status).toBe(403);
+  });
+
+  it("HR posts school-wide and to one branch; each reader sees school-wide plus its own branch", async () => {
+    expect((await post(who.hr, { title: "Holiday", body: "No classes Nov 2", category: "holiday" })).status).toBe(400); // audience required
+    expect((await post(who.hr, { title: "Holiday", body: "No classes Nov 2", category: "holiday", audience: "all" })).status).toBe(200);
+    expect((await post(who.hr, { title: "Annex drill", body: "Fire drill at 10 AM", audience: B })).status).toBe(200);
+    expect(await feed(who.ana)).toEqual(["Holiday"]);
+    expect((await feed(who.ben)).sort()).toEqual(["Annex drill", "Holiday"]);
+    expect(await feed(who.acct)).toEqual(["Holiday"]);
+    // The school-wide one reached every branch's staff; the branch one only branch B's.
+    const sent = table("notifications").filter((n) => n.kind === "branch_announcement");
+    expect(sent.filter((n) => n.title.includes("Holiday")).map((n) => n.recipient_id)).toEqual(expect.arrayContaining([ANA, BEN, who.acct.user_id, ADMIN_A, ADMIN_B]));
+    expect(sent.filter((n) => n.title.includes("Annex drill")).map((n) => n.recipient_id).sort()).toEqual([ADMIN_B, BEN].sort());
+    expect(sent.find((n) => n.recipient_id === ANA).link_page).toBe("emp-announcements");
+    expect(table("audit_logs").filter((l) => l.action === "announcement_post")).toHaveLength(2);
+  });
+
+  it("an Admin never posts school-wide or to another branch, nor touches HR's or another Admin's", async () => {
+    expect((await post(who.adminA, { title: "To all", body: "x", audience: "all" })).status).toBe(403);
+    expect((await post(who.adminA, { title: "To Annex", body: "x", audience: B })).status).toBe(403);
+    const hrPost = (await post(who.hr, { title: "HR notice", body: "For Main", audience: A })).body.announcement;
+    const bPost = (await post(who.adminB, { title: "Annex only", body: "x" })).body.announcement;
+    const edit = (as, id) => json(announcements.PATCH(req(as, "/api/announcements", "PATCH", { id, action: "edit", title: "Changed", body: "Changed" })));
+    const del = (as, id) => json(announcements.DELETE(req(as, "/api/announcements", "DELETE", { id })));
+    expect((await edit(who.adminA, hrPost.id)).status).toBe(403);
+    expect((await del(who.adminA, hrPost.id)).status).toBe(403);
+    expect((await edit(who.adminA, bPost.id)).status).toBe(404); // another branch's: not even known
+    expect((await del(who.adminA, bPost.id)).status).toBe(404);
+    expect(table("branch_announcements").every((a) => !a.archived && a.title !== "Changed")).toBe(true);
+    // Its own: edited and deleted (kept on file, hidden).
+    const mine = (await post(who.adminA, { title: "Main meeting", body: "3 PM" })).body.announcement;
+    expect((await edit(who.adminA, mine.id)).status).toBe(200);
+    expect((await del(who.adminA, mine.id)).status).toBe(200);
+    expect(await feed(who.ana)).toEqual(["HR notice"]);
+    expect(table("audit_logs").map((l) => l.action)).toEqual(expect.arrayContaining(["announcement_edit", "announcement_remove"]));
+  });
+
+  it("Accountant and Employee read only; the Super Admin moderates (delete) but does not post", async () => {
+    const hrPost = (await post(who.hr, { title: "Payday", body: "Oct 31", audience: "all" })).body.announcement;
+    for (const as of [who.acct, who.ana]) {
+      expect((await post(as, { title: "x", body: "y", audience: A })).status).toBe(403);
+      expect((await json(announcements.PATCH(req(as, "/api/announcements", "PATCH", { id: hrPost.id, action: "edit", title: "x", body: "y" })))).status).toBe(403);
+      expect((await json(announcements.DELETE(req(as, "/api/announcements", "DELETE", { id: hrPost.id })))).status).toBe(403);
+    }
+    expect((await post(who.sa, { title: "x", body: "y", audience: "all" })).status).toBe(403);
+    const list = await json(announcements.GET(req(who.sa, "/api/announcements?manage=1")));
+    expect(list.body.announcements[0]).toMatchObject({ title: "Payday", can_edit: false, can_delete: true });
+    expect((await json(announcements.DELETE(req(who.sa, "/api/announcements", "DELETE", { id: hrPost.id })))).status).toBe(200);
+    expect(await feed(who.ana)).toEqual([]);
+  });
+
+  it("an expired announcement leaves the normal view; over-long text is refused", async () => {
+    const posted = (await post(who.hr, { title: "Enrollment", body: "Until Friday", audience: "all" })).body.announcement;
+    // It ended long ago (stored as the database would hold it).
+    table("branch_announcements").find((a) => a.id === posted.id).expires_on = "2020-01-01";
+    expect(await feed(who.ana)).toEqual([]);
+    const managed = await json(announcements.GET(req(who.hr, "/api/announcements?manage=1")));
+    expect(managed.body.announcements[0]).toMatchObject({ title: "Enrollment", status: "expired" });
+    expect((await post(who.hr, { title: "T".repeat(101), body: "x", audience: "all" })).status).toBe(400);
+    expect((await post(who.hr, { title: "x", body: "M".repeat(1001), audience: "all" })).status).toBe(400);
+    expect((await post(who.hr, { title: "", body: "x", audience: "all" })).status).toBe(400);
+    expect((await post(who.hr, { title: "x", body: "y", audience: "all", expires_on: "2020-01-01" })).status).toBe(400);
   });
 });
 

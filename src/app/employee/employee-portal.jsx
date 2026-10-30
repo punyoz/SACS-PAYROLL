@@ -3,7 +3,8 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { CalendarCheckIcon, CalendarDaysIcon, ClockIcon, LayoutDashboardIcon, ReceiptTextIcon, UserRoundIcon } from "lucide-react";
+import { CalendarCheckIcon, CalendarDaysIcon, ClockIcon, LayoutDashboardIcon, MegaphoneIcon, ReceiptTextIcon, UserRoundIcon } from "lucide-react";
+import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -34,6 +35,7 @@ const NAV = [
   },
   { section: "Payroll", items: [{ id: "emp-payslips", label: "Payslips", icon: ReceiptTextIcon, module: "payslips" }] },
   { section: "Leave", items: [{ id: "emp-leave", label: "Leave", icon: CalendarDaysIcon, module: "leave_approval" }] },
+  { section: "Communication", items: [{ id: "emp-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
   { section: "Account", items: [{ id: "emp-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
 
@@ -42,6 +44,7 @@ const PAGE_IDS = PAGES.map((item) => item.id);
 
 const DESCRIPTIONS = {
   "emp-dash": null,
+  "emp-announcements": "Announcements for the whole school and for your branch.",
   "emp-attendance": "Your attendance this month, recorded by RFID tap.",
   "emp-timesheet": "Daily work hours, tardiness and undertime for any date range.",
   "emp-payslips": "Your latest payslip and earlier ones, with the full breakdown.",
@@ -107,6 +110,7 @@ function EmployeeScreens() {
       {current === "emp-timesheet" ? <TimesheetPage /> : null}
       {current === "emp-payslips" ? <PayslipsPage payslips={payslips} /> : null}
       {current === "emp-leave" ? <LeavePage leave={leave} /> : null}
+      {current === "emp-announcements" ? <AnnouncementsFeed /> : null}
       {current === "emp-profile" ? <ProfilePage /> : null}
     </AppShell>
   );
