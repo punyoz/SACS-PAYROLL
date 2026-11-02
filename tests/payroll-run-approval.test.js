@@ -78,6 +78,18 @@ describe("exports", () => {
     expect(text.startsWith("%PDF-1.4")).toBe(true);
     expect((text.match(/\/Type \/Page /g) || []).length).toBeGreaterThan(2);
   });
+
+  it("lays a narrow table out portrait and a wide one landscape, without cutting text short", () => {
+    const narrow = buildTablePdf({ title: "Report", columns: [{ header: "Employee" }, { header: "Rate", align: "right" }], rows: [["Jane Marinel Dela Pena Benitez", "96%"]] }).toString("latin1");
+    expect(narrow).toContain("/MediaBox [0 0 595 842]");
+    const headers = ["Employee", "ID", "Level", "Schedule", "Days worked", "Gross pay", "Attendance ded.", "W/tax", "SSS", "PhilHealth", "Pag-IBIG", "Loans", "Other ded.", "Early Bird", "Net pay", "Attention"];
+    const row = ["Jane Marinel Dela Pena Benitez", "SACS-ACCT-001", "Senior High School", "Default schedule", "0", ...Array(10).fill("10,000.00"), "Net pay below zero (paid PHP 0); No days worked"];
+    const wide = buildTablePdf({ title: "Payroll", columns: headers.map((header, i) => ({ header, align: i >= 4 && i <= 14 ? "right" : undefined })), rows: [row, { bold: true, cells: ["TOTAL", "", "", "", "", ...Array(10).fill("1,234,567.89"), ""] }] }).toString("latin1");
+    expect(wide).toContain("/MediaBox [0 0 842 595]");
+    expect(wide).not.toContain("...");
+    expect(wide).toContain("(SACS-ACCT-001)");
+    expect(wide).toContain("(1,234,567.89)");
+  });
 });
 
 /* ── The workflow through the routes ────────────────────────────────────── */
