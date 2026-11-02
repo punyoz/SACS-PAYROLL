@@ -92,7 +92,8 @@ function fitColumns(columns, bodyRows, room, size) {
       return { need: Math.max(min, width(column.header, HEAD_SIZE, true) + PAD), min };
     }
     const need = Math.min(Math.max(content, width(column.header, HEAD_SIZE, true)), TEXT_CAP) + PAD;
-    const min = Math.min(need, Math.max(headWord, 36, ...cells.map((value) => Math.min(longestWord(value, size, false), 60))) + PAD);
+    // Narrow enough to wrap, wide enough that the longest text fits in MAX_LINES lines.
+    const min = Math.min(need, Math.max(headWord, 36, (content / MAX_LINES) * 1.2, ...cells.map((value) => Math.min(longestWord(value, size, false), 60))) + PAD);
     return { need, min };
   });
   const need = plans.reduce((sum, p) => sum + p.need, 0);
