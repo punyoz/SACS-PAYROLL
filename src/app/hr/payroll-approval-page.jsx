@@ -331,7 +331,7 @@ function RunDetail({ runId, onBack, onChanged }) {
             <StatCard label="Total employees" value={run?.totals.employees} icon={UsersIcon} loading={state.loading && !data} />
             <StatCard label="Total gross" value={run ? money(run.totals.gross) : null} icon={WalletIcon} tone="info" loading={state.loading && !data} />
             <StatCard label="Total deductions" value={run ? money(run.totals.deductions) : null} icon={WalletIcon} tone="warning" loading={state.loading && !data} />
-            <StatCard label="Total net pay" value={run ? money(run.totals.net) : null} icon={WalletIcon} tone="success" loading={state.loading && !data} />
+            <StatCard label="Total net pay" value={run ? money(run.totals.net) : null} icon={WalletIcon} tone="success" glow loading={state.loading && !data} />
           </div>
           {data?.early_bird ? (
             <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/5 px-3 py-2 text-sm">

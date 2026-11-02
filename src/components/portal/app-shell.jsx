@@ -55,6 +55,7 @@ import { apiFetch, BACKGROUND, jsonBody } from "@/lib/portal/api";
 import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
+import { vengeanceLineHover, vengeanceLineHoverHost } from "@/components/vengeance/line-hover";
 
 /**
  * The frame every React portal shares: the green sidebar (collapsible to
@@ -112,10 +113,11 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                       "relative font-medium text-sidebar-foreground hover:bg-white/10 hover:text-white",
                       "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
                       "data-[active=true]:before:absolute data-[active=true]:before:top-1/2 data-[active=true]:before:left-0 data-[active=true]:before:h-4 data-[active=true]:before:w-[3px] data-[active=true]:before:-translate-y-1/2 data-[active=true]:before:rounded-r data-[active=true]:before:bg-sidebar-primary",
+                      vengeanceLineHoverHost,
                     )}
                   >
                     {Icon ? <Icon aria-hidden="true" /> : null}
-                    <span>{item.label}</span>
+                    <span className={vengeanceLineHover}>{item.label}</span>
                   </SidebarMenuButton>
                   {badges[item.id] ? (
                     <SidebarMenuBadge className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white peer-data-[active=true]/menu-button:text-white" aria-label={`${badges[item.id]} waiting`}>

@@ -4,6 +4,7 @@ import * as React from "react"
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils"
 import { Tabs as TabsPrimitive } from "radix-ui"
+import { SpotlightLayers, useSpotlightTabs } from "@/components/vengeance/spotlight-tabs"
 
 function Tabs({
   className,
@@ -42,15 +43,25 @@ const tabsListVariants = cva(
 function TabsList({
   className,
   variant = "default",
+  children,
+  onPointerMove,
+  onPointerLeave,
   ...props
 }) {
+  const { ref, line, handlePointerMove, handlePointerLeave } = useSpotlightTabs({ onPointerMove, onPointerLeave })
   return (
     <TabsPrimitive.List
+      ref={ref}
       data-slot="tabs-list"
       data-variant={variant}
-      className={cn(tabsListVariants({ variant }), className)}
+      className={cn(tabsListVariants({ variant }), "relative", className)}
+      onPointerMove={handlePointerMove}
+      onPointerLeave={handlePointerLeave}
       {...props}
-    />
+    >
+      {children}
+      <SpotlightLayers line={line} />
+    </TabsPrimitive.List>
   )
 }
 

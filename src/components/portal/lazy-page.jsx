@@ -1,6 +1,7 @@
 "use client";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { BarsLoader } from "@/components/vengeance/bars-loader";
 
 /*
  * Placeholder while a code-split portal page downloads (next/dynamic in the
@@ -14,7 +15,10 @@ export function PageSkeleton() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
       </div>
-      <Skeleton className="h-72 rounded-xl" />
+      <div className="relative">
+        <Skeleton className="h-72 rounded-xl" />
+        <BarsLoader label="Loading page" className="absolute inset-0 m-auto size-fit" />
+      </div>
     </div>
   );
 }

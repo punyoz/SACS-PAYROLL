@@ -78,7 +78,7 @@ export function DashboardPage({ refreshKey, onNavigate }) {
       <section aria-label="This period at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard label="Total employees" value={employees.length} hint="Active staff" icon={UsersIcon} loading={first} />
         <StatCard label="Period gross pay" value={moneyCompact(panels.total_gross || 0)} hint={data?.active_period?.label || "Current period"} icon={BanknoteIcon} tone="gold" loading={first} />
-        <StatCard label="Period net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" loading={first} />
+        <StatCard label="Period net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" glow loading={first} />
         <StatCard label="Paid payrolls" value={paid} hint="Approved by HR" icon={CheckCircle2Icon} tone="success" loading={first} />
         <StatCard label="Draft payrolls" value={drafts.length} hint="Saved drafts" icon={FilePenLineIcon} tone="info" loading={first} />
         <StatCard label="Total deductions" value={moneyCompact(panels.total_deductions || 0)} hint="Current period" icon={MinusCircleIcon} tone="danger" loading={first} />

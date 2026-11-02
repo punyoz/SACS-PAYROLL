@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
+import { BarsLoader } from "@/components/vengeance/bars-loader";
 import { AUTH_CONTEXT_KEY, ROLE_ROUTES, readAuthContext } from "@/app/login/auth-context";
 import { systemName } from "@/lib/org-name-format";
 import { apiFetch, clearLocalSession, endServerSession, hardNavigate, replaceNavigate, requirePasswordChange } from "@/lib/portal/api";
@@ -225,7 +226,13 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
     markRead: () => setUnread(0),
   }), [role, ctx, me, updateContext, logout, can, notify, notifications, unread]);
 
-  if (!ready || !ctx) return null;
+  if (!ready || !ctx) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <BarsLoader label="Loading your portal…" showLabel />
+      </div>
+    );
+  }
 
   if (ctx.must_change_password && Gate) {
     return <Gate role={role} ctx={ctx} updateContext={updateContext} logout={logout} />;

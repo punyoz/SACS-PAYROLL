@@ -22,6 +22,8 @@ import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme";
 import { ResetPasswordDialog } from "./reset-password-dialog";
 import { EMAIL_MAX } from "@/lib/input-limits";
+import { cn } from "@/lib/utils";
+import { vengeanceShineButton } from "@/components/vengeance/shine-button";
 import {
   LOGIN_REASON_MESSAGES,
   ROLE_ROUTES,
@@ -193,7 +195,7 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
           </div>
         </CardContent>
         <CardFooter className="mt-6 flex-col gap-3">
-          <Button type="submit" size="lg" className="h-11 w-full text-base" disabled={busy}>
+          <Button type="submit" size="lg" className={cn("h-11 w-full text-base", vengeanceShineButton)} disabled={busy}>
             {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Signing in...</> : "Sign in"}
           </Button>
         </CardFooter>
@@ -364,7 +366,7 @@ function CodeStep({ maskedEmail, sentAt, resendAfter, onBack, onResent }) {
           ) : null}
         </CardContent>
         <CardFooter className="mt-2 flex-col gap-3">
-          <Button type="submit" size="lg" className="h-11 w-full text-base" disabled={busy || code.length !== CODE_LENGTH}>
+          <Button type="submit" size="lg" className={cn("h-11 w-full text-base", vengeanceShineButton)} disabled={busy || code.length !== CODE_LENGTH}>
             {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Verifying...</> : "Verify & sign in"}
           </Button>
           <div className="flex w-full items-center justify-between text-sm">
