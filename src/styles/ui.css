@@ -219,9 +219,6 @@ body.sacs-ui-portal.dark {
 
 /* VengeanceUI experiment (src/components/vengeance). Colours come from the
    tokens above only. */
-@keyframes v-glow-spin {
-  to { --v-glow-angle: 360deg; }
-}
 @keyframes v-shine {
   0% { opacity: 0; background-position: 100% 0; }
   20%, 80% { opacity: 1; }
@@ -253,14 +250,16 @@ body.sacs-ui-portal.dark {
     );
   background-origin: border-box;
   background-clip: padding-box, border-box;
-  transition: --v-glow-strength 0.3s ease;
+  /* A transition, not an animation: the card's `animation` is its entrance
+     (stagger), and replacing it on hover replayed the entrance on leave. */
+  transition: --v-glow-strength 0.3s ease, --v-glow-angle 4s linear;
 
   &:hover {
     --v-glow-strength: 100%;
-    animation: v-glow-spin 4s linear infinite;
+    --v-glow-angle: 360deg;
   }
   @media (prefers-reduced-motion: reduce) {
-    &:hover { animation: none; }
+    transition: --v-glow-strength 0.3s ease;
   }
 }
 
