@@ -380,4 +380,55 @@ body.sacs-ui-portal.dark {
   .sacs-ui.dark {
     color-scheme: light;
   }
+  /* Wide tables (a payroll run, a report) print whole in portrait and in
+     landscape: no sideways scroller to clip them, a smaller type size, and
+     cells that wrap, so the table shrinks to the paper's width. */
+  body.sacs-ui-portal [data-print-area] [data-slot="table-container"] {
+    overflow: visible;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table"] {
+    width: 100%;
+    min-width: 0;
+    font-size: 7.5pt;
+  }
+  body.sacs-ui-portal [data-print-area] :is([data-slot="table-head"], [data-slot="table-cell"]) {
+    min-width: 0;
+    height: auto;
+    padding: 3px 4px;
+    white-space: normal;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table-row"] {
+    break-inside: avoid;
+  }
+  /* A wide table (ten or more columns, like a payroll run) sizes its type to
+     the paper's width: 6.5pt in portrait, 7.5pt in landscape. */
+  body.sacs-ui-portal [data-print-area] {
+    container-type: inline-size;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table"]:has(th:nth-child(10)) {
+    font-size: clamp(5pt, 1.1cqi, 7.5pt);
+  }
+  /* ...and the card around it gives the table more of the paper's width. */
+  body.sacs-ui-portal [data-print-area] [data-slot="card"]:has([data-slot="table"] th:nth-child(10)) > :is([data-slot="card-header"], [data-slot="card-content"], [data-slot="card-footer"]) {
+    padding-inline: 8px;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table"]:has(th:nth-child(10)) :is([data-slot="table-head"], [data-slot="table-cell"]) {
+    padding: 2px 3px;
+  }
+  /* Everything in a cell (an ID line, a status badge) follows the table's
+     type size; badges wrap with the cell; amounts stay on one line. The
+     expand arrows do nothing on paper. */
+  body.sacs-ui-portal [data-print-area] :is([data-slot="table-head"], [data-slot="table-cell"]) * {
+    font-size: inherit;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table"] [data-slot="badge"] {
+    padding: 0 0.4em;
+    white-space: normal;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table-cell"].text-right {
+    white-space: nowrap;
+  }
+  body.sacs-ui-portal [data-print-area] [data-slot="table-cell"] > button:only-child {
+    display: none;
+  }
 }
