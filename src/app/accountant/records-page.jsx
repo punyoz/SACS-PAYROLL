@@ -56,7 +56,7 @@ export function RecordsPage() {
       <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Total gross pay" value={moneyCompact(panels.total_gross || 0)} hint={historyLabel(history)} icon={BanknoteIcon} tone="gold" loading={first} />
         <StatCard label="Total deductions" value={moneyCompact(panels.total_deductions || 0)} icon={MinusCircleIcon} tone="danger" loading={first} />
-        <StatCard label="Total net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" loading={first} />
+        <StatCard label="Total net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" glow loading={first} />
       </section>
       <Card className="min-w-0 shadow-xs">
         <CardContent>

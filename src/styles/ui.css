@@ -87,6 +87,12 @@ body.sacs-ui-portal {
   /* Galaxy UI experiment (src/components/galaxy): the bottom edge of the
      pressable primary button, a shade darker than the button. */
   --press-edge: var(--brand-green-dark);
+
+  /* VengeanceUI experiment (src/components/vengeance): the shine that runs
+     around the login button's edge, and the two colours of the glow edge. */
+  --shine-edge: var(--brand-gold-light);
+  --glow-edge-a: var(--chart-1);
+  --glow-edge-b: var(--brand-gold);
 }
 
 .sacs-ui.dark,
@@ -133,6 +139,9 @@ body.sacs-ui-portal.dark {
 
   /* The dark theme's primary button is gold: its edge is gold toward green. */
   --press-edge: color-mix(in srgb, var(--brand-gold) 70%, var(--brand-green-dark));
+
+  /* The dark theme's primary button is gold: its shine is dark green. */
+  --shine-edge: var(--brand-green-dark);
 }
 
 @theme inline {
@@ -193,6 +202,109 @@ body.sacs-ui-portal.dark {
   @keyframes caret-blink {
     0%, 70%, 100% { opacity: 1; }
     20%, 50% { opacity: 0; }
+  }
+
+  /* VengeanceUI experiment: card entrance, loader bars, glow edge, shine. */
+  --animate-v-rise: v-rise 0.4s ease-out both;
+  --animate-v-bars: v-bars 1s ease-in-out infinite;
+
+  @keyframes v-rise {
+    from { opacity: 0; transform: translateY(8px); }
+  }
+  @keyframes v-bars {
+    0%, 100% { transform: scaleY(0.3); }
+    50% { transform: scaleY(1); }
+  }
+}
+
+/* VengeanceUI experiment (src/components/vengeance). Colours come from the
+   tokens above only. */
+@keyframes v-glow-spin {
+  to { --v-glow-angle: 360deg; }
+}
+@keyframes v-shine {
+  0% { opacity: 0; background-position: 100% 0; }
+  20%, 80% { opacity: 1; }
+  100% { opacity: 0; background-position: 0 0; }
+}
+
+@property --v-glow-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@property --v-glow-strength {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 45%;
+}
+
+/* GlowBorderCard: a green/gold conic edge, turning only under the pointer. */
+@utility v-glow-edge {
+  border-color: transparent;
+  background-image:
+    linear-gradient(var(--card), var(--card)),
+    conic-gradient(
+      from var(--v-glow-angle),
+      color-mix(in srgb, var(--glow-edge-a) var(--v-glow-strength), var(--border)),
+      color-mix(in srgb, var(--glow-edge-b) var(--v-glow-strength), var(--border)),
+      color-mix(in srgb, var(--brand-gold-light) var(--v-glow-strength), var(--border)),
+      color-mix(in srgb, var(--glow-edge-a) var(--v-glow-strength), var(--border))
+    );
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  transition: --v-glow-strength 0.3s ease;
+
+  &:hover {
+    --v-glow-strength: 100%;
+    animation: v-glow-spin 4s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:hover { animation: none; }
+  }
+}
+
+/* AnimatedButton: one shine around the edge on hover or keyboard focus. */
+@utility v-shine-edge {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1.5px;
+    pointer-events: none;
+    background: linear-gradient(-75deg, transparent 30%, var(--shine-edge) 50%, transparent 70%) 100% 0 / 250% 100% no-repeat;
+    mask-image: linear-gradient(black 0 0), linear-gradient(black 0 0);
+    mask-clip: content-box, border-box;
+    mask-composite: exclude;
+    opacity: 0;
+  }
+  &:hover::after,
+  &:focus-visible::after {
+    animation: v-shine 0.9s linear 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:hover::after,
+    &:focus-visible::after { animation: none; }
+  }
+}
+
+/* AnimatedNumber: a 0-9 column that slides to the digit in --v-digit. The
+   digits are generated content, so the element's text stays the real value. */
+@utility v-digit-strip {
+  display: block;
+  transform: translateY(calc(var(--v-digit, 0) * -1lh));
+  transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  &::before {
+    content: "0\A 1\A 2\A 3\A 4\A 5\A 6\A 7\A 8\A 9";
+    display: block;
+    white-space: pre;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
   }
 }
 

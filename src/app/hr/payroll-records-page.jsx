@@ -142,7 +142,7 @@ export function PayrollRecordsPage({ refreshKey }) {
       <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Total gross pay" value={moneyCompact(totals.gross)} hint={period === ALL ? "All periods" : period} icon={BanknoteIcon} tone="gold" loading={first} />
         <StatCard label="Total deductions" value={moneyCompact(totals.deductions)} icon={MinusCircleIcon} tone="danger" loading={first} />
-        <StatCard label="Total net pay" value={moneyCompact(totals.net)} icon={WalletIcon} tone="success" loading={first} />
+        <StatCard label="Total net pay" value={moneyCompact(totals.net)} icon={WalletIcon} tone="success" glow loading={first} />
       </section>
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
