@@ -26,7 +26,8 @@ export function AnimatedNumber({ value, className }) {
       <span className="sr-only">{text}</span>
       <span aria-hidden="true" className="inline-flex items-start">
         {[...text].map((ch, i) => (/\d/.test(ch) ? (
-          <span key={i} className="inline-block h-[1lh] overflow-hidden">
+          <span key={i} className="relative inline-block h-[1lh] overflow-hidden">
+            <span data-char={ch} className="invisible before:content-[attr(data-char)]" />
             <span className="v-digit-strip" style={{ "--v-digit": shown ? ch : 0 }} />
           </span>
         ) : (

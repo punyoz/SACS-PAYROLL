@@ -292,10 +292,14 @@ body.sacs-ui-portal.dark {
 }
 
 /* AnimatedNumber: a 0-9 column that slides to the digit in --v-digit. The
-   digits are generated content, so the element's text stays the real value. */
+   digits are generated content, so the element's text stays the real value.
+   Centred on its column, which is as wide as its own digit (a "1" is narrow). */
 @utility v-digit-strip {
-  display: block;
-  transform: translateY(calc(var(--v-digit, 0) * -1lh));
+  position: absolute;
+  top: 0;
+  left: 50%;
+  text-align: center;
+  transform: translate(-50%, calc(var(--v-digit, 0) * -1lh));
   transition: transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 
   &::before {
