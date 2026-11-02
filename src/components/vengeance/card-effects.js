@@ -1,9 +1,10 @@
 /*
  * Summary-card effects from VengeanceUI by Ashutoshx7
  * (https://github.com/Ashutoshx7/VengeanceUI, MIT License):
- * - "GlowBorderCard": a green/gold edge that turns while the pointer is over
- *   it (the v-glow-edge utility in src/styles/ui.css; the original's rainbow
- *   loops forever).
+ * - "GlowBorderCard": a green/gold edge that brightens and turns once while
+ *   the pointer is over it (the v-glow-edge utility in src/styles/ui.css; the
+ *   original's rainbow loops forever). It must not set `animation`: that
+ *   property belongs to the entrance below.
  * - "StaggeredGrid", idea only: cards fade up one after another, once. Opacity
  *   and transform only, so nothing shifts. Off with prefers-reduced-motion.
  */
