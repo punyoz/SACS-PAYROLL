@@ -68,7 +68,7 @@ function parseInput(body) {
 async function load(supabase) {
   const [settings, holidays, history] = await Promise.all([
     supabase.from("payroll_schedule_settings").select("*").order("effective_from", { ascending: false }).order("created_at", { ascending: false }),
-    supabase.from("attendance_holidays").select("holiday_date,day_part,name"),
+    supabase.from("attendance_holidays").select("holiday_date,day_part,name,type,branch_ids"),
     supabase.from("payroll_setting_changes").select("*").eq("setting_type", "payslip_schedule").order("changed_at", { ascending: false }),
   ]);
   return { settings, holidays, history };

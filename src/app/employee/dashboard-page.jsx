@@ -22,6 +22,7 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
+import { MyHolidayDuty } from "@/components/portal/holiday-duty";
 import { usePortalSession } from "@/components/portal/session";
 import { formatPeso, initialsOf, leaveSummary } from "@/lib/portal/format";
 
@@ -170,6 +171,8 @@ export function DashboardPage({ stats, payslips, onNavigate }) {
           </div>
         </CardContent>
       </Card>
+      {/* Holiday duty HR assigned (20261102010000); nothing when none. */}
+      <MyHolidayDuty />
       {/* The branch Admin's announcements (2026-10-20). */}
       <BranchAnnouncementsCard />
 

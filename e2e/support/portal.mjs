@@ -17,7 +17,7 @@ export const PAGES = {
   ],
   hr: [
     ["hr-dashboard", "Dashboard"], ["hr-employees", "User Management"], ["hr-transfers", "Transfer Requests"],
-    ["hr-tenure", "Tenure Pay Protection"], ["hr-attendance", "Attendance"], ["hr-schedules", "Work Schedules"],
+    ["hr-tenure", "Tenure Pay Protection"], ["hr-attendance", "Attendance"], ["hr-schedules", "Work Schedules"], ["hr-holidays", "Holidays & Duty"],
     ["hr-rfid-cards", "RFID Cards"], ["hr-rfid-terminals", "RFID Terminal"], ["hr-leaves", "Leave Approval"],
     ["hr-awol", "AWOL Cases"], ["hr-branch-requests", "Branch Requests"], ["hr-announcements", "Announcements"], ["hr-payroll-approval", "Payroll Approval"],
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
@@ -28,7 +28,7 @@ export const PAGES = {
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
     ["ac-13th", "13th Month Pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
-    ["ac-attendance", "View Attendance"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
+    ["ac-attendance", "View Attendance"], ["ac-holidays", "Holidays & Duty"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
     ["ac-profile", "Profile"],
   ],
   employee: [

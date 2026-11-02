@@ -94,7 +94,10 @@ export function generationDateFor(periodStart, settings = {}, isWholeDayHoliday 
  */
 export function createPayslipSchedule({ settings = [], holidays = [] } = {}) {
   const wholeDays = new Set((holidays || [])
-    .filter((row) => (row.day_part || "whole") === "whole")
+    // Nationwide whole days off: a special working day or a branch-only
+    // closure (20261102010000) never moves the payslip day.
+    .filter((row) => (row.day_part || "whole") === "whole" && row.type !== "special_working"
+      && !(Array.isArray(row.branch_ids) && row.branch_ids.length))
     .map((row) => String(row.holiday_date).slice(0, 10)));
   const isWholeDayHoliday = (key) => wholeDays.has(key);
 
@@ -146,7 +149,7 @@ export async function loadPayslipSchedule(supabase) {
   const [settingsResult, holidayResult] = await Promise.all([
     supabase.from("payroll_schedule_settings")
       .select("id,effective_from,first_half_day,second_half_day,window_days,first_half_rule,non_working_day_rule,created_at"),
-    supabase.from("attendance_holidays").select("holiday_date,day_part"),
+    supabase.from("attendance_holidays").select("holiday_date,day_part,type,branch_ids"),
   ]);
   if (settingsResult.error) {
     if (isMissingRelation(settingsResult.error)) return null;

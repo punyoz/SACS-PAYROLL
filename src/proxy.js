@@ -118,6 +118,9 @@ const API_MODULES = [
   // (Super Admin every type, HR suspensions), so the session is the
   // requirement here.
   ["/api/admin/holidays", null],
+  // Holiday duty (20261102010000): read like attendance (an employee their
+  // own duty); only HR assigns, which the route checks itself.
+  ["/api/holiday-duty", null],
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],

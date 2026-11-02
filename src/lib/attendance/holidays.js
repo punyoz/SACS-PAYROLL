@@ -9,6 +9,12 @@
  *                      off; "am" / "pm" with a cutoff time stays a working
  *                      day on a shorter schedule (pm: work ends at the
  *                      cutoff; am: work starts at the cutoff).
+ *   type "special_working"  special WORKING day (e.g. EDSA anniversary): shown
+ *                      on calendars, but an ordinary working day.
+ *
+ * branch_ids: null / empty = every branch; otherwise the day applies only to
+ * those branches (a local holiday, a branch closure). source: the
+ * proclamation or memo it comes from (20261102010000).
  *
  * The nightly close, the status engine (a no-tap day reads "Holiday") and
  * payroll read this table. Super Admin keeps it up to date (System
@@ -17,15 +23,26 @@
  * public.attendance_seed_holidays (every December 1, and on demand).
  */
 
-export const HOLIDAY_TYPES = Object.freeze(["holiday", "special", "suspension"]);
+export const HOLIDAY_TYPES = Object.freeze(["holiday", "special", "special_working", "suspension"]);
 export const DAY_PARTS = Object.freeze(["whole", "am", "pm"]);
 export const HOLIDAY_NAME_MAX = 100;
 
 export const HOLIDAY_TYPE_LABELS = Object.freeze({
   holiday: "Regular Holiday",
   special: "Special Non-Working Day",
+  special_working: "Special Working Day",
   suspension: "Suspension",
 });
+
+/** Badge wording: "Special non-working day: All Souls' Day". */
+export const HOLIDAY_BADGE_PREFIX = Object.freeze({
+  holiday: "Regular holiday",
+  special: "Special non-working day",
+  special_working: "Special working day",
+  suspension: "Suspension",
+});
+
+export const HOLIDAY_SOURCE_MAX = 200;
 
 const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -50,7 +67,7 @@ export function validateHolidayInput({ holiday_date: date, name, type, day_part:
   const label = String(name ?? "").trim();
   if (!label) return "Enter the holiday's name.";
   if (label.length > HOLIDAY_NAME_MAX) return `The name can be at most ${HOLIDAY_NAME_MAX} characters.`;
-  if (!HOLIDAY_TYPES.includes(String(type || ""))) return "Choose Regular Holiday, Special Non-Working Day or Suspension.";
+  if (!HOLIDAY_TYPES.includes(String(type || ""))) return "Choose Regular Holiday, Special Non-Working Day, Special Working Day or Suspension.";
   const part = String(dayPart || "whole");
   if (!DAY_PARTS.includes(part)) return "Choose whole day, morning or afternoon.";
   if (part !== "whole") {
@@ -74,34 +91,60 @@ export function describeDayPart(row) {
   return part === "pm" ? `Work suspended from ${time}` : `Work resumes at ${time}`;
 }
 
+/** True when a holiday row (with branch_ids) applies to an employee of branchId. */
+export function holidayAppliesTo(row, branchId) {
+  const ids = Array.isArray(row?.branch_ids) ? row.branch_ids.filter(Boolean) : [];
+  return ids.length === 0 || (Boolean(branchId) && ids.includes(String(branchId)));
+}
+
+/** One holiday row as the readers use it. */
+export function shapeHolidayRow(row) {
+  return {
+    name: String(row.name || "Holiday"),
+    type: HOLIDAY_TYPES.includes(row.type) ? row.type : "holiday",
+    day_part: DAY_PARTS.includes(row.day_part) ? row.day_part : "whole",
+    cutoff: row.cutoff ? String(row.cutoff).slice(0, 5) : null,
+    branch_ids: Array.isArray(row.branch_ids) && row.branch_ids.length ? row.branch_ids.map(String) : null,
+    source: row.source || null,
+  };
+}
+
 /**
  * Holidays between two date keys: Map of date key ->
- * { name, type, day_part, cutoff }. null when the table cannot be read, so a
- * caller can tell "no holidays" from "unknown".
+ * { name, type, day_part, cutoff, branch_ids, source }. null when the table
+ * cannot be read, so a caller can tell "no holidays" from "unknown".
+ *
+ * With options.branchId, a day limited to other branches is left out; with
+ * options.branchId === null only the nationwide days are kept. Without the
+ * option every row is returned (check holidayAppliesTo per employee).
  */
-export async function readHolidayMap(supabase, startKey, endKey) {
+export async function readHolidayMap(supabase, startKey, endKey, options = {}) {
   try {
     const result = await supabase
       .from("attendance_holidays")
-      .select("holiday_date,name,type,day_part,cutoff")
+      .select("holiday_date,name,type,day_part,cutoff,branch_ids,source")
       .gte("holiday_date", startKey)
       .lte("holiday_date", endKey);
     if (result.error) return null;
-    return new Map((result.data || []).map((row) => [
-      String(row.holiday_date).slice(0, 10),
-      {
-        name: String(row.name || "Holiday"),
-        type: HOLIDAY_TYPES.includes(row.type) ? row.type : "holiday",
-        day_part: DAY_PARTS.includes(row.day_part) ? row.day_part : "whole",
-        cutoff: row.cutoff ? String(row.cutoff).slice(0, 5) : null,
-      },
-    ]));
+    const scoped = Object.prototype.hasOwnProperty.call(options, "branchId");
+    return new Map((result.data || [])
+      .filter((row) => !scoped || holidayAppliesTo(row, options.branchId))
+      .map((row) => [String(row.holiday_date).slice(0, 10), shapeHolidayRow(row)]));
   } catch {
     return null;
   }
 }
 
-/** True for a day nobody is expected to work: any whole-day holiday or suspension. */
+/**
+ * True for a day nobody is expected to work: a whole-day regular holiday,
+ * special non-working day or suspension. A special WORKING day is a normal day.
+ */
 export function isDayOff(holiday) {
-  return Boolean(holiday) && (holiday.day_part || "whole") === "whole";
+  return Boolean(holiday) && holiday.type !== "special_working" && (holiday.day_part || "whole") === "whole";
+}
+
+/** "Special non-working day: All Souls' Day" (badges). */
+export function holidayBadgeLabel(holiday) {
+  if (!holiday) return "";
+  return `${HOLIDAY_BADGE_PREFIX[holiday.type] || "Holiday"}: ${holiday.name}`;
 }

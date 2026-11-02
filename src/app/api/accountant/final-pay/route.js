@@ -50,6 +50,7 @@ import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadBirYear } from "@/lib/payroll/bir-forms";
 import { applyYearEndToFinalPay, yearEndAdjustment } from "@/lib/payroll/year-end-tax";
+import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 
 const peso = (value) => roundPeso(value);
 const DEADLINE_DAYS = 30;
@@ -82,7 +83,7 @@ async function gather(supabase, person) {
     supabase.from("profiles").select("basic_salary,position").eq("id", person.id).maybeSingle(),
     supabase.from("payroll_entries").select("id,pay_period,status,payroll").eq("employee_id", person.id).eq("status", "paid"),
     supabase.from("payroll_tax_brackets").select("version_id,effective_date,bracket_over,base_tax,rate_pct,created_at").lte("effective_date", separatedOn),
-    supabase.from("attendance_holidays").select("holiday_date,day_part"),
+    supabase.from("attendance_holidays").select("holiday_date,day_part,type,branch_ids"),
     supabase.from("payroll_thirteenth_month").select("id").eq("employee_id", person.id).eq("year", year).maybeSingle(),
     supabase.from("payroll_subsidy_balances").select("*").eq("employee_id", person.id).lte("subsidy_year_start", separatedOn).gte("subsidy_year_end", separatedOn).maybeSingle(),
     supabase.from("payroll_loans").select("*").eq("employee_id", person.id),
@@ -123,7 +124,7 @@ async function gather(supabase, person) {
   const unpaidLeave = new Set((leaves.data || [])
     .filter((l) => String(l.status).toLowerCase() === "approved" && String(l.pay_status || "").toLowerCase().includes("without"))
     .flatMap((l) => expandDays(String(l.start_date).slice(0, 10), String(l.end_date).slice(0, 10))));
-  const holidays = new Set((holidaysResult.data || []).filter((h) => (h.day_part || "whole") === "whole").map((h) => String(h.holiday_date).slice(0, 10)));
+  const holidays = new Set((holidaysResult.data || []).filter((h) => isDayOff(shapeHolidayRow(h)) && holidayAppliesTo(h, person.branch_id)).map((h) => String(h.holiday_date).slice(0, 10)));
 
   const monthInputs = windows.map(({ key, window }) => {
     const info = monthInfo(key);

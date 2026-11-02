@@ -86,6 +86,8 @@ import {
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { attendanceChangesAfterFinal } from "@/lib/payroll/final-payslips";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
+import { holidayAppliesTo } from "@/lib/attendance/holidays";
+import { loadDutyForPeriod } from "@/lib/attendance/holiday-duty";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
 import { governingRunFor, governingRunMessage, isLockedRun, loadRunsFor, lockedForNewPayslip, lockedRunMessage, requiresApproval, shapeRun } from "@/lib/payroll/runs";
@@ -1076,29 +1078,70 @@ async function readApprovedOvertime(supabase, periodStart, periodEnd) {
  *                 an Absent on one missed only half a day.
  *   .types        date key -> "holiday" | "special" | "suspension" for every
  *                 calendar day, partial ones too (Tenure Pay Protection).
+ *   .forBranch(id) the same map for one employee's branch (20261102010000):
+ *                 a branch-only day applies to that branch alone.
+ *
+ * The map itself holds the nationwide days only (leave days and a period's
+ * working days are counted school-wide). A special working day is never in
+ * it: it is an ordinary working day.
  */
-async function readHolidays(supabase, periodStart, periodEnd) {
-  const result = await supabase
-    .from("attendance_holidays")
-    .select("holiday_date,type,name,day_part")
-    .gte("holiday_date", periodStart)
-    .lte("holiday_date", periodEnd);
+function holidayMapOf(rows, branchId, scoped) {
   const map = new Map();
   map.names = new Map();
   map.partialDays = new Set();
   map.types = new Map();
-  if (result.error) return map;
-  (result.data || []).forEach((row) => {
+  rows.forEach((row) => {
+    if (row.type === "special_working") return;
+    const limited = Array.isArray(row.branch_ids) && row.branch_ids.length > 0;
+    if (limited && (!scoped || !holidayAppliesTo(row, branchId))) return;
     const key = String(row.holiday_date).slice(0, 10);
+    const type = row.type === "special" ? "special" : row.type === "suspension" ? "suspension" : "holiday";
     map.names.set(key, String(row.name || "Holiday"));
-    map.types.set(key, row.type === "special" ? "special" : row.type === "suspension" ? "suspension" : "holiday");
+    map.types.set(key, type);
     if (row.day_part && row.day_part !== "whole") {
       map.partialDays.add(key);
       return;
     }
-    map.set(key, row.type === "special" ? "special" : row.type === "suspension" ? "suspension" : "holiday");
+    map.set(key, type);
   });
   return map;
+}
+
+async function readHolidays(supabase, periodStart, periodEnd) {
+  const result = await supabase
+    .from("attendance_holidays")
+    .select("holiday_date,type,name,day_part,branch_ids")
+    .gte("holiday_date", periodStart)
+    .lte("holiday_date", periodEnd);
+  const rows = result.error ? [] : result.data || [];
+  const map = holidayMapOf(rows, null, false);
+  const byBranch = new Map();
+  map.forBranch = (branchId) => {
+    const key = String(branchId || "");
+    if (!byBranch.has(key)) byBranch.set(key, holidayMapOf(rows, branchId || null, true));
+    return byBranch.get(key);
+  };
+  return map;
+}
+
+/**
+ * The employee's rest days among the holidays they worked: a holiday on a
+ * rest day pays the rest-day rate (src/lib/payroll/attendance-pay.js). Read
+ * from the employee's own schedule for that day (attendance_schedule_for).
+ */
+async function restDayHolidaysFor(supabase, employee, logs, holidays) {
+  const days = [...new Set(logs
+    .filter((row) => row.time_in && row.time_out && holidays.has(row.log_date))
+    .map((row) => row.log_date))];
+  const rest = new Set();
+  await Promise.all(days.map(async (day) => {
+    const result = await supabase.rpc("attendance_schedule_for", { p_employee: employee.id, p_branch: employee.branch_id || null, p_day: day });
+    const workingDays = result.error ? null : (Array.isArray(result.data) ? result.data[0] : result.data)?.working_days;
+    const isoDay = ((new Date(`${day}T00:00:00Z`).getUTCDay() + 6) % 7) + 1;
+    const off = Array.isArray(workingDays) && workingDays.length ? !workingDays.map(Number).includes(isoDay) : isoDay >= 6;
+    if (off) rest.add(day);
+  }));
+  return rest;
 }
 
 const PAYROLL_NOT_READY_MESSAGE = "Payroll cannot be processed yet: apply the attendance and payroll-rate database migrations (supabase/migrations/20260926010000_attendance_status_engine.sql, 20260926020000_payroll_rate_configs.sql, 20260926090000_payroll_legal_rules_and_atomic_commit.sql, 20261003010000_semi_monthly_payroll.sql and 20261006010000_school_payroll_sheet.sql) first.";
@@ -1505,6 +1548,16 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       .sort((a, b) => b.days - a.days);
   };
 
+  // Holiday duty (20261102010000): a worked holiday is paid only when HR
+  // assigned the day or approved the work; a holiday on the employee's rest
+  // day pays the rest-day rate. Read before the (synchronous) loop below.
+  const duty = await loadDutyForPeriod(supabase, span.start_key, lastDay);
+  const restDaysByEmployee = new Map(await Promise.all(employees.map(async (employee) => {
+    const own = ownSpan(employee.id);
+    const logs = (logsByEmployee.get(employee.id) || []).filter((row) => row.log_date >= own.start_key && row.log_date <= own.end_key);
+    return [employee.id, await restDayHolidaysFor(supabase, employee, logs, holidays.forBranch(employee.branch_id))];
+  })));
+
   const byEmployee = new Map();
   employees.forEach((employee) => {
     const resolved = resolveRates(
@@ -1526,7 +1579,12 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       periodStart: own.start_key,
       periodEnd: own.end_key,
       overtime: overtimeResult.minutes,
-      holidays,
+      // The employee's branch: a branch-only closure counts for its people.
+      holidays: holidays.forBranch(employee.branch_id),
+      restDays: restDaysByEmployee.get(employee.id),
+      holidayPremiumAllowed: duty.available
+        ? (key) => Boolean(duty.byEmployee.get(String(employee.id))?.assigned.has(key) || duty.byEmployee.get(String(employee.id))?.approved.has(key))
+        : undefined,
       // Granted Tenure Pay Protection waives the covered deductions.
       protection: tenure.available
         ? buildProtection({
@@ -1534,7 +1592,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
           policies: tenure.policies,
           grants: tenure.grants,
           breaks: tenure.breaks,
-          holidayTypeOn: (key) => holidays.types?.get(key) || null,
+          holidayTypeOn: (key) => holidays.forBranch(employee.branch_id).types?.get(key) || null,
         }) || undefined
         : undefined,
     });
