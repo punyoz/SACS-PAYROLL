@@ -1,6 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { galaxyAccentCard } from "@/components/galaxy/accent-card";
 
 const ICON_TONE = {
   primary: "bg-primary/10 text-primary",
@@ -14,7 +15,7 @@ const ICON_TONE = {
 /** A summary figure for the top of a dashboard. */
 export function StatCard({ label, value, hint, icon: Icon, tone = "primary", loading = false, className }) {
   return (
-    <Card className={cn("gap-0 py-4 shadow-xs", className)}>
+    <Card className={cn("gap-0 py-4 shadow-xs", galaxyAccentCard, className)}>
       <CardContent className="flex items-start gap-3 px-4">
         {Icon ? (
           <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", ICON_TONE[tone] || ICON_TONE.primary)}>

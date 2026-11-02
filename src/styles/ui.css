@@ -83,6 +83,10 @@ body.sacs-ui-portal {
   --sidebar-accent-foreground: #ffffff;
   --sidebar-border: color-mix(in srgb, #c9a227 55%, transparent);
   --sidebar-ring: #e8c766;
+
+  /* Galaxy UI experiment (src/components/galaxy): the bottom edge of the
+     pressable primary button, a shade darker than the button. */
+  --press-edge: var(--brand-green-dark);
 }
 
 .sacs-ui.dark,
@@ -126,6 +130,9 @@ body.sacs-ui-portal.dark {
   --sidebar-accent-foreground: #f3e4ad;
   --sidebar-border: #2b4436;
   --sidebar-ring: #e8c766;
+
+  /* The dark theme's primary button is gold: its edge is gold toward green. */
+  --press-edge: color-mix(in srgb, var(--brand-gold) 70%, var(--brand-green-dark));
 }
 
 @theme inline {
@@ -180,6 +187,8 @@ body.sacs-ui-portal.dark {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-press-edge: var(--press-edge);
 
   @keyframes caret-blink {
     0%, 70%, 100% { opacity: 1; }

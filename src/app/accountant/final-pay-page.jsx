@@ -16,6 +16,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { DotLoader } from "@/components/galaxy/dot-loader";
 
 /*
  * Final Pay (/api/accountant/final-pay; docs/payroll-schedule-loans-awol.md
@@ -110,7 +111,7 @@ export function FinalPayPage({ refreshKey }) {
             <CardDescription>Separated {dateLabel(selected.separated_on)}{detail.data ? ` · monthly ${money(detail.data.salary)} · daily ${money(detail.data.daily)}` : ""}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {detail.loading ? <p className="text-sm text-muted-foreground"><Loader2Icon className="mr-1 inline size-4 animate-spin" aria-hidden="true" />Computing…</p> : null}
+            {detail.loading ? <p className="text-sm text-muted-foreground"><DotLoader className="mr-2" />Computing…</p> : null}
             {detail.error ? <p className="text-sm text-destructive">{detail.error}</p> : null}
             {b ? (
               <>

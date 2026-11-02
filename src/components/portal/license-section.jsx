@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { DatePicker } from "@/components/portal/date-picker";
 import { useProofViewer } from "@/components/portal/proof-viewer";
 import { StatusBadge } from "@/components/portal/status-badge";
+import { DotLoader } from "@/components/galaxy/dot-loader";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel } from "@/lib/portal/payroll-preview";
@@ -140,7 +141,7 @@ export function LicenseSection({ employeeId }) {
     }
   }
 
-  if (state.loading && !state.data) return <p className="text-sm text-muted-foreground sm:col-span-2"><Loader2Icon className="mr-1 inline size-4 animate-spin" aria-hidden="true" />Loading license…</p>;
+  if (state.loading && !state.data) return <p className="text-sm text-muted-foreground sm:col-span-2"><DotLoader className="mr-2" />Loading license…</p>;
   if (state.error) return <p className="text-sm text-destructive sm:col-span-2">{state.error}</p>;
   if (!teacher) return null;
 

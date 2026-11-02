@@ -9,12 +9,14 @@ import {
   EyeOffIcon,
   InboxIcon,
   Loader2Icon,
+  LockIcon,
   MailCheckIcon,
+  UserIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { IconInput } from "@/components/galaxy/icon-input";
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme";
@@ -142,7 +144,8 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
 
           <div className="space-y-2">
             <Label htmlFor="login-identity">Username or email</Label>
-            <Input
+            <IconInput
+              icon={UserIcon}
               id="login-identity"
               autoComplete="username"
               placeholder="Enter your username or email"
@@ -163,7 +166,8 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
               </Button>
             </div>
             <div className="relative">
-              <Input
+              <IconInput
+                icon={LockIcon}
                 id="login-password"
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
