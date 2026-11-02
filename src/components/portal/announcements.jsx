@@ -21,6 +21,7 @@ import { ANNOUNCEMENT_CATEGORIES } from "@/lib/branch-requests";
 import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/input-limits";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/portal/user-avatar";
 
 /*
  * Announcements (/api/announcements, 20261030010000).
@@ -136,7 +137,7 @@ export function AnnouncementsManager({ refreshKey, description }) {
             { key: "title", header: "Announcement", sortable: true, cell: (a) => <div className="max-w-96 whitespace-normal"><p className="font-medium">{a.title}</p><p className="text-xs text-muted-foreground whitespace-pre-wrap">{a.body}</p></div>, searchValue: (a) => `${a.title} ${a.body} ${a.audience_label}` },
             { key: "audience_label", header: "For", sortable: true, cell: (a) => <AudienceBadge item={a} /> },
             { key: "category", header: "Type", cell: (a) => <StatusBadge tone={CATEGORY_TONE[a.category] || "muted"} dot={false}>{ANNOUNCEMENT_CATEGORIES[a.category] || a.category}</StatusBadge> },
-            { key: "created_at", header: "Posted", sortable: true, cell: (a) => <div className="text-xs"><p>{a.created_by_name}</p><p className="text-muted-foreground">{dateTime(a.created_at)}</p>{a.updated_at && a.updated_at !== a.created_at && a.status !== "deleted" ? <p className="text-muted-foreground">Edited {dateTime(a.updated_at)}</p> : null}</div>, searchValue: (a) => a.created_by_name },
+            { key: "created_at", header: "Posted", sortable: true, cell: (a) => <div className="text-xs"><p className="flex items-center gap-1.5"><UserAvatar userId={a.created_by} name={a.created_by_name} className="size-5" fallbackClassName="text-[8px]" ring={false} />{a.created_by_name}</p><p className="text-muted-foreground">{dateTime(a.created_at)}</p>{a.updated_at && a.updated_at !== a.created_at && a.status !== "deleted" ? <p className="text-muted-foreground">Edited {dateTime(a.updated_at)}</p> : null}</div>, searchValue: (a) => a.created_by_name },
             { key: "status", header: "Status", sortable: true, cell: (a) => { const [label, tone] = STATUS[a.status] || [a.status, "muted"]; return <div className="text-xs"><StatusBadge tone={tone}>{label}</StatusBadge>{a.expires_on ? <p className="mt-1 text-muted-foreground">{a.status === "expired" ? "Ended" : "Until"} {dateLabel(a.expires_on)}</p> : null}</div>; } },
             { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (a) => (a.can_edit || a.can_delete ? (
               <div className="flex justify-end gap-1.5">
@@ -214,7 +215,10 @@ function AnnouncementItem({ item }) {
         <AudienceBadge item={item} />
       </div>
       <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">{item.body}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{item.created_by_name} · {dateTime(item.created_at)}{item.expires_on ? ` · until ${dateLabel(item.expires_on)}` : ""}</p>
+      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <UserAvatar userId={item.created_by} name={item.created_by_name} className="size-5" fallbackClassName="text-[8px]" ring={false} />
+        {item.created_by_name} · {dateTime(item.created_at)}{item.expires_on ? ` · until ${dateLabel(item.expires_on)}` : ""}
+      </p>
     </li>
   );
 }

@@ -2,13 +2,19 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 
 const isProduction = process.env.NODE_ENV === "production";
 
+// Profile pictures are signed, expiring URLs from this project's Supabase
+// Storage (private bucket, /api/profile-photo): only that origin, not "https:".
+const SUPABASE_ORIGIN = (() => {
+  try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "").origin; } catch { return ""; }
+})();
+
 // Development needs eval (React refresh) and a websocket for hot reload.
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isProduction ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob:${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ""}`,
   `connect-src 'self'${isProduction ? "" : " ws: wss:"}`,
   "frame-src 'self' data: blob:",
   "frame-ancestors 'self'",

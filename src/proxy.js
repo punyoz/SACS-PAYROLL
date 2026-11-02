@@ -192,6 +192,9 @@ const API_MODULES = [
   ["/api/hr/tenure-protection", "tenure_protection"],
   // The session's own stored notifications (every role).
   ["/api/notifications", "profile"],
+  // Profile pictures (20261102020000): every role, own picture only (the
+  // route takes the user from the session).
+  ["/api/profile-photo", "profile"],
   ["/api/employee/payslips", "payslips"],
   // The employee's own BIR Form 2316, for a finished year.
   ["/api/employee/bir-2316", "payslips"],
