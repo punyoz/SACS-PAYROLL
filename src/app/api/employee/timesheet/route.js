@@ -13,7 +13,9 @@ import {
   undertimeMinutes,
 } from "@/lib/attendance/policy";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { cutoffMinutes, describeDayPart, readHolidayMap } from "@/lib/attendance/holidays";
+import { HOLIDAY_TYPE_LABELS, cutoffMinutes, describeDayPart, holidayAppliesTo, holidayBadgeLabel, isDayOff, readHolidayMap } from "@/lib/attendance/holidays";
+import { loadEmployeeDuty } from "@/lib/attendance/holiday-duty";
+import { manilaDateKey } from "@/lib/payroll/periods";
 import { isOffDay, loadEmployeeScheduleDays } from "@/lib/attendance/work-schedules";
 
 /* ── Philippine national holidays (2024-2027) ── */
@@ -168,14 +170,40 @@ function generateDateRange(startDate, endDate) {
 // `holidays` is attendance_holidays for the range (Super Admin -> Holidays);
 // PH_HOLIDAYS covers a database that cannot be read (holidays null). A
 // morning / afternoon suspension is a working day on a shorter schedule.
-function getShiftInfo(dateStr, policy = null, holidays = null) {
+//
+// Holiday duty (20261102010000): the school is closed on a holiday, so
+// required hours are 0, unless HR assigned the employee to report (`duty`),
+// when the assigned shift applies. Every row says which holiday it is
+// (`holiday`, for the badge) and whether it is also a rest day.
+function getShiftInfo(dateStr, policy = null, holidays = null, { branchId = null, duty = null } = {}) {
   const dow = getDayOfWeek(dateStr);
   // The employee's own working days when their schedule sets them
   // (src/lib/attendance/work-schedules.js); otherwise Monday to Friday.
   const offDay = policy?.working_days ? isOffDay(dateStr, policy.working_days) : (dow === 0 || dow === 6);
 
+  const found = holidays ? holidays.get(dateStr) : PH_HOLIDAYS[dateStr];
+  // A branch-only day applies to that branch's people only.
+  const holiday = found && holidayAppliesTo(found, branchId) ? found : null;
+  const holidayInfo = holiday
+    ? { name: holiday.name, type: holiday.type, day_part: holiday.day_part || "whole", type_label: HOLIDAY_TYPE_LABELS[holiday.type] || "Holiday", label: holidayBadgeLabel(holiday) }
+    : null;
+  const tags = { holiday: holidayInfo, rest_day: offDay, duty: null };
+
+  if (duty && (offDay || isDayOff(holiday))) {
+    return {
+      ...tags,
+      row_type: "duty",
+      shift_type: `Holiday duty${duty.note ? ` (${duty.note})` : ""}`,
+      shift_in: formatPolicyTime12(String(duty.shift_start).slice(0, 5)),
+      shift_out: formatPolicyTime12(String(duty.shift_end).slice(0, 5)),
+      required_hours: Number(duty.required_hours) || 0,
+      duty: { shift_start: String(duty.shift_start).slice(0, 5), shift_end: String(duty.shift_end).slice(0, 5), note: duty.note || null, assigned_by_name: duty.assigned_by_name || null },
+    };
+  }
+
   if (offDay) {
     return {
+      ...tags,
       row_type: "rest",
       shift_type: "Rest Day",
       shift_in: null,
@@ -184,7 +212,6 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
     };
   }
 
-  const holiday = holidays ? holidays.get(dateStr) : PH_HOLIDAYS[dateStr];
   const partial = holiday && holiday.day_part && holiday.day_part !== "whole";
   if (partial && policy) {
     const cutoff = cutoffMinutes(holiday.cutoff);
@@ -198,6 +225,7 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
         ? { ...policy, work_end: cutoffText, work_hours: hours * (cutoff - start) / span }
         : { ...policy, work_start: cutoffText, work_hours: hours * (end - cutoff) / span };
       return {
+        ...tags,
         row_type: "regular",
         shift_type: `${holiday.name} (${describeDayPart(holiday)})`,
         shift_in: formatPolicyTime12(shortened.work_start),
@@ -207,8 +235,9 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
       };
     }
   }
-  if (holiday && !partial) {
+  if (isDayOff(holiday)) {
     return {
+      ...tags,
       row_type: holiday.type,
       shift_type: holiday.name,
       shift_in: null,
@@ -217,8 +246,10 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
     };
   }
 
+  // A special working day (or no holiday): an ordinary working day.
   if (policy) {
     return {
+      ...tags,
       row_type: "regular",
       // The schedule profile's name ("Pre-school Teacher") when it has one.
       shift_type: policy.schedule_name || "Regular",
@@ -229,6 +260,7 @@ function getShiftInfo(dateStr, policy = null, holidays = null) {
   }
 
   return {
+    ...tags,
     row_type: "regular",
     shift_type: "Regular",
     shift_in: `${String(SHIFT_IN_H).padStart(2, "0")}:00 AM`,
@@ -371,13 +403,18 @@ export async function GET(request) {
 
     /* The holidays payroll and the nightly close use */
     const holidays = await readHolidayMap(supabase, startDate, endDate);
+    // HR's holiday duty for this employee, and HR's decisions on holidays
+    // worked without one.
+    const { assignments: dutyByDate, reviews: reviewByDate } = await loadEmployeeDuty(supabase, user.id, startDate, endDate);
+    const todayKey = manilaDateKey();
 
     /* Build a record for every calendar day in the range */
     const dates   = generateDateRange(startDate, endDate);
     const records = dates.map((dateStr) => {
       const att       = attMap[dateStr] || null;
-      const policy    = policyFor(att?.branch_id || currentBranchId, dateStr);
-      let shift       = getShiftInfo(dateStr, policy, holidays);
+      const branchId  = att?.branch_id || currentBranchId;
+      const policy    = policyFor(branchId, dateStr);
+      let shift       = getShiftInfo(dateStr, policy, holidays, { branchId, duty: dutyByDate.get(dateStr) || null });
       const hasLeave  = leaveDates.has(dateStr) ? 1 : 0;
       // A working day covered by approved leave, with no tap of its own.
       if (shift.row_type === "regular" && !att?.time_in
@@ -415,6 +452,17 @@ export async function GET(request) {
         undertime,
         leave_with_pay: hasLeave,
         row_type:       shift.row_type,
+        holiday:        shift.holiday || null,
+        rest_day:       Boolean(shift.rest_day),
+        duty:           shift.duty || null,
+        // Assigned to report, the day has passed, no tap: for HR to decide
+        // (never deducted automatically).
+        duty_no_show:   Boolean(shift.duty) && dateStr < todayKey && !att?.time_in,
+        // Worked a day off (holiday) without an assignment: HR approves it as
+        // holiday work before any premium is paid.
+        holiday_work:   !shift.duty && isDayOff(shift.holiday) && att?.time_in
+          ? (reviewByDate.get(dateStr)?.decision || "pending")
+          : null,
         status:         att?.status
           || (shift.row_type === "rest" ? "Rest Day" : shift.row_type === "leave" ? "On Leave" : "No Record"),
       };

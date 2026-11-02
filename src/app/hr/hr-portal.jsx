@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, CalendarHeartIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
@@ -29,6 +29,7 @@ import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { RfidCardsPanel } from "@/components/portal/rfid/rfid-cards-panel";
 import { RfidTerminalLauncher } from "../admin/maintenance-page";
+import { HolidayDutyPage } from "@/components/portal/holiday-duty";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -54,6 +55,7 @@ const NAV = [
     items: [
       { id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
       { id: "hr-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
+      { id: "hr-holidays", label: "Holidays & Duty", icon: CalendarHeartIcon, module: "attendance" },
     ],
   },
   {
@@ -106,6 +108,7 @@ const TITLES = {
   "hr-tenure": "Tenure Pay Protection",
   "hr-attendance": "Attendance Monitoring",
   "hr-schedules": "Work Schedules",
+  "hr-holidays": "Holidays & Duty",
   "hr-rfid-cards": "RFID Cards",
   "hr-rfid-terminals": "RFID Terminal",
   "hr-payroll-approval": "Payroll Approval",
@@ -128,6 +131,7 @@ const DESCRIPTIONS = {
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
   "hr-tenure": "Set who is not deducted for absence, lateness, holidays, suspensions and school breaks under a tenure contract clause, and grant or revoke it per employee. Every change is logged.",
   "hr-schedules": "Create, change and assign employee work schedules, and set the Early Bird incentive. Every change takes effect from a date and is logged.",
+  "hr-holidays": "The school is closed on holidays. Choose who must still report, and approve holiday work done without an assignment.",
   "hr-rfid-cards": "Register, replace, deactivate and reactivate employees' RFID cards for every branch. Only an Active card records attendance; every action is kept in the card history.",
   "hr-rfid-terminals": "Open the tap-in / tap-out screen for an RFID reader.",
   [EMPLOYEE_PAGE]: "One employee's attendance, corrections and leave.",
@@ -190,6 +194,7 @@ function HrScreens() {
         {current === "hr-rfid-terminals" ? <RfidTerminalLauncher text="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your HR password." /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
         {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
+        {current === "hr-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
         {current === "hr-schedules" ? (
           <div className="flex flex-col gap-4">
             <WorkSchedulesPanel refreshKey={refreshKey} />

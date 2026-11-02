@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { HeartHandshakeIcon, KeyRoundIcon, PencilIcon, ShieldCheckIcon, UserRoundIcon } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ProfilePhotoButton } from "@/components/portal/profile-photo-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,9 +69,7 @@ export function StaffProfilePage({ roleLabel, showPosition = false, employeeIdLa
         <div className="h-24 bg-gradient-to-br from-brand-green to-brand-green-dark" aria-hidden="true" />
         <div aria-hidden="true" className="h-1 bg-brand-gold" />
         <CardContent className="flex flex-col gap-4 px-5 pb-5 sm:flex-row sm:items-end">
-          <Avatar className="-mt-10 size-20 border-4 border-card shadow-md">
-            <AvatarFallback className="bg-primary text-xl font-semibold text-primary-foreground">{initialsOf(ctx?.full_name, roleLabel.slice(0, 2).toUpperCase())}</AvatarFallback>
-          </Avatar>
+          <ProfilePhotoButton name={ctx?.full_name || roleLabel} className="-mt-10 size-20 shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-xl font-semibold">{name}</h2>

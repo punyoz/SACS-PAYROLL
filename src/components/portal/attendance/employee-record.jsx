@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { ArrowLeftIcon, CalendarCheckIcon, CalendarXIcon, ClockAlertIcon, HourglassIcon, PlaneIcon, SplitIcon, TimerIcon, TriangleAlertIcon } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/portal/user-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -173,7 +173,7 @@ export function EmployeeAttendanceRecord({ employeeId, onBack, backLabel = "Back
           ) : (
             <>
               <div className="flex items-center gap-3">
-                <Avatar className="size-12"><AvatarFallback className="bg-primary font-semibold text-primary-foreground">{initials}</AvatarFallback></Avatar>
+                <UserAvatar userId={employeeId} name={employee.full_name} className="size-12" fallbackText={initials} />
                 <div>
                   <h2 className="text-lg font-semibold">{employee.full_name || "Employee"}</h2>
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">Individual attendance record {employee.archived ? <Badge variant="secondary">Archived</Badge> : null}</p>

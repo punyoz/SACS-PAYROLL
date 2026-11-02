@@ -13,24 +13,28 @@
 
 import { normalizeText } from "@/lib/auth/normalize";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { holidayAppliesTo } from "@/lib/attendance/holidays";
 
 function isWeekend(dateKey) {
   const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
   return day === 0 || day === 6;
 }
 
-async function isHoliday(supabase, dateKey) {
+/** The day's whole-day-off row (holiday, special day, suspension), or null. */
+async function dayOffRow(supabase, dateKey) {
   try {
     const result = await supabase
       .from("attendance_holidays")
-      .select("holiday_date")
+      .select("holiday_date,type,day_part,branch_ids")
       .eq("holiday_date", dateKey)
       // A morning / afternoon suspension is still a working day.
       .eq("day_part", "whole")
+      // A special working day is an ordinary day (20261102010000).
+      .neq("type", "special_working")
       .limit(1);
-    return !result.error && (result.data || []).length > 0;
+    return result.error ? null : (result.data || [])[0] || null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -43,7 +47,10 @@ async function isHoliday(supabase, dateKey) {
  * @returns {Promise<object[]>} placeholder Absent rows
  */
 export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds = null }) {
-  if (!dateKey || isWeekend(dateKey) || await isHoliday(supabase, dateKey)) return [];
+  if (!dateKey || isWeekend(dateKey)) return [];
+  const dayOff = await dayOffRow(supabase, dateKey);
+  // Nationwide: nobody is expected. A branch closure: only its people are not.
+  if (dayOff && holidayAppliesTo(dayOff, null)) return [];
   if (Array.isArray(employeeIds) && !employeeIds.length) return [];
 
   // Paged (PostgREST answers 1,000 rows at most) and, for a list, in chunks.
@@ -61,6 +68,7 @@ export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds 
     if (String(p.employee_status || "").toLowerCase() === "inactive") return false;
     const hired = String(p.date_hired || p.created_at || "").slice(0, 10);
     if (hired && hired > dateKey) return false;
+    if (dayOff && holidayAppliesTo(dayOff, p.branch_id)) return false;
     return !loggedIds.has(String(p.id));
   });
   if (!people.length) return [];

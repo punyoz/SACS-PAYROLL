@@ -29,6 +29,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { attendanceBucket } from "@/lib/attendance/status";
+import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 import { manilaDateKey, dateKeysBetween } from "@/lib/payroll/periods";
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
 import { lockDateKey, monthInfo, shiftMonth } from "@/lib/payroll/semi-monthly";
@@ -135,14 +136,14 @@ async function dashboardView(supabase, branchId, staff) {
     branchLeaves(supabase, branchId, ids),
     branchRequests(supabase, branchId, null),
     supabase.from("branch_announcements").select("id,title,category,created_at,created_by_name").eq("branch_id", branchId).eq("archived", false).order("created_at", { ascending: false }).limit(5),
-    supabase.from("attendance_holidays").select("holiday_date,name,day_part").eq("holiday_date", today),
+    supabase.from("attendance_holidays").select("holiday_date,name,day_part,type,branch_ids").eq("holiday_date", today),
   ]);
   const byEmployee = new Map(logs.map((l) => [l.employee_id, l]));
   const onLeaveToday = new Set(leaves.filter((l) => l.status === "approved" && l.start_date <= today && l.end_date >= today).map((l) => l.employee_id));
   const counts = { present: 0, late: 0, absent: 0, on_leave: 0, not_tapped: 0 };
   const notTapped = [];
   const weekend = [0, 6].includes(new Date(`${today}T00:00:00Z`).getUTCDay());
-  const holiday = (holidays.data || []).find((h) => h.day_part === "whole" || !h.day_part) || null;
+  const holiday = (holidays.data || []).find((h) => isDayOff(shapeHolidayRow(h)) && holidayAppliesTo(h, branchId)) || null;
   staff.filter((p) => !p.archived).forEach((person) => {
     const log = byEmployee.get(person.id);
     const bucket = log ? attendanceBucket(log.status) : null;

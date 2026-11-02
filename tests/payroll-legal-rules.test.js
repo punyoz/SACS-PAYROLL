@@ -259,6 +259,9 @@ beforeEach(async () => {
   );
   table("payroll_tax_brackets").push(...taxRows(BIR_MONTHLY));
   table("attendance_holidays").push({ holiday_date: "2026-10-05", name: "Test Holiday", type: "holiday" });
+  // The school is closed on a holiday: work on it is paid when HR assigned
+  // the day (holiday duty, 20261102010000).
+  table("holiday_duty_assignments").push({ id: "duty-1", holiday_date: "2026-10-05", employee_id: EMP, shift_start: "08:00", shift_end: "17:00", required_hours: 8 });
   table("attendance_logs").push(
     log("o1", "2026-10-01", { time_out: "2026-10-01T12:00:00Z" }),
     log("h1", "2026-10-05"),

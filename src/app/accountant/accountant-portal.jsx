@@ -8,6 +8,7 @@ import {
   BanknoteIcon,
   CalculatorIcon,
   CalendarCheckIcon,
+  CalendarHeartIcon,
   CalendarIcon,
   ClipboardCheckIcon,
   FileTextIcon,
@@ -27,6 +28,7 @@ import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/com
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
+import { HolidayDutyPage } from "@/components/portal/holiday-duty";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { AccountantDataProvider, useAccountant } from "./accountant-data";
 import { ProcessPage } from "./process-page";
@@ -71,6 +73,7 @@ const NAV = [
     section: "Reference",
     items: [
       { id: "ac-attendance", label: "View Attendance", icon: CalendarCheckIcon, module: "attendance" },
+      { id: "ac-holidays", label: "Holidays & Duty", icon: CalendarHeartIcon, module: "attendance" },
       // Read-only (2026-10-26): to check and explain each deduction.
       { id: "ac-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
     ],
@@ -97,6 +100,7 @@ const DESCRIPTIONS = {
   "ac-approvals": "Process licensed-teacher subsidies (missed-month adjustments, advances, excess-advance settlements). HR approves or rejects; rejected ones come back here to fix and resubmit.",
   "ac-13th": "Total basic salary earned in the year ÷ 12 — a separate payout in December.",
   "ac-attendance": "View-only — for payroll deduction reference.",
+  "ac-holidays": "View-only — holidays, and the staff HR requires to report on them (paid the holiday premium when they work).",
   "ac-monitoring": "Monitor all payroll status and history across all periods.",
   "ac-reports": "Generate and export payroll reports for documentation and audit purposes.",
   "ac-gov-rates": "View-only — the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
@@ -141,6 +145,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
       {current === "ac-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
+      {current === "ac-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
       {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}
       {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}
     </AppShell>

@@ -4,6 +4,7 @@ import * as React from "react";
 import { CalendarPlusIcon, Loader2Icon, PartyPopperIcon, RefreshCwIcon, SparklesIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,6 +28,7 @@ import { holidayDate } from "./config-format";
 const TYPES = [
   { value: "holiday", label: "Regular Holiday" },
   { value: "special", label: "Special Non-Working Day" },
+  { value: "special_working", label: "Special Working Day (school open)" },
   { value: "suspension", label: "Suspension (typhoon / declared)" },
 ];
 const PARTS = [
@@ -42,6 +44,7 @@ function manilaYear() {
 function typeTone(type) {
   if (type === "special") return "gold";
   if (type === "suspension") return "info";
+  if (type === "special_working") return "muted";
   return "success";
 }
 
@@ -51,7 +54,13 @@ export function HolidaysSection({ refreshKey }) {
   const [thisYear] = React.useState(manilaYear);
   const [year, setYear] = React.useState(thisYear);
   const [state, setState] = React.useState({ loading: true, error: null, rows: [], today: "" });
-  const [form, setForm] = React.useState({ date: "", name: "", type: "holiday", part: "whole", cutoff: "" });
+  const [form, setForm] = React.useState({ date: "", name: "", type: "holiday", part: "whole", cutoff: "", source: "", branchIds: [] });
+  // A local holiday or a branch-only closure applies to the ticked branches only.
+  const [branches, setBranches] = React.useState([]);
+  React.useEffect(() => {
+    fetchJson("/api/admin/branches").then((data) => setBranches(data.branches || [])).catch(() => setBranches([]));
+  }, []);
+  const branchName = React.useCallback((id) => branches.find((b) => b.id === id)?.name || "a branch", [branches]);
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState("");
@@ -98,13 +107,14 @@ export function HolidaysSection({ refreshKey }) {
     try {
       const data = await fetchJson("/api/admin/holidays", jsonBody("POST", {
         holiday_date: form.date, name, type: form.type, day_part: part, cutoff: part === "whole" ? "" : form.cutoff,
+        source: form.source.trim(), branch_ids: form.branchIds,
       }));
       const n = data.remarked_records;
       const absentNote = n ? ` ${n} attendance record${n === 1 ? "" : "s"} for that day ${n === 1 ? "was" : "were"} updated.` : "";
       setFeedback({ text: `Added ${name} (${holidayDate(form.date)}).${absentNote}`, ok: true });
       notify("Holiday Added", `${name} (${holidayDate(form.date)}).`, "success");
       const addedYear = Number(form.date.slice(0, 4));
-      setForm((current) => ({ ...current, date: "", name: "" }));
+      setForm((current) => ({ ...current, date: "", name: "", source: "", branchIds: [] }));
       if (addedYear !== year) setYear(addedYear); else await load();
     } catch (error) {
       setFeedback({ text: error.message || "Unable to add the holiday.", ok: false });
@@ -165,6 +175,7 @@ export function HolidaysSection({ refreshKey }) {
         <div>
           <p className="font-medium">{r.name}</p>
           {r.day_part_label ? <p className="text-xs text-muted-foreground">{r.day_part_label}</p> : null}
+          {r.source ? <p className="text-xs text-muted-foreground">{r.source}</p> : null}
         </div>
       ),
     },
@@ -172,6 +183,12 @@ export function HolidaysSection({ refreshKey }) {
       key: "type",
       header: "Type",
       cell: (r) => <StatusBadge tone={typeTone(r.type)} dot={false}>{r.type_label || (r.type === "special" ? "Special Non-Working Day" : "Regular Holiday")}</StatusBadge>,
+    },
+    {
+      key: "branch_ids",
+      header: "Applies to",
+      className: "text-muted-foreground",
+      cell: (r) => (Array.isArray(r.branch_ids) && r.branch_ids.length ? r.branch_ids.map(branchName).join(", ") : "Every branch"),
     },
     { key: "created_by_name", header: "Added by", className: "text-muted-foreground", cell: (r) => r.created_by_name || "System" },
     {
@@ -182,14 +199,14 @@ export function HolidaysSection({ refreshKey }) {
         ? <Button variant="outline" size="sm" onClick={() => remove(r.holiday_date)} aria-label={`Remove ${r.name}`}><Trash2Icon aria-hidden="true" />Remove</Button>
         : <span className="text-xs text-muted-foreground">Passed</span>),
     },
-  ], [removable, remove]);
+  ], [removable, remove, branchName]);
 
   return (
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><PartyPopperIcon className="size-4 text-gold-text" aria-hidden="true" />Holidays</CardTitle>
         <CardDescription>
-          Regular holidays, special non-working days and suspensions. Nobody is marked Absent on them (the day reads Holiday), and work on a holiday earns the holiday premium in Payroll Rates; a suspension earns none.
+          Regular holidays, special non-working days and suspensions: the school is closed, nobody is marked Absent (the day reads Holiday), and only staff HR assigns to report (Holidays &amp; Duty) earn the holiday premium; a suspension earns none. A special working day is a normal school day, shown on calendars only.
           Each year&apos;s holidays fixed by law and Holy Week are added automatically every December 1 (or with Generate year). Add proclaimed days (Eid&apos;l Fitr, Eid&apos;l Adha, Chinese New Year, All Souls&apos; Day, Christmas Eve, declared days) as soon as they are announced. HR can add suspensions too.
         </CardDescription>
         <CardAction className="flex gap-2">
@@ -256,6 +273,26 @@ export function HolidaysSection({ refreshKey }) {
               <Input id="sa-hol-cutoff" type="time" value={form.cutoff} onChange={(e) => set("cutoff", e.target.value)} aria-invalid={errors.cutoff ? true : undefined} />
               {errors.cutoff ? <p className="text-sm text-destructive">{errors.cutoff}</p> : null}
             </div>
+          ) : null}
+          <div className="space-y-2 sm:col-span-2">
+            <Label htmlFor="sa-hol-source">Source <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Input id="sa-hol-source" maxLength={200} placeholder="e.g. Proclamation No. 1006, s. 2025" value={form.source} onChange={(e) => set("source", e.target.value)} />
+          </div>
+          {branches.length > 1 ? (
+            <fieldset className="space-y-2 sm:col-span-2">
+              <legend className="text-sm font-medium">Only these branches <span className="font-normal text-muted-foreground">(leave all unticked for every branch)</span></legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {branches.map((b) => (
+                  <label key={b.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={form.branchIds.includes(b.id)}
+                      onCheckedChange={(on) => set("branchIds", on ? [...form.branchIds, b.id] : form.branchIds.filter((id) => id !== b.id))}
+                    />
+                    {b.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           ) : null}
           <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
             <Button type="submit" disabled={Boolean(busy)}>{busy === "add" ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Adding…</> : "Add holiday"}</Button>

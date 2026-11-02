@@ -16,12 +16,13 @@ import {
   WalletIcon,
   XCircleIcon,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/portal/user-avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
+import { MyHolidayDuty } from "@/components/portal/holiday-duty";
 import { usePortalSession } from "@/components/portal/session";
 import { formatPeso, initialsOf, leaveSummary } from "@/lib/portal/format";
 
@@ -149,9 +150,7 @@ export function DashboardPage({ stats, payslips, onNavigate }) {
       <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-brand-green to-brand-green-dark py-5 text-white shadow-md">
         <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-1 bg-brand-gold" />
         <CardContent className="flex flex-col gap-4 px-5 sm:flex-row sm:items-center">
-          <Avatar className="size-14 ring-2 ring-brand-gold-light/70">
-            <AvatarFallback className="bg-white/15 text-lg font-semibold text-white">{initialsOf(name)}</AvatarFallback>
-          </Avatar>
+          <UserAvatar userId="me" name={name} className="size-14 ring-2 ring-brand-gold-light/70" fallbackClassName="bg-white/15 text-lg text-white" />
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-xl font-semibold">{name} <span aria-hidden="true">👋</span></h2>
             <p className="truncate text-sm text-white/80">{identityLine(ctx)}</p>
@@ -170,6 +169,8 @@ export function DashboardPage({ stats, payslips, onNavigate }) {
           </div>
         </CardContent>
       </Card>
+      {/* Holiday duty HR assigned (20261102010000); nothing when none. */}
+      <MyHolidayDuty />
       {/* The branch Admin's announcements (2026-10-20). */}
       <BranchAnnouncementsCard />
 

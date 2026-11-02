@@ -118,6 +118,9 @@ const API_MODULES = [
   // (Super Admin every type, HR suspensions), so the session is the
   // requirement here.
   ["/api/admin/holidays", null],
+  // Holiday duty (20261102010000): read like attendance (an employee their
+  // own duty); only HR assigns, which the route checks itself.
+  ["/api/holiday-duty", null],
   // Status board (every role that can see attendance; employees their own).
   ["/api/attendance/logs", "attendance"],
   ["/api/attendance/corrections", "attendance_corrections"],
@@ -189,6 +192,9 @@ const API_MODULES = [
   ["/api/hr/tenure-protection", "tenure_protection"],
   // The session's own stored notifications (every role).
   ["/api/notifications", "profile"],
+  // Profile pictures (20261102020000): every role, own picture only (the
+  // route takes the user from the session).
+  ["/api/profile-photo", "profile"],
   ["/api/employee/payslips", "payslips"],
   // The employee's own BIR Form 2316, for a finished year.
   ["/api/employee/bir-2316", "payslips"],

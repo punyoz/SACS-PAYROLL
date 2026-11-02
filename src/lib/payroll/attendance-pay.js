@@ -33,6 +33,15 @@
  *                 prorated by hours worked up to 8. Each line names the
  *                 holiday and the hours it paid for (holidays.names). A
  *                 whole-day suspension ("suspension") pays no premium.
+ *                 Holiday duty (20261102010000): with holidayPremiumAllowed,
+ *                 only a day HR assigned, or a holiday worked that HR
+ *                 approved, is paid; other holiday taps earn nothing until
+ *                 HR approves them.
+ *                 On the employee's rest day (restDays) the salary does not
+ *                 cover the day (daily rate = monthly x 12 / 261), so the
+ *                 whole rate is paid (DOLE): a regular holiday
+ *                 (100 + regular_holiday_premium_pct) % + 30 % of that = 260 %,
+ *                 a special day 150 % (Labor Advisory No. 18, s. 2026).
  *
  * The minutes and flags are the ones the database engine stored on each row
  * (late_minutes, undertime_minutes, is_half_day), so a status
@@ -68,6 +77,22 @@ function dayKey(row) {
 /** Hours of work a holiday premium is paid for, at most. */
 const HOLIDAY_FULL_DAY_HOURS = 8;
 
+/** Work on a regular holiday that is also a rest day: +30 % of the holiday rate (Labor Code Art. 93). */
+export const REGULAR_HOLIDAY_REST_DAY_FACTOR = 1.3;
+/** Work on a special non-working day that is also a rest day: 150 % of the daily rate (DOLE). */
+export const SPECIAL_DAY_REST_DAY_PCT = 150;
+
+/**
+ * Percent of the daily rate a worked holiday adds to pay. On a working day the
+ * salary already pays 100 %, so only the premium is added; on a rest day the
+ * whole rate is.
+ */
+export function holidayPayPct(type, { regularPct, specialPct, restDay = false }) {
+  if (type === "holiday") return restDay ? (100 + regularPct) * REGULAR_HOLIDAY_REST_DAY_FACTOR : regularPct;
+  if (type === "special") return restDay ? SPECIAL_DAY_REST_DAY_PCT : specialPct;
+  return 0;
+}
+
 /**
  * @param {object}   args
  * @param {Array}    args.logs         the employee's attendance rows (one per day)
@@ -82,8 +107,12 @@ const HOLIDAY_FULL_DAY_HOURS = 8;
  * @param {Function} [args.protection] (dateKey, "absent" | "half_day" | "late" | "undertime")
  *                                    -> { grant_id, category, ... } when Tenure Pay
  *                                    Protection waives it (buildProtection())
+ * @param {Function} [args.holidayPremiumAllowed] (dateKey) -> true when HR assigned
+ *                                    the day or approved the holiday work; without it
+ *                                    every worked holiday is paid (the earlier rule)
+ * @param {Set}      [args.restDays]  date keys that are the employee's own rest days
  */
-export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection }) {
+export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays }) {
   const hourly = valueOf(rates, "hourly");
   const daily = valueOf(rates, "daily");
   const halfDayAmount = peso(daily * valueOf(rates, "half_day_pct") / 100);
@@ -206,8 +235,16 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
     }
 
     const holidayType = holidays?.get?.(date);
-    const pct = holidayType ? holidayPct[holidayType] || 0 : 0;
-    if (logId && pct > 0 && row.time_in && row.time_out) {
+    const restDay = Boolean(restDays?.has?.(date));
+    const pct = holidayType
+      ? holidayPayPct(holidayType, { regularPct: holidayPct.holiday, specialPct: holidayPct.special, restDay })
+      : 0;
+    // Holiday duty: unassigned, unapproved holiday work is held for HR.
+    const allowed = typeof holidayPremiumAllowed !== "function" || holidayPremiumAllowed(date);
+    if (holidayType && pct > 0 && row.time_in && row.time_out && !allowed) {
+      counts.holiday_days_pending = (counts.holiday_days_pending || 0) + 1;
+    }
+    if (logId && pct > 0 && allowed && row.time_in && row.time_out) {
       const worked = Math.max(0, (new Date(row.time_out) - new Date(row.time_in)) / 3600000);
       const share = Math.min(worked, HOLIDAY_FULL_DAY_HOURS) / HOLIDAY_FULL_DAY_HOURS;
       const amount = peso(daily * pct / 100 * share);
@@ -219,7 +256,9 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
           amount, source_log_id: logId, log_date: date, holiday_type: holidayType,
           holiday_name: holidays?.names?.get?.(date) || null,
           hours: Math.round(Math.min(worked, HOLIDAY_FULL_DAY_HOURS) * 100) / 100,
-          note: `${holidays?.names?.get?.(date) || (holidayType === "special" ? "Special day" : "Regular holiday")} · ${Math.round(Math.min(worked, HOLIDAY_FULL_DAY_HOURS) * 100) / 100} hrs`,
+          pay_pct: Math.round(pct * 100) / 100,
+          ...(restDay ? { rest_day: true } : {}),
+          note: `${holidays?.names?.get?.(date) || (holidayType === "special" ? "Special day" : "Regular holiday")}${restDay ? " (rest day)" : ""} · ${Math.round(Math.min(worked, HOLIDAY_FULL_DAY_HOURS) * 100) / 100} hrs · +${Math.round(pct * 100) / 100}% of daily rate`,
         });
       }
     }

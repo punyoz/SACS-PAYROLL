@@ -32,7 +32,31 @@ const ROW_TYPE = {
   holiday: { label: "Holiday", tone: "gold", row: "bg-brand-gold/8" },
   special: { label: "Special", tone: "gold", row: "bg-brand-gold/5" },
   leave: { label: "Leave", tone: "info", row: "bg-info/5" },
+  duty: { label: "Holiday duty", tone: "info", row: "bg-info/5" },
 };
+
+const BADGE = "px-1.5 py-0 text-[10px]";
+
+/**
+ * The date's badges: "Rest day" and the holiday ("Special non-working day:
+ * All Souls' Day") side by side when both apply, holiday duty, and what HR
+ * still has to decide (20261102010000).
+ */
+function DayBadges({ row }) {
+  const badges = [];
+  if (row.rest_day) badges.push(<StatusBadge key="rest" tone="muted" dot={false} className={BADGE}>Rest day</StatusBadge>);
+  if (row.holiday) badges.push(<StatusBadge key="holiday" tone="gold" dot={false} className={BADGE}>{row.holiday.label}</StatusBadge>);
+  if (row.duty) badges.push(<StatusBadge key="duty" tone="info" dot={false} className={BADGE}>Holiday duty</StatusBadge>);
+  if (row.duty_no_show) badges.push(<StatusBadge key="no-show" tone="warning" dot={false} className={BADGE}>No tap: for HR&apos;s review</StatusBadge>);
+  if (row.holiday_work === "pending") badges.push(<StatusBadge key="work" tone="warning" dot={false} className={BADGE}>Worked: awaiting HR approval</StatusBadge>);
+  if (row.holiday_work === "approved") badges.push(<StatusBadge key="work" tone="success" dot={false} className={BADGE}>Holiday work approved</StatusBadge>);
+  if (row.holiday_work === "rejected") badges.push(<StatusBadge key="work" tone="muted" dot={false} className={BADGE}>Holiday work not approved</StatusBadge>);
+  // Older rows (no holiday / rest flags): the row type alone.
+  if (!badges.length && ROW_TYPE[row.row_type]) {
+    badges.push(<StatusBadge key="type" tone={ROW_TYPE[row.row_type].tone} dot={false} className={BADGE}>{ROW_TYPE[row.row_type].label}</StatusBadge>);
+  }
+  return badges;
+}
 
 const COLUMNS = [
   {
@@ -41,9 +65,9 @@ const COLUMNS = [
     sortable: true,
     className: "font-medium",
     cell: (r) => (
-      <span className="flex items-center gap-2">
-        {r.date}
-        {ROW_TYPE[r.row_type] ? <StatusBadge tone={ROW_TYPE[r.row_type].tone} dot={false} className="px-1.5 py-0 text-[10px]">{ROW_TYPE[r.row_type].label}</StatusBadge> : null}
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-0.5">{r.date}</span>
+        <DayBadges row={r} />
       </span>
     ),
     searchValue: (r) => r.date,

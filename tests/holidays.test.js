@@ -231,7 +231,7 @@ describe("payroll on holidays and suspensions", () => {
       holidays: holidaysOf([["2026-11-30", "holiday"], ["2026-10-21", "suspension"]], { names: { "2026-11-30": "Bonifacio Day", "2026-10-21": "Typhoon" } }),
     });
     expect(pay.earnings).toHaveLength(1);
-    expect(pay.earnings[0]).toMatchObject({ holiday_name: "Bonifacio Day", hours: 8, amount: 500, note: "Bonifacio Day · 8 hrs" });
+    expect(pay.earnings[0]).toMatchObject({ holiday_name: "Bonifacio Day", hours: 8, amount: 500, note: "Bonifacio Day · 8 hrs · +100% of daily rate" });
 
     const lines = holidayPayLines({ audit: { lines: { incentives: pay.earnings } } });
     expect(lines).toEqual([{ date: "2026-11-30", name: "Bonifacio Day", type: "holiday", hours: 8, amount: 500 }]);

@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { fetchJson as fetchJsonApi, jsonBody } from "@/lib/portal/api";
 import { SEPARATION_REASONS } from "@/lib/employees/separation-rules";
 import { downloadCsv } from "@/lib/portal/attendance";
+import { UserAvatar } from "@/components/portal/user-avatar";
 
 /*
  * User Management (loadHREmployees / renderHREmployeeTable,
@@ -103,7 +104,10 @@ export function EmployeesPage({ refreshKey }) {
         : active;
 
   const columns = React.useMemo(() => [
-    { key: "full_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (e) => e.full_name },
+    {
+      key: "full_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (e) => e.full_name,
+      cell: (e) => <span className="flex items-center gap-2"><UserAvatar userId={e.id} name={e.full_name} className="size-7" fallbackClassName="text-[10px]" />{e.full_name}</span>,
+    },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (e) => e.employee_id || "—", searchValue: (e) => e.employee_id },
     { key: "employee_type", header: "Type", cell: (e) => e.employee_type || "—" },
     { key: "position", header: "Position", cell: (e) => e.position || "—", searchValue: (e) => e.position },

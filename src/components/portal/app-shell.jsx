@@ -12,7 +12,7 @@ import {
   SunIcon,
   UserRoundIcon,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/portal/user-avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -145,6 +145,17 @@ function AppearanceItems() {
   );
 }
 
+/** Your picture at the top right; opens your profile. */
+function HeaderAvatar({ onProfile }) {
+  const { ctx, role } = usePortalSession();
+  const name = ctx?.full_name || ROLE_LABEL[role];
+  return (
+    <Button variant="ghost" size="icon" className="rounded-full" onClick={onProfile} aria-label="Your profile">
+      <UserAvatar userId="me" name={name} className="size-7" fallbackClassName="text-[10px]" />
+    </Button>
+  );
+}
+
 function UserMenu({ onProfile }) {
   const { ctx, role, logout } = usePortalSession();
   const { open } = useAccountDialogs();
@@ -172,11 +183,7 @@ function UserMenu({ onProfile }) {
               size="lg"
               className="text-sidebar-foreground hover:bg-white/10 hover:text-white data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
-              <Avatar className="size-8 rounded-lg">
-                <AvatarFallback className="rounded-lg bg-sidebar-primary text-xs font-semibold text-sidebar-primary-foreground">
-                  {initialsOf(name)}
-                </AvatarFallback>
-              </Avatar>
+              <UserAvatar userId="me" name={name} className="size-8" fallbackClassName="bg-sidebar-primary text-xs text-sidebar-primary-foreground" />
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold text-white">{name}</span>
                 <span className="truncate text-xs">{ROLE_LABEL[role]}</span>
@@ -402,6 +409,7 @@ export function AppShell({
               ) : null}
               <NotificationsMenu summary={notificationSummary} onNavigate={onNavigate} />
               <ThemeIconButton />
+              {profilePage ? <HeaderAvatar onProfile={() => onNavigate(profilePage)} /> : null}
             </header>
 
             <main id="portal-main" tabIndex={-1} className="flex flex-1 flex-col gap-4 p-4 outline-none sm:p-6">

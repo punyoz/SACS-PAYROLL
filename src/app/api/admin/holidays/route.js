@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { can, scopeFor, SCOPE_ALL } from "@/lib/rbac/permissions";
 import {
   HOLIDAY_NAME_MAX,
+  HOLIDAY_SOURCE_MAX,
   HOLIDAY_TYPE_LABELS,
   describeDayPart,
   isValidDateKey,
@@ -36,7 +37,8 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
  * Holiday, and a partial suspension's shorter schedule is applied.
  */
 
-const COLUMNS = "holiday_date,name,type,day_part,cutoff,created_at,created_by_name";
+const COLUMNS = "holiday_date,name,type,day_part,cutoff,created_at,created_by_name,branch_ids,source";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function yearFrom(url) {
   const year = Number(url.searchParams.get("year"));
@@ -165,6 +167,17 @@ export async function POST(request) {
     }
     if (input.day_part === "whole") input.cutoff = null;
 
+    // A local holiday or a branch-only closure (20261102010000): the branches
+    // it applies to; none = every branch. Where the day comes from.
+    const branchIds = [...new Set((Array.isArray(body.branch_ids) ? body.branch_ids : []).map(String).filter((id) => UUID.test(id)))];
+    if (branchIds.length) {
+      const known = await supabase.from("branches").select("id").in("id", branchIds);
+      if (known.error) throw new Error(known.error.message);
+      if ((known.data || []).length !== branchIds.length) return NextResponse.json({ error: "Choose branches from the list." }, { status: 400 });
+    }
+    const source = normalizeText(body.source);
+    if (source.length > HOLIDAY_SOURCE_MAX) return NextResponse.json({ error: `The source can be at most ${HOLIDAY_SOURCE_MAX} characters.` }, { status: 400 });
+
     const existing = await supabase
       .from("attendance_holidays")
       .select("holiday_date,name")
@@ -182,6 +195,8 @@ export async function POST(request) {
       type: input.type,
       day_part: input.day_part,
       cutoff: input.cutoff,
+      branch_ids: branchIds.length ? branchIds : null,
+      source: source || null,
       created_by: guard.userId || null,
       created_by_name: actorName || null,
     };
@@ -244,6 +259,12 @@ export async function DELETE(request) {
         { error: "A holiday that has already started is kept: attendance and payroll were judged on it." },
         { status: 409 },
       );
+    }
+
+    // HR's holiday duty for the day goes first (it is kept, with its history).
+    const duty = await supabase.from("holiday_duty_assignments").select("id", { count: "exact", head: true }).eq("holiday_date", date);
+    if (!duty.error && Number(duty.count) > 0) {
+      return NextResponse.json({ error: `HR assigned ${duty.count} employee${duty.count === 1 ? "" : "s"} to report that day: HR removes the holiday duty first.` }, { status: 409 });
     }
 
     const removed = await supabase.from("attendance_holidays").delete().eq("holiday_date", date);

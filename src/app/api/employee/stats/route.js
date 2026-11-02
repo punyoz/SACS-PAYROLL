@@ -6,7 +6,7 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { readApprovedLeave } from "@/lib/attendance/leave";
-import { describeDayPart, readHolidayMap } from "@/lib/attendance/holidays";
+import { describeDayPart, holidayAppliesTo, readHolidayMap } from "@/lib/attendance/holidays";
 
 function getCurrentPhilippineMonth() {
   const now = new Date();
@@ -159,7 +159,8 @@ export async function GET(request) {
     // This month's holidays and suspensions (the calendar marks them), and
     // the next one from today (the dashboard says what it is).
     const holidayList = [];
-    const monthHolidays = await readHolidayMap(supabase, monthStart, monthEnd) || new Map();
+    const ownBranch = user.user_metadata?.branch_id || null;
+    const monthHolidays = await readHolidayMap(supabase, monthStart, monthEnd, { branchId: ownBranch }) || new Map();
     monthHolidays.forEach((holiday, date) => {
       if (date < monthEnd) holidayList.push({ date, name: holiday.name, type: holiday.type, day_part: holiday.day_part, note: describeDayPart(holiday) });
     });
@@ -167,11 +168,12 @@ export async function GET(request) {
     try {
       const next = await supabase
         .from("attendance_holidays")
-        .select("holiday_date,name,type,day_part,cutoff")
+        .select("holiday_date,name,type,day_part,cutoff,branch_ids")
         .gte("holiday_date", todayKey)
+        .neq("type", "special_working")
         .order("holiday_date", { ascending: true })
-        .limit(1);
-      const row = next.error ? null : (next.data || [])[0];
+        .limit(10);
+      const row = next.error ? null : (next.data || []).find((h) => holidayAppliesTo(h, ownBranch));
       if (row) {
         nextHoliday = { date: String(row.holiday_date).slice(0, 10), name: row.name, type: row.type, note: describeDayPart(row) };
       }
