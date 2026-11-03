@@ -13,6 +13,11 @@ import { fetchJson } from "@/lib/portal/api";
 import { dateTime } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { peso, rateDate, rateDisplay } from "@/app/super-admin/config-format";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { normalizeTaxTable, taxExplanation } from "@/lib/payroll/line-tags";
+import { monthlyWithholdingTax, taxTableFromRows } from "@/lib/payroll/semi-monthly";
+import { TaxBracketTable } from "@/components/portal/payroll-lines";
 
 /*
  * Government Rates, read-only (GET /api/payroll/government-rates,
@@ -63,37 +68,62 @@ function RatesCard({ data }) {
   );
 }
 
+/*
+ * Withholding tax, kept apart from the contributions (2026-11-03): why it
+ * exists, and the brackets payroll really uses — the stored, effective-dated
+ * MONTHLY table (payroll_tax_brackets) the 2nd half taxes the month with.
+ * "Check a taxable income" highlights its bracket and works the formula out
+ * with the same function payroll uses (monthlyWithholdingTax).
+ */
 function TaxCard({ data }) {
   const current = versionIn(data?.tax_table, data?.tax_table?.current_version_id);
   const next = versionIn(data?.tax_table, data?.tax_table?.next_period_version_id);
+  const [check, setCheck] = React.useState("");
+  const rows = normalizeTaxTable(current?.rows || []);
+  const income = Number(check);
+  const checking = check !== "" && Number.isFinite(income) && income >= 0;
+  const engineTable = taxTableFromRows(current?.rows || []);
+  const explain = checking ? taxExplanation({ taxable: income, tax: monthlyWithholdingTax(income, engineTable), table: current?.rows || [] }) : null;
   return (
-    <Card className="min-w-0 shadow-xs">
+    <Card className="min-w-0 shadow-xs" data-testid="withholding-tax-section">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><ReceiptTextIcon className="size-4 text-gold-text" aria-hidden="true" />Withholding tax table (monthly)</CardTitle>
+        <CardTitle className="flex items-center gap-2"><ReceiptTextIcon className="size-4 text-gold-text" aria-hidden="true" />Withholding tax (income tax) — separate from contributions</CardTitle>
         <CardDescription>
           Withholding tax is computed once a month, on the 16–end payslip: base tax + rate × (taxable income − &quot;over&quot;), for the highest bracket the taxable income is over.
           {current ? ` In force since ${rateDate(current.effective_date)}${current.note ? ` (${current.note})` : ""}.` : ""}
           {next && next.version_id !== current?.version_id ? ` A new table applies from ${rateDate(next.effective_date)}.` : ""}
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        {!data ? <Skeleton className="h-40 w-full" /> : (
-          <div className="overflow-x-auto rounded-md border">
-            <Table className="min-w-120">
-              <TableCaption className="sr-only">Withholding tax brackets</TableCaption>
-              <TableHeader><TableRow><TableHead>Over (₱)</TableHead><TableHead>Base tax (₱)</TableHead><TableHead>Rate</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {(current?.rows || []).map((row) => (
-                  <TableRow key={row.bracket_over}>
-                    <TableCell className="tabular-nums">{peso(row.bracket_over)}</TableCell>
-                    <TableCell className="tabular-nums">{peso(row.base_tax)}</TableCell>
-                    <TableCell className="tabular-nums">{row.rate_pct}%</TableCell>
-                  </TableRow>
-                ))}
-                {!current ? <TableRow><TableCell colSpan={3} className="text-muted-foreground">No tax table yet.</TableCell></TableRow> : null}
-              </TableBody>
-            </Table>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 text-sm md:grid-cols-2">
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="font-semibold">Why is there a withholding tax?</p>
+            <p className="mt-1 text-muted-foreground">It is <strong className="text-foreground">income tax</strong> under the TRAIN Law (RA 10963). The school withholds it from pay as an advance on the employee&apos;s yearly income tax and remits it to the BIR. There is no employer share and no benefit paid back.</p>
           </div>
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="font-semibold">How it differs from SSS, PhilHealth and Pag-IBIG</p>
+            <p className="mt-1 text-muted-foreground">Those are <strong className="text-foreground">social insurance</strong>: the employee pays a share, the school adds its own, and the money returns as pension and sickness, health insurance and housing savings. They come off first; the tax is computed on what remains (gross less the employee&apos;s contributions, non-taxable items left out).</p>
+          </div>
+        </div>
+        {!data ? <Skeleton className="h-40 w-full" /> : !current ? (
+          <p className="text-sm text-muted-foreground">No tax table yet.</p>
+        ) : (
+          <>
+            <TaxBracketTable rows={rows} index={explain ? explain.index : -1} />
+            <p className="text-xs text-muted-foreground">
+              Main table: <strong className="text-foreground">monthly</strong> (the one payroll uses on the 2nd half for the whole month). Source: {current.note || "BIR withholding tax table"}; effective {rateDate(current.effective_date)}; read from the stored table, so a Super Admin change shows here on its effective date. Verify against the current BIR table (RR 11-2018, Annex E).
+            </p>
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label htmlFor="gr-tax-check">Check a monthly taxable income</Label>
+              <Input id="gr-tax-check" type="number" min="0" step="0.01" inputMode="decimal" className="max-w-56 tabular-nums" placeholder="e.g. 25000" value={check} onChange={(e) => setCheck(e.target.value)} />
+              {explain ? (
+                <div className="space-y-1 text-sm" data-testid="tax-check-result">
+                  <p>Bracket <strong>{explain.range}</strong> (highlighted): {peso(explain.base_tax)} + {explain.rate_pct}% × ({peso(explain.taxable)} − {peso(explain.bracket?.over || 0)}) = <strong>{peso(explain.tax)}</strong> a month{explain.taxable > 0 ? ` (${explain.effective_pct}% of taxable income)` : ""}.</p>
+                  {explain.reason ? <p className="text-success">{explain.reason}</p> : null}
+                </div>
+              ) : <p className="text-xs text-muted-foreground">Enter an amount to highlight its bracket and see the formula worked out.</p>}
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

@@ -67,6 +67,9 @@ async function computationSummary(page) {
   return out;
 }
 const pick = (summary, re) => { const k = Object.keys(summary).find((l) => re.test(l)); return k ? summary[k] : undefined; };
+// The summary groups its lines (2026-11-03): loans are the "Loans / advances" subtotal.
+const LOANS = /^Subtotal: loans|^Loans/;
+const INCENTIVES = /^Approved incentives|Incentives \/ overload|other incentives/;
 
 /** Pick an employee in the entry form; the list can re-render while the page loads, so try again once. */
 async function chooseEmployee(page, name) {
@@ -139,11 +142,11 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
       await settle(page);
       summary = await computationSummary(page);
       say(`Computation summary: ${Object.entries(summary).map(([k, v]) => `${k} ${v}`).join(" · ").slice(0, 600)}`);
-      for (const [label, re] of [["Gross pay", /^Gross pay/], ["SSS", /^SSS/], ["PhilHealth", /^PhilHealth/], ["Pag-IBIG", /^Pag-IBIG/], ["Loans", /^Loans/], ["Incentives", /Incentives \/ overload|other incentives/]]) {
+      for (const [label, re] of [["Gross pay", /^Gross pay/], ["SSS", /^SSS/], ["PhilHealth", /^PhilHealth/], ["Pag-IBIG", /^Pag-IBIG/], ["Loans", LOANS], ["Incentives", INCENTIVES]]) {
         check("Computation summary", pick(summary, re) !== undefined, `${label} line shown (${pick(summary, re)})`);
       }
-      check("Computation summary", Math.abs(pick(summary, /^Loans/) || 0) > 0, "the approved loan's installment is deducted");
-      check("Computation summary", (pick(summary, /Incentives \/ overload/) || 0) + (pick(summary, /other incentives/) || 0) >= 1500, "the approved ₱1,500 incentive is added");
+      check("Computation summary", Math.abs(pick(summary, LOANS) || 0) > 0, "the approved loan's installment is deducted");
+      check("Computation summary", (pick(summary, INCENTIVES) || 0) >= 1500, "the approved ₱1,500 incentive is added");
       await page.waitForTimeout(1500);
       say("Clicking Process payroll → for Ana…");
       const before = monitor.issues.length;
@@ -181,7 +184,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
     for (const [k, re] of [["sss", /^SSS/], ["philhealth", /^PhilHealth/], ["pagibig", /^Pag-IBIG/], ["withholding_tax", /^Withholding tax/]]) {
       check("Process → database", nearAbs(entry[k], pick(summary, re)), `${k}: summary ${pick(summary, re)} vs stored ${entry[k]}`);
     }
-    check("Process → database", nearAbs(entry.payroll?.totals?.loan_deduction, pick(summary, /^Loans/)), `loans: summary ${pick(summary, /^Loans/)} vs stored ${entry.payroll?.totals?.loan_deduction}`);
+    check("Process → database", nearAbs(entry.payroll?.totals?.loan_deduction, pick(summary, LOANS)), `loans: summary ${pick(summary, LOANS)} vs stored ${entry.payroll?.totals?.loan_deduction}`);
     check("Process → database", near(entry.net_pay, pick(summary, /net pay$/i)), `net pay: summary ${pick(summary, /net pay$/i)} vs stored ${entry.net_pay}`);
 
     // 4. Submit.
@@ -207,7 +210,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
     for (const k of ["gross_pay", "sss", "philhealth", "pagibig", "withholding_tax", "net_pay"]) {
       check("Submitted → HR's run", near(item[k], entry[k]), `${k}: payslip ${entry[k]} vs HR run item ${item[k]}`);
     }
-    check("Submitted → HR's run", num(item.loans) > 0 && nearAbs(item.loans, pick(summary, /^Loans/)), `loans: summary ${pick(summary, /^Loans/)} vs HR run item ${item.loans}`);
+    check("Submitted → HR's run", num(item.loans) > 0 && nearAbs(item.loans, pick(summary, LOANS)), `loans: summary ${pick(summary, LOANS)} vs HR run item ${item.loans}`);
     check("Submitted → HR's run", num(item.total_incentives) >= 1500, `incentives on HR's item: ${item.total_incentives}`);
 
     await step(page, "HR > Payroll Approval > Review > full breakdown > Approve", async () => {

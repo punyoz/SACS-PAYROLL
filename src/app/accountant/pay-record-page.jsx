@@ -17,6 +17,7 @@ import { dateLabel, dateTime, money, shortDate, toAmount } from "@/lib/portal/pa
 import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { useAccountant } from "./accountant-data";
+import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 
 /*
  * Pay Record (renderPayslipDetails / renderPayslipGeneration /
@@ -186,6 +187,8 @@ function Classic({ payslip }) {
 
 /** The payslip itself; also shown read-only on HR → Payroll Records. */
 export function PayslipDocument({ payslip }) {
+  // Grouped and tagged lines (2026-11-03) when the stored payslip supports them.
+  const groups = payslip.line_groups || null;
   const systemTitle = useSystemName();
   const draft = payslip.status === "draft";
   const g = payslip.generation || null;
@@ -240,8 +243,15 @@ export function PayslipDocument({ payslip }) {
           </Section>
         ) : null}
         <Separator />
-        {m ? <SemiMonthly payslip={payslip} /> : <Classic payslip={payslip} />}
-        {basis.length ? (
+        {groups ? (
+          <div className="space-y-3">
+            <PayrollLineGroups result={groups} />
+            <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{money(groups.gross)}</span></div>
+            <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">− {money(groups.total_deductions)}</span></div>
+            <LineTagLegend className="print:hidden" />
+          </div>
+        ) : m ? <SemiMonthly payslip={payslip} /> : <Classic payslip={payslip} />}
+        {basis.length && !groups ? (
           <Section title="How deductions were computed">
             <ul className="space-y-1 text-sm text-muted-foreground">{basis.map((line, i) => <li key={i}>{line.basis}</li>)}</ul>
           </Section>
