@@ -8,6 +8,28 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
+import { payrollLineGroups } from "@/lib/payroll/line-tags";
+import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
+
+/**
+ * payroll_tax_brackets rows (every version), for the withholding tax line's
+ * bracket range on a payslip; [] when they cannot be read.
+ */
+export async function loadTaxBracketRows(supabase) {
+  try {
+    const result = await supabase.from("payroll_tax_brackets").select("version_id,effective_date,bracket_over,base_tax,rate_pct,created_at");
+    return result.error ? [] : result.data || [];
+  } catch {
+    return [];
+  }
+}
+
+/** The tax table version in force on the payslip's period (the one the engine used). */
+function taxTableForPayroll(taxRows, payroll) {
+  const start = payroll?.audit?.period?.start_key;
+  if (!start || !Array.isArray(taxRows) || !taxRows.length) return [];
+  return taxTableFromRows(resolveTaxTableRows(taxRows, start));
+}
 
 /**
  * The school seal printed on payslip PDFs. Replace the file to change it
@@ -36,7 +58,7 @@ function formatManilaDateTime(iso) {
   }).format(date);
 }
 
-export function buildPayslipDetails(entry) {
+export function buildPayslipDetails(entry, { taxRows = [] } = {}) {
   if (!entry) return null;
   const generation = entry.payroll?.generation || null;
 
@@ -115,5 +137,8 @@ export function buildPayslipDetails(entry) {
     // Semi-monthly: the month's computation (2nd half) or the half-salary
     // 1st half; rendered instead of the per-period breakdown.
     monthly: entry.payroll.monthly || null,
+    // Every line grouped and tagged (2026-11-03, src/lib/payroll/line-tags.js),
+    // from the payslip's own stored figures; null when they do not support it.
+    line_groups: payrollLineGroups(entry.payroll, { taxTable: taxTableForPayroll(taxRows, entry.payroll) }),
   };
 }

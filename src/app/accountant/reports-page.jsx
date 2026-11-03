@@ -187,7 +187,14 @@ export function ReportsPage() {
   const recordColumns = report?.type === "deductions" ? [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium" },
     { key: "pay_period", header: "Period" },
-    ...[["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"], ["withholding_tax", "Tax"]].map(([k, h]) => ({ key: k, header: h, align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.payroll?.deductions?.[k] || 0) })),
+    // A. Government contributions (employee share), then B. withholding tax
+    // on its own (2026-11-03): two groups, never one "deductions" lump.
+    ...[["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"]].map(([k, h]) => ({ key: k, header: `${h} (contrib.)`, align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.payroll?.deductions?.[k] || 0) })),
+    {
+      key: "contributions_subtotal", header: "Contributions subtotal", align: "right", className: "tabular-nums font-medium",
+      cell: (r) => moneyCompact(["sss", "philhealth", "pagibig"].reduce((s, k) => s + Number(r.payroll?.deductions?.[k] || 0), 0)),
+    },
+    { key: "withholding_tax", header: "Withholding tax (income tax)", align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.payroll?.deductions?.withholding_tax || 0) },
     { key: "absence", header: "Absence ded.", align: "right", className: "tabular-nums", cell: (r) => moneyCompact(r.payroll?.totals?.absence_deduction || 0) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", cell: (r) => moneyCompact(r.net_pay) },
   ] : [

@@ -19,6 +19,7 @@
 
 import { roundPeso } from "@/lib/payroll/money";
 import { periodFromLabel } from "@/lib/payroll/periods";
+import { payrollLineGroups } from "@/lib/payroll/line-tags";
 
 export const RUN_STATUSES = Object.freeze(["draft", "pending", "approved", "rejected"]);
 
@@ -185,6 +186,8 @@ export function shapeRunItem(entry, { employeeLevel = null, scheduleName = null,
         late_days_per_absent: rate("late_days_per_absent"),
       },
       deduction_basis: payroll.generation?.deduction_basis || [],
+      // Every line grouped and tagged (src/lib/payroll/line-tags.js).
+      line_groups: payrollLineGroups(payroll),
       taxable_income: m.taxable_income ?? null,
       carry_over_out: num(m.carry_over_out),
       early_bird: payroll.early_bird || null,

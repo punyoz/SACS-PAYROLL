@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangleIcon, CheckCircle2Icon, FlagIcon, InfoIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckCircle2Icon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,10 @@ import { useAccountant } from "./accountant-data";
 import { RunApprovalPanel } from "./run-approval-panel";
 import { DeferredIncentivesNotice } from "./incentives-page";
 import { CONTRIBUTION_MAX, DAYS_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX } from "@/lib/input-limits";
+import { attendanceOverrideState } from "@/lib/payroll/override-window";
+import { DEFERRED_NOTE, pesoText } from "@/lib/payroll/line-tags";
+import { previewLineGroups } from "@/lib/portal/payroll-line-preview";
+import { LineTag, LineTagLegend, PayrollLineGroups, TaxHowDetails } from "@/components/portal/payroll-lines";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -253,13 +257,20 @@ function BatchCard({ onNavigate }) {
   const rows = employees.map((employee) => {
     const base = batchRowBase(data, employee);
     const e = edits[employee.id] || {};
+    // Leave w/o pay is an attendance override (2026-11-03): only in the
+    // processing window or a run HR rejected (override-window.js).
+    const rowRun = data?.payroll_runs?.[String(employee.branch_id || "")] || null;
+    const rowSlip = (data?.attendance_rows || []).find((r) => r.employee_id === employee.id)?.payslip || null;
+    const rowFinal = rowSlip?.status === "final";
+    const rowLatest = rowRun?.status === "approved" ? null : rowRun?.status || null;
+    const lwopGate = attendanceOverrideState({ window: win, runStatus: rowFinal ? rowSlip.run_status || rowLatest : rowLatest, payslipStatus: rowFinal ? "final" : null });
     // Computed government deductions cannot be typed (2026-10-26).
     const locked = governmentLocked(base.info);
     const value = (field, def) => (e[field] !== undefined && !(locked && GOVERNMENT_FIELDS.includes(field)) ? e[field] : String(def));
     const sss = value("sss", base.contributions.sss);
     const philhealth = value("philhealth", base.contributions.philhealth);
     const pagibig = value("pagibig", base.contributions.pagibig);
-    const lwop = value("lwop", base.lwop);
+    const lwop = lwopGate.allowed ? value("lwop", base.lwop) : String(base.lwop);
     const nums = { sss: toAmount(sss), philhealth: toAmount(philhealth), pagibig: toAmount(pagibig), lwop: toAmount(lwop) };
     // With the legal tables the tax follows this row's figures until typed.
     const taxDefault = base.legal ? batchTaxDefault(data, base, nums) : batchTaxDefault(data, base, { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop });
@@ -277,7 +288,7 @@ function BatchCard({ onNavigate }) {
     // Withholding tax counts as a change only with the legal tables.
     const fields = locked ? ["lwop"] : ["sss", "philhealth", "pagibig", "lwop", ...(base.legal ? ["tax"] : [])];
     const changed = fields.filter((f) => !same(values[f], defaults[f]));
-    return { employee, base, values, defaults, net, changed, locked };
+    return { employee, base, values, defaults, net, changed, locked, lwopGate };
   });
 
   const anyChanged = rows.some((r) => !r.base.blocking.length && r.changed.length);
@@ -411,9 +422,10 @@ function BatchCard({ onNavigate }) {
       inputMode={step === "1" ? "numeric" : "decimal"}
       aria-label={`${field.toUpperCase()} for ${row.employee.full_name}`}
       value={row.values[field]}
-      disabled={Boolean(row.base.blocking.length) || row.base.half === "first"}
+      disabled={Boolean(row.base.blocking.length) || row.base.half === "first" || (field === "lwop" && !row.lwopGate.allowed)}
+      title={field === "lwop" && !row.lwopGate.allowed ? row.lwopGate.message : undefined}
       onChange={(e) => setField(row.employee.id, field, e.target.value)}
-      className={cn("h-8 w-24 px-2 text-right tabular-nums", !same(row.values[field], row.defaults[field]) && "border-warning ring-1 ring-warning/40")}
+      className={cn("h-8 w-24 px-2 text-right tabular-nums", !same(row.values[field], row.defaults[field]) && "border-warning ring-1 ring-warning/40", field === "lwop" && !row.lwopGate.allowed && "border-dashed bg-muted text-muted-foreground")}
     />
   ));
 
@@ -613,12 +625,34 @@ function SingleEntry({ onNavigate }) {
   }, [data, entryId]);
 
   const employee = employees.find((e) => e.id === employeeId) || null;
-  const summary = computeSummary(data, employee, form);
-  const deviations = formDeviations(data, employee, form, summary.taxDefault);
+  const win = data?.generation_window || null;
+  // Attendance overrides (Absent, Late, Undertime, Half day, Perfect
+  // attendance): only inside the processing window on a payroll still open,
+  // or a run HR rejected (src/lib/payroll/override-window.js; the API checks
+  // the same). Locked: the computed values are shown and used.
+  const branchRun = data?.payroll_runs?.[String(employee?.branch_id || "")] || null;
+  const slip = (data?.attendance_rows || []).find((r) => r.employee_id === employee?.id)?.payslip || null;
+  const slipFinal = slip?.status === "final";
+  const latestRunStatus = branchRun?.status === "approved" ? null : branchRun?.status || null;
+  const overrideRunStatus = slipFinal ? slip.run_status || latestRunStatus : latestRunStatus;
+  const overrideGate = attendanceOverrideState({ window: win, runStatus: overrideRunStatus, payslipStatus: slipFinal ? "final" : null });
+  const overrideLocked = Boolean(employee) && !overrideGate.allowed;
+  const computedForm = defaultForm(data, employee);
+  const shownForm = overrideLocked
+    ? { ...form, absences: computedForm.absences, late: computedForm.late, undertime: computedForm.undertime, halfDays: computedForm.halfDays, lwop: computedForm.lwop, perfect: computedForm.perfect }
+    : form;
+  // A saved draft's override values are not used while overrides are locked.
+  const droppedOverrides = overrideLocked
+    && (["absences", "late", "undertime", "halfDays", "lwop"].some((key) => !same(form[key], computedForm[key])) || form.perfect !== computedForm.perfect);
+  const summary = computeSummary(data, employee, shownForm);
+  const deviations = formDeviations(data, employee, shownForm, summary.taxDefault);
+  // Every line grouped and tagged from the same figures (2026-11-03).
+  const lineGroups = previewLineGroups(data, employee, shownForm, summary, computedForm);
+  const groupOf = (key) => lineGroups?.groups.find((g) => g.key === key) || null;
+  const lineOf = (group, key) => groupOf(group)?.lines.find((l) => l.key === key) || null;
   const info = employeePayInfo(data, employee?.id);
   const blocking = info.pay?.blocking || [];
   const ready = data?.payroll_ready !== false;
-  const win = data?.generation_window || null;
   // Closed: the Accountant still processes what is missing (marked late)
   // while the run is not submitted; a submitted run stays locked.
   const finalWindow = !win || win.state === "final" || win.state === "closed";
@@ -644,17 +678,18 @@ function SingleEntry({ onNavigate }) {
   const govLabel = (type, name) => (source?.[type] === "fixed" ? `${name} (fixed monthly amount)`
     : source?.[type] === "employee" ? `${name} (set for this employee)`
       : contributionLabel(name, basis[type]));
-  const computedField = (id, label, field, name, amount) => (
+  const computedField = (id, label, field, name, amount, tagged = null) => (
     <div className="space-y-1.5">
-      <p id={id} className="text-sm font-medium">{label}</p>
-      <div aria-labelledby={id} className="flex h-9 items-center justify-between gap-2 rounded-md border bg-muted px-3 text-sm tabular-nums">
-        <span>{firstHalf ? "On the 2nd half" : money(amount)}</span>
+      <p id={id} className="flex flex-wrap items-center gap-1.5 text-sm font-medium">{label}{!firstHalf && tagged ? <LineTag tag={tagged.tag} /> : null}</p>
+      <div aria-labelledby={id} className="flex min-h-9 items-center justify-between gap-2 rounded-md border bg-muted px-3 py-1.5 text-sm tabular-nums">
+        <span className={cn(firstHalf && "text-xs text-muted-foreground")}>{firstHalf ? DEFERRED_NOTE : money(amount)}</span>
         {!firstHalf && employee ? (
           <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setFlag({ field, name, amount })} aria-label={`Flag ${name} for review`}>
             <FlagIcon className="size-3.5" aria-hidden="true" />Flag for review
           </Button>
         ) : null}
       </div>
+      {!firstHalf && tagged?.how ? <p className="text-xs break-words text-muted-foreground">{tagged.how}</p> : null}
     </div>
   );
   const unitDays = (n, rate) => `${toAmount(n)} day${toAmount(n) === 1 ? "" : "s"} × ${peso(rate)}/day`;
@@ -680,8 +715,16 @@ function SingleEntry({ onNavigate }) {
     setReasonError("");
     setFeedback({ text: action === "submit" ? "Processing payroll…" : "Saving payroll draft…", ok: true });
     try {
-      const payload = submissionPayload(action, { entryId, employee, period, form, tax: summary.tax, data });
-      const response = await apiFetch("/api/accountant/payroll", jsonBody("POST", payload));
+      const payload = submissionPayload(action, { entryId, employee, period, form: shownForm, tax: summary.tax, data });
+      // HR rejected the run: its Final payslip is reprocessed, with any
+      // attendance override (reopened for that run only).
+      const reopenedFinal = action === "submit" && slipFinal && overrideGate.reopened;
+      const response = reopenedFinal
+        ? await apiFetch("/api/accountant/payroll", jsonBody("PATCH", {
+          action: "generate", reprocess: true, employee_id: employee.id, pay_period: period,
+          deductions: payload.deductions, incentives: payload.incentives, override_reason: payload.override_reason,
+        }))
+        : await apiFetch("/api/accountant/payroll", jsonBody("POST", payload));
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         if (result.code === "override_reason_required") setReasonError("Give a reason for the values changed from the computed defaults.");
@@ -690,6 +733,7 @@ function SingleEntry({ onNavigate }) {
         throw err;
       }
       const newId = String(result.entry?.id || entryId || "");
+      if (reopenedFinal) notify("Payslip Reprocessed", "The Final payslip was recomputed with your changes. Submit the run for HR approval again.", "success");
       setEntryId(newId);
       await load();
       if (result.db_synced === false) notify("Draft Saved", "Draft saved. Database sync pending — contact your administrator if this keeps occurring.", "info");
@@ -715,9 +759,9 @@ function SingleEntry({ onNavigate }) {
     }
   }
 
-  const numberField = (id, label, key, { hint, step = "0.01", disabled = attendanceLocked, readOnly = false, children } = {}) => (
+  const numberField = (id, label, key, { hint, step = "0.01", disabled = attendanceLocked, readOnly = false, locked: lockedField = false, children } = {}) => (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="flex-wrap gap-x-1">{label}{hint ? <span className="font-normal text-muted-foreground">{hint}</span> : null}</Label>
+      <Label htmlFor={id} className="flex-wrap gap-x-1">{lockedField ? <LockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" /> : null}{label}{hint ? <span className="font-normal text-muted-foreground">{hint}</span> : null}</Label>
       <Input
         id={id}
         type="number"
@@ -725,14 +769,15 @@ function SingleEntry({ onNavigate }) {
         max={NUMBER_MAX[key] || PESO_MAX}
         step={step}
         inputMode={step === "1" ? "numeric" : "decimal"}
-        value={key === "tax" ? shownTax : form[key]}
+        value={key === "tax" ? shownTax : shownForm[key]}
         onChange={key === "tax"
           ? (e) => setForm((c) => ({ ...c, tax: e.target.value, taxEdited: true }))
           // Basic salary keeps to 7 whole digits and the maximum.
           : key === "basic" ? (e) => setForm((c) => ({ ...c, basic: clampSalary(e.target.value) })) : set(key)}
-        disabled={disabled}
+        disabled={disabled || lockedField}
         readOnly={readOnly}
-        className={cn("tabular-nums", readOnly && "bg-muted text-muted-foreground")}
+        title={lockedField ? overrideGate.message : undefined}
+        className={cn("tabular-nums", (readOnly || lockedField) && "bg-muted text-muted-foreground", lockedField && "border-dashed")}
       />
       {children}
     </div>
@@ -786,10 +831,31 @@ function SingleEntry({ onNavigate }) {
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               {locked ? (
                 <>
-                  {computedField("pc-sss", govLabel("sss", "SSS"), "sss", "SSS", summary.sss)}
-                  {computedField("pc-philhealth", govLabel("philhealth", "PhilHealth"), "philhealth", "PhilHealth", summary.philhealth)}
-                  {computedField("pc-pagibig", govLabel("pagibig", "Pag-IBIG"), "pagibig", "Pag-IBIG", summary.pagibig)}
-                  {computedField("pc-tax", taxLabel, "withholding_tax", "withholding tax", summary.tax)}
+                  {/* A. Social insurance, the employee's share (2026-11-03). */}
+                  <p className="text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-contributions">A. Government contributions (employee share)</p>
+                  {computedField("pc-sss", govLabel("sss", "SSS"), "sss", "SSS", summary.sss, lineOf("contributions", "sss"))}
+                  {computedField("pc-philhealth", govLabel("philhealth", "PhilHealth"), "philhealth", "PhilHealth", summary.philhealth, lineOf("contributions", "philhealth"))}
+                  {computedField("pc-pagibig", govLabel("pagibig", "Pag-IBIG"), "pagibig", "Pag-IBIG", summary.pagibig, lineOf("contributions", "pagibig"))}
+                  <div className="flex items-baseline justify-between gap-3 self-end border-t border-dashed pt-1 text-sm font-semibold">
+                    <span>Subtotal: contributions</span>
+                    <span className="tabular-nums">{firstHalf ? <span className="text-xs font-normal text-muted-foreground">{DEFERRED_NOTE}</span> : `− ${pesoText(toAmount(summary.sss + summary.philhealth + summary.pagibig))}`}</span>
+                  </div>
+                  {lineGroups?.taxable ? (
+                    <div className="flex items-baseline justify-between gap-3 rounded-md border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-sm sm:col-span-2" data-testid="form-taxable-income">
+                      <span className="min-w-0"><span className="font-medium">Taxable income used for the tax</span><span className="block text-xs text-muted-foreground">Gross less the contributions above (and non-taxable items)</span></span>
+                      <span className="shrink-0 font-medium tabular-nums">{pesoText(lineGroups.taxable.amount)}</span>
+                    </div>
+                  ) : null}
+                  {/* B. Income tax (TRAIN law), withheld for the BIR. */}
+                  <p className="text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-tax">B. Withholding tax (income tax)</p>
+                  {computedField("pc-tax", taxLabel, "withholding_tax", "withholding tax", summary.tax, lineOf("tax", "withholding_tax"))}
+                  <div className="space-y-2">
+                    <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 text-sm font-semibold">
+                      <span>Subtotal: withholding tax</span>
+                      <span className="tabular-nums">{firstHalf ? <span className="text-xs font-normal text-muted-foreground">{DEFERRED_NOTE}</span> : `− ${pesoText(summary.tax)}`}</span>
+                    </div>
+                    {!firstHalf && lineGroups?.tax ? <TaxHowDetails explanation={lineGroups.tax} /> : null}
+                  </div>
                   <p className="text-xs text-muted-foreground sm:col-span-2">SSS, PhilHealth, Pag-IBIG and withholding tax are computed from the government rate tables (Government Rates) and cannot be changed here. If one looks wrong, flag it for review: HR and the Super Admin are notified.</p>
                 </>
               ) : (
@@ -800,17 +866,29 @@ function SingleEntry({ onNavigate }) {
                   {numberField("pc-tax", "Withholding tax (₱)", "tax", { disabled: firstHalf })}
                 </>
               )}
-              <p className="text-xs text-muted-foreground sm:col-span-2">Absent, Late, Undertime, Half Day and incentives are filled in from the attendance logs. Changing one is an override: it needs a reason and is logged.</p>
-              {numberField("pc-absences", "Absent (days)", "absences", { hint: `${peso(unit.absent)}/day`, step: "1" })}
-              {numberField("pc-late", "Late (days)", "late", { hint: lateRules, step: "1" })}
-              {numberField("pc-undertime", "Undertime (minutes)", "undertime", { hint: `${peso(unit.hourly)}/hour`, step: "1" })}
-              {numberField("pc-half-days", "Half day (days)", "halfDays", { hint: `${peso(unit.half_day)}/day`, step: "1" })}
+              <p className="text-xs text-muted-foreground sm:col-span-2">Absent, Late, Undertime, Half Day, Leave without pay and incentives are filled in from the attendance logs and approved leave. Changing one is an override: only in the processing window, it needs a reason and is logged.</p>
+              {employee && !attendanceLocked ? (
+                overrideLocked ? (
+                  <div role="status" data-testid="override-locked" className="flex items-start gap-2 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/60 px-3 py-2 text-sm text-muted-foreground sm:col-span-2">
+                    <LockIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                    <span><strong className="text-foreground">Overrides locked.</strong> {overrideGate.message} The values below come from the RFID attendance logs and are used as they are.{droppedOverrides ? " This draft's earlier override values are not used." : ""}</span>
+                  </div>
+                ) : (
+                  <p role="status" data-testid="override-open" className="flex items-start gap-2 rounded-lg border border-success/40 bg-success/8 px-3 py-2 text-xs text-success sm:col-span-2">
+                    <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />{overrideGate.message}
+                  </p>
+                )
+              ) : null}
+              {numberField("pc-absences", "Absent (days)", "absences", { hint: `${peso(unit.absent)}/day`, step: "1", locked: overrideLocked })}
+              {numberField("pc-late", "Late (days)", "late", { hint: lateRules, step: "1", locked: overrideLocked })}
+              {numberField("pc-undertime", "Undertime (minutes)", "undertime", { hint: `${peso(unit.hourly)}/hour`, step: "1", locked: overrideLocked })}
+              {numberField("pc-half-days", "Half day (days)", "halfDays", { hint: `${peso(unit.half_day)}/day`, step: "1", locked: overrideLocked })}
               {numberField("pc-leave-with-pay-days", "Leave with pay", "lwp", {
                 hint: "(days, no deduction)", step: "1", readOnly: true,
                 children: leave?.with_pay_dates?.length ? <p className="text-xs text-muted-foreground">{dates(leave.with_pay_dates)} · paid, no deduction</p> : null,
               })}
               {numberField("pc-leave-without-pay-days", "Leave without pay", "lwop", {
-                hint: `(days, ${peso(unit.daily)}/day)`, step: "1",
+                hint: `(days, ${peso(unit.daily)}/day)`, step: "1", locked: overrideLocked,
                 children: leave?.without_pay_dates?.length ? <p className="text-xs text-muted-foreground">{dates(leave.without_pay_dates)} · deducted at the daily rate</p> : null,
               })}
             </div>
@@ -825,9 +903,9 @@ function SingleEntry({ onNavigate }) {
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pc-perfect" className="flex-wrap gap-x-1">Perfect attendance <span className="font-normal text-muted-foreground">{peso(unit.perfect_attendance)}/period</span></Label>
-                <Select value={form.perfect ? "yes" : "no"} onValueChange={(v) => setForm((c) => ({ ...c, perfect: v === "yes" }))} disabled={attendanceLocked}>
-                  <SelectTrigger id="pc-perfect" className="w-full"><SelectValue /></SelectTrigger>
+                <Label htmlFor="pc-perfect" className="flex-wrap gap-x-1">{overrideLocked ? <LockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" /> : null}Perfect attendance <span className="font-normal text-muted-foreground">{peso(unit.perfect_attendance)}/period</span></Label>
+                <Select value={shownForm.perfect ? "yes" : "no"} onValueChange={(v) => setForm((c) => ({ ...c, perfect: v === "yes" }))} disabled={attendanceLocked || overrideLocked}>
+                  <SelectTrigger id="pc-perfect" className={cn("w-full", overrideLocked && "border-dashed bg-muted text-muted-foreground")} title={overrideLocked ? overrideGate.message : undefined}><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent>
                 </Select>
               </div>
@@ -847,60 +925,32 @@ function SingleEntry({ onNavigate }) {
         <div className="space-y-4">
           <Card className="shadow-xs">
             <CardHeader><CardTitle>Computation summary</CardTitle></CardHeader>
-            <CardContent className="space-y-2">
-              <SummaryRow label="Basic salary" value={money(summary.basic)} />
-              <SummaryRow label="Overtime (approved)" value={`+ ${money(summary.earnings.overtime)}`} tone="plus" />
-              <SummaryRow label="Holiday pay" value={`+ ${money(summary.earnings.holiday)}`} tone="plus" />
-              {/* 2nd half: the month is worked out once, so this line is the month's;
-                  the payslip's own gross is shown above its net pay (2026-10-29). */}
-              <SummaryRow label={summary.settling ? "Monthly gross" : "Gross pay"} value={money(summary.gross)} strong />
-              {/* Percentage of salary (rate and base) vs rate × units (2026-10-26). */}
-              <SummaryRow label={locked ? govLabel("sss", "SSS") : "SSS"} value={`- ${money(summary.sss)}`} tone="minus" />
-              <SummaryRow label={locked ? govLabel("philhealth", "PhilHealth") : "PhilHealth"} value={`- ${money(summary.philhealth)}`} tone="minus" />
-              <SummaryRow label={locked ? govLabel("pagibig", "Pag-IBIG") : "Pag-IBIG"} value={`- ${money(summary.pagibig)}`} tone="minus" />
-              <SummaryRow label={locked ? taxLabel : "Withholding tax"} value={`- ${money(summary.tax)}`} tone="minus" />
-              <SummaryRow label={`Absences (${unitDays(form.absences, unit.absent)})`} value={`- ${money(summary.amounts.absent)}`} tone="minus" />
-              <SummaryRow label={`Late (${lateRules})`} value={`- ${money(summary.amounts.late)}`} tone="minus" />
-              <SummaryRow label={`Undertime (${toAmount(form.undertime)} min × ${peso(unit.hourly)}/hour)`} value={`- ${money(summary.amounts.undertime)}`} tone="minus" />
-              <SummaryRow label={`Half day (${unitDays(form.halfDays, unit.half_day)})`} value={`- ${money(summary.amounts.half_day)}`} tone="minus" />
-              <SummaryRow label="Leave with pay (no deduction)" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} />
-              <SummaryRow label={`Leave without pay (${unitDays(form.lwop, unit.daily)})`} value={`- ${money(summary.lwopDeduct)}`} tone="minus" />
-              <SummaryRow label="Loans / cash advance" value={`- ${money(summary.cashAdvance)}`} tone="minus" />
-              {summary.yearEndTax ? (
-                <SummaryRow
-                  label={summary.yearEndTax > 0 ? "Year-end tax adjustment (under-withheld)" : "Year-end tax refund (over-withheld)"}
-                  value={`${summary.yearEndTax > 0 ? "-" : "+"} ${money(Math.abs(summary.yearEndTax))}`}
-                  tone={summary.yearEndTax > 0 ? "minus" : "plus"}
-                />
-              ) : null}
-              {summary.extras.subsidy ? <SummaryRow label="Licensed teacher subsidy" value={`+ ${money(summary.extras.subsidy)}`} tone="plus" /> : null}
-              {winnerPay ? <SummaryRow label="Early Bird Incentive (period winner)" value={`+ ${money(winnerPay)}`} tone="plus" /> : null}
-              <SummaryRow label="Perfect attendance / other incentives" value={`+ ${money(toAmount(summary.shownIncentives - winnerPay))}`} tone="plus" />
-              {summary.settling ? (
-                <>
-                  <SummaryRow label="Incentives / overload pay" value={`+ ${money(summary.extras.other)}`} tone="plus" />
-                  {summary.extras.priorAttendance || summary.extras.priorEarnings ? (
-                    <>
-                      {/* The month is computed once: what the 1st cutoff already deducted
-                          (and paid beyond its Rate) is part of it; "Paid in 1st half" then
-                          takes that payslip's actual pay back out, so nothing counts twice. */}
-                      {summary.extras.priorAttendance ? <SummaryRow label="1st cutoff absences (already on that payslip, part of the month)" value={`- ${money(summary.extras.priorAttendance)}`} tone="minus" /> : null}
-                      {summary.extras.priorEarnings ? <SummaryRow label="1st cutoff extra earnings (part of the month)" value={`+ ${money(summary.extras.priorEarnings)}`} tone="plus" /> : null}
-                    </>
-                  ) : null}
-                  <SummaryRow label="Monthly net" value={money(summary.monthNet)} strong />
-                  <SummaryRow label={summary.extras.firstHalfStatus === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)"} value={`- ${money(summary.extras.firstHalfPaid)}`} />
-                  <SummaryRow label="Balance carried from last month (negative 2nd half)" value={`- ${money(summary.extras.carryIn)}`} tone="minus" />
-                  {summary.secondHalfNet < 0 ? <SummaryRow label="Carried to next month" value={money(Math.max(0, -summary.secondHalfNet))} tone="warn" /> : null}
-                </>
-              ) : null}
-              {summary.settling && summary.info.row?.defaults?.cutoff_gross !== undefined ? (
-                <SummaryRow label="Gross pay" value={money(summary.info.row.defaults.cutoff_gross)} strong />
-              ) : null}
-              <div className="mt-2 flex items-baseline justify-between gap-4 rounded-lg bg-primary/8 px-3 py-3">
-                <span className="font-semibold">{semiHalf(data) === "second" ? "2nd half net pay" : semiHalf(data) === "first" ? "1st half net pay" : "Net pay"}</span>
-                <span className="text-xl font-semibold text-primary tabular-nums">{money(summary.net)}</span>
-              </div>
+            <CardContent className="space-y-3">
+              {/* Every line tagged and grouped (src/lib/payroll/line-tags.js);
+                  the same figures as before, from computeSummary(). */}
+              {lineGroups ? (
+                <PayrollLineGroups
+                  result={lineGroups}
+                  net={summary.net}
+                  netLabel={semiHalf(data) === "second" ? "2nd half net pay" : semiHalf(data) === "first" ? "1st half net pay" : "Net pay"}
+                >
+                  {/* Totals for reference (2nd half: the month is computed once; the
+                      payslip's own gross is what HR and the employee see, 2026-10-29). */}
+                  <div className="space-y-1.5 border-t pt-2">
+                    <SummaryRow label={summary.settling ? "Monthly gross" : "Gross pay"} value={money(summary.gross)} />
+                    {summary.settling ? <SummaryRow label="Monthly net (before what the 1st half paid)" value={money(summary.monthNet)} strong /> : null}
+                    {summary.settling && summary.secondHalfNet < 0 ? <SummaryRow label="Carried to next month" value={money(Math.max(0, -summary.secondHalfNet))} tone="warn" /> : null}
+                    {summary.settling && summary.info.row?.defaults?.cutoff_gross !== undefined ? <SummaryRow label="Gross pay (this payslip, 2nd cutoff)" value={money(summary.info.row.defaults.cutoff_gross)} /> : null}
+                  </div>
+                  {summary.lwpDays ? <SummaryRow label="Leave with pay (no deduction)" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} /> : null}
+                </PayrollLineGroups>
+              ) : (
+                <div className="flex items-baseline justify-between gap-4 rounded-lg bg-primary/8 px-3 py-3">
+                  <span className="font-semibold">Net pay</span>
+                  <span className="text-xl font-semibold text-primary tabular-nums">{money(summary.net)}</span>
+                </div>
+              )}
+              <LineTagLegend />
             </CardContent>
           </Card>
           <Card className="shadow-xs">

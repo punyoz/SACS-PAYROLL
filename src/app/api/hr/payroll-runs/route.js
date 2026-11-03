@@ -37,6 +37,43 @@ import { money } from "@/lib/payroll/payslip-summary";
 import { buildXlsx } from "@/lib/export/xlsx";
 import { buildTablePdf } from "@/lib/export/table-pdf";
 import { FLAG_LABELS, RUN_STATUS_LABELS, describeRunError, runTotals, shapeRun } from "@/lib/payroll/runs";
+import { payrollLineGroups } from "@/lib/payroll/line-tags";
+import { generationWindow, loadPayCalendar } from "@/lib/payroll/generation-window";
+import { loadPayslipSchedule } from "@/lib/payroll/schedule";
+import { insideProcessingWindow, processingWindowLabel, processingWindowRange } from "@/lib/payroll/override-window";
+import { manilaDateKey, nextPeriod, periodForDateKey } from "@/lib/payroll/periods";
+
+/**
+ * GET ?view=processing_windows: the attendance-override processing windows
+ * of the previous, current and next pay periods, read-only. The Super Admin
+ * sets them (System Configuration -> Payslip Schedule); HR only sees them
+ * (decision 2026-11-03), so the person approving payroll never controls when
+ * changes are allowed.
+ */
+async function processingWindows(supabase) {
+  const today = manilaDateKey();
+  const current = periodForDateKey(today);
+  const before = new Date(`${current.start_key}T00:00:00Z`);
+  before.setUTCDate(before.getUTCDate() - 1);
+  const periods = [periodForDateKey(before.toISOString().slice(0, 10)), current, nextPeriod(today)];
+  const [payCalendar, schedule] = await Promise.all([loadPayCalendar(supabase), loadPayslipSchedule(supabase)]);
+  return {
+    today,
+    set_by: "Super Admin (System Configuration → Payslip Schedule)",
+    windows: periods.map((period) => {
+      const win = generationWindow(period, { today, payCalendar, schedule: schedule ? schedule.forPeriod(period.start_key) : null });
+      const range = processingWindowRange(win);
+      return {
+        period_label: period.label,
+        opens_on: range?.opens_on || null,
+        closes_on: range?.closes_on || null,
+        window_days: schedule ? schedule.forPeriod(period.start_key).window_days : null,
+        label: processingWindowLabel(win),
+        state: insideProcessingWindow(win, today) ? "open" : range && today < range.opens_on ? "upcoming" : "closed",
+      };
+    }),
+  };
+}
 import { listOpenExclusions } from "@/lib/payroll/run-service";
 import { notify } from "@/lib/branch-requests-server";
 import { textLimitError } from "@/lib/input-limits";
@@ -167,6 +204,21 @@ async function loadRunDetail(supabase, guard, runId) {
   ]);
   if (items.error) throw new Error(items.error.message);
   const rows = (items.data || []).map(shapeItem);
+  // Snapshots submitted before 2026-11-03 carry no grouped, tagged lines:
+  // they are read from the payslip itself while it still pays the snapshot's
+  // net (src/lib/payroll/line-tags.js; nothing is recomputed).
+  const untagged = rows.filter((row) => row.entry_id && !row.breakdown?.line_groups);
+  if (untagged.length) {
+    const found = await fetchAllIn(() => supabase.from("payroll_entries").select("id,payroll").order("id", { ascending: true }), "id", untagged.map((row) => row.entry_id));
+    const byId = new Map((found.data || []).map((entry) => [String(entry.id), entry]));
+    untagged.forEach((row) => {
+      const entry = byId.get(String(row.entry_id));
+      if (!entry) return;
+      const payroll = typeof entry.payroll === "string" ? JSON.parse(entry.payroll) : entry.payroll;
+      const groups = payrollLineGroups(payroll);
+      if (groups && Math.abs(Math.max(0, groups.net) - row.net_pay) < 0.015) row.breakdown = { ...row.breakdown, line_groups: groups };
+    });
+  }
   const totals = runTotals(rows);
   const early = winner.error ? null : shapeWinner(winner.data);
   // Another branch's winner is named only to HR and Super Admin.
@@ -281,6 +333,9 @@ export async function GET(request) {
 
     if (normalizeText(url.searchParams.get("view")) === "excluded") {
       return NextResponse.json({ excluded: await listOpenExclusions(supabase, guard) });
+    }
+    if (normalizeText(url.searchParams.get("view")) === "processing_windows") {
+      return NextResponse.json(await processingWindows(supabase));
     }
 
     const runId = normalizeText(url.searchParams.get("run_id"));

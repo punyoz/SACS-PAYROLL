@@ -7,6 +7,9 @@ import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { payslipVisible, requiresApproval } from "@/lib/payroll/runs";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { payrollLineGroups } from "@/lib/payroll/line-tags";
+import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
+import { loadTaxBracketRows } from "@/lib/payroll/payslip-details";
 
 function toAmount(value) {
   const n = Number(value || 0);
@@ -29,7 +32,7 @@ function colMissing(error, colName) {
 }
 
 // Map a payroll_entries row — has full JSONB payroll.
-function mapEntryToPayslip(row) {
+function mapEntryToPayslip(row, taxRows = []) {
   const payroll =
     (typeof row.payroll === "string" ? JSON.parse(row.payroll) : row.payroll) || {};
   const totals = payroll.totals || {};
@@ -91,6 +94,11 @@ function mapEntryToPayslip(row) {
     monthly: payroll.monthly && typeof payroll.monthly === "object" ? payroll.monthly : null,
     // Each holiday worked: name, day, hours and premium.
     holiday_lines: holidayPayLines(payroll),
+    // Every line grouped and tagged (src/lib/payroll/line-tags.js), from the
+    // payslip's stored figures; never the employer's shares.
+    line_groups: payrollLineGroups(payroll, {
+      taxTable: payroll.audit?.period?.start_key && taxRows.length ? taxTableFromRows(resolveTaxTableRows(taxRows, payroll.audit.period.start_key)) : [],
+    }),
   };
 }
 
@@ -158,7 +166,8 @@ async function fetchPayslipsForUser(supabase, userId) {
     }
 
     if (!error && Array.isArray(data) && data.length > 0) {
-      return (await onlyReleased(supabase, data)).map(mapEntryToPayslip);
+      const taxRows = await loadTaxBracketRows(supabase);
+      return (await onlyReleased(supabase, data)).map((row) => mapEntryToPayslip(row, taxRows));
     }
   } catch {
     // payroll_entries table may not exist — fall through

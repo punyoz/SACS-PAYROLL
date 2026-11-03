@@ -12,6 +12,7 @@ import { formatIssued, formatPeso, formatPesoShort, holidayLineLabel } from "@/l
 import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { MyBir2316Card } from "@/components/portal/bir-forms";
+import { LineTagLegend, PayrollLineGroups, WhyTaxNote } from "@/components/portal/payroll-lines";
 
 /*
  * The payslip breakdown, row for row as public/legacy/js/employee.js
@@ -171,14 +172,25 @@ function PayslipCard({ payslip }) {
             <span className="font-semibold">Early Bird winner</span> for {payslip.early_bird_winner.period_label || payslip.period_label}: {payslip.early_bird_winner.early_count} early time-in{payslip.early_bird_winner.early_count === 1 ? "" : "s"}, the most of any employee.
           </p>
         ) : null}
-        <dl className="space-y-2.5 text-sm">
-          {payslipRows(payslip).map((row, index) => (
-            <div key={`${row.label}-${index}`} className={cn("flex items-start justify-between gap-4", KIND_CLASS[row.kind])}>
-              <dt className="min-w-0">{row.label}</dt>
-              {row.value ? <dd className="shrink-0 tabular-nums">{row.value}</dd> : null}
-            </div>
-          ))}
-        </dl>
+        {payslip.line_groups ? (
+          // Grouped and tagged (2026-11-03): never the school's own shares.
+          <div className="space-y-3">
+            <PayrollLineGroups result={payslip.line_groups} taxTable={false} />
+            <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{formatPeso(payslip.line_groups.gross)}</span></div>
+            <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">- {formatPeso(payslip.line_groups.total_deductions)}</span></div>
+            <WhyTaxNote />
+            <LineTagLegend />
+          </div>
+        ) : (
+          <dl className="space-y-2.5 text-sm">
+            {payslipRows(payslip).map((row, index) => (
+              <div key={`${row.label}-${index}`} className={cn("flex items-start justify-between gap-4", KIND_CLASS[row.kind])}>
+                <dt className="min-w-0">{row.label}</dt>
+                {row.value ? <dd className="shrink-0 tabular-nums">{row.value}</dd> : null}
+              </div>
+            ))}
+          </dl>
+        )}
       </CardContent>
       <Separator />
       <div className="flex flex-wrap items-center justify-between gap-2 bg-primary/8 px-5 py-4">

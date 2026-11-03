@@ -17,7 +17,7 @@ import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from 
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
-import { buildPayslipDetails, payslipSeal } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
 import {
   SEMI_MONTHLY_RULE,
   SEMI_MONTHLY_RULES_EFFECTIVE,
@@ -95,6 +95,7 @@ import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadYearEndTaxContext } from "@/lib/payroll/bir-forms";
 import { applyYearEndTax, yearEndAdjustment, yearEndCutoffLine } from "@/lib/payroll/year-end-tax";
 import { CONTRIBUTION_MAX, DAYS_MAX, INCENTIVE_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX, pesoLimit } from "@/lib/input-limits";
+import { attendanceOverrideState, attendanceOverrides } from "@/lib/payroll/override-window";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -2947,6 +2948,92 @@ function refuseOutsideFinalWindow(genWindow) {
   return NextResponse.json({ error, code: "generation_window", genWindow }, { status: 403 });
 }
 
+/**
+ * The run status an attendance override is judged by (src/lib/payroll/
+ * override-window.js): the run the payslip is in; not in one yet, the
+ * period's latest run, except an approved one (a new payslip then goes into
+ * a supplemental run).
+ */
+function overrideRunStatus({ run, attached }) {
+  if (!run) return null;
+  return attached || run.status !== "approved" ? run.status : null;
+}
+
+/**
+ * Logs an attendance override the processing-window rule refused (who and
+ * when are the audit row's own actor and time), then answers 403.
+ */
+async function refuseAttendanceOverride(guard, { state, employee, period, overrides, entry = null, window = null, runStatus = null }) {
+  const fields = [...new Set((overrides || []).map((item) => DEVIATION_LABELS[item.field] || item.field))];
+  await appendAuditLog({
+    actor: guard,
+    module: "payroll",
+    action: "attendance_override_blocked",
+    entity_type: "payroll_entry",
+    entity_id: entry?.id || employee?.id || null,
+    branch_id: employee?.branch_id || null,
+    status: "failed",
+    source: "api",
+    description: `Attendance override refused for ${employee?.full_name || "an employee"} (${period?.label || "unknown period"}): ${state.message}${fields.length ? ` Fields: ${fields.join(", ")}.` : ""}`,
+    metadata: {
+      employee_id: employee?.id || null,
+      pay_period: period?.label || null,
+      code: state.code,
+      fields,
+      overrides: overrides || [],
+      payslip_no: entry?.payslip_no || null,
+      run_status: runStatus,
+      window: window ? { state: window.state, opens_on: window.opens_on, closes_on: window.closes_on || null, today: window.today } : null,
+    },
+  }).catch(() => {});
+  return NextResponse.json({ error: state.message, code: state.code, window_label: state.window_label }, { status: 403 });
+}
+
+const ATTENDANCE_INPUT_KEYS = ["absences_days", "late_days", "undertime_minutes", "half_days", "leave_without_pay_days"];
+
+/** True when a request carries any Absent / Late / Undertime / Half day / Leave without pay figure. */
+function carriesAttendanceInput(body) {
+  return ATTENDANCE_INPUT_KEYS.some((key) => body?.deductions?.[key] !== undefined && body?.deductions?.[key] !== null && body?.deductions?.[key] !== "");
+}
+
+/**
+ * An employee outside the Accountant's branch (the branch list does not
+ * have them): with attendance figures sent, a refused override, logged;
+ * otherwise null (the caller answers "not found").
+ */
+async function refuseOtherBranchOverride(supabase, guard, body) {
+  if (!carriesAttendanceInput(body)) return null;
+  const id = normalizeText(body.employee_id);
+  if (!id) return null;
+  const found = await supabase.from("profiles").select("id,branch_id,full_name").eq("id", id).maybeSingle();
+  if (found.error || !found.data) return null;
+  const label = normalizeText(body.pay_period);
+  const sent = ATTENDANCE_INPUT_KEYS.filter((key) => body.deductions[key] !== undefined).map((field) => ({ field, value: toAmount(body.deductions[field]) }));
+  return refuseAttendanceOverride(guard, {
+    state: attendanceOverrideState({ sameBranch: false }),
+    employee: { id: found.data.id, branch_id: found.data.branch_id, full_name: found.data.full_name },
+    period: { label },
+    overrides: sent,
+  });
+}
+
+/**
+ * The attendance overrides a request carries for one employee, priced the
+ * way buildEmployeePayroll would (for the refusals that answer before the
+ * payroll is built). [] when the context cannot be loaded.
+ */
+async function attendanceOverridesSent(supabase, employee, period, body, actor) {
+  try {
+    const payContext = await loadPeriodPayContext(supabase, [employee], period, { actor });
+    const context = payContext.byEmployee.get(employee.id);
+    if (!context) return [];
+    const built = buildEmployeePayroll({ employee, context, input: body, allowAttendanceOverrides: true, period, actor });
+    return attendanceOverrides(built.deviations);
+  } catch {
+    return [];
+  }
+}
+
 function addDayKey(dateKey, days) {
   const date = new Date(`${dateKey}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -3858,7 +3945,7 @@ export async function GET(request) {
         historyRecords.filter((record) => record.pay_period === (selectedPeriod || activeLabel) || record.id === requestedEntryId),
         generatedDrafts,
       ),
-      payslip: buildPayslipDetails(payslipSource),
+      payslip: buildPayslipDetails(payslipSource, { taxRows: payslipSource ? await loadTaxBracketRows(supabase) : [] }),
       generation_window: genWindow,
       // Super Admin only: change a Final payslip, with a reason.
       can_override: guard.scope === SCOPE_ALL,
@@ -4036,6 +4123,19 @@ async function handleBatchSubmit(supabase, body, guard) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: built.refusal, code: built.refusal_code || "month_settled" });
       continue;
     }
+    // A changed Leave without pay is an attendance override (2026-11-03):
+    // only inside the processing window, or on a run HR rejected. The
+    // employee is skipped (and the attempt logged); the rest are processed.
+    const batchOverrides = attendanceOverrides(built.deviations);
+    if (batchOverrides.length) {
+      const runStatus = overrideRunStatus({ run: runs.get(String(employee.branch_id || "")) || null, attached: false });
+      const state = attendanceOverrideState({ window: batchWindow, runStatus });
+      if (!state.allowed) {
+        await refuseAttendanceOverride(guard, { state, employee, period, overrides: batchOverrides, window: batchWindow, runStatus });
+        skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: state.message, code: state.code });
+        continue;
+      }
+    }
     // Only this employee waits; everyone else in the batch is processed.
     if (built.blocking.length) {
       skipped.push({
@@ -4206,6 +4306,8 @@ export async function POST(request) {
     const employee = employees.find((row) => row.id === employeeId);
 
     if (!employee) {
+      const otherBranch = await refuseOtherBranchOverride(supabase, guard, body);
+      if (otherBranch) return otherBranch;
       return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     }
     const own = refuseOwnPayroll(guard, employee.id);
@@ -4217,14 +4319,23 @@ export async function POST(request) {
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
     const badAttendance = attendanceInputError(body.deductions, period) || overrideReasonError(body.override_reason);
     if (badAttendance) return NextResponse.json({ error: badAttendance, code: "invalid_attendance_input" }, { status: 400 });
-    // A branch run waiting for HR or approved takes no new payslip or draft.
-    const runLock = governingRunMessage(await governingRunFor(supabase, employee, period.label));
-    if (runLock) return NextResponse.json({ error: runLock, code: "payroll_run_locked" }, { status: 409 });
-    if (action === "submit") {
-      const refused = refuseOutsideFinalWindow(await periodWindow(supabase, period));
-      if (refused) return refused;
-    }
     const actor = { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) };
+    // A branch run waiting for HR or approved takes no new payslip or draft.
+    const governing = await governingRunFor(supabase, employee, period.label);
+    const runLock = governingRunMessage(governing);
+    // The processing window: attendance overrides only inside it (2026-11-03).
+    const genWindow = await periodWindow(supabase, period);
+    const submitRefused = action === "submit" ? refuseOutsideFinalWindow(genWindow) : null;
+    if (runLock || submitRefused) {
+      // An override sent with it is refused (and logged) as one.
+      const sent = await attendanceOverridesSent(supabase, employee, period, body, actor);
+      if (sent.length) {
+        const state = attendanceOverrideState({ window: genWindow, runStatus: overrideRunStatus(governing) });
+        if (!state.allowed) return await refuseAttendanceOverride(guard, { state, employee, period, overrides: sent, window: genWindow, runStatus: overrideRunStatus(governing) });
+      }
+      if (runLock) return NextResponse.json({ error: runLock, code: "payroll_run_locked" }, { status: 409 });
+      return submitRefused;
+    }
     const payContext = await loadPeriodPayContext(supabase, [employee], period, { actor });
     if (action === "submit" && (!payContext.engineReady || !payContext.ratesReady)) {
       return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
@@ -4244,6 +4355,17 @@ export async function POST(request) {
 
     if (built.refusal) {
       return NextResponse.json({ error: built.refusal, code: built.refusal_code || "month_settled" }, { status: 422 });
+    }
+    // Absent / Late / Undertime / Half day / Perfect attendance changed from
+    // the attendance logs: only inside the processing window, on a payroll
+    // still open, for the Accountant's own branch (override-window.js).
+    const overridesSent = attendanceOverrides(built.deviations);
+    if (overridesSent.length) {
+      const { entries: periodEntries } = await readPayrollEntries(supabase, { employeeIds: [employee.id], labels: [period.label] });
+      const finalEntry = periodEntries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label && entry.status !== "draft") || null;
+      const runStatus = overrideRunStatus(governing);
+      const state = attendanceOverrideState({ window: genWindow, runStatus, payslipStatus: finalEntry ? "final" : null });
+      if (!state.allowed) return await refuseAttendanceOverride(guard, { state, employee, period, overrides: overridesSent, entry: finalEntry, window: genWindow, runStatus });
     }
     if (action === "submit" && built.blocking.length) {
       // 422, not 409: the portal reads 409 as "already processed".
@@ -4543,7 +4665,33 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
   }
   const context = payContext.byEmployee.get(employee.id);
-  const built = buildEmployeePayroll({ employee, context, input: {}, allowAttendanceOverrides: false, period, actor });
+  // Attendance overrides with Generate / Reprocess (2026-11-03): only where
+  // override-window.js allows them -- inside the processing window on a
+  // payroll still open, or a run HR rejected (reopened for that run only).
+  // Everything else is computed from the records, as before.
+  const overrideInput = !override && (carriesAttendanceInput(body) || typeof body.incentives?.perfect_attendance === "boolean")
+    ? {
+      deductions: Object.fromEntries(ATTENDANCE_INPUT_KEYS.filter((key) => body.deductions?.[key] !== undefined).map((key) => [key, body.deductions[key]])),
+      incentives: typeof body.incentives?.perfect_attendance === "boolean" ? { perfect_attendance: body.incentives.perfect_attendance } : {},
+      override_reason: body.override_reason,
+    }
+    : null;
+  let built = buildEmployeePayroll({ employee, context, input: {}, allowAttendanceOverrides: false, period, actor });
+  if (overrideInput) {
+    const badInput = attendanceInputError(overrideInput.deductions, period) || overrideReasonError(overrideInput.override_reason);
+    if (badInput) return NextResponse.json({ error: badInput, code: "invalid_attendance_input" }, { status: 400 });
+    const withOverrides = buildEmployeePayroll({ employee, context, input: overrideInput, allowAttendanceOverrides: true, period, actor });
+    const sent = attendanceOverrides(withOverrides.deviations);
+    if (sent.length) {
+      const runStatus = overrideRunStatus(governing);
+      const state = attendanceOverrideState({ window: genWindow, runStatus, payslipStatus: existingFinal ? "final" : null });
+      if (!state.allowed) return await refuseAttendanceOverride(guard, { state, employee, period, overrides: sent, entry: existing, window: genWindow, runStatus });
+      if (!withOverrides.reason) {
+        return NextResponse.json({ error: describeMissingReason(sent), code: "override_reason_required", deviations: sent }, { status: 400 });
+      }
+      built = withOverrides;
+    }
+  }
   if (built.refusal) {
     return NextResponse.json({ error: built.refusal, code: built.refusal_code || "month_settled" }, { status: 422 });
   }
@@ -4702,6 +4850,9 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
       attendance_through: through,
       attendance_summary: built.payroll.generation.attendance_summary,
       confirmed_incomplete: built.blocking.length ? built.blocking : undefined,
+      // Attendance overrides applied with it (processing window / reopened run).
+      deviations: !override && built.deviations.length ? built.deviations : undefined,
+      override_reason: !override && built.deviations.length ? built.reason || null : undefined,
       totals: {
         gross_pay: built.payroll.totals.gross_pay,
         total_deductions: built.payroll.totals.total_deductions,

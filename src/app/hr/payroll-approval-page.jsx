@@ -32,6 +32,7 @@ import { CorrectionsCard } from "@/components/portal/payroll-corrections";
 import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exclusions";
 import { cn } from "@/lib/utils";
 import { SEARCH_MAX } from "@/lib/input-limits";
+import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 
 /*
  * HR → Payroll Approval (/api/hr/payroll-runs). One row per branch per pay
@@ -173,6 +174,37 @@ function DecisionDialog({ decision, onClose, onDone }) {
   );
 }
 
+/*
+ * The attendance-override processing windows, read-only (2026-11-03): the
+ * Super Admin sets them; HR sees when the Accountant may override. HR reopens
+ * a run's overrides only by rejecting it, with a reason.
+ */
+function ProcessingWindows() {
+  const [data, setData] = React.useState(null);
+  React.useEffect(() => {
+    let live = true;
+    fetchJson("/api/hr/payroll-runs?view=processing_windows").then((d) => { if (live) setData(d); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  if (!data?.windows?.length) return null;
+  const tone = { open: "success", upcoming: "info", closed: "muted" };
+  return (
+    <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm" data-testid="hr-processing-windows">
+      <p className="font-medium">Override processing windows <span className="font-normal text-muted-foreground">(read-only; set by the {data.set_by})</span></p>
+      <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+        {data.windows.map((w) => (
+          <li key={w.period_label} className="flex flex-wrap items-center gap-1.5">
+            <span className="text-muted-foreground">{w.period_label}:</span>
+            <span className="tabular-nums">{w.label}</span>
+            <StatusBadge tone={tone[w.state] || "muted"}>{w.state === "open" ? "Open now" : w.state === "upcoming" ? "Upcoming" : "Closed"}</StatusBadge>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs text-muted-foreground">Outside its window the Accountant cannot override Absent, Late, Undertime, Half day, Leave without pay or Perfect attendance. Rejecting a run (with a reason) reopens overrides for that run only.</p>
+    </div>
+  );
+}
+
 /* ── Run detail ─────────────────────────────────────────────────────────── */
 
 function lineHow(line) {
@@ -185,6 +217,8 @@ function lineHow(line) {
 
 function Breakdown({ item, firstCutoff }) {
   const b = item.breakdown || {};
+  // Grouped and tagged lines (2026-11-03) when the payslip supports them.
+  const groups = b.line_groups || null;
   const lines = b.lines || {};
   const earnings = b.cutoff?.earnings || [
     { label: "Basic pay", amount: item.basic_pay },
@@ -195,7 +229,7 @@ function Breakdown({ item, firstCutoff }) {
   return (
     <div className="grid gap-4 p-3 md:grid-cols-2">
       <div className="space-y-2">
-        <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Earnings</p>
+        {groups ? null : <><p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Earnings</p>
         <ul className="space-y-1 text-sm">
           {earnings.map((line, i) => (
             <li key={`${line.label}-${i}`} className="flex items-baseline justify-between gap-3">
@@ -204,7 +238,7 @@ function Breakdown({ item, firstCutoff }) {
             </li>
           ))}
           <li className="flex justify-between border-t pt-1 font-semibold"><span>Gross pay</span><span className="tabular-nums">{money(item.gross_pay)}</span></li>
-        </ul>
+        </ul></>}
         <p className="pt-2 text-xs font-semibold tracking-wide text-gold-text uppercase">Attendance</p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
           <div><dt className="text-muted-foreground">Days worked</dt><dd className="tabular-nums">{item.days_worked}</dd></div>
@@ -217,8 +251,14 @@ function Breakdown({ item, firstCutoff }) {
         {b.window ? <p className="text-xs text-muted-foreground">Attendance counted {shortDate(b.window.start_key)} – {dateLabel(b.window.end_key)} · schedule: {item.schedule_name || "—"}</p> : null}
       </div>
       <div className="space-y-2">
-        <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Deductions{firstCutoff ? " (attendance only on the 1st cutoff)" : ""}</p>
-        {deductions.length ? (
+        {groups ? (
+          <>
+            <PayrollLineGroups result={groups} />
+            <div className="flex justify-between border-t pt-1 text-sm font-semibold"><span>Gross pay (this cutoff)</span><span className="tabular-nums">{money(groups.gross)}</span></div>
+            <LineTagLegend />
+          </>
+        ) : <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Deductions{firstCutoff ? " (attendance only on the 1st cutoff)" : ""}</p>}
+        {groups ? null : deductions.length ? (
           <ul className="space-y-1 text-sm">
             {deductions.map((line, i) => (
               <li key={`${line.label}-${i}`} className="flex items-baseline justify-between gap-3">
@@ -239,7 +279,7 @@ function Breakdown({ item, firstCutoff }) {
             </ul>
           </details>
         ) : null}
-        {b.taxable_income !== null && b.taxable_income !== undefined && !firstCutoff ? (
+        {b.taxable_income !== null && b.taxable_income !== undefined && !firstCutoff && !groups ? (
           <p className="text-xs text-muted-foreground">Withholding tax from the monthly table on the whole month&apos;s taxable income, {money(b.taxable_income)}.</p>
         ) : null}
         <div className="flex justify-between border-t pt-1 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums">{money(item.total_deductions)}</span></div>
@@ -566,6 +606,7 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
+          <ProcessingWindows />
           <Tabs value={tab} onValueChange={(v) => { setTab(v); setSelected(new Set()); }}>
             <div className="-mx-1 overflow-x-auto px-1 pb-1">
               <TabsList className="w-max">{TABS.map((t) => <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>)}</TabsList>

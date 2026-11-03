@@ -21,7 +21,7 @@ import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
-import { buildPayslipDetails, payslipSeal } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
 
 const RUN_LABELS = { pending: "Pending HR approval", approved: "Approved", rejected: "Rejected" };
 
@@ -93,7 +93,7 @@ export async function GET(request) {
         if (!staff.some((person) => person.id === entry.employee_id)) entry = null;
       }
       if (!entry) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
-      const details = buildPayslipDetails(entry);
+      const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase) });
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
         const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
         const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
