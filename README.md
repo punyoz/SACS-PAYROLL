@@ -223,6 +223,7 @@ The schema has 46 tables and 3 read-only views:
 | `docs/employee-schedules-cutoffs-early-bird.md` | Per-employee schedules, per-cutoff deductions, the 7-day leave rule, the Early Bird incentive, and their test cases |
 | `docs/local-migration-replay.md` | Testing migrations locally; repairing the migration history |
 | `docs/hosting.md` | Free hosting options compared; moving to an Oracle Cloud VM step by step |
+| `docs/hosting-and-operations.md` | Supabase Pro: plan, region, backups and recovery plan, security settings, limits, monthly cost and checklist |
 | `docs/backup-and-restore.md` | Free-plan limits, backups, restore test, keep-alive |
 | `docs/monitoring.md` | Sentry error monitoring set-up |
 | `docs/go-live.md` | Going live: backup, clearing test data, host variables, deploy, rollback, smoke test, RFID kits |

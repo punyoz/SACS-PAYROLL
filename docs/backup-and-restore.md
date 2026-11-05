@@ -1,5 +1,12 @@
 # Backup and restore (Supabase Free plan)
 
+> **Update 2026-11-05: the organization is now on Supabase Pro.** Supabase
+> keeps daily backups for 7 days; see
+> [hosting-and-operations.md](hosting-and-operations.md) for the Pro set-up
+> and the recovery plan. The school's own export (section 2) and the
+> restore test (section 3) still apply. Sections 1 and 5 (Free-plan limits,
+> keep-alive) are kept until their removal is approved.
+
 The project stays on the Free plan for now. Supabase keeps **no backup you
 can download or restore** on Free, so the school keeps its own. **Real
 payroll data goes in only after a restore has been tested** (section 3).
