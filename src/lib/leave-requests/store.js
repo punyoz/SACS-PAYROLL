@@ -25,6 +25,9 @@ export function normalizeLeaveRequest(row) {
     reason: String(row.reason || "No reason provided."),
     // Preserve proof_url exactly — it may be a large base64 data URL.
     proof_url: String(row.proof_url || ""),
+    // The proof file in the private leave-proofs bucket (20261105030000);
+    // requests filed before it keep their proof in proof_url.
+    proof_path: row.proof_path || null,
     status: String(row.status || "pending_accountant").toLowerCase(),
     submitted_at: row.submitted_at || new Date().toISOString(),
     decided_at: row.decided_at || null,
@@ -63,7 +66,7 @@ export async function readAllLeaveRequests(filters = {}) {
 // Every column except proof_url, the base64 proof document (hundreds of KB a
 // row; on 2026-10-29 the 4 live rows held 2.9 MB of proof and 1.3 KB of
 // everything else).
-const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave_type,start_date,end_date,reason,status,submitted_at,decided_at,updated_at,pay_status,branch_id,decided_by,decided_by_name,cancelled_at,cancelled_by_name";
+const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave_type,start_date,end_date,reason,status,submitted_at,decided_at,updated_at,pay_status,branch_id,decided_by,decided_by_name,cancelled_at,cancelled_by_name,proof_path";
 
 /**
  * readAllLeaveRequests without the proof document, for every caller that

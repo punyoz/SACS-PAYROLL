@@ -77,13 +77,20 @@ every table** (including all audit tables), the migration history, and a
 checksum manifest. It only reads the database. It needs Docker Desktop and
 the database connection string in `.env.local`.
 
-Run it:
+It runs **automatically**: the Windows task *SACS Payroll backup* (installed
+2026-11-05 by `scripts/backup/install-scheduled-backup.ps1`) checks every day
+at 16:30 and backs up on:
 
 | When | Why |
 |---|---|
-| Before every payroll closing (the 15th and month end) | the payslips about to be locked |
-| Every Friday afternoon | the week's attendance |
-| Before applying any migration | a way back |
+| The 14th and the day before the last day of the month | the payslips about to be locked |
+| Every Friday | the week's attendance |
+| By hand, before applying any migration | a way back |
+
+The live connection string is read only from `.env.live.local`; results go
+to `backup.log` in the `SACS-Payroll` folder under `%LOCALAPPDATA%`. The PC
+must be on and signed in (a missed run starts at the next sign-in). Copying
+each new folder off-site is still a person's job.
 
 The files hold names, salaries and password hashes. Keep them on an
 **encrypted** USB drive or a restricted school folder, plus one copy off-site,
@@ -123,24 +130,26 @@ branch or second project costs money (section 9) and needs approval.
 - Row Level Security is **on for all 67 tables** in `public`. Clients have no
   direct table access; every read and write goes through the app's server
   routes, which check the role and branch.
-- Database security advisor: one item remained (a table with RLS on but no
-  stated policy); the fix is migration
-  `20261105010000_payroll_run_exclusions_policy_index.sql`, pending approval.
+- Database security advisor: **clean** since 2026-11-05 (migration
+  `20261105010000` stated the last missing policy; leaked-password
+  protection turned on).
 - Sign-in: password plus an e-mailed code (Gmail), 8-character minimum with
   upper, lower, digit and symbol, an app-level breached-password check
   (HaveIBeenPwned range API), refresh-token rotation, and the app's own
   session limit.
 - Redirect URLs list only the production domain and `localhost:3000`.
 
-Settings still to decide (free on Pro, need the school's go-ahead):
+Settings changed on 2026-11-05 (all free on Pro):
 
-| Setting | Now | Recommended | Why |
+| Setting | Before | Now | Why |
 |---|---|---|---|
-| Leaked-password protection (Supabase) | off | on | second layer behind the app's own check; no code change |
-| Allow new users to sign up | on | off | the app never uses public sign-up; staff accounts are created by HR / Super Admin on the server, which still works |
-| Enforce SSL on direct database connections | off | on | only the backup script connects directly, and it already uses SSL |
-| Auth database connections | fixed 10 | percentage | only matters after a compute upgrade |
-| Redirect URL `http://localhost:3000/supabase-status` | listed | remove | leftover development page |
+| Leaked-password protection (Supabase) | off | **on** | second layer behind the app's own check |
+| Allow new users to sign up | on | **off** | the app never uses public sign-up; staff accounts are created on the server (admin API), which still works. Checked: a public sign-up attempt is refused (`signup_disabled`). |
+| Enforce SSL on database connections | off | **on** | the backup script was re-run afterwards and succeeded |
+| Redirect URLs | included `localhost:3000/supabase-status` | production domain and `localhost:3000` only | leftover development page |
+
+Still open: the Auth server's database connections are a fixed 10; switch
+to a percentage only if the compute size is ever upgraded.
 
 ## 4. Performance and connections
 
@@ -155,19 +164,28 @@ Settings still to decide (free on Pro, need the school's go-ahead):
 - Scale test (local, 2026-10-22/28): 1,210 employees, 5 years, 1.56 million
   attendance rows (about 2 GB). Most pages about 0.8 s; Accountant pages 1 to
   8 s; Payroll Reports and HR Payroll Records about 23 s because of the BIR
-  forms card (known, fix proposed). This ran on a laptop, not on Micro; a
-  load test on Micro-sized hardware needs a temporary branch (section 9).
+  forms card (known, fix proposed). This ran on a laptop, not on Micro. A
+  load test on a temporary Micro branch was approved by the school
+  (about USD 0.05) but **not run yet**: creating the branch needs a separate
+  permission in the developer's tool. Until then, "Micro is enough" is an
+  estimate, not a measurement.
+- **Development** runs against the free local Supabase stack (`.env.local`);
+  the live project's settings are kept apart in `.env.live.local`, read only
+  by the backup.
 
 ## 5. Storage
 
 | Bucket | Public | Size limit | Types | Links |
 |---|---|---|---|---|
 | `profile-photos` | no | 2 MB | `image/webp` (the server converts uploads) | signed, expiring |
+| `leave-proofs` | no | 2 MB | `application/pdf`, `image/png`, `image/jpeg` | none: sent only through `/api/hr/leave-requests/proof` after the role and branch checks |
 
-- **Leave proof documents** are not in a bucket: they are stored inside the
-  `leave_requests` row as a base64 PDF/PNG/JPEG, at most 2 MB, checked on the
-  server (`src/lib/leave-requests/proof.js`). Only HR's Leave Requests list
-  sends them; every other screen reads leave without them.
+- **Leave proof documents** filed from 2026-11-05 are files in the private
+  `leave-proofs` bucket (migration `20261105030000`); the row keeps only the
+  path. The server also checks that the file really is a PDF, PNG or JPEG by
+  its first bytes. HR's list no longer carries the files: a proof is fetched
+  only when HR clicks View. The 3 proofs filed earlier stay inside their rows
+  (nothing was moved or deleted).
 - **Payslip and report PDFs** are generated in the browser and downloaded;
   nothing is stored.
 
@@ -180,15 +198,18 @@ one profile picture of about 0.2 MB per person.
 
 | Limit | 200 employees | 500 employees |
 |---|---|---|
-| Database 8 GB | ~66 MB + 280 MB proofs ≈ **0.35 GB/yr → about 20 years** | ~165 MB + 700 MB proofs ≈ **0.9 GB/yr → about 8 years** |
-| File storage 100 GB | ~40 MB total → **never in practice** | ~100 MB total → **never in practice** |
+| Database 8 GB | ~66 MB/yr → **over 100 years** (about 20 years if proofs had stayed in the database) | ~165 MB/yr → **about 48 years** (about 8 years before) |
+| File storage 100 GB | ~280 MB/yr of proofs + ~40 MB of pictures → **about 300 years** | ~700 MB/yr + ~100 MB → **about 140 years** |
 | Egress 250 GB/month | estimate 5 to 10 GB/month → **not reached** | estimate 12 to 25 GB/month → **not reached** |
 | Monthly active users 100,000 | 200 → not reached | 500 → not reached |
 | Edge Function calls 2 million | ~0 (manual re-runs only) | ~0 |
 
-Leave proofs are about 80% of the expected database growth. Moving them to a
-private bucket (100 GB) would stretch the database limit to decades; that is
-a change to the leave feature and is listed as a decision, not done.
+Leave proofs were about 80% of the expected database growth. Since
+2026-11-05 they go to the private bucket (100 GB), so the database grows
+only about 66 MB a year at 200 staff and 165 MB at 500: **8 GB lasts
+decades**. The bucket gains the 280 to 700 MB a year instead, far inside
+100 GB.
+
 Exceeding 8 GB is not a cliff on Pro: extra disk is billed (USD 0.125 per GB
 per month), and with the spend cap on it is limited instead.
 

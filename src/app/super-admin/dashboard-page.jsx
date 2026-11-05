@@ -38,15 +38,18 @@ const TODAY_CHART = {
 };
 
 /**
- * Database size against the hosting plan: amber from 350 MB, red at the
- * Free plan's 500 MB (the database turns read-only). Decision 2026-10-22:
- * keep every year online and move to Supabase Pro before the limit.
+ * Database size against the hosting plan: amber from 6 GB, red at the
+ * 8 GB included in Supabase Pro (beyond it extra disk is billed, or held back
+ * by the spend cap). Decision 2026-10-22: keep every year online.
  */
 function databaseSizeRow(size) {
-  const mb = (bytes) => `${Math.round(Number(bytes || 0) / (1024 * 1024))} MB`;
-  const meta = `${mb(size.bytes)} of ${mb(size.limit_bytes)} (Supabase Free)`;
-  if (size.bytes >= size.limit_bytes) return { key: "size", icon: DatabaseIcon, label: "Database size", meta: `${meta}: over the limit, upgrade to Supabase Pro now`, pill: "Full", tone: "danger" };
-  if (size.bytes >= size.warn_bytes) return { key: "size", icon: DatabaseIcon, label: "Database size", meta: `${meta}: plan the upgrade to Supabase Pro`, pill: "Upgrade soon", tone: "warning" };
+  const fmt = (bytes) => {
+    const value = Number(bytes || 0);
+    return value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(1)} GB` : `${Math.round(value / (1024 * 1024))} MB`;
+  };
+  const meta = `${fmt(size.bytes)} of ${fmt(size.limit_bytes)} (Supabase Pro)`;
+  if (size.bytes >= size.limit_bytes) return { key: "size", icon: DatabaseIcon, label: "Database size", meta: `${meta}: over the included size, check the Supabase bill and spend cap`, pill: "Full", tone: "danger" };
+  if (size.bytes >= size.warn_bytes) return { key: "size", icon: DatabaseIcon, label: "Database size", meta: `${meta}: nearing the included size`, pill: "Check soon", tone: "warning" };
   return { key: "size", icon: DatabaseIcon, label: "Database size", meta, pill: "OK", tone: "success" };
 }
 

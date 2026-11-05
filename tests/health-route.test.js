@@ -5,8 +5,8 @@ import { resetDb, setMissingTables, table } from "./helpers/fake-supabase.js";
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
 /**
- * GET /api/health keeps the Free-plan project awake (one real database read)
- * and feeds the uptime monitor. It must answer without a session and reveal
+ * GET /api/health makes one real database read and feeds the uptime
+ * monitor. It must answer without a session and reveal
  * nothing but up / down.
  */
 

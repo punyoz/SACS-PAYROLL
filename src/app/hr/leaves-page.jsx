@@ -30,7 +30,8 @@ const range = (req) => ({
   days: req.days || req.duration_days || "?",
   from: req.from_date || req.start_date || "—",
   to: req.to_date || req.end_date || "—",
-  proof: req.proof_url || req.proof_data || "",
+  // A truthy marker for a stored proof (fetched on View, 20261105030000).
+  proof: req.proof_url || req.proof_data || (req.has_stored_proof ? "stored" : ""),
 });
 
 /** The branch Admin's recommendation on a leave request; HR still decides. */
@@ -48,7 +49,18 @@ function AdminRecommendation({ rec, compact = false }) {
 export function LeavesPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
-  const [proofViewer, openProof] = useProofViewer();
+  const [proofViewer, openInlineProof] = useProofViewer();
+  // Older requests carry the proof inline; newer ones keep it in the private
+  // bucket and it is fetched only when HR clicks View.
+  const openProof = React.useCallback(async (req) => {
+    if (!req.has_stored_proof) { openInlineProof(range(req).proof); return; }
+    try {
+      const data = await fetchJson(`/api/hr/leave-requests/proof?id=${encodeURIComponent(req.id)}`);
+      openInlineProof(data.proof_url);
+    } catch (error) {
+      notify("Cannot open proof", error.message || "The proof document could not be loaded.", "error");
+    }
+  }, [openInlineProof, notify]);
   const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [] });
   const [busy, setBusy] = React.useState(null);
   // The branch Admins' recommendations, by leave request (2026-10-20).
@@ -125,7 +137,7 @@ export function LeavesPage({ refreshKey }) {
     { key: "duration", header: "Duration", className: "whitespace-nowrap tabular-nums", cell: (r) => { const x = range(r); return `${x.days}d · ${x.from} – ${x.to}`; } },
     { key: "reason", header: "Reason", className: "max-w-48 truncate text-muted-foreground", cell: (r) => r.reason || "—", searchValue: (r) => r.reason },
     { key: "branch_admin", header: "Branch Admin", cell: (r) => <AdminRecommendation rec={recs.get(r.id)} compact /> },
-    { key: "proof", header: "Proof", cell: (r) => (range(r).proof ? <Button variant="outline" size="sm" onClick={() => openProof(range(r).proof)}><PaperclipIcon aria-hidden="true" />View</Button> : "—") },
+    { key: "proof", header: "Proof", cell: (r) => (range(r).proof ? <Button variant="outline" size="sm" onClick={() => openProof(r)}><PaperclipIcon aria-hidden="true" />View</Button> : "—") },
     {
       key: "status",
       header: "Decision",
@@ -184,7 +196,7 @@ export function LeavesPage({ refreshKey }) {
                       <AdminRecommendation rec={recs.get(req.id)} />
                     </div>
                     <div className="mt-auto flex flex-wrap items-center gap-2">
-                      {x.proof ? <Button variant="outline" size="sm" onClick={() => openProof(x.proof)}><PaperclipIcon aria-hidden="true" />View proof</Button> : null}
+                      {x.proof ? <Button variant="outline" size="sm" onClick={() => openProof(req)}><PaperclipIcon aria-hidden="true" />View proof</Button> : null}
                       <div className="ml-auto flex gap-2">
                         <Button variant="destructive" size="sm" onClick={() => decide(req, "reject")} disabled={Boolean(busy)}><XIcon aria-hidden="true" />Reject</Button>
                         <Button size="sm" onClick={() => decide(req, "approve")} disabled={Boolean(busy)}><CheckIcon aria-hidden="true" />Approve</Button>

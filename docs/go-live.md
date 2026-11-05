@@ -257,6 +257,6 @@ Do this at each of the 4 branches:
   Providers → Email → "Prevent use of leaked passwords"). Supabase checks
   each new password against HaveIBeenPwned and refuses known-leaked ones.
   The security advisor flags it as off. Skipped for now by decision
-  (2026-10-21) because it needs a paid plan. The organization is on Pro
-  since 2026-11; it can be turned on now, with no code change (the app's own
-  check in src/lib/auth/breached-password.js stays as a second layer).
+  (2026-10-21) because it needed a paid plan. **Done 2026-11-05** on Pro
+  (the app's own check in src/lib/auth/breached-password.js stays as a
+  second layer).

@@ -412,6 +412,12 @@ export async function POST(request) {
           basic_salary: record.basic_salary,
           // Position-scoped payroll rates read this copy, never user_metadata.
           position: normalizePositionForRole(record.position, role),
+          // Fix 2026-11-05: profiles is what every listing and payroll read
+          // (src/lib/payroll/staff.js prefers it over user_metadata). Left
+          // out, every new hire took the column default "Teaching" and
+          // "Active", whatever the form said (HR's edit already wrote them).
+          ...(record.employee_type ? { employee_type: record.employee_type } : {}),
+          ...(record.employee_status ? { employee_status: record.employee_status } : {}),
           cp_number: normalizeDigits(body.cp_number, 11) || null,
           date_hired: normalizeText(body.date_hired, "") || null,
           address: normalizeText(body.address, "") || null,
@@ -671,6 +677,8 @@ export async function PATCH(request) {
       if (body.tin_number !== undefined) profilePatch.tin_number = normalizeDigits(body.tin_number, 14);
       // Position-scoped payroll rates read profiles.position, never user_metadata.
       if (nextMetadata.position) profilePatch.position = nextMetadata.position;
+      // Same as on create (fix 2026-11-05): the listings read profiles.
+      if (body.employee_type !== undefined && nextMetadata.employee_type) profilePatch.employee_type = nextMetadata.employee_type;
       // profiles holds the trusted salary payroll reads (src/lib/auth/users-cache.js).
       if (Number.isFinite(nextMetadata.basic_salary) && nextMetadata.basic_salary >= 0) {
         profilePatch.basic_salary = nextMetadata.basic_salary;

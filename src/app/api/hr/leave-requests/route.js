@@ -36,10 +36,14 @@ export async function GET(request) {
     const PENDING = ["pending_admin", "pending_accountant"];
     const scope = guard.branchExempt ? {} : { branchId: guard.branchId };
     const since = new Date(Date.now() - 366 * 86400000).toISOString();
-    const [pending, history] = await Promise.all([
+    // A stored proof (20261105030000) is not sent with the list: the page asks
+    // GET /api/hr/leave-requests/proof?id= for it when HR clicks View. The
+    // list only says there is one. Older requests still carry proof_url.
+    const withProofFlag = ({ proof_path: proofPath, ...row }) => ({ ...row, has_stored_proof: Boolean(proofPath) });
+    const [pending, history] = (await Promise.all([
       readAllLeaveRequests({ ...scope, statuses: PENDING }),
       status === "pending" ? [] : readAllLeaveRequests({ ...scope, excludeStatuses: PENDING, submittedSince: since }),
-    ]);
+    ])).map((rows) => rows.map(withProofFlag));
     const allRequests = [...pending, ...history];
 
     let requests;
