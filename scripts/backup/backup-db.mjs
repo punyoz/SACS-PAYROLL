@@ -1,5 +1,6 @@
 /**
- * Database backup for the Free plan (no Supabase backups to restore from).
+ * The school's own database backup, kept off-site (Supabase Pro keeps its
+ * own daily backups for only 7 days; docs/hosting-and-operations.md).
  *
  *   npm run db:backup
  *
@@ -13,7 +14,7 @@
  *   manifest.json  sizes and SHA-256 of each file, to check a copy later
  *
  * Needs Docker Desktop running (the Supabase CLI runs pg_dump in a
- * container) and SUPABASE_DB_URL in .env.local: the Session pooler
+ * container) and SUPABASE_DB_URL in .env.live.local: the Session pooler
  * connection string from Dashboard → Connect, with the database password.
  * Read-only: it never writes to the database.
  *
@@ -29,11 +30,20 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 
-dotenv.config({ path: ".env.local", quiet: true });
+// The LIVE project's connection string lives in .env.live.local (2026-11-05:
+// .env.local is the local Supabase stack for development). A value already
+// in the environment wins (dotenv never overrides), which is how the
+// scheduled backup passes it in.
+dotenv.config({ path: ".env.live.local", quiet: true });
 
 const dbUrl = String(process.env.SUPABASE_DB_URL || "").trim();
 if (!/^postgres(ql)?:\/\//.test(dbUrl)) {
-  console.error("Set SUPABASE_DB_URL in .env.local: Dashboard → Connect → Session pooler connection string, with the database password.");
+  console.error("Set SUPABASE_DB_URL in .env.live.local: Dashboard → Connect → Session pooler connection string, with the database password.");
+  process.exit(1);
+}
+// Backing up the local stack by mistake would look like a good backup.
+if (/@(127\.0\.0\.1|localhost)[:/]/.test(dbUrl) && process.env.BACKUP_ALLOW_LOCAL !== "1") {
+  console.error("SUPABASE_DB_URL points at the local stack, not the live project. Put the live Session pooler string in .env.live.local.");
   process.exit(1);
 }
 

@@ -40,10 +40,15 @@ test("leave: employee files → admin recommends → HR approves → employee se
     await settle(page);
     await expect(main(page).getByRole("cell", { name: REASON })).toBeVisible();
     const emp = await profileByEmail(ACCOUNTS.employee.email);
-    const saved = await rows(db().from("leave_requests").select("id,status,start_date,proof_url").eq("employee_id", emp.id).eq("reason", REASON));
+    const saved = await rows(db().from("leave_requests").select("id,status,start_date,proof_url,proof_path").eq("employee_id", emp.id).eq("reason", REASON));
     expect(saved, "the leave request reached the database").toHaveLength(1);
-    expect(saved[0].proof_url, "the proof document was stored").toMatch(/^data:image\/png;base64,/);
-    expect(saved[0].proof_url.length).toBeGreaterThan(1_000_000);
+    // 20261105030000: the file is in the private leave-proofs bucket, the
+    // row holds only its path (in the employee's own folder).
+    expect(saved[0].proof_url, "no base64 in the row").toBe("");
+    expect(saved[0].proof_path).toMatch(new RegExp(`^${emp.id}/[0-9a-f-]{36}\\.png$`));
+    const stored = await db().storage.from("leave-proofs").download(saved[0].proof_path);
+    expect(stored.error, "the proof file is in the bucket").toBeNull();
+    expect(stored.data.size).toBe(PROOF.buffer.length);
     await refresh(page);
     await expect(main(page).getByRole("cell", { name: REASON })).toBeVisible();
   });
@@ -85,8 +90,16 @@ test("leave: employee files → admin recommends → HR approves → employee se
     expect(await image.evaluate((img) => img.naturalWidth), "the proof image renders").toBe(1);
     await page.keyboard.press("Escape");
     await expect(viewer).toBeHidden();
+    // The list only says there is a stored proof; the file comes from the
+    // proof route when View is clicked.
     const list = await api(page, "GET", "/api/hr/leave-requests?status=pending");
-    expect(list.data.requests.find((r) => r.reason === REASON)?.proof_url).toMatch(/^data:image\/png;base64,/);
+    const listed = list.data.requests.find((r) => r.reason === REASON);
+    expect(listed?.has_stored_proof).toBe(true);
+    expect(listed).not.toHaveProperty("proof_path");
+    expect(JSON.stringify(list.data)).not.toContain("data:image");
+    const proof = await api(page, "GET", `/api/hr/leave-requests/proof?id=${listed.id}`);
+    expect(proof.status).toBe(200);
+    expect(proof.data.proof_url).toMatch(/^data:image\/png;base64,/);
 
     // The dashboard's pending count, without downloading any proof.
     const dashboard = await api(page, "GET", "/api/hr/dashboard");

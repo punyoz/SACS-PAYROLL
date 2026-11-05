@@ -113,12 +113,13 @@ export async function GET(request) {
         branches: branchesOk ? "ok" : "missing",
         system_config: configOk ? "ok" : "missing",
       },
-      // Database size against the hosting plan (Supabase Free: 500 MB, then
-      // read-only). Warned from 350 MB: move to Pro before the limit.
+      // Database size against the hosting plan (Supabase Pro: 8 GB included;
+      // beyond it extra disk is billed or held back by the spend cap).
+      // Warned from 6 GB.
       database_size: sizeResult?.error ? null : {
         bytes: Number(sizeResult.data) || 0,
-        warn_bytes: 350 * 1024 * 1024,
-        limit_bytes: 500 * 1024 * 1024,
+        warn_bytes: 6 * 1024 * 1024 * 1024,
+        limit_bytes: 8 * 1024 * 1024 * 1024,
       },
       rfid_devices: rfidDevices,
       recent_security_events: auditResult.logs || [],

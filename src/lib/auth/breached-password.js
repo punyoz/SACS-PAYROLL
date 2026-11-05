@@ -1,9 +1,10 @@
 /**
  * Refuse passwords that appear in known data breaches.
  *
- * Supabase Auth's own "leaked password protection" does this, but only on
- * Pro plans and above; this project is on the Free plan, where the setting is
- * refused. This is the same check done by the app, against the same
+ * Supabase Auth's own "leaked password protection" does this too, and it is
+ * on since the move to Supabase Pro (2026-11-05). This check stays: the app
+ * sets passwords through the server (admin API), where Supabase's check may
+ * not run, so this is the one every password change is sure to pass. Same
  * HaveIBeenPwned "Pwned Passwords" list.
  *
  * PRIVACY. The password never leaves the server, and neither does its hash.

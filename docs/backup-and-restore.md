@@ -1,24 +1,27 @@
-# Backup and restore (Supabase Free plan)
+# Backup and restore
 
-The project stays on the Free plan for now. Supabase keeps **no backup you
-can download or restore** on Free, so the school keeps its own. **Real
-payroll data goes in only after a restore has been tested** (section 3).
+The organization is on **Supabase Pro** (since 2026-11). Supabase takes a
+daily backup of the whole project and keeps it **7 days**; it can be
+restored from Dashboard → Database → Backups. The plan, the recovery plan
+and who does what are in [hosting-and-operations.md](hosting-and-operations.md).
 
-## 1. What the Free plan allows
+This page is the school's **own** backup, the second safety net: a full
+export kept off-site, which survives even if the Supabase project is lost
+and reaches further back than 7 days. **Real payroll data goes in only after
+a restore has been tested** (section 3).
 
-| Limit | Free plan | Today | What happens at the limit |
-|---|---|---|---|
-| Database size | 500 MB | 18 MB | the database turns **read-only**: no taps, no payslips, until data is removed or the plan upgraded |
-| Disk | 1 GB | — | includes the write-ahead log |
-| Egress (data sent out) | 5 GB uncached + 5 GB cached / month | — | over-quota notice, then a grace period |
-| Backups | none restorable | — | your own dumps only (this page) |
-| Inactivity | paused after **7 days** of low database activity | — | the app stops working until someone resumes the project (possible for 90 days) |
-| Projects | 2 active free projects per organization | 1 | the second is for restore tests |
-| Support | community only | — | — |
+## 1. What Supabase Pro covers, and what it does not
 
-Rough growth: about 100 staff × 260 days of attendance plus taps and audit
-entries is tens of MB a year, so 500 MB lasts several years. Check
-Dashboard → Reports → Database each month.
+| | Supabase daily backup | The school's export (this page) |
+|---|---|---|
+| Taken | every day, automatically | Fridays, the 14th and the day before month end (scheduled task, section 2), or by hand |
+| Kept | 7 days | as long as the school keeps the files |
+| Survives deleting the project | no | yes |
+| Restores | the whole project, in place | into a new project or the local stack (section 3) |
+| Storage files (profile pictures, leave proofs) | no | no (the database only) |
+
+Database size is 8 GB on Pro (26 MB on 2026-11-05); growth estimates are in
+hosting-and-operations.md section 6.
 
 ## 2. Backups
 
@@ -27,7 +30,8 @@ Dashboard → Reports → Database each month.
 1. Install **Docker Desktop** and start it.
 2. Dashboard → Project → **Connect** → *Session pooler*: copy the connection
    string, put the database password in it, and save it in `.env.local` as
-   `SUPABASE_DB_URL=...` (never on the host, never committed).
+   `SUPABASE_DB_URL=...` in **`.env.live.local`** (git-ignored; never on the
+   host, never committed). `.env.local` is the local stack for development.
 3. Decide where backups live: an encrypted USB drive or a restricted school
    Drive folder, plus one copy off-site. The files contain names, salaries
    and password hashes.
@@ -48,6 +52,15 @@ It writes `backups/<date_time>/` (git-ignored) with `roles.sql`,
 `schema.sql`, `data.sql`, the migration history and a `manifest.json` of
 sizes and SHA-256 checksums. Copy the folder to the backup locations.
 
+### Scheduled
+
+`scripts/backup/install-scheduled-backup.ps1` (run once) registers the
+Windows task **SACS Payroll backup**. It checks every day at 16:30 and backs
+up on Fridays, the 14th and the day before the last day of the month, while
+the user is signed in (it starts Docker Desktop if needed). Results go to
+`%LOCALAPPDATA%SACS-Payrollackup.log`. Copy each new folder to the
+off-site location.
+
 ### When
 
 | When | Why |
@@ -61,7 +74,8 @@ Keep the last 8 weekly backups and every month-end backup for the year.
 
 ## 3. Test a restore (before real data, then every term)
 
-Use a **second free project** as the target; never the live one.
+Use the **local Supabase stack** (free) or, with approval, a second project
+(billed by the hour on Pro) as the target; never the live one.
 
 - **R1.** Dashboard → New project, e.g. `sacs-restore-test`, same region
   (South Asia, Mumbai). Save its database password.
@@ -102,8 +116,8 @@ Use a **second free project** as the target; never the live one.
   - pointing a local copy of the app at the restore project
     (`.env.local` with its URL and keys, `npm run dev`) lets the Super Admin
     sign in and open a payslip.
-- **R7.** Pause or delete the restore project afterwards (Free allows two
-  active projects). Write the date and result in the backup log.
+- **R7.** Delete the restore project afterwards (on Pro a second project is
+  billed by the hour; a local stack costs nothing). Write the date and result in the backup log.
 
 ### Restore test log
 
@@ -122,23 +136,13 @@ Use a **second free project** as the target; never the live one.
 5. Anything entered after the backup (taps, leave, payslips) must be
    re-entered from paper or the terminals' saved taps.
 
-## 5. Keeping the project awake during breaks
+## 5. Uptime monitoring
 
-Free projects pause after 7 days of low activity. Two pings keep it awake;
-set up both:
+Pro projects are never paused, so the Free-plan keep-alive ping (a daily
+GitHub Actions job) was removed on 2026-11-05. Keep one uptime monitor so
+someone hears when the site is down:
 
-- **Uptime monitor (main):** a free UptimeRobot (or Better Stack) HTTP
-  monitor on `https://<payroll-domain>/api/health` every 5 minutes. That
-  endpoint runs one tiny database read, so each check is real activity, and
-  the monitor emails you if the site is down.
-- **GitHub Actions (backup):** `.github/workflows/keep-alive.yml` calls the
-  same endpoint once a day. In GitHub → Settings → Secrets and variables →
-  Actions → Variables, add `HEALTH_URL` = `https://<payroll-domain>/api/health`.
-  GitHub disables scheduled workflows after 60 days without commits in
-  public repositories; re-enable it in the Actions tab if that happens.
-
-Supabase emails the project owner about a week before it pauses a project;
-opening the Dashboard also counts as activity. If it does pause: Dashboard →
-the project → **Resume project** (a few minutes; data kept). That works for
-**90 days** after the pause; after that only a downloadable file remains, so
-never let it sit paused.
+- a free UptimeRobot (or Better Stack) HTTP monitor on
+  `https://<payroll-domain>/api/health` every 5 minutes. That endpoint runs
+  one tiny database read and answers only up or down, and the monitor emails
+  you if the site or the database is unreachable.
