@@ -159,7 +159,7 @@ export function RunApprovalPanel() {
               {run.status === "pending" ? <p className="text-sm text-muted-foreground">Submitted by {run.run?.submitted_by_name} on {dateTime(run.run?.submitted_at)}. Locked until HR decides.</p> : null}
               {run.status === "approved" ? <p className="text-sm text-success">Approved by {run.run?.reviewed_by_name} on {dateTime(run.run?.reviewed_at)}{run.run?.remarks ? ` — ${run.run.remarks}` : ""}. Locked; employees can see their payslips.</p> : null}
               {!locked && run.missing.length && !run.final_count ? (
-                <p className="flex items-start gap-1.5 text-xs text-warning"><AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />No Final payslip yet: {run.missing.map((m) => m.name).join(", ")}.</p>
+                <p className="flex items-start gap-1.5 text-xs text-warning"><AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]">No Final payslip yet: {run.missing.map((m) => m.name).join(", ")}.</span></p>
               ) : null}
             </div>
           );

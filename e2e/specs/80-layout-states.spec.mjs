@@ -12,7 +12,9 @@ import { ACCOUNTS } from "../accounts.mjs";
 
 const SHOTS = join(process.cwd(), "test-results", "screens");
 // Session and shell calls keep working; everything else is page data.
-const SHELL = /\/api\/(rbac\/me|legacy-auth\/|notifications|health|dev\/)/;
+// The portal shell's own requests (header, bell, avatar since 2026-11-02),
+// not the page's data.
+const SHELL = /\/api\/(rbac\/me|legacy-auth\/|notifications|health|dev\/|profile-photo|admin\/holidays\?upcoming)/;
 // Pages that show the signed-in person from the session (no list to load),
 // and HR's RFID Terminal launcher (one button since 2026-10-27, no data).
 const SESSION_ONLY = /-profile$|^hr-rfid-terminals$/;

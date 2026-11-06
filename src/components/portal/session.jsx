@@ -35,9 +35,9 @@ const ACTIVITY_RENEW_MS = 60000;
  * session straight back to its portal (src/proxy.js), so it must be gone
  * before the sign-in page is requested.
  */
-async function leaveToLogin() {
+async function leaveToLogin(options) {
   clearLocalSession();
-  await endServerSession();
+  await endServerSession(options);
   replaceNavigate("/login");
 }
 
@@ -194,7 +194,8 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
     } catch {
       // private mode
     }
-    await leaveToLogin();
+    // The person chose to sign out: end the sign-in on the server too.
+    await leaveToLogin({ signOut: true });
   }, []);
 
   /** Toast + the bell's history (pushNotification, app.js). */

@@ -3076,7 +3076,7 @@ function findPeriodRangeByLabel(label) {
   return null;
 }
 
-function getPeriodOptions(entries) {
+function getPeriodOptions(entries, shownLabel = "") {
   const unique = new Set(entries.map((entry) => entry.pay_period).filter(Boolean));
   const periods = Array.from(unique.values());
 
@@ -3090,6 +3090,21 @@ function getPeriodOptions(entries) {
   [secondHalfLabel, firstHalfLabel].forEach((label) => {
     if (!periods.includes(label)) periods.unshift(label);
   });
+
+  // Last month's two halves too (fix 2026-11-05): the 2nd half's processing
+  // window runs into this month (e.g. Nov 1-3 for October 16-31), and a
+  // closed period may still be processed late while its run is not
+  // submitted. Without them, a page opened on last month showed that
+  // month's figures while the form posted this month's label.
+  const lastMonthSecond = getPayPeriodRange(new Date(now.getFullYear(), now.getMonth() - 1, 16)).label;
+  const lastMonthFirst = getPayPeriodRange(new Date(now.getFullYear(), now.getMonth() - 1, 1)).label;
+  [lastMonthSecond, lastMonthFirst].forEach((label) => {
+    if (!periods.includes(label)) periods.push(label);
+  });
+
+  // The period the page is showing is always choosable, so the selector and
+  // every form post the same label as the figures on screen.
+  if (shownLabel && !periods.includes(shownLabel)) periods.push(shownLabel);
 
   return periods;
 }
@@ -3920,7 +3935,7 @@ export async function GET(request) {
     return NextResponse.json({
       generated_at: new Date().toISOString(),
       employees,
-      period_options: getPeriodOptions(sortedEntries),
+      period_options: getPeriodOptions(sortedEntries, activeLabel),
       // The history shown (Payroll Records, Monitoring, Reports): the last 12
       // months, or one year; history_years lists the years there are.
       history: historyParam,

@@ -82,7 +82,11 @@ async function sendCode(email, key, userId) {
   }
 
   const sent = await sendEmailOtp({ purpose: "pwchange", subject: userId, email });
-  if (!sent.ok) {
+  // The database's own 60 s cooldown means a code sent moments ago is still
+  // valid (e.g. the dialog was closed and opened again): go on to the code
+  // step, as sign-in and password reset do, instead of a dead end (fix
+  // 2026-11-05). Each code still allows 5 tries at most (auth_email_otp_issue).
+  if (!sent.ok && sent.code !== "otp_cooldown") {
     return fail(sent.error, sent.status, sent.code,
       sent.retryAfter ? { "Retry-After": String(sent.retryAfter) } : undefined);
   }

@@ -117,7 +117,7 @@ export function DeferredIncentivesNotice({ monthKey }) {
 export function EmployeeSelect({ id, value, onChange, employees, invalid }) {
   return (
     <Select value={value} onValueChange={onChange} disabled={!employees.length}>
-      <SelectTrigger id={id} className="w-full" aria-invalid={invalid || undefined}><SelectValue placeholder={employees.length ? "Select employee" : "No employees found"} /></SelectTrigger>
+      <SelectTrigger id={id} className="w-full min-w-0 overflow-hidden [contain:inline-size]" aria-invalid={invalid || undefined}><SelectValue placeholder={employees.length ? "Select employee" : "No employees found"} /></SelectTrigger>
       <SelectContent>{employees.map((e) => <SelectItem key={e.id} value={e.id}>{`${e.full_name} — ${e.employee_id}`}</SelectItem>)}</SelectContent>
     </Select>
   );

@@ -63,7 +63,7 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
               <ul className="divide-y rounded-lg border">
                 {data.not_tapped.map((p) => (
                   <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                    <span className="font-medium">{p.full_name}<span className="ml-2 text-xs font-normal text-muted-foreground">{p.employee_code}</span></span>
+                    <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{p.full_name}<span className="ml-2 text-xs font-normal text-muted-foreground">{p.employee_code}</span></span>
                     <StatusBadge tone={p.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{p.employee_type}</StatusBadge>
                   </li>
                 ))}
@@ -83,7 +83,7 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
               <ul className="divide-y rounded-lg border">
                 {data.pending_leaves.map((l) => (
                   <li key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                    <span className="font-medium">{l.employee_name}</span>
+                    <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{l.employee_name}</span>
                     <span className="text-xs text-muted-foreground">{l.leave_type} · {dateLabel(l.start_date)}{l.end_date !== l.start_date ? ` – ${dateLabel(l.end_date)}` : ""}</span>
                   </li>
                 ))}

@@ -16,6 +16,17 @@ import { main, settle } from "../support/portal.mjs";
 import { api, choose, confirm } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
+import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
+
+// Written for October 29, 2026 (Bea's adjustment goes on October 16-31, which
+// can only be chosen before that period is processed). On a later real date
+// the server's "today" is moved back to then (E2E_TIME_TRAVEL=1), and home
+// again afterwards (full system check 2026-11-05).
+const AS_OF = "2026-10-29";
+// The day the test runs as: the server's (moved) today when travelling.
+const testToday = () => (needsTravel() ? `${AS_OF}, 10:00:00` : new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }));
+const needsTravel = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) > "2026-10-31";
+test.afterAll(async () => { if (TIME_TRAVEL) await travelHome(); });
 import { localSupabase } from "../local-env.mjs";
 
 test.describe.configure({ mode: "serial" });
@@ -128,6 +139,13 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
   const accountant = await profileByEmail(ACCOUNTS.accountant.email);
   const oct1 = await rows(db().from("payroll_entries").select("id,status,run_id").eq("employee_id", bea.id).eq("pay_period", OCT1));
   test.skip(!oct1.length || oct1[0].status !== "paid", "needs Bea's October 1-15 payslip from 20-payroll-flow");
+  test.skip(needsTravel() && !TIME_TRAVEL, `date-dependent: run with E2E_TIME_TRAVEL=1 (it moves the server to ${AS_OF})`);
+  if (needsTravel()) {
+    await shiftBrowser(page.context());
+    // On the app's origin, so the browser's date moves too (localStorage).
+    await page.goto("/api/health");
+    await travelTo(AS_OF, page);
+  }
   // Ana: ₱500 withheld each 2nd half though her year stays under ₱250,000 (all of it is refundable).
   plant([...history(bea), ...plainHistory(ana, { basic: 9000, wht: 500, tag: "ANA" }), ...plainHistory(carlo, { basic: 25000, tag: "CARLO" })]);
   const before = await rows(db().from("payroll_entries").select("id,pay_period,status,withholding_tax,net_pay,payroll,updated_at").eq("employee_id", bea.id).order("pay_period"));
@@ -170,14 +188,15 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     expect(decided.error?.message).toBeUndefined();
     planted = psql(`set session_replication_role = replica;
       insert into payroll_schedule_settings (effective_from, first_half_day, second_half_day, window_days, note, created_by_name)
-      values ('2026-10-16', 15, ${Number(new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(8, 10))}, 5, 'E2E: October 2nd half generated today', 'E2E') returning id;`).split(/\s+/).pop();
-    // The whole branch (a run is submitted for every employee).
+      values ('2026-10-16', 15, ${needsTravel() ? Number(AS_OF.slice(8, 10)) : Number(testToday().slice(8, 10))}, 5, 'E2E: October 2nd half generated today', 'E2E') returning id;`).split(/\s+/).pop();
+    // Everyone paid on October 1-15; people added later in the full suite
+    // (95-scenarios) are acknowledged as left out (partial run).
     const branchPeople = await rows(db().from("payroll_entries").select("employee_id").eq("branch_id", bea.branch_id).eq("pay_period", OCT1));
     const entries = [...new Set(branchPeople.map((r) => r.employee_id))].map((employee_id) => ({ employee_id }));
     const processed = await api(page, "POST", "/api/accountant/payroll", { action: "batch_submit", pay_period: OCT2, entries });
     expect(processed.status, JSON.stringify(processed.data)).toBe(200);
     expect(processed.data.processed, JSON.stringify(processed.data.failed || processed.data)).toHaveLength(entries.length);
-    const submitted = await api(page, "PATCH", "/api/accountant/payroll-runs", { action: "submit", branch_id: bea.branch_id, period: OCT2 });
+    const submitted = await api(page, "PATCH", "/api/accountant/payroll-runs", { action: "submit", branch_id: bea.branch_id, period: OCT2, acknowledge_exclusions: true });
     expect(submitted.status, JSON.stringify(submitted.data)).toBeLessThan(300);
   });
 
@@ -318,7 +337,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
 
   await step(page, "Accountant > Final Pay of a resigned employee settles the pending year-end tax (Fix 2)", async () => {
     monitor.at("Accountant > Final Pay");
-    psql(`update profiles set employee_status = 'Separated', separated_on = '${new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(0, 10)}', separation_reason = 'Resigned' where id = '${ana.id}';`);
+    psql(`update profiles set employee_status = 'Separated', separated_on = '${testToday().slice(0, 10)}', separation_reason = 'Resigned' where id = '${ana.id}';`);
     const [record] = await rows(db().from("payroll_tax_annualizations").select("id,balance").eq("employee_id", ana.id).eq("tax_year", YEAR));
     expect(record, "Ana was annualized with her branch").toBeTruthy();
     const withheldBefore = (await rows(db().from("payroll_entries").select("payroll").eq("employee_id", ana.id).eq("status", "paid").like("pay_period", `%, ${YEAR}`)))
@@ -326,7 +345,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     expect(r2(withheldBefore)).toBe(4500);
     const preview = await api(page, "GET", `/api/accountant/final-pay?employee_id=${ana.id}`);
     expect(preview.status, JSON.stringify(preview.data)).toBe(200);
-    const saved = await api(page, "POST", "/api/accountant/final-pay", { employee_id: ana.id, release_on: new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(0, 10) });
+    const saved = await api(page, "POST", "/api/accountant/final-pay", { employee_id: ana.id, release_on: testToday().slice(0, 10) });
     expect(saved.status, JSON.stringify(saved.data)).toBe(200);
     const [entry] = await rows(db().from("payroll_entries").select("id,net_pay,withholding_tax,payroll").eq("employee_id", ana.id).like("pay_period", "Final pay%"));
     const fp = entry.payroll.final_pay.breakdown;
@@ -339,7 +358,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     const refundLine = await rows(db().from("payroll_incentives").select("type,amount").eq("payroll_entry_id", entry.id).eq("type", "year_end_tax_refund"));
     expect(refundLine.map((l) => Number(l.amount))).toEqual([r2(withheldBefore + fpTax)]);
     // The month's remittance carries it.
-    const report = await api(page, "GET", `/api/payroll/remittance?month=${new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(0, 7)}`);
+    const report = await api(page, "GET", `/api/payroll/remittance?month=${testToday().slice(0, 7)}`);
     expect(report.data.rows.find((r) => r.employee_id === ana.id).year_end_tax).toBe(-r2(withheldBefore + fpTax));
     test.info().annotations.push({ type: "Fix 2 final pay (Ana)", description: JSON.stringify({ year_end_tax: entry.payroll.year_end_tax, net_pay: entry.payroll.totals.net_pay }) });
   });

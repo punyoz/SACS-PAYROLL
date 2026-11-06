@@ -41,3 +41,16 @@ export async function plantOtp(email, purpose = "login") {
   if (issued.error) throw new Error(`plant OTP: ${issued.error.message}`);
   return id;
 }
+
+/**
+ * Archive an account a spec made for itself (profiles + account record, as
+ * the archive routes do), so later specs see the seeded headcount again.
+ * Quiet when the account does not exist.
+ */
+export async function archiveTestAccount(email) {
+  const { data: profile } = await db().from("profiles").select("id,archived").eq("email", email).maybeSingle();
+  if (!profile) return;
+  const { data: user } = await db().auth.admin.getUserById(profile.id);
+  if (user?.user) await db().auth.admin.updateUserById(profile.id, { user_metadata: { ...(user.user.user_metadata || {}), archived: true } });
+  if (!profile.archived) await db().from("profiles").update({ archived: true, archived_at: new Date().toISOString() }).eq("id", profile.id);
+}

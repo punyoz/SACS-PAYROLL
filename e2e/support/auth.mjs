@@ -27,6 +27,23 @@ export async function signOutLocally(page) {
   await page.evaluate(() => { try { localStorage.clear(); sessionStorage.removeItem("sacs-auth"); } catch { /* blocked */ } });
 }
 
+/**
+ * Whether the saved sign-in can still be restored: its signed session cookie
+ * carries its own expiry (idle timeout, 60 min locally), and a long run
+ * leaves some roles unused longer than that. An expired one would only be
+ * refused (401) and signed in again, so sign in fresh instead.
+ */
+function savedSessionUsable(role) {
+  try {
+    const state = JSON.parse(readFileSync(stateFile(role), "utf8"));
+    const cookie = state.cookies.find((c) => c.name === "sacs-session");
+    const payload = JSON.parse(Buffer.from(String(cookie?.value || "").split(".")[0], "base64url").toString("utf8"));
+    return Number(payload.exp || 0) - Date.now() / 1000 > 120;
+  } catch {
+    return false;
+  }
+}
+
 /** The real sign-in screen, with the planted code. */
 export async function loginThroughUi(page, role) {
   const acct = ACCOUNTS[role];
@@ -63,7 +80,7 @@ export async function waitForPortal(page) {
 export async function as(page, role, pageId) {
   const acct = ACCOUNTS[role];
   const target = pageId ? `${acct.portal}?page=${pageId}` : acct.portal;
-  if (existsSync(stateFile(role))) {
+  if (existsSync(stateFile(role)) && savedSessionUsable(role)) {
     const state = JSON.parse(readFileSync(stateFile(role), "utf8"));
     await signOutLocally(page);
     await page.context().addCookies(state.cookies);

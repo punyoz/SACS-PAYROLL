@@ -173,14 +173,14 @@ export function LeavesPage({ refreshKey }) {
               {state.pending.map((req) => {
                 const x = range(req);
                 return (
-                  <li key={req.id} className="flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-xs">
+                  <li key={req.id} className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 shadow-xs">
                     <div className="min-w-0 space-y-1">
                       <p className="font-semibold">{req.employee_name || req.employee_id || "Unknown"}</p>
                       <p className="text-sm">
                         <strong>{req.leave_type || "Leave"}</strong> · {req.pay_status === "without_pay" ? "Without pay" : "With pay"} · {String(x.days)} day{x.days !== 1 ? "s" : ""}
                       </p>
                       <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.from} to {x.to}</p>
-                      <p className="text-sm text-muted-foreground">{req.reason || "—"}</p>
+                      <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{req.reason || "—"}</p>
                       <AdminRecommendation rec={recs.get(req.id)} />
                     </div>
                     <div className="mt-auto flex flex-wrap items-center gap-2">

@@ -292,7 +292,13 @@ test("SA-02: a role change ends the open session at once; the change is in the a
   await step(page, "Super Admin > change it back to Admin");
   const back = await api(page, "PATCH", "/api/admin/users", { id: admin2.id, action: "update", role: "admin", branch_id: admin2.branch_id });
   expect(back.status, JSON.stringify(back.data)).toBe(200);
-  expect((await profileByEmail(ACCOUNTS.admin2.email)).role).toBe("admin");
+  // As the Edit dialog does (staff-account-dialogs.jsx): the branch is set by
+  // a second call, Branch Assignment; the role change alone leaves none.
+  const branch = await api(page, "POST", "/api/admin/branch-employees", { user_id: admin2.id, branch_id: admin2.branch_id, assigned_by: "Super Admin" });
+  expect(branch.status, JSON.stringify(branch.data)).toBeLessThan(300);
+  const restored = await profileByEmail(ACCOUNTS.admin2.email);
+  expect(restored.role).toBe("admin");
+  expect(restored.branch_id, "North Admin is back in North").toBe(admin2.branch_id);
 });
 
 test("HR-07 / SA-03 / SC-14 / SA-01: audit search reaches old entries; size warning; a new branch works everywhere", async ({ page, monitor }) => {

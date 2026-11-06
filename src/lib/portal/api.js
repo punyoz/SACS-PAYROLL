@@ -108,6 +108,14 @@ export function jsonBody(method, body) {
 export const BACKGROUND = { headers: { "x-sacs-background": "1" } };
 
 /** End the server session too, not just the local copy (sacsEndServerSession, rbac.js). */
-export function endServerSession() {
-  return fetch("/api/legacy-auth/logout", { method: "POST", keepalive: true }).catch(() => {});
+export function endServerSession({ signOut = false } = {}) {
+  // signOut (the person pressed Sign out): the server also ends the sign-in
+  // itself, so a copy of the cookie stops working (fix 2026-11-05). Automatic
+  // trips to /login (no stored context, another tab signed out) only clear
+  // the cookie, so a stale tab can never end a newer sign-in.
+  return fetch("/api/legacy-auth/logout", {
+    method: "POST",
+    keepalive: true,
+    ...(signOut ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sign_out: true }) } : {}),
+  }).catch(() => {});
 }

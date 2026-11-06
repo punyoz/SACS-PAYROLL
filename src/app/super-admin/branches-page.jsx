@@ -282,7 +282,7 @@ export function BranchesPage({ refreshKey }) {
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((b) => (
-            <li key={b.id}>
+            <li key={b.id} className="min-w-0">
               <Card className="h-full gap-3 py-4 shadow-xs transition-shadow hover:shadow-md">
                 <CardContent className="flex h-full flex-col gap-2 px-4">
                   <div className="flex items-start gap-2">
@@ -291,7 +291,7 @@ export function BranchesPage({ refreshKey }) {
                   </div>
                   <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
                     <MapPinIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                    <span>{b.location || "No location set"}</span>
+                    <span className="min-w-0 [overflow-wrap:anywhere]">{b.location || "No location set"}</span>
                   </p>
                   <p className="text-xs text-muted-foreground">Code: <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{b.code || "—"}</code></p>
                   <div className="mt-auto pt-1">

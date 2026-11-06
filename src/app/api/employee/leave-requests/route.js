@@ -153,6 +153,29 @@ export async function POST(request) {
       );
     }
 
+    // Overlapping dates (fix 2026-11-05): HR can never approve a request that
+    // overlaps an approved one (hr/leave-requests), so one filed over another
+    // pending or approved leave only sat in HR's queue. Refused here instead,
+    // whatever the leave type or pay status.
+    const overlapping = allRequests.find((row) => {
+      const isSameEmployee = employeeId
+        ? row.employee_id === employeeId
+        : String(row.employee_name || "").toLowerCase() === employeeName.toLowerCase();
+      if (!isSameEmployee) return false;
+      if (!["pending_accountant", "pending_admin", "approved"].includes(row.status)) return false;
+      return startDate <= (row.end_date || row.start_date) && (row.start_date || "") <= endDate;
+    });
+    if (overlapping) {
+      const state = overlapping.status === "approved" ? "an approved" : "a pending";
+      return NextResponse.json(
+        {
+          error: `These dates overlap ${state} leave request (${overlapping.start_date} to ${overlapping.end_date || overlapping.start_date}). Cancel or change that one first.`,
+          code: "leave_overlap",
+        },
+        { status: 409 },
+      );
+    }
+
     // The submission date and time the 7-day rule was checked against.
     const nowIso = submittedAt.toISOString();
     const newRequest = normalizeLeaveRequest({
