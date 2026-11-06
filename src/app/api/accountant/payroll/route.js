@@ -96,6 +96,7 @@ import { loadYearEndTaxContext } from "@/lib/payroll/bir-forms";
 import { applyYearEndTax, yearEndAdjustment, yearEndCutoffLine } from "@/lib/payroll/year-end-tax";
 import { CONTRIBUTION_MAX, DAYS_MAX, INCENTIVE_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX, pesoLimit } from "@/lib/input-limits";
 import { attendanceOverrideState, attendanceOverrides } from "@/lib/payroll/override-window";
+import { applyWindowEnforcement, loadWindowEnforcement } from "@/lib/payroll/window-enforcement";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -2923,11 +2924,14 @@ function buildPayslipOptions(records, generatedDrafts = []) {
  * otherwise the original window, opening on the period's last day. The pay date comes from the Pay Calendar.
  */
 async function periodWindow(supabase, period) {
-  const [payCalendar, schedule] = await Promise.all([loadPayCalendar(supabase), loadPayslipSchedule(supabase)]);
-  return generationWindow(period, {
+  const [payCalendar, schedule, enforcement] = await Promise.all([loadPayCalendar(supabase), loadPayslipSchedule(supabase), loadWindowEnforcement(supabase)]);
+  const window = generationWindow(period, {
     payCalendar,
     schedule: schedule ? schedule.forPeriod(period.start_key) : null,
   });
+  // The Super Admin's testing switch (window-enforcement.js): ON returns the
+  // window unchanged; OFF opens it on any date. Every check below reads this.
+  return applyWindowEnforcement(window, enforcement);
 }
 
 /**
@@ -4173,7 +4177,7 @@ async function handleBatchSubmit(supabase, body, guard) {
     }
     const computedPayroll = built.payroll;
     if (own) computedPayroll.own_payslip = ownPayslipMark(guard);
-    if (batchWindow.state === "closed") computedPayroll.late_processing = lateMark(batchWindow, guard);
+    if (batchWindow.state === "closed" || batchWindow.enforced_state === "closed") computedPayroll.late_processing = lateMark(batchWindow, guard);
     computedPayroll.payslip_meta = {
       branch_name: branchNames.get(employee.branch_id) || null,
       position_title: employee.position_title || employee.position,
@@ -4655,7 +4659,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     // Closed: still allowed (late) while the branch's run is Draft or Rejected.
     return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
   }
-  const lateProcessing = genWindow.state === "closed";
+  const lateProcessing = genWindow.state === "closed" || genWindow.enforced_state === "closed";
 
   const { entries } = await readPayrollEntries(supabase, { employeeIds: [employee.id], labels: [period.label] });
   const existing = entries.find((entry) => entry.employee_id === employee.id && entry.pay_period === period.label) || null;

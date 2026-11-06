@@ -144,6 +144,8 @@ const API_MODULES = [
   ["/api/hr/teacher-license", "teacher_license"],
   ["/api/admin/approvals", "payroll_approvals"],
   ["/api/admin/payslip-schedule", "system_configuration"],
+  // Processing window enforcement (testing switch, 20261106090000): Super Admin only.
+  ["/api/admin/window-enforcement", "system_configuration"],
   ["/api/admin/teacher-subsidy", "system_configuration"],
   // Per-employee work schedules (Super Admin edits; Admin and HR read).
   ["/api/admin/work-schedules", "work_schedules"],

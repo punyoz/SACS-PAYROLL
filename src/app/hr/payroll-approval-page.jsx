@@ -33,6 +33,7 @@ import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exc
 import { cn } from "@/lib/utils";
 import { SEARCH_MAX } from "@/lib/input-limits";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
+import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
 
 /*
  * HR → Payroll Approval (/api/hr/payroll-runs). One row per branch per pay
@@ -186,9 +187,13 @@ function ProcessingWindows() {
     fetchJson("/api/hr/payroll-runs?view=processing_windows").then((d) => { if (live) setData(d); }).catch(() => {});
     return () => { live = false; };
   }, []);
-  if (!data?.windows?.length) return null;
+  // Testing switch OFF (Super Admin): the red banner, with or without windows.
+  const banner = <TestingModeBanner enforcement={data?.window_enforcement} detail="Runs submitted now are marked as made in testing mode." />;
+  if (!data?.windows?.length) return data?.window_enforcement?.testing_mode ? banner : null;
   const tone = { open: "success", upcoming: "info", closed: "muted" };
   return (
+    <>
+    {banner}
     <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm" data-testid="hr-processing-windows">
       <p className="font-medium">Override processing windows <span className="font-normal text-muted-foreground">(read-only; set by the {data.set_by})</span></p>
       <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
@@ -202,6 +207,7 @@ function ProcessingWindows() {
       </ul>
       <p className="mt-1 text-xs text-muted-foreground">Outside its window the Accountant cannot override Absent, Late, Undertime, Half day, Leave without pay or Perfect attendance. Rejecting a run (with a reason) reopens overrides for that run only.</p>
     </div>
+    </>
   );
 }
 
@@ -353,7 +359,7 @@ function RunDetail({ runId, onBack, onChanged }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
-            {run ? <>{run.branch_name} · {run.period_label}{runNoLabel(run) ? ` · ${runNoLabel(run)}` : ""} <RunStatusBadge status={run.status} /></> : <Skeleton className="h-6 w-64" />}
+            {run ? <>{run.branch_name} · {run.period_label}{runNoLabel(run) ? ` · ${runNoLabel(run)}` : ""} <RunStatusBadge status={run.status} />{run.created_in_testing_mode ? <> <StatusBadge tone="danger">Testing mode</StatusBadge></> : null}</> : <Skeleton className="h-6 w-64" />}
           </CardTitle>
           <CardDescription>
             {run ? <>{cutoffLabel(run)}: {first ? "attendance deductions only (late, undertime, absences)" : "attendance for the 16th to month end, plus withholding tax, SSS, PhilHealth, Pag-IBIG, loans and other deductions"}. Submitted by {run.submitted_by_name || "—"}{run.submitted_at ? ` on ${dateTime(run.submitted_at)}` : ""} · snapshot {run.submission_no}.</> : null}
@@ -581,6 +587,7 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
       cell: (r) => (
         <span className="flex flex-wrap items-center gap-1">
           <RunStatusBadge status={r.status} />
+          {r.created_in_testing_mode ? <StatusBadge tone="danger">Testing mode</StatusBadge> : null}
           {r.flagged_employees ? <StatusBadge tone="warning"><AlertTriangleIcon className="size-3" aria-hidden="true" />{r.flagged_employees}</StatusBadge> : null}
         </span>
       ),

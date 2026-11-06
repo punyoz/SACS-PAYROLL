@@ -78,6 +78,16 @@ export async function seed({ reset = false } = {}) {
     must(await sb.rpc("rfid_card_register", { p_actor: hr.id, p_employee: emp.id, p_uid: e.rfid, p_reason: "E2E seed" }), `card ${e.acct.email}`);
   }
 
+  // Processing window enforcement in a known state (20261106090000): ON for
+  // the test suite (its specs expect the window); OFF only for a demo stack
+  // (SACS_ENVIRONMENT=demo). Skipped before the migration exists.
+  const demo = String(process.env.SACS_ENVIRONMENT || "").toLowerCase() === "demo";
+  const switched = await sb.rpc("set_payroll_window_enforcement", {
+    p_enforced: !demo, p_expires_on: null, p_actor: null, p_actor_name: "E2E seed", p_source: "seed", p_environment: demo ? "demo" : "local",
+    p_reason: demo ? "Demo seed: testing mode (processing window not enforced)" : "E2E seed: processing window enforced",
+  });
+  console.log(`[seed] processing window enforcement ${switched.error ? "not set (migration missing?)" : demo ? "OFF (demo)" : "ON"}`);
+
   console.log("[seed] fixtures.sql");
   const sql = readFileSync(join(here, "fixtures.sql"), "utf8");
   execSync("docker exec -i supabase_db_SACS-PAYROLL psql -q -v ON_ERROR_STOP=1 -U postgres -d postgres", { input: sql, stdio: ["pipe", "ignore", "inherit"] });
