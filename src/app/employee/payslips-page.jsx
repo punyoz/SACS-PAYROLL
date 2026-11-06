@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { EyeIcon, ReceiptTextIcon } from "lucide-react";
+import { DownloadIcon, EyeIcon, Loader2Icon, ReceiptTextIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -11,7 +11,7 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { formatIssued, formatPeso, formatPesoShort, holidayLineLabel } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
-import { MyBir2316Card } from "@/components/portal/bir-forms";
+import { MyBir2316Card, useDownloader } from "@/components/portal/bir-forms";
 import { LineTagLegend, PayrollLineGroups, WhyTaxNote } from "@/components/portal/payroll-lines";
 
 /*
@@ -205,6 +205,8 @@ export function PayslipsPage({ payslips }) {
   const [selected, setSelected] = React.useState(0);
   const list = payslips.list;
   const current = list[selected] || list[0] || null;
+  // The shown payslip as a PDF (2026-11-06): own, approved payslips only.
+  const [busy, download] = useDownloader();
 
   const columns = React.useMemo(() => [
     { key: "period_label", header: "Pay period", className: "font-medium", searchValue: (p) => p.period_label },
@@ -242,7 +244,15 @@ export function PayslipsPage({ payslips }) {
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       <section aria-label={selected === 0 ? "Latest payslip" : "Selected payslip"} className="min-w-0 space-y-2">
-        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{selected === 0 ? "My latest payslip" : "Selected payslip"}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{selected === 0 ? "My latest payslip" : "Selected payslip"}</p>
+          {current?.id ? (
+            <Button variant="outline" size="sm" disabled={busy === current.id}
+              onClick={() => download(current.id, `/api/employee/payslips?format=pdf&entry_id=${encodeURIComponent(current.id)}`, `payslip-${current.period_label || "payslip"}.pdf`)}>
+              {busy === current.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}Download PDF
+            </Button>
+          ) : null}
+        </div>
         <PayslipCard payslip={current} />
       </section>
       <div className="min-w-0 space-y-4">

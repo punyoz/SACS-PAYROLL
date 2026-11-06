@@ -334,6 +334,26 @@ export async function PATCH(request) {
       }
     }
 
+    // An Admin always belongs to one branch (decision 2026-11-06; also a
+    // database rule, profiles_admin_has_branch): the branch sent, or the one
+    // the account already has. Without either, refused, never saved branchless.
+    let adminBranchId = null;
+    if (action === "update" && normalizeRole(nextMetadata.role) === "admin") {
+      adminBranchId = normalizeText(body.branch_id) || (await fetchUserBranch(supabase, id, currentMetadata));
+      if (!adminBranchId) {
+        return NextResponse.json(
+          { error: "Choose the Admin's branch: an Admin always belongs to one branch.", code: "admin_branch_required" },
+          { status: 400 },
+        );
+      }
+      const { data: branch } = await supabase.from("branches").select("id,status").eq("id", adminBranchId).maybeSingle();
+      if (!branch) return NextResponse.json({ error: "The selected branch does not exist." }, { status: 400 });
+      if (String(branch.status || "Active").toLowerCase() !== "active") {
+        return NextResponse.json({ error: "The selected branch is inactive." }, { status: 400 });
+      }
+      nextMetadata.branch_id = adminBranchId;
+    }
+
     const updatePayload = { user_metadata: nextMetadata };
 
     if (action === "update") {
@@ -391,6 +411,8 @@ export async function PATCH(request) {
       }
       const clearBranch = BRANCHLESS_ROLES.includes(nextMetadata.role);
       if (clearBranch) profileRow.branch_id = null;
+      // Saved with the role, in the same write, so the Admin is never branchless.
+      if (adminBranchId) profileRow.branch_id = adminBranchId;
 
       const profileResult = await supabase.from("profiles").upsert(profileRow, { onConflict: "id" });
       if (profileResult.error) {
@@ -404,6 +426,15 @@ export async function PATCH(request) {
       // already has an ID keeps it.
       if (isStaffIdRole(nextMetadata.role)) {
         await assignStaffId(supabase, id);
+      }
+
+      if (adminBranchId) {
+        // The Branch Assignment row, as POST /api/admin/branch-employees writes it.
+        await supabase.from("employee_branch_assignments").upsert(
+          { user_id: id, branch_id: adminBranchId, assigned_by: normalizeText(guard.session?.full_name, "Super Admin"), assigned_at: new Date().toISOString() },
+          { onConflict: "user_id" },
+        );
+        invalidateBranchCache(id);
       }
 
       if (clearBranch) {

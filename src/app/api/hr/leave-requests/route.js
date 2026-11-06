@@ -8,6 +8,7 @@ import {
   syncLeaveAttendance,
 } from "@/lib/leave-requests/store";
 import { sanitizeError } from "@/lib/api-error";
+import { REASON_MAX } from "@/lib/input-limits";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { manilaDateKey } from "@/lib/payroll/periods";
@@ -92,6 +93,18 @@ export async function PATCH(request) {
     if (foreignBranch) return foreignBranch;
 
     const deciderName = String(guard.session?.full_name || guard.session?.email || "").trim();
+
+    // A rejection needs a reason the employee sees (decision 2026-11-06), as a
+    // payroll rejection does: 5-500 characters.
+    const rejectReason = String(body.reason || "").trim().replace(/\s+/g, " ");
+    if (action === "reject") {
+      if (rejectReason.length < 5) {
+        return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters). The employee sees it.", code: "reason_required" }, { status: 400 });
+      }
+      if (rejectReason.length > REASON_MAX) {
+        return NextResponse.json({ error: `The reason can be at most ${REASON_MAX} characters.`, code: "reason_too_long" }, { status: 400 });
+      }
+    }
 
     // Cancelling approved leave releases its On Leave days (the database
     // trigger archives them), so the employee can tap on those days again.
@@ -183,6 +196,7 @@ export async function PATCH(request) {
       fromStatuses: ["pending_admin", "pending_accountant"],
       decidedBy: guard.userId || null,
       decidedByName: deciderName || null,
+      ...(action === "reject" ? { decisionReason: rejectReason } : {}),
     });
     if (result.conflict) {
       return NextResponse.json(
@@ -194,7 +208,7 @@ export async function PATCH(request) {
     // The branch Admin who recommended it learns HR's decision (2026-10-20).
     await notifyEndorsers(getAdminClient(), "leave_endorsement", id, {
       title: `Leave ${newStatus === "approved" ? "approved" : "rejected"} by HR · ${current.employee_name}`,
-      body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
+      body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
     }).catch(() => 0);
 
     // The employee's bell (2026-10-20 audit): HR's decision on their request.
@@ -202,7 +216,7 @@ export async function PATCH(request) {
       await notify(getAdminClient(), [current.employee_id], {
         kind: `leave_${newStatus}`,
         title: `Your leave was ${newStatus}`,
-        body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}`,
+        body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
         link_page: "emp-leave",
       });
     } catch { /* never fails the decision */ }
@@ -225,6 +239,7 @@ export async function PATCH(request) {
         start_date: current.start_date,
         end_date: current.end_date,
         previous_status: current.status,
+        ...(action === "reject" ? { reason: rejectReason } : {}),
       },
     });
 

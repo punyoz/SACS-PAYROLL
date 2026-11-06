@@ -264,6 +264,9 @@ export function EditStaffDialog({ user, branches, open, onOpenChange, onSaved })
       suffix: v("suffix"),
       email: v("email").toLowerCase(),
       role,
+      // An Admin is saved with its branch in the same request (the server
+      // refuses an Admin without one, 2026-11-06).
+      ...(branchId ? { branch_id: branchId } : {}),
       emergency_contact_name: v("emergency_contact_name"),
       emergency_contact_relationship: v("emergency_contact_relationship"),
       emergency_contact_address: v("emergency_contact_address"),

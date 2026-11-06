@@ -269,7 +269,19 @@ const REQUEST_COLUMNS = [
       ? new Date(r.submitted_at).toLocaleString("en-PH", { month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
       : "Unknown date"),
   },
-  { key: "status", header: "Status", sortable: true, cell: (r) => <RequestStatusBadge status={r.status} />, searchValue: (r) => r.status },
+  {
+    key: "status",
+    header: "Status",
+    sortable: true,
+    // HR's reason under a rejection (2026-11-06).
+    cell: (r) => (
+      <div className="space-y-1">
+        <RequestStatusBadge status={r.status} />
+        {String(r.status || "").toLowerCase() === "rejected" && r.decision_reason ? <p className="max-w-56 text-xs text-muted-foreground [overflow-wrap:anywhere]">Reason: {r.decision_reason}</p> : null}
+      </div>
+    ),
+    searchValue: (r) => `${r.status} ${r.decision_reason || ""}`,
+  },
 ];
 
 export function LeavePage({ leave }) {

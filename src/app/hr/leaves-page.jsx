@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { CalendarCheck2Icon, CalendarDaysIcon, CheckIcon, InfoIcon, PaperclipIcon, XIcon } from "lucide-react";
+import { CalendarCheck2Icon, CalendarDaysIcon, CheckIcon, InfoIcon, Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
@@ -15,6 +18,7 @@ import { RequestStatusBadge, StatusBadge } from "@/components/portal/status-badg
 import { STATUS_TONES } from "@/lib/branch-requests";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { REASON_MAX } from "@/lib/input-limits";
 
 /*
  * Leave Approval (loadHRLeaves / hrLeaveAction / hrCancelLeave,
@@ -63,6 +67,8 @@ export function LeavesPage({ refreshKey }) {
   }, [openInlineProof, notify]);
   const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [] });
   const [busy, setBusy] = React.useState(null);
+  // The request being rejected: HR writes the reason the employee sees (2026-11-06).
+  const [rejecting, setRejecting] = React.useState(null);
   // The branch Admins' recommendations, by leave request (2026-10-20).
   const [recs, setRecs] = React.useState(() => new Map());
 
@@ -86,14 +92,19 @@ export function LeavesPage({ refreshKey }) {
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
-  async function decide(req, action) {
-    const ok = await confirm(action === "approve"
-      ? { title: "Approve this leave request?", description: "The employee will be notified of the approval.", confirmLabel: "Approve" }
-      : { title: "Reject this leave request?", description: "This decision cannot be undone.", confirmLabel: "Reject", destructive: true });
-    if (!ok) return;
+  async function decide(req, action, reason) {
+    // A rejection asks for the reason in its own dialog (LeaveRejectDialog).
+    if (action === "reject" && reason === undefined) {
+      setRejecting(req);
+      return;
+    }
+    if (action === "approve") {
+      const ok = await confirm({ title: "Approve this leave request?", description: "The employee will be notified of the approval.", confirmLabel: "Approve" });
+      if (!ok) return;
+    }
     setBusy(`${req.id}:${action}`);
     try {
-      const data = await fetchJson("/api/hr/leave-requests", jsonBody("PATCH", { id: req.id, action }));
+      const data = await fetchJson("/api/hr/leave-requests", jsonBody("PATCH", { id: req.id, action, ...(action === "reject" ? { reason } : {}) }));
       notify(`Leave ${action === "approve" ? "Approved" : "Rejected"}`, `Leave request has been ${action === "approve" ? "approved" : "rejected"}.`, action === "approve" ? "success" : "info");
       // Approving never overwrites a day the employee actually tapped in.
       const conflicts = data.attendance_conflicts;
@@ -153,6 +164,7 @@ export function LeavesPage({ refreshKey }) {
               {canCancel ? <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive" onClick={() => cancelLeave(r)}>Cancel</Button> : null}
             </div>
             {s === "cancelled" && r.cancelled_by_name ? <p className="text-xs text-muted-foreground">by {r.cancelled_by_name}</p> : null}
+            {s === "rejected" && r.decision_reason ? <p className="max-w-56 text-xs text-muted-foreground [overflow-wrap:anywhere]">Reason: {r.decision_reason}</p> : null}
           </div>
         );
       },
@@ -232,6 +244,63 @@ export function LeavesPage({ refreshKey }) {
 
       {confirmDialog}
       {proofViewer}
+      <LeaveRejectDialog
+        request={rejecting}
+        onClose={() => setRejecting(null)}
+        onReject={async (reason) => { const req = rejecting; await decide(req, "reject", reason); setRejecting(null); }}
+      />
     </>
+  );
+}
+
+/**
+ * Reject with a reason (decision 2026-11-06), laid out like the payroll
+ * rejection dialog: 5-500 characters, shown to the employee on their leave
+ * list and in the rejection notice.
+ */
+function LeaveRejectDialog({ request, onClose, onReject }) {
+  const [reason, setReason] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => { setReason(""); setError(""); setBusy(false); }, [request]);
+  if (!request) return null;
+
+  async function submit() {
+    if (reason.trim().length < 5) {
+      setError("Write the reason for rejecting (at least 5 characters). The employee sees it.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    await onReject(reason.trim());
+    setBusy(false);
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Reject this leave request?</DialogTitle>
+          <DialogDescription>
+            {request.employee_name}: {request.leave_type}, {request.start_date}{request.end_date && request.end_date !== request.start_date ? ` to ${request.end_date}` : ""}. The employee is notified with your reason. This decision cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="lv-reject-reason">Reason for rejecting</Label>
+            <Textarea id="lv-reject-reason" rows={3} maxLength={REASON_MAX} value={reason} onChange={(e) => { setReason(e.target.value); setError(""); }}
+              placeholder="Required: why the leave cannot be granted" aria-invalid={Boolean(error) || undefined} autoFocus />
+          </div>
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="destructive" onClick={submit} disabled={busy}>
+            {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}
+            Reject
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

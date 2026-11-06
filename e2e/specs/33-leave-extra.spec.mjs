@@ -12,6 +12,7 @@ import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 const TAG = `E2E-LV-${Date.now().toString(36)}`;
+const REJECT_REASON = "E2E: a sick leave needs a medical certificate";
 // Weekdays in the 2nd half of the month 13-20 days ahead (7-day notice rule).
 function weekdayFrom(offset) {
   for (let d = offset; d < offset + 7; d += 1) {
@@ -81,14 +82,24 @@ test("leave extras: no proof / without pay, overlap refused, HR rejects + notice
     made.push((await mine(`${TAG} paid`))[0].id, (await mine(`${TAG} to reject`))[0].id);
   });
 
-  await step(page, "HR > Leave Approval > Reject Ana's Sick Leave", async () => {
+  await step(page, "HR > Leave Approval > Reject Ana's Sick Leave: no reason refused, then a reason (2026-11-06)", async () => {
     monitor.at("HR > Leave Approval");
+    monitor.allow(/^400 PATCH \/api\/hr\/leave-requests/, /status of 400/);
     await as(page, "hr", "hr-leaves");
     await settle(page);
+    const target = (await mine(`${TAG} to reject`))[0];
+    const bare = await api(page, "PATCH", "/api/hr/leave-requests", { id: target.id, action: "reject" });
+    expect(bare.status, "a rejection without a reason is refused by the server").toBe(400);
     const card = main(page).locator("li", { hasText: `${TAG} to reject` });
     await card.getByRole("button", { name: "Reject" }).click();
-    await confirm(page, "Reject");
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Reject" }).click();
+    await expect(dialog.getByText(/at least 5 characters/)).toBeVisible();
+    await dialog.locator("#lv-reject-reason").fill(REJECT_REASON);
+    await dialog.getByRole("button", { name: "Reject" }).click();
     await expect.poll(async () => (await mine(`${TAG} to reject`))[0].status, { timeout: 30000 }).toBe("rejected");
+    const stored = await rows(db().from("leave_requests").select("decision_reason").eq("id", target.id));
+    expect(stored[0].decision_reason).toBe(REJECT_REASON);
   });
 
   await step(page, "HR > Leave Approval > Approve the unpaid and the paid leave", async () => {
@@ -105,10 +116,12 @@ test("leave extras: no proof / without pay, overlap refused, HR rejects + notice
     await as(page, "employee", "emp-leave");
     await refresh(page);
     await expect(main(page).locator("tr", { hasText: `${TAG} to reject` }).getByText(/Rejected/i)).toBeVisible();
+    await expect(main(page).locator("tr", { hasText: `${TAG} to reject` }).getByText(REJECT_REASON)).toBeVisible();
     await expect(main(page).locator("tr", { hasText: `${TAG} unpaid` }).getByText(/Approved/i)).toBeVisible();
     const notes = await api(page, "GET", "/api/notifications");
     expect(notes.status).toBe(200);
     expect(JSON.stringify(notes.data), "a leave rejection notice reached Ana").toMatch(/reject/i);
+    expect(JSON.stringify(notes.data), "the notice carries HR's reason").toContain(REJECT_REASON);
   });
 
   await step(page, `Accountant > ${periodOf(D1)} preview: 2 days without pay (deducted), 1 day with pay (not deducted), nothing counted twice`, async () => {
@@ -136,7 +149,7 @@ test("leave extras: no proof / without pay, overlap refused, HR rejects + notice
     for (const id of made) {
       const r = (await rows(db().from("leave_requests").select("status").eq("id", id)))[0];
       if (r && ["approved", "pending_admin", "pending_accountant"].includes(r.status)) {
-        const res = await api(page, "PATCH", "/api/hr/leave-requests", { id, action: r.status === "approved" ? "cancel" : "reject" });
+        const res = await api(page, "PATCH", "/api/hr/leave-requests", { id, action: r.status === "approved" ? "cancel" : "reject", reason: "E2E clean-up of the test's leave" });
         expect([200, 201], JSON.stringify(res.data)).toContain(res.status);
       }
     }

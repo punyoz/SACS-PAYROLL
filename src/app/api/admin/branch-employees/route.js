@@ -264,6 +264,16 @@ export async function DELETE(request) {
     const foreignAssignment = denyForeignBranch(guard, existing.data.branch_id);
     if (foreignAssignment) return foreignAssignment;
 
+    // An Admin always belongs to one branch (decision 2026-11-06; database
+    // rule profiles_admin_has_branch): move them, or change their role first.
+    const target = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
+    if (String(target.data?.role || "").toLowerCase() === "admin") {
+      return NextResponse.json(
+        { error: "An Admin always belongs to a branch. Move them to another branch, or change their role first.", code: "admin_branch_required" },
+        { status: 409 },
+      );
+    }
+
     const branchResult = await supabase
       .from("branches")
       .select("name")

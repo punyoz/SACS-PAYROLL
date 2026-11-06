@@ -80,6 +80,21 @@ if (!adminClient && !anonClient) {
   process.exit(1);
 }
 
+/**
+ * The branch a seeded Admin is saved with: the one it already has (a re-seed
+ * never moves anyone), else SEED_ADMIN_BRANCH_ID, else the first branch.
+ * Always sent for an Admin: the upsert's proposed row is checked against
+ * profiles_admin_has_branch before the conflict turns it into an update.
+ */
+async function adminSeedBranch(client, account, userId) {
+  if (account.role !== "admin" || !client) return null;
+  const { data: current } = await client.from("profiles").select("branch_id").eq("id", userId).maybeSingle();
+  if (current?.branch_id) return current.branch_id;
+  if (process.env.SEED_ADMIN_BRANCH_ID) return process.env.SEED_ADMIN_BRANCH_ID;
+  const { data: first } = await client.from("branches").select("id").order("created_at", { ascending: true }).limit(1).maybeSingle();
+  return first?.id || null;
+}
+
 function buildProfile(account, userId, includeEmployeeId = false) {
   const profile = {
     id: userId,
@@ -87,6 +102,9 @@ function buildProfile(account, userId, includeEmployeeId = false) {
     role: account.role,
     full_name: account.full_name,
   };
+  // An Admin is saved with a branch (database rule profiles_admin_has_branch,
+  // 2026-11-06): its own, or a default when it has none (adminSeedBranch).
+  if (account.branch_id) profile.branch_id = account.branch_id;
 
   if (includeEmployeeId) {
     // NULL, never "": profiles.employee_id is UNIQUE, so two accounts without
@@ -172,7 +190,8 @@ async function runAdminSeed() {
 
   for (const account of roleAccounts) {
     const { id, action } = await ensureUser(account);
-    const { error } = await supabase.from("profiles").upsert(buildProfile(account, id, includeEmployeeId), {
+    const seedBranch = await adminSeedBranch(supabase, account, id);
+    const { error } = await supabase.from("profiles").upsert(buildProfile({ ...account, branch_id: seedBranch }, id, includeEmployeeId), {
       onConflict: "id",
     });
 
@@ -229,7 +248,8 @@ async function runAnonSeed() {
     }
 
     const userId = signIn.data.user.id;
-    const { error } = await supabase.from("profiles").upsert(buildProfile(account, userId, includeEmployeeId), {
+    const seedBranch = await adminSeedBranch(supabase, account, userId).catch(() => null);
+    const { error } = await supabase.from("profiles").upsert(buildProfile({ ...account, branch_id: seedBranch }, userId, includeEmployeeId), {
       onConflict: "id",
     });
 

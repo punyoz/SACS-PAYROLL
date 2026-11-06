@@ -9,7 +9,9 @@ import { payslipVisible, requiresApproval } from "@/lib/payroll/runs";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { payrollLineGroups } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { loadTaxBracketRows } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
+import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
+import { loadOrgName } from "@/lib/org-name";
 
 function toAmount(value) {
   const n = Number(value || 0);
@@ -247,6 +249,38 @@ export async function GET(request) {
     // inside their own branch.
     const foreign = denyForeignBranch(guard, user.user_metadata?.branch_id);
     if (foreign) return foreign;
+
+    // ?format=pdf&entry_id=… : one of the signed-in person's OWN payslips as a
+    // PDF (decision 2026-11-06), once HR has approved it (the same rule as the
+    // list). The employee share only: the payslip carries no employer share.
+    if (String(url.searchParams.get("format") || "").trim().toLowerCase() === "pdf") {
+      if (String(user.id) !== String(guard.userId)) {
+        return NextResponse.json({ error: "Only your own payslip can be downloaded here." }, { status: 403 });
+      }
+      const entryId = String(url.searchParams.get("entry_id") || "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(entryId)) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
+      const found = await supabase.from("payroll_entries").select("*").eq("id", entryId).eq("employee_id", user.id).neq("status", "draft").maybeSingle();
+      if (found.error) throw new Error(found.error.message);
+      const [released] = found.data ? await onlyReleased(supabase, [found.data]) : [];
+      if (!released) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
+      let payroll = released.payroll;
+      if (typeof payroll === "string") {
+        try { payroll = JSON.parse(payroll); } catch { payroll = null; }
+      }
+      payroll = payroll && typeof payroll === "object" ? payroll : {};
+      const entry = {
+        ...released,
+        status: String(released.status || "").toLowerCase(),
+        payroll: { ...payroll, totals: payroll.totals || {}, deductions: payroll.deductions || {}, incentives: payroll.incentives || {} },
+      };
+      const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase) });
+      const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
+      const fileName = `payslip-${String(entry.payslip_no || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
+      return new NextResponse(pdf, {
+        status: 200,
+        headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileName}"`, "Cache-Control": "no-store" },
+      });
+    }
 
     const payslips = await fetchPayslipsForUser(supabase, user.id);
 

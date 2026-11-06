@@ -669,6 +669,15 @@ export async function PATCH(request) {
       if (body.cp_number !== undefined) profilePatch.cp_number = normalizeDigits(body.cp_number, 11) || null;
       if (body.date_hired !== undefined) profilePatch.date_hired = normalizeText(body.date_hired, "") || null;
       if (body.address !== undefined) profilePatch.address = normalizeText(body.address, "") || null;
+      // An Admin keeps its branch in the row (profiles_admin_has_branch,
+      // 2026-11-06): an upsert's proposed row is checked before the conflict
+      // makes it an update, so it must carry the branch it already has.
+      if (nextRole === "admin") {
+        const { data: current } = await supabase.from("profiles").select("branch_id").eq("id", id).maybeSingle();
+        const keep = current?.branch_id || nextMetadata.branch_id || null;
+        if (!keep) return NextResponse.json({ error: "Choose the Admin's branch: an Admin always belongs to one branch.", code: "admin_branch_required" }, { status: 400 });
+        profilePatch.branch_id = keep;
+      }
       // Government IDs: '' clears (the profiles_protect_pii
       // trigger stores NULL), whereas NULL would keep the encrypted value.
       if (body.sss_number !== undefined) profilePatch.sss_number = normalizeDigits(body.sss_number, 10);

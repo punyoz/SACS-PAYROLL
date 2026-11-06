@@ -192,3 +192,15 @@ Shortest list before deployment:
   touched `profiles`; payslips keep the type stored on them).
 - `ehdd` (the main branch) is untouched by this work; nothing was committed or
   pushed from `fix/full-system-check`.
+
+## 10. Decisions of 2026-11-06 (done)
+
+| Open item | Decision | What was done |
+| --- | --- | --- |
+| Reason on HR's leave rejection | Required | New column `leave_requests.decision_reason` (migration `20261106060000`); the API refuses a rejection under 5 characters; HR rejects in a reason dialog laid out like the payroll one; the employee sees the reason on their leave list and in the notice (the recommending Admin too). |
+| Employee payslip PDF | Yes, own payslips only, employee share only | `GET /api/employee/payslips?format=pdf&entry_id=` for the signed-in person's own approved payslip (another person's id → 404, any other role → 403); "Download PDF" on the employee's payslip page. The PDF has no employer share. |
+| Admin without a branch | Refuse in the API and the database | `PATCH /api/admin/users` saves an Admin with its branch (sent, or the one it has) and refuses one without; Branch Assignment refuses to unassign an Admin; database rule `profiles_admin_has_branch` (migration `20261106050000`); the Edit dialog sends the branch; the seeder saves seeded Admins with a branch. |
+| Unused objects | Remove safely | `payroll_pending_run_count()` dropped in migration `20261106070000` after checking code, scripts, cron, views, policies and other functions (locally and on live). The Edge Function `attendance-nightly` is an on-demand tool nothing calls (0 calls in the 24 h the logs keep), holds no data, but cannot be removed by a migration: waiting for approval to delete it on live. |
+| `rfid_terminals`, `role_permissions` in the ERD | Add if they exist | Both exist. `role_permissions` drives 40 row-level security policies (181 rows): add. `rfid_terminals` is the retired terminals feature but holds 1 row on live: kept and added as "retired". Definitions in `docs/erd-updates-2026-11-06.md`. |
+
+Found on the way: the "remove from branch" API (`DELETE /api/admin/branch-employees`) is refused by the proxy for every role (no role holds "delete" on branch assignment) and no screen uses it. Left as it is.

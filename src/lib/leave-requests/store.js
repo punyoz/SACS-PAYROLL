@@ -36,6 +36,8 @@ export function normalizeLeaveRequest(row) {
     decided_by_name: row.decided_by_name || null,
     cancelled_at: row.cancelled_at || null,
     cancelled_by_name: row.cancelled_by_name || null,
+    // Why HR rejected it (20261106060000); null for approvals and older rows.
+    decision_reason: row.decision_reason || null,
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
   };
 }
@@ -76,7 +78,14 @@ const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave
  * Leave Requests list (GET /api/hr/leave-requests) shows the proof.
  */
 export async function readLeaveRequestsWithoutProof(filters = {}) {
-  const rows = await readLeaveRequests(LEAVE_COLUMNS_WITHOUT_PROOF, filters);
+  let rows;
+  try {
+    rows = await readLeaveRequests(`${LEAVE_COLUMNS_WITHOUT_PROOF},decision_reason`, filters);
+  } catch (error) {
+    // Before 20261106060000 the rejection reason column does not exist yet.
+    if (!/decision_reason/.test(String(error?.message || ""))) throw error;
+    rows = await readLeaveRequests(LEAVE_COLUMNS_WITHOUT_PROOF, filters);
+  }
   return rows.map(({ proof_url: _proof, ...row }) => row);
 }
 
@@ -147,7 +156,7 @@ export async function insertLeaveRequest(newRequest) {
  *
  * `decidedBy` / `decidedByName` record who made the decision.
  */
-export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, decidedBy, decidedByName } = {}) {
+export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, decidedBy, decidedByName, decisionReason } = {}) {
   const nowIso = new Date().toISOString();
   const supabase = getAdminClient();
 
@@ -163,6 +172,8 @@ export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, d
   const patch = { status: nextStatus, decided_at: nowIso, updated_at: nowIso };
   if (decidedBy !== undefined) patch.decided_by = decidedBy || null;
   if (decidedByName !== undefined) patch.decided_by_name = decidedByName || null;
+  // HR's reason for a rejection (20261106060000), shown to the employee.
+  if (decisionReason !== undefined) patch.decision_reason = decisionReason || null;
 
   let query = supabase
     .from("leave_requests")
