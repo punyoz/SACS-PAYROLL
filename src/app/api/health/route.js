@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { getCachedServiceClient } from "@/lib/supabase/admin";
 
 /**
- * GET /api/health: public liveness check for the uptime monitor and the
- * keep-alive workflow (docs/backup-and-restore.md section 5).
+ * GET /api/health: public liveness check for an uptime monitor
+ * (docs/hosting-and-operations.md).
  *
- * It runs one tiny database read, so each call is real database activity:
- * that is what keeps a Supabase Free project from pausing over a school
- * break. It returns only up / down, never data or error text. Listed as
- * public in src/proxy.js.
+ * It runs one tiny database read, so "up" means the app can reach the
+ * database, not just that the web server answers. It returns only up / down,
+ * never data or error text. Listed as public in src/proxy.js.
+ * (The daily keep-alive ping for the Free plan was removed on 2026-11-05:
+ * Supabase Pro projects are never paused.)
  */
 
 export const dynamic = "force-dynamic";

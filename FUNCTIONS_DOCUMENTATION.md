@@ -1453,7 +1453,7 @@ The Process Payroll page shows a live preview of each figure while the Accountan
 | `GET` / `PATCH` (system) | src/app/api/admin/system/route.js | System health: user and role counts, table status, database size, RFID list, the 10 latest security events / the old card-edit endpoint, which now answers "use RFID Cards". | session | Status | SA Dashboard, Backup | database function `system_database_size`, `listAuditLogs` | — |
 ## 13. Roles and Permissions, System Health, Developer Tools, Scripts and Configuration Files
 
-**What this covers:** the single list of who may do what (roles and permissions), the sidebar menu builder, the public health check, the developer-only test inbox, the command-line maintenance scripts (backup, seeding, reset), the daily keep-alive job and the project configuration files.
+**What this covers:** the single list of who may do what (roles and permissions), the sidebar menu builder, the public health check, the developer-only test inbox, the command-line maintenance scripts (backup, seeding, reset), and the project configuration files.
 
 ### 13.1 Roles, permissions and menu (server library)
 
@@ -1475,8 +1475,7 @@ The Process Payroll page shows a live preview of each figure while the Accountan
 
 | Function | File | Purpose | Inputs | Output | Trigger | Uses (tables / other functions) | Real-world example |
 |---|---|---|---|---|---|---|---|
-| `GET` (health) | src/app/api/health/route.js | Public "is the system up?" check. Makes one tiny database read (which also keeps the free database from pausing) and returns only up or down. | none | Up/down | Uptime monitor, daily keep-alive job | `branches` read | The uptime monitor emails if the site is down. |
-| (GitHub Actions job `keep-alive`) | .github/workflows/keep-alive.yml | Calls `/api/health` once a day (9:17 AM Manila), with retries, so the database isn't paused during school breaks. | `HEALTH_URL` variable | Ping | Daily schedule / manual run | `/api/health` | During the summer break the database stays active. |
+| `GET` (health) | src/app/api/health/route.js | Public "is the system up?" check. Makes one tiny database read and returns only up or down. | none | Up/down | Uptime monitor | `branches` read | The uptime monitor emails if the site is down. |
 | `notFound` / `GET` / `POST` (dev mail.tm) | src/app/api/dev/mailtm/route.js | Developer only (off in production): says whether the test inbox reader is on; creates an inbox, lists messages, or waits up to 45 seconds for the latest code. | `action`, address, since | Inbox / messages / code | Code screen's test button, developer tools | `mailtm.service.mjs`, `readPendingLogin` | — |
 | `isMailtmEnabled` / `assertEnabled` / `sleep` | src/lib/mail/mailtm.service.mjs | Whether the mail.tm test service is allowed (USE_MAILTM=true and not production) / stop if not / wait. | none | Values | Dev tools | — | — |
 | `readStore` / `writeStore` / `normalizeAddress` / `members` | src/lib/mail/mailtm.service.mjs | Read and write the saved test inboxes on this computer / clean an address / read a list reply. | values | Values | Internal | `.runtime/mailtm-inboxes.json` | — |

@@ -21,7 +21,7 @@ rebuilt from `supabase/migrations/`.
 |---|---|
 | Node.js 20+ | Developed on Node 24. |
 | npm | Use `npm ci` (lockfile is `package-lock.json`). |
-| Supabase account | The free tier is enough. |
+| Supabase account | The live project is on Supabase Pro (docs/hosting-and-operations.md); development uses the free local stack. |
 | Docker Desktop + Supabase CLI (`npx supabase`) | For testing migrations on a local copy before they touch a real project. |
 | Vercel account | Deployment only. |
 
@@ -47,6 +47,16 @@ rebuilt from `supabase/migrations/`.
    npm run dev                   # http://localhost:3000
    ```
    Sign in as each role and check its portal loads its own sidebar.
+
+### Local development uses the local stack
+
+`.env.local` points at the **local** Supabase stack (`npx supabase start`;
+URL `http://127.0.0.1:54321` and the keys from `npx supabase status`), so
+`npm run dev` and the scripts never touch live payroll data. The live
+project's values are kept in **`.env.live.local`** (git-ignored, never loaded
+by Next.js); only the backup (`npm run db:backup`) reads it. To run a script
+against live on purpose, copy the values over for that one run and put them
+back afterwards.
 
 ### Two traps
 
@@ -223,7 +233,8 @@ The schema has 46 tables and 3 read-only views:
 | `docs/employee-schedules-cutoffs-early-bird.md` | Per-employee schedules, per-cutoff deductions, the 7-day leave rule, the Early Bird incentive, and their test cases |
 | `docs/local-migration-replay.md` | Testing migrations locally; repairing the migration history |
 | `docs/hosting.md` | Free hosting options compared; moving to an Oracle Cloud VM step by step |
-| `docs/backup-and-restore.md` | Free-plan limits, backups, restore test, keep-alive |
+| `docs/hosting-and-operations.md` | Supabase Pro: plan, region, backups and recovery plan, security settings, limits, monthly cost and checklist |
+| `docs/backup-and-restore.md` | The school's own backups (scheduled), restore test, uptime monitor |
 | `docs/monitoring.md` | Sentry error monitoring set-up |
 | `docs/go-live.md` | Going live: backup, clearing test data, host variables, deploy, rollback, smoke test, RFID kits |
 | `docs/super-admin-settings.md` | Payslip schedule, subsidy, rates, tax table, holidays, security |

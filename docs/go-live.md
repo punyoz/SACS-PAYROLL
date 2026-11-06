@@ -9,16 +9,33 @@ Live project: `swtlmaupaarrppypxsip` (Supabase, region ap-south-1 Mumbai).
 ## 0. Before the day
 
 - [ ] **Seed accounts must not ship.** Remove or disable all seed/test
-      accounts using test email domains (maxxspace.com, mail.tm) across all
-      five roles before production deployment. On 2026-10-29 the live project
-      still had five: Super Admin, HR, Admin, Accountant and Employee on
-      `@maxxspace.com`. Section 2 removes them (clear-test-data.sql keeps only
-      the real Super Admin); afterwards, Super Admin → Admin & HR Accounts and
-      HR → Employees must show no `maxxspace.com` or `mail.tm` address.
-- [ ] **Supabase plan.** Staying on Free (decision of Oct 10, 2026): own
-      backups, a tested restore and the keep-alive in
-      [backup-and-restore.md](backup-and-restore.md) are required **before
-      real payroll data goes in**.
+      accounts using test email domains (maxxspace.com, mail.tm, e2e.test)
+      across all five roles before production deployment. On 2026-11-05 the
+      live project still had five: Super Admin, HR, Admin, Accountant and
+      Employee on `@maxxspace.com` (`@e2e.test` accounts exist only in the
+      local test stack, but check anyway). Section 2 removes them
+      (clear-test-data.sql keeps only the real Super Admin); afterwards,
+      Super Admin → Admin & HR Accounts and HR → Employees must show no
+      `maxxspace.com`, `mail.tm` or `e2e.test` address.
+- [ ] **Supabase plan.** The organization is on **Pro** (confirmed
+      2026-11-05). Before real payroll data goes in, tick every item below;
+      details in [hosting-and-operations.md](hosting-and-operations.md).
+  - [ ] Plan confirmed: Organization → Billing shows Pro, project
+        `swtlmaupaarrppypxsip`, compute Micro, no add-ons.
+  - [ ] Spend cap **on** (Organization → Billing → Cost Control).
+  - [ ] Backups verified: Database → Backups lists daily backups, the latest
+        from today; one school export (`npm run db:backup`) saved off-site.
+  - [ ] Restore plan written and known to the Super Admin
+        (hosting-and-operations.md section 2).
+  - [ ] Advisors clean: Security and Performance show no errors or warnings
+        (INFO "unused index" items are expected before real use).
+  - [ ] Connection pooler in use: the app uses the Supabase API only; the
+        backup script's `SUPABASE_DB_URL` is a `pooler.supabase.com` address.
+  - [ ] Auth URLs correct: Site URL = the production domain; Redirect URLs =
+        the production domain and `http://localhost:3000` only.
+  - [ ] Seed accounts removed (the first item above).
+  - [ ] Monthly cost check scheduled: a recurring reminder for the checklist
+        in hosting-and-operations.md section 10.
 - [ ] **Hosting.** Vercel Hobby is for testing only (non-commercial). Production:
       the Oracle Cloud Always Free VM in [hosting.md](hosting.md).
 - [ ] **Accounts.** Turn on MFA for the Supabase, Vercel, GitHub and Gmail
@@ -240,5 +257,6 @@ Do this at each of the 4 branches:
   Providers → Email → "Prevent use of leaked passwords"). Supabase checks
   each new password against HaveIBeenPwned and refuses known-leaked ones.
   The security advisor flags it as off. Skipped for now by decision
-  (2026-10-21); it may need a paid Supabase plan. Turn it on when the plan
-  allows: no code change is needed.
+  (2026-10-21) because it needed a paid plan. **Done 2026-11-05** on Pro
+  (the app's own check in src/lib/auth/breached-password.js stays as a
+  second layer).

@@ -10,7 +10,7 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import { requirePermission, resolveTargetUserId, denyForeignBranch } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
-import { validateProofUrl } from "@/lib/leave-requests/proof";
+import { LEAVE_PROOF_BUCKET, decodeProofDataUrl, proofPathFor, validateProofUrl } from "@/lib/leave-requests/proof";
 import { LEAVE_ADVANCE_MESSAGE, earliestLeaveStart, meetsAdvanceRule } from "@/lib/leave-requests/advance-rule";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { hrAccountIds, notify } from "@/lib/branch-requests-server";
@@ -97,7 +97,12 @@ export async function POST(request) {
     if (!proof.ok) {
       return NextResponse.json({ error: proof.error }, { status: 400 });
     }
-    const proofUrl = proof.value;
+    // Stored as a file in the private leave-proofs bucket, not in the row
+    // (20261105030000). Its real type must match what it claims to be.
+    const proofFile = proof.value ? decodeProofDataUrl(proof.value) : null;
+    if (proofFile && !proofFile.ok) {
+      return NextResponse.json({ error: proofFile.error }, { status: 400 });
+    }
 
     if (!employeeName || !leaveType || !startDate || !endDate || !reason) {
       return NextResponse.json(
@@ -178,6 +183,15 @@ export async function POST(request) {
 
     // The submission date and time the 7-day rule was checked against.
     const nowIso = submittedAt.toISOString();
+
+    let proofPath = null;
+    if (proofFile) {
+      proofPath = proofPathFor(employeeId, proofFile.ext, crypto.randomUUID());
+      const upload = await getServiceClient().storage.from(LEAVE_PROOF_BUCKET)
+        .upload(proofPath, proofFile.bytes, { contentType: proofFile.mime, upsert: false });
+      if (upload.error) throw new Error(`The proof document could not be saved: ${upload.error.message}`);
+    }
+
     const newRequest = normalizeLeaveRequest({
       id: crypto.randomUUID(),
       employee_id: employeeId,
@@ -188,14 +202,22 @@ export async function POST(request) {
       start_date: startDate,
       end_date: endDate,
       reason,
-      proof_url: proofUrl,
+      proof_url: "",
+      proof_path: proofPath,
       status: "pending_admin",
       submitted_at: nowIso,
       decided_at: null,
       updated_at: nowIso,
     });
 
-    const saved = await insertLeaveRequest(newRequest);
+    let saved;
+    try {
+      saved = await insertLeaveRequest(newRequest);
+    } catch (error) {
+      // No request, no file: remove the upload rather than leave an orphan.
+      if (proofPath) await getServiceClient().storage.from(LEAVE_PROOF_BUCKET).remove([proofPath]).catch(() => {});
+      throw error;
+    }
     // HR's bell (2026-10-20 audit): a new request is waiting for a decision.
     try {
       const supabase = getServiceClient();

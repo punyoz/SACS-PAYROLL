@@ -150,8 +150,8 @@ domain.
 10. **Supabase** → Authentication → URL Configuration → Site URL =
     `https://payroll.<school-domain>`.
 11. Open `https://payroll.<school-domain>/login` and run the smoke test in
-    [go-live.md](go-live.md) section 5. Point the uptime monitor and the
-    `HEALTH_URL` keep-alive variable at `https://payroll.<school-domain>/api/health`.
+    [go-live.md](go-live.md) section 5. Point the uptime monitor at
+    `https://payroll.<school-domain>/api/health`.
 
 ### Updating to a new version
 

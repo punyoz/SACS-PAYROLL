@@ -72,10 +72,10 @@ describe("X-01: two people editing one employee", () => {
 });
 
 describe("SC-09 / SC-14: database size", () => {
-  it("the Super Admin sees the size against the plan, warned from 350 MB", () => {
+  it("the Super Admin sees the size against the plan (Pro, 8 GB), warned from 6 GB", () => {
     const route = readFileSync("src/app/api/admin/system/route.js", "utf8");
-    expect(route).toContain("warn_bytes: 350 * 1024 * 1024");
-    expect(route).toContain("limit_bytes: 500 * 1024 * 1024");
+    expect(route).toContain("warn_bytes: 6 * 1024 * 1024 * 1024");
+    expect(route).toContain("limit_bytes: 8 * 1024 * 1024 * 1024");
   });
 });
 
