@@ -222,6 +222,8 @@ export function shapeRun(row) {
     status: row.status,
     status_label: RUN_STATUS_LABELS[row.status] || row.status,
     submission_no: Number(row.submission_no) || 0,
+    // Made or submitted while processing window enforcement was OFF (20261106090000).
+    created_in_testing_mode: row.created_in_testing_mode === true,
     processed_by: row.processed_by || null,
     processed_by_name: row.processed_by_name || null,
     submitted_by: row.submitted_by || null,

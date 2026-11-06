@@ -21,6 +21,7 @@ import { RatesSection } from "./rates-section";
 import { PayrollSettingsSection } from "./tax-section";
 import { HolidaysSection } from "./holidays-section";
 import { PayslipScheduleSection } from "./payslip-schedule-section";
+import { WindowEnforcementBanner, WindowEnforcementSection } from "./window-enforcement-section";
 import { TeacherSubsidySection } from "./teacher-subsidy-section";
 import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 
@@ -469,6 +470,8 @@ export function ConfigPage({ refreshKey }) {
   }, []);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
+  // Processing window enforcement changes refresh the page banner too.
+  const [enforcementKey, setEnforcementKey] = React.useState(0);
 
   const onConfig = React.useCallback((config) => setState((current) => ({ ...current, config })), []);
   const ready = Boolean(state.config) || Boolean(state.error);
@@ -480,6 +483,7 @@ export function ConfigPage({ refreshKey }) {
         <InfoIcon className="text-info" aria-hidden="true" />
         <AlertDescription>Configuration changes apply system-wide. Review all settings carefully before saving.</AlertDescription>
       </Alert>
+      <WindowEnforcementBanner refreshKey={`${refreshKey}-${enforcementKey}`} />
 
       <Tabs value={tab} onValueChange={setTab} className="gap-4">
         <div className="-mx-1 overflow-x-auto px-1 pb-1">
@@ -519,6 +523,7 @@ export function ConfigPage({ refreshKey }) {
         <TabsContent value="payroll" className="flex flex-col gap-4">
           {state.config ? <PayrollSection key={`pay-${state.version}`} config={config} onConfig={onConfig} /> : null}
           <PayslipScheduleSection refreshKey={refreshKey} />
+          <WindowEnforcementSection refreshKey={refreshKey} onChanged={() => setEnforcementKey((k) => k + 1)} />
           <TeacherSubsidySection refreshKey={refreshKey} />
         </TabsContent>
         <TabsContent value="rates" className="flex flex-col gap-4"><RatesSection refreshKey={refreshKey} /></TabsContent>

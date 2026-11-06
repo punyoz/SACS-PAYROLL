@@ -41,6 +41,7 @@ import { payrollLineGroups } from "@/lib/payroll/line-tags";
 import { generationWindow, loadPayCalendar } from "@/lib/payroll/generation-window";
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
 import { insideProcessingWindow, processingWindowLabel, processingWindowRange } from "@/lib/payroll/override-window";
+import { loadWindowEnforcement, publicEnforcement } from "@/lib/payroll/window-enforcement";
 import { manilaDateKey, nextPeriod, periodForDateKey } from "@/lib/payroll/periods";
 
 /**
@@ -56,10 +57,12 @@ async function processingWindows(supabase) {
   const before = new Date(`${current.start_key}T00:00:00Z`);
   before.setUTCDate(before.getUTCDate() - 1);
   const periods = [periodForDateKey(before.toISOString().slice(0, 10)), current, nextPeriod(today)];
-  const [payCalendar, schedule] = await Promise.all([loadPayCalendar(supabase), loadPayslipSchedule(supabase)]);
+  const [payCalendar, schedule, enforcement] = await Promise.all([loadPayCalendar(supabase), loadPayslipSchedule(supabase), loadWindowEnforcement(supabase)]);
   return {
     today,
     set_by: "Super Admin (System Configuration → Payslip Schedule)",
+    // The Super Admin's testing switch: only whether it is OFF (red banner).
+    window_enforcement: publicEnforcement(enforcement),
     windows: periods.map((period) => {
       const win = generationWindow(period, { today, payCalendar, schedule: schedule ? schedule.forPeriod(period.start_key) : null });
       const range = processingWindowRange(win);

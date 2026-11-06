@@ -51,6 +51,13 @@ Live project: `swtlmaupaarrppypxsip` (Supabase, region ap-south-1 Mumbai).
       Super Admin → System Configuration → Payroll → Licensed Teacher Subsidy
       (no subsidy year is set up yet).
 - [ ] **Branch RFID kits** ready (section 7).
+- [ ] **Processing window enforcement is ON before real use.** Super Admin →
+      System Configuration → Payroll → Processing window enforcement shows
+      **ON**, and no red "Testing mode: processing window not enforced."
+      banner shows anywhere. If it was turned OFF for testing or the defense,
+      turn it ON with a reason (see [defense-demo-notes.md](defense-demo-notes.md)).
+      Payslips and runs made while it was OFF carry
+      `created_in_testing_mode = true`; clear them with the test data.
 
 ## 1. Back up (go-live day, first)
 
@@ -173,6 +180,7 @@ Vercel steps below are for a test deployment (Hobby, non-commercial).
 - [ ] RFID terminal at one branch: unlock, tap a real card → green; tap again at once → green, no change; tap 5+ minutes later → Time Out recorded.
 - [ ] Unplug the network, tap → amber "saved"; reconnect → the count clears and the tap shows "(sent late)" in View Taps.
 - [ ] Accountant opens Process Payroll for October 1–15, 2026: the banner shows "Payslip generation on Oct 15, 2026".
+- [ ] Processing window enforcement is **ON** (System Configuration → Payroll); no red testing-mode banner on Process Payroll or Payroll Approval.
 - [ ] Super Admin → Audit & Monitoring shows the sign-ins above.
 - [ ] Vercel → Logs: no red errors.
 

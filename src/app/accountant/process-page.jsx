@@ -49,6 +49,7 @@ import { RunApprovalPanel } from "./run-approval-panel";
 import { DeferredIncentivesNotice } from "./incentives-page";
 import { CONTRIBUTION_MAX, DAYS_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX } from "@/lib/input-limits";
 import { attendanceOverrideState } from "@/lib/payroll/override-window";
+import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
 import { DEFERRED_NOTE, pesoText } from "@/lib/payroll/line-tags";
 import { previewLineGroups } from "@/lib/portal/payroll-line-preview";
 import { LineTag, LineTagLegend, PayrollLineGroups, TaxHowDetails } from "@/components/portal/payroll-lines";
@@ -94,6 +95,8 @@ function Banners({ data }) {
   const period = data?.active_period?.label || "This period";
   return (
     <>
+      {/* Super Admin testing switch OFF (window-enforcement.js). */}
+      <TestingModeBanner enforcement={win?.window_enforcement} />
       {data && data.payroll_ready === false ? (
         <Alert className="border-warning/40 bg-warning/10 text-warning">
           <AlertTriangleIcon aria-hidden="true" />

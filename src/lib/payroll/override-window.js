@@ -95,6 +95,11 @@ export function attendanceOverrideState({ window, runStatus = null, payslipStatu
   if (payslipStatus === "final") {
     return result(false, "override_payslip_final", "Overrides are closed: this employee's Final payslip is already generated. They reopen only if HR rejects the run.");
   }
+  // The Super Admin's testing switch is OFF (window-enforcement.js): open on
+  // any date; the reason and the log are still required.
+  if (window?.enforcement_off === true) {
+    return result(true, null, "Testing mode: processing window not enforced. An override needs a reason and is logged.");
+  }
   if (!insideProcessingWindow(window, today ?? window?.today)) {
     return result(false, "override_outside_window", `Overrides are only available during the processing window (${label}).`);
   }
