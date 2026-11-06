@@ -87,6 +87,7 @@ const ROUTES = [
   ["/api/admin/payroll-rates", [SA]],
   ["/api/admin/payroll-settings", [SA]],
   ["/api/admin/payslip-schedule", [SA]],
+  ["/api/admin/window-enforcement", [SA]],
   ["/api/admin/teacher-subsidy", [SA]],
   // Attendance.
   ["/api/admin/attendance", [SA, HR, AC]],
