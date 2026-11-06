@@ -4,7 +4,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { test as base, expect } from "@playwright/test";
-import { installBanner } from "./banner.mjs";
+import { installBanner, flushProblems, currentStep } from "./banner.mjs";
 import { Monitor } from "./monitor.mjs";
 
 const LOG_DIR = join(process.cwd(), "test-results");
@@ -14,6 +14,12 @@ export const test = base.extend({
     const monitor = new Monitor();
     monitor.attach(page);
     await use(monitor);
+    await flushProblems(page);
+    if (testInfo.status !== testInfo.expectedStatus) {
+      const first = String(testInfo.error?.message || "").split("\n").find((l) => l.trim()) || "unknown error";
+      console.log(`  ✖ FAILED after step ${currentStep()}: ${testInfo.title}: ${first.replace(/\u001b\[[0-9;]*m/g, "").slice(0, 300)}`);
+      if (process.env.E2E_HEADLESS !== "1") await new Promise((r) => setTimeout(r, 3000));
+    }
     if (monitor.warnings.length) {
       await testInfo.attach("warnings.txt", { body: monitor.warnings.map((w) => `[${w.where}] ${w.text}`).join("\n"), contentType: "text/plain" });
     }

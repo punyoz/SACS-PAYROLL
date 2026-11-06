@@ -20,6 +20,14 @@ import { main, settle } from "../support/portal.mjs";
 import { api, choose } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
+import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
+
+// Written for October 29, 2026 (October 16-31 generated "today"). On a later
+// real date the server's "today" is moved back to then (E2E_TIME_TRAVEL=1)
+// and home again afterwards (full system check 2026-11-05).
+const AS_OF = "2026-10-29";
+const needsTravel = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) > "2026-10-31";
+test.afterAll(async () => { if (TIME_TRAVEL) await travelHome(); });
 
 // The month's 2nd half: it settles the month (contributions, tax), so the 1st
 // half of a settled month is never recomputed, not even by an override.
@@ -35,6 +43,12 @@ test.afterEach(() => {
 });
 
 test("override: Super Admin only, reason required, logged on its own, downstream records flagged", async ({ page, monitor }) => {
+  test.skip(needsTravel() && !TIME_TRAVEL, `date-dependent: run with E2E_TIME_TRAVEL=1 (it moves the server to ${AS_OF})`);
+  if (needsTravel()) {
+    await shiftBrowser(page.context());
+    await page.goto("/api/health");
+    await travelTo(AS_OF, page);
+  }
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
   const sa = await profileByEmail(ACCOUNTS.super_admin.email);
   const acct = await profileByEmail(ACCOUNTS.accountant.email);
@@ -80,7 +94,7 @@ test("override: Super Admin only, reason required, logged on its own, downstream
   await step(page, "Super Admin > override the approved payslip (an absence found after approval)", async () => {
     planted = psql(`set session_replication_role = replica;
       insert into payroll_schedule_settings (effective_from, first_half_day, second_half_day, window_days, note, created_by_name)
-      values ('2026-10-16', 15, ${Number(new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(8, 10))}, 5, 'E2E: October 2nd half generated today', 'E2E') returning id;`).split(/s+/).pop();
+      values ('2026-10-16', 15, ${needsTravel() ? Number(AS_OF.slice(8, 10)) : Number(new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(8, 10))}, 5, 'E2E: October 2nd half generated today', 'E2E') returning id;`).split(/s+/).pop();
     // HR confirmed afterwards that Bea was absent on Oct 20.
     psql(`update public.attendance_logs set time_in = null, time_out = null, total_hours = 0 where employee_id = '${bea.id}' and log_date = '2026-10-20';`);
     const res = await api(page, "PATCH", "/api/accountant/payroll", { ...body, reason: REASON, confirm_incomplete: true });

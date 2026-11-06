@@ -124,6 +124,8 @@ test("announcements: HR and Admin manage, audiences hold, readers read only", as
     await as(page, "admin2", "adm-announcements");
     const posted = await api(page, "POST", "/api/announcements", { title: T.northAdmin, body: "North canteen closed Friday." });
     check("Admin (North)", posted.status === 200, "North's Admin posts to North");
+    // Say what the server answered instead of failing on a missing id.
+    expect(posted.status, `North's Admin post answered ${posted.status}: ${JSON.stringify(posted.data).slice(0, 300)}`).toBe(200);
     await as(page, "admin", "adm-announcements");
     const id = posted.data.announcement.id;
     const edit = await api(page, "PATCH", "/api/announcements", { id, action: "edit", title: "x", body: "y" });

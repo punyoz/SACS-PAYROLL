@@ -9,6 +9,15 @@ import { main, settle } from "../support/portal.mjs";
 import { api } from "../support/flow.mjs";
 import { profileByEmail } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
+import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
+
+// Written on November 2, 2026: HR's Holidays & Duty opens on the next
+// holiday, so after Nov 2 the duty would land on Nov 30. On a later real date
+// the server's "today" is moved back to Nov 2 (E2E_TIME_TRAVEL=1) and home
+// again afterwards (full system check 2026-11-05).
+const AS_OF = "2026-11-02";
+const needsTravel = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) > AS_OF;
+test.afterAll(async () => { if (TIME_TRAVEL) await travelHome(); });
 
 const NOV2 = "2026-11-02"; // All Souls' Day, special non-working (Proclamation No. 1006, s. 2025), a Monday
 const NOV1 = "2026-11-01"; // All Saints' Day, a Sunday
@@ -18,6 +27,13 @@ const day = (records, key) => records.find((r) => r.date === key);
 test("holidays: badges, 0 required hours, and HR-only holiday duty", async ({ page }) => {
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
+  test.skip(needsTravel() && !TIME_TRAVEL, `date-dependent: run with E2E_TIME_TRAVEL=1 (it moves the server to ${AS_OF})`);
+  if (needsTravel()) {
+    await shiftBrowser(page.context());
+    // On the app's origin, so the browser's date moves too (localStorage).
+    await page.goto("/api/health");
+    await travelTo(AS_OF, page);
+  }
 
   await as(page, "employee", "emp-timesheet");
   await step(page, "Employee > Timesheet Oct 26 - Nov 9: Nov 1 and Nov 2 show their holidays, 0 hours, no absence", async () => {
@@ -64,7 +80,8 @@ test("holidays: badges, 0 required hours, and HR-only holiday duty", async ({ pa
     await settle(page);
     await expect(main(page).getByText("Require staff to report")).toBeVisible();
     await main(page).locator("#duty-search").fill("Ana");
-    await main(page).getByRole("group", { name: "Employees" }).getByRole("checkbox").first().check();
+    // Ana Lopez herself, not whoever else the search finds first.
+    await main(page).getByRole("group", { name: "Employees" }).getByRole("checkbox", { name: /^Ana.*Lopez/ }).first().check();
     await main(page).locator("#duty-note").fill("Guard duty");
     await main(page).getByRole("button", { name: "Assign", exact: true }).click();
     await settle(page);

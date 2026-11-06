@@ -2,6 +2,8 @@
 // exceptions, crashes, failed or slow requests (app API and Supabase), and
 // 404 pages. A test fails at the end if anything unexpected was seen.
 
+import { reportProblem } from "./banner.mjs";
+
 const SLOW_MS = 5000;
 
 // Noise that is not an app defect.
@@ -41,6 +43,7 @@ export class Monitor {
   add(kind, text) {
     if (this.isAllowed(text)) return;
     this.issues.push({ where: this.where, kind, text: String(text).slice(0, 500) });
+    reportProblem(this.where, kind, text);
   }
 
   attach(page) {

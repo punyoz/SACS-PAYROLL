@@ -15,6 +15,14 @@ import { main, settle } from "../support/portal.mjs";
 import { api, choose, confirm } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
+import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
+
+// Written for October 29, 2026 (October 16-31 generated "today"). On a later
+// real date the server's "today" is moved back to then (E2E_TIME_TRAVEL=1)
+// and home again afterwards (full system check 2026-11-05).
+const AS_OF = "2026-10-29";
+const needsTravel = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) > "2026-10-31";
+test.afterAll(async () => { if (TIME_TRAVEL) await travelHome(); });
 
 const OCT1 = "October 1-15, 2026";
 const OCT2 = "October 16-31, 2026";
@@ -59,8 +67,23 @@ test("partial runs: deliberate, visible, recorded, and followed up in a suppleme
   const branch = await rows(db().from("branches").select("id").eq("name", BRANCH_MAIN).single());
   const oct1Run = await rows(db().from("payroll_runs").select("id,status").eq("branch_id", branch.id).eq("period_label", OCT1).maybeSingle());
   test.skip(oct1Run?.status !== "approved", "needs October 1-15 approved (run 20-payroll-flow first)");
+  // Needs October 16-31 untouched with Ana employed: 96/97 (year-end tax,
+  // override) approve that run and separate Ana earlier in the full suite.
+  // Run on its own after 20-payroll-flow (e2e/README.md, "Separate passes").
+  {
+    const mainId = (await rows(db().from("branches").select("id").eq("name", "Main Campus").single())).id;
+    const taken = await rows(db().from("payroll_runs").select("id").eq("branch_id", mainId).eq("period_label", "October 16-31, 2026"));
+    const anaNow = await profileByEmail(ACCOUNTS.employee.email);
+    test.skip(taken.length > 0 || Boolean(anaNow.separated_on), "October 16-31 already used by 96/97 in this run: run this spec in its own pass after 20-payroll-flow");
+  }
   // October's 2nd half is generated today (as in 96/98), removed at the end.
-  const day = Math.max(16, Number(new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(8, 10)));
+  test.skip(needsTravel() && !TIME_TRAVEL, `date-dependent: run with E2E_TIME_TRAVEL=1 (it moves the server to ${AS_OF})`);
+  if (needsTravel()) {
+    await shiftBrowser(page.context());
+    await page.goto("/api/health");
+    await travelTo(AS_OF, page);
+  }
+  const day = needsTravel() ? Number(AS_OF.slice(8, 10)) : Math.max(16, Number(new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(8, 10)));
   const planted = psql(`set session_replication_role = replica;
     insert into payroll_schedule_settings (effective_from, first_half_day, second_half_day, window_days, note, created_by_name)
     values ('2026-10-16', 15, ${day}, 5, 'E2E partial runs: 2nd half generated today', 'E2E') returning id;`).split(/\s+/).pop();

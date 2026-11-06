@@ -235,7 +235,11 @@ test("API fields: wrong type, oversized and empty values are refused server-side
   await D({ field: "Leave without pay days", expected: "number 0–15", body: { ...draft, deductions: { leave_without_pay_days: "x" } } });
   await D({ field: "SSS amount", expected: "number, no letters", body: { ...draft, deductions: { sss: "12ab" } } });
   await D({ field: "Override reason", expected: "text ≤ 500", body: { ...draft, deductions: { absences_days: 2 }, override_reason: long("PRB-OVR", 501) } });
-  await D({ field: "Absent days + 500-char reason (valid)", expected: "accepted", body: { ...draft, deductions: { absences_days: 2 }, override_reason: "Probe: confirmed with the logbook. ".padEnd(500, "x") }, valid: true });
+  // An attendance override is accepted only inside November 1-15's processing
+  // window (Nov 16-20, decision 2026-11-03); on any other day it is refused.
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+  const inWindow = today >= "2026-11-16" && today <= "2026-11-20";
+  await D({ field: "Absent days + 500-char reason (valid)", expected: inWindow ? "accepted" : "refused: outside the processing window", body: { ...draft, deductions: { absences_days: 2 }, override_reason: "Probe: confirmed with the logbook. ".padEnd(500, "x") }, valid: inWindow });
   if (entry) {
     const C = (o) => probe(page, { where: "Accountant > Payroll Records > Correct", path: "/api/payroll/corrections", ...o });
     const corr = { entry_id: entry.id, kind: "underpayment", amount: 100, payrolls: 1, reason: "Probe correction reason" };

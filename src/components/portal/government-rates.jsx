@@ -115,7 +115,7 @@ function TaxCard({ data }) {
             </p>
             <div className="space-y-2 rounded-lg border p-3">
               <Label htmlFor="gr-tax-check">Check a monthly taxable income</Label>
-              <Input id="gr-tax-check" type="number" min="0" step="0.01" inputMode="decimal" className="max-w-56 tabular-nums" placeholder="e.g. 25000" value={check} onChange={(e) => setCheck(e.target.value)} />
+              <Input id="gr-tax-check" type="number" min="0" max="1000000" step="0.01" inputMode="decimal" className="max-w-56 tabular-nums" placeholder="e.g. 25000" value={check} onChange={(e) => setCheck(e.target.value)} />
               {explain ? (
                 <div className="space-y-1 text-sm" data-testid="tax-check-result">
                   <p>Bracket <strong>{explain.range}</strong> (highlighted): {peso(explain.base_tax)} + {explain.rate_pct}% × ({peso(explain.taxable)} − {peso(explain.bracket?.over || 0)}) = <strong>{peso(explain.tax)}</strong> a month{explain.taxable > 0 ? ` (${explain.effective_pct}% of taxable income)` : ""}.</p>

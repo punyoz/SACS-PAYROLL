@@ -147,6 +147,8 @@ test("RFID: register card → unlock terminal → tap → attendance; duplicate,
     await as(page, "employee", "emp-attendance");
     await settle(page);
     const day = new Date(`${today}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-    await expect(main(page).getByText(new RegExp(day.replace(" ", "\\s+"))).first()).toBeVisible();
+    // Dates are shown zero-padded ("Nov 05"); the day number may or may not be.
+    const [mon, dd] = day.split(" ");
+    await expect(main(page).getByText(new RegExp(`${mon}\\s+0?${dd}\\b`)).first()).toBeVisible();
   });
 });

@@ -23,6 +23,8 @@ import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
 
 const OCT2 = "October 16-31, 2026";
+// Part 2 builds on Part 1 in the same run.
+const PART1_STATE = { ran: false };
 const DEC1 = "December 1-15, 2026";
 const DEC2 = "December 16-31, 2026";
 const JAN1 = "January 1-15, 2027";
@@ -108,6 +110,14 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
   const hr = await profileByEmail(ACCOUNTS.hr.email);
   const oct1 = await rows(db().from("payroll_entries").select("id,status").eq("employee_id", ana.id).eq("pay_period", "October 1-15, 2026"));
   test.skip(!oct1.length || oct1[0].status !== "paid", "needs October 1-15 approved (run 20-payroll-flow first)");
+  // Needs October 16-31 untouched right after 20-payroll-flow: in the full
+  // suite 96/97 have used it, so this runs in its own pass (e2e/README.md).
+  {
+    const mainId = (await rows(db().from("branches").select("id").eq("name", BRANCH_MAIN).single())).id;
+    const taken = await rows(db().from("payroll_runs").select("id,status").eq("branch_id", mainId).eq("period_label", "October 16-31, 2026"));
+    test.skip(taken.length > 0, "October 16-31 already used by 96/97 in this run: run this spec in its own pass after 20-payroll-flow");
+  }
+  PART1_STATE.ran = true;
   const branch = await rows(db().from("branches").select("id").eq("name", BRANCH_MAIN).single());
   const today = Number(new Date().toLocaleString("en-CA", { timeZone: "Asia/Manila" }).slice(8, 10));
   const planted = await plantSecondHalfToday(Math.max(16, today));
@@ -333,6 +343,7 @@ async function processAndApprove(page, period, branchId, { ui = false } = {}) {
 
 test("Part 2: December 2026 → January 2027 and beyond", async ({ page, monitor }) => {
   test.skip(!TIME_TRAVEL, "run with E2E_TIME_TRAVEL=1 (the server's today must move)");
+  test.skip(PART1_STATE.ran !== true, "needs Part 1 in the same run (Part 1 runs in its own pass after 20-payroll-flow)");
   test.setTimeout(45 * 60 * 1000);
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const carlo = await profileByEmail(ACCOUNTS.employee3.email);

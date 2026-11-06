@@ -78,6 +78,15 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const oct1 = await rows(db().from("payroll_entries").select("id,status").eq("employee_id", ana.id).eq("pay_period", "October 1-15, 2026"));
   test.skip(!oct1.length || oct1[0].status !== "paid", "needs October 1-15 approved (run 20-payroll-flow first)");
+  // Needs October 16-31 untouched with Ana employed: 96/97 (year-end tax,
+  // override) approve that run and separate Ana earlier in the full suite.
+  // Run on its own after 20-payroll-flow (e2e/README.md, "Separate passes").
+  {
+    const mainId = (await rows(db().from("branches").select("id").eq("name", "Main Campus").single())).id;
+    const taken = await rows(db().from("payroll_runs").select("id").eq("branch_id", mainId).eq("period_label", "October 16-31, 2026"));
+    const anaNow = await profileByEmail(ACCOUNTS.employee.email);
+    test.skip(taken.length > 0 || Boolean(anaNow.separated_on), "October 16-31 already used by 96/97 in this run: run this spec in its own pass after 20-payroll-flow");
+  }
   const blocked = async () => (await rows(db().from("audit_logs").select("id,metadata,actor_name,created_at").eq("action", "attendance_override_blocked"))).length;
 
   try {
