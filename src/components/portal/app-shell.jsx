@@ -246,16 +246,21 @@ function formatNotifTime(date) {
 
 /**
  * Stored notifications (GET /api/notifications): e.g. a payroll run waiting
- * for HR, or HR's decision for the Accountant. Read every minute.
+ * for HR, or HR's decision for the Accountant. Live (alpha test D2): a new
+ * one sends a content-free Supabase Realtime "ping" to this account's own
+ * channel and the list reloads at once through the API; still read every
+ * minute in case the socket is down.
  */
 function useStoredNotifications() {
   const [state, setState] = React.useState({ list: [], unread: 0 });
+  const [topic, setTopic] = React.useState(null);
   const load = React.useCallback(async () => {
     try {
       const response = await apiFetch("/api/notifications", BACKGROUND);
       if (!response.ok) return;
       const data = await response.json();
       setState({ list: Array.isArray(data.notifications) ? data.notifications : [], unread: Number(data.unread) || 0 });
+      if (data.live?.topic) setTopic(data.live.topic);
     } catch { /* offline: keep what we have */ }
   }, []);
   React.useEffect(() => {
@@ -263,11 +268,31 @@ function useStoredNotifications() {
     const timer = setInterval(load, 60000);
     return () => clearInterval(timer);
   }, [load]);
+  React.useEffect(() => subscribeLiveBell(topic, load), [topic, load]);
   const markAllRead = React.useCallback(async () => {
     setState((c) => ({ list: c.list.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })), unread: 0 }));
     try { await apiFetch("/api/notifications", jsonBody("PATCH", {})); } catch { /* retried on the next open */ }
   }, []);
   return { ...state, markAllRead, reload: load };
+}
+
+/**
+ * Listen on this account's live-bell channel; returns the cleanup. The
+ * message carries nothing: it only says "reload". Never throws.
+ */
+function subscribeLiveBell(topic, onPing) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!topic || !url || !key || typeof window === "undefined") return undefined;
+  let closed = false;
+  let cleanup = () => {};
+  import("@supabase/supabase-js").then(({ createClient }) => {
+    if (closed) return;
+    const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+    const channel = client.channel(`bell-${topic}`).on("broadcast", { event: "ping" }, () => onPing()).subscribe();
+    cleanup = () => { client.removeChannel(channel).catch(() => {}); };
+  }).catch(() => {});
+  return () => { closed = true; cleanup(); };
 }
 
 /** The bell: a live summary for this portal, stored notices, then this session's notices. */
@@ -283,9 +308,11 @@ function NotificationsMenu({ summary = [], onNavigate }) {
           {anyUnread ? <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-destructive ring-2 ring-background" aria-hidden="true" /> : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      {/* One scroll area (alpha test D2): the menu itself does not scroll. */}
+      <DropdownMenuContent align="end" className="flex w-80 max-w-[calc(100vw-2rem)] flex-col overflow-y-hidden" data-testid="notifications-menu">
         <DropdownMenuLabel>Notifications</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <div className="max-h-[min(28rem,calc(var(--radix-dropdown-menu-content-available-height)-4rem))] min-h-0 overflow-y-auto overscroll-contain" data-testid="notifications-scroll">
         {summary.map((item) => (
           <div key={item.title} className="px-2 py-1.5">
             <p className="text-sm font-medium">{item.title}</p>
@@ -295,7 +322,7 @@ function NotificationsMenu({ summary = [], onNavigate }) {
         {stored.list.length ? (
           <>
             {summary.length ? <DropdownMenuSeparator /> : null}
-            <div className="max-h-64 overflow-y-auto">
+            <div>
               {stored.list.map((item) => (
                 <DropdownMenuItem
                   key={item.id}
@@ -313,7 +340,7 @@ function NotificationsMenu({ summary = [], onNavigate }) {
           </>
         ) : null}
         {notifications.length ? <DropdownMenuSeparator /> : null}
-        <div className="max-h-72 overflow-y-auto">
+        <div>
           {notifications.map((item, index) => (
             <div key={`${item.time.getTime()}-${index}`} className="px-2 py-1.5">
               <div className="flex items-baseline justify-between gap-2">
@@ -327,6 +354,7 @@ function NotificationsMenu({ summary = [], onNavigate }) {
         {!summary.length && !notifications.length && !stored.list.length ? (
           <p className="px-2 py-6 text-center text-sm text-muted-foreground">You&apos;re all caught up.</p>
         ) : null}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );

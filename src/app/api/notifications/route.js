@@ -9,6 +9,10 @@
  *
  * Every role reaches it (module "profile", self-scoped); the recipient is
  * always the session's own account, never one named in the request.
+ *
+ * Live bell (alpha test D2, 20261109040000): GET also returns `live.topic`,
+ * this account's random Realtime channel. A new notification sends a
+ * content-free "ping" there and the bell reloads through this route.
  */
 
 import { NextResponse } from "next/server";
@@ -32,9 +36,24 @@ export async function GET(request) {
         .eq("recipient_id", guard.userId).is("read_at", null),
     ]);
     if (list.error) return NextResponse.json({ notifications: [], unread: 0, available: false });
-    return NextResponse.json({ notifications: list.data || [], unread: unread.count || 0, available: true });
+    return NextResponse.json({ notifications: list.data || [], unread: unread.count || 0, available: true, live: await liveChannel(supabase, guard.userId) });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
+  }
+}
+
+/** This account's live-bell channel ({ topic }), created on first use; null when not set up. */
+async function liveChannel(supabase, userId) {
+  try {
+    const found = await supabase.from("notification_channels").select("topic").eq("user_id", userId).maybeSingle();
+    if (found.error) return null;
+    if (found.data?.topic) return { topic: found.data.topic };
+    const made = await supabase.from("notification_channels").upsert({ user_id: userId }, { onConflict: "user_id", ignoreDuplicates: true }).select("topic").maybeSingle();
+    if (made.data?.topic) return { topic: made.data.topic };
+    const again = await supabase.from("notification_channels").select("topic").eq("user_id", userId).maybeSingle();
+    return again.data?.topic ? { topic: again.data.topic } : null;
+  } catch {
+    return null;
   }
 }
 
