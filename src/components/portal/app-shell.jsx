@@ -84,6 +84,18 @@ export function useAccountDialogs() {
   return React.useContext(AccountDialogsContext);
 }
 
+/**
+ * A label cut short by the narrow sidebar ("…") shows its full text on hover
+ * and keyboard focus (2026-11-08). Text that fits gets no tooltip.
+ */
+function titleIfCut(event) {
+  const host = event.currentTarget;
+  const cut = [...host.querySelectorAll("[data-fit]")].some((el) => el.scrollWidth > el.clientWidth + 1);
+  const full = [...host.querySelectorAll("[data-fit]")].map((el) => el.textContent).join(" · ");
+  if (cut) host.setAttribute("title", full);
+  else host.removeAttribute("title");
+}
+
 function NavLinks({ nav, page, onNavigate, badges = {} }) {
   const { can } = usePortalSession();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -92,8 +104,8 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
     const items = group.items.filter((item) => !item.module || can(item.module));
     if (!items.length) return null;
     return (
-      <SidebarGroup key={group.section}>
-        <SidebarGroupLabel className="text-[11px] tracking-wider text-sidebar-foreground/70 uppercase">{group.section}</SidebarGroupLabel>
+      <SidebarGroup key={group.section} className="px-1.5 py-1">
+        <SidebarGroupLabel className="h-7 px-1.5 text-[10px] tracking-wider text-sidebar-foreground/70 uppercase">{group.section}</SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
             {items.map((item) => {
@@ -105,19 +117,23 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                     isActive={active}
                     tooltip={item.label}
                     aria-current={active ? "page" : undefined}
+                    onPointerEnter={titleIfCut}
+                    onFocus={titleIfCut}
                     onClick={() => {
                       onNavigate(item.id);
                       if (isMobile) setOpenMobile(false);
                     }}
                     className={cn(
                       "relative font-medium text-sidebar-foreground hover:bg-white/10 hover:text-white",
+                      // 36 px a row (40 px on touch screens), a tighter icon gap for the narrower sidebar.
+                      "h-9 gap-1.5 px-2 pointer-coarse:h-10 group-data-[collapsible=icon]:size-9!",
                       "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
                       "data-[active=true]:before:absolute data-[active=true]:before:top-1/2 data-[active=true]:before:left-0 data-[active=true]:before:h-4 data-[active=true]:before:w-[3px] data-[active=true]:before:-translate-y-1/2 data-[active=true]:before:rounded-r data-[active=true]:before:bg-sidebar-primary",
                       vengeanceLineHoverHost,
                     )}
                   >
                     {Icon ? <Icon aria-hidden="true" /> : null}
-                    <span className={vengeanceLineHover}>{item.label}</span>
+                    <span data-fit className={vengeanceLineHover}>{item.label}</span>
                   </SidebarMenuButton>
                   {badges[item.id] ? (
                     <SidebarMenuBadge className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white peer-data-[active=true]/menu-button:text-white" aria-label={`${badges[item.id]} waiting`}>
@@ -181,12 +197,14 @@ function UserMenu({ onProfile }) {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              className="text-sidebar-foreground hover:bg-white/10 hover:text-white data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              onPointerEnter={titleIfCut}
+              onFocus={titleIfCut}
+              className="gap-1.5 px-1.5 text-sidebar-foreground hover:bg-white/10 hover:text-white data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <UserAvatar userId="me" name={name} className="size-8" fallbackClassName="bg-sidebar-primary text-xs text-sidebar-primary-foreground" />
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold text-white">{name}</span>
-                <span className="truncate text-xs">{ROLE_LABEL[role]}</span>
+                <span data-fit className="truncate font-semibold text-white">{name}</span>
+                <span data-fit className="truncate text-xs">{ROLE_LABEL[role]}</span>
               </div>
               <ChevronsUpDownIcon className="ml-auto size-4" aria-hidden="true" />
             </SidebarMenuButton>
@@ -361,14 +379,15 @@ export function AppShell({
             Skip to content
           </a>
           <Sidebar collapsible="icon" className="border-r-2 border-r-brand-gold [&_[data-sidebar=sidebar]]:bg-sidebar">
-            <SidebarHeader className="border-b border-sidebar-border">
+            <SidebarHeader className="border-b border-sidebar-border px-1.5">
               <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     size="lg"
                     tooltip="Refresh this page"
                     onClick={onRefresh}
-                    className="text-white hover:bg-white/10 hover:text-white"
+                    onPointerEnter={titleIfCut}
+                    className="gap-1.5 px-1.5 text-white hover:bg-white/10 hover:text-white"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -379,8 +398,8 @@ export function AppShell({
                       className="size-8 shrink-0 rounded-full bg-white/95 p-0.5"
                     />
                     <div className="grid flex-1 text-left leading-tight">
-                      <span className="truncate text-sm font-semibold">{systemTitle}</span>
-                      <span className="truncate text-xs text-sidebar-primary">{ROLE_LABEL[role]}</span>
+                      <span data-fit className="truncate text-sm font-semibold">{systemTitle}</span>
+                      <span data-fit className="truncate text-xs text-sidebar-primary">{ROLE_LABEL[role]}</span>
                     </div>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -389,7 +408,7 @@ export function AppShell({
             <SidebarContent>
               <NavLinks nav={nav} page={page} onNavigate={onNavigate} badges={badges} />
             </SidebarContent>
-            <SidebarFooter className="border-t border-sidebar-border">
+            <SidebarFooter className="border-t border-sidebar-border px-1.5">
               <UserMenu onProfile={profilePage ? () => onNavigate(profilePage) : null} />
             </SidebarFooter>
             <SidebarRail />

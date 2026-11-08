@@ -27,9 +27,12 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
+// Narrowed 2026-11-08 (was 16rem = 256 px) so pages get the room; one place
+// for every role. The phone drawer keeps 18rem so no label is cut there; the
+// icon-only width grows a little so each icon button is 36 px.
+const SIDEBAR_WIDTH = "13rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
-const SIDEBAR_WIDTH_ICON = "3rem"
+const SIDEBAR_WIDTH_ICON = "3.25rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
 const SidebarContext = React.createContext(null)
@@ -73,6 +76,15 @@ function SidebarProvider({
     },
     [setOpenProp, open]
   )
+
+  // The cookie above was written but never read, so a reload always opened
+  // the sidebar again (2026-11-08): read it back once, after hydration.
+  React.useEffect(() => {
+    if (openProp !== undefined) return
+    const saved = document.cookie.split("; ").find((c) => c.startsWith(`${SIDEBAR_COOKIE_NAME}=`))
+    if (saved) _setOpen(saved.slice(SIDEBAR_COOKIE_NAME.length + 1) === "true")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
