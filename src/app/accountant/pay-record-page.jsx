@@ -34,25 +34,40 @@ function portalPosition(position, role) {
   return r === "accountant" || p === "accountant" || p.includes("account") ? "Accountant" : "Employee";
 }
 
+/**
+ * One payslip line as a table row (alpha test A8). Deductions show below zero
+ * the same way as the PDF and Excel: "-₱ 1,000.00"; additions just "₱ …".
+ */
+function signedValue(value) {
+  if (typeof value !== "string") return value;
+  return value.replace(/^-\s+/, "-").replace(/^\+\s+/, "");
+}
+
 function Row({ label, value, tone, strong, muted, indent }) {
   return (
-    <div className={cn("flex items-baseline justify-between gap-4 py-1 text-sm print:py-0.5", strong && "mt-1 border-t pt-2 font-semibold print:pt-1", muted && "text-muted-foreground", indent && "pl-3 text-xs")}>
-      <span className="min-w-0">{label}</span>
-      <span className={cn("shrink-0 tabular-nums", tone === "plus" && "text-success", tone === "minus" && "text-destructive", tone === "gold" && "text-gold-text", tone === "warn" && "text-warning")}>{value}</span>
+    <div role="row" className={cn("flex items-baseline justify-between gap-4 px-3 py-1.5 text-sm print:py-0.5", strong && "bg-muted/40 font-semibold", muted && "text-muted-foreground", indent && "py-1 pl-6 text-xs")}>
+      <span role="cell" className="min-w-0 break-words">{label}</span>
+      <span role="cell" className={cn("shrink-0 text-right tabular-nums", tone === "plus" && "text-success", tone === "minus" && "text-destructive", tone === "gold" && "text-gold-text", tone === "warn" && "text-warning")}>{signedValue(value)}</span>
     </div>
   );
 }
 
+/** A payslip section as a table: its title and "Amount" over the rows. */
 function Section({ title, children }) {
   return (
-    <div>
-      <p className="mb-1 text-xs font-semibold tracking-wide text-gold-text uppercase">{title}</p>
-      {children}
+    <div role="table" aria-label={title} className="overflow-hidden rounded-md border print:break-inside-avoid">
+      <div role="row" className="flex items-baseline justify-between gap-4 bg-muted/60 px-3 py-1.5 text-xs font-semibold">
+        <span role="columnheader" className="tracking-wide text-gold-text uppercase">{title}</span>
+        <span role="columnheader" className="text-muted-foreground">Amount</span>
+      </div>
+      <div role="rowgroup" className="divide-y">{children}</div>
     </div>
   );
 }
 
 const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? "" : "s"}`;
+/** A deduction amount: "-₱ 1,000.00" (₱ 0.00 when none). */
+const neg = (amount) => (Number(amount) ? `-${money(Math.abs(Number(amount)))}` : money(0));
 
 function HolidayLines({ lines }) {
   return (lines || []).map((line, i) => <Row key={`${line.date}-${i}`} indent muted label={holidayLineLabel(line)} value={`+ ${money(line.amount)}`} />);
@@ -168,18 +183,18 @@ function Classic({ payslip }) {
         </Section>
       </div>
       <Section title="Deductions">
-        <Row label="SSS" value={money(d.sss)} />
-        <Row label="PhilHealth" value={money(d.philhealth)} />
-        <Row label="Pag-IBIG" value={money(d.pagibig)} />
-        <Row label="Withholding tax" value={money(d.withholding_tax)} />
-        <Row label="Absences" value={money(d.absence_deduction)} />
-        <Row label={late ? `Late (${plural(late, "day")})` : "Late"} value={money(d.late_deduction)} />
-        <Row label={under ? `Undertime (${under} min)` : "Undertime"} value={money(d.undertime_deduction)} />
-        <Row label={half ? `Half day (${plural(half, "day")})` : "Half day"} value={money(d.half_day_deduction)} />
+        <Row label="SSS" value={neg(d.sss)} />
+        <Row label="PhilHealth" value={neg(d.philhealth)} />
+        <Row label="Pag-IBIG" value={neg(d.pagibig)} />
+        <Row label="Withholding tax" value={neg(d.withholding_tax)} />
+        <Row label="Absences" value={neg(d.absence_deduction)} />
+        <Row label={late ? `Late (${plural(late, "day")})` : "Late"} value={neg(d.late_deduction)} />
+        <Row label={under ? `Undertime (${under} min)` : "Undertime"} value={neg(d.undertime_deduction)} />
+        <Row label={half ? `Half day (${plural(half, "day")})` : "Half day"} value={neg(d.half_day_deduction)} />
         <Row label="Leave with pay" value={plural(lwp, "day")} />
-        <Row label="Leave without pay" value={money(d.leave_without_pay_deduction)} />
-        <Row label="Cash advance" value={money(d.cash_advance)} />
-        <Row label="Total deductions" value={money(d.total_deductions)} strong tone="minus" />
+        <Row label="Leave without pay" value={neg(d.leave_without_pay_deduction)} />
+        <Row label="Cash advance" value={neg(d.cash_advance)} />
+        <Row label="Total deductions" value={neg(d.total_deductions)} strong tone="minus" />
       </Section>
     </div>
   );

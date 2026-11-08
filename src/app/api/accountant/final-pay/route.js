@@ -50,6 +50,7 @@ import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadBirYear } from "@/lib/payroll/bir-forms";
 import { applyYearEndToFinalPay, yearEndAdjustment } from "@/lib/payroll/year-end-tax";
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
+import { summarizeLeaveBalance } from "@/lib/leave-requests/store";
 
 const peso = (value) => roundPeso(value);
 const DEADLINE_DAYS = 30;
@@ -222,6 +223,56 @@ function settleYearEndTax(fp, pending, { year, releaseOn, input }) {
   return applyYearEndToFinalPay(fp, adjustment, { annualizationId: pending.record.id, taxYear: year });
 }
 
+/** Separation types (alpha test A7) mapped from HR's separation reasons. */
+const SEPARATION_TYPES = ["Resignation", "End of contract", "Termination", "Retirement", "Other"];
+const TYPE_OF_REASON = { Resigned: "Resignation", "End of contract": "End of contract", Terminated: "Termination", Retired: "Retirement" };
+const CLEARANCE_STATUSES = ["Pending", "Cleared", "Not required"];
+
+/** HR's separation record: date, type, reason, who recorded it and when. */
+async function separationRecord(supabase, person) {
+  const change = await supabase.from("employee_status_changes").select("effective_on,reason,changed_by_name,changed_at")
+    .eq("employee_id", person.id).eq("new_status", "Separated").order("changed_at", { ascending: false }).limit(1).maybeSingle();
+  return {
+    separated_on: person.separated_on,
+    type: TYPE_OF_REASON[person.separation_reason] || (person.separation_reason ? "Other" : null),
+    hr_reason: person.separation_reason || change.data?.reason || null,
+    recorded_by: change.data?.changed_by_name || null,
+    recorded_at: change.data?.changed_at || null,
+  };
+}
+
+/** The reference, clearance and notes the Accountant adds; checked. */
+function separationDetails(body) {
+  const d = body?.separation || {};
+  const type = normalizeText(d.type);
+  const reference = normalizeText(d.reference_no).slice(0, 80);
+  const clearance = normalizeText(d.clearance_status) || "Pending";
+  const notes = normalizeText(d.notes);
+  if (type && !SEPARATION_TYPES.includes(type)) return { error: "Choose the type of separation." };
+  if (!CLEARANCE_STATUSES.includes(clearance)) return { error: "Choose the clearance status." };
+  if (notes.length > 1000) return { error: "Notes: at most 1,000 characters." };
+  return { value: { ...(type ? { type } : {}), reference_no: reference || null, clearance_status: clearance, notes: notes || null } };
+}
+
+/**
+ * Unused leave with pay this year, valued at the daily rate -- shown as its
+ * own line and NOT paid: the school has not confirmed a conversion rule yet
+ * (open decision). Nothing here reaches the final pay amount.
+ */
+async function unusedLeave(supabase, person, daily) {
+  const year = Number(String(person.separated_on).slice(0, 4));
+  const leaves = await supabase.from("leave_requests").select("start_date,end_date,status,pay_status,employee_id").eq("employee_id", person.id);
+  const balance = summarizeLeaveBalance((leaves.data || []).map((l) => ({ ...l, status: String(l.status || "").toLowerCase(), pay_status: String(l.pay_status || "").toLowerCase().includes("without") ? "without_pay" : "with_pay" })), person.id, year);
+  return {
+    enabled: false,
+    days: balance.with_pay_remaining,
+    daily,
+    would_be: peso(balance.with_pay_remaining * (Number(daily) || 0)),
+    amount: 0,
+    note: "Off until the school confirms whether unused leave is converted to cash, and for how many days.",
+  };
+}
+
 async function separatedPeople(supabase, guard) {
   const staff = await loadPayrollStaff(supabase, guard, { includeArchived: true });
   return staff.filter((p) => p.employee_status === "Separated" && p.separated_on);
@@ -243,7 +294,12 @@ export async function GET(request) {
       const { input, salary, daily, year } = await gather(supabase, person);
       const breakdown = computeFinalPay(input);
       settleYearEndTax(breakdown, await pendingYearEndTax(supabase, person, year), { year, releaseOn: today, input });
-      return NextResponse.json({ person: { id: person.id, full_name: person.full_name, employee_id: person.employee_id, separated_on: person.separated_on }, salary, daily, breakdown });
+      const [separation, leaveConversion] = await Promise.all([separationRecord(supabase, person), unusedLeave(supabase, person, daily)]);
+      return NextResponse.json({
+        person: { id: person.id, full_name: person.full_name, employee_id: person.employee_id, separated_on: person.separated_on },
+        salary, daily, breakdown, separation, leave_conversion: leaveConversion,
+        separation_types: SEPARATION_TYPES, clearance_statuses: CLEARANCE_STATUSES,
+      });
     }
 
     const saved = people.length
@@ -279,6 +335,9 @@ export async function POST(request) {
     const releaseOn = normalizeText(body.release_on, manilaDateKey());
     if (!isDate(releaseOn) || releaseOn < person.separated_on) return NextResponse.json({ error: "Choose the release date (on or after the separation)." }, { status: 400 });
 
+    // Separation details kept with the Final Pay record (alpha test A7).
+    const details = separationDetails(body);
+    if (details.error) return NextResponse.json({ error: details.error }, { status: 400 });
     const label = finalPayLabel(person.separated_on);
     const existing = await supabase.from("payroll_entries").select("id").eq("employee_id", person.id).eq("pay_period", label).eq("status", "paid").maybeSingle();
     if (existing.data) return NextResponse.json({ error: "This final pay is already saved." }, { status: 409 });
@@ -291,7 +350,12 @@ export async function POST(request) {
     const payroll = {
       basic_salary: input.monthlySalary,
       basic_earned: fp.basic_earned,
-      final_pay: { separated_on: person.separated_on, release_on: releaseOn, breakdown: fp, computed_by_name: actorName(guard) },
+      final_pay: {
+        separated_on: person.separated_on, release_on: releaseOn, breakdown: fp, computed_by_name: actorName(guard),
+        separation: { ...(await separationRecord(supabase, person)), ...details.value, recorded_in_final_pay_by: actorName(guard), recorded_in_final_pay_at: new Date().toISOString() },
+        // Unused leave conversion: OFF until the school confirms its rule (open decision).
+        leave_conversion: { enabled: false, amount: 0 },
+      },
       totals: { gross_pay: fp.gross, total_deductions: fp.total_deductions, total_incentives: 0, net_pay: fp.net_pay },
       ...(yearEndTax ? { year_end_tax: yearEndTax } : {}),
     };

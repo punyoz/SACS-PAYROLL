@@ -17,6 +17,9 @@ import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { DotLoader } from "@/components/galaxy/dot-loader";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 
 /*
  * Final Pay (/api/accountant/final-pay; docs/payroll-schedule-loans-awol.md
@@ -24,6 +27,16 @@ import { DotLoader } from "@/components/galaxy/dot-loader";
  * final pay, within 30 days. The breakdown is computed on the server and
  * saved as a Final payslip with the loan repayments in the same transaction.
  */
+
+/** Sum of the lines of these kinds. */
+function sumKinds(lines, kinds) {
+  return (lines || []).filter((l) => kinds.includes(l.kind)).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+}
+/** A deduction, shown below zero (alpha test A8): "-₱ 1,000.00". */
+function negative(amount) {
+  const n = Math.abs(Number(amount) || 0);
+  return n ? `-${money(n)}` : money(0);
+}
 
 const LABELS = {
   salary: "Unpaid salary", thirteenth_month: "Pro-rated 13th month", subsidy: "Licensed teacher subsidy",
@@ -60,17 +73,23 @@ export function FinalPayPage({ refreshKey }) {
     }
   }
 
+  const [sep, setSep] = React.useState({ type: "", reference_no: "", clearance_status: "Pending", notes: "" });
+  React.useEffect(() => {
+    const d = detail.data?.separation;
+    setSep({ type: d?.type || "", reference_no: "", clearance_status: "Pending", notes: "" });
+  }, [detail.data]);
+
   async function save() {
     const b = detail.data.breakdown;
     const ok = await confirm({
-      title: `Save ${selected.full_name}'s final pay?`,
+      title: `Generate ${selected.full_name}'s final pay?`,
       description: `Net ${money(b.net_pay)}, released ${dateLabel(releaseOn)}. It becomes a Final payslip; loan repayments are written with it.`,
-      confirmLabel: "Save final pay",
+      confirmLabel: "Generate final pay",
     });
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await fetchJson("/api/accountant/final-pay", jsonBody("POST", { employee_id: selected.id, release_on: releaseOn }));
+      const result = await fetchJson("/api/accountant/final-pay", jsonBody("POST", { employee_id: selected.id, release_on: releaseOn, separation: sep }));
       notify("Final Pay Saved", `${result.payslip_no} · net ${money(result.net_pay)}`, "success");
       setSelected(null);
       await load();
@@ -86,7 +105,7 @@ export function FinalPayPage({ refreshKey }) {
     { key: "separated_on", header: "Separated", cell: (p) => dateLabel(p.separated_on) },
     { key: "deadline", header: "Release by", cell: (p) => (p.final_pay ? "—" : <span className={cn(p.days_left < 0 && "text-destructive", p.days_left >= 0 && p.days_left <= 7 && "text-warning")}>{dateLabel(p.deadline)} ({p.days_left < 0 ? `${-p.days_left} days late` : `${p.days_left} days left`})</span>) },
     { key: "status", header: "Final pay", cell: (p) => (p.final_pay ? <div><StatusBadge tone="success">Saved</StatusBadge><p className="text-xs text-muted-foreground">{p.final_pay.payslip_no} · net {money(p.final_pay.net_pay)}</p></div> : <StatusBadge tone="gold">Not yet</StatusBadge>) },
-    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (p) => (p.final_pay ? null : <Button size="sm" onClick={() => open(p)}>Compute</Button>) },
+    { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (p) => (p.final_pay ? null : <Button size="sm" onClick={() => open(p)}>Generate final pay</Button>) },
   ];
 
   const b = detail.data?.breakdown;
@@ -115,6 +134,18 @@ export function FinalPayPage({ refreshKey }) {
             {detail.error ? <p className="text-sm text-destructive">{detail.error}</p> : null}
             {b ? (
               <>
+                {/* Summary before generating (alpha test A7). */}
+                <dl data-testid="final-pay-summary" className="grid gap-x-6 gap-y-1 rounded-lg border bg-muted/30 p-3 text-sm sm:grid-cols-2">
+                  {[
+                    ["Last working day", dateLabel(selected.separated_on)],
+                    ["Unpaid salary", money(sumKinds(b.earnings, ["salary"]))],
+                    ["Pro-rated 13th month", money(sumKinds(b.earnings, ["thirteenth_month"]))],
+                    ["Loans and cash advances", negative(sumKinds(b.deductions, ["loan", "cash_advance"]))],
+                    ["Government contributions", negative(sumKinds(b.deductions, ["sss", "philhealth", "pagibig"]))],
+                    ["Withholding tax", negative(sumKinds(b.deductions.filter((d) => !d.credit), ["withholding_tax", "year_end_tax"]))],
+                  ].map(([k, v]) => <div key={k} className="flex justify-between gap-3"><dt className="text-muted-foreground">{k}</dt><dd className="tabular-nums">{v}</dd></div>)}
+                  <div className="flex justify-between gap-3 border-t pt-1 font-semibold sm:col-span-2"><dt>Net final pay</dt><dd className="tabular-nums">{money(b.net_pay)}</dd></div>
+                </dl>
                 <div className="overflow-x-auto rounded-lg border">
                   <Table>
                     <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>How</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
@@ -123,8 +154,16 @@ export function FinalPayPage({ refreshKey }) {
                         <TableRow key={`e${i}`}><TableCell>+ {LABELS[e.kind] || e.kind}{e.month_key ? ` (${e.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{e.note}</TableCell><TableCell className="text-right tabular-nums">{money(e.amount)}</TableCell></TableRow>
                       ))}
                       {b.deductions.map((d, i) => (
-                        <TableRow key={`d${i}`}><TableCell>{d.credit ? "+" : "−"} {d.label || LABELS[d.kind] || d.kind}{d.month_key ? ` (${d.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{d.note || ""}</TableCell><TableCell className="text-right tabular-nums">{money(d.amount)}</TableCell></TableRow>
+                        <TableRow key={`d${i}`}><TableCell>{d.credit ? "+" : "−"} {d.label || LABELS[d.kind] || d.kind}{d.month_key ? ` (${d.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{d.note || ""}</TableCell><TableCell className="text-right tabular-nums">{d.credit ? money(d.amount) : negative(d.amount)}</TableCell></TableRow>
                       ))}
+                      {/* Its own line, never mixed in: off until the school confirms its rule. */}
+                      {detail.data?.leave_conversion ? (
+                        <TableRow data-testid="leave-conversion" className="text-muted-foreground">
+                          <TableCell>Unused leave conversion <span className="ml-1 rounded bg-muted px-1.5 text-xs">Off</span></TableCell>
+                          <TableCell className="max-w-md text-xs whitespace-normal">{detail.data.leave_conversion.days} unused day(s) × {money(detail.data.leave_conversion.daily)} would be {money(detail.data.leave_conversion.would_be)}. {detail.data.leave_conversion.note}</TableCell>
+                          <TableCell className="text-right tabular-nums">{money(0)}</TableCell>
+                        </TableRow>
+                      ) : null}
                     </TableBody>
                     <TableFooter>
                       <TableRow><TableCell colSpan={2}>Final pay</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(b.net_pay)}</TableCell></TableRow>
@@ -140,9 +179,35 @@ export function FinalPayPage({ refreshKey }) {
                   </Alert>
                 ) : null}
                 <p className="text-xs text-muted-foreground">Tax is withheld per month on the monthly table; the year-end annualization (BIR 2316) settles any difference.</p>
+                <fieldset data-testid="separation-details" className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">
+                  <legend className="px-1 text-sm font-medium">Separation details (kept with the Final Pay record)</legend>
+                  <p className="text-sm sm:col-span-2"><span className="text-muted-foreground">Separated on</span> {dateLabel(selected.separated_on)}{detail.data?.separation?.hr_reason ? ` · HR: ${detail.data.separation.hr_reason}` : ""}{detail.data?.separation?.recorded_by ? ` · recorded by ${detail.data.separation.recorded_by}${detail.data.separation.recorded_at ? ` on ${dateLabel(String(detail.data.separation.recorded_at).slice(0, 10))}` : ""}` : ""}</p>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fp-type">Type of separation</Label>
+                    <Select value={sep.type || undefined} onValueChange={(v) => setSep((c) => ({ ...c, type: v }))}>
+                      <SelectTrigger id="fp-type" className="w-full"><SelectValue placeholder="Choose" /></SelectTrigger>
+                      <SelectContent>{(detail.data?.separation_types || []).map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fp-ref">Memo / reference no.</Label>
+                    <Input id="fp-ref" maxLength={80} value={sep.reference_no} onChange={(e) => setSep((c) => ({ ...c, reference_no: e.target.value }))} placeholder="e.g. HR-2026-114" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fp-clearance">Clearance status</Label>
+                    <Select value={sep.clearance_status} onValueChange={(v) => setSep((c) => ({ ...c, clearance_status: v }))}>
+                      <SelectTrigger id="fp-clearance" className="w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent>{(detail.data?.clearance_statuses || ["Pending", "Cleared", "Not required"]).map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="fp-notes">Notes</Label>
+                    <Textarea id="fp-notes" rows={2} maxLength={1000} value={sep.notes} onChange={(e) => setSep((c) => ({ ...c, notes: e.target.value }))} />
+                  </div>
+                </fieldset>
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="space-y-1.5"><Label htmlFor="fp-release">Release date</Label><DatePicker id="fp-release" value={releaseOn} onChange={setReleaseOn} /></div>
-                  {state.data?.can_edit ? <Button onClick={save} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save final pay</Button> : null}
+                  {state.data?.can_edit ? <Button onClick={save} disabled={busy} data-testid="generate-final-pay">{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Generate final pay</Button> : <p className="text-sm text-muted-foreground">View only: the Accountant generates final pay.</p>}
                   <Button variant="outline" onClick={() => setSelected(null)}>Close</Button>
                 </div>
               </>
