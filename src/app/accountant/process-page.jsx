@@ -348,11 +348,19 @@ function BatchCard({ onNavigate }) {
       if (skipped.length) message += ` ${skipped.length} skipped — ${skipped.map((s) => `${s.employee_name || s.employee_id || "Unknown"}: ${s.reason || "skipped"}`).join(" · ")}`;
       setFeedback({ text: message, ok: true });
       setReason("");
-      notify("Batch Payroll Processed", message, skipped.length && !processed.length ? "info" : "success");
+      // One summary toast per action (alpha test B4): green when all went
+      // through, amber when some were skipped (the names are in the note
+      // under the button), never one toast per employee.
+      notify(
+        processed.length ? `Payroll processed for ${processed.length} employee${processed.length === 1 ? "" : "s"}` : "No payslips processed",
+        skipped.length ? `${skipped.length} skipped. See the note under Process payroll for who and why.` : null,
+        skipped.length ? "warning" : "success",
+      );
       await load({ period });
       if (processed.length) openPayslip(processed[0].entry_id);
     } catch (error) {
       setFeedback({ text: error.message, ok: false });
+      notify("Payroll not processed", error.message, "error");
     } finally {
       setBusy(false);
     }
@@ -737,26 +745,31 @@ function SingleEntry({ onNavigate }) {
         throw err;
       }
       const newId = String(result.entry?.id || entryId || "");
-      if (reopenedFinal) notify("Payslip Reprocessed", "The Final payslip was recomputed with your changes. Submit the run for HR approval again.", "success");
       setEntryId(newId);
       await load();
-      if (result.db_synced === false) notify("Draft Saved", "Draft saved. Database sync pending — contact your administrator if this keeps occurring.", "info");
+      // One toast per save (alpha test B4): the sync warning and the
+      // reprocessed note join the main message instead of stacking.
+      const extra = [
+        reopenedFinal ? "The Final payslip was recomputed: submit the run for HR approval again." : "",
+        result.db_synced === false ? "Database sync pending: contact your administrator if this keeps occurring." : "",
+      ].filter(Boolean).join(" ");
       if (action === "submit") {
         setFeedback({ text: "Payroll processed successfully. Payslip generated.", ok: true });
-        notify("Payroll Processed", "Payroll has been processed and payslip generated.", "success");
+        notify(reopenedFinal ? "Payslip Reprocessed" : "Payroll Processed", extra || "Payroll has been processed and payslip generated.", result.db_synced === false ? "warning" : "success");
         setProcessedBanner(true);
         setTimeout(() => setProcessedBanner(false), 5000);
         openPayslip(newId);
       } else {
         setFeedback({ text: "Payroll draft saved.", ok: true });
-        notify("Draft Saved", "Payroll draft has been saved and can be edited before submission.", "info");
+        notify("Draft Saved", extra || "Payroll draft has been saved and can be edited before submission.", result.db_synced === false ? "warning" : "success");
       }
     } catch (error) {
       if (action === "submit" && error.status === 409) {
         setFeedback({ text: "", ok: false });
-        notify("Already Processed", "Payroll for this employee and period has already been processed.", "info");
+        notify("Already Processed", "Payroll for this employee and period has already been processed.", "warning");
       } else {
         setFeedback({ text: error.message, ok: false });
+        notify("Not saved", error.message, "error");
       }
     } finally {
       setBusy(false);

@@ -198,12 +198,23 @@ export function PortalSessionProvider({ role, children, gate: Gate }) {
     await leaveToLogin({ signOut: true });
   }, []);
 
-  /** Toast + the bell's history (pushNotification, app.js). */
+  /**
+   * Toast + the bell's history (pushNotification, app.js). Colours (alpha
+   * test B4): success green, error red, warning amber, info blue. The same
+   * message again replaces the one on screen instead of stacking (its id),
+   * and only once in the bell.
+   */
   const notify = React.useCallback((title, description, type = "success") => {
-    const show = type === "error" ? toast.error : type === "info" ? toast.info : toast.success;
-    show(title, description ? { description } : undefined);
-    setNotifications((list) => [{ title, description, type, time: new Date() }, ...list].slice(0, MAX_HISTORY));
-    setUnread((n) => n + 1);
+    const show = type === "error" ? toast.error : type === "warning" ? toast.warning : type === "info" ? toast.info : toast.success;
+    const id = `${type}|${title}|${description || ""}`;
+    show(title, { id, ...(description ? { description } : {}) });
+    let repeated = false;
+    setNotifications((list) => {
+      const first = list[0];
+      repeated = Boolean(first && first.title === title && first.description === description && first.type === type && Date.now() - first.time.getTime() < 10000);
+      return repeated ? [{ ...first, time: new Date() }, ...list.slice(1)] : [{ title, description, type, time: new Date() }, ...list].slice(0, MAX_HISTORY);
+    });
+    setUnread((n) => (repeated ? n : n + 1));
   }, []);
 
   const can = React.useCallback((module, action = "read") => {

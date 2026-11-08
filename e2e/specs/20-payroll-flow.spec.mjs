@@ -40,7 +40,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
     await confirm(page, "Process payroll");
     // A processed batch opens the first payslip (Pay Record).
-    await expect(page.getByText("Batch Payroll Processed").first()).toBeVisible({ timeout: 90000 });
+    await expect(page.getByText(/Payroll processed for d+ employee|No payslips processed/).first()).toBeVisible({ timeout: 90000 });
     await expect(main(page).getByText("PAYSLIP NO.").first()).toBeVisible();
     // Bug 2026-10-22: batch payslips printed Branch "—" (no branch stored).
     expect(await main(page).innerText()).toMatch(new RegExp(`Branch\\s+${BRANCH}`));

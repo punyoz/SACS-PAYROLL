@@ -175,7 +175,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
       const before = monitor.issues.length;
       await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
       await confirm(page, "Process payroll");
-      await waitForResponse(page, "Process (batch)", "Batch Payroll Processed");
+      await waitForResponse(page, "Process (batch)", /Payroll processed for d+ employee|No payslips processed/);
       await reportIssues(page, monitor, before, "Process (batch)");
     });
 
@@ -324,7 +324,7 @@ async function processAndApprove(page, period, branchId, { ui = false } = {}) {
     say(`Clicking Process payroll for all → for ${period}…`);
     await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
     await confirm(page, "Process payroll");
-    await waitForResponse(page, `Process ${period}`, "Batch Payroll Processed");
+    await waitForResponse(page, `Process ${period}`, /Payroll processed for d+ employee|No payslips processed/);
   } else {
     say(`Processing ${period} for the branch (API)…`);
     const people = await rows(db().from("profiles").select("id").eq("branch_id", branchId).in("email", ["emp1@e2e.test", "emp2@e2e.test", "acct@e2e.test", "hr@e2e.test"]));
