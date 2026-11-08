@@ -210,3 +210,36 @@ describe("Audit trail never stores a full card number", () => {
     expect(entries[0].metadata.rfid_code).toMatch(/5678$/);
   });
 });
+
+describe("Duplicate tap window (alpha test C1, 2026-11-09)", () => {
+  const audit = (action) => table("audit_logs").filter((row) => row.action === action);
+
+  it("a second tap within the default 5 s says when it was recorded, is logged as a duplicate, and changes nothing", async () => {
+    await tapAt("07:58:00");
+    const again = await tapAt("07:58:03");
+    expect(again.body).toMatchObject({ tap: "duplicate", persisted: false, duplicate_window_seconds: 5, message: "Already recorded at 7:58 AM." });
+    expect(audit("rfid_duplicate_tap")).toHaveLength(1);
+    expect(audit("rfid_duplicate_tap")[0].metadata).toMatchObject({ duplicate: true, duplicate_window_seconds: 5, seconds_since: 3 });
+    expect(table("attendance_taps")).toHaveLength(1);
+    expect(dayRows()[0]).toMatchObject({ time_in: manila("07:58:00"), time_out: null });
+  });
+
+  it("the Super Admin's window (here 3 s) is used; after it, within 5 minutes, it is still not a Time Out", async () => {
+    table("system_config").push({ section: "attendance", key: "duplicate_tap_seconds", value: "3" });
+    await tapAt("07:58:00");
+    const later = await tapAt("07:58:08");
+    expect(later.body).toMatchObject({ tap: "duplicate", duplicate_window_seconds: 3 });
+    expect(later.body.message).toMatch(/^Already recorded at 7:58 AM\. A repeated tap within 5 minutes is not counted\.$/);
+    expect(audit("rfid_repeat_ignored")).toHaveLength(1);
+    expect(audit("rfid_duplicate_tap")).toHaveLength(0);
+    expect(dayRows()[0].time_out).toBeNull();
+  });
+
+  it("an out-of-range saved value falls back to 5 s; the setting accepts only 3 to 10 whole seconds", async () => {
+    const { duplicateTapSeconds, duplicateTapSecondsError } = await import("@/lib/attendance/taps");
+    expect([duplicateTapSeconds("1"), duplicateTapSeconds("11"), duplicateTapSeconds("abc"), duplicateTapSeconds(null), duplicateTapSeconds("7")]).toEqual([5, 5, 5, 5, 7]);
+    expect(duplicateTapSecondsError("3")).toBeNull();
+    expect(duplicateTapSecondsError("10")).toBeNull();
+    for (const bad of ["2", "11", "4.5", "", "x"]) expect(duplicateTapSecondsError(bad), bad).toMatch(/3 to 10/);
+  });
+});

@@ -365,6 +365,60 @@ function AttendanceSection({ config, onConfig, branches }) {
   );
 }
 
+/**
+ * The RFID duplicate-tap window (alpha test C1): the same card again within
+ * this many seconds shows "Already recorded at 7:58 AM" and is logged as a
+ * duplicate. One setting for every terminal; 3 to 10 seconds, default 5.
+ */
+function DuplicateTapSection({ config, onConfig }) {
+  const saved = config?.attendance?.duplicate_tap_seconds;
+  const [value, setValue] = React.useState(() => String(saved ?? "5"));
+  const [error, setError] = React.useState("");
+  const [feedback, setFeedback] = React.useState({ text: "", ok: false });
+  const [busy, setBusy] = React.useState(false);
+  const [confirmDialog, saveConfig] = useSaveConfig();
+
+  async function save() {
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 3 || n > 10) {
+      setError("A whole number of seconds from 3 to 10.");
+      setFeedback({ text: "Fix the highlighted setting.", ok: false });
+      return;
+    }
+    setError("");
+    setBusy(true);
+    try {
+      const next = await saveConfig("attendance", "Duplicate tap window", { duplicate_tap_seconds: String(n) });
+      if (next) {
+        onConfig(next);
+        setFeedback({ text: "Duplicate tap window saved.", ok: true });
+      }
+    } catch (e) {
+      setFeedback({ text: e.message || "Failed to save configuration.", ok: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={CalendarClockIcon}
+      title="RFID duplicate tap window"
+      description="The same card tapped again within this many seconds is a double tap: the terminal shows “Already recorded at 7:58 AM”, nothing changes, and the audit log records it. A repeat within 5 minutes is still never a Time Out."
+      footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
+    >
+      <div className="space-y-2 sm:max-w-xs">
+        <Label htmlFor="cfg-dup-seconds">Window (seconds, 3 to 10)</Label>
+        <Input id="cfg-dup-seconds" type="number" inputMode="numeric" min={3} max={10} step={1} value={value}
+          onChange={(e) => { setValue(e.target.value); setError(""); }}
+          aria-invalid={error ? true : undefined} aria-describedby={error ? "cfg-dup-seconds-error" : undefined} />
+        {error ? <p id="cfg-dup-seconds-error" className="text-sm text-destructive">{error}</p> : <p className="text-xs text-muted-foreground">Default 5 seconds.</p>}
+      </div>
+      {confirmDialog}
+    </SectionCard>
+  );
+}
+
 function PayrollSection({ config, onConfig }) {
   const saved = config?.payroll;
   const [values, setValues] = React.useState(() => ({ ...initialValues(FIELDS.payroll, saved), ...initialValues(SHEET_FIELDS, saved) }));
@@ -517,6 +571,7 @@ export function ConfigPage({ refreshKey }) {
         </TabsContent>
         <TabsContent value="attendance" className="flex flex-col gap-4">
           {state.config ? <AttendanceSection key={`att-${state.version}`} config={config} onConfig={onConfig} branches={state.branches} /> : null}
+          {state.config ? <DuplicateTapSection key={`dup-${state.version}`} config={config} onConfig={onConfig} /> : null}
           {/* Per-employee work schedules are HR's (HR → Work Schedules) since 2026-10-20. */}
           <EarlyBirdCard refreshKey={refreshKey} />
         </TabsContent>

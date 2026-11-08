@@ -6,7 +6,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { KIOSK_HEADER, readKioskSession } from "@/lib/auth/kiosk-session";
-import { collapseDailyTaps, findRepeatedTap, hoursBetween, planTap } from "@/lib/attendance/taps";
+import { DUPLICATE_TAP_KEY, collapseDailyTaps, duplicateTapSeconds, findRepeatedTap, hoursBetween, manilaClockTime, planTap } from "@/lib/attendance/taps";
 import { maskCardCode, recordRawTap, recordRefusedTap, tapDevice } from "@/lib/attendance/raw-taps";
 import { isLateForPolicy } from "@/lib/attendance/policy";
 import { getEmployeeAttendancePolicy } from "@/lib/attendance/work-schedules";
@@ -123,6 +123,32 @@ async function fetchEmployees(supabase) {
       if (idA !== idB) return idA - idB;
       return a.full_name.localeCompare(b.full_name);
     });
+}
+
+/**
+ * The employee a card tap belongs to, found by its card number first (one
+ * profiles lookup) instead of loading every profile on each tap (alpha test
+ * C2: terminal under 1 second). Same shape and same matching as
+ * fetchEmployees + resolveEmployeeByRfid; null when no profile carries the
+ * card, and the caller then falls back to the full list.
+ */
+async function findEmployeeByCard(supabase, code) {
+  const card = normalizeText(code);
+  if (!/^[0-9A-Za-z]{4,64}$/.test(card)) return null;
+  const [usersResult, profileResult] = await Promise.all([
+    listUsersCached(supabase),
+    supabase.from("profiles").select("id,email,full_name,branch_id,employee_status,rfid_uid").ilike("rfid_uid", card).limit(5),
+  ]);
+  if (usersResult.error || profileResult.error || !(profileResult.data || []).length) return null;
+  const employeeUsers = (usersResult.data.users || []).filter((user) => {
+    const role = String(user.user_metadata?.role || "employee").toLowerCase();
+    return role === "employee" || role === "accountant";
+  });
+  const candidates = (profileResult.data || []).map((profile) => {
+    const index = employeeUsers.findIndex((user) => user.id === profile.id);
+    return index < 0 ? null : shapeEmployee(employeeUsers[index], profile, index);
+  }).filter((employee) => employee && !employee.archived);
+  return resolveEmployeeByRfid(card, candidates);
 }
 
 function mapAttendanceRow(row) {
@@ -538,6 +564,16 @@ function offlineTapTime(value, now = new Date()) {
   return { at: age < 0 ? now : at };
 }
 
+/** The Super Admin's duplicate-tap window in seconds (default 5). Never throws. */
+async function loadDuplicateTapSeconds(supabase) {
+  try {
+    const result = await supabase.from("system_config").select("value").eq("section", "attendance").eq("key", DUPLICATE_TAP_KEY).maybeSingle();
+    return duplicateTapSeconds(result.error ? null : result.data?.value);
+  } catch {
+    return duplicateTapSeconds(null);
+  }
+}
+
 /** "Oct 3, 2026, 7:52 AM" in Manila time, for a refused offline tap's reason. */
 function manilaDateTime(date) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -682,8 +718,10 @@ export async function POST(request) {
     const tappedAt = offline?.at || offline?.savedAt || new Date();
 
     const supabase = getAdminClient();
-    const activeEmployees = await fetchEmployees(supabase);
-    const employee = resolveEmployeeByRfid(rfidCode, activeEmployees, { allowEmployeeId: manualEntry });
+    // A card tap: the card's own profile first (fast); the full list only
+    // for a manual entry (employee ID) or a card no profile carries.
+    const employee = (!manualEntry ? await findEmployeeByCard(supabase, rfidCode) : null)
+      || resolveEmployeeByRfid(rfidCode, await fetchEmployees(supabase), { allowEmployeeId: manualEntry });
 
     const nowIso = tappedAt.toISOString();
     const dateKey = getDateKey(tappedAt);
@@ -826,22 +864,32 @@ export async function POST(request) {
       return NextResponse.json({ success: true, persisted: true, tap, message: "Tap recorded.", record, employee: { name: employee.full_name, branch_id: employee.branch_id || null }, tapped_at: repeat.repeated });
     }
     if (repeat) {
+      // A double tap (within the Super Admin's duplicate window, 3-10 s,
+      // default 5; alpha test C1) or a repeat within 5 minutes: either way
+      // not counted, the person is told when it was recorded, and it is logged.
+      const windowSeconds = await loadDuplicateTapSeconds(supabase);
+      const secondsSince = Math.abs(new Date(nowIso).getTime() - new Date(repeat.repeated).getTime()) / 1000;
+      const duplicate = secondsSince <= windowSeconds;
+      const recordedAt = manilaClockTime(repeat.repeated);
       await appendAuditLog({
         actor: guard,
         module: "attendance",
-        action: "rfid_repeat_ignored",
+        action: duplicate ? "rfid_duplicate_tap" : "rfid_repeat_ignored",
         entity_type: "employee",
         entity_id: employee.employee_id,
-        description: `Repeated RFID tap ignored for ${employee.full_name} (already tapped at ${repeat.repeated}).`,
+        description: duplicate
+          ? `Duplicate RFID tap for ${employee.full_name} ${Math.round(secondsSince)} s after the one recorded at ${recordedAt} (window ${windowSeconds} s); not counted.`
+          : `Repeated RFID tap ignored for ${employee.full_name} (already tapped at ${recordedAt}).`,
         status: "success",
         source: "api",
-        metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: nowIso, repeated: repeat.repeated, offline: Boolean(offline) },
+        metadata: { employee_id: employee.id, rfid_code: maskCardCode(rfidCode), date_key: dateKey, tapped_at: nowIso, repeated: repeat.repeated, offline: Boolean(offline), duplicate_window_seconds: windowSeconds, seconds_since: Math.round(secondsSince * 10) / 10, duplicate },
       });
       return NextResponse.json({
         success: true,
         persisted: false,
         tap: "duplicate",
-        message: "Already recorded. A repeated tap within a few minutes is not counted.",
+        duplicate_window_seconds: windowSeconds,
+        message: duplicate ? `Already recorded at ${recordedAt}.` : `Already recorded at ${recordedAt}. A repeated tap within 5 minutes is not counted.`,
         record: repeat.record,
         employee: { name: employee.full_name, branch_id: employee.branch_id || null },
         tapped_at: repeat.repeated,

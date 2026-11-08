@@ -127,6 +127,38 @@ export function firstAndLastTap(times) {
 export const REPEAT_TAP_WINDOW_MS = 5 * 60 * 1000;
 
 /**
+ * The duplicate-tap window (alpha test C1, 2026-11-09): the same card again
+ * within this many seconds is a double tap. The kiosk says "Already recorded
+ * at 7:58 AM" and the audit log records it as a duplicate. The Super Admin
+ * sets it (System Configuration > Attendance, 3 to 10 seconds, default 5;
+ * system_config attendance.duplicate_tap_seconds). It never shortens the
+ * 5-minute rule above: a tap inside REPEAT_TAP_WINDOW_MS is still not a
+ * Time Out.
+ */
+export const DUPLICATE_TAP_SECONDS = Object.freeze({ min: 3, max: 10, default: 5 });
+export const DUPLICATE_TAP_KEY = "duplicate_tap_seconds";
+
+/** The saved setting, or the default when missing or out of range. */
+export function duplicateTapSeconds(raw) {
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= DUPLICATE_TAP_SECONDS.min && n <= DUPLICATE_TAP_SECONDS.max ? n : DUPLICATE_TAP_SECONDS.default;
+}
+
+/** Why a value cannot be saved, or null. */
+export function duplicateTapSecondsError(raw) {
+  const n = Number(String(raw ?? "").trim());
+  if (String(raw ?? "").trim() === "" || !Number.isInteger(n) || n < DUPLICATE_TAP_SECONDS.min || n > DUPLICATE_TAP_SECONDS.max) {
+    return `Duplicate tap window: a whole number of seconds from ${DUPLICATE_TAP_SECONDS.min} to ${DUPLICATE_TAP_SECONDS.max}.`;
+  }
+  return null;
+}
+
+/** "7:58 AM" in Manila time. */
+export function manilaClockTime(iso) {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(iso));
+}
+
+/**
  * The recorded tap `tapIso` repeats, or null. `dayRows` are the day's
  * attendance_logs rows, `rawTaps` its attendance_taps.tapped_at values.
  * Either side of the tap counts, so a tap sent late from the terminal's

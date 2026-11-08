@@ -251,7 +251,7 @@ export function RfidTerminal() {
         showLight("saved", "Tap saved. It will be sent when the connection is back.", MESSAGE_MS);
       } else if (res.ok && data.record) {
         // Who tapped, when, and whether it was Time In or Time Out (2026-10-21).
-        const who = { name: data.employee?.name || data.record.employee_name || "", time: manilaTime(data.tapped_at), tap: TAP_WORDS[data.tap] || "Recorded" };
+        const who = { name: data.employee?.name || data.record.employee_name || "", time: manilaTime(data.tapped_at), tap: data.tap === "duplicate" && data.message ? data.message : TAP_WORDS[data.tap] || "Recorded" };
         showLight(data.tap === "duplicate" ? "dup" : "in", who.tap, MESSAGE_MS, who);
         flushPending();
       } else {

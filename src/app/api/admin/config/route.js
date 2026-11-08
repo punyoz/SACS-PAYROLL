@@ -6,6 +6,7 @@ import { SECURITY_SECTION, invalidateSecuritySettings } from "@/lib/auth/securit
 import { ORG_NAME_SECTION, invalidateOrgName } from "@/lib/org-name";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { DUPLICATE_TAP_KEY, duplicateTapSecondsError } from "@/lib/attendance/taps";
 
 /**
  * The sections the Super Admin's System Configuration screen writes:
@@ -86,6 +87,15 @@ export async function PATCH(request) {
     const tooLong = entries.find(([, value]) => value !== undefined && value !== null && String(value).length > MAX_VALUE_LENGTH);
     if (tooLong) {
       return NextResponse.json({ error: `Setting ${tooLong[0]} is too long.` }, { status: 400 });
+    }
+
+    // The duplicate-tap window (alpha test C1): whole seconds, 3 to 10; the
+    // default section only (one setting for every terminal).
+    const dupEntry = entries.find(([key]) => normalizeText(key) === DUPLICATE_TAP_KEY);
+    if (dupEntry) {
+      if (section !== "attendance") return NextResponse.json({ error: "The duplicate tap window is one setting for every branch (default attendance section)." }, { status: 400 });
+      const dupError = duplicateTapSecondsError(dupEntry[1]);
+      if (dupError) return NextResponse.json({ error: dupError }, { status: 400 });
     }
 
     const supabase = getAdminClient();
