@@ -3122,13 +3122,22 @@ async function handleThirteenthMonthView(supabase, employees, entries, url) {
   const year = Number(url.searchParams.get("year")) || Number(today.slice(0, 4));
   const processed = await supabase
     .from("payroll_thirteenth_month")
-    .select("employee_id,year,basic_earned,amount,processed_at,processed_by_name")
+    .select("employee_id,year,basic_earned,amount,processed_at,processed_by_name,breakdown")
     .eq("year", year);
   const available = !processed.error;
   const done = new Map((processed.data || []).map((row) => [row.employee_id, row]));
+  // Separated employees (alpha test A6): their pro-rated 13th month (basic
+  // earned up to the separation ÷ 12) is paid through Final Pay, never in
+  // the December run, so it is shown here with where it is paid.
+  const separation = new Map(((await fetchAllIn(() => supabase.from("profiles").select("id,separated_on,employee_status,date_hired")
+    .order("id", { ascending: true }), "id", employees.map((e) => e.id))).data || []).map((p) => [p.id, p]));
 
   const rows = employees.map((employee) => {
     const computed = compute13thMonthFromEntries(entries.filter((entry) => entry.employee_id === employee.id), year);
+    const person = separation.get(employee.id) || {};
+    const separatedOn = person.separated_on && String(person.separated_on).slice(0, 4) === String(year) ? String(person.separated_on).slice(0, 10) : null;
+    const row = done.get(employee.id) || null;
+    const months = [...new Set(computed.periods.map((p) => p.start_key.slice(0, 7)))].sort();
     return {
       employee_id: employee.id,
       employee_name: employee.full_name,
@@ -3137,7 +3146,11 @@ async function handleThirteenthMonthView(supabase, employees, entries, url) {
       total_basic_earned: computed.total_basic_earned,
       amount: computed.amount,
       periods: computed.periods,
-      processed: done.get(employee.id) || null,
+      months_covered: months,
+      date_hired: person.date_hired || null,
+      separated_on: separatedOn,
+      paid_in_final_pay: Boolean(row?.breakdown?.final_pay),
+      processed: row,
     };
   });
 
@@ -3145,6 +3158,8 @@ async function handleThirteenthMonthView(supabase, employees, entries, url) {
     year,
     available,
     error: available ? null : PAYROLL_NOT_READY_MESSAGE,
+    covers: { from: `${year}-01-01`, to: `${year}-12-31`, label: `January 1 – December 31, ${year} (paid Final payslips)` },
+    formula: "Total basic salary earned in the calendar year ÷ 12",
     process_opens: `${year}-12-01`,
     can_process: available && today >= `${year}-12-01`,
     rows,
@@ -3168,6 +3183,8 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
   const existing = await supabase.from("payroll_thirteenth_month").select("employee_id").eq("year", year);
   if (existing.error) return NextResponse.json({ error: PAYROLL_NOT_READY_MESSAGE, code: "payroll_not_ready" }, { status: 503 });
   const already = new Set((existing.data || []).map((row) => row.employee_id));
+  const separatedThisYear = new Set(((await fetchAllIn(() => supabase.from("profiles").select("id,separated_on").order("id", { ascending: true }), "id", employees.map((e) => e.id))).data || [])
+    .filter((p) => p.separated_on && String(p.separated_on).slice(0, 4) === String(year)).map((p) => p.id));
   const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
   const nowIso = new Date().toISOString();
 
@@ -3180,6 +3197,11 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
     const own = isOwnPayroll(guard, employee.id);
     if (already.has(employee.id)) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Already processed." });
+      return;
+    }
+    // Separated this year: paid, pro-rated, through Final Pay (never twice).
+    if (separatedThisYear.has(employee.id)) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Separated: the pro-rated 13th month is paid in Final Pay." });
       return;
     }
     const computed = compute13thMonthFromEntries(entries.filter((entry) => entry.employee_id === employee.id), year);

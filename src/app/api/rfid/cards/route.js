@@ -103,7 +103,7 @@ export async function GET(request) {
         action: e.action, action_label: CARD_ACTION_LABELS[e.action] || e.action,
         from_status: e.from_status ? CARD_STATUS_LABELS[e.from_status] || e.from_status : null,
         to_status: CARD_STATUS_LABELS[e.to_status] || e.to_status,
-        uid_masked: maskUid(e.uid_last4), reason: e.reason || null,
+        uid_masked: maskUid(e.uid_last4), reason: e.reason || null, effective_on: e.effective_on || null,
         actor_name: e.actor_name, actor_role: ROLE_LABELS[e.actor_role] || e.actor_role, created_at: e.created_at,
       })),
       employees: people.filter((p) => !p.archived).map((p) => ({
@@ -117,6 +117,51 @@ export async function GET(request) {
   }
 }
 
+/**
+ * Bulk registration, step 1 (alpha test A4): check every row and write
+ * nothing. Each row comes back ok or with the reason it would fail: a missing
+ * employee or card number, a number that is not 10 digits, the same card twice
+ * in the batch, a card number already on file (any status: a number belongs to
+ * one employee for good), an employee who already has an active card, or an
+ * employee outside the caller's reach (an Admin: its own branch).
+ */
+async function checkRows(guard, rawRows) {
+  const rows = (Array.isArray(rawRows) ? rawRows : []).slice(0, 200).map((r) => ({ employee_id: normalizeText(r?.employee_id), uid: normalizeText(r?.uid).replace(/\s+/g, "") }));
+  if (!rows.length) return NextResponse.json({ error: "Add at least one row." }, { status: 400 });
+  const supabase = getAdminClient();
+  const people = await peopleInReach(supabase, guard);
+  const reach = new Map(people.filter((p) => !p.archived).map((p) => [p.id, p]));
+  const uids = [...new Set(rows.map((r) => r.uid).filter((u) => isCardUid(u)))];
+  const ids = [...new Set(rows.map((r) => r.employee_id).filter((id) => UUID.test(id)))];
+  const [taken, active] = await Promise.all([
+    uids.length ? fetchAllIn(() => supabase.from("rfid_cards").select("id,uid,employee_id,status").order("id", { ascending: true }), "uid", uids) : Promise.resolve({ data: [] }),
+    ids.length ? fetchAllIn(() => supabase.from("rfid_cards").select("id,employee_id").eq("status", "active").order("id", { ascending: true }), "employee_id", ids) : Promise.resolve({ data: [] }),
+  ]);
+  if (taken.error || active.error) return NextResponse.json({ error: "Could not check the cards. Try again." }, { status: 500 });
+  const takenBy = new Map((taken.data || []).map((c) => [c.uid, c]));
+  const hasActive = new Set((active.data || []).map((c) => c.employee_id));
+  const seenUid = new Map();
+  const seenEmployee = new Map();
+  rows.forEach((r, i) => {
+    if (isCardUid(r.uid)) seenUid.set(r.uid, (seenUid.get(r.uid) || []).concat(i));
+    if (r.employee_id) seenEmployee.set(r.employee_id, (seenEmployee.get(r.employee_id) || []).concat(i));
+  });
+  const results = rows.map((r, i) => {
+    const person = reach.get(r.employee_id);
+    let error = null;
+    if (!r.employee_id) error = "Choose the employee.";
+    else if (!person) error = "This employee is not in your reach (another branch, archived, or unknown).";
+    else if (!r.uid) error = "Enter the card number.";
+    else if (!isCardUid(r.uid)) error = "The card number must be exactly 10 digits.";
+    else if (seenUid.get(r.uid).length > 1) error = `The same card number is on rows ${seenUid.get(r.uid).map((n) => n + 1).join(" and ")}.`;
+    else if (seenEmployee.get(r.employee_id).length > 1) error = `The same employee is on rows ${seenEmployee.get(r.employee_id).map((n) => n + 1).join(" and ")}.`;
+    else if (takenBy.has(r.uid)) error = takenBy.get(r.uid).employee_id === r.employee_id ? "This card is already this employee's." : "This card number is already registered to someone (card numbers are never reused).";
+    else if (hasActive.has(r.employee_id)) error = "Already has an active card (use Replace).";
+    return { row: i + 1, employee_id: r.employee_id, employee_name: person?.full_name || null, uid_masked: isCardUid(r.uid) ? maskUid(r.uid.slice(-4)) : null, ok: !error, error };
+  });
+  return NextResponse.json({ results, valid: results.filter((r) => r.ok).length, invalid: results.filter((r) => !r.ok).length });
+}
+
 export async function POST(request) {
   try {
     const guard = await requirePermission(request, "rfid_devices", "create");
@@ -125,6 +170,7 @@ export async function POST(request) {
     // Over-long text is refused, not cut short (input limits).
     const tooLong = textLimitError(body, TEXT_CAPS);
     if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
+    if (normalizeText(body.action) === "check") return await checkRows(guard, body.rows);
     if (normalizeText(body.action) !== "register") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     const employeeId = normalizeText(body.employee_id);
     const uid = normalizeText(body.uid);
@@ -162,15 +208,20 @@ export async function PATCH(request) {
     const cardId = normalizeText(body.card_id);
     if (!UUID.test(cardId)) return NextResponse.json({ error: "RFID card not found." }, { status: 404 });
     const reason = normalizeText(body.reason).slice(0, 300);
+    // The day the change took effect (alpha test A5): today unless given;
+    // never a future day (the database checks it too).
+    const effective = normalizeText(body.effective_date);
+    if (effective && !/^\d{4}-\d{2}-\d{2}$/.test(effective)) return NextResponse.json({ error: "Choose a valid effective date." }, { status: 400 });
+    const dated = effective ? { p_effective: effective } : {};
     const supabase = getAdminClient();
 
     let result;
     if (action === "replace") {
       const newUid = normalizeText(body.new_uid);
       if (!isCardUid(newUid)) return NextResponse.json({ error: "The new card's UID must be exactly 10 digits." }, { status: 400 });
-      result = await supabase.rpc("rfid_card_replace", { p_actor: guard.userId, p_card: cardId, p_new_uid: newUid, p_reason: reason, p_lost: body.lost === true });
+      result = await supabase.rpc("rfid_card_replace", { p_actor: guard.userId, p_card: cardId, p_new_uid: newUid, p_reason: reason, p_lost: body.lost === true, ...dated });
     } else if (["deactivate", "mark_lost", "reactivate"].includes(action)) {
-      result = await supabase.rpc("rfid_card_set_status", { p_actor: guard.userId, p_card: cardId, p_action: action, p_reason: reason });
+      result = await supabase.rpc("rfid_card_set_status", { p_actor: guard.userId, p_card: cardId, p_action: action, p_reason: reason, ...dated });
     } else {
       return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     }
@@ -180,7 +231,7 @@ export async function PATCH(request) {
     await appendAuditLog({
       actor: guard, module: "rfid", action: `rfid_card_${action}`, entity_type: "rfid_card", entity_id: card?.id || cardId,
       branch_id: card?.branch_id || null, status: "success", source: "api",
-      description: `RFID card ${action === "replace" ? "replaced" : action.replace("_", " ")}: ${reason}`, metadata: { card_id: cardId, reason },
+      description: `RFID card ${action === "replace" ? "replaced" : action.replace("_", " ")}${effective ? ` (effective ${effective})` : ""}: ${reason}`, metadata: { card_id: cardId, reason, effective_date: effective || null },
     });
     return NextResponse.json({ success: true, card: card ? { id: card.id, status: card.status, uid_masked: maskUid(card.uid_last4) } : null });
   } catch (error) {

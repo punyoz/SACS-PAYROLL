@@ -25,43 +25,8 @@ import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 
 export const PRIVACY_TEXT = "This file contains salary and personal data, including government ID numbers (Data Privacy Act of 2012). Keep it private: store it encrypted and offline, and never email or share it.";
 
-function fileNameOf(response, fallback) {
-  const header = response.headers.get("Content-Disposition") || "";
-  const match = /filename="?([^";]+)"?/i.exec(header);
-  return match ? match[1] : fallback;
-}
-
-/** Stream a download, reporting bytes received; throws the server's message on failure. */
-export async function downloadFile(url, init = {}, { onProgress, signal, fallbackName = "download" } = {}) {
-  const response = await apiFetch(url, { ...init, signal });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    const error = new Error(data.error || `The download failed (${response.status}).`);
-    error.status = response.status;
-    error.code = data.code;
-    throw error;
-  }
-  const reader = response.body.getReader();
-  const chunks = [];
-  let received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    onProgress?.(received);
-  }
-  const blob = new Blob(chunks, { type: response.headers.get("Content-Type") || "application/octet-stream" });
-  const name = fileNameOf(response, fallbackName);
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = name;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-  return { name, bytes: received };
-}
+export { downloadFile } from "@/lib/portal/download";
+import { downloadFile } from "@/lib/portal/download";
 
 const megabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 // About 120 bytes per row once compressed: only for the progress bar's estimate.

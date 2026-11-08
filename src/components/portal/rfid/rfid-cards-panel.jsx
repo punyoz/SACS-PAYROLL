@@ -22,6 +22,9 @@ import { CARD_STATUS_LABELS, CARD_STATUS_TONES } from "@/lib/rfid/cards";
 import { cn } from "@/lib/utils";
 import { RFID_UID_LENGTH, RFID_UID_PATTERN } from "@/lib/input-limits";
 import { SearchableSelect } from "@/components/portal/searchable-select";
+import { RfidBulkRegisterDialog } from "@/components/portal/rfid/rfid-bulk-register";
+import { DatePicker } from "@/components/portal/date-picker";
+import { manilaDateKey } from "@/lib/payroll/periods";
 
 /*
  * RFID Cards (/api/rfid/cards, 20261021030000): the same cards for HR, the
@@ -50,6 +53,8 @@ export function RfidCardsPanel({ refreshKey }) {
   // Many cards at once: new cards for a batch of hires, or a mass replacement
   // (scenarios SC-11 / HR-10, 2026-10-22).
   const [bulk, setBulk] = React.useState(false);
+  // Register many: one row per card, employee chosen by name (alpha test A4).
+  const [bulkRegister, setBulkRegister] = React.useState(false);
   const [bulkInput, setBulkInput] = React.useState({ mode: "register", reason: "", lost: false });
 
   const load = React.useCallback(async () => {
@@ -74,7 +79,7 @@ export function RfidCardsPanel({ refreshKey }) {
 
   function open(kind, card = null) {
     setDialog({ kind, card });
-    setInput({ employee: "", uid: "", reason: "", lost: kind === "replace" });
+    setInput({ employee: "", uid: "", reason: "", lost: kind === "replace", effective: manilaDateKey() });
     setError("");
     if (["register", "replace"].includes(kind)) setTimeout(() => uidRef.current?.focus(), 80);
   }
@@ -87,14 +92,15 @@ export function RfidCardsPanel({ refreshKey }) {
     if (kind === "register" && !input.employee) { setError("Choose the employee."); return; }
     if (["register", "replace"].includes(kind) && !RFID_UID_PATTERN.test(uid)) { setError(`Tap the card on the reader, or type its number (exactly ${RFID_UID_LENGTH} digits).`); return; }
     if (kind !== "register" && String(input.reason || "").trim().length < 5) { setError("Give the reason (at least 5 characters)."); return; }
+    if (kind !== "register" && (!input.effective || input.effective > manilaDateKey())) { setError("Choose the effective date (today or earlier)."); return; }
     setBusy(true);
     try {
       if (kind === "register") {
         await fetchJson("/api/rfid/cards", jsonBody("POST", { action: "register", employee_id: input.employee, uid, reason: input.reason.trim() }));
       } else if (kind === "replace") {
-        await fetchJson("/api/rfid/cards", jsonBody("PATCH", { action: "replace", card_id: card.id, new_uid: uid, reason: input.reason.trim(), lost: input.lost }));
+        await fetchJson("/api/rfid/cards", jsonBody("PATCH", { action: "replace", card_id: card.id, new_uid: uid, reason: input.reason.trim(), lost: input.lost, effective_date: input.effective }));
       } else {
-        await fetchJson("/api/rfid/cards", jsonBody("PATCH", { action: kind, card_id: card.id, reason: input.reason.trim() }));
+        await fetchJson("/api/rfid/cards", jsonBody("PATCH", { action: kind, card_id: card.id, reason: input.reason.trim(), effective_date: input.effective }));
       }
       const words = {
         register: ["Card Registered", "It records attendance from the next tap."],
@@ -151,6 +157,7 @@ export function RfidCardsPanel({ refreshKey }) {
     { key: "action_label", header: "Action", cell: (e) => <StatusBadge tone={e.action === "registered" || e.action === "reactivated" ? "success" : e.action === "marked_lost" ? "danger" : e.action === "replaced" ? "gold" : "muted"} dot={false}>{e.action_label}</StatusBadge>, searchValue: (e) => e.action_label },
     { key: "change", header: "Status", className: "text-xs whitespace-nowrap", cell: (e) => (e.from_status ? `${e.from_status} → ${e.to_status}` : e.to_status) },
     { key: "actor", header: "By", className: "text-xs whitespace-nowrap", cell: (e) => `${e.actor_name} · ${e.actor_role}`, searchValue: (e) => e.actor_name },
+    { key: "effective_on", header: "Effective", className: "text-xs whitespace-nowrap tabular-nums", cell: (e) => e.effective_on || <span className="text-muted-foreground">{String(e.created_at || "").slice(0, 10)}</span> },
     { key: "reason", header: "Why", cell: (e) => <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{e.reason || "—"}</p> },
   ];
 
@@ -180,7 +187,8 @@ export function RfidCardsPanel({ refreshKey }) {
           <CardDescription>Only an Active card records attendance. One active card per employee; a card number belongs to one employee.</CardDescription>
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
-            <Button variant="outline" size="sm" onClick={() => setBulk(true)} disabled={!employees.length}><ListPlusIcon aria-hidden="true" />Many cards</Button>
+            <Button variant="outline" size="sm" onClick={() => setBulkRegister(true)} disabled={!employees.length}><ListPlusIcon aria-hidden="true" />Register many</Button>
+            <Button variant="outline" size="sm" onClick={() => { setBulkInput((c) => ({ ...c, mode: "replace" })); setBulk(true); }} disabled={!(data?.cards || []).some((c) => c.status === "active")}><ListPlusIcon aria-hidden="true" />Replace many</Button>
             <Button size="sm" onClick={() => open("register")} disabled={!employees.length}><PlusIcon aria-hidden="true" />Register card</Button>
           </CardAction>
         </CardHeader>
@@ -237,7 +245,7 @@ export function RfidCardsPanel({ refreshKey }) {
                       <Label htmlFor="rf-emp">Employee</Label>
                       <SearchableSelect id="rf-emp" label="Employee" value={input.employee} onValueChange={(v) => { setInput((c) => ({ ...c, employee: v })); setTimeout(() => uidRef.current?.focus(), 50); }}
                         placeholder="Choose the employee" searchPlaceholder="Search name, ID or branch…"
-                        options={employees.map((e) => ({ value: e.id, disabled: e.has_active_card, label: `${e.full_name}${e.employee_code ? ` (${e.employee_code})` : ""} — ${e.branch_name}${e.has_active_card ? " · has a card" : ""}` }))} />
+                        options={employees.map((e) => ({ value: e.id, disabled: e.has_active_card, label: e.full_name, description: [e.branch_name, e.has_active_card ? "has an active card" : null].filter(Boolean).join(" · "), keywords: `${e.employee_code || ""} ${e.branch_name || ""}` }))} />
                       {chosen?.has_active_card ? <p className="text-xs text-destructive">Already has an active card: use Replace on it.</p> : null}
                     </div>
                   ) : null}
@@ -252,6 +260,13 @@ export function RfidCardsPanel({ refreshKey }) {
                   ) : null}
                   {dialog.kind === "replace" ? (
                     <label className="flex items-start gap-2 text-sm"><Checkbox checked={input.lost} onCheckedChange={(v) => setInput((c) => ({ ...c, lost: v === true }))} className="mt-0.5" /><span>The old card was lost (not just damaged): mark it Lost.</span></label>
+                  ) : null}
+                  {["replace", "deactivate", "mark_lost"].includes(dialog.kind) ? (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="rf-effective">{dialog.kind === "replace" ? "Replacement date" : dialog.kind === "mark_lost" ? "Date lost" : "Effective date"}</Label>
+                      <DatePicker id="rf-effective" value={input.effective} max={manilaDateKey()} onChange={(v) => { setInput((c) => ({ ...c, effective: v || "" })); setError(""); }} />
+                      <p className="text-xs text-muted-foreground">Today or earlier; kept in the card history with who did it and why.</p>
+                    </div>
                   ) : null}
                   <div className="space-y-1.5">
                     <Label htmlFor="rf-reason">{dialog.kind === "register" ? "Note (optional)" : "Reason"}</Label>
@@ -274,6 +289,8 @@ export function RfidCardsPanel({ refreshKey }) {
           ) : null}
         </DialogContent>
       </Dialog>
+      <RfidBulkRegisterDialog open={bulkRegister} onOpenChange={setBulkRegister} employees={employees}
+        onDone={(n) => { if (n) { notify("Cards Registered", `${n} card${n === 1 ? "" : "s"} registered.`, "success"); load(); } }} />
       <BulkLinesDialog
         open={bulk}
         onOpenChange={setBulk}

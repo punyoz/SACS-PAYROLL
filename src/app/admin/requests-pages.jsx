@@ -122,6 +122,7 @@ export function IncentiveEndorsementsPage({ refreshKey }) {
     <RequestsPage
       refreshKey={refreshKey}
       kind="incentive_endorsement"
+      exportable
       icon={StarIcon}
       title="Incentive recommendations"
       description="Recommend an incentive or overload pay for an employee of your branch. HR approves it; it is then added to payroll."

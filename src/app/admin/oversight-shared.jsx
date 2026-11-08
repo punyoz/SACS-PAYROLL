@@ -18,6 +18,7 @@ import { dateTime } from "@/lib/portal/payroll-preview";
 import { STATUS_LABELS, STATUS_TONES } from "@/lib/branch-requests";
 import { cn } from "@/lib/utils";
 import { SearchableSelect } from "@/components/portal/searchable-select";
+import { ExportButtons } from "@/components/portal/export-buttons";
 
 /*
  * Shared pieces of the branch Admin's oversight pages
@@ -202,7 +203,7 @@ export async function fileRequest(kind, { employee_id, ref_id, decision, note, .
  * A "sent to HR" page: the filing button and dialog, and every request of the
  * kind with its status, HR's decision and history (kept for good).
  */
-export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty }) {
+export function RequestsPage({ refreshKey, kind, title, description, icon: Icon, fields, columns = [], buttonLabel, dialogTitle, dialogDescription, decisions = false, banner = null, initial = {}, empty, exportable = false }) {
   const { notify } = usePortalSession();
   const view = useBranchView("requests", { kind }, refreshKey);
   const [open, setOpen] = React.useState(false);
@@ -225,6 +226,8 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
           {description ? <CardDescription>{description}</CardDescription> : null}
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+            {/* Report export, own branch only (alpha test B2). */}
+            {exportable ? <ExportButtons href={`/api/admin/branch-oversight?view=requests&kind=${kind}`} label={title.toLowerCase()} disabled={!(data?.requests || []).length} /> : null}
             <Button size="sm" onClick={() => setOpen(true)} disabled={!data}><PlusIcon aria-hidden="true" />{buttonLabel}</Button>
           </CardAction>
         </CardHeader>

@@ -17,7 +17,6 @@ import {
   formatMinutes,
   matchesEmployee,
   oneRowPerDay,
-  payPeriodLabels,
   rowBranchId,
   sortByBranchDay,
   sortByDay,
@@ -26,6 +25,8 @@ import { ATTENDANCE_STATUS_LIST, formatDateKey, formatTime } from "@/lib/portal/
 import { cn } from "@/lib/utils";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { TableToolbar } from "@/components/portal/table-toolbar";
+import { DateRangeFilter, defaultRange } from "@/components/portal/date-range-filter";
+import { ExportButtons } from "@/components/portal/export-buttons";
 
 /*
  * The attendance status board (mountAttendanceBoard / renderAttendanceBoard,
@@ -47,8 +48,9 @@ const ALL = "__all__";
 
 export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, initialTab = "all" }) {
   const { version } = useAttendanceActions();
-  const periods = React.useMemo(() => payPeriodLabels(6), []);
-  const [period, setPeriod] = React.useState(periods[0]);
+  // A date range (alpha test A1), this cutoff by default; the board groups
+  // every row of the range, so it reads 62 days at most.
+  const [range, setRange] = React.useState(defaultRange);
   const [tab, setTab] = React.useState(initialTab);
   const [status, setStatus] = React.useState("all");
   const [day, setDay] = React.useState("all");
@@ -72,7 +74,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
-      const params = new URLSearchParams({ period });
+      const params = new URLSearchParams({ from: range.from, to: range.to });
       const [logsData, correctionsData, overtimeData] = await Promise.all([
         fetchJson(`/api/attendance/logs?${params}`),
         fetchJson("/api/attendance/corrections?status=pending").catch(() => ({ corrections: [] })),
@@ -94,7 +96,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message, logs: [], corrections: [], overtime: [], blocked: [] }));
     }
-  }, [period]);
+  }, [range]);
 
   React.useEffect(() => { load(); }, [load, version, refreshKey]);
 
@@ -197,11 +199,11 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
         : `Statuses are computed automatically from each branch's schedule. Today's list includes everyone who has not tapped yet.${state.canReview ? " Use Correct on any day to fix a wrong time in or time out, or to record a day someone worked but did not tap." : ""}`)
       : NOTES[tab];
 
-  const empty = tab === "blocked" ? "No taps were blocked in this period."
+  const empty = tab === "blocked" ? "No taps were blocked in this date range."
     : tab === "corrections" ? "No correction requests waiting."
       : tab === "incomplete" ? "Nothing to resolve."
-        : tab === "overtime" ? "No overtime in this period."
-          : effectiveDay !== "all" ? "No attendance records for this day." : "No attendance records for this period.";
+        : tab === "overtime" ? "No overtime in this date range."
+          : effectiveDay !== "all" ? "No attendance records for this day." : "No attendance records in this date range.";
   const emptyText = search.trim() ? `No employees match "${search.trim()}".` : empty;
 
   const tabCount = (n) => (n ? <span className="ml-1 rounded-full bg-primary/12 px-1.5 text-[11px] font-semibold text-primary tabular-nums">{n}</span> : null);
@@ -212,12 +214,9 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
         <CardTitle>Attendance status</CardTitle>
-        <CardDescription>One pay period, computed from each branch&apos;s schedule.</CardDescription>
+        <CardDescription>Any range of up to 62 days, computed from each branch&apos;s schedule.</CardDescription>
         <CardAction className="flex flex-wrap items-center gap-2">
-          <Select value={period} onValueChange={(value) => { setPeriod(value); setDay("all"); }}>
-            <SelectTrigger size="sm" className="w-44" aria-label="Pay period"><SelectValue /></SelectTrigger>
-            <SelectContent>{periods.map((label) => <SelectItem key={label} value={label}>{label}</SelectItem>)}</SelectContent>
-          </Select>
+          <ExportButtons href={`/api/attendance/logs?from=${range.from}&to=${range.to}${branch ? `&branch_id=${branch}` : ""}`} label="attendance" disabled={!state.logs.length} />
           <Button variant="outline" size="sm" onClick={load} disabled={state.loading}>
             <RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh
           </Button>
@@ -226,6 +225,8 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
       <CardContent className="space-y-4">
         {/* One toolbar row (2026-11-08): search first, then the view tabs and the filters. */}
         <TableToolbar search={{ value: search, onChange: setSearch, placeholder: "Search employees…" }}>
+          <DateRangeFilter idPrefix="board" value={range} maxDays={62} count={state.loading ? null : state.logs.length}
+            onChange={(next) => { setRange(next); setDay("all"); }} />
           <FilterTabs value={tab} onValueChange={setTab} label="Attendance view" options={[
             { value: "all", label: "All records" },
             { value: "incomplete", label: `Incomplete queue${tabCount(incomplete.length)}` },

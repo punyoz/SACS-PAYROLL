@@ -5,6 +5,7 @@ import { CalendarIcon, CheckCircle2Icon, InfoIcon, Loader2Icon, RefreshCwIcon, U
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
@@ -47,17 +48,17 @@ export function ThirteenthMonthPage({ refreshKey }) {
   const data = state.data;
   const rows = data?.rows || [];
   const processed = rows.filter((r) => r.processed).length;
+  // What a December run would pay now (separated employees are paid in Final Pay).
+  const pending = rows.filter((r) => !r.processed && !r.separated_on && r.amount > 0);
+  const pendingTotal = pending.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const [preview, setPreview] = React.useState(false);
+  const blockedReason = !data ? "" : !data.available ? (data.error || "13th month pay is not set up yet.")
+    : !data.can_process ? `Opens ${dateLabel(data.process_opens)}: the ${data.year} 13th month pay is generated in December. The figures below are the year so far.`
+      : !pending.length ? "Nothing left to generate: everyone is processed, paid in Final Pay, or earned no basic pay." : "";
 
   async function processAll() {
-    if (!data?.can_process) return;
-    const pending = rows.filter((r) => !r.processed && r.amount > 0);
-    if (!pending.length) return;
-    const ok = await confirm({
-      title: `Process the ${data.year} 13th month pay for ${pending.length} employee${pending.length === 1 ? "" : "s"}?`,
-      description: "Each payout is recorded once and cannot be processed again.",
-      confirmLabel: "Process",
-    });
-    if (!ok) return;
+    if (!data?.can_process || !pending.length) return;
+    setPreview(false);
     setBusy(true);
     setFeedback({ text: "Processing…", ok: true });
     try {
@@ -74,7 +75,15 @@ export function ThirteenthMonthPage({ refreshKey }) {
   }
 
   const columns = [
-    { key: "employee_name", header: "Employee", sortable: true, cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code || ""} · {r.employee_type || ""}</p></div>, searchValue: (r) => `${r.employee_name} ${r.employee_code || ""}` },
+    { key: "employee_name", header: "Employee", sortable: true, cell: (r) => (
+      <div>
+        <p className="font-medium">{r.employee_name}</p>
+        <p className="text-xs text-muted-foreground">{r.employee_code || ""} · {r.employee_type || ""}</p>
+        {r.date_hired && String(r.date_hired).slice(0, 4) === String(data?.year) ? <p className="text-xs text-info">Joined {dateLabel(String(r.date_hired).slice(0, 10))}</p> : null}
+        {r.separated_on ? <p className="text-xs text-warning">Separated {dateLabel(r.separated_on)}</p> : null}
+      </div>
+    ), searchValue: (r) => `${r.employee_name} ${r.employee_code || ""}` },
+    { key: "months", header: "Months covered", className: "text-xs whitespace-nowrap", cell: (r) => (r.months_covered?.length ? `${r.months_covered.length} (${monthName(r.months_covered[0])}–${monthName(r.months_covered[r.months_covered.length - 1])})` : "—") },
     { key: "periods", header: "Payslips", align: "right", className: "tabular-nums", cell: (r) => (r.periods || []).length },
     { key: "basic", header: "Basic earned", align: "right", className: "tabular-nums", cell: (r) => money(r.processed ? r.processed.basic_earned : r.total_basic_earned) },
     { key: "amount", header: "13th month", align: "right", className: "tabular-nums font-semibold", sortValue: (r) => Number(r.processed ? r.processed.amount : r.amount), cell: (r) => money(r.processed ? Number(r.processed.amount) : r.amount) },
@@ -83,8 +92,13 @@ export function ThirteenthMonthPage({ refreshKey }) {
       header: "Status",
       cell: (r) => (r.processed ? (
         <div className="space-y-1">
-          <StatusBadge tone="success">Processed</StatusBadge>
+          <StatusBadge tone="success">{r.paid_in_final_pay ? "Paid in Final Pay" : "Processed"}</StatusBadge>
           <p className="text-xs text-muted-foreground">{dateTime(r.processed.processed_at)}{r.processed.processed_by_name ? ` · ${r.processed.processed_by_name}` : ""}</p>
+        </div>
+      ) : r.separated_on ? (
+        <div className="space-y-1">
+          <StatusBadge tone="info">Pro-rated: paid in Final Pay</StatusBadge>
+          <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">Basic earned up to the separation ÷ 12. Generate it on the Final Pay page.</p>
         </div>
       ) : <StatusBadge tone="gold">Not processed</StatusBadge>),
     },
@@ -93,10 +107,12 @@ export function ThirteenthMonthPage({ refreshKey }) {
   return (
     <>
       {data ? (
-        <Alert className="border-info/40 bg-info/8">
+        <Alert className="border-info/40 bg-info/8" data-testid="thirteenth-period">
           <InfoIcon aria-hidden="true" />
-          <AlertDescription>
-            <p><strong className="text-foreground">{data.year}:</strong> {data.can_process ? "processing is open. Each payout is recorded once and locked." : `figures so far. The 13th month pay is processed in December, from ${dateLabel(data.process_opens)}.`}</p>
+          <AlertDescription className="space-y-1">
+            <p><strong className="text-foreground">Year {data.year}.</strong> Covers {data.covers?.label || `${data.year}`}.</p>
+            <p>13th month = {data.formula || "total basic salary earned in the year ÷ 12"}. Included: basic pay actually earned on each Final payslip (unpaid absences and leave without pay already taken off). Not included: overtime, incentives, holiday pay, allowances, the 13th month itself.</p>
+            <p>{data.can_process ? "Generating is open. Each payout is recorded once and locked." : `Generating opens ${dateLabel(data.process_opens)}; until then these are the figures so far.`} Employees who left this year are paid a pro-rated 13th month in Final Pay, never twice.</p>
           </AlertDescription>
         </Alert>
       ) : null}
@@ -130,13 +146,52 @@ export function ThirteenthMonthPage({ refreshKey }) {
             caption="13th month pay"
             minWidth={760}
           />
-          <Button className="w-full" size="lg" onClick={processAll} disabled={busy || !data?.can_process || processed === rows.length} title={data?.can_process ? "" : `Opens ${dateLabel(data?.process_opens)}`}>
-            {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Process 13th month pay →
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p role="status" className="text-sm text-muted-foreground" data-testid="thirteenth-generate-note">
+              {blockedReason || `${pending.length} employee${pending.length === 1 ? "" : "s"} ready · ${money(pendingTotal)} in all.`}
+            </p>
+            <Button onClick={() => setPreview(true)} disabled={busy || Boolean(blockedReason)} data-testid="thirteenth-generate">
+              {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <WalletIcon aria-hidden="true" />}Generate 13th month pay
+            </Button>
+          </div>
           {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
         </CardContent>
       </Card>
+      <Dialog open={preview} onOpenChange={(o) => { if (!busy) setPreview(o); }}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl" data-testid="thirteenth-preview">
+          <DialogHeader>
+            <DialogTitle>Preview: {data?.year} 13th month pay</DialogTitle>
+            <DialogDescription>{pending.length} employee{pending.length === 1 ? "" : "s"}, {money(pendingTotal)} in all. Check the figures, then save. Each payout is recorded once and locked.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-x-auto rounded-md border">
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead className="bg-muted/60 text-xs text-muted-foreground"><tr>
+                <th className="px-3 py-2 text-left">Employee</th><th className="px-3 py-2 text-left">Months</th>
+                <th className="px-3 py-2 text-right">Basic earned</th><th className="px-3 py-2 text-right">13th month (÷ 12)</th>
+              </tr></thead>
+              <tbody>{pending.map((r) => (
+                <tr key={r.employee_id} className="border-t">
+                  <td className="px-3 py-1.5">{r.employee_name}</td>
+                  <td className="px-3 py-1.5 text-xs">{r.months_covered?.length || 0}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{money(r.total_basic_earned)}</td>
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums">{money(r.amount)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">Included: basic pay earned on Final payslips. Excluded: overtime, incentives, holiday pay, allowances, and employees who left this year (paid in Final Pay).</p>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setPreview(false)} disabled={busy}>Back</Button>
+            <Button onClick={processAll} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save 13th month pay</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {confirmDialog}
     </>
   );
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function monthName(key) {
+  return MONTHS[Number(String(key).slice(5, 7)) - 1] || key;
 }

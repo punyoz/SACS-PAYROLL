@@ -142,14 +142,18 @@ export function RfidTerminalLauncher({ text = ADMIN_TERMINAL_TEXT }) {
   );
 }
 
-export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin", terminalText = ADMIN_TERMINAL_TEXT }) {
+// section (alpha test B1): "terminal" or "cards" shows one part (the Super
+// Admin's RFID Management pages); without it, both, as before.
+export function MaintenancePage({ refreshKey, registrationText = ADMIN_REGISTRATION_TEXT, auditActor = "Admin", terminalText = ADMIN_TERMINAL_TEXT, section = null }) {
   const { can } = usePortalSession();
+
+  if (section === "terminal") return can("rfid_devices", "update") ? <RfidTerminalLauncher text={terminalText} /> : null;
 
   return (
     <>
       {/* The RFID reader is a device: HR, the Admin and the Super Admin run it
           from here (it used to sit on their Attendance pages). */}
-      {can("rfid_devices", "update") ? <RfidTerminalLauncher text={terminalText} /> : null}
+      {section !== "cards" && can("rfid_devices", "update") ? <RfidTerminalLauncher text={terminalText} /> : null}
       {/* Cards: the same records HR and the Super Admin see (an Admin: its own
           branch). 2026-10-21. Registered terminals were removed 2026-10-27:
           nobody adds or edits them; the password opens the kiosk. */}

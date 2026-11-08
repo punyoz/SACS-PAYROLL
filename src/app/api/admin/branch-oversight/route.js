@@ -48,6 +48,7 @@ import {
 import { hrAccountIds, loadBranchStaff, notify, superAdminIds } from "@/lib/branch-requests-server";
 import { INCENTIVE_MAX, pesoLimit } from "@/lib/input-limits";
 import { textLimitError } from "@/lib/input-limits";
+import { reportResponse, wantsFile } from "@/lib/export/report-file";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The remark for HR"] };
@@ -229,6 +230,7 @@ async function transfersView(supabase, branchId, staff) {
   const personName = new Map((people.data || []).map((p) => [p.id, p.full_name]));
   return {
     transfers: rows.map((t) => ({
+      ...transferState(t, branchId, recBy.get(t.id) || null, branchName),
       id: t.id,
       employee_name: personName.get(t.employee_id) || staff.find((p) => p.id === t.employee_id)?.full_name || "Employee",
       direction: String(t.to_branch_id) === String(branchId) ? "incoming" : "outgoing",
@@ -241,6 +243,38 @@ async function transfersView(supabase, branchId, staff) {
       reviewed_at: t.reviewed_at,
       endorsement: recBy.get(t.id) || null,
     })),
+  };
+}
+
+/**
+ * Whether this Admin may endorse a transfer, and if not, why (alpha test A3:
+ * the button used to vanish without a word). HR applies a transfer at once
+ * unless it asks the branch Admins to endorse it first; the Admin of the
+ * branch the employee is leaving endorses.
+ */
+function transferState(t, branchId, endorsement, branchName) {
+  const source = t.from_branch_id ? String(t.from_branch_id) : null;
+  const mine = source ? source === String(branchId) : String(t.to_branch_id) === String(branchId);
+  const decidedOn = t.reviewed_at ? String(t.reviewed_at).slice(0, 10) : "";
+  if (t.status !== "pending") {
+    const direct = t.status === "approved" && !endorsement && t.reviewed_by && t.reviewed_by === t.requested_by
+      && Math.abs(Date.parse(t.reviewed_at || 0) - Date.parse(t.created_at || 0)) < 120000;
+    return {
+      can_endorse: false,
+      state_note: direct ? "HR applied this transfer directly; no endorsement was asked."
+        : `HR ${t.status === "approved" ? "approved" : "rejected"} this transfer${decidedOn ? ` on ${decidedOn}` : ""}.`,
+    };
+  }
+  if (!mine) {
+    return {
+      can_endorse: false,
+      state_note: endorsement ? `Endorsement sent by the ${branchName.get(source) || "other"} branch Admin. Waiting for HR.`
+        : `Waiting for the ${branchName.get(source) || "other"} branch Admin to endorse.`,
+    };
+  }
+  return {
+    can_endorse: true,
+    state_note: endorsement ? `You sent "${endorsement.status_label || "your endorsement"}". You can change it until HR decides.` : "Waiting for your endorsement.",
   };
 }
 
@@ -353,6 +387,13 @@ function reportPdf(report, branchName) {
   });
 }
 
+/** "07:58 AM" in Manila, or "". */
+function manilaClock(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" });
+}
+
 export async function GET(request) {
   try {
     const guard = await requirePermission(request, "branch_oversight", "read");
@@ -375,10 +416,36 @@ export async function GET(request) {
 
     const staff = await loadBranchStaff(supabase, branchId, { includeArchived: view === "reports" });
     if (view === "dashboard") return NextResponse.json(await dashboardView(supabase, branchId, staff));
-    if (view === "attendance") return NextResponse.json(await attendanceView(supabase, branchId, staff, url));
+    // Exports (alpha test B2): Excel or PDF, the Admin's own branch only.
+    const fileFormat = wantsFile(url);
+    const branchLabel = async () => (await supabase.from("branches").select("name").eq("id", branchId).maybeSingle()).data?.name || "Branch";
+    if (view === "attendance") {
+      const data = await attendanceView(supabase, branchId, staff, url);
+      if (!fileFormat) return NextResponse.json(data);
+      return reportResponse({
+        format: fileFormat, fileName: `branch-attendance-${data.from}-to-${data.to}`,
+        title: "Branch attendance", branch: await branchLabel(), period: `${formatDateKey(data.from)} to ${formatDateKey(data.to)}`,
+        columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
+          { header: "Status" }, { header: "Late (min)", kind: "number" }, { header: "Flag" }],
+        rows: data.logs.map((l) => [l.employee_name, l.employee_code, l.log_date, manilaClock(l.time_in), manilaClock(l.time_out),
+          l.status || "", Number(l.late_minutes) || 0, l.flag?.status_label || ""]),
+      });
+    }
     if (view === "leaves") return NextResponse.json(await leavesView(supabase, branchId, staff));
     if (view === "transfers") return NextResponse.json(await transfersView(supabase, branchId, staff));
-    if (view === "payroll") return NextResponse.json(await payrollView(supabase, branchId));
+    if (view === "payroll") {
+      const data = await payrollView(supabase, branchId);
+      if (!fileFormat) return NextResponse.json(data);
+      // Run totals only, never an employee's figures (the Admin stays read-only).
+      return reportResponse({
+        format: fileFormat, fileName: "branch-payroll-summary", title: "Payroll summary", branch: await branchLabel(),
+        period: "Approved payroll periods", totals: true,
+        columns: [{ header: "Period" }, { header: "Cutoff" }, { header: "Employees", kind: "number", integer: true }, { header: "Total gross", kind: "money" },
+          { header: "Total deductions", kind: "deduction" }, { header: "Total net pay", kind: "money" }, { header: "Approved" }, { header: "Approved by" }],
+        rows: (data.periods || []).map((r) => [r.period_label, r.cutoff, r.employees, r.total_gross, r.total_deductions, r.total_net,
+          r.approved_at ? String(r.approved_at).slice(0, 10) : "", r.approved_by || ""]),
+      });
+    }
     if (view === "employees") return NextResponse.json({ employees: staff });
     if (view === "cutoffs") {
       const month = manilaDateKey().slice(0, 7);
@@ -396,6 +463,20 @@ export async function GET(request) {
       const kinds = normalizeText(url.searchParams.get("kind")).split(",").map((k) => k.trim()).filter((k) => REQUEST_KINDS[k]);
       const { rows, error } = await branchRequests(supabase, branchId, kinds.length ? kinds : null);
       if (error) return NextResponse.json({ available: false, error, requests: [] });
+      if (fileFormat && kinds.length === 1 && kinds[0] === "incentive_endorsement") {
+        const shaped = rows.map((r) => shapeRequest(r));
+        return reportResponse({
+          format: fileFormat, fileName: "branch-incentive-recommendations", title: "Incentive recommendations", branch: await branchLabel(),
+          period: "All recommendations",
+          columns: [{ header: "Employee" }, { header: "Kind" }, { header: "Amount", kind: "money" }, { header: "Hours", kind: "number" },
+            { header: "Description" }, { header: "Date" }, { header: "Status" }, { header: "Sent" }],
+          rows: shaped.map((r) => {
+            const d = r.details || {};
+            return [d.employee_name || r.employee_name || "", d.kind === "overload" ? "Overload" : "Incentive", d.kind === "overload" ? 0 : Number(d.amount) || 0,
+              d.kind === "overload" ? Number(d.hours) || 0 : 0, d.description || "", d.item_date || "", r.status_label || r.status || "", String(r.created_at || "").slice(0, 10)];
+          }),
+        });
+      }
       const month = manilaDateKey().slice(0, 7);
       return NextResponse.json({
         available: true,
@@ -466,6 +547,11 @@ export async function POST(request) {
       const transfer = UUID.test(String(body.ref_id || "")) ? (await supabase.from("transfer_requests").select("*").eq("id", body.ref_id).maybeSingle()).data : null;
       if (!transfer || (String(transfer.from_branch_id || "") !== String(branchId) && String(transfer.to_branch_id || "") !== String(branchId))) return bad("Transfer not found for your branch.", 404);
       if (transfer.status !== "pending") return bad("HR has already decided this transfer.", 409);
+      // The Admin of the branch the employee is LEAVING endorses (alpha test
+      // A3); the destination's Admin only when the employee had no branch.
+      if (transfer.from_branch_id && String(transfer.from_branch_id) !== String(branchId)) {
+        return bad("Only the Admin of the branch the employee is leaving endorses this transfer.", 403);
+      }
       if (!ENDORSE[body.decision]) return bad("Choose Endorse or Not endorse.");
       const who = (await supabase.from("profiles").select("full_name").eq("id", transfer.employee_id).maybeSingle()).data;
       refId = transfer.id; employeeId = transfer.employee_id; status = ENDORSE[body.decision];

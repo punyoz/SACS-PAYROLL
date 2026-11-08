@@ -49,7 +49,7 @@ export function isCardUid(value) {
 
 const STATUS_BY_CODE = {
   forbidden: 403, not_found: 404, duplicate: 409, already_active: 409, blocked: 409,
-  invalid_transition: 409, invalid: 400, reason_required: 400,
+  invalid_transition: 409, invalid: 400, reason_required: 400, invalid_date: 400,
 };
 
 /** A database refusal as { status, error, code } for the person. */

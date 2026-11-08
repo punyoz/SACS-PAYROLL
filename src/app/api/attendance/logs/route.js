@@ -16,6 +16,8 @@ import { readApprovedLeave, readBlockedTaps } from "@/lib/attendance/leave";
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { pageParams } from "@/lib/portal/date-range";
+import { reportResponse, wantsFile } from "@/lib/export/report-file";
 
 /**
  * GET /api/attendance/logs — the attendance status board.
@@ -36,6 +38,7 @@ import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
 const LOG_COLUMNS = "id,employee_id,employee_name,employee_type,branch_id,log_date,time_in,time_out,total_hours,status,late_minutes,undertime_minutes,is_half_day,is_early_bird,schedule_id,updated_at";
 const MAX_RANGE_DAYS = 62;
+const MAX_SELF_RANGE_DAYS = 366;
 
 function resolveRange(url) {
   const from = normalizeText(url.searchParams.get("from"));
@@ -53,13 +56,17 @@ export async function GET(request) {
   try {
     const url = new URL(request.url);
     const range = resolveRange(url);
+    const selfOnly = guard.scope === SCOPE_SELF;
+    // An employee's own records: up to a year (alpha test A1). Reviewers'
+    // board groups every row of the range, so it stays at 62 days.
+    const maxDays = selfOnly ? MAX_SELF_RANGE_DAYS : MAX_RANGE_DAYS;
     const spanDays = (new Date(`${range.to}T00:00:00Z`) - new Date(`${range.from}T00:00:00Z`)) / 86400000;
-    if (spanDays > MAX_RANGE_DAYS) {
-      return NextResponse.json({ error: `Choose a range of ${MAX_RANGE_DAYS} days or fewer.` }, { status: 400 });
+    if (spanDays + 1 > maxDays) {
+      return NextResponse.json({ error: `Choose a range of ${maxDays} days or fewer.` }, { status: 400 });
     }
+    const paging = url.searchParams.has("page") ? pageParams(url, { defaultSize: 25, maxSize: 100 }) : null;
 
     const supabase = getAdminClient();
-    const selfOnly = guard.scope === SCOPE_SELF;
 
     // Who this caller may see, by their CURRENT branch.
     let employeeIds = null;
@@ -161,9 +168,30 @@ export async function GET(request) {
     const tapBranch = guard.branchExempt ? normalizeText(url.searchParams.get("branch_id")) : guard.branchId;
     const blockedTaps = selfOnly ? [] : await readBlockedTaps(supabase, { employeeIds, branchId: tapBranch || null, from: range.from, to: range.to });
 
+    // Excel / PDF of the range (reviewers only; alpha test B1 / B6).
+    const fileFormat = selfOnly ? null : wantsFile(url);
+    if (fileFormat) {
+      const clock = (v) => (v ? new Date(v).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : "");
+      return reportResponse({
+        format: fileFormat, fileName: `attendance-${range.from}-to-${range.to}`, title: "Attendance",
+        branch: guard.branchExempt && !normalizeText(url.searchParams.get("branch_id")) ? "All branches" : (labelled[0]?.branch_name || "Branch"),
+        period: `${range.from} to ${range.to}`,
+        filters: [["Status", statusFilter || "All"]],
+        columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Branch" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
+          { header: "Hours", kind: "number" }, { header: "Status" }, { header: "Late (min)", kind: "number" }, { header: "Undertime (min)", kind: "number" }],
+        rows: labelled.map((r) => [r.employee_name || "", r.employee_code || "", r.branch_name || "", r.log_date, clock(r.time_in), clock(r.time_out),
+          Number(r.total_hours) || 0, r.status || "", Number(r.late_minutes) || 0, Number(r.undertime_minutes) || 0]),
+      });
+    }
+
+    // One page (?page=&page_size=), with the total, when asked for.
+    const total = labelled.length;
+    const pageRows = paging ? labelled.slice(paging.offset, paging.offset + paging.size) : labelled;
     return NextResponse.json({
       range,
-      logs: labelled.map((row) => ({
+      total,
+      ...(paging ? { page: paging.page, page_size: paging.size } : {}),
+      logs: pageRows.map((row) => ({
         ...row,
         leave: row.status === "On Leave" ? leaveFor(row.employee_id, row.log_date) : null,
         holiday_name: holidayNames.get(row.log_date)?.name || null,

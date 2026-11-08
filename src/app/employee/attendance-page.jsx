@@ -26,6 +26,7 @@ import {
   weekdayOf,
 } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
+import { DateRangeFilter, defaultRange } from "@/components/portal/date-range-filter";
 
 /* ── Month calendar (renderAttendanceCalendar, employee.js) ── */
 
@@ -259,19 +260,24 @@ function CorrectionDialog({ row, onOpenChange, onDone }) {
   );
 }
 
+// Records by date range (alpha test A1): From / To with quick choices, paged
+// on the server, this cutoff by default.
 function PayPeriodCard({ refreshKey }) {
-  const [state, setState] = React.useState({ logs: [], period: "", loading: true, error: null });
+  const [state, setState] = React.useState({ logs: [], total: 0, loading: true, error: null });
+  const [range, setRange] = React.useState(defaultRange);
+  const [paging, setPaging] = React.useState({ page: 1, pageSize: 10 });
   const [requesting, setRequesting] = React.useState(null);
 
   const load = React.useCallback(async () => {
-    setState((current) => ({ ...current, loading: !current.logs.length, error: null }));
+    setState((current) => ({ ...current, loading: true, error: null }));
     try {
-      const data = await fetchJson("/api/attendance/logs");
-      setState({ logs: data.logs || [], period: data.range?.label || "", loading: false, error: null });
+      const params = new URLSearchParams({ from: range.from, to: range.to, page: String(paging.page), page_size: String(paging.pageSize) });
+      const data = await fetchJson(`/api/attendance/logs?${params}`);
+      setState({ logs: data.logs || [], total: Number(data.total) || 0, loading: false, error: null });
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message }));
     }
-  }, []);
+  }, [range, paging]);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
@@ -307,24 +313,25 @@ function PayPeriodCard({ refreshKey }) {
   return (
     <Card className="shadow-xs">
       <CardHeader>
-        <CardTitle>This pay period</CardTitle>
+        <CardTitle>Attendance records by date</CardTitle>
         <CardDescription>
           Forgot to tap out, or think a day is wrong? Use <strong className="text-foreground">Request correction</strong> on an Incomplete,
           Undertime or Half Day record.
         </CardDescription>
-        {state.period ? <CardAction><span className="text-xs text-muted-foreground">{state.period}</span></CardAction> : null}
       </CardHeader>
       <CardContent>
         <DataTable
           columns={columns}
           rows={state.logs}
-          loading={state.loading}
+          loading={state.loading && !state.logs.length}
           error={state.error}
           onRetry={load}
           searchable={false}
-          paginate={state.logs.length > 10}
-          empty={{ title: "No attendance recorded yet this pay period", icon: CalendarXIcon }}
-          caption="This pay period's attendance"
+          toolbar={<DateRangeFilter idPrefix="emp-att" value={range} count={state.loading ? null : state.total} onChange={(next) => { setRange(next); setPaging((c) => ({ ...c, page: 1 })); }} />}
+          pageSize={paging.pageSize}
+          server={{ total: state.total, page: paging.page, pageSize: paging.pageSize, query: "", onChange: (next) => setPaging((c) => ({ page: next.page ?? c.page, pageSize: next.pageSize ?? c.pageSize })) }}
+          empty={{ title: "No attendance records in this date range", description: "Try another range, or Reset to this cutoff.", icon: CalendarXIcon }}
+          caption="Attendance records by date"
           minWidth={560}
         />
       </CardContent>

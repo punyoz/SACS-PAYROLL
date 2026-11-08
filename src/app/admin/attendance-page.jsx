@@ -4,16 +4,15 @@ import * as React from "react";
 import { CalendarCheckIcon, FlagIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { DataTable } from "@/components/portal/data-table";
-import { DatePicker } from "@/components/portal/date-picker";
 import { AttendanceBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { formatTime, manilaDateKey } from "@/lib/portal/format";
 import { dateLabel } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { DecisionCell, FileDialog, FiledCell, HistoryButton, RequestStatus, fileRequest, useBranchView } from "./oversight-shared";
-import { FilterTabs } from "@/components/portal/filter-tabs";
+import { DateRangeFilter } from "@/components/portal/date-range-filter";
+import { ExportButtons } from "@/components/portal/export-buttons";
 
 /*
  * Branch Attendance (GET /api/admin/branch-oversight?view=attendance):
@@ -22,21 +21,15 @@ import { FilterTabs } from "@/components/portal/filter-tabs";
  * never edits a log.
  */
 
-function monthStart(key) {
-  return `${key.slice(0, 7)}-01`;
-}
-
 export function AttendancePage({ refreshKey }) {
   const { notify } = usePortalSession();
   const today = manilaDateKey();
-  const [mode, setMode] = React.useState("daily");
-  const [day, setDay] = React.useState(today);
-  const [month, setMonth] = React.useState(today.slice(0, 7));
+  // A date range (alpha test A1 / B2), today by default, on the search row.
+  const [range, setRange] = React.useState({ from: today, to: today });
   const [target, setTarget] = React.useState(null);
-  const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
-  const from = mode === "daily" ? day : monthStart(`${month}-01`);
-  const to = mode === "daily" ? day : `${month}-${String(lastDay).padStart(2, "0")}`;
-  const view = useBranchView("attendance", { from, to: to > today ? today : to }, refreshKey);
+  const from = range.from;
+  const to = range.to > today ? today : range.to;
+  const view = useBranchView("attendance", { from, to }, refreshKey);
   const data = view.data;
 
   const columns = [
@@ -71,12 +64,8 @@ export function AttendancePage({ refreshKey }) {
           <DataTable
             toolbar={(
               <>
-                <FilterTabs value={mode} onValueChange={setMode} label="Attendance view" options={[{ value: "daily", label: "Daily" }, { value: "monthly", label: "Monthly" }]} />
-                {mode === "daily" ? (
-                  <div className="flex items-center gap-2"><Label htmlFor="adm-att-day" className="text-muted-foreground">Day</Label><DatePicker id="adm-att-day" value={day} max={today} onChange={(v) => setDay(v || today)} /></div>
-                ) : (
-                  <div className="flex items-center gap-2"><Label htmlFor="adm-att-month" className="text-muted-foreground">Month</Label><input id="adm-att-month" type="month" max={today.slice(0, 7)} value={month} onChange={(e) => setMonth(e.target.value || today.slice(0, 7))} className="h-10 rounded-md border bg-transparent px-3 text-sm shadow-xs md:h-9" /></div>
-                )}
+                <DateRangeFilter idPrefix="adm-att" value={range} onChange={setRange} count={view.first ? null : (data?.logs || []).length} />
+                <ExportButtons href={`/api/admin/branch-oversight?view=attendance&from=${from}&to=${to}`} label="branch attendance" disabled={!(data?.logs || []).length} />
               </>
             )}
             columns={columns} rows={data?.logs || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={25}

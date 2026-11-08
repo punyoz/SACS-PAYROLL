@@ -81,9 +81,13 @@ describe("the matrix", () => {
 describe("sidebars", () => {
   const nav = (file) => readFileSync(file, "utf8");
 
-  it("the Super Admin has no Attendance, Tenure or payslip-override page", () => {
+  it("the Super Admin has no Tenure or payslip-override page; attendance is view-only", () => {
     const portal = nav("src/app/super-admin/super-admin-portal.jsx");
-    expect(portal).not.toMatch(/id: "sa-attendance"/);
+    // Alpha test B1 (2026-11-09): the Super Admin SEES attendance (read-only,
+    // every branch). It still cannot correct or decide anything there.
+    expect(portal).toMatch(/id: "sa-attendance"/);
+    expect(can("super_admin", "attendance", "update")).toBe(false);
+    expect(can("super_admin", "attendance_corrections", "update")).toBe(false);
     expect(portal).not.toMatch(/id: "sa-tenure"/);
     const config = nav("src/app/super-admin/config-page.jsx");
     expect(config).not.toMatch(/OverrideSection/);

@@ -9,6 +9,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { dateTime, money, moneyCompact } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { useBranchView } from "./oversight-shared";
+import { ExportButtons } from "@/components/portal/export-buttons";
 
 /*
  * Branch Payroll Summary (view=payroll): each approved run's totals for the
@@ -31,7 +32,11 @@ export function PayrollSummaryPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Branch payroll by period</CardTitle>
           <CardDescription>Totals of HR-approved payroll runs only. Individual salaries and payslips are not shown.</CardDescription>
-          <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
+          <CardAction className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+            {/* Report export, own branch only (alpha test B2). */}
+            <ExportButtons href="/api/admin/branch-oversight?view=payroll" label="payroll summary" disabled={!(view.data?.periods || []).length} />
+          </CardAction>
         </CardHeader>
         <CardContent>
           <DataTable columns={[

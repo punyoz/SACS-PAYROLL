@@ -1,4 +1,4 @@
-import { listUsersCached } from "@/lib/auth/users-cache";
+import { getTrustedUserById } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
@@ -306,21 +306,24 @@ export async function GET(request) {
 
     const supabase = getAdminClient();
 
-    const usersResult = await listUsersCached(supabase);
-    if (usersResult.error)
-      throw new Error(`Failed to list users: ${usersResult.error.message}`);
-
-    const user = (usersResult.data.users || []).find(
-      (u) => String(u.email || "").trim().toLowerCase() === email,
-    );
-
-    if (!user) return NextResponse.json({ records: [] });
+    // One account, looked up directly (alpha test B5: listing every sign-in
+    // account to find one was the slowest step). An employee is always
+    // themselves; another role finds the person by email in profiles.
+    let userId = guard.scope === "self" ? guard.userId : null;
+    if (!userId) {
+      const found = await supabase.from("profiles").select("id").eq("email", email).limit(1).maybeSingle();
+      userId = found.data?.id || null;
+    }
+    const trusted = userId ? await getTrustedUserById(supabase, userId) : null;
+    const user = trusted?.data?.user || null;
+    if (!user || String(user.email || "").trim().toLowerCase() !== email) return NextResponse.json({ records: [] });
 
     const foreign = denyForeignBranch(guard, user.user_metadata?.branch_id);
     if (foreign) return foreign;
 
-    /* Attendance logs for the date range */
-    const attResult = await supabase
+    /* Attendance logs for the date range -- read alongside everything else
+       that does not depend on them (one round trip instead of five). */
+    const [attResult, leaveRead, currentBranchId, holidays, duty] = await Promise.all([supabase
       .from("attendance_logs")
       .select("status, log_date, time_in, time_out, branch_id")
       .eq("employee_id", user.id)
@@ -328,7 +331,21 @@ export async function GET(request) {
       .lte("log_date", endDate)
       // Folded duplicates and released (cancelled) leave days.
       .eq("archived_duplicate", false)
-      .order("log_date", { ascending: true });
+      .order("log_date", { ascending: true }),
+    supabase
+      .from("leave_requests")
+      .select("start_date, end_date, pay_status, leave_type")
+      // Stored lowercase (HR writes "approved").
+      .eq("status", "approved")
+      .lte("start_date", endDate)
+      .gte("end_date", startDate)
+      // leave_requests.employee_id is the user id (UUID).
+      .eq("employee_id", user.id)
+      .then((r) => r, () => ({ data: null, error: true })),
+    resolveCurrentBranchId(user.id, user.user_metadata?.branch_id || null),
+    readHolidayMap(supabase, startDate, endDate),
+    loadEmployeeDuty(supabase, user.id, startDate, endDate),
+    ]);
 
     // One record per day: the first tap is Time In, the last tap Time Out.
     const attMap = {};
@@ -343,21 +360,7 @@ export async function GET(request) {
     // Every approved leave day (with or without pay) -> its leave type.
     const leaveTypeByDate = new Map();
     try {
-      let leaveQuery = supabase
-        .from("leave_requests")
-        .select("start_date, end_date, pay_status, leave_type")
-        // Stored lowercase (HR writes "approved"); "Approved" matched no row,
-        // so the Leave w/ Pay column never showed a single leave day.
-        .eq("status", "approved")
-        .lte("start_date", endDate)
-        .gte("end_date", startDate);
-
-      // leave_requests.employee_id is the user id (UUID) since
-      // 20260926100000_schema_tidy_up.sql moved the old SACS-XXX codes onto
-      // it; an employee code in this filter would now fail the whole query.
-      leaveQuery = leaveQuery.eq("employee_id", user.id);
-
-      const leaveResult = await leaveQuery;
+      const leaveResult = leaveRead;
       if (!leaveResult.error && Array.isArray(leaveResult.data)) {
         for (const lv of leaveResult.data) {
           // UTC, for the same reason as generateDateRange().
@@ -381,18 +384,18 @@ export async function GET(request) {
        back to the branch that tap was recorded at (attendance_logs.branch_id,
        stamped at insert), so a transfer does not rewrite past days; a day with
        no tap uses the employee's current branch. */
-    const currentBranchId = await resolveCurrentBranchId(user.id, user.user_metadata?.branch_id || null);
-    const scheduleDays = await loadEmployeeScheduleDays(supabase, {
+    const scheduleDaysPending = loadEmployeeScheduleDays(supabase, {
       employeeId: user.id,
       branchId: currentBranchId,
       from: startDate,
       to: endDate,
       branchFor: (dateKey) => attMap[dateKey]?.branch_id || null,
     });
-    const attendanceConfig = await loadAttendanceConfig(supabase, [
+    const attendanceConfigPending = loadAttendanceConfig(supabase, [
       currentBranchId,
       ...Object.values(attMap).map((row) => row.branch_id),
     ]);
+    const [scheduleDays, attendanceConfig] = await Promise.all([scheduleDaysPending, attendanceConfigPending]);
     const policyCache = new Map();
     const policyFor = (branchId, dateStr) => {
       if (dateStr && scheduleDays.has(dateStr)) return scheduleDays.get(dateStr);
@@ -402,10 +405,8 @@ export async function GET(request) {
     };
 
     /* The holidays payroll and the nightly close use */
-    const holidays = await readHolidayMap(supabase, startDate, endDate);
-    // HR's holiday duty for this employee, and HR's decisions on holidays
-    // worked without one.
-    const { assignments: dutyByDate, reviews: reviewByDate } = await loadEmployeeDuty(supabase, user.id, startDate, endDate);
+    // (holidays, and HR's holiday duty / decisions, were read above.)
+    const { assignments: dutyByDate, reviews: reviewByDate } = duty;
     const todayKey = manilaDateKey();
 
     /* Build a record for every calendar day in the range */

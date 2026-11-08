@@ -7,6 +7,8 @@ import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { requirePermission, denySelfScopeList } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
+import { checkRange, pageParams } from "@/lib/portal/date-range";
+import { fetchAllRows } from "@/lib/supabase/fetch-all";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -15,6 +17,12 @@ function getDateLabel(date = new Date()) {
     day: "2-digit",
     year: "numeric",
   }).format(date);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function normalizeRangeBranch(value) {
+  const id = String(value || "").trim();
+  return UUID_RE.test(id) ? id : null;
 }
 
 export async function GET(request) {
@@ -27,6 +35,48 @@ export async function GET(request) {
 
     const supabase = getAdminClient();
     const url = new URL(request.url);
+
+    // A date range, paged on the server (alpha test A1 / B3):
+    // ?from&to[&branch_id][&q][&page&page_size] -> one page, the total and
+    // the summary over the whole range. HR / Super Admin may pick a branch;
+    // a branch-scoped caller always gets its own.
+    if (url.searchParams.has("from") || url.searchParams.has("to")) {
+      const range = checkRange({ from: url.searchParams.get("from"), to: url.searchParams.get("to") });
+      if (range.error) return NextResponse.json({ error: range.error }, { status: 400 });
+      const { page, size, offset } = pageParams(url, { defaultSize: 25, maxSize: 100 });
+      const branchId = guard.branchExempt ? normalizeRangeBranch(url.searchParams.get("branch_id")) : guard.branchId;
+      const q = String(url.searchParams.get("q") || "").replace(/[,()*%\\]/g, " ").trim().slice(0, 80);
+      if (range.from < getDateKey()) {
+        await supabase.rpc("attendance_close_days", { p_from: range.from, p_to: range.to < getDateKey() ? range.to : getDateKey() });
+      }
+      const scoped = (query) => {
+        let next = query.gte("log_date", range.from).lte("log_date", range.to).eq("archived_duplicate", false);
+        if (branchId) next = next.eq("branch_id", branchId);
+        if (q) next = next.ilike("employee_name", `%${q}%`);
+        return next;
+      };
+      const [pageResult, statuses] = await Promise.all([
+        scoped(supabase.from("attendance_logs").select("*", { count: "exact" }))
+          .order("log_date", { ascending: false }).order("employee_name", { ascending: true }).order("id", { ascending: true })
+          .range(offset, offset + size - 1),
+        fetchAllRows(() => scoped(supabase.from("attendance_logs").select("status")).order("id", { ascending: true })),
+      ]);
+      if (pageResult.error) throw new Error(pageResult.error.message);
+      const rows = await annotateAttendanceRows(supabase, (pageResult.data || []).map((row) => ({ ...row, date: row.log_date })));
+      const all = statuses.error ? [] : statuses.data || [];
+      const bucketCount = (name) => all.filter((r) => attendanceBucket(r.status) === name).length;
+      return NextResponse.json({
+        logs: rows,
+        total: pageResult.count ?? rows.length,
+        page,
+        page_size: size,
+        range: { from: range.from, to: range.to },
+        branch_id: branchId || null,
+        summary: { present: bucketCount("present"), late: bucketCount("late"), absent: bucketCount("absent"), incomplete: bucketCount("unresolved"), on_leave: bucketCount("leave") },
+        generated_at: new Date().toISOString(),
+      });
+    }
+
     const dateParam = url.searchParams.get("date") || getDateKey();
     const viewAll = url.searchParams.get("view") === "all";
 

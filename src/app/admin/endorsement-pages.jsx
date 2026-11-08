@@ -86,12 +86,12 @@ export function TransferEndorsementsPage({ refreshKey }) {
     { key: "direction", header: "Move", cell: (t) => <div className="text-xs"><StatusBadge tone={t.direction === "incoming" ? "info" : "gold"} dot={false}>{t.direction === "incoming" ? "Incoming" : "Outgoing"}</StatusBadge><p className="mt-1">{t.from_branch} → {t.to_branch}</p></div> },
     { key: "remarks", header: "HR's note", cell: (t) => <p className="max-w-56 text-xs whitespace-normal">{t.remarks || "—"}</p> },
     { key: "created_at", header: "Raised", className: "whitespace-nowrap text-xs", cell: (t) => dateTime(t.created_at) },
-    { key: "rec", header: "Your endorsement", cell: (t) => <Recommendation rec={t.endorsement} /> },
+    { key: "rec", header: "Endorsement", cell: (t) => <div className="max-w-60 text-xs whitespace-normal"><Recommendation rec={t.endorsement} /><p data-testid="transfer-state" className="mt-1 text-muted-foreground">{t.state_note}</p></div> },
     { key: "hr", header: "HR decision", cell: (t) => <div className="text-xs"><StatusBadge tone={HR_TONE(t.status)}>{t.status_label}</StatusBadge>{t.reviewed_at ? <p className="mt-1 text-muted-foreground">{dateTime(t.reviewed_at)}</p> : null}</div> },
     { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (t) => (
       <div className="flex justify-end gap-1">
         {t.endorsement ? <HistoryButton request={t.endorsement} /> : null}
-        {t.status === "pending" ? <Button size="sm" variant={t.endorsement ? "outline" : "default"} onClick={() => setTarget(t)}>{t.endorsement ? "Change" : "Endorse"}</Button> : null}
+        {t.can_endorse ? <Button size="sm" variant={t.endorsement ? "outline" : "default"} onClick={() => setTarget(t)}>{t.endorsement ? "Change" : "Endorse"}</Button> : null}
       </div>
     ) },
   ];
@@ -99,7 +99,7 @@ export function TransferEndorsementsPage({ refreshKey }) {
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><ArrowLeftRightIcon className="size-4 text-gold-text" aria-hidden="true" />Transfer endorsements</CardTitle>
-        <CardDescription>Transfers into and out of your branch that HR asked the branch Admins to endorse. Endorse or do not endorse with a remark; HR decides.</CardDescription>
+        <CardDescription>Transfers into and out of your branch. When HR asks for an endorsement, the Admin of the branch the employee is leaving endorses or does not endorse it, with a reason; HR decides. Each row says what it is waiting for.</CardDescription>
         <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent>

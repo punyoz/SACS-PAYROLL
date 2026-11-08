@@ -56,6 +56,7 @@ import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
 import { vengeanceLineHover, vengeanceLineHoverHost } from "@/components/vengeance/line-hover";
+import { NAVIGATE_EVENT } from "@/lib/portal/navigate";
 
 /**
  * The frame every React portal shares: the green sidebar (collapsible to
@@ -367,6 +368,14 @@ export function AppShell({
   const systemTitle = useSystemName();
   const [dialog, setDialog] = React.useState(null);
   const dialogs = React.useMemo(() => ({ open: setDialog }), []);
+
+  // Any card can open another page of this portal ("View all" on a dashboard
+  // card): window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: "page-id" })).
+  React.useEffect(() => {
+    const go = (event) => { if (typeof event.detail === "string" && nav.some((g) => g.items.some((i) => i.id === event.detail))) onNavigate(event.detail); };
+    window.addEventListener(NAVIGATE_EVENT, go);
+    return () => window.removeEventListener(NAVIGATE_EVENT, go);
+  }, [nav, onNavigate]);
 
   return (
     <AccountDialogsContext.Provider value={dialogs}>

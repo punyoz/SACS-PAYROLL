@@ -1,16 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { CalendarRangeIcon, ClipboardCopyIcon, FileSpreadsheetIcon, Loader2Icon } from "lucide-react";
+import { CalendarRangeIcon, ClipboardCopyIcon, FileSpreadsheetIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 import { DataTable } from "@/components/portal/data-table";
-import { DatePicker } from "@/components/portal/date-picker";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch } from "@/lib/portal/api";
-import { manilaDateKey } from "@/lib/portal/format";
+import { DateRangeFilter, defaultRange } from "@/components/portal/date-range-filter";
 
 /*
  * Date-range timesheet (generateTimesheet / tsCopyTable / tsExportExcel,
@@ -91,21 +89,14 @@ const SEARCH_COLUMNS = COLUMNS.map((column) => (["shift_in", "shift_out", "time_
 
 export function TimesheetPage() {
   const { ctx, notify } = usePortalSession();
-  const today = manilaDateKey();
-  const [start, setStart] = React.useState(`${today.slice(0, 7)}-01`);
-  const [end, setEnd] = React.useState(today);
-  const [errors, setErrors] = React.useState({});
-  const [state, setState] = React.useState({ rows: [], loading: false, error: null, generated: false });
+  // The range (alpha test A1 / B5): this cutoff by default, loaded as soon
+  // as it changes -- no Generate step, and only the chosen days are read.
+  const [range, setRange] = React.useState(defaultRange);
+  const start = range.from;
+  const end = range.to;
+  const [state, setState] = React.useState({ rows: [], loading: true, error: null, generated: false });
 
-  async function generate(event) {
-    event?.preventDefault();
-    const next = {};
-    if (!start) next.start = "Start date is required.";
-    if (!end) next.end = "End date is required.";
-    if (start && end && start > end) next.end = "End date must be on or after the start date.";
-    setErrors(next);
-    if (Object.keys(next).length) return;
-
+  const generate = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null, generated: true }));
     try {
       const params = new URLSearchParams({ email: String(ctx?.email || "").trim(), start_date: start, end_date: end });
@@ -117,7 +108,9 @@ export function TimesheetPage() {
     } catch (error) {
       setState({ rows: [], loading: false, error: error.message, generated: true });
     }
-  }
+  }, [ctx?.email, start, end]);
+
+  React.useEffect(() => { generate(); }, [generate]);
 
   function copy(rows) {
     if (!rows.length) return;
@@ -149,34 +142,10 @@ export function TimesheetPage() {
 
   return (
     <>
-      <Card className="shadow-xs">
-        <CardHeader>
-          <CardTitle>Choose a date range</CardTitle>
-          <CardDescription>Pick the first and last day, then generate your timesheet.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={generate} noValidate className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
-            <div className="space-y-2">
-              <Label htmlFor="ts-start-date">Start date</Label>
-              <DatePicker id="ts-start-date" value={start} onChange={setStart} aria-invalid={Boolean(errors.start) || undefined} />
-              {errors.start ? <p className="text-sm text-destructive">{errors.start}</p> : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ts-end-date">End date</Label>
-              <DatePicker id="ts-end-date" value={end} onChange={setEnd} aria-invalid={Boolean(errors.end) || undefined} />
-              {errors.end ? <p className="text-sm text-destructive">{errors.end}</p> : null}
-            </div>
-            <Button type="submit" className="sm:mt-[1.375rem]" disabled={state.loading}>
-              {state.loading ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Generating…</> : "Generate"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Timesheet</CardTitle>
-          <CardDescription>Shift times, your taps, and the hours payroll counts.</CardDescription>
+          <CardDescription>Shift times, your taps, and the hours payroll counts. Choose the days with From and To, or a quick range.</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -190,6 +159,7 @@ export function TimesheetPage() {
             searchPlaceholder="Search timesheet…"
             toolbar={(rows) => (
               <>
+                <DateRangeFilter idPrefix="ts" value={range} onChange={setRange} count={state.loading ? null : rows.length} />
                 <Button variant="outline" size="sm" onClick={() => copy(rows)} disabled={!rows.length}>
                   <ClipboardCopyIcon aria-hidden="true" />Copy
                 </Button>

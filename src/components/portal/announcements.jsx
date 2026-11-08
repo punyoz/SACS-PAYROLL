@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2Icon, MegaphoneIcon, PencilIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
+import { ChevronRightIcon, Loader2Icon, MegaphoneIcon, PencilIcon, PlusIcon, RefreshCwIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +22,7 @@ import { ANNOUNCEMENT_MESSAGE_MAX, ANNOUNCEMENT_TITLE_MAX } from "@/lib/input-li
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { cn } from "@/lib/utils";
 import { UserAvatar } from "@/components/portal/user-avatar";
+import { openPortalPage } from "@/lib/portal/navigate";
 
 /*
  * Announcements (/api/announcements, 20261030010000).
@@ -62,6 +63,7 @@ export function AnnouncementsManager({ refreshKey, description }) {
   const [confirmDialog, confirm] = useConfirm();
   const { loading, error: loadError, data, load } = useAnnouncements(true, refreshKey);
   const [editing, setEditing] = React.useState(null); // {} new, or the announcement
+  const [viewing, setViewing] = React.useState(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -134,7 +136,7 @@ export function AnnouncementsManager({ refreshKey, description }) {
         </CardHeader>
         <CardContent>
           <DataTable columns={[
-            { key: "title", header: "Announcement", sortable: true, cell: (a) => <div className="max-w-96 whitespace-normal"><p className="font-medium">{a.title}</p><p className="text-xs text-muted-foreground whitespace-pre-wrap">{a.body}</p></div>, searchValue: (a) => `${a.title} ${a.body} ${a.audience_label}` },
+            { key: "title", header: "Announcement", sortable: true, cell: (a) => <button type="button" onClick={() => setViewing(a)} className="max-w-96 rounded text-left whitespace-normal hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"><p className="font-medium">{a.title}</p><p className="line-clamp-2 text-xs text-muted-foreground whitespace-pre-wrap">{a.body}</p></button>, searchValue: (a) => `${a.title} ${a.body} ${a.audience_label}` },
             { key: "audience_label", header: "For", sortable: true, cell: (a) => <AudienceBadge item={a} /> },
             { key: "category", header: "Type", cell: (a) => <StatusBadge tone={CATEGORY_TONE[a.category] || "muted"} dot={false}>{ANNOUNCEMENT_CATEGORIES[a.category] || a.category}</StatusBadge> },
             { key: "created_at", header: "Posted", sortable: true, cell: (a) => <div className="text-xs"><p className="flex items-center gap-1.5"><UserAvatar userId={a.created_by} name={a.created_by_name} className="size-5" fallbackClassName="text-[8px]" ring={false} />{a.created_by_name}</p><p className="text-muted-foreground">{dateTime(a.created_at)}</p>{a.updated_at && a.updated_at !== a.created_at && a.status !== "deleted" ? <p className="text-muted-foreground">Edited {dateTime(a.updated_at)}</p> : null}</div>, searchValue: (a) => a.created_by_name },
@@ -201,60 +203,132 @@ export function AnnouncementsManager({ refreshKey, description }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AnnouncementDetails item={viewing} onClose={() => setViewing(null)} />
       {confirmDialog}
     </>
   );
 }
 
-function AnnouncementItem({ item }) {
+const PAGE_FOR_ROLE = { employee: "emp-announcements", accountant: "ac-announcements", admin: "adm-announcements", hr: "hr-announcements", super_admin: "sa-announcements" };
+
+/**
+ * One announcement in full (alpha test A2): opened by clicking it in a list,
+ * the dashboard card or the management table. Keyboard: Enter / Space open,
+ * Escape closes and focus returns to the row.
+ */
+export function AnnouncementDetails({ item, onClose }) {
   return (
-    <li className="rounded-lg border px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="font-medium">{item.title}</p>
-        <StatusBadge tone={CATEGORY_TONE[item.category] || "muted"} dot={false}>{ANNOUNCEMENT_CATEGORIES[item.category] || item.category}</StatusBadge>
-        <AudienceBadge item={item} />
-      </div>
-      <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">{item.body}</p>
-      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <UserAvatar userId={item.created_by} name={item.created_by_name} className="size-5" fallbackClassName="text-[8px]" ring={false} />
-        {item.created_by_name} · {dateTime(item.created_at)}{item.expires_on ? ` · until ${dateLabel(item.expires_on)}` : ""}
-      </p>
+    <Dialog open={Boolean(item)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg" data-testid="announcement-details">
+        {item ? (
+          <>
+            <DialogHeader>
+              <DialogTitle className="pr-6 break-words">{item.title}</DialogTitle>
+              <DialogDescription asChild>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <StatusBadge tone={CATEGORY_TONE[item.category] || "muted"} dot={false}>{ANNOUNCEMENT_CATEGORIES[item.category] || item.category}</StatusBadge>
+                  <AudienceBadge item={item} />
+                </div>
+              </DialogDescription>
+            </DialogHeader>
+            <p className="text-sm whitespace-pre-wrap break-words">{item.body}</p>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 border-t pt-3 text-xs">
+              <dt className="text-muted-foreground">Posted by</dt>
+              <dd className="flex items-center gap-1.5"><UserAvatar userId={item.created_by} name={item.created_by_name} className="size-5" fallbackClassName="text-[8px]" ring={false} />{item.created_by_name}</dd>
+              <dt className="text-muted-foreground">Posted</dt><dd>{dateTime(item.created_at)}</dd>
+              {item.updated_at && item.updated_at !== item.created_at ? <><dt className="text-muted-foreground">Edited</dt><dd>{dateTime(item.updated_at)}</dd></> : null}
+              <dt className="text-muted-foreground">For</dt><dd>{item.audience_label}</dd>
+              {item.expires_on ? <><dt className="text-muted-foreground">Shown until</dt><dd>{dateLabel(item.expires_on)}</dd></> : null}
+            </dl>
+            <DialogFooter><Button variant="outline" onClick={onClose}>Close</Button></DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AnnouncementItem({ item, onOpen }) {
+  return (
+    <li>
+      <button type="button" onClick={() => onOpen(item)} data-testid="announcement-item"
+        className="w-full rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-medium break-words">{item.title}</span>
+          <StatusBadge tone={CATEGORY_TONE[item.category] || "muted"} dot={false}>{ANNOUNCEMENT_CATEGORIES[item.category] || item.category}</StatusBadge>
+          <AudienceBadge item={item} />
+        </span>
+        <span className="mt-1 line-clamp-3 block text-sm whitespace-pre-wrap text-muted-foreground">{item.body}</span>
+        <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <UserAvatar userId={item.created_by} name={item.created_by_name} className="size-5" fallbackClassName="text-[8px]" ring={false} />
+          {item.created_by_name} · {dateTime(item.created_at)}{item.expires_on ? ` · until ${dateLabel(item.expires_on)}` : ""}
+        </span>
+      </button>
     </li>
   );
 }
 
 /** Everyone's full list: what is current for them (read only). */
-export function AnnouncementsFeed({ refreshKey }) {
+export function AnnouncementsFeed({ refreshKey, description }) {
   const { loading, error, data, load } = useAnnouncements(false, refreshKey);
+  const [open, setOpen] = React.useState(null);
   const rows = data?.announcements || [];
   return (
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><MegaphoneIcon className="size-4 text-gold-text" aria-hidden="true" />Announcements</CardTitle>
-        <CardDescription>For the whole school and for your branch.</CardDescription>
+        {/* Readers (Accountant, Employee) never post: say who does (alpha test A9). */}
+        <CardDescription>{description || "For the whole school and for your branch. Announcements are posted by HR, the branch Admin and the Super Admin. Select one to read it in full."}</CardDescription>
         <CardAction><Button variant="outline" size="sm" onClick={load} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent>
         {error && !rows.length ? <ErrorState message={error} onRetry={load} />
           : loading && !data ? <p className="text-sm text-muted-foreground">Loading…</p>
-            : rows.length ? <ul className="space-y-3">{rows.map((a) => <AnnouncementItem key={a.id} item={a} />)}</ul>
+            : rows.length ? <ul className="space-y-3">{rows.map((a) => <AnnouncementItem key={a.id} item={a} onOpen={setOpen} />)}</ul>
               : <EmptyState title="No announcements right now" icon={MegaphoneIcon} />}
       </CardContent>
+      <AnnouncementDetails item={open} onClose={() => setOpen(null)} />
     </Card>
   );
 }
 
-/** The dashboard card: the latest five current ones (hidden when there are none). */
+/**
+ * The dashboard card (alpha test B4): the latest five as compact rows
+ * (title, date, audience / type), a fixed height that never grows, and
+ * "View all". Hidden when there are none.
+ */
 export function AnnouncementsCard({ refreshKey }) {
+  const { role } = usePortalSession();
   const { loading, data } = useAnnouncements(false, refreshKey);
-  const items = (data?.announcements || []).slice(0, 5);
+  const [open, setOpen] = React.useState(null);
+  const all = data?.announcements || [];
+  const items = all.slice(0, 5);
   if (loading || !items.length) return null;
+  const page = PAGE_FOR_ROLE[role];
   return (
-    <Card className="min-w-0 shadow-xs">
-      <CardHeader><CardTitle className="flex items-center gap-2"><MegaphoneIcon className="size-4 text-gold-text" aria-hidden="true" />Announcements</CardTitle><CardDescription>For the whole school and for your branch</CardDescription></CardHeader>
+    <Card className="min-w-0 shadow-xs" data-testid="announcements-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><MegaphoneIcon className="size-4 text-gold-text" aria-hidden="true" />Announcements</CardTitle>
+        <CardDescription>The latest {items.length} of {all.length}</CardDescription>
+        {page ? <CardAction><Button variant="ghost" size="sm" onClick={() => openPortalPage(page)}>View all<ChevronRightIcon aria-hidden="true" /></Button></CardAction> : null}
+      </CardHeader>
       <CardContent>
-        <ul className="space-y-3">{items.map((a) => <AnnouncementItem key={a.id} item={a} />)}</ul>
+        <ul className="max-h-72 divide-y overflow-hidden" aria-label="Latest announcements">
+          {items.map((a) => (
+            <li key={a.id}>
+              <button type="button" onClick={() => setOpen(a)} data-testid="announcement-row"
+                className="flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{a.title}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{dateLabel(String(a.created_at).slice(0, 10))} · {a.audience_label} · {ANNOUNCEMENT_CATEGORIES[a.category] || a.category}</span>
+                </span>
+                <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
       </CardContent>
+      <AnnouncementDetails item={open} onClose={() => setOpen(null)} />
     </Card>
   );
 }

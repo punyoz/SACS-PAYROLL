@@ -13,11 +13,12 @@ import { DatePicker } from "@/components/portal/date-picker";
 import { StatCard } from "@/components/portal/stat-card";
 import { usePortalSession } from "@/components/portal/session";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { EmployeeSearch, GroupedAttendanceTable, recordColumns } from "@/components/portal/attendance/grouped-table";
+import { recordColumns } from "@/components/portal/attendance/grouped-table";
 import { AttendanceStatusBoard } from "@/components/portal/attendance/status-board";
 import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
-import { branchContext, branchCounts, countBy, downloadCsv, matchesEmployee, oneRowPerDay, rowBranchId, sortByBranchDay } from "@/lib/portal/attendance";
+import { downloadCsv, matchesEmployee } from "@/lib/portal/attendance";
 import { cn } from "@/lib/utils";
+import { DateRangeFilter } from "@/components/portal/date-range-filter";
 
 /*
  * HR Attendance Monitoring (loadHRAttendance / loadHRAllAttendance /
@@ -45,6 +46,7 @@ function suspensionDate(key) {
 }
 
 const COLUMNS = recordColumns({ canReview: true, showType: true });
+const ALL_BRANCHES = "all";
 
 function SuspensionsCard({ onChanged, refreshKey }) {
   const { notify } = usePortalSession();
@@ -194,52 +196,89 @@ function SuspensionsCard({ onChanged, refreshKey }) {
 export function AttendancePage({ refreshKey }) {
   const { notify } = usePortalSession();
   const { version } = useAttendanceActions();
-  const [view, setView] = React.useState({ mode: "date", date: localDateKey() });
-  const [state, setState] = React.useState({ loading: true, error: null, logs: [], summary: {} });
-  const [collapsed, setCollapsed] = React.useState(() => new Set());
+  // Alpha test A1 / B3: a date range (today by default), a branch filter, and
+  // a paged table (10 / 25 / 50, page numbers, total). One day keeps the
+  // day view, which also lists who has not tapped in yet today.
+  const today = localDateKey();
+  const [range, setRange] = React.useState({ from: today, to: today });
+  const [branch, setBranch] = React.useState(ALL_BRANCHES);
+  const [branches, setBranches] = React.useState([]);
+  const [paging, setPaging] = React.useState({ page: 1, pageSize: 25, query: "" });
+  const [state, setState] = React.useState({ loading: true, error: null, logs: [], total: 0, summary: {} });
   const [reloadKey, setReloadKey] = React.useState(0);
-  const [search, setSearch] = React.useState("");
+  const [exporting, setExporting] = React.useState(false);
   const seq = React.useRef(0);
+  const oneDay = range.from === range.to;
+
+  React.useEffect(() => {
+    fetchJson("/api/admin/branches").then((d) => setBranches(d.branches || [])).catch(() => setBranches([]));
+  }, []);
+
+  const query = React.useCallback((page, pageSize) => {
+    const params = new URLSearchParams({ from: range.from, to: range.to, page: String(page), page_size: String(pageSize) });
+    if (branch !== ALL_BRANCHES) params.set("branch_id", branch);
+    if (paging.query.trim()) params.set("q", paging.query.trim());
+    return `/api/hr/attendance?${params}`;
+  }, [range, branch, paging.query]);
 
   const load = React.useCallback(async () => {
     const mine = ++seq.current;
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
-      const data = await fetchJson(view.mode === "all" ? "/api/hr/attendance?view=all" : `/api/hr/attendance?date=${view.date}`);
+      if (oneDay) {
+        // One day: the day view (with today's not-yet-tapped), paged here.
+        const data = await fetchJson(`/api/hr/attendance?date=${range.from}`);
+        if (mine !== seq.current) return;
+        const q = paging.query.trim().toLowerCase();
+        const all = (data.logs || []).map((row) => ({ ...row, log_date: row.log_date || row.date }))
+          .filter((row) => (branch === ALL_BRANCHES || String(row.branch_id || "") === branch) && (!q || matchesEmployee(row, q)));
+        const offset = (paging.page - 1) * paging.pageSize;
+        setState({ loading: false, error: null, logs: all.slice(offset, offset + paging.pageSize), total: all.length, summary: data.summary || {}, all });
+        return;
+      }
+      const data = await fetchJson(query(paging.page, paging.pageSize));
       if (mine !== seq.current) return;
-      setState({ loading: false, error: null, logs: data.logs || [], summary: data.summary || {} });
+      setState({ loading: false, error: null, logs: data.logs || [], total: Number(data.total) || 0, summary: data.summary || {} });
     } catch (error) {
       if (mine !== seq.current) return;
       setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load attendance." }));
     }
-  }, [view]);
+  }, [oneDay, range, branch, paging, query]);
 
   React.useEffect(() => { load(); }, [load, refreshKey, version, reloadKey]);
 
-  const log = React.useMemo(() => {
-    const list = oneRowPerDay(state.logs.map((row) => ({ ...row, log_date: row.log_date || row.date }))).filter((row) => matchesEmployee(row, search));
-    const ctx = branchContext(list);
-    const rows = sortByBranchDay(ctx, list);
-    return { rows, ctx, branchCounts: branchCounts(ctx, list), dayCounts: countBy(rows, (row) => `${rowBranchId(ctx, row)}|${row.log_date}`) };
-  }, [state.logs, search]);
+  const csvRow = (r) => [
+    r.employee_name || r.employee_id || "", r.employee_code || "", r.branch_name || "", r.employee_type || "", r.log_date || r.date || "",
+    r.time_in ? timeOnly(r.time_in) : "", r.time_out ? timeOnly(r.time_out) : "",
+    r.time_out ? Number(r.total_hours || 0).toFixed(2) : "", r.status || "",
+  ];
 
-  function exportCsv() {
-    if (!state.logs.length) { notify("Nothing to export", "No attendance data to export.", "info"); return; }
-    downloadCsv(
-      `sacs-hr-attendance-${localDateKey()}.csv`,
-      ["Employee Name", "Employee Type", "Date", "Time In", "Time Out", "Hours Worked", "Status"],
-      state.logs.map((r) => [
-        r.employee_name || r.employee_id || "", r.employee_type || "", r.date || "",
-        r.time_in ? timeOnly(r.time_in) : "", r.time_out ? timeOnly(r.time_out) : "",
-        r.time_out ? Number(r.total_hours || 0).toFixed(2) : "", r.status || "",
-      ]),
-    );
+  // Every record of the range and branch, page by page (not only this page).
+  async function exportCsv() {
+    if (!state.total) { notify("Nothing to export", "No attendance data to export.", "info"); return; }
+    setExporting(true);
+    try {
+      let rows = state.all || [];
+      if (!oneDay) {
+        rows = [];
+        for (let page = 1; rows.length < state.total; page += 1) {
+          const data = await fetchJson(query(page, 100));
+          rows.push(...(data.logs || []));
+          if (!(data.logs || []).length) break;
+        }
+      }
+      downloadCsv(`sacs-hr-attendance-${range.from}-to-${range.to}.csv`,
+        ["Employee Name", "Employee ID", "Branch", "Employee Type", "Date", "Time In", "Time Out", "Hours Worked", "Status"], rows.map(csvRow));
+    } catch (error) {
+      notify("Export failed", error.message || "Try again.", "error");
+    } finally {
+      setExporting(false);
+    }
   }
 
   const s = state.summary;
   const first = state.loading && !state.logs.length;
-  const today = localDateKey();
-  const title = view.mode === "all" ? "All records" : view.date === today ? "Today" : view.date;
+  const title = oneDay ? (range.from === today ? "Today" : range.from) : `${range.from} to ${range.to}`;
 
   return (
     <>
@@ -254,38 +293,37 @@ export function AttendancePage({ refreshKey }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Attendance log — {title}</CardTitle>
-          <CardDescription>Grouped by branch and day. Select a name to open that employee&apos;s record.</CardDescription>
-          <CardAction><Button variant="outline" size="sm" onClick={exportCsv} disabled={!state.logs.length}><DownloadIcon aria-hidden="true" />Export CSV</Button></CardAction>
+          <CardDescription>Every branch, newest first. Choose the dates and a branch; select a name to open that employee&apos;s record.</CardDescription>
+          <CardAction><Button variant="outline" size="sm" onClick={exportCsv} disabled={!state.total || exporting}>{exporting ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}Export CSV</Button></CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="w-48 space-y-2">
-              <Label htmlFor="hr-att-date">Date</Label>
-              <DatePicker id="hr-att-date" value={view.mode === "date" ? view.date : ""} placeholder="Pick a date" onChange={(date) => setView({ mode: "date", date: date || today })} />
-            </div>
-            <Button variant={view.mode === "all" ? "secondary" : "outline"} onClick={() => setView({ mode: "all", date: view.date })} aria-pressed={view.mode === "all"}>View all records</Button>
-            <EmployeeSearch value={search} onChange={setSearch} className="sm:ml-auto" />
-          </div>
-          <GroupedAttendanceTable
+          <DataTable
             columns={COLUMNS}
-            rows={log.rows}
-            grouping={{
-              byBranch: true,
-              ctx: log.ctx,
-              branchCounts: log.branchCounts,
-              dayCounts: log.dayCounts,
-              statusBreakdown: true,
-              collapsed,
-              onToggle: (b) => setCollapsed((current) => {
-                const next = new Set(current);
-                if (next.has(b)) next.delete(b); else next.add(b);
-                return next;
-              }),
-            }}
-            loading={state.loading}
+            rows={state.logs}
+            rowKey={(r) => `${r.id || r.employee_id}-${r.log_date || r.date}`}
+            loading={first}
             error={state.error}
             onRetry={load}
-            empty={search.trim() ? `No employees match "${search.trim()}".` : "No attendance records found."}
+            searchPlaceholder="Search employee name…"
+            pageSize={paging.pageSize}
+            server={{
+              total: state.total, page: paging.page, pageSize: paging.pageSize, query: paging.query,
+              onChange: (next) => setPaging((c) => ({ page: next.page ?? c.page, pageSize: next.pageSize ?? c.pageSize, query: next.query ?? c.query })),
+            }}
+            toolbar={(
+              <>
+                <DateRangeFilter idPrefix="hr-att" value={range} count={state.loading ? null : state.total}
+                  onChange={(next) => { setRange(next); setPaging((c) => ({ ...c, page: 1 })); }} />
+                <Select value={branch} onValueChange={(v) => { setBranch(v); setPaging((c) => ({ ...c, page: 1 })); }}>
+                  <SelectTrigger className="w-44" aria-label="Branch"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_BRANCHES}>All branches</SelectItem>
+                    {branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
+            empty={{ title: "No attendance records in this range", description: "Try other dates or another branch." }}
             caption="Attendance log"
             minWidth={1000}
           />

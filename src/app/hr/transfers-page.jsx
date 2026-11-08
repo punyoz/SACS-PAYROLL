@@ -68,7 +68,7 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
     const ok = await confirm({
       title: `${moving ? "Transfer" : "Assign"} ${employee.full_name || "this employee"} to ${destination?.name || "the selected branch"}?`,
       description: wait
-        ? "The branch Admins of both branches are asked to endorse it. It applies only when you approve it in Transfer History."
+        ? "The Admin of the branch the employee is leaving is asked to endorse it. It applies only when you approve it in Transfer History."
         : "The change applies immediately and is recorded in Transfer History.",
       confirmLabel: wait ? "Ask for endorsement" : moving ? "Transfer" : "Assign",
     });
@@ -81,7 +81,7 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
         setFeedback({ text: `Moved to ${branchName}.`, ok: true });
         notify("Employee Transferred", `${employee.full_name || "Employee"} now belongs to ${branchName}.`, "success");
       } else {
-        setFeedback({ text: "Waiting for the branch Admins' endorsement.", ok: true });
+        setFeedback({ text: "Waiting for the branch Admin's endorsement.", ok: true });
         notify("Endorsement Requested", `The branch Admins were notified. Approve or reject it in Transfer History.`, "success");
       }
       await onDone();
@@ -127,7 +127,7 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
             {moving ? (
               <label htmlFor="hr-ba-ask" className="flex items-start gap-2 text-sm">
                 <Checkbox id="hr-ba-ask" checked={askAdmins} onCheckedChange={(v) => setAskAdmins(v === true)} className="mt-0.5" />
-                <span>Ask the branch Admins to endorse it first<span className="block text-xs text-muted-foreground">It stays Pending until you approve or reject it in Transfer History.</span></span>
+                <span>Ask the branch Admin to endorse it first<span className="block text-xs text-muted-foreground">The Admin of the branch the employee is leaving endorses or not, with a reason. It stays Pending until you approve or reject it in Transfer History. Unticked, the transfer applies now and no endorsement is asked.</span></span>
               </label>
             ) : null}
             {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
