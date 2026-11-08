@@ -49,14 +49,22 @@ export function chunkValues(values, size = IN_CHUNK_SIZE) {
  * @param {any[]} values
  * @returns {Promise<{ data: any[], error: any }>}
  */
+/** Chunks read at the same time (alpha test B6: 1,210 employees were 13 round trips in a row). */
+export const IN_CHUNK_CONCURRENCY = 4;
+
 export async function fetchAllIn(buildQuery, column, values, size = IN_CHUNK_SIZE) {
-  const rows = [];
-  for (const part of chunkValues(values, size)) {
-    const { data, error } = await fetchAllRows(() => buildQuery().in(column, part));
-    if (error) return { data: rows, error };
-    rows.push(...data);
+  const parts = chunkValues(values, size);
+  const results = new Array(parts.length);
+  // Up to IN_CHUNK_CONCURRENCY chunks at a time; the rows keep chunk order.
+  for (let start = 0; start < parts.length; start += IN_CHUNK_CONCURRENCY) {
+    const batch = parts.slice(start, start + IN_CHUNK_CONCURRENCY);
+    const answers = await Promise.all(batch.map((part) => fetchAllRows(() => buildQuery().in(column, part))));
+    for (let i = 0; i < answers.length; i += 1) {
+      if (answers[i].error) return { data: results.slice(0, start + i).flat(), error: answers[i].error };
+      results[start + i] = answers[i].data;
+    }
   }
-  return { data: rows, error: null };
+  return { data: results.flat(), error: null };
 }
 
 /** Run a write (update / delete) filtered by `.in(column, values)` in chunks. */

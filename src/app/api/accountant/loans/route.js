@@ -41,6 +41,9 @@ import {
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { describeSubsidyError } from "@/lib/payroll/subsidy-requests";
 import { textLimitError } from "@/lib/input-limits";
+import { reportResponse, wantsFile } from "@/lib/export/report-file";
+import { loadDemoIds, notDemo } from "@/lib/demo";
+import { LOAN_STATUS_LABELS, loanMatchesStatus, loanStatusLabel } from "@/lib/payroll/loan-status";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { description: [200, "The description"], reason: [300, "The reason"] };
@@ -90,8 +93,14 @@ export async function GET(request) {
     const ids = staff.map((person) => person.id);
     if (!ids.length) return NextResponse.json({ available: true, loans: [], people: [], subsidy_balances: [], summary: {} });
 
-    const loanResult = await fetchAllIn(() => supabase.from("payroll_loans").select("*")
-      .order("date_granted", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
+    // The loans and the open subsidy balances at the same time (alpha test B4).
+    const [loanResult, balanceResultEarly] = await Promise.all([
+      fetchAllIn(() => supabase.from("payroll_loans").select("*")
+        .order("date_granted", { ascending: false }).order("id", { ascending: true }), "employee_id", ids),
+      guard.scope !== "self" && !wantsFile(new URL(request.url))
+        ? fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("*").eq("status", "open").order("id", { ascending: true }), "employee_id", ids)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
     if (loanResult.error) return NextResponse.json({ available: false, error: NOT_READY, loans: [] });
     const loanRows = loanResult.data || [];
 
@@ -129,7 +138,7 @@ export async function GET(request) {
     // Open subsidy balances of the licensed teachers in reach (for advances).
     let subsidyBalances = [];
     if (guard.scope !== "self") {
-      const balanceResult = await fetchAllIn(() => supabase.from("payroll_subsidy_balances").select("*").eq("status", "open").order("id", { ascending: true }), "employee_id", ids);
+      const balanceResult = balanceResultEarly;
       if (!balanceResult.error) {
         const today = manilaDateKey();
         subsidyBalances = (balanceResult.data || []).map((balance) => ({
@@ -138,6 +147,38 @@ export async function GET(request) {
           available: advanceAvailable(balance, today),
         }));
       }
+    }
+
+    // Excel / PDF of one status (alpha test B4): pending, active, paid, ...
+    const url = new URL(request.url);
+    if (wantsFile(url)) {
+      const status = normalizeText(url.searchParams.get("status"), "all");
+      const demo = await loadDemoIds(supabase);
+      const chosen = loans.filter(notDemo(demo)).filter((loan) => loanMatchesStatus(loan, status));
+      return reportResponse({
+        format: url.searchParams.get("format"),
+        fileName: `loans-${status}`,
+        title: `Loans: ${LOAN_STATUS_LABELS[status] || "All"}`,
+        branch: guard.branchExempt ? "All branches" : "Own branch",
+        period: `As of ${manilaDateKey()}`,
+        filters: [`Status: ${LOAN_STATUS_LABELS[status] || "All"}`],
+        columns: [
+          { header: "Employee", kind: "text", width: 28 },
+          { header: "Employee ID", kind: "text", width: 14 },
+          { header: "Type", kind: "text", width: 18 },
+          { header: "Given", kind: "text", width: 12 },
+          { header: "Principal", kind: "money" },
+          { header: "Per payslip", kind: "money" },
+          { header: "Repaid", kind: "money" },
+          { header: "Balance", kind: "money" },
+          { header: "Status", kind: "text", width: 20 },
+        ],
+        rows: chosen.map((loan) => [
+          loan.employee_name, loan.employee_code, loan.type_label, loan.date_granted || "",
+          loan.principal, loan.amortization ?? 0, loan.repaid, loan.remaining_balance, loanStatusLabel(loan),
+        ]),
+        totals: ["Total", "", "", "", peso(chosen.reduce((s, l) => s + l.principal, 0)), "", peso(chosen.reduce((s, l) => s + l.repaid, 0)), peso(chosen.reduce((s, l) => s + l.remaining_balance, 0)), `${chosen.length} loan(s)`],
+      });
     }
 
     const open = loans.filter((loan) => loan.status !== "paid");

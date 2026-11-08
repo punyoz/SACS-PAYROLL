@@ -49,6 +49,7 @@ import { hrAccountIds, loadBranchStaff, notify, superAdminIds } from "@/lib/bran
 import { INCENTIVE_MAX, pesoLimit } from "@/lib/input-limits";
 import { textLimitError } from "@/lib/input-limits";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The remark for HR"] };
@@ -419,6 +420,8 @@ export async function GET(request) {
     // Exports (alpha test B2): Excel or PDF, the Admin's own branch only.
     const fileFormat = wantsFile(url);
     const branchLabel = async () => (await supabase.from("branches").select("name").eq("id", branchId).maybeSingle()).data?.name || "Branch";
+    // Demo people never reach an export (is_demo, 2026-11-08).
+    const demoIds = fileFormat ? await loadDemoIds(supabase) : null;
     if (view === "attendance") {
       const data = await attendanceView(supabase, branchId, staff, url);
       if (!fileFormat) return NextResponse.json(data);
@@ -427,7 +430,7 @@ export async function GET(request) {
         title: "Branch attendance", branch: await branchLabel(), period: `${formatDateKey(data.from)} to ${formatDateKey(data.to)}`,
         columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
           { header: "Status" }, { header: "Late (min)", kind: "number" }, { header: "Flag" }],
-        rows: data.logs.map((l) => [l.employee_name, l.employee_code, l.log_date, manilaClock(l.time_in), manilaClock(l.time_out),
+        rows: data.logs.filter(notDemo(demoIds)).map((l) => [l.employee_name, l.employee_code, l.log_date, manilaClock(l.time_in), manilaClock(l.time_out),
           l.status || "", Number(l.late_minutes) || 0, l.flag?.status_label || ""]),
       });
     }
@@ -464,7 +467,7 @@ export async function GET(request) {
       const { rows, error } = await branchRequests(supabase, branchId, kinds.length ? kinds : null);
       if (error) return NextResponse.json({ available: false, error, requests: [] });
       if (fileFormat && kinds.length === 1 && kinds[0] === "incentive_endorsement") {
-        const shaped = rows.map((r) => shapeRequest(r));
+        const shaped = rows.filter(notDemo(demoIds)).map((r) => shapeRequest(r));
         return reportResponse({
           format: fileFormat, fileName: "branch-incentive-recommendations", title: "Incentive recommendations", branch: await branchLabel(),
           period: "All recommendations",

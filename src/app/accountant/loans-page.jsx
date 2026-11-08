@@ -23,6 +23,8 @@ import { useAccountant } from "./accountant-data";
 import { EmployeeSelect, HowItWorks } from "./incentives-page";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { CASH_ADVANCE_MAX, LOAN_MAX } from "@/lib/input-limits";
+import { ExportButtons } from "@/components/portal/export-buttons";
+import { LOAN_STATUS_LABELS, loanMatchesStatus } from "@/lib/payroll/loan-status";
 
 /*
  * Loans (/api/accountant/loans; docs/payroll-schedule-loans-awol.md §4, §6):
@@ -218,12 +220,8 @@ export function LoansPage({ refreshKey }) {
 
   const summary = state.data?.summary || {};
   const canEdit = Boolean(state.data?.can_edit);
-  const rows = (state.data?.loans || []).filter((loan) => {
-    if (filter === "all") return true;
-    if (filter === "paid") return loan.status === "paid";
-    if (filter === "subsidy") return loan.loan_type === "subsidy_advance";
-    return loan.status !== "paid";
-  });
+  // One rule for the screen and the export (src/lib/payroll/loan-status.js).
+  const rows = (state.data?.loans || []).filter((loan) => loanMatchesStatus(loan, filter));
   const first = state.loading && !state.data;
 
   const columns = [
@@ -342,15 +340,22 @@ export function LoansPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Loans</CardTitle>
           <CardAction className="flex gap-2">
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger size="sm" className="w-36" aria-label="Show"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="open">Open</SelectItem><SelectItem value="all">All</SelectItem><SelectItem value="paid">Paid</SelectItem><SelectItem value="subsidy">Subsidy advances</SelectItem></SelectContent>
-            </Select>
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
         </CardHeader>
         <CardContent>
+          {/* The status filter sits with the search (shared toolbar); Export
+              gives exactly that status as Excel or PDF (alpha test B4). */}
           <DataTable columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
+            toolbar={(
+              <>
+                <Select value={filter} onValueChange={setFilter}>
+                  <SelectTrigger size="sm" className="w-44" aria-label="Status" data-testid="loan-status-filter"><SelectValue /></SelectTrigger>
+                  <SelectContent>{Object.entries(LOAN_STATUS_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                </Select>
+                <ExportButtons href={`/api/accountant/loans?status=${filter}`} label={`loans (${LOAN_STATUS_LABELS[filter] || "All"})`} disabled={!rows.length} />
+              </>
+            )}
             searchPlaceholder="Search employee, type or description…" empty={{ title: "No loans here", icon: HandCoinsIcon }} caption="Loans" minWidth={1150} />
         </CardContent>
       </Card>
