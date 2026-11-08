@@ -15,3 +15,10 @@
 *   Match the current aesthetic perfectly. For example, maintain the established simple but creative styling, preserve any specific "summer" or "pantropiko" themes, and match existing color palettes. 
 *   Ensure all newly added UI elements (like buttons, widgets, or forms) are styled to look like they natively belong exactly as the current ones do.
 *   Ensure any new UI additions remain fully responsive and adapt seamlessly across desktop, tablet, and mobile, just like the rest of the project.
+
+## 4. Payroll Rate Rules (alpha test Part E, 2026-11-09)
+*   **HR and the Super Admin** change the government rates (SSS, PhilHealth, Pag-IBIG) and the daily rate. Every other payroll rule stays the Super Admin's.
+*   The **hourly rate is always the daily rate ÷ 8**, never typed. The **withholding tax table is fixed by law**: HR never edits it (only the Super Admin keeps its version table).
+*   A change is always a **new effective-dated version** (never an edit or delete), for **future pay periods only**, with a **required reason**. Old and new values go to the audit log, and the Super Admin is notified when HR makes a change.
+*   **Nobody changes a rate set for themselves.** Another HR or the Super Admin does it, and the audit log records the fallback.
+*   Enforce every rule on the **server and in the database**, not only in the UI.

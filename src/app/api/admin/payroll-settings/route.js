@@ -259,10 +259,11 @@ export async function POST(request) {
 
     const supabase = getAdminClient();
 
-    // The government tables and per-employee contributions need
-    // government_rates "create" as well (the Super Admin only, 2026-10-26);
-    // the database checks it again (payroll_rate_writer_guard).
-    if (["tax_table", "sss_msc_table", "contribution"].includes(kind) && !can(guard.role, "government_rates", "create")) {
+    // The government tables and per-employee contributions: the Super Admin
+    // only (2026-10-26). HR has government_rates "create" since Part E
+    // (2026-11-09) for the rates, not these tables, so the role is checked
+    // too; the database checks it again (payroll_rate_writer_guard).
+    if (["tax_table", "sss_msc_table", "contribution"].includes(kind) && (guard.role !== "super_admin" || !can(guard.role, "government_rates", "create"))) {
       return NextResponse.json({ error: "Only the Super Admin changes government deduction tables." }, { status: 403 });
     }
 

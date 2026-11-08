@@ -98,7 +98,7 @@ const DESCRIPTIONS = {
   "adm-announcements": "Announcements for your branch's employees.",
   "adm-payroll": "Total payroll cost of your branch per approved period. No individual pay.",
   "adm-branch-reports": "Attendance rate, lateness and leave usage for your branch.",
-  "adm-pay-rates": "View-only: your branch's daily rate and its hourly rate (daily ÷ 8). Only the Super Admin changes them.",
+  "adm-pay-rates": "View-only: your branch's daily rate and its hourly rate (daily ÷ 8). HR and the Super Admin change the daily rate.",
   "adm-maintenance": "Run the RFID Terminal and register, replace or void your branch's RFID cards.",
   "adm-profile": null,
 };

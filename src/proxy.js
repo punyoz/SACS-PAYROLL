@@ -182,6 +182,9 @@ const API_MODULES = [
   // the Accountant and HR. Any write is refused (the Super Admin edits them
   // in System Configuration, /api/admin/payroll-*).
   ["/api/payroll/government-rates", "government_rates"],
+  // HR / Super Admin add government rate and daily rate versions (alpha test
+  // Part E); the route checks each rate type (government_rates / pay_rates).
+  ["/api/payroll/rates", "government_rates"],
   // Pay rates, read-only (2026-11-08): HR / Super Admin every branch, Accountant and Admin their own.
   ["/api/payroll/pay-rates", "pay_rates"],
   // Remittance (employee + employer shares, withholding tax), read-only:

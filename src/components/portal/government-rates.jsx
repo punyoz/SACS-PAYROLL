@@ -219,7 +219,7 @@ export function GovernmentRatesPanel({ refreshKey }) {
       <Alert>
         <LockIcon aria-hidden="true" />
         <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-          <span>Read-only. Only the Super Admin changes these rates and tables, in System Configuration.</span>
+          <span>Read-only here. HR (on its Government Rates page) and the Super Admin change the SSS, PhilHealth and Pag-IBIG rates for future pay periods; the withholding tax table is fixed by law; the SSS salary credit table is the Super Admin's.</span>
           <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
         </AlertDescription>
       </Alert>

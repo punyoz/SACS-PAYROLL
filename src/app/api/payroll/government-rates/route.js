@@ -58,7 +58,7 @@ export async function GET(request) {
 
 /** No writes here, for any role: the Super Admin edits in System Configuration. */
 function readOnly() {
-  return NextResponse.json({ error: "Government rates are read-only here. Only the Super Admin changes them, in System Configuration." }, { status: 405 });
+  return NextResponse.json({ error: "Government rates are read-only here. HR changes the SSS, PhilHealth and Pag-IBIG rates on its Government Rates page and the Super Admin in System Configuration; the tax table is fixed by law." }, { status: 405 });
 }
 export const POST = readOnly;
 export const PUT = readOnly;

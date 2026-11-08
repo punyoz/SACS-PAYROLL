@@ -173,8 +173,10 @@ export const MODULES = {
   },
   // SSS / PhilHealth / Pag-IBIG rates, the SSS salary credit table and the
   // withholding tax table (2026-10-26). The Super Admin edits them in System
-  // Configuration; the Accountant and HR see them read-only, with the history
-  // of every change; an Employee only sees its own deductions on its payslip.
+  // Configuration; HR adds new versions of the rates too (Government Rates
+  // page, alpha test Part E 2026-11-09); the Accountant sees them read-only,
+  // with the history of every change; an Employee only sees its own
+  // deductions on its payslip. HR never edits the withholding tax table.
   government_rates: {
     order: 15.5, label: "Government Rates", section: "Reference",
     page: { accountant: "ac-gov-rates", hr: "hr-gov-rates" },
@@ -345,8 +347,9 @@ export const ROLE_PERMISSIONS = {
     // Posts like HR (whole school or any branch), edits its own, and deletes
     // any (moderation). Decided 2026-11-08 (20261108020000); was read + delete.
     announcements: full(SCOPE_ALL),
-    // Reads the pay rates; changes them through system_configuration.
-    pay_rates: view(SCOPE_ALL),
+    // Reads the pay rates and adds new daily rate versions (alpha test Part E,
+    // 2026-11-09): System Configuration, or the shared rate rules.
+    pay_rates: { scope: SCOPE_ALL, actions: ["create", "read"] },
   },
 
   admin: {
@@ -434,10 +437,15 @@ export const ROLE_PERMISSIONS = {
     payroll_monitoring: none(),
     system_maintenance: none(),
     system_configuration: none(),
-    // Read-only: answers employees' questions about their deductions.
-    government_rates: view(SCOPE_ALL),
-    // Every branch's daily / hourly rate, read-only (2026-11-08).
-    pay_rates: view(SCOPE_ALL),
+    // Adds new effective-dated versions of the SSS / PhilHealth / Pag-IBIG
+    // rates (alpha test Part E, 2026-11-09): future periods only, with a
+    // reason, never its own rate; the Super Admin is notified. The
+    // withholding tax table (fixed by law), the SSS salary credit table and
+    // per-employee amounts stay the Super Admin's.
+    government_rates: { scope: SCOPE_ALL, actions: ["create", "read"] },
+    // Every branch's daily rate: reads it and adds new versions (Part E). The
+    // hourly rate is always the daily rate / 8, never typed.
+    pay_rates: { scope: SCOPE_ALL, actions: ["create", "read"] },
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: full(SCOPE_ALL),

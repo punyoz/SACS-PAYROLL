@@ -82,7 +82,7 @@ function valueError(rate, value) {
   return "";
 }
 
-function RateDialog({ request, data, branches, onClose, onSaved }) {
+function RateDialog({ request, data, branches, onClose, onSaved, endpoint }) {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [values, setValues] = React.useState({ value: "", effective: "", scope: "global", ref: "", position: "", note: "" });
@@ -116,9 +116,10 @@ function RateDialog({ request, data, branches, onClose, onSaved }) {
   React.useEffect(() => {
     if (!open || values.scope !== "employee" || employees) return;
     fetchJson("/api/hr/employees")
-      .then((payload) => setEmployees((payload.employees || []).filter((e) => !e.archived)))
+      // Nobody changes a rate set for themselves (alpha test Part E).
+      .then((payload) => setEmployees((payload.employees || []).filter((e) => !e.archived && String(e.id) !== String(data?.actor_id || ""))))
       .catch(() => setEmployees([]));
-  }, [open, values.scope, employees]);
+  }, [open, values.scope, employees, data?.actor_id]);
 
   const set = (key, value) => {
     setValues((currentValues) => ({ ...currentValues, [key]: value, ...(key === "scope" ? { ref: "" } : null) }));
@@ -140,6 +141,8 @@ function RateDialog({ request, data, branches, onClose, onSaved }) {
   }, [employees, branches]);
 
   const finalized = data?.finalized_period;
+  // Future pay periods only (alpha test Part E): from the next period's first day.
+  const minDate = data?.min_effective_date || data?.default_effective_date || "";
   const lateDate = finalized && values.effective && values.effective <= finalized.end_key;
   // The daily rate carries the hourly rate with it: daily ÷ 8, shown as it is typed.
   const isDaily = rate?.rate_type === "daily";
@@ -154,8 +157,9 @@ function RateDialog({ request, data, branches, onClose, onSaved }) {
     const vError = valueError(rate, values.value);
     if (vError) nextErrors.value = vError;
     else if (!values.effective) nextErrors.effective = "Choose the date the new value takes effect.";
+    else if (minDate && values.effective < minDate) nextErrors.effective = `Rate changes apply to future pay periods only: choose ${rateDate(minDate)} or later.`;
     else if (values.scope !== "global" && !scopeRef) nextErrors[values.scope === "position" ? "position" : "ref"] = "Choose who this rate applies to.";
-    else if (isDaily && !values.note.trim()) nextErrors.note = "Give a reason for the daily rate change.";
+    else if (!values.note.trim()) nextErrors.note = isDaily ? "Give a reason for the daily rate change." : "Give a reason for the rate change.";
     setErrors(nextErrors);
     const firstKey = Object.keys(nextErrors)[0];
     if (firstKey) {
@@ -172,7 +176,7 @@ function RateDialog({ request, data, branches, onClose, onSaved }) {
     setBusy(true);
     setFeedback("");
     try {
-      const result = await fetchJson("/api/admin/payroll-rates", jsonBody("POST", {
+      const result = await fetchJson(endpoint, jsonBody("POST", {
         rate_type: rate.rate_type,
         scope: values.scope,
         scope_ref: scopeRef || null,
@@ -246,7 +250,7 @@ function RateDialog({ request, data, branches, onClose, onSaved }) {
                 <p className={cn("text-xs", lateDate ? "text-warning" : "text-muted-foreground")}>
                   {lateDate
                     ? `${finalized.label} has already been processed — this change will apply from the next pay period instead (${rateDate(data.earliest_effective_date)}).`
-                    : "Payroll uses the version in force on a pay period's first day, so a mid-period date takes effect from the following period. Past payslips are not affected."}
+                    : `Future pay periods only: ${minDate ? `${rateDate(minDate)} or later` : "from the next period"}. Payroll uses the version in force on a pay period's first day. Past payslips are not affected.`}
                 </p>
               )}
             </div>
@@ -289,8 +293,8 @@ function RateDialog({ request, data, branches, onClose, onSaved }) {
               </div>
             ) : null}
             <div className="space-y-2">
-              <Label htmlFor="sa-rate-note">{isDaily ? <>Reason <span className="text-destructive" aria-hidden="true">*</span></> : "Note (optional)"}</Label>
-              <Input id="sa-rate-note" maxLength={300} placeholder="e.g. Board resolution 2026-14" value={values.note} onChange={(e) => set("note", e.target.value)} required={isDaily} {...invalid("note")} />
+              <Label htmlFor="sa-rate-note">Reason <span className="text-destructive" aria-hidden="true">*</span></Label>
+              <Input id="sa-rate-note" maxLength={300} placeholder="e.g. Board resolution 2026-14" value={values.note} onChange={(e) => set("note", e.target.value)} required {...invalid("note")} />
               {error("note")}
             </div>
             {feedback && !Object.values(errors).some(Boolean) ? (
@@ -379,7 +383,7 @@ function RatePairCard({ daily, hourly, today, onEditDaily, loading, branches }) 
           </div>
           {loading || !daily || !hourly ? <p className="px-4 py-6 text-sm text-muted-foreground">Loading…</p> : (
             <>
-              {row(daily, { action: <Button variant="outline" size="sm" onClick={onEditDaily} aria-label="Edit Daily rate"><PencilIcon aria-hidden="true" />Edit</Button> })}
+              {row(daily, { action: onEditDaily ? <Button variant="outline" size="sm" onClick={onEditDaily} aria-label="Edit Daily rate"><PencilIcon aria-hidden="true" />Edit</Button> : null })}
               {row(hourly, {
                 rule: `Daily rate ÷ ${HOURS_PER_DAY} (automatic)`,
                 action: <span data-testid="hourly-automatic" className="text-xs whitespace-nowrap text-muted-foreground">Automatic</span>,
@@ -411,30 +415,37 @@ function RatePairCard({ daily, hourly, today, onEditDaily, loading, branches }) 
   );
 }
 
-export function RatesSection({ refreshKey }) {
+/**
+ * endpoint: /api/admin/payroll-rates (Super Admin, System Configuration) or
+ * /api/payroll/rates (HR, Government Rates page; alpha test Part E). Edit
+ * shows only for the rates the reply says this account may change
+ * (can_change); onlyEditable lists just those (HR).
+ */
+export function RatesSection({ refreshKey, endpoint = "/api/admin/payroll-rates", onlyEditable = false }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null, branches: [] });
   const [dialog, setDialog] = React.useState({ open: false, rateType: "", branch: null });
   const [today] = React.useState(manilaToday);
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
-    const [rates, branches] = await Promise.allSettled([fetchJson("/api/admin/payroll-rates"), fetchJson("/api/admin/branches")]);
+    const [rates, branches] = await Promise.allSettled([fetchJson(endpoint), fetchJson("/api/admin/branches")]);
     setState((current) => ({
       loading: false,
       error: rates.status === "rejected" ? rates.reason?.message || "Unable to load payroll rates." : null,
       data: rates.status === "fulfilled" ? rates.value : current.data,
       branches: branches.status === "fulfilled" ? branches.value.branches || [] : current.branches,
     }));
-  }, []);
+  }, [endpoint]);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const data = state.data;
+  const canChange = React.useCallback((type) => (data?.can_change ? Boolean(data.can_change[type]) : !onlyEditable), [data, onlyEditable]);
   const rates = React.useMemo(() => data?.rates || [], [data]);
   const dailyRate = React.useMemo(() => rates.find((r) => r.rate_type === "daily") || { unit: "peso" }, [rates]);
   const hourlyRate = React.useMemo(() => rates.find((r) => r.rate_type === "hourly") || null, [rates]);
   // Daily and hourly have their own linked card; every other rate is in the table.
-  const otherRates = React.useMemo(() => rates.filter((r) => !PAIR.has(r.rate_type)), [rates]);
+  const otherRates = React.useMemo(() => rates.filter((r) => !PAIR.has(r.rate_type) && (!onlyEditable || canChange(r.rate_type))), [rates, onlyEditable, canChange]);
 
   const rateColumns = React.useMemo(() => [
     {
@@ -484,9 +495,11 @@ export function RatesSection({ refreshKey }) {
       // The hourly rate is the daily rate ÷ 8 (rates.js derivedHourly): nothing to edit.
       cell: (r) => (r.derived
         ? <span className="text-xs text-muted-foreground whitespace-nowrap">Daily ÷ 8</span>
-        : <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, rateType: r.rate_type, branch: null })} aria-label={`Edit ${r.label}`}><PencilIcon aria-hidden="true" />Edit</Button>),
+        : canChange(r.rate_type)
+          ? <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, rateType: r.rate_type, branch: null })} aria-label={`Edit ${r.label}`}><PencilIcon aria-hidden="true" />Edit</Button>
+          : <span className="text-xs whitespace-nowrap text-muted-foreground">Super Admin only</span>),
     },
-  ], [today]);
+  ], [today, canChange]);
 
   const branchColumns = React.useMemo(() => {
     const defaultNote = <p className="text-xs font-normal text-muted-foreground">Uses system default</p>;
@@ -558,10 +571,10 @@ export function RatesSection({ refreshKey }) {
         key: "actions",
         header: <span className="sr-only">Actions</span>,
         align: "right",
-        cell: (b) => <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, rateType: "daily", branch: b.branch_id })} aria-label={`Edit daily rate for ${b.name}`}><PencilIcon aria-hidden="true" />Edit</Button>,
+        cell: (b) => (canChange("daily") ? <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, rateType: "daily", branch: b.branch_id })} aria-label={`Edit daily rate for ${b.name}`}><PencilIcon aria-hidden="true" />Edit</Button> : null),
       },
     ];
-  }, [dailyRate, today]);
+  }, [dailyRate, today, canChange]);
 
   const finalizedNote = data?.finalized_period
     ? ` ${data.finalized_period.label} is already processed; new versions start ${rateDate(data.earliest_effective_date)} or later.`
@@ -572,12 +585,15 @@ export function RatesSection({ refreshKey }) {
     <>
       {!(data && !data.available) && !(state.error && !data) ? (
         <RatePairCard daily={rates.find((r) => r.rate_type === "daily")} hourly={hourlyRate} today={today} loading={state.loading && !data} branches={state.branches}
-          onEditDaily={() => setDialog({ open: true, rateType: "daily", branch: null })} />
+          onEditDaily={canChange("daily") ? () => setDialog({ open: true, rateType: "daily", branch: null }) : null} />
       ) : null}
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><PercentIcon className="size-4 text-gold-text" aria-hidden="true" />Payroll rates</CardTitle>
-          <CardDescription>Payroll uses the value in force on each pay period&apos;s first day.{finalizedNote}</CardDescription>
+          <CardTitle className="flex items-center gap-2"><PercentIcon className="size-4 text-gold-text" aria-hidden="true" />{onlyEditable ? "Government rates you can change" : "Payroll rates"}</CardTitle>
+          <CardDescription>
+            Payroll uses the value in force on each pay period&apos;s first day.{finalizedNote}
+            {onlyEditable ? " Each change is a new version for future pay periods, with a reason; the Super Admin is notified. Nobody changes a rate set for themselves. The withholding tax table is fixed by law." : ""}
+          </CardDescription>
           <CardAction>
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
@@ -631,6 +647,7 @@ export function RatesSection({ refreshKey }) {
         branches={state.branches}
         onClose={() => setDialog((current) => ({ ...current, open: false }))}
         onSaved={load}
+        endpoint={endpoint}
       />
     </>
   );

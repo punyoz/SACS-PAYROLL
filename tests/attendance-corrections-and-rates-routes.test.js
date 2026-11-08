@@ -41,13 +41,14 @@ describe("Payroll rates", () => {
     const { POST } = await import("@/app/api/admin/payroll-rates/route");
     const response = await POST(requestAs(SUPER, "/api/admin/payroll-rates", "POST", {
       // A daily rate change needs a reason (2026-11-08).
-      rate_type: "daily", scope: "global", value: 880, effective_date: "2026-10-01", note: "Board resolution 2026-14",
+      // Future pay periods only (alpha test Part E, 2026-11-09).
+      rate_type: "daily", scope: "global", value: 880, effective_date: "2027-03-01", note: "Board resolution 2026-14",
     }));
     const body = await response.json();
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ effective_date: "2026-10-01", adjusted: false, warning: null });
+    expect(body).toMatchObject({ effective_date: "2027-03-01", adjusted: false, warning: null });
     expect(table("payroll_rate_configs")[0]).toMatchObject({
-      rate_type: "daily", value: 880, effective_date: "2026-10-01", created_by: "u-sa", created_by_name: "Sam Super", scope_ref: null,
+      rate_type: "daily", value: 880, effective_date: "2027-03-01", created_by: "u-sa", created_by_name: "Sam Super", scope_ref: null,
     });
   });
 
@@ -75,16 +76,16 @@ describe("Payroll rates", () => {
 
   it("moves a date inside an already-processed period to the next period, and says so", async () => {
     table("payroll_entries").push(
-      { id: "e1", employee_id: "x", pay_period: "September 1-15, 2026", status: "paid" },
-      { id: "e2", employee_id: "y", pay_period: "September 16-30, 2026", status: "draft" },
+      { id: "e1", employee_id: "x", pay_period: "March 1-15, 2027", status: "paid" },
+      { id: "e2", employee_id: "y", pay_period: "March 16-31, 2027", status: "draft" },
     );
     const { POST } = await import("@/app/api/admin/payroll-rates/route");
     const body = await (await POST(requestAs(SUPER, "/api/admin/payroll-rates", "POST", {
-      rate_type: "sss_pct", scope: "global", value: 4.5, effective_date: "2026-09-10",
+      rate_type: "sss_pct", scope: "global", value: 4.5, effective_date: "2027-03-10", note: "SSS circular",
     }))).json();
-    expect(body).toMatchObject({ effective_date: "2026-09-16", adjusted: true });
-    expect(body.warning).toMatch(/September 1-15, 2026 has already been processed/);
-    expect(table("payroll_rate_configs")[0].effective_date).toBe("2026-09-16");
+    expect(body).toMatchObject({ effective_date: "2027-03-16", adjusted: true });
+    expect(body.warning).toMatch(/March 1-15, 2027 has already been processed/);
+    expect(table("payroll_rate_configs")[0].effective_date).toBe("2027-03-16");
   });
 
   it("validates the value, scope and percentage cap", async () => {

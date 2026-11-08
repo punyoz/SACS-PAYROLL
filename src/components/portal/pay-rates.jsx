@@ -69,7 +69,7 @@ export function PayRatesPanel({ refreshKey }) {
         <CardTitle className="flex items-center gap-2"><BanknoteIcon className="size-4 text-gold-text" aria-hidden="true" />Pay rates</CardTitle>
         <CardDescription>
           View-only. The hourly rate is always the daily rate ÷ {HOURS_PER_DAY}. From Oct 1, 2026 an employee with a salary on file is paid on
-          monthly salary × 12 ÷ working days per year; these rates apply to an employee with no salary on file. Only the Super Admin changes them.
+          monthly salary × 12 ÷ working days per year; these rates apply to an employee with no salary on file. HR and the Super Admin change the daily rate.
         </CardDescription>
         <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>

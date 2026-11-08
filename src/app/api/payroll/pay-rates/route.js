@@ -60,7 +60,7 @@ export async function GET(request) {
 
 /** No writes here, for any role: the Super Admin edits rates in System Configuration. */
 function readOnly() {
-  return NextResponse.json({ error: "Pay rates are read-only here. Only the Super Admin changes them, in System Configuration." }, { status: 405 });
+  return NextResponse.json({ error: "Pay rates are read-only here. HR (Government Rates page) and the Super Admin (System Configuration) change the daily rate; the hourly rate is daily ÷ 8." }, { status: 405 });
 }
 export const POST = readOnly;
 export const PUT = readOnly;

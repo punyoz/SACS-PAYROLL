@@ -70,9 +70,9 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 describe("the permission matrix", () => {
-  it("Super Admin creates and reads; Accountant and HR only read; Admin and Employee nothing", () => {
+  it("Super Admin creates and reads; HR adds versions too (Part E); Accountant only reads; Admin and Employee nothing", () => {
     const matrix = Object.fromEntries(Object.keys(PEOPLE).map((role) => [role, ["create", "read", "update", "delete"].filter((action) => can(role, "government_rates", action))]));
-    expect(matrix).toEqual({ super_admin: ["create", "read", "update"], accountant: ["read"], hr: ["read"], admin: [], employee: [] });
+    expect(matrix).toEqual({ super_admin: ["create", "read", "update"], accountant: ["read"], hr: ["create", "read"], admin: [], employee: [] });
   });
 
   it("the page is in the Accountant and HR sidebars only, never the Employee's", () => {
@@ -146,12 +146,12 @@ describe("edit routes: only the Super Admin", () => {
 
   it("Super Admin: a rate change is saved and logged with who, when and old → new", async () => {
     const { POST } = await ratesRoute();
-    const response = await POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-rates", "POST", { rate_type: "sss_pct", scope: "global", value: 4.5, effective_date: "2026-12-01" }));
+    const response = await POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-rates", "POST", { rate_type: "sss_pct", scope: "global", value: 4.5, effective_date: "2026-12-01", note: "SSS circular" }));
     expect(response.status).toBe(200);
     expect(table("payroll_rate_configs").at(-1)).toMatchObject({ rate_type: "sss_pct", value: 4.5, effective_date: "2026-12-01", created_by: "u-sa", created_by_name: "Sam Super" });
     const [entry] = table("audit_logs");
     expect(entry).toMatchObject({ action: "rate_version", actor_role: "super_admin", actor_name: "Sam Super" });
-    expect(entry.description).toBe("SSS contribution: 5 → 4.5 from 2026-12-01 by Sam Super.");
+    expect(entry.description).toBe("SSS contribution: 5 → 4.5 from 2026-12-01 by Sam Super. Reason: SSS circular.");
     expect(entry.metadata).toMatchObject({ rate_type: "sss_pct", previous_value: 5, value: 4.5, effective_date: "2026-12-01", government: true });
     expect(entry.created_at || entry.timestamp).toBeTruthy();
   });
@@ -190,6 +190,91 @@ describe("edit routes: only the Super Admin", () => {
     expect((await bad([{ bracket_over: 0, base_tax: 0, rate_pct: 120 }])).status).toBe(400);
     expect(table("payroll_rate_configs")).toHaveLength(9);
     expect(table("payroll_tax_brackets")).toHaveLength(6);
+  });
+});
+
+describe("HR changes government rates and the daily rate (alpha test Part E)", () => {
+  const hrRoute = () => import("@/app/api/payroll/rates/route");
+  // The bell only takes real ids (UUIDs).
+  const SA1 = "00000000-0000-4000-8000-0000000000a1";
+  const SA2 = "00000000-0000-4000-8000-0000000000a2";
+  const saved = () => table("payroll_rate_configs").filter((r) => String(r.created_by || "").startsWith("u-"));
+  const post = async (who, body) => (await hrRoute()).POST(requestAs(PEOPLE[who], "/api/payroll/rates", "POST", { scope: "global", effective_date: "2026-12-01", note: "Circular 2026-9", ...body }));
+  beforeEach(() => {
+    table("profiles").push(
+      { id: SA1, role: "super_admin", full_name: "Sam Super", archived: false },
+      { id: SA2, role: "super_admin", full_name: "Sol Super", archived: false },
+      { id: "u-hr", role: "hr", full_name: "Hana HR", archived: false },
+      { id: "u-hr2", role: "hr", full_name: "Hugo HR", archived: false },
+    );
+  });
+
+  it("HR adds a new SSS rate version and a daily rate version; old → new is logged and the Super Admin is notified (no amounts)", async () => {
+    const response = await post("hr", { rate_type: "sss_pct", value: 4.5 });
+    expect(response.status).toBe(200);
+    expect(table("payroll_rate_configs").at(-1)).toMatchObject({ rate_type: "sss_pct", value: 4.5, effective_date: "2026-12-01", created_by: "u-hr", note: "Circular 2026-9" });
+    const daily = await post("hr", { rate_type: "daily", value: 720 });
+    expect(daily.status).toBe(200);
+    expect((await daily.json()).hourly_rate).toBe(90);
+    const logs = table("audit_logs").filter((l) => l.action === "rate_version");
+    expect(logs[0].metadata).toMatchObject({ rate_type: "sss_pct", previous_value: 5, value: 4.5, reason: "Circular 2026-9", changed_by_role: "hr" });
+    const notes = table("notifications");
+    expect(notes.map((n) => n.recipient_id).sort()).toEqual([SA1, SA1, SA2, SA2]);
+    expect(notes[0]).toMatchObject({ kind: "rate_change", link_page: "sa-config" });
+    expect(notes.map((n) => `${n.title} ${n.body}`).join(" ")).not.toMatch(/720|4\.5|₱/);
+  });
+
+  it("HR cannot type the hourly rate, change other payroll rules, or skip the reason or the date", async () => {
+    expect((await post("hr", { rate_type: "hourly", value: 90 })).status).toBe(400);
+    expect((await post("hr", { rate_type: "overtime_premium_pct", value: 30 })).status).toBe(403);
+    expect((await post("hr", { rate_type: "sss_pct", value: 4.5, note: "" })).status).toBe(400);
+    expect((await post("hr", { rate_type: "sss_pct", value: 4.5, effective_date: "" })).status).toBe(400);
+    expect(saved()).toHaveLength(0);
+  });
+
+  it("future pay periods only: a date before the next period's first day is refused", async () => {
+    const response = await post("hr", { rate_type: "sss_pct", value: 4.5, effective_date: "2026-01-01" });
+    expect(response.status).toBe(400);
+    expect((await response.json()).code).toBe("future_periods_only");
+    expect(saved()).toHaveLength(0);
+  });
+
+  it("warns when the date falls in a period whose payroll is being processed", async () => {
+    table("payroll_runs").push({ id: "run-1", period_label: "December 1-15, 2026", period_start: "2026-12-01", period_end: "2026-12-15", status: "pending" });
+    const body = await (await post("hr", { rate_type: "sss_pct", value: 4.5, effective_date: "2026-12-05" })).json();
+    expect(body.success).toBe(true);
+    expect(body.warning).toMatch(/December 1-15, 2026 is being processed/);
+  });
+
+  it("nobody changes their own rate: refused and logged; another HR does it, logged as the fallback", async () => {
+    const own = await post("hr", { rate_type: "daily", scope: "employee", scope_ref: "u-hr", value: 900 });
+    expect(own.status).toBe(403);
+    expect((await own.json()).code).toBe("own_rate");
+    expect(table("audit_logs").at(-1)).toMatchObject({ action: "own_rate_blocked", status: "failed" });
+    expect(saved()).toHaveLength(0);
+    const other = { userId: "u-hr2", role: "hr", branchId: null, fullName: "Hugo HR" };
+    const res = await (await hrRoute()).POST(requestAs(other, "/api/payroll/rates", "POST", { rate_type: "daily", scope: "employee", scope_ref: "u-hr", value: 900, effective_date: "2026-12-01", note: "Promotion" }));
+    expect(res.status).toBe(200);
+    expect(table("audit_logs").at(-1).metadata.fallback_for).toMatchObject({ id: "u-hr", role: "hr" });
+  });
+
+  it("the Accountant, Admin and Employee cannot write through the HR route (handler and proxy)", async () => {
+    const { proxy } = await import("@/proxy");
+    for (const role of ["accountant", "admin", "employee"]) {
+      expect((await post(role, { rate_type: "sss_pct", value: 4.5 })).status, role).toBe(403);
+      expect((await proxy(requestAs(PEOPLE[role], "/api/payroll/rates", "POST", { rate_type: "sss_pct", value: 4.5 }))).status, `proxy ${role}`).toBe(403);
+    }
+    expect(saved()).toHaveLength(0);
+  });
+
+  it("the database guard (20261109020000) lets HR write only the daily and government rates, never its own, never without a reason or in the past", () => {
+    const sql = readFileSync("supabase/migrations/20261109020000_hr_rate_changes.sql", "utf8");
+    expect(sql).toMatch(/v_role = 'super_admin' OR \(v_role = 'hr' AND v_type = ANY \(v_hr_types\)\)/);
+    expect(sql).toMatch(/NEW\.scope_ref::TEXT = NEW\.created_by::TEXT/);
+    expect(sql).toContain("reason_required");
+    expect(sql).toContain("future_periods_only");
+    expect(sql).not.toMatch(/'hourly'/);
+    expect(sql).toContain("('hr',          'government_rates', 'all', true, true, false, false)");
   });
 });
 

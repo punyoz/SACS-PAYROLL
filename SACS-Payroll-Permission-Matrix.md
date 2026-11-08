@@ -45,6 +45,9 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | **SYSTEM** |
 | 14 | System Maintenance (feature toggles, general settings) | F — exclusive | — | — | — | — |
 | 15 | System Configuration (tax tables, formulas, holiday calendar, integrations) | F — exclusive | — | — | — | — |
+| 15a | Government rates (SSS, PhilHealth, Pag-IBIG rates and limits) and the daily rate | F — new effective-dated versions, future periods only, reason required | V (own branch daily rate) | P — new effective-dated versions, future periods only, reason required; the Super Admin is notified; never its own rate | V | — (own deductions on own payslip) |
+| 15b | Hourly rate | V — always daily rate ÷ 8, never typed | V | V | V | — |
+| 15c | Withholding tax table (BIR, fixed by law) | F — version table, unchanged | — | V | V | — |
 | 16 | Audit Logs / Audit & Monitoring | F (all branches + system events) | V (own branch activity only) | — | — | — |
 | 17 | Backup & Recovery | F — exclusive | — | — | — | — |
 | **REPORTS** |
@@ -53,6 +56,17 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | **ACCOUNT** |
 | 20 | Profile | F (own) | F (own) | F (own) | F (own) | F (own) |
 | 21 | Timesheet | F (all, view/adjust) | V (own branch) | V (all branches) | V (reference) | F (own — view/print) |
+
+**Rates (alpha test Part E, 2026-11-09):** HR and the Super Admin add new effective-dated versions of the government rates and the daily rate, from the next pay period's first day, with a reason. The old and new values are audited; a date inside a period whose payroll is being processed is saved with a warning; nobody changes a rate set for themselves (another HR or the Super Admin does it, and the audit records the fallback). The server (`src/lib/payroll/rate-versions-server.js`) and the database (`payroll_rate_writer_guard`, `20261109020000_hr_rate_changes.sql`) both enforce it. The withholding tax table, the SSS salary credit table and per-employee contribution amounts stay with the Super Admin.
+
+| Who can edit what | Before (to 2026-11-08) | After (2026-11-09) |
+|---|---|---|
+| SSS / PhilHealth / Pag-IBIG rates and limits | Super Admin | Super Admin, HR |
+| Daily rate (default, branch, position, employee) | Super Admin | Super Admin, HR (not their own) |
+| Hourly rate | Nobody (daily ÷ 8) | Nobody (daily ÷ 8) |
+| Withholding tax table | Super Admin (version table) | Super Admin (unchanged); HR never |
+| SSS salary credit table, per-employee amounts | Super Admin | Super Admin |
+| Other payroll rules (premiums, lock day, etc.) | Super Admin | Super Admin |
 
 HR serves **every branch** (decision of Sep 24, 2026, `supabase/migrations/20260924020000_hr_all_branches.sql`; updated here Oct 10, 2026): HR accounts carry no branch, every module HR can reach is all-branches, and the account ceiling is Employee and Accountant only. The executable matrix is `src/lib/rbac/permissions.js`.
 
