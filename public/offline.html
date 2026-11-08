@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1B5E3C">
+  <title>Offline · SACS Payroll</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f5ef; --card: #ffffff; --fg: #1d2a22; --muted: #5d6b62; --green: #1B5E3C; --gold: #b8892b; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f1512; --card: #17201b; --fg: #e8efe9; --muted: #9fb0a5; --green: #3f9a6c; --gold: #d8b25c; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 16px; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { width: 100%; max-width: 26rem; background: var(--card); border-radius: 12px; padding: 28px 24px; text-align: center; border-top: 4px solid var(--gold); box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+    img { width: 72px; height: 72px; }
+    h1 { margin: 12px 0 4px; font-size: 1.25rem; color: var(--green); }
+    p { margin: 8px 0; color: var(--muted); }
+    button { margin-top: 16px; min-height: 44px; padding: 0 20px; border: 0; border-radius: 8px; background: var(--green); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/icons/icon-192.png" alt="" width="72" height="72">
+    <h1>You are offline</h1>
+    <p>SACS Payroll needs a connection to show payroll, payslips and attendance. Nothing is saved on this device.</p>
+    <p>An RFID terminal that was already open keeps saving taps and sends them when the connection is back.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+  </main>
+</body>
+</html>

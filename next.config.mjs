@@ -8,6 +8,9 @@ const SUPABASE_ORIGIN = (() => {
   try { return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "").origin; } catch { return ""; }
 })();
 
+// The project's Realtime websocket (wss:// for https, ws:// for a local http stack).
+const SUPABASE_REALTIME = SUPABASE_ORIGIN ? SUPABASE_ORIGIN.replace(/^http/, "ws") : "";
+
 // Development needs eval (React refresh) and a websocket for hot reload.
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -15,7 +18,12 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' data: https://fonts.gstatic.com",
   `img-src 'self' data: blob:${SUPABASE_ORIGIN ? ` ${SUPABASE_ORIGIN}` : ""}`,
-  `connect-src 'self'${isProduction ? "" : " ws: wss:"}`,
+  // The live notification bell (alpha test D2) opens a Supabase Realtime
+  // websocket to this project only; nothing else leaves the site.
+  `connect-src 'self'${SUPABASE_REALTIME ? ` ${SUPABASE_REALTIME}` : ""}${isProduction ? "" : " ws: wss:"}`,
+  // The PWA service worker (alpha test D1) and its manifest: this site only.
+  "worker-src 'self'",
+  "manifest-src 'self'",
   "frame-src 'self' data: blob:",
   "frame-ancestors 'self'",
   "object-src 'none'",
