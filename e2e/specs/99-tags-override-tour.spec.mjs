@@ -136,7 +136,7 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
       await settle(page);
       await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
       await confirm(page, "Process payroll");
-      await expect(page.getByText(/Payroll processed for d+ employee|No payslips processed/).first()).toBeVisible({ timeout: 90000 });
+      await expect(page.getByText(/Payroll processed for \d+ employee|No payslips processed/).first()).toBeVisible({ timeout: 90000 });
     });
 
     await step(page, "Accountant > Payslips > Ana's Oct 16-31 payslip: groups, tags, Overridden", async () => {
