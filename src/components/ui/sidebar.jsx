@@ -370,7 +370,9 @@ function SidebarContent({
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        // scrollbar-none (2026-11-08): no distracting scrollbar; the menu still scrolls
+        // (wheel, trackpad, touch, keyboard) and the footer stays in view.
+        "flex min-h-0 flex-1 flex-col gap-2 overflow-auto overscroll-contain scrollbar-none group-data-[collapsible=icon]:overflow-hidden",
         className
       )}
       {...props}

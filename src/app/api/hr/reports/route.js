@@ -8,6 +8,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 export async function GET(request) {
   try {
@@ -41,8 +42,10 @@ export async function GET(request) {
       if (error) throw new Error(error.message);
 
       // One record per employee per day (first tap in, last tap out), so a
-      // repeated tap never counts as an extra day or extra hours.
-      const logs = collapseDailyTaps(data || []);
+      // repeated tap never counts as an extra day or extra hours. Demo
+      // people are left out of reports (is_demo, 2026-11-08).
+      const demo = await loadDemoIds(supabase);
+      const logs = collapseDailyTaps((data || []).filter(notDemo(demo)));
 
       // Aggregate per employee
       const byEmployee = new Map();
@@ -95,7 +98,9 @@ export async function GET(request) {
         (profileRows || []).forEach((row) => branchMap.set(row.id, row.branch_id));
       }
 
+      const demo = await loadDemoIds(supabase);
       const employees = (usersResult.data.users || [])
+        .filter(notDemo(demo, (u) => u.id))
         .filter((u) => {
           const role = String(u.user_metadata?.role || "employee").toLowerCase();
           if (role !== "employee" && role !== "accountant") return false;

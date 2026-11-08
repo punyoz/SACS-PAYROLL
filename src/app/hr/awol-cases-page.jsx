@@ -19,6 +19,7 @@ import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { AWOL_RECORD_MAX } from "@/lib/input-limits";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
  * AWOL Cases (/api/hr/awol-cases; docs/payroll-schedule-loans-awol.md §5).
@@ -185,10 +186,9 @@ export function AwolCasesPage({ refreshKey }) {
                 {dialog.action === "open" ? (
                   <>
                     <div className="sm:col-span-2">{fieldFor("employee", "Employee", (
-                      <Select value={input.employee} onValueChange={(v) => setInput((c) => ({ ...c, employee: v }))}>
-                        <SelectTrigger id="hr-awol-employee" className="w-full"><SelectValue placeholder="Select employee" /></SelectTrigger>
-                        <SelectContent>{(state.data?.people || []).map((p) => <SelectItem key={p.id} value={p.id}>{`${p.full_name} — ${p.employee_id}`}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <SearchableSelect id="hr-awol-employee" label="Employee" value={input.employee} onValueChange={(v) => setInput((c) => ({ ...c, employee: v }))}
+                        placeholder="Select employee" searchPlaceholder="Search name or employee ID…"
+                        options={(state.data?.people || []).map((p) => ({ value: p.id, label: `${p.full_name} — ${p.employee_id}` }))} />
                     ))}</div>
                     {fieldFor("first", "First day absent", <DatePicker id="hr-awol-first" value={input.first_absent_on} onChange={(v) => setInput((c) => ({ ...c, first_absent_on: v }))} />)}
                     {fieldFor("last", "Last day present (optional)", <DatePicker id="hr-awol-last" value={input.last_present_on} onChange={(v) => setInput((c) => ({ ...c, last_present_on: v }))} />)}

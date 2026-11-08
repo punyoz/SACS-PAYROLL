@@ -33,7 +33,6 @@ import { loadSssMscRows, mscTableOn } from "@/lib/payroll/sss-msc";
 import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
 import { isApproved } from "@/lib/payroll/adjustment-approvals";
 import {
-  dailyRateFor,
   monthInfo,
   monthlyWindow,
   resolveTaxTableRows,
@@ -44,7 +43,7 @@ import {
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
 import { basicEarnedFromPayroll } from "@/lib/payroll/thirteenth-month";
 import { DEFAULT_BENEFITS_CEILING } from "@/lib/payroll/teacher-subsidy";
-import { computeFinalPay, paidDaysBetween } from "@/lib/payroll/final-pay";
+import { computeFinalPay, finalPayDailyRate, paidDaysBetween } from "@/lib/payroll/final-pay";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { payslipFigures } from "@/lib/payroll/bir-2316";
@@ -94,7 +93,8 @@ async function gather(supabase, person) {
   // The salary in force on the last day (HR's salary changes, 2026-10-26).
   const salary = peso(salaryOn((await loadSalaryChanges(supabase, [person.id])).rows, person.id, separatedOn, profile.data?.basic_salary || 0));
   const rates = rateValues(resolveRates(configs, { employeeId: person.id, branchId: person.branch_id, position: profile.data?.position, monthlySalary: salary }, separatedOn));
-  const daily = dailyRateFor(salary, rates.working_days_per_year);
+  // Same rule as regular payroll (2026-11-08): an employee's own daily rate wins.
+  const daily = finalPayDailyRate(rates);
   const entries = entriesResult.data || [];
   const paidLabels = new Set(entries.map((e) => e.pay_period));
 

@@ -9,9 +9,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
 import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
@@ -21,6 +21,7 @@ import { dateTime } from "@/lib/portal/payroll-preview";
 import { CARD_STATUS_LABELS, CARD_STATUS_TONES } from "@/lib/rfid/cards";
 import { cn } from "@/lib/utils";
 import { RFID_UID_LENGTH, RFID_UID_PATTERN } from "@/lib/input-limits";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
  * RFID Cards (/api/rfid/cards, 20261021030000): the same cards for HR, the
@@ -184,21 +185,22 @@ export function RfidCardsPanel({ refreshKey }) {
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Tabs value={status} onValueChange={setStatus} className="overflow-x-auto">
-              <TabsList className="w-max">{STATUS_TABS.map((s) => <TabsTrigger key={s} value={s}>{s === ALL ? "All" : CARD_STATUS_LABELS[s]}</TabsTrigger>)}</TabsList>
-            </Tabs>
-            {branches.length > 1 ? (
-              <Select value={branch} onValueChange={setBranch}>
-                <SelectTrigger size="sm" className="w-44" aria-label="Branch"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL}>All branches</SelectItem>
-                  {branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            ) : null}
-          </div>
-          <DataTable columns={columns} rows={cards} loading={first} error={state.error} onRetry={load} pageSize={15}
+          <DataTable
+            toolbar={(
+              <>
+                <FilterTabs value={status} onValueChange={setStatus} label="Card status" options={STATUS_TABS.map((s) => ({ value: s, label: s === ALL ? "All" : CARD_STATUS_LABELS[s] }))} />
+                {branches.length > 1 ? (
+                  <Select value={branch} onValueChange={setBranch}>
+                    <SelectTrigger size="sm" className="w-44" aria-label="Branch"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>All branches</SelectItem>
+                      {branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </>
+            )}
+            columns={columns} rows={cards} loading={first} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee, ID or last 4 digits…" caption="RFID cards" minWidth={1040}
             empty={{ title: status === ALL ? "No cards registered yet" : `No ${CARD_STATUS_LABELS[status].toLowerCase()} cards`, icon: CreditCardIcon }} />
         </CardContent>
@@ -233,10 +235,9 @@ export function RfidCardsPanel({ refreshKey }) {
                   {dialog.kind === "register" ? (
                     <div className="space-y-1.5">
                       <Label htmlFor="rf-emp">Employee</Label>
-                      <Select value={input.employee} onValueChange={(v) => { setInput((c) => ({ ...c, employee: v })); setTimeout(() => uidRef.current?.focus(), 50); }}>
-                        <SelectTrigger id="rf-emp" className="w-full"><SelectValue placeholder="Choose the employee" /></SelectTrigger>
-                        <SelectContent>{employees.map((e) => <SelectItem key={e.id} value={e.id} disabled={e.has_active_card}>{`${e.full_name}${e.employee_code ? ` (${e.employee_code})` : ""} — ${e.branch_name}${e.has_active_card ? " · has a card" : ""}`}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <SearchableSelect id="rf-emp" label="Employee" value={input.employee} onValueChange={(v) => { setInput((c) => ({ ...c, employee: v })); setTimeout(() => uidRef.current?.focus(), 50); }}
+                        placeholder="Choose the employee" searchPlaceholder="Search name, ID or branch…"
+                        options={employees.map((e) => ({ value: e.id, disabled: e.has_active_card, label: `${e.full_name}${e.employee_code ? ` (${e.employee_code})` : ""} — ${e.branch_name}${e.has_active_card ? " · has a card" : ""}` }))} />
                       {chosen?.has_active_card ? <p className="text-xs text-destructive">Already has an active card: use Replace on it.</p> : null}
                     </div>
                   ) : null}

@@ -10,6 +10,7 @@ import {
   CalendarClockIcon,
   CalendarDaysIcon,
   ClockIcon,
+  CoinsIcon,
   CreditCardIcon,
   LayoutDashboardIcon,
   MegaphoneIcon,
@@ -30,6 +31,7 @@ import { LeaveRecommendationsPage, TransferEndorsementsPage } from "./endorsemen
 import { IncentiveEndorsementsPage, IncidentReportsPage, OvertimeConfirmationsPage, RfidIssuesPage, ScheduleRequestsPage } from "./requests-pages";
 import { AnnouncementsPage, PayrollSummaryPage } from "./branch-pages";
 import { DashboardPage } from "./dashboard-page";
+import { PayRatesPanel } from "@/components/portal/pay-rates";
 
 const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m) => m.BranchReportsPage), { loading: PageSkeleton });
 
@@ -72,6 +74,7 @@ const NAV = [
       { id: "adm-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
       { id: "adm-payroll", label: "Payroll Summary", icon: BanknoteIcon, module: "branch_reports" },
       { id: "adm-branch-reports", label: "Branch Reports", icon: TrendingUpIcon, module: "branch_reports" },
+      { id: "adm-pay-rates", label: "Pay Rates", icon: CoinsIcon, module: "pay_rates" },
     ],
   },
   { section: "RFID", items: [{ id: "adm-maintenance", label: "RFID Terminal & Cards", icon: RadioTowerIcon, module: "system_maintenance" }] },
@@ -95,6 +98,7 @@ const DESCRIPTIONS = {
   "adm-announcements": "Announcements for your branch's employees.",
   "adm-payroll": "Total payroll cost of your branch per approved period. No individual pay.",
   "adm-branch-reports": "Attendance rate, lateness and leave usage for your branch.",
+  "adm-pay-rates": "View-only: your branch's daily rate and its hourly rate (daily ÷ 8). Only the Super Admin changes them.",
   "adm-maintenance": "Run the RFID Terminal and register, replace or void your branch's RFID cards.",
   "adm-profile": null,
 };
@@ -158,6 +162,7 @@ function AdminScreens() {
       {current === "adm-announcements" ? <AnnouncementsPage refreshKey={refreshKey} /> : null}
       {current === "adm-payroll" ? <PayrollSummaryPage refreshKey={refreshKey} /> : null}
       {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
+      {current === "adm-pay-rates" ? <PayRatesPanel refreshKey={refreshKey} /> : null}
       {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} /> : null}
       {current === "adm-profile" ? <StaffProfilePage roleLabel="Administrator" /> : null}
     </AppShell>

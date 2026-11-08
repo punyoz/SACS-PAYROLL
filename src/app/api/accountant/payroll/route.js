@@ -97,6 +97,7 @@ import { applyYearEndTax, yearEndAdjustment, yearEndCutoffLine } from "@/lib/pay
 import { CONTRIBUTION_MAX, DAYS_MAX, INCENTIVE_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX, pesoLimit } from "@/lib/input-limits";
 import { attendanceOverrideState, attendanceOverrides } from "@/lib/payroll/override-window";
 import { applyWindowEnforcement, loadWindowEnforcement } from "@/lib/payroll/window-enforcement";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -3795,7 +3796,9 @@ export async function GET(request) {
     if (view === "payroll_sheet") {
       const sheetPeriod = normalizeText(url.searchParams.get("period"));
       const { entries } = await scoped({ labels: sheetPeriod ? [sheetPeriod] : [] });
-      return await handlePayrollSheetView(supabase, employees, entries, url);
+      // A report: demo people are left out (is_demo, 2026-11-08).
+      const demo = await loadDemoIds(supabase);
+      return await handlePayrollSheetView(supabase, employees.filter(notDemo(demo, (e) => e.id)), entries.filter(notDemo(demo)), url);
     }
     if (view === "cash_advances") {
       // Repayments are on the payslips of people who had an advance, and
@@ -3812,7 +3815,9 @@ export async function GET(request) {
     if (view === "holiday_work") {
       const holidayPeriod = normalizeText(url.searchParams.get("period"), "all");
       const { entries } = await scoped({ labels: holidayPeriod === "all" ? historyLabels(historyParam) : [holidayPeriod], light: true, extras: ["incentive_lines"] });
-      return handleHolidayWorkView(employees, entries, url);
+      // A report: demo people are left out (is_demo, 2026-11-08).
+      const demo = await loadDemoIds(supabase);
+      return handleHolidayWorkView(employees.filter(notDemo(demo, (e) => e.id)), entries.filter(notDemo(demo)), url);
     }
 
     // ?format=pdf&entry_id=… : the payslip as a PDF download.
@@ -3935,6 +3940,10 @@ export async function GET(request) {
     // Rejected one.
     const runRows = await loadRunsFor(supabase, employees.map((e) => e.branch_id), activePeriod.label);
     const payrollRuns = Object.fromEntries([...runRows.entries()].map(([branchId, row]) => [branchId, shapeRun(row)]));
+    // Demo people's payslips stay on the working screens but are marked, so
+    // the Reports page leaves them out (is_demo, 2026-11-08).
+    const demoIds = await loadDemoIds(supabase);
+    const markDemo = (record) => (demoIds.has(String(record?.employee_id ?? "")) ? { ...record, is_demo: true } : record);
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -3946,9 +3955,9 @@ export async function GET(request) {
       history_years: years,
       // Compact like the history: the full payroll object stays on the server
       // (the Pay Record view is built there); drafts are sent whole below.
-      records: payrollRecords.map(compactHistoryRecord).map(withRunStatus),
+      records: payrollRecords.map(compactHistoryRecord).map(withRunStatus).map(markDemo),
       panels: buildPayrollPanels(payrollRecords),
-      history_records: historyRecords,
+      history_records: historyRecords.map(markDemo),
       history_panels: buildPayrollPanels(historyRecords),
       attendance_rows: attendanceRows,
       leave_summary: leaveSummary,
@@ -3957,7 +3966,7 @@ export async function GET(request) {
       // is refused meanwhile.
       payroll_ready: payContext.engineReady && payContext.ratesReady,
       payroll_not_ready_message: payContext.engineReady && payContext.ratesReady ? null : PAYROLL_NOT_READY_MESSAGE,
-      draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord),
+      draft_entries: sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord).map(markDemo),
       // The period's payslips (and the one opened): Payroll Records opens any
       // other. All of them made a dropdown of thousands at scale.
       payslip_options: buildPayslipOptions(

@@ -10,6 +10,7 @@ import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/com
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsManager } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
+import { PayRatesPanel } from "@/components/portal/pay-rates";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
@@ -141,7 +142,7 @@ const DESCRIPTIONS = {
   "hr-branch-requests": "Attendance flags, schedule requests, incentive recommendations, RFID issues and overtime confirmations sent by the branch Admins. HR decides; the Admin is notified.",
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-adjustment-approvals": "Approve or reject the incentives, overload, loans and cash advances the Accountant filed. Payroll pays or deducts only approved ones; a rejection needs a reason and the Accountant is notified.",
-  "hr-gov-rates": "View-only — the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
+  "hr-gov-rates": "View-only — the daily and hourly pay rates, the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
   "hr-profile": null,
@@ -223,7 +224,7 @@ function HrScreens() {
         ) : null}
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
-        {current === "hr-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
+        {current === "hr-gov-rates" ? <><PayRatesPanel refreshKey={refreshKey} /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}

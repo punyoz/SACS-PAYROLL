@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { INCENTIVE_MAX } from "@/lib/input-limits";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
  * Incentives & Overload (loadMonthlyItems / submitMonthlyItem /
@@ -116,10 +117,10 @@ export function DeferredIncentivesNotice({ monthKey }) {
 
 export function EmployeeSelect({ id, value, onChange, employees, invalid }) {
   return (
-    <Select value={value} onValueChange={onChange} disabled={!employees.length}>
-      <SelectTrigger id={id} className="w-full min-w-0 overflow-hidden [contain:inline-size]" aria-invalid={invalid || undefined}><SelectValue placeholder={employees.length ? "Select employee" : "No employees found"} /></SelectTrigger>
-      <SelectContent>{employees.map((e) => <SelectItem key={e.id} value={e.id}>{`${e.full_name} — ${e.employee_id}`}</SelectItem>)}</SelectContent>
-    </Select>
+    <SearchableSelect id={id} value={value} onValueChange={onChange} disabled={!employees.length} label="Employee"
+      className="w-full min-w-0 overflow-hidden [contain:inline-size]" aria-invalid={invalid || undefined}
+      placeholder={employees.length ? "Select employee" : "No employees found"} searchPlaceholder="Search name or employee ID…"
+      options={employees.map((e) => ({ value: e.id, label: `${e.full_name} — ${e.employee_id}` }))} />
   );
 }
 

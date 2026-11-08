@@ -5,7 +5,6 @@ import { DownloadIcon, FileUpIcon, PlusIcon, UserMinusIcon, UsersIcon } from "lu
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/portal/data-table";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { fetchJson } from "@/lib/portal/api";
@@ -20,6 +19,7 @@ import { fetchJson as fetchJsonApi, jsonBody } from "@/lib/portal/api";
 import { SEPARATION_REASONS } from "@/lib/employees/separation-rules";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { UserAvatar } from "@/components/portal/user-avatar";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 
 /*
  * User Management (loadHREmployees / renderHREmployeeTable,
@@ -166,25 +166,25 @@ export function EmployeesPage({ refreshKey }) {
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <Tabs value={filter} onValueChange={setFilter}>
-              <TabsList className="flex-wrap">
-                <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
-                <TabsTrigger value="teaching">Teaching ({counts.teaching})</TabsTrigger>
-                <TabsTrigger value="non-teaching">Non-Teaching ({counts["non-teaching"]})</TabsTrigger>
-                <TabsTrigger value="archived">Archived ({counts.archived})</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <Select value={branch} onValueChange={setBranch}>
-              <SelectTrigger className="w-full md:w-56" aria-label="Filter by branch"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All branches</SelectItem>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
-                {branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
           <DataTable
+            toolbar={(
+              <>
+                <FilterTabs value={filter} onValueChange={setFilter} label="Employee filter" options={[
+                  { value: "all", label: "All", count: counts.all },
+                  { value: "teaching", label: "Teaching", count: counts.teaching },
+                  { value: "non-teaching", label: "Non-Teaching", count: counts["non-teaching"] },
+                  { value: "archived", label: "Archived", count: counts.archived },
+                ]} />
+                <Select value={branch} onValueChange={setBranch}>
+                  <SelectTrigger className="w-48" aria-label="Filter by branch"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All branches</SelectItem>
+                    <SelectItem value="unassigned">Unassigned</SelectItem>
+                    {branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
             columns={columns}
             rows={rows}
             loading={state.loading}

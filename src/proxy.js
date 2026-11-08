@@ -130,6 +130,9 @@ const API_MODULES = [
   // Overtime approval: listing is attendance "read", deciding (PATCH) "update".
   ["/api/attendance/overtime", "attendance"],
   ["/api/admin/system", "system_maintenance"],
+  // Backup & Recovery exports (2026-11-08): the Super Admin only; the
+  // database checks the actor again (20261108010000).
+  ["/api/admin/backup", "backup_recovery"],
   ["/api/admin/dashboard", "dashboard"],
   ["/api/hr/employees", "employee_information"],
   ["/api/hr/attendance", "attendance"],
@@ -179,6 +182,8 @@ const API_MODULES = [
   // the Accountant and HR. Any write is refused (the Super Admin edits them
   // in System Configuration, /api/admin/payroll-*).
   ["/api/payroll/government-rates", "government_rates"],
+  // Pay rates, read-only (2026-11-08): HR / Super Admin every branch, Accountant and Admin their own.
+  ["/api/payroll/pay-rates", "pay_rates"],
   // Remittance (employee + employer shares, withholding tax), read-only:
   // the Accountant's branch, HR every branch (payroll_records scope).
   ["/api/payroll/remittance", "payroll_records"],

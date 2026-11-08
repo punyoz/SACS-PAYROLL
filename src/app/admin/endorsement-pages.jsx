@@ -4,8 +4,8 @@ import * as React from "react";
 import { ArrowLeftRightIcon, CalendarDaysIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
@@ -60,10 +60,8 @@ export function LeaveRecommendationsPage({ refreshKey }) {
         <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList><TabsTrigger value="pending">Waiting for HR</TabsTrigger><TabsTrigger value="decided">Decided</TabsTrigger><TabsTrigger value="all">All</TabsTrigger></TabsList>
-        </Tabs>
-        <DataTable columns={columns} rows={rows} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
+        <DataTable toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Waiting for HR" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} />}
+          columns={columns} rows={rows} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
           searchPlaceholder="Search employee or leave type…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Leave recommendations" minWidth={1100} />
       </CardContent>
       <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions

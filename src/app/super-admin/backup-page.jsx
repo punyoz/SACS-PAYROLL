@@ -20,7 +20,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatCard } from "@/components/portal/stat-card";
+import { useConfirm } from "@/components/portal/confirm-dialog";
 import { usePortalSession } from "@/components/portal/session";
+import { FullBackupCard, PRIVACY_TEXT, RestoreGuideCard, downloadFile } from "./backup-sections";
 import { fetchJson } from "@/lib/portal/api";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { manilaDateKey } from "@/lib/portal/format";
@@ -45,12 +47,19 @@ const EXPORTS = [
   { type: "audit", label: "Audit logs", icon: TableIcon },
 ];
 
+// What the school can really do (Supabase Pro, 2026-11-08): daily backups
+// kept 7 days, restored from the Supabase dashboard. Point-in-time recovery
+// is a paid add-on that is NOT enabled.
 const RECOVERY = [
-  ["Database corruption", "Point-in-time restore via Supabase Dashboard", "30–60 min", "Supabase Support"],
-  ["Accidental data deletion", "Row-level restore from audit history or CSV backup", "10–30 min", "Super Admin"],
-  ["Auth service outage", "Supabase status page → escalate if unresolved", "Varies", "Supabase Support"],
-  ["Full system restore", "Restore from Supabase backup snapshot", "1–4 hours", "Development Team"],
+  ["Database corruption or a bad bulk change", "Restore the latest daily backup (Supabase Pro keeps 7 days) from Supabase Dashboard → Database → Backups. Changes made after that backup are lost and must be re-entered from the Excel / CSV exports.", "30–60 min (system offline while restoring)", "Super Admin with the Supabase project owner"],
+  ["Accidental deletion of a few records", "Row-level restore: re-enter the rows from the audit history (old values are logged) or from the latest Excel / CSV export on this page.", "10–30 min", "Super Admin"],
+  ["Point-in-time recovery (to an exact minute)", "Not enabled. It is a paid Supabase add-on; restores go back to the last daily backup only.", "—", "—"],
+  ["Auth service outage", "Check status.supabase.com; escalate to Supabase Support if it is not resolved.", "Varies", "Supabase Support"],
+  ["Full system restore", "Restore the latest daily backup in the Supabase dashboard (or rebuild a project from the code's migrations), redeploy the app, then re-enter later changes from the Excel exports. Sign-in accounts come back only with a database backup.", "1–4 hours", "Development Team"],
 ];
+
+// The status check lists every account; on a slow connection it must not spin forever.
+const STATUS_TIMEOUT_MS = 20_000;
 
 function serviceRows(system, error) {
   if (error) return [{ key: "db", icon: DatabaseIcon, label: "Supabase database", meta: error, pill: "Error", tone: "danger" }];
@@ -71,18 +80,27 @@ function serviceRows(system, error) {
 
 export function BackupPage({ refreshKey }) {
   const { notify } = usePortalSession();
+  const [confirmDialog, confirm] = useConfirm();
   const [state, setState] = React.useState({ loading: true, system: null, error: null });
   const [exporting, setExporting] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", tone: "" });
 
   const load = React.useCallback(async () => {
-    setState((current) => ({ ...current, loading: true }));
+    setState((current) => ({ ...current, loading: true, error: null }));
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), STATUS_TIMEOUT_MS);
     try {
-      const system = await fetchJson("/api/admin/system");
+      const system = await fetchJson("/api/admin/system", { signal: abort.signal });
       setState({ loading: false, system, error: null });
     } catch (error) {
-      // A reply that is not OK reads as "could not reach"; no reply at all as offline.
-      setState({ loading: false, system: null, error: error.status ? null : (error.message || "Offline") });
+      // Always say why (2026-11-08): it used to show nothing but loading bars.
+      const message = error.name === "AbortError"
+        ? `The status check did not answer within ${STATUS_TIMEOUT_MS / 1000} seconds. Press Refresh to try again.`
+        : error.status ? `The server answered with an error (${error.status}): ${error.message || "status unavailable"}`
+          : `Could not reach the server: ${error.message || "offline"}`;
+      setState({ loading: false, system: null, error: message });
+    } finally {
+      clearTimeout(timer);
     }
   }, []);
 
@@ -96,26 +114,46 @@ export function BackupPage({ refreshKey }) {
 
   async function exportData(type) {
     if (type === "payroll") {
-      setFeedback({ text: "Payroll export requires accountant portal access.", tone: "warning" });
+      // Read-only, every branch, for backup (2026-11-08): the server and the
+      // database check it is the Super Admin; it is recorded in the audit log.
+      const ok = await confirm({
+        title: "Export payroll for every branch?",
+        description: `${PRIVACY_TEXT} The export is read-only and is recorded in the audit log.`,
+        confirmLabel: "Export payroll CSV",
+      });
+      if (!ok) return;
+      setExporting(type);
+      setFeedback({ text: "Preparing payroll export…", tone: "" });
+      try {
+        const result = await downloadFile("/api/admin/backup/payroll?format=csv", {}, { fallbackName: `sacs-payroll-${manilaDateKey()}.csv` });
+        setFeedback({ text: `Payroll export downloaded (${result.name}).`, tone: "success" });
+        notify("Export ready", "The payroll CSV was downloaded. Keep it private.", "success");
+      } catch (error) {
+        setFeedback({ text: error.message || "Payroll export failed.", tone: "error" });
+      } finally {
+        setExporting("");
+      }
       return;
     }
     setExporting(type);
     setFeedback({ text: `Preparing ${type} export…`, tone: "" });
     const date = manilaDateKey();
     try {
+      // Demo people (is_demo, 2026-11-08) are left out of every export.
+      const demo = new Set(type === "audit" ? [] : (await fetchJson("/api/admin/backup/full")).demo_ids || []);
       if (type === "employees") {
         const data = await fetchJson("/api/hr/employees?archived=true");
         downloadCsv(
           `sacs-employees-${date}.csv`,
           ["Full Name", "Employee ID", "Role", "Type", "Position", "Status", "Email", "Date of Birth"],
-          (data.employees || []).map((e) => [e.full_name || "", e.employee_id || "", e.role || "", e.employee_type || "", e.position || "", e.employee_status || "", e.email || "", e.date_of_birth || ""]),
+          (data.employees || []).filter((e) => !demo.has(String(e.id))).map((e) => [e.full_name || "", e.employee_id || "", e.role || "", e.employee_type || "", e.position || "", e.employee_status || "", e.email || "", e.date_of_birth || ""]),
         );
       } else if (type === "attendance") {
         const data = await fetchJson("/api/hr/attendance?view=all");
         downloadCsv(
           `sacs-attendance-${date}.csv`,
           ["Employee", "Type", "Date", "Time In", "Time Out", "Hours", "Status"],
-          (data.logs || []).map((l) => [l.employee_name || "", l.employee_type || "", l.date || "", l.time_in || "", l.time_out || "", l.total_hours ?? l.hours_worked ?? "", l.status || ""]),
+          (data.logs || []).filter((l) => !demo.has(String(l.employee_id))).map((l) => [l.employee_name || "", l.employee_type || "", l.date || "", l.time_in || "", l.time_out || "", l.total_hours ?? l.hours_worked ?? "", l.status || ""]),
         );
       } else {
         const data = await fetchJson("/api/admin/audit-logs?limit=1000");
@@ -142,7 +180,7 @@ export function BackupPage({ refreshKey }) {
       </Alert>
 
       <section aria-label="Backup status" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Backups" value="Supabase" hint="Not visible to this app. Check Supabase Dashboard → Database → Backups." icon={CloudIcon} tone="info" />
+        <StatCard label="Backups" value="Daily, 7 days" hint="Supabase Pro daily backups, restored from Supabase Dashboard → Database → Backups. Point-in-time recovery: not enabled." icon={CloudIcon} tone="info" />
         <StatCard label="Database status" value={dbStatus} hint="Supabase connection" icon={DatabaseIcon} tone={dbStatus === "Connected" ? "success" : "danger"} loading={state.loading && !state.system} />
         <StatCard label="Core tables" value={integrity} hint="Attendance, payroll and configuration tables reachable" icon={CheckCircle2Icon} tone={integrity === "All reachable" ? "success" : "warning"} loading={state.loading && !state.system} />
       </section>
@@ -163,7 +201,7 @@ export function BackupPage({ refreshKey }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Manual data export</CardTitle>
-          <CardDescription>Download a snapshot of key system data for offline backup, compliance, or disaster recovery.</CardDescription>
+          <CardDescription>Download a snapshot of key system data for offline backup, compliance, or disaster recovery. Payroll covers every branch, read-only.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -190,10 +228,13 @@ export function BackupPage({ refreshKey }) {
         </CardContent>
       </Card>
 
+      <FullBackupCard refreshKey={refreshKey} />
+      <RestoreGuideCard />
+
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Recovery procedures</CardTitle>
-          <CardDescription>Who to contact and how long each recovery usually takes</CardDescription>
+          <CardDescription>Who to contact and how long each recovery usually takes. Daily backups (7 days) are on; point-in-time recovery is not enabled.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto rounded-md border">
@@ -207,8 +248,8 @@ export function BackupPage({ refreshKey }) {
                   <TableRow key={scenario}>
                     <TableCell className="font-medium">{scenario}</TableCell>
                     <TableCell className="whitespace-normal">{action}</TableCell>
-                    <TableCell className="tabular-nums">{time}</TableCell>
-                    <TableCell>{contact}</TableCell>
+                    <TableCell className="whitespace-normal tabular-nums">{time}</TableCell>
+                    <TableCell className="whitespace-normal">{contact}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -216,6 +257,7 @@ export function BackupPage({ refreshKey }) {
           </div>
         </CardContent>
       </Card>
+      {confirmDialog}
     </>
   );
 }

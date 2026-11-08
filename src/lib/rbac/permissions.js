@@ -179,6 +179,15 @@ export const MODULES = {
     order: 15.5, label: "Government Rates", section: "Reference",
     page: { accountant: "ac-gov-rates", hr: "hr-gov-rates" },
   },
+  // Pay rates, read-only (2026-11-08): the daily rate and its hourly rate
+  // (always daily ÷ 8), default and per branch. Only the Super Admin changes
+  // them (system_configuration); HR every branch, the Accountant and the
+  // branch Admin their own branch. HR and the Accountant see them on their
+  // Government Rates page.
+  pay_rates: {
+    order: 15.6, label: "Pay Rates", section: "Reference",
+    page: { admin: "adm-pay-rates" },
+  },
   audit_logs: {
     // Super Admin's is system-wide (logins, config changes, backups);
     // Admin's is their own branch's activity only.
@@ -333,9 +342,11 @@ export const ROLE_PERMISSIONS = {
     tenure_protection: none(),
     // RFID issue reports only (the route refuses every other kind): it marks them Resolved.
     branch_oversight: { scope: SCOPE_ALL, actions: READ_WRITE },
-    // Moderation only: reads every announcement and deletes any. Whether it
-    // posts routine announcements is an open decision (2026-10-30).
-    announcements: { scope: SCOPE_ALL, actions: ["read", "delete"] },
+    // Posts like HR (whole school or any branch), edits its own, and deletes
+    // any (moderation). Decided 2026-11-08 (20261108020000); was read + delete.
+    announcements: full(SCOPE_ALL),
+    // Reads the pay rates; changes them through system_configuration.
+    pay_rates: view(SCOPE_ALL),
   },
 
   admin: {
@@ -369,6 +380,8 @@ export const ROLE_PERMISSIONS = {
     system_maintenance: { scope: SCOPE_BRANCH, actions: READ_WRITE },
     system_configuration: none(),
     government_rates: none(),
+    // Its own branch's daily / hourly rate, read-only (2026-11-08).
+    pay_rates: view(SCOPE_BRANCH),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
@@ -423,6 +436,8 @@ export const ROLE_PERMISSIONS = {
     system_configuration: none(),
     // Read-only: answers employees' questions about their deductions.
     government_rates: view(SCOPE_ALL),
+    // Every branch's daily / hourly rate, read-only (2026-11-08).
+    pay_rates: view(SCOPE_ALL),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: full(SCOPE_ALL),
@@ -479,6 +494,8 @@ export const ROLE_PERMISSIONS = {
     system_configuration: none(),
     // Read-only: checks and explains the deductions it processes.
     government_rates: view(SCOPE_BRANCH),
+    // Its own branch's daily / hourly rate, read-only (2026-11-08).
+    pay_rates: view(SCOPE_BRANCH),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
@@ -526,6 +543,7 @@ export const ROLE_PERMISSIONS = {
     system_maintenance: none(),
     system_configuration: none(),
     government_rates: none(),
+    pay_rates: none(),
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),

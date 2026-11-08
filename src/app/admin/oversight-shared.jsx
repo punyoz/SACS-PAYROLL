@@ -17,6 +17,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateTime } from "@/lib/portal/payroll-preview";
 import { STATUS_LABELS, STATUS_TONES } from "@/lib/branch-requests";
 import { cn } from "@/lib/utils";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
  * Shared pieces of the branch Admin's oversight pages
@@ -139,10 +140,9 @@ export function FileDialog({ open, onOpenChange, title, description, fields, emp
     let control;
     if (f.type === "employee") {
       control = (
-        <Select value={values[f.id] || ""} onValueChange={(v) => set(f.id, v)}>
-          <SelectTrigger id={id} className="w-full"><SelectValue placeholder={employees.length ? "Select employee" : "No employees"} /></SelectTrigger>
-          <SelectContent>{employees.map((e) => <SelectItem key={e.id} value={e.id}>{`${e.full_name}${e.employee_code ? ` — ${e.employee_code}` : ""}`}</SelectItem>)}</SelectContent>
-        </Select>
+        <SearchableSelect id={id} label="Employee" value={values[f.id] || ""} onValueChange={(v) => set(f.id, v)}
+          placeholder={employees.length ? "Select employee" : "No employees"} searchPlaceholder="Search name or employee ID…"
+          options={employees.map((e) => ({ value: e.id, label: `${e.full_name}${e.employee_code ? ` — ${e.employee_code}` : ""}` }))} />
       );
     } else if (f.type === "select") {
       control = (

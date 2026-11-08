@@ -1,15 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
+import { TableToolbar } from "@/components/portal/table-toolbar";
 import { cn } from "@/lib/utils";
-import { SEARCH_MAX } from "@/lib/input-limits";
 
 /**
  * The portals' table: search, click-to-sort headers, pagination, a skeleton
@@ -125,25 +124,11 @@ export function DataTable({
 
   return (
     <div className={cn("flex flex-col gap-3", className)}>
+      {/* Search first, then the filters and buttons on the same row (TableToolbar, 2026-11-08). */}
       {searchable || toolbar ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {searchable ? (
-            <div className="relative sm:max-w-sm sm:flex-1">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={searchPlaceholder}
-                maxLength={SEARCH_MAX}
-                aria-label={searchPlaceholder.replace(/…$/, "")}
-                className="pl-8"
-                disabled={loading && !server}
-              />
-            </div>
-          ) : null}
-          {toolbar ? <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{typeof toolbar === "function" ? toolbar(sorted) : toolbar}</div> : null}
-        </div>
+        <TableToolbar search={searchable ? { value: query, onChange: setQuery, placeholder: searchPlaceholder, disabled: loading && !server } : null}>
+          {toolbar ? (typeof toolbar === "function" ? toolbar(sorted) : toolbar) : null}
+        </TableToolbar>
       ) : null}
 
       {/* A failed refresh never empties a table that already has rows: they

@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
@@ -22,6 +21,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 
 /*
  * Tenure Pay Protection (/api/hr/tenure-protection; src/lib/payroll/tenure-protection.js).
@@ -383,30 +383,26 @@ export function TenureProtectionPanel({ refreshKey }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <Tabs value={tab} onValueChange={setTab} className="min-w-0 max-w-full">
-              <div className="-mx-1 overflow-x-auto px-1 pb-1">
-                <TabsList className="w-max">
-                  <TabsTrigger value="meets">Meets tenure ({counts.meets})</TabsTrigger>
-                  <TabsTrigger value="granted">Benefit granted ({counts.granted})</TabsTrigger>
-                  <TabsTrigger value="all">All employees ({counts.all})</TabsTrigger>
-                </TabsList>
-              </div>
-            </Tabs>
-            {(data?.branches || []).length > 1 ? (
-              <div className="w-full space-y-1.5 sm:w-56">
-                <Label htmlFor="tp-branch">Branch</Label>
-                <Select value={branchFilter} onValueChange={setBranchFilter}>
-                  <SelectTrigger id="tp-branch" className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={ALL}>All branches</SelectItem>
-                    {data.branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : null}
-          </div>
-          <DataTable columns={columns} rows={employees} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
+          <DataTable
+            toolbar={(
+              <>
+                <FilterTabs value={tab} onValueChange={setTab} label="Tenure filter" options={[
+                  { value: "meets", label: "Meets tenure", count: counts.meets },
+                  { value: "granted", label: "Benefit granted", count: counts.granted },
+                  { value: "all", label: "All employees", count: counts.all },
+                ]} />
+                {(data?.branches || []).length > 1 ? (
+                  <Select value={branchFilter} onValueChange={setBranchFilter}>
+                    <SelectTrigger id="tp-branch" className="w-48" aria-label="Branch"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ALL}>All branches</SelectItem>
+                      {data.branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : null}
+              </>
+            )}
+            columns={columns} rows={employees} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee or ID…" caption="Employees and Tenure Pay Protection" minWidth={canEdit ? 900 : 800}
             empty={{ title: tab === "granted" ? "Nobody has the benefit granted" : tab === "meets" ? "Nobody meets the tenure requirement yet" : "No employees" }} />
         </CardContent>

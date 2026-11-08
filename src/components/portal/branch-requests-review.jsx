@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { REQUEST_KINDS, requestSummary } from "@/lib/branch-requests";
@@ -101,12 +101,8 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
         <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        {hasPendingState ? (
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList><TabsTrigger value="pending">Pending</TabsTrigger><TabsTrigger value="decided">Decided</TabsTrigger><TabsTrigger value="all">All</TabsTrigger></TabsList>
-          </Tabs>
-        ) : null}
-        <DataTable columns={columns} rows={rows} loading={state.loading && !state.data} error={state.error} onRetry={load} pageSize={15}
+        <DataTable toolbar={hasPendingState ? <FilterTabs value={tab} onValueChange={setTab} label="Request filter" options={[{ value: "pending", label: "Pending" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} /> : null}
+          columns={columns} rows={rows} loading={state.loading && !state.data} error={state.error} onRetry={load} pageSize={15}
           searchPlaceholder="Search employee, branch or remark…" empty={{ title: tab === "pending" && hasPendingState ? "Nothing waiting" : "Nothing here yet", icon: Icon }} caption={title} minWidth={1150} />
       </CardContent>
       <Dialog open={Boolean(dialog)} onOpenChange={(o) => { if (!o && !busy) setDialog(null); }}>

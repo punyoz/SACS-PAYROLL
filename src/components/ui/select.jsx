@@ -47,11 +47,18 @@ function SelectTrigger({
   )
 }
 
+// Every dropdown list (2026-11-08): opens under its box (above it when there
+// is no room), never taller than about 320 px or the space on screen, with
+// normal smooth scrolling inside and no up / down arrow buttons. It used to
+// open "item-aligned": as tall as the screen, with tiny scroll arrows, and
+// cut off or over the dialog. Long lists (places, people) use
+// SearchableSelect (src/components/portal/searchable-select.jsx) instead.
 function SelectContent({
   className,
   children,
-  position = "item-aligned",
-  align = "center",
+  position = "popper",
+  align = "start",
+  collisionPadding = 8,
   ...props
 }) {
   return (
@@ -59,16 +66,16 @@ function SelectContent({
       <SelectPrimitive.Content
         data-slot="select-content"
         className={cn(
-          "relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          "relative z-50 max-h-[min(20rem,var(--radix-select-content-available-height))] overscroll-contain min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           position === "popper" &&
             "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
           className
         )}
         position={position}
         align={align}
+        collisionPadding={collisionPadding}
         {...props}
       >
-        <SelectScrollUpButton />
         <SelectPrimitive.Viewport
           className={cn(
             "p-1",
@@ -78,7 +85,6 @@ function SelectContent({
         >
           {children}
         </SelectPrimitive.Viewport>
-        <SelectScrollDownButton />
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
   )

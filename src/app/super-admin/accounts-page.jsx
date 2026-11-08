@@ -4,8 +4,8 @@ import * as React from "react";
 import { ArchiveIcon, CheckCircle2Icon, PencilIcon, RefreshCwIcon, UserPlusIcon, UsersRoundIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { fetchJson } from "@/lib/portal/api";
@@ -122,17 +122,8 @@ export function AccountsPage({ refreshKey }) {
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={filter} onValueChange={setFilter}>
-            <TabsList className="h-auto flex-wrap">
-              {FILTERS.map((f) => (
-                <TabsTrigger key={f.id} value={f.id} className="gap-1.5">
-                  {f.label}
-                  <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">{counts[f.id] ?? 0}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
           <DataTable
+            toolbar={<FilterTabs value={filter} onValueChange={setFilter} label="Account filter" options={FILTERS.map((f) => ({ value: f.id, label: f.label, count: counts[f.id] ?? 0 }))} />}
             columns={columns}
             rows={rows}
             loading={first}

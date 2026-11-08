@@ -93,6 +93,7 @@ const MODULE_ICON = {
   payroll_run_approval: { default: "check" },
   tenure_protection: { default: "check" },
   government_rates: { default: "records" },
+  pay_rates: { default: "records" },
 };
 
 /**

@@ -14,12 +14,13 @@
  * scope with a version in force wins.
  */
 
-import { usesLegalRules } from "@/lib/payroll/statutory";
+import { LEGAL_RULES_EFFECTIVE, usesLegalRules } from "@/lib/payroll/statutory";
 import { dailyRateFor } from "@/lib/payroll/semi-monthly";
+import { roundPeso } from "@/lib/payroll/money";
 import { CONTRIBUTION_MAX, pesoLimit } from "@/lib/input-limits";
 
 export const RATE_TYPES = Object.freeze({
-  hourly: { label: "Hourly rate", unit: "peso", hint: "Undertime: minutes ÷ 60 × this rate. From Oct 1, 2026 it is always the daily rate ÷ 8 and is not set on its own: change the daily rate or Working days per year instead" },
+  hourly: { label: "Hourly rate", unit: "peso", hint: "Undertime: minutes ÷ 60 × this rate. Always the daily rate ÷ 8 (automatic): it is never typed. Change the daily rate instead" },
   daily: { label: "Daily rate", unit: "peso", hint: "Absent, Late (as absences), Half Day and Leave Without Pay are a share of this. From Oct 1, 2026 it is each employee's monthly salary × 12 ÷ working days per year; this value then applies only to an employee with no salary on file, or when set for one employee." },
   half_day_pct: { label: "Half Day deduction", unit: "percent", hint: "% of the daily rate deducted for a Half Day" },
   absent_pct: { label: "Absent deduction", unit: "percent", hint: "% of the daily rate deducted for an Absent day" },
@@ -225,14 +226,71 @@ export function hourlyIsDerived(periodStart) {
   return usesLegalRules(periodStart);
 }
 
+/**
+ * The one hourly figure payroll, payslips, reports and screens use: the daily
+ * rate ÷ 8, with the system's peso rounding (roundPeso: centavos, half away
+ * from zero). ₱700 → ₱87.50; ₱650 → ₱81.25; ₱611 → ₱76.38.
+ * Same as semi-monthly.js hourlyRateFor().
+ */
+export function hourlyFromDaily(daily) {
+  return roundPeso((Number(daily) || 0) / HOURS_PER_DAY);
+}
+
+/** Why a typed hourly rate is refused (the API and the database say the same). */
+export const HOURLY_DERIVED_MESSAGE = "The hourly rate is automatic: it is always the daily rate ÷ 8 and is never set on its own. Change the daily rate instead.";
+
 /** The hourly rate that goes with a resolved daily rate: daily ÷ 8. */
 export function derivedHourly(daily) {
   return {
     ...daily,
     rate_type: "hourly",
-    value: Math.round(((Number(daily?.value) || 0) / HOURS_PER_DAY) * 100) / 100,
+    value: hourlyFromDaily(daily?.value),
     source: "derived",
   };
+}
+
+/**
+ * The hourly rate's history as shown: built from the daily rate's history
+ * (same scope), each version ÷ 8 with the SAME dates, so the two rows always
+ * line up. Never a separately typed history.
+ */
+export function derivedHourlyHistory(configs, scope = "global", scopeRef = null) {
+  return rateHistory(configs, "daily", scope, scopeRef).map((version) => ({
+    ...version,
+    rate_type: "hourly",
+    daily_value: version.value,
+    value: hourlyFromDaily(version.value),
+    source: "derived",
+  }));
+}
+
+/**
+ * Hourly versions that were typed by hand (kept on file; the table is
+ * append-only). Each says what became of it:
+ *   in_force_before_rule  dated before Oct 1, 2026: what payroll used then
+ *   superseded            dated Oct 1, 2026 or later: never read by payroll
+ *                         ("superseded: now automatic"); the daily rate ÷ 8
+ *                         applies instead
+ */
+export function typedHourlyVersions(configs) {
+  return (configs || [])
+    .filter((c) => c.rate_type === "hourly")
+    .sort((a, b) => -newestFirst(a, b))
+    .map((c) => {
+      const superseded = String(c.effective_date) >= LEGAL_RULES_EFFECTIVE;
+      return {
+        id: c.id || null,
+        scope: c.scope,
+        scope_ref: c.scope_ref ?? null,
+        value: Number(c.value) || 0,
+        effective_date: c.effective_date,
+        created_by_name: c.created_by_name || "",
+        created_at: c.created_at || null,
+        note: c.note || "",
+        status: superseded ? "superseded" : "in_force_before_rule",
+        status_label: superseded ? "Superseded: now automatic (never used by payroll)" : `Typed; in force before ${LEGAL_RULES_EFFECTIVE}`,
+      };
+    });
 }
 
 /**
@@ -279,6 +337,31 @@ export function resolveRates(configs, who, periodStart) {
     };
   }
   return resolved;
+}
+
+/**
+ * Each branch's daily rate (its own, or the system default) with the hourly
+ * rate that goes with it (÷ 8), now and next period. Built per branch from
+ * that branch's rows only, so one branch's rate never shows on another.
+ */
+export function branchPayRates(configs, branches, currentStart, nextStart) {
+  return (branches || []).map((branch) => {
+    const now = resolveRate(configs, "daily", { branchId: branch.id }, currentStart);
+    const next = resolveRate(configs, "daily", { branchId: branch.id }, nextStart);
+    return {
+      branch_id: branch.id,
+      name: branch.name,
+      status: branch.status || "Active",
+      current: now,
+      next_period: next,
+      hourly_current: hourlyFromDaily(now.value),
+      hourly_next: hourlyFromDaily(next.value),
+      uses_default: now.scope !== "branch",
+      next_uses_default: next.scope !== "branch",
+      history: rateHistory(configs, "daily", "branch", branch.id),
+      hourly_history: derivedHourlyHistory(configs, "branch", branch.id),
+    };
+  });
 }
 
 /** Plain { type: value } view of resolveRates()'s result. */
@@ -350,8 +433,9 @@ export function validateRateInput({ rate_type: rateType, scope, scope_ref: scope
   if (RATE_TYPES[rateType].unit === "switch" && amount !== 0 && amount !== 1) return "Enter 1 (on) or 0 (off).";
   if (RATE_TYPES[rateType].unit === "half" && ![1, 2, 3].includes(amount)) return "Enter 1 (1-15 payslip), 2 (16-end payslip) or 3 (half on each).";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(effectiveDate || ""))) return "Choose the date the new value takes effect.";
-  if (rateType === "hourly" && hourlyIsDerived(effectiveDate)) {
-    return "From October 1, 2026 the hourly rate is always the daily rate ÷ 8. Change the daily rate or Working days per year instead.";
-  }
+  // Never typed, for any date or scope (2026-11-08; the database refuses it too,
+  // 20261108030000): the hourly rate is the daily rate ÷ 8.
+  if (rateType === "hourly") return HOURLY_DERIVED_MESSAGE;
+  if (rateType === "daily" && !(amount > 0)) return "The daily rate must be more than ₱0.";
   return null;
 }

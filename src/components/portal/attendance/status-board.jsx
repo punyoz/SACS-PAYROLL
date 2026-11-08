@@ -5,10 +5,9 @@ import { RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AttendanceBadge, StatusBadge, attendanceTone } from "@/components/portal/status-badge";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { EmployeeCell, EmployeeSearch, GroupedAttendanceTable, RecordActions, StatusCell, recordColumns } from "@/components/portal/attendance/grouped-table";
+import { EmployeeCell, GroupedAttendanceTable, RecordActions, StatusCell, recordColumns } from "@/components/portal/attendance/grouped-table";
 import { apiFetch, fetchJson } from "@/lib/portal/api";
 import {
   branchContext,
@@ -25,6 +24,8 @@ import {
 } from "@/lib/portal/attendance";
 import { ATTENDANCE_STATUS_LIST, formatDateKey, formatTime } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
+import { FilterTabs } from "@/components/portal/filter-tabs";
+import { TableToolbar } from "@/components/portal/table-toolbar";
 
 /*
  * The attendance status board (mountAttendanceBoard / renderAttendanceBoard,
@@ -223,20 +224,15 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Tabs value={tab} onValueChange={setTab}>
-          <div className="-mx-1 overflow-x-auto px-1 pb-1">
-            <TabsList>
-              <TabsTrigger value="all">All records</TabsTrigger>
-              <TabsTrigger value="incomplete">Incomplete queue{tabCount(incomplete.length)}</TabsTrigger>
-              <TabsTrigger value="corrections">Correction requests{tabCount(corrections.length)}</TabsTrigger>
-              <TabsTrigger value="overtime">Overtime{tabCount(overtime.filter((row) => !row.approval && !row.locked).length)}</TabsTrigger>
-              <TabsTrigger value="blocked">Blocked taps{tabCount(blocked.length)}</TabsTrigger>
-            </TabsList>
-          </div>
-        </Tabs>
-
-        <div className="flex flex-wrap gap-2">
-          <EmployeeSearch value={search} onChange={setSearch} />
+        {/* One toolbar row (2026-11-08): search first, then the view tabs and the filters. */}
+        <TableToolbar search={{ value: search, onChange: setSearch, placeholder: "Search employees…" }}>
+          <FilterTabs value={tab} onValueChange={setTab} label="Attendance view" options={[
+            { value: "all", label: "All records" },
+            { value: "incomplete", label: `Incomplete queue${tabCount(incomplete.length)}` },
+            { value: "corrections", label: `Correction requests${tabCount(corrections.length)}` },
+            { value: "overtime", label: `Overtime${tabCount(overtime.filter((row) => !row.approval && !row.locked).length)}` },
+            { value: "blocked", label: `Blocked taps${tabCount(blocked.length)}` },
+          ]} />
           {showBranch ? (
             <Select value={branch || ALL} onValueChange={(value) => setBranch(value === ALL ? "" : value)}>
               <SelectTrigger size="sm" className="w-48" aria-label="Branch"><SelectValue /></SelectTrigger>
@@ -264,7 +260,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
               </Select>
             </>
           ) : null}
-        </div>
+        </TableToolbar>
 
         {tab === "all" ? (
           <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">

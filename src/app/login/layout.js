@@ -17,7 +17,7 @@ export default function LoginLayout({ children }) {
   return (
     <ThemeScope className={`${fonts} min-h-dvh font-sans antialiased`} portalClassName={fonts}>
       {children}
-      <Toaster position="top-center" richColors closeButton />
+      <Toaster />
     </ThemeScope>
   );
 }

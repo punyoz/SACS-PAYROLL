@@ -28,6 +28,7 @@ import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/com
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
+import { PayRatesPanel } from "@/components/portal/pay-rates";
 import { HolidayDutyPage } from "@/components/portal/holiday-duty";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { AccountantDataProvider, useAccountant } from "./accountant-data";
@@ -103,7 +104,7 @@ const DESCRIPTIONS = {
   "ac-holidays": "View-only — holidays, and the staff HR requires to report on them (paid the holiday premium when they work).",
   "ac-monitoring": "Monitor all payroll status and history across all periods.",
   "ac-reports": "Generate and export payroll reports for documentation and audit purposes.",
-  "ac-gov-rates": "View-only — the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
+  "ac-gov-rates": "View-only — the daily and hourly pay rates, the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
   "ac-profile": null,
 };
 
@@ -144,7 +145,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
-      {current === "ac-gov-rates" ? <GovernmentRatesPanel refreshKey={refreshKey} /> : null}
+      {current === "ac-gov-rates" ? <><PayRatesPanel refreshKey={refreshKey} /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
       {current === "ac-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
       {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}
       {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}

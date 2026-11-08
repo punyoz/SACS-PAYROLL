@@ -40,7 +40,8 @@ describe("Payroll rates", () => {
   it("adds a version as given when no processed period is in the way", async () => {
     const { POST } = await import("@/app/api/admin/payroll-rates/route");
     const response = await POST(requestAs(SUPER, "/api/admin/payroll-rates", "POST", {
-      rate_type: "daily", scope: "global", value: 880, effective_date: "2026-10-01",
+      // A daily rate change needs a reason (2026-11-08).
+      rate_type: "daily", scope: "global", value: 880, effective_date: "2026-10-01", note: "Board resolution 2026-14",
     }));
     const body = await response.json();
     expect(response.status).toBe(200);

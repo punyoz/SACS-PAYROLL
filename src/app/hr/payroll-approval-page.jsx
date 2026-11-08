@@ -11,12 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { useUrlParam } from "@/components/portal/use-url-param";
@@ -31,9 +29,10 @@ import { FLAG_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES, runNoLabel } from "@/
 import { CorrectionsCard } from "@/components/portal/payroll-corrections";
 import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exclusions";
 import { cn } from "@/lib/utils";
-import { SEARCH_MAX } from "@/lib/input-limits";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
+import { FilterTabs } from "@/components/portal/filter-tabs";
+import { TableToolbar } from "@/components/portal/table-toolbar";
 
 /*
  * HR → Payroll Approval (/api/hr/payroll-runs). One row per branch per pay
@@ -614,37 +613,24 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <ProcessingWindows />
-          <Tabs value={tab} onValueChange={(v) => { setTab(v); setSelected(new Set()); }}>
-            <div className="-mx-1 overflow-x-auto px-1 pb-1">
-              <TabsList className="w-max">{TABS.map((t) => <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>)}</TabsList>
-            </div>
-          </Tabs>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="pa-branch">Branch</Label>
-              <Select value={filters.branch} onValueChange={(v) => setFilters((c) => ({ ...c, branch: v }))}>
-                <SelectTrigger id="pa-branch" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ANY}>All branches</SelectItem>
-                  {(data?.branches || []).map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pa-period">Period / cutoff</Label>
-              <Select value={filters.period} onValueChange={(v) => setFilters((c) => ({ ...c, period: v }))}>
-                <SelectTrigger id="pa-period" className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ANY}>All periods</SelectItem>
-                  {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pa-search">Search</Label>
-              <Input maxLength={SEARCH_MAX} id="pa-search" placeholder="Branch, submitter or employee name" value={filters.q} onChange={(e) => setFilters((c) => ({ ...c, q: e.target.value }))} />
-            </div>
-          </div>
+          {/* One toolbar row (2026-11-08): search first, then the view tabs and the filters. */}
+          <TableToolbar search={{ value: filters.q, onChange: (q) => setFilters((c) => ({ ...c, q })), placeholder: "Search branch, submitter or employee…" }}>
+            <FilterTabs value={tab} onValueChange={(v) => { setTab(v); setSelected(new Set()); }} label="Payroll runs" options={TABS.map((t) => ({ value: t.id, label: t.label }))} />
+            <Select value={filters.branch} onValueChange={(v) => setFilters((c) => ({ ...c, branch: v }))}>
+              <SelectTrigger id="pa-branch" className="w-44" aria-label="Branch"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>All branches</SelectItem>
+                {(data?.branches || []).map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filters.period} onValueChange={(v) => setFilters((c) => ({ ...c, period: v }))}>
+              <SelectTrigger id="pa-period" className="w-52" aria-label="Period / cutoff"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ANY}>All periods</SelectItem>
+                {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </TableToolbar>
           {state.error && !data ? <ErrorState message={state.error} onRetry={load} /> : (
             <DataTable
               columns={columns}

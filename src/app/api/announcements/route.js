@@ -8,11 +8,13 @@
  *   GET ?manage=1        the management list (HR, Admin, Super Admin): deleted
  *                        and expired ones too, with what the caller may do to each
  *   POST  { title, body, category, audience, expires_on? }
- *                        HR: audience "all" (whole school) or a branch id.
+ *                        HR and the Super Admin (2026-11-08): audience "all"
+ *                        (whole school) or a branch id.
  *                        Admin: its own branch only (the database refuses anything else).
  *   PATCH { id, action: "edit", title, body, category, expires_on?, audience? }
- *                        the author (an Admin, in its branch) or HR; only HR
- *                        changes the audience
+ *                        the author (an Admin, in its branch; the Super Admin,
+ *                        its own) or HR; HR and the Super Admin (its own)
+ *                        change the audience
  *   DELETE { id }        the author (an Admin, in its branch), HR, or the Super
  *                        Admin (moderation). Kept on file, hidden from everyone.
  *   PATCH { id, action: "remove" }   the same delete, as the Admin's page sent it
@@ -84,7 +86,8 @@ function rightsFor(guard, row, branchId) {
   if (row.archived) return { can_edit: false, can_delete: false };
   const mine = row.created_by && row.created_by === guard.userId;
   if (guard.role === "hr") return { can_edit: true, can_delete: true };
-  if (guard.role === "super_admin") return { can_edit: false, can_delete: true };
+  // Posts like HR (2026-11-08): edits its own, deletes any (moderation).
+  if (guard.role === "super_admin") return { can_edit: Boolean(mine), can_delete: true };
   if (guard.role === "admin") {
     const own = Boolean(mine && branchId && String(row.branch_id || "") === String(branchId));
     return { can_edit: own, can_delete: own };
@@ -146,13 +149,13 @@ export async function GET(request) {
     // The normal view: current ones only (an expired one disappears on its own).
     if (!manage) rows = rows.filter((row) => row.status === "active");
     // An Admin manages its branch's; the school-wide ones are listed read only.
-    const canPost = guard.role === "hr" || (guard.role === "admin" && Boolean(branchId));
+    const canPost = guard.role === "hr" || guard.role === "super_admin" || (guard.role === "admin" && Boolean(branchId));
     return NextResponse.json({
       available: true,
       announcements: rows,
       can_post: canPost,
-      // HR chooses the audience; an Admin's is fixed to its branch.
-      audiences: guard.role === "hr"
+      // HR and the Super Admin choose the audience; an Admin's is fixed to its branch.
+      audiences: everyBranch
         ? [{ value: "all", label: SCHOOL_WIDE }, ...(branches.data || []).filter((b) => String(b.status || "active").toLowerCase() !== "closed").map((b) => ({ value: b.id, label: b.name }))]
         : null,
       fixed_audience: guard.role === "admin" && branchId ? { value: branchId, label: branchNames.get(String(branchId)) || "Your branch" } : null,
@@ -167,14 +170,14 @@ export async function POST(request) {
   try {
     const guard = await requirePermission(request, "announcements", "create");
     if (guard.denied) return guard.denied;
-    if (!["hr", "admin"].includes(guard.role)) return NextResponse.json({ error: "Only HR and the branch Admin post announcements." }, { status: 403 });
+    if (!["hr", "admin", "super_admin"].includes(guard.role)) return NextResponse.json({ error: "Only HR, the branch Admin and the Super Admin post announcements." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const input = validate(body);
     if (input.error) return NextResponse.json({ error: input.error }, { status: 400 });
     const supabase = getAdminClient();
     const own = guard.role === "admin" ? await branchOf(supabase, guard) : null;
     const audience = normalizeText(body.audience);
-    if (guard.role === "hr" && !audience) return NextResponse.json({ error: "Choose who the announcement is for." }, { status: 400 });
+    if ((guard.role === "hr" || guard.role === "super_admin") && !audience) return NextResponse.json({ error: "Choose who the announcement is for." }, { status: 400 });
     if (audience && audience !== "all" && !UUID.test(audience)) return NextResponse.json({ error: "Choose who the announcement is for." }, { status: 400 });
     // The database decides: an Admin asking for "all" or another branch is refused there.
     const target = audience === "all" ? null : audience || own;
@@ -243,8 +246,8 @@ export async function PATCH(request) {
     if (audience && audience !== "all" && !UUID.test(audience)) return NextResponse.json({ error: "Choose who the announcement is for." }, { status: 400 });
     const saved = await supabase.rpc("announcement_edit", {
       p_actor: guard.userId, p_id: id, p_title: input.title, p_body: input.body, p_category: input.category, p_expires_on: input.expires_on,
-      // Only HR changes the audience; the database ignores it for anyone else.
-      p_set_audience: guard.role === "hr" && Boolean(audience), p_branch: audience && audience !== "all" ? audience : null,
+      // HR and the Super Admin (its own) change the audience; the database ignores it for anyone else.
+      p_set_audience: (guard.role === "hr" || guard.role === "super_admin") && Boolean(audience), p_branch: audience && audience !== "all" ? audience : null,
     });
     if (saved.error) return refused(saved.error);
     const row = Array.isArray(saved.data) ? saved.data[0] : saved.data;

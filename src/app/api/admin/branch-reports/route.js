@@ -20,6 +20,7 @@ import { collapseDailyTaps } from "@/lib/attendance/taps";
 import { attendanceBucket } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as todayKeyManila } from "@/lib/payroll/periods";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 export async function GET(request) {
   const guard = await requirePermission(request, "branch_reports", "read");
@@ -57,7 +58,9 @@ export async function GET(request) {
       throw new Error(`Failed to fetch profiles: ${profileResult.error.message}`);
     }
 
-    const profiles = profileResult.data || [];
+    // Demo people are left out of reports (is_demo, 2026-11-08).
+    const demo = await loadDemoIds(supabase);
+    const profiles = (profileResult.data || []).filter(notDemo(demo, (p) => p.id));
     const activeProfiles = profiles.filter((p) => !p.archived);
 
     const headcount = {
@@ -81,7 +84,7 @@ export async function GET(request) {
 
     const attendanceResult = await attendanceQuery;
     // One record per employee for the day, whatever number of taps it took.
-    const attendanceRows = collapseDailyTaps(attendanceResult.error ? [] : (attendanceResult.data || []));
+    const attendanceRows = collapseDailyTaps(attendanceResult.error ? [] : (attendanceResult.data || []).filter(notDemo(demo)));
 
     const countStatus = (name) =>
       attendanceRows.filter(
@@ -105,7 +108,7 @@ export async function GET(request) {
     // ── Payroll status (read-only) ──
     let payrollQuery = supabase
       .from("payroll_records")
-      .select("id,net_pay,gross_pay,period_label,processed_at,branch_id")
+      .select("id,net_pay,gross_pay,period_label,processed_at,branch_id,employee_id")
       // A record a Super Admin override replaced is kept, archived, for audit.
       .eq("archived", false)
       .order("processed_at", { ascending: false })
@@ -113,7 +116,7 @@ export async function GET(request) {
     if (branchId) payrollQuery = payrollQuery.eq("branch_id", branchId);
 
     const payrollResult = await payrollQuery;
-    const payrollRows = payrollResult.error ? [] : (payrollResult.data || []);
+    const payrollRows = payrollResult.error ? [] : (payrollResult.data || []).filter(notDemo(demo));
     const latestPeriod = normalizeText(payrollRows[0]?.period_label, "");
 
     const periodRows = latestPeriod
@@ -122,12 +125,12 @@ export async function GET(request) {
 
     let pendingQuery = supabase
       .from("payroll_entries")
-      .select("id,status,branch_id")
+      .select("id,status,branch_id,employee_id")
       .limit(500);
     if (branchId) pendingQuery = pendingQuery.eq("branch_id", branchId);
 
     const pendingResult = await pendingQuery;
-    const pendingRows = pendingResult.error ? [] : (pendingResult.data || []);
+    const pendingRows = pendingResult.error ? [] : (pendingResult.data || []).filter(notDemo(demo));
 
     const payroll = {
       latest_period: latestPeriod || null,

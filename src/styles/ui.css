@@ -432,3 +432,33 @@ body.sacs-ui-portal.dark {
     display: none;
   }
 }
+
+/* No visible scrollbar, scrolling unchanged (wheel, trackpad, touch, keyboard),
+   2026-11-08: the sidebar on desktop, and rows of filter tabs that scroll
+   sideways on a phone. Data tables and long pages keep their scrollbars so
+   the reader can see where they are. Chrome, Edge, Safari: ::-webkit-scrollbar;
+   Firefox: scrollbar-width; old Edge: -ms-overflow-style. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+@layer base {
+  /* Number boxes are typed, not stepped (2026-11-08): no spinner arrows.
+     A field where a stepper truly helps opts back in with data-stepper. */
+  input[type="number"][data-slot="input"]:not([data-stepper]) {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  input[type="number"][data-slot="input"]:not([data-stepper])::-webkit-inner-spin-button,
+  input[type="number"][data-slot="input"]:not([data-stepper])::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}

@@ -23,6 +23,7 @@ import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { monthInfo } from "@/lib/payroll/semi-monthly";
 import { REMITTANCE_COLUMNS, buildRemittance } from "@/lib/payroll/remittance";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 function csvCell(value) {
   const text = String(value ?? "");
@@ -67,7 +68,9 @@ export async function GET(request) {
     const released = (finals.data || [])
       .filter((entry) => String(entry.payroll?.final_pay?.release_on || "").slice(0, 7) === month)
       .map((entry) => ({ ...entry, year_end_only: true }));
-    const report = buildRemittance([...(entries.data || []), ...released], new Map((branches.data || []).map((b) => [b.id, b.name])));
+    // Demo people are left out of reports (is_demo, 2026-11-08).
+    const demo = await loadDemoIds(supabase);
+    const report = buildRemittance([...(entries.data || []), ...released].filter(notDemo(demo)), new Map((branches.data || []).map((b) => [b.id, b.name])));
 
     if (String(url.searchParams.get("format") || "").toLowerCase() === "csv") {
       const head = ["Employee", "Employee ID", "Branch", "Status", ...REMITTANCE_COLUMNS.map(([, label]) => label), "Employer share recorded"];

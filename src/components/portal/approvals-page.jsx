@@ -216,7 +216,7 @@ export function ApprovalsPage({ refreshKey }) {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={status} onValueChange={setStatus} className="overflow-x-auto">
+        <Tabs value={status} onValueChange={setStatus} className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden scrollbar-none">
           <TabsList className="w-max">
             {STATUS_TABS.map((s) => <TabsTrigger key={s} value={s}>{s === "all" ? "All" : SUBSIDY_STATUS_LABELS[s]}</TabsTrigger>)}
           </TabsList>

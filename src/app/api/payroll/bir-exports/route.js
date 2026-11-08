@@ -20,6 +20,7 @@ import { describeYearEndError, requireBirReader } from "@/lib/payroll/bir-access
 import { buildBirFile, exportRows } from "@/lib/payroll/bir-exports";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LIST_COLUMNS = "id,kind,tax_year,format,scope,branch_id,employee_id,employee_count,totals,generated_by_name,generated_at";
@@ -44,6 +45,9 @@ export async function GET(request) {
       }
       if (!found.data) return NextResponse.json({ error: "No such file, or not your branch's." }, { status: 404 });
       const stored = found.data;
+      // Demo people are left out of BIR files (is_demo, 2026-11-08).
+      const demo = await loadDemoIds(supabase);
+      stored.rows = (stored.rows || []).filter(notDemo(demo));
       const pii = await fetchProfilesPii(supabase, (stored.rows || []).map((r) => r.employee_id));
       const rows = exportRows(stored, new Map([...pii.entries()].map(([key, value]) => [key, value.tin_number])));
       const built = buildBirFile({

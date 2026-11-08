@@ -83,7 +83,7 @@ const DESCRIPTIONS = {
   "sa-maintenance": "Run the RFID Terminal and manage RFID card registration.",
   "sa-config": "System-wide settings, payroll rules, attendance policies and holidays.",
   "sa-audit": "System-wide audit trails, login activity and transaction history across all branches.",
-  "sa-announcements": "Every announcement in the school, for moderation.",
+  "sa-announcements": "Post to the whole school or one branch, edit your own, and delete any announcement (moderation).",
   "sa-backup": "Database status, manual exports and recovery procedures.",
   "sa-profile": null,
 };
@@ -146,7 +146,7 @@ function SuperAdminScreens() {
       {current === "sa-audit" ? <YearEndTaxCard /> : null}
       {current === "sa-audit" ? <BirExportsCard refreshKey={refreshKey} /> : null}
       {current === "sa-backup" ? <BackupPage refreshKey={refreshKey} /> : null}
-      {current === "sa-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
+      {current === "sa-announcements" ? <AnnouncementsManager refreshKey={refreshKey} description="Post to the whole school or to one branch. You can edit your own, and delete any announcement (moderation)." /> : null}
       {current === "sa-profile" ? <StaffProfilePage roleLabel="Super Admin" accountOnly /> : null}
     </AppShell>
   );

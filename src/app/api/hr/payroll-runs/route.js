@@ -80,6 +80,7 @@ async function processingWindows(supabase) {
 import { listOpenExclusions } from "@/lib/payroll/run-service";
 import { notify } from "@/lib/branch-requests-server";
 import { textLimitError } from "@/lib/input-limits";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { remarks: [1000, "The remarks"] };
@@ -347,7 +348,15 @@ export async function GET(request) {
       const detail = await loadRunDetail(supabase, guard, runId);
       if (detail.error) return NextResponse.json({ error: detail.error }, { status: detail.status });
       const format = normalizeText(url.searchParams.get("format")).toLowerCase();
-      if (format === "xlsx" || format === "pdf") return exportFile(detail, format);
+      if (format === "xlsx" || format === "pdf") {
+        // Demo people are left out of exported files (is_demo, 2026-11-08);
+        // with none in the run the file is exactly as before.
+        const demo = await loadDemoIds(supabase);
+        const items = (detail.items || []).filter(notDemo(demo));
+        if (items.length === (detail.items || []).length) return exportFile(detail, format);
+        const totals = { ...detail.run.totals, employees: items.length, gross: sum(items, "gross_pay"), deductions: sum(items, "total_deductions"), net: sum(items, "net_pay") };
+        return exportFile({ ...detail, items, run: { ...detail.run, totals } }, format);
+      }
       return NextResponse.json(detail);
     }
 

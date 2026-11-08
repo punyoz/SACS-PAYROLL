@@ -9,7 +9,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { BranchGroupedTable } from "@/components/portal/branch-grouped-table";
 import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
@@ -22,6 +21,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { STATUS_TONES } from "@/lib/branch-requests";
 import { cn } from "@/lib/utils";
 import { useBranches } from "./employees-page";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 
 /*
  * Transfer Requests (loadHrBranchAssignment / submitHrBranchAssign /
@@ -299,17 +299,13 @@ export function TransfersPage({ refreshKey }) {
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="-mx-1 overflow-x-auto px-1 pb-1">
-            <Tabs value={filter} onValueChange={setFilter}>
-              <TabsList>
-                <TabsTrigger value="all">All ({all.length})</TabsTrigger>
-                <TabsTrigger value="unassigned">Unassigned ({unassigned})</TabsTrigger>
-                {branches.map((b) => <TabsTrigger key={b.id} value={b.id}>{b.name} ({countFor(b.id)})</TabsTrigger>)}
-              </TabsList>
-            </Tabs>
-          </div>
           {!branches.length && !first ? <p className="text-sm text-muted-foreground">No branches configured — ask the Super Admin to add branches first.</p> : null}
           <BranchGroupedTable
+            toolbar={<FilterTabs value={filter} onValueChange={setFilter} label="Branch filter" options={[
+              { value: "all", label: "All", count: all.length },
+              { value: "unassigned", label: "Unassigned", count: unassigned },
+              ...branches.map((b) => ({ value: b.id, label: b.name, count: countFor(b.id) })),
+            ]} />}
             columns={columns}
             rows={rows}
             groupOf={(e) => e.branch || ""}

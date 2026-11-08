@@ -16,6 +16,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
 import { BRANCH_NAME_MAX, SEARCH_MAX } from "@/lib/input-limits";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
  * Branch Management (loadSABranches / openSABranchModal / submitSABranch,
@@ -156,19 +157,18 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
   const select = (key, label, options, placeholder, { disabled = false, labels = null } = {}) => (
     <div className="space-y-2">
       <Label htmlFor={`sa-branch-${key}`}>{label}{key === "city" ? <span className="text-destructive" aria-hidden="true"> *</span> : null}</Label>
-      <Select value={values[key] || undefined} onValueChange={(value) => set(key, value)} disabled={disabled || !options.length}>
-        <SelectTrigger
-          id={`sa-branch-${key}`}
-          className="w-full"
-          aria-invalid={errors[key] ? true : undefined}
-          aria-describedby={errors[key] ? `sa-branch-${key}-error` : undefined}
-        >
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent className="max-h-72">
-          {options.map((option) => <SelectItem key={option} value={option}>{labels?.[option] || option}</SelectItem>)}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        id={`sa-branch-${key}`}
+        label={label}
+        value={values[key] || ""}
+        onValueChange={(value) => set(key, value)}
+        disabled={disabled || !options.length}
+        placeholder={placeholder}
+        searchPlaceholder={`Search ${label.toLowerCase()}…`}
+        options={options.map((option) => ({ value: option, label: labels?.[option] || option }))}
+        aria-invalid={errors[key] ? true : undefined}
+        aria-describedby={errors[key] ? `sa-branch-${key}-error` : undefined}
+      />
       {errors[key] ? <p id={`sa-branch-${key}-error`} className="text-sm text-destructive">{errors[key]}</p> : null}
     </div>
   );

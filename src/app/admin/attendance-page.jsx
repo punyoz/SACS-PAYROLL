@@ -5,7 +5,6 @@ import { CalendarCheckIcon, FlagIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
 import { AttendanceBadge } from "@/components/portal/status-badge";
@@ -14,6 +13,7 @@ import { formatTime, manilaDateKey } from "@/lib/portal/format";
 import { dateLabel } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { DecisionCell, FileDialog, FiledCell, HistoryButton, RequestStatus, fileRequest, useBranchView } from "./oversight-shared";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 
 /*
  * Branch Attendance (GET /api/admin/branch-oversight?view=attendance):
@@ -68,15 +68,18 @@ export function AttendancePage({ refreshKey }) {
           <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <Tabs value={mode} onValueChange={setMode}><TabsList><TabsTrigger value="daily">Daily</TabsTrigger><TabsTrigger value="monthly">Monthly</TabsTrigger></TabsList></Tabs>
-            {mode === "daily" ? (
-              <div className="space-y-1.5"><Label htmlFor="adm-att-day">Day</Label><DatePicker id="adm-att-day" value={day} max={today} onChange={(v) => setDay(v || today)} /></div>
-            ) : (
-              <div className="space-y-1.5"><Label htmlFor="adm-att-month">Month</Label><input id="adm-att-month" type="month" max={today.slice(0, 7)} value={month} onChange={(e) => setMonth(e.target.value || today.slice(0, 7))} className="h-9 rounded-md border bg-transparent px-3 text-sm shadow-xs" /></div>
+          <DataTable
+            toolbar={(
+              <>
+                <FilterTabs value={mode} onValueChange={setMode} label="Attendance view" options={[{ value: "daily", label: "Daily" }, { value: "monthly", label: "Monthly" }]} />
+                {mode === "daily" ? (
+                  <div className="flex items-center gap-2"><Label htmlFor="adm-att-day" className="text-muted-foreground">Day</Label><DatePicker id="adm-att-day" value={day} max={today} onChange={(v) => setDay(v || today)} /></div>
+                ) : (
+                  <div className="flex items-center gap-2"><Label htmlFor="adm-att-month" className="text-muted-foreground">Month</Label><input id="adm-att-month" type="month" max={today.slice(0, 7)} value={month} onChange={(e) => setMonth(e.target.value || today.slice(0, 7))} className="h-10 rounded-md border bg-transparent px-3 text-sm shadow-xs md:h-9" /></div>
+                )}
+              </>
             )}
-          </div>
-          <DataTable columns={columns} rows={data?.logs || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={25}
+            columns={columns} rows={data?.logs || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={25}
             searchPlaceholder="Search employee or status…" empty={{ title: "No attendance records for this range", icon: CalendarCheckIcon }} caption="Branch attendance" minWidth={980} />
         </CardContent>
       </Card>

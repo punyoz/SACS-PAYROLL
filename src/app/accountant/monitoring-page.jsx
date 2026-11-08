@@ -4,9 +4,9 @@ import * as React from "react";
 import { CheckCircle2Icon, ListIcon, PauseCircleIcon, ReceiptTextIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
@@ -82,13 +82,8 @@ export function MonitoringPage() {
           <CardAction className="flex flex-wrap gap-2"><HistorySelect /><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={filter} onValueChange={setFilter} className="overflow-x-auto">
-            <TabsList className="w-max">
-              <TabsTrigger value="all">All</TabsTrigger>
-              {MONITOR_TABS.map((label) => <TabsTrigger key={label} value={label}>{label}</TabsTrigger>)}
-            </TabsList>
-          </Tabs>
           <DataTable
+            toolbar={<FilterTabs value={filter} onValueChange={setFilter} label="Payroll status" options={[{ value: "all", label: "All" }, ...MONITOR_TABS.map((label) => ({ value: label, label }))]} />}
             columns={columns}
             rows={rows}
             loading={first}

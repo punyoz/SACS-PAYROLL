@@ -148,25 +148,29 @@ export function PayrollRecordsPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Processed payslips</CardTitle>
           <CardAction className="flex flex-wrap gap-2">
-            <Select value={period} onValueChange={choosePeriod}>
-              <SelectTrigger size="sm" className="w-48" aria-label="Pay period"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All periods</SelectItem>
-                {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={branch} onValueChange={chooseBranch}>
-              <SelectTrigger size="sm" className="w-40" aria-label="Branch"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All branches</SelectItem>
-                {(data?.branches || []).map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
         </CardHeader>
         <CardContent>
           <DataTable
+            toolbar={(
+              <>
+                <Select value={period} onValueChange={choosePeriod}>
+                  <SelectTrigger size="sm" className="w-52" aria-label="Pay period"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All periods</SelectItem>
+                    {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={branch} onValueChange={chooseBranch}>
+                  <SelectTrigger size="sm" className="w-44" aria-label="Branch"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL}>All branches</SelectItem>
+                    {(data?.branches || []).map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </>
+            )}
             columns={columns}
             rows={rows}
             loading={first}

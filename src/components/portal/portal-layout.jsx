@@ -12,7 +12,7 @@ export function PortalLayout({ children }) {
   return (
     <ThemeScope className={`${fontVariables} min-h-dvh font-sans antialiased`} portalClassName={fontVariables}>
       {children}
-      <Toaster position="bottom-right" richColors closeButton />
+      <Toaster />
     </ThemeScope>
   );
 }

@@ -1,14 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { cn } from "@/lib/utils";
-import { SEARCH_MAX } from "@/lib/input-limits";
+import { TableToolbar } from "@/components/portal/table-toolbar";
 
 /**
  * A table whose rows sit under one heading per group (HR Reports and the
@@ -85,15 +84,7 @@ export function BranchGroupedTable({
   return (
     <div className="flex flex-col gap-3">
       {search || toolbar ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {search ? (
-            <div className="relative sm:max-w-sm sm:flex-1">
-              <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <Input maxLength={SEARCH_MAX} type="search" className="pl-8" placeholder={searchPlaceholder} aria-label={searchPlaceholder.replace(/…$/, "")} value={query} onChange={(e) => setQuery(e.target.value)} />
-            </div>
-          ) : null}
-          {toolbar ? <div className="flex flex-wrap gap-2 sm:ml-auto">{toolbar}</div> : null}
-        </div>
+        <TableToolbar search={search ? { value: query, onChange: setQuery, placeholder: searchPlaceholder } : null}>{toolbar}</TableToolbar>
       ) : null}
       <div className="overflow-hidden rounded-lg border bg-card">
         <Table style={{ minWidth }}>

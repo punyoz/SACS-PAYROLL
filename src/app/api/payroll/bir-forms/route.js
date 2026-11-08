@@ -25,6 +25,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { buildBirFile, recordBirExport } from "@/lib/payroll/bir-exports";
 import { birYears, loadBirYear } from "@/lib/payroll/bir-forms";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { loadDemoIds, notDemo } from "@/lib/demo";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -83,6 +84,9 @@ export async function GET(request) {
     const alphalist = format === "xlsx" || format === "csv";
     const branchId = alphalist ? ALPHALIST_SCOPE : birBranchScope(guard);
     const data = await loadBirYear(supabase, { year, branchId, employeeId: alphalist ? null : employeeId || null });
+    // Demo people are left out of BIR reports and files (is_demo, 2026-11-08).
+    const demo = await loadDemoIds(supabase);
+    data.rows = data.rows.filter(notDemo(demo));
 
     if (format === "json") {
       const years = await birYears(supabase);

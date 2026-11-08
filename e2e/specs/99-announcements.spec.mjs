@@ -1,7 +1,8 @@
 // Announcements for HR and branch Admins (2026-10-30), live: HR posts to the
 // whole school or a branch, edits and deletes; an Admin only to its own
 // branch and only its own posts; Accountant and Employee read only; the
-// Super Admin deletes (moderation) but does not post. Every refusal is also
+// Super Admin deletes any (moderation) and, since 2026-11-08, posts like HR
+// (covered in 99-sa-backup-ui-rates). Every refusal is also
 // tried as a direct API call; the database's own guard is tried in SQL.
 //
 //   E2E_SLOWMO=500 npx playwright test e2e/specs/99-announcements.spec.mjs
@@ -174,12 +175,10 @@ test("announcements: HR and Admin manage, audiences hold, readers read only", as
     check("Expiry", /Expired/.test(await row(page, T.expired).innerText()), "HR's list still shows it, marked Expired");
   });
 
-  await step(page, "Super Admin: moderation (delete any), no posting", async () => {
+  await step(page, "Super Admin: moderation (delete any); posting allowed since 2026-11-08", async () => {
     monitor.at("Super Admin > Announcements");
     await openPage(page, "super_admin", "sa-announcements");
-    check("Super Admin", (await main(page).getByRole("button", { name: "Post announcement" }).count()) === 0, "no Post button");
-    const post = await api(page, "POST", "/api/announcements", { title: "x", body: "y", audience: "all" });
-    check("Super Admin", post.status === 403, `posting refused (${post.status})`);
+    check("Super Admin", (await main(page).getByRole("button", { name: "Post announcement" }).count()) === 1, "Post button shown (decided 2026-11-08)");
     say(`Deleting North's Admin post as moderation…`);
     await row(page, T.northAdmin).getByRole("button", { name: "Delete" }).click();
     await confirm(page, "Delete");

@@ -486,7 +486,7 @@ export function ConfigPage({ refreshKey }) {
       <WindowEnforcementBanner refreshKey={`${refreshKey}-${enforcementKey}`} />
 
       <Tabs value={tab} onValueChange={setTab} className="gap-4">
-        <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <div className="-mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1 scrollbar-none">
           <TabsList className="w-max">
             {TABS.map((t) => <TabsTrigger key={t.id} value={t.id}>{t.label}</TabsTrigger>)}
           </TabsList>

@@ -10,6 +10,22 @@ import {
 import { useUiTheme } from "@/components/theme"
 import { Toaster as Sonner } from "sonner";
 
+// Where every pop-up toast sits (2026-11-08), one place for every page and
+// role: top right, just under the 56 px header (bell, theme, profile stay
+// clear), stacked, auto-dismissed after a few seconds, with a close button.
+// Phones: full width with side margins, under the status bar and header.
+// The notification bell's dropdown is separate and unchanged.
+export const TOAST_DEFAULTS = Object.freeze({
+  position: "top-right",
+  offset: { top: 64, right: 16 },
+  mobileOffset: { top: 64, left: 12, right: 12 },
+  closeButton: true,
+  richColors: true,
+  duration: 5000,
+  visibleToasts: 4,
+  gap: 8,
+})
+
 const Toaster = ({
   ...props
 }) => {
@@ -19,6 +35,7 @@ const Toaster = ({
   return (
     <Sonner
       theme={theme}
+      {...TOAST_DEFAULTS}
       className="toaster group"
       icons={{
         success: <CircleCheckIcon className="size-4" />,

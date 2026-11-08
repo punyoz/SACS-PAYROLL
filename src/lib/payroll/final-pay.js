@@ -40,6 +40,21 @@ const isWeekend = (key) => [0, 6].includes(new Date(`${key}T00:00:00Z`).getUTCDa
  * was an absence.
  * @param {{ from: string, to: string, absent: Set<string>, unpaidLeave: Set<string>, holidays: Set<string> }} args
  */
+/**
+ * The daily rate final pay uses (decided 2026-11-08): the same rule as
+ * regular payroll -- resolveRates() on the separation date, so a daily rate
+ * set for that one employee wins, the salary gives monthly × 12 ÷ working
+ * days per year, and an employee with no salary on file takes the branch's
+ * (or the system's) daily rate. It used to be the salary formula only.
+ * A final pay already saved is a stored payslip and is never recomputed.
+ *
+ * @param {object} resolved  resolveRates() output (or rateValues() of it)
+ */
+export function finalPayDailyRate(resolved) {
+  const value = typeof resolved?.daily === "object" ? resolved.daily?.value : resolved?.daily;
+  return roundPeso(Number(value) || 0);
+}
+
 export function paidDaysBetween({ from, to, absent, unpaidLeave, holidays }) {
   let paid = 0;
   const unpaidHolidays = [];

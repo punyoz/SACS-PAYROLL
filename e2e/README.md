@@ -70,6 +70,8 @@ accounts are in `e2e/accounts.mjs` (local only).
 | `mobile/m1-key-flows` | (phone project) sign-in, every sidebar page from the phone menu without sideways scrolling, leave filed and rejected from phones, payslip, Process Payroll, Payroll Approval, RFID kiosk |
 | `90-page-sweep` | every page and sub-tab: refresh and navigate-away-and-back keep the data; every search, filter, sort, pagination, dialog and export |
 | `95-scenarios` | real-world scenarios (SCENARIOS.md): concurrent edits, duplicate people, CSV onboarding, separation, payroll corrections, a forgotten card, a far-early tap, role change, audit search, a new branch, database size |
+| `99-sa-backup-ui-rates` | (2026-11-08) Super Admin payroll export (every branch, audited; other roles refused, UI + API + SQL); full data backup .xlsx (password, sheets, row counts = database, no secrets, rate limit, audit; 64 demo employees from `e2e/scale/demo-60.sql`, timed); Super Admin posts / edits / deletes announcements; toolbars on one row; searchable Add Branch pickers; no arrows beside tabs; sidebar without scrollbar; toasts top right; daily-only rates with hourly = daily ÷ 8 |
+| `mobile/m3-ui-2026-11-08` | (phone project) toolbars stack, bottom-sheet pickers, toasts full width at the top, rates and backup pages fit |
 
 Every page is watched the whole time: a console error, uncaught exception,
 crash or unexpected failed request fails the test (`e2e/support/monitor.mjs`).

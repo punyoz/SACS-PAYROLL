@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -113,13 +113,8 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="pending">Pending{data?.pending ? ` (${data.pending})` : ""}</TabsTrigger>
-            <TabsTrigger value="decided">Decided</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <DataTable columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
+        <DataTable toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Approval filter" options={[{ value: "pending", label: "Pending", count: data?.pending || undefined }, { value: "decided", label: "Decided" }]} />}
+          columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
           searchPlaceholder="Search employee, type or details…" caption="Incentive and loan approvals" minWidth={1000}
           empty={{ title: tab === "pending" ? "Nothing waiting for HR" : "No decisions yet", icon: ClipboardCheckIcon }} />
       </CardContent>

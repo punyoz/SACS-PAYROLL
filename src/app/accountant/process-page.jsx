@@ -53,6 +53,7 @@ import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
 import { DEFERRED_NOTE, pesoText } from "@/lib/payroll/line-tags";
 import { previewLineGroups } from "@/lib/portal/payroll-line-preview";
 import { LineTag, LineTagLegend, PayrollLineGroups, TaxHowDetails } from "@/components/portal/payroll-lines";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -813,10 +814,10 @@ function SingleEntry({ onNavigate }) {
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="pc-employee">Select employee</Label>
-                <Select value={employeeId} onValueChange={(id) => { setEmployeeId(id); setEntryId(""); setForm(defaultForm(data, employees.find((e) => e.id === id))); }} disabled={!employees.length}>
-                  <SelectTrigger id="pc-employee" className="w-full"><SelectValue placeholder={employees.length ? "Select employee" : "No employees found"} /></SelectTrigger>
-                  <SelectContent>{employees.map((e) => <SelectItem key={e.id} value={e.id}>{`${e.full_name} — ${e.employee_id} (${e.employee_type})`}</SelectItem>)}</SelectContent>
-                </Select>
+                <SearchableSelect id="pc-employee" label="Employee" value={employeeId} disabled={!employees.length}
+                  onValueChange={(id) => { setEmployeeId(id); setEntryId(""); setForm(defaultForm(data, employees.find((e) => e.id === id))); }}
+                  placeholder={employees.length ? "Select employee" : "No employees found"} searchPlaceholder="Search name or employee ID…"
+                  options={employees.map((e) => ({ value: e.id, label: `${e.full_name} — ${e.employee_id} (${e.employee_type})` }))} />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="pc-period">Pay period</Label>

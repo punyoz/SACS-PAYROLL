@@ -109,7 +109,8 @@ export function ReportsPage() {
   const [state, setState] = React.useState({ loading: false, error: null });
 
   const periods = data?.period_options || [];
-  const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])];
+  // Demo people's payslips are left out of reports (is_demo, 2026-11-08).
+  const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])].filter((r) => !r.is_demo);
 
   async function generate() {
     setState({ loading: false, error: null });
