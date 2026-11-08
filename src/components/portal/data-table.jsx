@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { TableToolbar } from "@/components/portal/table-toolbar";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,6 +26,14 @@ import { cn } from "@/lib/utils";
  *
  * toolbar: a node, or (rows) => node given the searched and sorted rows (for
  * Copy / Export buttons that act on what the search shows).
+ *
+ * Phones (below 768px, alpha test B): each row is a card instead of a wide
+ * table row: the first column (or the one marked mobilePrimary) is the
+ * card's title, the others are "Label: value" lines, and columns without a
+ * text heading (actions) sit at the bottom. Column options: mobile: false
+ * hides a column on cards; mobileLabel overrides its label. mobileCards={false}
+ * keeps the scrolling table (e.g. a grid that only makes sense as a table).
+ * Only one of the two is rendered, so nothing appears twice on the page.
  */
 
 const PAGE_SIZES = [10, 25, 50, 100];
@@ -64,7 +73,10 @@ export function DataTable({
   // { total, page, pageSize, query, onChange({ page?, pageSize?, query? }) }.
   // The rows given are the current page; search and paging ask the server.
   server = null,
+  mobileCards = true,
 }) {
+  const isMobile = useIsMobile();
+  const asCards = mobileCards && isMobile;
   const [query, setQuery] = React.useState(server ? server.query || "" : "");
   const [sort, setSort] = React.useState(initialSort);
   const [page, setPage] = React.useState(1);
@@ -139,6 +151,19 @@ export function DataTable({
           {onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>Try again</Button> : null}
         </div>
       ) : null}
+      {asCards ? (
+        <MobileCards
+          columns={columns}
+          rows={visible}
+          loading={loading}
+          error={error && !(rows || []).length ? error : null}
+          onRetry={onRetry}
+          rowKey={(row, index) => rowKey(row, start + index)}
+          rowClassName={rowClassName}
+          empty={query ? { title: "No matches", description: `Nothing matches “${query}”.` } : empty}
+          caption={caption}
+        />
+      ) : (
       <div className="overflow-hidden rounded-lg border bg-card">
         <Table style={minWidth ? { minWidth } : undefined}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
@@ -216,6 +241,7 @@ export function DataTable({
           </TableBody>
         </Table>
       </div>
+      )}
 
       {paginate && !loading && total > 0 ? (
         <div className="flex flex-col-reverse gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -243,5 +269,60 @@ export function DataTable({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** A column's label on a card: its heading when that is text. */
+function cardLabel(column) {
+  if (column.mobileLabel) return column.mobileLabel;
+  return typeof column.header === "string" ? column.header : null;
+}
+
+/** Phone layout: one card per row (see the DataTable notes above). */
+function MobileCards({ columns, rows, loading, error, onRetry, rowKey, rowClassName, empty, caption }) {
+  const shown = columns.filter((column) => column.mobile !== false);
+  const primary = shown.find((column) => column.mobilePrimary) || shown[0];
+  const lines = shown.filter((column) => column !== primary && cardLabel(column));
+  const trailing = shown.filter((column) => column !== primary && !cardLabel(column));
+  const value = (column, row) => (column.cell ? column.cell(row) : (row[column.key] ?? "—"));
+
+  if (loading) {
+    return (
+      <div className="flex flex-col gap-2" aria-busy="true">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={`skc-${i}`} className="space-y-2 rounded-lg border bg-card p-3">
+            <Skeleton className="h-4 w-2/3" /><Skeleton className="h-3 w-1/2" /><Skeleton className="h-3 w-3/4" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (error) return <div className="rounded-lg border bg-card"><ErrorState message={error} onRetry={onRetry} /></div>;
+  if (!rows.length) {
+    return <div className="rounded-lg border bg-card"><EmptyState title={empty.title} description={empty.description} icon={empty.icon} /></div>;
+  }
+  return (
+    <ul className="flex flex-col gap-2" aria-label={caption || undefined} data-slot="data-table-cards">
+      {rows.map((row, index) => (
+        <li key={rowKey(row, index)} data-slot="data-table-card" className={cn("min-w-0 rounded-lg border bg-card p-3 text-sm shadow-xs", rowClassName?.(row))}>
+          {primary ? <div className="min-w-0 font-medium break-words">{value(primary, row)}</div> : null}
+          {lines.length ? (
+            <dl className="mt-2 grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)] gap-x-3 gap-y-1.5">
+              {lines.map((column) => (
+                <React.Fragment key={column.key}>
+                  <dt className="text-xs text-muted-foreground">{cardLabel(column)}</dt>
+                  <dd className="min-w-0 break-words [&_*]:whitespace-normal">{value(column, row)}</dd>
+                </React.Fragment>
+              ))}
+            </dl>
+          ) : null}
+          {trailing.length ? (
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t pt-2">
+              {trailing.map((column) => <React.Fragment key={column.key}>{value(column, row)}</React.Fragment>)}
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
