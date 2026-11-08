@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   BellIcon,
+  CircleHelpIcon,
   ChevronsUpDownIcon,
   KeyRoundIcon,
   LogOutIcon,
@@ -50,6 +51,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChangePasswordDialog, EditAccountDialog } from "@/components/portal/account-dialogs";
 import { useConfirm } from "@/components/portal/confirm-dialog";
+import { HelpTour, useFirstTimeHelp } from "@/components/portal/help-tour";
 import { usePortalSession, useSystemName } from "@/components/portal/session";
 import { apiFetch, BACKGROUND, jsonBody } from "@/lib/portal/api";
 import { useUiTheme } from "@/components/theme";
@@ -162,14 +164,47 @@ function AppearanceItems() {
   );
 }
 
-/** Your picture at the top right; opens your profile. */
-function HeaderAvatar({ onProfile }) {
-  const { ctx, role } = usePortalSession();
+/**
+ * Your picture at the top right (alpha test B4): a menu with Profile, Change
+ * password, Help and Sign out, for every role.
+ */
+function HeaderAvatar({ onProfile, onHelp }) {
+  const { ctx, role, logout } = usePortalSession();
+  const { open } = useAccountDialogs();
+  const [confirmDialog, confirm] = useConfirm();
   const name = ctx?.full_name || ROLE_LABEL[role];
+  const signOut = () => setTimeout(async () => {
+    const ok = await confirm({
+      title: "Sign out?",
+      description: "You will need your password (and an emailed code, if your account uses one) to sign in again. Anything you have not saved on this page will be lost.",
+      confirmLabel: "Sign out",
+      destructive: true,
+    });
+    if (ok) logout();
+  }, 0);
   return (
-    <Button variant="ghost" size="icon" className="rounded-full" onClick={onProfile} aria-label="Your profile">
-      <UserAvatar userId="me" name={name} className="size-7" fallbackClassName="text-[10px]" />
-    </Button>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="rounded-full" aria-label="Your account menu" data-testid="header-avatar">
+            <UserAvatar userId="me" name={name} className="size-7" fallbackClassName="text-[10px]" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-56">
+          <DropdownMenuLabel className="font-normal">
+            <p className="truncate text-sm font-medium">{name}</p>
+            <p className="truncate text-xs text-muted-foreground">{ctx?.email || ROLE_LABEL[role]}</p>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {onProfile ? <DropdownMenuItem onSelect={onProfile}><UserRoundIcon aria-hidden="true" />Profile</DropdownMenuItem> : null}
+          <DropdownMenuItem onSelect={() => open("password")}><KeyRoundIcon aria-hidden="true" />Change password</DropdownMenuItem>
+          {onHelp ? <DropdownMenuItem onSelect={onHelp}><CircleHelpIcon aria-hidden="true" />Help</DropdownMenuItem> : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onSelect={signOut}><LogOutIcon aria-hidden="true" />Sign out</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {confirmDialog}
+    </>
   );
 }
 
@@ -396,6 +431,9 @@ export function AppShell({
   const systemTitle = useSystemName();
   const [dialog, setDialog] = React.useState(null);
   const dialogs = React.useMemo(() => ({ open: setDialog }), []);
+  // First-time tour per role; Help in the avatar menu reopens it (alpha test B6).
+  const help = useFirstTimeHelp(role);
+  const setHelpOpen = help.setOpen;
 
   // Any card can open another page of this portal ("View all" on a dashboard
   // card): window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: "page-id" })).
@@ -465,7 +503,7 @@ export function AppShell({
               ) : null}
               <NotificationsMenu summary={notificationSummary} onNavigate={onNavigate} />
               <ThemeIconButton />
-              {profilePage ? <HeaderAvatar onProfile={() => onNavigate(profilePage)} /> : null}
+              <HeaderAvatar onProfile={profilePage ? () => onNavigate(profilePage) : null} onHelp={() => setHelpOpen(true)} />
             </header>
 
             <main id="portal-main" tabIndex={-1} className="flex flex-1 flex-col gap-4 p-4 outline-none sm:p-6">
@@ -477,6 +515,7 @@ export function AppShell({
 
         <EditAccountDialog open={dialog === "profile"} onOpenChange={(isOpen) => setDialog(isOpen ? "profile" : null)} {...accountOptions} />
         <ChangePasswordDialog open={dialog === "password"} onOpenChange={(isOpen) => setDialog(isOpen ? "password" : null)} />
+        <HelpTour role={role} open={help.open} onClose={help.close} />
       </TooltipProvider>
     </AccountDialogsContext.Provider>
   );
