@@ -30,8 +30,17 @@ const fold = (text) => String(text ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "
 // The same look as the shadcn Select box (src/components/ui/select.jsx).
 const TRIGGER = "flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:ring-destructive/40";
 
+/** Options drawn at a time (alpha test B2): long lists load in pages. */
+const PAGE = 100;
+
 function OptionList({ listId, options, value, active, setActive, onPick, emptyText, className }) {
   const listRef = React.useRef(null);
+  // A long list draws its first 100 matches; "Show more" adds the next 100,
+  // and keyboard moves past the end load them too. Typing narrows it.
+  const [limit, setLimit] = React.useState(PAGE);
+  React.useEffect(() => { setLimit(PAGE); }, [options]);
+  const shownLimit = Math.max(limit, active + 1);
+  const shown = options.length > shownLimit ? options.slice(0, Math.ceil(shownLimit / PAGE) * PAGE) : options;
   React.useEffect(() => {
     const node = listRef.current?.querySelector(`[data-index="${active}"]`);
     node?.scrollIntoView({ block: "nearest" });
@@ -39,7 +48,7 @@ function OptionList({ listId, options, value, active, setActive, onPick, emptyTe
   let lastGroup;
   return (
     <div ref={listRef} id={listId} role="listbox" className={cn("overflow-y-auto overscroll-contain p-1", className)}>
-      {options.length ? options.map((option, index) => {
+      {shown.length ? shown.map((option, index) => {
         const header = option.group && option.group !== lastGroup ? option.group : null;
         lastGroup = option.group;
         const selected = String(option.value) === String(value ?? "");
@@ -70,6 +79,15 @@ function OptionList({ listId, options, value, active, setActive, onPick, emptyTe
           </React.Fragment>
         );
       }) : <p role="status" className="px-2 py-6 text-center text-sm text-muted-foreground">{emptyText}</p>}
+      {shown.length < options.length ? (
+        <div role="presentation" className="flex flex-wrap items-center justify-between gap-2 border-t px-2 pt-2 pb-1 text-xs text-muted-foreground">
+          <span>Showing {shown.length} of {options.length}. Type to narrow the list.</span>
+          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setLimit(shown.length + PAGE)}
+            className="rounded px-2 py-1 font-medium text-primary hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none">
+            Show more
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

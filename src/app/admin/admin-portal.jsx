@@ -44,7 +44,7 @@ const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m)
  * (src/lib/rbac/permissions.js).
  */
 const NAV = [
-  { section: "Overview", items: [{ id: "adm-dashboard", label: "Branch Dashboard", icon: LayoutDashboardIcon, module: "branch_oversight" }] },
+  { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "branch_oversight" }] },
   {
     section: "Attendance",
     items: [

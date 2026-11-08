@@ -50,7 +50,7 @@ const NAV = [
   {
     section: "Overview",
     items: [
-      { id: "sa-dashboard", label: "SA Dashboard", icon: LayoutDashboardIcon, module: "dashboard" },
+      { id: "sa-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" },
     ],
   },
   {

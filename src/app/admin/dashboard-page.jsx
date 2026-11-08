@@ -13,7 +13,7 @@ import { useBranchView } from "./oversight-shared";
 import { AnnouncementsCard } from "@/components/portal/announcements";
 
 /*
- * Branch Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
+ * Admin Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
  * attendance of the Admin's branch, who has not tapped in yet, pending leave,
  * headcount and recent branch activity. No pay figures.
  */

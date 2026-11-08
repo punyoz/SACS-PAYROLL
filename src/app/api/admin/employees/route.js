@@ -27,6 +27,7 @@ import { findLikelyDuplicates } from "@/lib/employees/duplicates";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { applyDueSalaryChanges } from "@/lib/employees/salary-history";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { resolvePosition } from "@/lib/hr/positions";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -347,6 +348,12 @@ export async function POST(request) {
       }
     }
 
+    // The position from HR's list (alpha test B3); HR accounts and an empty
+    // position follow the role as before (normalizePositionForRole).
+    const position = await resolvePosition(supabase, record.position, role, normalizePositionForRole,
+      { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) });
+    if (position.error) return NextResponse.json({ error: position.error }, { status: position.status || 400 });
+
     const employeesBefore = await fetchEmployees(supabase);
     const autoEmployeeId = generateUniqueEmployeeId(employeesBefore);
 
@@ -356,7 +363,7 @@ export async function POST(request) {
       branch_id: branchId,
       employee_id: autoEmployeeId,
       employee_type: record.employee_type,
-      position: normalizePositionForRole(record.position, role),
+      position: position.name,
       basic_salary: record.basic_salary,
       date_of_birth: dateOfBirth,
       sex: record.sex,
@@ -411,7 +418,7 @@ export async function POST(request) {
           // The trusted copy payroll reads (src/lib/auth/users-cache.js).
           basic_salary: record.basic_salary,
           // Position-scoped payroll rates read this copy, never user_metadata.
-          position: normalizePositionForRole(record.position, role),
+          position: position.name,
           // Fix 2026-11-05: profiles is what every listing and payroll read
           // (src/lib/payroll/staff.js prefers it over user_metadata). Left
           // out, every new hire took the column default "Teaching" and
@@ -584,7 +591,10 @@ export async function PATCH(request) {
 
       nextMetadata.employee_id = currentEmployeeId;
       nextMetadata.employee_type = normalizeText(body.employee_type, normalizeText(currentMetadata.employee_type, "Teaching"));
-      nextMetadata.position = normalizePositionForRole(body.position, nextRole);
+      const nextPosition = await resolvePosition(supabase, body.position, nextRole, normalizePositionForRole,
+        { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) });
+      if (nextPosition.error) return NextResponse.json({ error: nextPosition.error }, { status: nextPosition.status || 400 });
+      nextMetadata.position = nextPosition.name;
       // Same rule as creating an employee (validateEmployeeRecord). Without
       // it a non-numeric value reached the stored salary as null/NaN.
       if (body.basic_salary !== undefined && body.basic_salary !== null && body.basic_salary !== "") {

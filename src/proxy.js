@@ -135,6 +135,8 @@ const API_MODULES = [
   ["/api/admin/backup", "backup_recovery"],
   ["/api/admin/dashboard", "dashboard"],
   ["/api/hr/employees", "employee_information"],
+  // Positions HR picks from and adds to (alpha test B3).
+  ["/api/hr/positions", "employee_information"],
   ["/api/hr/attendance", "attendance"],
   ["/api/hr/leave-requests", "leave_approval"],
   ["/api/hr/reports", "hr_reports"],

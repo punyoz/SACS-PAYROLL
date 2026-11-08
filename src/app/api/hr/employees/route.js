@@ -16,6 +16,7 @@ import { PII_FIELDS, fetchProfilesPii, withoutPiiMetadata } from "@/lib/employee
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { separateEmployee, validateSeparation } from "@/lib/employees/separation";
 import { textLimitError } from "@/lib/input-limits";
+import { resolvePosition } from "@/lib/hr/positions";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The note"] };
@@ -252,6 +253,13 @@ export async function PATCH(request) {
       return NextResponse.json({ error: emergencyInvalid }, { status: 400 });
     }
 
+    // The position from HR's list (alpha test B3): one spelling per position,
+    // a new one added on first use.
+    const position = await resolvePosition(supabase, record.position, currentMeta.role || "employee",
+      () => normalizeText(record.position, currentMeta.position || "Employee"),
+      { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) });
+    if (position.error) return NextResponse.json({ error: position.error }, { status: position.status || 400 });
+
     const parts = nameParts(record);
     const fullName = composeFullName(parts);
 
@@ -263,7 +271,7 @@ export async function PATCH(request) {
       sex: record.sex,
       civil_status: record.civil_status,
       employee_type: record.employee_type,
-      position: normalizeText(record.position, currentMeta.position || "Employee"),
+      position: position.name,
       employment_type: record.employment_type,
       employment_status: record.employment_status,
       employee_status: record.employee_status,

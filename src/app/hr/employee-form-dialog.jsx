@@ -14,6 +14,7 @@ import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DatePicker } from "@/components/portal/date-picker";
 import { LicenseSection } from "@/components/portal/license-section";
 import { SeparateEmployeeDialog } from "./separate-employee-dialog";
+import { SearchableSelect } from "@/components/portal/searchable-select";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField } from "@/lib/portal/format";
@@ -238,6 +239,38 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   // Separate (resigned, end of contract, …): src/app/hr/separate-employee-dialog.jsx.
   const [separating, setSeparating] = React.useState(false);
   const [confirmDialog, confirm] = useConfirm();
+  // Positions HR picks from and adds to (alpha test B3, /api/hr/positions).
+  const [positions, setPositions] = React.useState([]);
+  const [newPosition, setNewPosition] = React.useState({ open: false, name: "", error: "", busy: false });
+  React.useEffect(() => {
+    if (!open) return;
+    setNewPosition({ open: false, name: "", error: "", busy: false });
+    apiFetch("/api/hr/positions").then((r) => (r.ok ? r.json() : { positions: [] })).then((d) => setPositions(d.positions || [])).catch(() => {});
+  }, [open]);
+  async function addPosition() {
+    const name = newPosition.name.trim().replace(/\s+/g, " ");
+    if (name.length < 2) { setNewPosition((c) => ({ ...c, error: "Type the position (2 to 80 characters)." })); return; }
+    const existing = positions.find((p) => p.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setValues((c) => ({ ...c, position: existing }));
+      setNewPosition({ open: false, name: "", error: "", busy: false });
+      notify("Position Already Listed", `"${existing}" is already in the list and was chosen.`, "info");
+      return;
+    }
+    setNewPosition((c) => ({ ...c, busy: true, error: "" }));
+    try {
+      const response = await apiFetch("/api/hr/positions", jsonBody("POST", { name }));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok && data.code !== "duplicate") throw new Error(data.error || "The position could not be added.");
+      const saved = data.name || name;
+      setPositions((list) => [...new Set([...list, saved])].sort((a, b) => a.localeCompare(b)));
+      setValues((c) => ({ ...c, position: saved }));
+      setNewPosition({ open: false, name: "", error: "", busy: false });
+      notify(data.code === "duplicate" ? "Position Already Listed" : "Position Added", data.code === "duplicate" ? `"${saved}" is already in the list and was chosen.` : `"${saved}" was added to the list.`, data.code === "duplicate" ? "info" : "success");
+    } catch (error) {
+      setNewPosition((c) => ({ ...c, busy: false, error: error.message }));
+    }
+  }
   const activeBranches = (branches || []).filter((b) => String(b.status || "Active").toLowerCase() === "active");
 
   React.useEffect(() => {
@@ -266,7 +299,8 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   const set = (key, value) => {
     setValues((current) => {
       const next = { ...current, [key]: value };
-      if (key === "role") next.position = positionForRole(value);
+      // A role change moves only a default position (Employee / Accountant).
+      if (key === "role" && ["", "employee", "accountant"].includes(String(current.position || "").toLowerCase())) next.position = positionForRole(value);
       return next;
     });
     if (errors[key] && String(value || "").trim()) setErrors((current) => ({ ...current, [key]: "" }));
@@ -415,7 +449,28 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
 
             <Section>Employment</Section>
             {field("employee_type", select("employee_type", TYPES, "Select type"), { required: true })}
-            {field("position", readOnly("position", values.position), { required: true })}
+            {field("position", (
+              <div className="space-y-2">
+                <SearchableSelect id="emp-form-position" label="Position" value={values.position || ""} onValueChange={(v) => set("position", v)}
+                  placeholder="Select position" searchPlaceholder="Search positions…"
+                  options={[...new Set([...(values.position ? [values.position] : []), ...positions])].sort((a, b) => a.localeCompare(b)).map((p) => ({ value: p, label: p }))}
+                  aria-invalid={errors.position ? true : undefined} aria-describedby={errors.position ? "emp-form-position-error" : undefined} />
+                {newPosition.open ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input id="emp-form-new-position" aria-label="New position" maxLength={80} autoFocus placeholder="e.g. Teacher I" value={newPosition.name}
+                      onChange={(e) => setNewPosition((c) => ({ ...c, name: e.target.value, error: "" }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPosition(); } }} />
+                    <div className="flex gap-2">
+                      <Button type="button" size="sm" onClick={addPosition} disabled={newPosition.busy}>{newPosition.busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Add</Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setNewPosition({ open: false, name: "", error: "", busy: false })}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button type="button" variant="link" size="sm" className="h-auto px-0" onClick={() => setNewPosition({ open: true, name: "", error: "", busy: false })}>+ Add a position</Button>
+                )}
+                {newPosition.error ? <p className="text-sm text-destructive" role="alert">{newPosition.error}</p> : null}
+              </div>
+            ), { required: true, hint: "Pick from the list, or add one. The list never repeats a position, whatever the capitals." })}
             {field("employment_type", select("employment_type", EMPLOYMENT_TYPES, "Select employment type"), { required: true })}
             {field("employment_status", select("employment_status", EMPLOYMENT_STATUSES, "Select employment status"), { required: true })}
             {field("date_hired", date("date_hired"), { required: true })}

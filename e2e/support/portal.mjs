@@ -4,12 +4,12 @@ import { expect } from "@playwright/test";
 // Every sidebar page per role (ids from src/app/*/*-portal.jsx).
 export const PAGES = {
   super_admin: [
-    ["sa-dashboard", "SA Dashboard"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
+    ["sa-dashboard", "Dashboard"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
     ["sa-roles", "Roles & Permissions"], ["sa-maintenance", "System Maintenance"], ["sa-config", "System Configuration"],
     ["sa-audit", "Audit & Monitoring"], ["sa-announcements", "Announcements"], ["sa-backup", "Backup & Recovery"], ["sa-profile", "Profile"],
   ],
   admin: [
-    ["adm-dashboard", "Branch Dashboard"], ["adm-attendance", "Branch Attendance"], ["adm-overtime", "Overtime & Substitute"],
+    ["adm-dashboard", "Dashboard"], ["adm-attendance", "Branch Attendance"], ["adm-overtime", "Overtime & Substitute"],
     ["adm-leaves", "Leave Recommendations"], ["adm-transfers", "Transfer Endorsements"], ["adm-incentives", "Incentive Recommendations"],
     ["adm-schedules", "Schedule Requests"], ["adm-incidents", "Incident & AWOL Reports"], ["adm-rfid-issues", "RFID Issues"],
     ["adm-announcements", "Announcements"], ["adm-payroll", "Payroll Summary"], ["adm-branch-reports", "Branch Reports"],
