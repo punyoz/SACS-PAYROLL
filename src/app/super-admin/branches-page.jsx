@@ -1,22 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { BuildingIcon, CheckCircle2Icon, Loader2Icon, MapPinIcon, PencilIcon, PlusIcon, SearchIcon, UsersIcon } from "lucide-react";
+import { BuildingIcon, CheckCircle2Icon, Loader2Icon, MapPinIcon, PencilIcon, PlusIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
-import { BRANCH_NAME_MAX, SEARCH_MAX } from "@/lib/input-limits";
+import { BRANCH_NAME_MAX } from "@/lib/input-limits";
 import { SearchableSelect } from "@/components/portal/searchable-select";
+import { DataTable } from "@/components/portal/data-table";
+import { parseBranchLocation, regionSlug } from "@/lib/portal/branch-location";
 
 /*
  * Branch Management (loadSABranches / openSABranchModal / submitSABranch,
@@ -57,18 +57,30 @@ function loadPhLocations() {
   return phLocationsPromise;
 }
 
-/** The selects for a stored location string (populateSABranchLocationSelects). */
-function parseLocation(location, { PH_REGIONS, PH_PROVINCES, PH_CITIES, PH_BARANGAYS } = NO_LOCATIONS) {
-  const text = String(location || "");
-  const parts = text.split(",").map((s) => s.trim()).filter(Boolean);
-  const find = (list, startsWith = false) => (list || []).find((v) => parts.includes(v))
-    || (list || []).find((v) => (startsWith ? text.startsWith(`${v},`) : text.includes(v))) || "";
-  const region = find(PH_REGIONS);
-  const province = region ? find(PH_PROVINCES[region]) : "";
-  const city = province ? find(PH_CITIES[province]) : "";
-  const barangay = city ? find(PH_BARANGAYS[city], true) : "";
-  return { region, province, city, barangay };
+/*
+ * Every barangay (alpha test B, 2026-11-09): the bundled list above had
+ * barangays for only 188 of 1,634 cities. public/ph-barangays/<region>.json
+ * holds the PSA's PSGC list (41,911 barangays, 1,632 cities), keyed
+ * "Province|City" so towns with the same name in two provinces never share
+ * a list. One region's file (15-60 KB) loads when a city is chosen. A city
+ * with no list (Molundo, Sultan Gumander: newer than the PSGC edition used)
+ * takes the barangay typed in.
+ */
+const barangayFiles = new Map();
+function loadRegionBarangays(region) {
+  const slug = regionSlug(region);
+  if (!slug) return Promise.resolve({});
+  if (!barangayFiles.has(slug)) {
+    barangayFiles.set(slug, fetch(`/ph-barangays/${slug}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => {
+      barangayFiles.delete(slug);
+      return {};
+    }));
+  }
+  return barangayFiles.get(slug);
 }
+
+/** The selects for a stored location string (src/lib/portal/branch-location.js). */
+const parseLocation = (location, lists = NO_LOCATIONS) => parseBranchLocation(location, lists, REGION_LABELS);
 
 function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
   const { notify } = usePortalSession();
@@ -152,7 +164,18 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
 
   const provinces = PH_PROVINCES[values.region] || [];
   const cities = PH_CITIES[values.province] || [];
-  const barangays = PH_BARANGAYS[values.city] || [];
+  // The city's barangays from the region's PSGC file (loaded on demand).
+  const [regionBarangays, setRegionBarangays] = React.useState({});
+  React.useEffect(() => {
+    let live = true;
+    if (!values.region) { setRegionBarangays({}); return undefined; }
+    loadRegionBarangays(values.region).then((data) => { if (live) setRegionBarangays(data || {}); });
+    return () => { live = false; };
+  }, [values.region]);
+  const listed = regionBarangays[`${values.province}|${values.city}`] || PH_BARANGAYS[values.city] || [];
+  // The saved barangay always shows, even if a list changes name later.
+  const barangays = values.barangay && !listed.includes(values.barangay) ? [values.barangay, ...listed] : listed;
+  const typeBarangay = Boolean(values.city) && !listed.length;
 
   const select = (key, label, options, placeholder, { disabled = false, labels = null } = {}) => (
     <div className="space-y-2">
@@ -198,7 +221,13 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
           {select("region", "Region", PH_REGIONS, "Select region", { labels: REGION_LABELS })}
           {select("province", "Province / district", provinces, values.region ? "Select province / district" : "Choose a region first")}
           {select("city", "City / municipality", cities, values.province ? "Select city / municipality" : "Choose a province first")}
-          {select("barangay", "Barangay", barangays, values.city ? (barangays.length ? "Select barangay" : "No barangays listed") : "Choose a city first")}
+          {typeBarangay ? (
+            <div className="space-y-2">
+              <Label htmlFor="sa-branch-barangay">Barangay</Label>
+              <Input id="sa-branch-barangay" maxLength={80} value={values.barangay} onChange={(e) => set("barangay", e.target.value.replace(/[^A-Za-zÀ-ÖØ-öø-ÿ0-9 .'()-]/g, ""))} placeholder="Type the barangay" aria-describedby="sa-branch-barangay-hint" />
+              <p id="sa-branch-barangay-hint" className="text-xs text-muted-foreground">No official list for this town yet: type its barangay.</p>
+            </div>
+          ) : select("barangay", "Barangay", barangays, values.city ? "Select barangay" : "Choose a city first")}
           <div className="space-y-2">
             <Label htmlFor="sa-branch-code">Branch code</Label>
             <Input id="sa-branch-code" value={values.code} readOnly tabIndex={-1} className="bg-muted font-mono text-muted-foreground" />
@@ -226,12 +255,11 @@ function BranchDialog({ open, branch, nextCode, onOpenChange, onSaved }) {
 
 export function BranchesPage({ refreshKey }) {
   const [state, setState] = React.useState({ loading: true, error: null, branches: [], staff: null });
-  const [search, setSearch] = React.useState("");
   const [dialog, setDialog] = React.useState({ open: false, branch: null, code: "" });
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: !current.branches.length, error: null }));
-    const [branches, dashboard] = await Promise.allSettled([fetchJson("/api/admin/branches"), fetchJson("/api/admin/dashboard")]);
+    const [branches, dashboard] = await Promise.allSettled([fetchJson("/api/admin/branches?with_counts=1"), fetchJson("/api/admin/dashboard")]);
     setState((current) => ({
       loading: false,
       error: branches.status === "rejected" && !current.branches.length ? branches.reason?.message || "Failed to load branches." : null,
@@ -242,8 +270,20 @@ export function BranchesPage({ refreshKey }) {
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
-  const query = search.trim().toLowerCase();
-  const shown = state.branches.filter((b) => !query || [b.name, b.location, b.code, b.status].some((v) => String(v || "").toLowerCase().includes(query)));
+  const branchColumns = React.useMemo(() => [
+    { key: "name", header: "Branch", sortable: true, mobilePrimary: true, className: "min-w-40 font-medium whitespace-normal", searchValue: (b) => b.name },
+    { key: "code", header: "Code", sortable: true, className: "whitespace-nowrap", searchValue: (b) => b.code, cell: (b) => <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{b.code || "—"}</code> },
+    {
+      key: "location", header: "Location", className: "min-w-56 whitespace-normal", searchValue: (b) => b.location,
+      cell: (b) => <span className="flex items-start gap-1.5 text-muted-foreground"><MapPinIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]">{b.location || "No location set"}</span></span>,
+    },
+    { key: "status", header: "Status", sortable: true, searchValue: (b) => b.status, cell: (b) => <StatusBadge tone={b.status === "Active" ? "success" : "danger"}>{b.status}</StatusBadge> },
+    { key: "employee_count", header: "Employees", align: "right", sortable: true, className: "tabular-nums", cell: (b) => (b.employee_count ?? "—") },
+    {
+      key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
+      cell: (b) => <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, branch: b, code: "" })} aria-label={`Edit ${b.name}`}><PencilIcon aria-hidden="true" />Edit</Button>,
+    },
+  ], []);
   const active = state.branches.filter((b) => b.status === "Active").length;
   // Fixed when the dialog opens, so the reload after a save does not reset the form.
   const nextCode = () => `BR-${String(state.branches.length + 1).padStart(3, "0")}`;
@@ -257,52 +297,25 @@ export function BranchesPage({ refreshKey }) {
         <StatCard label="Total staff" value={state.staff ?? "—"} hint="Across all branches" icon={UsersIcon} loading={loading} />
       </section>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1 sm:max-w-sm">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-          <Input maxLength={SEARCH_MAX} type="search" aria-label="Search branches" placeholder="Search name, location or code…" className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <Button className="sm:ml-auto" onClick={() => setDialog({ open: true, branch: null, code: nextCode() })}><PlusIcon aria-hidden="true" />Add branch</Button>
-      </div>
-
-      {state.error ? (
-        <Card className="shadow-xs"><CardContent><ErrorState message={state.error} onRetry={load} /></CardContent></Card>
-      ) : loading ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}</div>
-      ) : !shown.length ? (
-        <Card className="shadow-xs">
-          <CardContent>
-            <EmptyState
-              icon={BuildingIcon}
-              title={state.branches.length ? "No branches match your search" : "No branches configured yet"}
-              description={state.branches.length ? "Try a different name, place or code." : "Add the first branch to start assigning staff."}
-            />
-          </CardContent>
-        </Card>
-      ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {shown.map((b) => (
-            <li key={b.id} className="min-w-0">
-              <Card className="h-full gap-3 py-4 shadow-xs transition-shadow hover:shadow-md">
-                <CardContent className="flex h-full flex-col gap-2 px-4">
-                  <div className="flex items-start gap-2">
-                    <p className="min-w-0 flex-1 truncate font-semibold">{b.name}</p>
-                    <StatusBadge tone={b.status === "Active" ? "success" : "danger"}>{b.status}</StatusBadge>
-                  </div>
-                  <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
-                    <MapPinIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0 [overflow-wrap:anywhere]">{b.location || "No location set"}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">Code: <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{b.code || "—"}</code></p>
-                  <div className="mt-auto pt-1">
-                    <Button variant="outline" size="sm" onClick={() => setDialog({ open: true, branch: b, code: "" })} aria-label={`Edit ${b.name}`}><PencilIcon aria-hidden="true" />Edit</Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      )}
+      {/* A table on desktop, cards on phones (DataTable, alpha test B). */}
+      <Card className="min-w-0 shadow-xs">
+        <CardContent>
+          <DataTable
+            columns={branchColumns}
+            rows={state.branches}
+            rowKey={(b) => b.id}
+            loading={loading}
+            error={state.error}
+            onRetry={load}
+            searchPlaceholder="Search name, location or code…"
+            initialSort={{ key: "name", dir: "asc" }}
+            toolbar={<Button onClick={() => setDialog({ open: true, branch: null, code: nextCode() })}><PlusIcon aria-hidden="true" />Add branch</Button>}
+            empty={{ icon: BuildingIcon, title: "No branches configured yet", description: "Add the first branch to start assigning staff." }}
+            caption="Branches"
+            minWidth={820}
+          />
+        </CardContent>
+      </Card>
 
       <BranchDialog
         open={dialog.open}

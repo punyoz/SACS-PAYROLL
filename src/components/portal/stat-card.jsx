@@ -15,9 +15,13 @@ const ICON_TONE = {
 };
 
 /** A summary figure for the top of a dashboard. `glow` adds the turning gold edge. */
-export function StatCard({ label, value, hint, icon: Icon, tone = "primary", loading = false, glow = false, className }) {
-  return (
-    <Card className={cn("gap-0 py-4 shadow-xs", galaxyAccentCard, vengeanceStaggerCard, glow && vengeanceGlowCard, className)}>
+/**
+ * onClick (alpha test B1): the whole card opens the page behind the figure,
+ * as a real button (keyboard and screen reader), with actionLabel read out.
+ */
+export function StatCard({ label, value, hint, icon: Icon, tone = "primary", loading = false, glow = false, className, onClick, actionLabel }) {
+  const card = (
+    <Card className={cn("gap-0 py-4 shadow-xs", galaxyAccentCard, vengeanceStaggerCard, glow && vengeanceGlowCard, onClick && "h-full transition-colors group-hover:border-primary/40 group-hover:bg-accent/40", className)}>
       <CardContent className="flex items-start gap-3 px-4">
         {Icon ? (
           <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", ICON_TONE[tone] || ICON_TONE.primary)}>
@@ -35,5 +39,12 @@ export function StatCard({ label, value, hint, icon: Icon, tone = "primary", loa
         </div>
       </CardContent>
     </Card>
+  );
+  if (!onClick) return card;
+  return (
+    <button type="button" onClick={onClick} aria-label={actionLabel ? `${label}: ${actionLabel}` : undefined}
+      className="group block w-full rounded-xl text-left focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none">
+      {card}
+    </button>
   );
 }

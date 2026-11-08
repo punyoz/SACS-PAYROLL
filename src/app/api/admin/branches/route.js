@@ -72,6 +72,15 @@ export async function GET(request) {
       ? rows
       : rows.filter((b) => String(b.id) === String(currentBranchId || ""));
 
+    // Branch Management's table (alpha test B): active employees per branch,
+    // for an account that manages branches (Super Admin) only.
+    const wantCounts = request.nextUrl?.searchParams?.get("with_counts") === "1" && can(session.role, "branch_management", "read");
+    if (wantCounts && visible.length) {
+      const counts = await Promise.all(visible.map((b) => supabase.from("profiles").select("id", { count: "exact", head: true })
+        .eq("branch_id", b.id).eq("archived", false).in("role", ["employee", "accountant"])));
+      visible.forEach((b, i) => { b.employee_count = counts[i].error ? null : counts[i].count ?? 0; });
+    }
+
     return NextResponse.json({ branches: visible });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
