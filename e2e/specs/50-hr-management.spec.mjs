@@ -25,6 +25,8 @@ test("transfer: HR moves Carlo → applies now → both branch Admins notified �
     await as(page, "hr", "hr-transfers");
     await page.getByRole("tab", { name: /^All/ }).click();
     await settle(page);
+    // Search first: other specs add many demo employees to the list.
+    await main(page).getByPlaceholder(/Search by name/).fill("Carlo");
     await main(page).locator("tr", { hasText: "Carlo" }).first().getByRole("button", { name: "Transfer" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.locator("#hr-ba-ask")).toHaveCount(0);
