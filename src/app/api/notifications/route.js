@@ -20,6 +20,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { forEachInChunk } from "@/lib/supabase/fetch-all";
+import { bellToken } from "@/lib/realtime/bell-token";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -42,16 +43,25 @@ export async function GET(request) {
   }
 }
 
-/** This account's live-bell channel ({ topic }), created on first use; null when not set up. */
+/**
+ * The private channel needs a token for this user (decision 2026-11-09 #11);
+ * without a configured secret the bell reloads every minute instead.
+ */
+function withToken(topic, userId) {
+  const auth = bellToken(userId);
+  return auth ? { topic, private: true, token: auth.token, expires_at: auth.expires_at } : { topic, private: true, token: null };
+}
+
+/** This account's live-bell channel ({ topic, token }), created on first use; null when not set up. */
 async function liveChannel(supabase, userId) {
   try {
     const found = await supabase.from("notification_channels").select("topic").eq("user_id", userId).maybeSingle();
     if (found.error) return null;
-    if (found.data?.topic) return { topic: found.data.topic };
+    if (found.data?.topic) return withToken(found.data.topic, userId);
     const made = await supabase.from("notification_channels").upsert({ user_id: userId }, { onConflict: "user_id", ignoreDuplicates: true }).select("topic").maybeSingle();
-    if (made.data?.topic) return { topic: made.data.topic };
+    if (made.data?.topic) return withToken(made.data.topic, userId);
     const again = await supabase.from("notification_channels").select("topic").eq("user_id", userId).maybeSingle();
-    return again.data?.topic ? { topic: again.data.topic } : null;
+    return again.data?.topic ? withToken(again.data.topic, userId) : null;
   } catch {
     return null;
   }

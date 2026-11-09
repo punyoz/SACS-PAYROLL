@@ -28,7 +28,7 @@ export function localSupabase() {
     throw new Error("Local Supabase is not running. Start Docker, then `npx supabase start`.");
   }
   assertLocalUrl(values.API_URL);
-  cached = { url: values.API_URL, anonKey: values.ANON_KEY, serviceKey: values.SERVICE_ROLE_KEY, dbUrl: values.DB_URL };
+  cached = { url: values.API_URL, anonKey: values.ANON_KEY, serviceKey: values.SERVICE_ROLE_KEY, dbUrl: values.DB_URL, jwtSecret: values.JWT_SECRET };
   return cached;
 }
 
@@ -43,6 +43,8 @@ export function appEnv() {
     NEXT_PUBLIC_SUPABASE_URL: s.url,
     NEXT_PUBLIC_SUPABASE_ANON_KEY: s.anonKey,
     SUPABASE_SERVICE_ROLE_KEY: s.serviceKey,
+    // The LOCAL stack's JWT secret: the live bell's private channel token.
+    SUPABASE_JWT_SECRET: s.jwtSecret || "",
     SESSION_SECRET: TEST_SESSION_SECRET,
     GMAIL_USER: "",
     GMAIL_APP_PASSWORD: "",

@@ -40,7 +40,7 @@ describe("GET /api/notifications: the live channel", () => {
     );
     const { GET } = await import("@/app/api/notifications/route");
     const body = await (await GET(requestAs(ME))).json();
-    expect(body.live).toEqual({ topic: "a".repeat(32) });
+    expect(body.live).toMatchObject({ topic: "a".repeat(32), private: true });
     expect(body.notifications.map((n) => n.title)).toEqual(["Mine"]);
   });
 
@@ -64,5 +64,35 @@ describe("the database side (20261109040000)", () => {
     expect(sql).toContain("FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)");
     expect(sql).toMatch(/EXCEPTION WHEN OTHERS THEN\s+-- Never block the notification itself\.\s+NULL;/);
     expect(sql).toContain("encode(extensions.gen_random_bytes(16), 'hex')");
+  });
+});
+
+describe("private, per-user channels (decision 2026-11-09 #11, 20261109120000)", () => {
+  it("the bell token: HS256, role authenticated, this user, one hour; none without a secret", async () => {
+    const { createHmac } = await import("node:crypto");
+    const { bellToken, BELL_TOKEN_SECONDS } = await import("@/lib/realtime/bell-token");
+    expect(bellToken(ME, { secret: "" })).toBeNull();
+    const { token } = bellToken(ME, { secret: "s3cret", now: 1_800_000_000_000 });
+    const [head, body, sig] = token.split(".");
+    expect(JSON.parse(Buffer.from(head, "base64url"))).toEqual({ alg: "HS256", typ: "JWT" });
+    expect(JSON.parse(Buffer.from(body, "base64url"))).toEqual({ sub: ME, role: "authenticated", aud: "authenticated", iat: 1_800_000_000, exp: 1_800_000_000 + BELL_TOKEN_SECONDS, purpose: "bell" });
+    expect(sig).toBe(createHmac("sha256", "s3cret").update(`${head}.${body}`).digest("base64url"));
+  });
+
+  it("GET /api/notifications hands the token only for the signed-in account's own topic", async () => {
+    process.env.SUPABASE_JWT_SECRET = "s3cret";
+    table("notification_channels").push({ user_id: ME, topic: "c".repeat(32) });
+    const { GET } = await import("@/app/api/notifications/route");
+    const body = await (await GET(requestAs(ME))).json();
+    expect(body.live).toMatchObject({ topic: "c".repeat(32), private: true });
+    expect(JSON.parse(Buffer.from(body.live.token.split(".")[1], "base64url")).sub).toBe(ME);
+    delete process.env.SUPABASE_JWT_SECRET;
+  });
+
+  it("the database: the ping is private and only the topic's owner may listen", () => {
+    const sql = readFileSync("supabase/migrations/20261109120000_private_bell_channels.sql", "utf8");
+    expect(sql).toContain("PERFORM realtime.send('{}'::jsonb, 'ping', 'bell-' || v_topic, true);");
+    expect(sql).toMatch(/CREATE POLICY bell_listen_own_topic ON realtime\.messages\s+FOR SELECT TO authenticated/);
+    expect(sql).toContain("WHERE c.user_id = auth.uid() AND p_topic = 'bell-' || c.topic");
   });
 });

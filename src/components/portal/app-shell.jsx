@@ -288,14 +288,16 @@ function formatNotifTime(date) {
  */
 function useStoredNotifications() {
   const [state, setState] = React.useState({ list: [], unread: 0 });
-  const [topic, setTopic] = React.useState(null);
+  const [live, setLive] = React.useState(null);
   const load = React.useCallback(async () => {
     try {
       const response = await apiFetch("/api/notifications", BACKGROUND);
       if (!response.ok) return;
       const data = await response.json();
       setState({ list: Array.isArray(data.notifications) ? data.notifications : [], unread: Number(data.unread) || 0 });
-      if (data.live?.topic) setTopic(data.live.topic);
+      if (data.live?.topic && data.live?.token) {
+        setLive((current) => (current?.topic === data.live.topic && current?.token === data.live.token ? current : { topic: data.live.topic, token: data.live.token }));
+      }
     } catch { /* offline: keep what we have */ }
   }, []);
   React.useEffect(() => {
@@ -303,7 +305,7 @@ function useStoredNotifications() {
     const timer = setInterval(load, 60000);
     return () => clearInterval(timer);
   }, [load]);
-  React.useEffect(() => subscribeLiveBell(topic, load), [topic, load]);
+  React.useEffect(() => subscribeLiveBell(live, load), [live, load]);
   const markAllRead = React.useCallback(async () => {
     setState((c) => ({ list: c.list.map((n) => ({ ...n, read_at: n.read_at || new Date().toISOString() })), unread: 0 }));
     try { await apiFetch("/api/notifications", jsonBody("PATCH", {})); } catch { /* retried on the next open */ }
@@ -315,16 +317,19 @@ function useStoredNotifications() {
  * Listen on this account's live-bell channel; returns the cleanup. The
  * message carries nothing: it only says "reload". Never throws.
  */
-function subscribeLiveBell(topic, onPing) {
+function subscribeLiveBell(live, onPing) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!topic || !url || !key || typeof window === "undefined") return undefined;
+  const topic = live?.topic;
+  // A private channel (decision 2026-11-09 #11): only this account may join it.
+  if (!topic || !live?.token || !url || !key || typeof window === "undefined") return undefined;
   let closed = false;
   let cleanup = () => {};
   import("@supabase/supabase-js").then(({ createClient }) => {
     if (closed) return;
     const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
-    const channel = client.channel(`bell-${topic}`).on("broadcast", { event: "ping" }, () => onPing()).subscribe();
+    client.realtime.setAuth(live.token);
+    const channel = client.channel(`bell-${topic}`, { config: { private: true } }).on("broadcast", { event: "ping" }, () => onPing()).subscribe();
     cleanup = () => { client.removeChannel(channel).catch(() => {}); };
   }).catch(() => {});
   return () => { closed = true; cleanup(); };
