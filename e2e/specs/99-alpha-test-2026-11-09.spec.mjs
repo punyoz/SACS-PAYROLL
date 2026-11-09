@@ -45,8 +45,6 @@ async function time(page, path, n = 5) {
   return { median_ms: runs[Math.floor(runs.length / 2)], min_ms: runs[0], max_ms: runs[runs.length - 1], status };
 }
 
-test.describe.configure({ mode: "serial" });
-
 test("timings: the slow pages' API calls, per role", async ({ page }) => {
   test.setTimeout(10 * 60 * 1000);
   const today = manilaDay(0);
@@ -94,7 +92,7 @@ test("A1: the employee's attendance has a date range and pages", async ({ page }
   await as(page, "employee", "emp-attendance");
   await settle(page);
   await step(page, "Employee > Attendance > date range filter is there", async () => {
-    await expect(main(page).getByText("Attendance records by date")).toBeVisible();
+    await expect(main(page).getByText("Attendance records by date").first()).toBeVisible();
     await expect(page.locator("#emp-att-from")).toBeVisible();
     await shot(page, "a1-employee-attendance-range");
   });
@@ -185,7 +183,8 @@ test("B: Branch Management, positions, loans, avatar menu, Help, SA cards", asyn
   await as(page, "super_admin", "sa-branches");
   await settle(page);
   await step(page, "SA > Branch Management is a table with employee counts", async () => {
-    await expect(main(page).getByRole("columnheader", { name: /Employees/ })).toBeVisible();
+    await expect(main(page).locator("thead").getByText("Employees", { exact: true })).toBeVisible();
+    await expect(main(page).locator("tbody tr").first()).toBeVisible();
     await shot(page, "b-branches-table");
   });
   await step(page, "SA > Dashboard: the Total users card opens Admin & HR Accounts", async () => {
@@ -229,4 +228,30 @@ test("D1: manifest, service worker and offline page are served", async ({ page }
   expect((await manifest.json()).name).toBe("SACS Payroll");
   expect((await page.request.get("/sw.js")).status()).toBe(200);
   expect(await (await page.request.get("/offline.html")).text()).toContain("You are offline");
+});
+
+// The same pages on either build (E2E_TIMING_LABEL=before on the old one).
+test("screens: key pages for before / after", async ({ page }) => {
+  test.setTimeout(5 * 60 * 1000);
+  const PAGES_TO_SHOOT = [
+    ["employee", "emp-attendance"], ["employee", "emp-timesheet"], ["employee", "emp-dash"],
+    ["hr", "hr-gov-rates"], ["hr", "hr-reports"], ["hr", "hr-attendance"], ["hr", "hr-tenure"],
+    ["accountant", "ac-loans"], ["accountant", "ac-process"], ["accountant", "ac-approvals"], ["accountant", "ac-dashboard"],
+    ["super_admin", "sa-branches"], ["super_admin", "sa-dashboard"], ["super_admin", "sa-roles"],
+    ["admin", "adm-attendance"],
+  ];
+  for (const [role, id] of PAGES_TO_SHOOT) {
+    await step(page, `screenshot ${role} ${id}`, async () => {
+      await as(page, role, id);
+      await settle(page);
+      await page.screenshot({ path: join(SHOTS, `page-${id}.png`), fullPage: true });
+    });
+  }
+  await step(page, "screenshot the bell menu", async () => {
+    await as(page, "super_admin");
+    await settle(page);
+    await page.getByRole("button", { name: /^Notifications/ }).click();
+    await page.screenshot({ path: join(SHOTS, "page-bell-menu.png") });
+    await page.keyboard.press("Escape");
+  });
 });
