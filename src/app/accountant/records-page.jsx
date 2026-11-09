@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BanknoteIcon, MinusCircleIcon, ReceiptTextIcon, WalletIcon } from "lucide-react";
+import { BanknoteIcon, MinusCircleIcon, PrinterIcon, ReceiptTextIcon, WalletIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable } from "@/components/portal/data-table";
@@ -11,6 +11,8 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
 import { CorrectionDialog, CorrectionsCard } from "@/components/portal/payroll-corrections";
+import { printPdf } from "@/lib/portal/print-pdf";
+import { ExportButtons } from "@/components/portal/export-buttons";
 
 /* Payroll Records (renderRecordsPanels / renderPayrollRecordsTable, accountant.js). */
 
@@ -61,7 +63,17 @@ export function RecordsPage() {
       <Card className="min-w-0 shadow-xs">
         <CardContent>
           <DataTable
-            toolbar={<HistorySelect />}
+            toolbar={(
+              <>
+                <HistorySelect />
+                {/* Excel / PDF of the records shown; Print prints that PDF, not the page (alpha test B4). */}
+                <ExportButtons href={`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}`} label="payroll records" disabled={!records.length} />
+                <Button variant="outline" size="sm" disabled={!records.length}
+                  onClick={() => printPdf(`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}&format=pdf`).catch(() => {})}>
+                  <PrinterIcon aria-hidden="true" />Print
+                </Button>
+              </>
+            )}
             columns={columns}
             rows={records}
             loading={first}

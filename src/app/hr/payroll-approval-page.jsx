@@ -33,6 +33,8 @@ import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-li
 import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { TableToolbar } from "@/components/portal/table-toolbar";
+import { ExportButtons } from "@/components/portal/export-buttons";
+import { printPdf } from "@/lib/portal/print-pdf";
 
 /*
  * HR → Payroll Approval (/api/hr/payroll-runs). One row per branch per pay
@@ -345,7 +347,7 @@ function RunDetail({ runId, onBack, onChanged }) {
         <div className="ml-auto flex flex-wrap gap-2">
           <Button variant="outline" size="sm" asChild><a href={exportUrl("pdf")} download><FileTextIcon aria-hidden="true" />PDF</a></Button>
           <Button variant="outline" size="sm" asChild><a href={exportUrl("xlsx")} download><FileSpreadsheetIcon aria-hidden="true" />Excel</a></Button>
-          <Button variant="outline" size="sm" onClick={() => window.print()}><PrinterIcon aria-hidden="true" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => printPdf(exportUrl("pdf")).catch(() => {})}><PrinterIcon aria-hidden="true" />Print</Button>
           {data?.can_review ? (
             <>
               <Button variant="destructive" size="sm" onClick={() => setDecision({ kind: "reject", runs: [run] })}><XCircleIcon aria-hidden="true" />Reject</Button>
@@ -630,6 +632,12 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
                 {(data?.periods || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
               </SelectContent>
             </Select>
+            {/* The listed runs as Excel / PDF (alpha test B3): run totals per branch and cutoff. */}
+            {tab !== "history" ? (
+              <ExportButtons label="processed payroll"
+                href={`/api/hr/payroll-runs?${new URLSearchParams({ status: tab, ...(filters.branch !== ANY ? { branch_id: filters.branch } : {}), ...(filters.period !== ANY ? { period: filters.period } : {}), ...(filters.q ? { q: filters.q } : {}) }).toString()}`}
+                disabled={!runs.length} />
+            ) : null}
           </TableToolbar>
           {state.error && !data ? <ErrorState message={state.error} onRetry={load} /> : (
             <DataTable

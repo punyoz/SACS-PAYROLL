@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { useAccountant } from "./accountant-data";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
+import { printPdf } from "@/lib/portal/print-pdf";
 
 /*
  * Pay Record (renderPayslipDetails / renderPayslipGeneration /
@@ -339,7 +340,7 @@ export function PayRecordPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => selected && load({ entryId: selected })} disabled={!selected || loading}>{loading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Generate</Button>
-            <Button variant="outline" onClick={() => window.print()} disabled={!payslip}><PrinterIcon aria-hidden="true" />Print</Button>
+            <Button variant="outline" onClick={() => printPdf(`/api/accountant/payroll?format=pdf&entry_id=${encodeURIComponent(payslip?.entry_id || selected)}`).catch((e) => notify("Not printed", e.message, "error"))} disabled={!payslip?.entry_id}><PrinterIcon aria-hidden="true" />Print</Button>
             <Button variant="outline" onClick={downloadPdf} disabled={!payslip?.entry_id || downloading}>{downloading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}Download PDF</Button>
           </div>
         </CardContent>

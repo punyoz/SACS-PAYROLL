@@ -81,6 +81,7 @@ import { listOpenExclusions } from "@/lib/payroll/run-service";
 import { notify } from "@/lib/branch-requests-server";
 import { textLimitError } from "@/lib/input-limits";
 import { loadDemoIds, notDemo } from "@/lib/demo";
+import { reportResponse, wantsFile } from "@/lib/export/report-file";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { remarks: [1000, "The remarks"] };
@@ -400,6 +401,23 @@ export async function GET(request) {
       const withEmployee = new Set((byEmployee.data || []).map((row) => row.run_id));
       runs = runs.filter((run) => withEmployee.has(run.id)
         || [run.branch_name, run.submitted_by_name, run.reviewed_by_name, run.period_label].some((v) => String(v || "").toLowerCase().includes(q)));
+    }
+
+    // The list as Excel / PDF (alpha test B3): one row per branch per cutoff,
+    // run totals only. Per-employee figures stay in each run's own export.
+    const listFormat = wantsFile(url);
+    if (listFormat) {
+      return reportResponse({
+        format: listFormat, fileName: `payroll-runs-${status}`, title: "Processed payroll",
+        branch: branchId ? runs[0]?.branch_name || "Branch" : "All branches",
+        period: period || "All periods", totals: true,
+        filters: [["Status", status === "all" ? "All" : RUN_STATUS_LABELS[status] || status], ...(q ? [["Search", q]] : [])],
+        columns: [{ header: "Branch" }, { header: "Period" }, { header: "Run", kind: "number", integer: true }, { header: "Status" },
+          { header: "Employees", kind: "number", integer: true }, { header: "Gross pay", kind: "money" }, { header: "Deductions", kind: "deduction" },
+          { header: "Net pay", kind: "money" }, { header: "Submitted by" }, { header: "Reviewed by" }],
+        rows: runs.map((r) => [r.branch_name || "", r.period_label, r.run_no, r.status_label, r.total_employees, r.total_gross, r.total_deductions,
+          r.total_net, r.submitted_by_name || "", r.reviewed_by_name || ""]),
+      });
     }
 
     return NextResponse.json({

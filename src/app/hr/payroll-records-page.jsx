@@ -17,6 +17,7 @@ import { dateTime, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal
 import { cn } from "@/lib/utils";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
 import { RemittanceCard } from "@/components/portal/remittance-report";
+import { printPdf } from "@/lib/portal/print-pdf";
 
 /*
  * HR → Payroll Records (/api/hr/payroll-records). Every branch's processed
@@ -114,7 +115,7 @@ export function PayrollRecordsPage({ refreshKey }) {
         <Card className="shadow-xs">
           <CardContent className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setOpen(null)}><ArrowLeftIcon aria-hidden="true" />Back to records</Button>
-            <Button variant="outline" onClick={() => window.print()} disabled={!open.payslip}><PrinterIcon aria-hidden="true" />Print</Button>
+            <Button variant="outline" onClick={() => printPdf(`/api/hr/payroll-records?format=pdf&entry_id=${encodeURIComponent(open.id)}`).catch(() => {})} disabled={!open.payslip}><PrinterIcon aria-hidden="true" />Print</Button>
             <Button variant="outline" onClick={downloadPdf} disabled={!open.payslip || downloading}>{downloading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}Download PDF</Button>
           </CardContent>
         </Card>

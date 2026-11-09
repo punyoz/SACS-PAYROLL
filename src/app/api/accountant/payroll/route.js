@@ -98,6 +98,7 @@ import { CONTRIBUTION_MAX, DAYS_MAX, INCENTIVE_MAX, PERIOD_MINUTES_MAX, PESO_MAX
 import { attendanceOverrideState, attendanceOverrides } from "@/lib/payroll/override-window";
 import { applyWindowEnforcement, loadWindowEnforcement } from "@/lib/payroll/window-enforcement";
 import { loadDemoIds, notDemo } from "@/lib/demo";
+import { reportResponse, wantsFile } from "@/lib/export/report-file";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -3941,6 +3942,25 @@ export async function GET(request) {
       run_status: recordRunStatus(runStatusByKey, record),
     });
     const historyRecords = historyEntries.map(mapEntryToRecord).map(compactHistoryRecord).map(withRunStatus);
+
+    // Payroll Records as Excel / PDF (alpha test B4): the history shown, demo
+    // people left out, deductions below zero, with totals.
+    if (view === "records" && wantsFile(url)) {
+      const demo = await loadDemoIds(supabase);
+      const rows = historyRecords.filter(notDemo(demo));
+      const q = normalizeText(url.searchParams.get("q")).toLowerCase();
+      const shown = q ? rows.filter((r) => `${r.employee_name} ${r.pay_period}`.toLowerCase().includes(q)) : rows;
+      return reportResponse({
+        format: wantsFile(url), fileName: `payroll-records-${historyParam}`, title: "Payroll records",
+        branch: guard.branchExempt ? "All branches" : "Own branch",
+        period: historyParam === "recent" ? "Last 12 months" : historyParam, totals: true,
+        filters: q ? [["Search", q]] : [],
+        columns: [{ header: "Employee" }, { header: "Period" }, { header: "Gross pay", kind: "money" }, { header: "Deductions", kind: "deduction" },
+          { header: "Net pay", kind: "money" }, { header: "Status" }],
+        rows: shown.map((r) => [r.employee_name || "", r.pay_period || "", Number(r.gross_pay) || 0, Number(r.total_deductions) || 0,
+          Number(r.net_pay) || 0, r.run_status === "approved" ? "Approved" : String(r.status || "")]),
+      });
+    }
 
     const payslipSource = requestedEntryId
       ? sortedEntries.find((entry) => entry.id === requestedEntryId)
