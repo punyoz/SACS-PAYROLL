@@ -46,7 +46,12 @@ const NOTES = {
 
 const ALL = "__all__";
 
-export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, initialTab = "all" }) {
+/**
+ * readOnly (the Super Admin's Attendance Records, alpha test B1): the logs
+ * only; the correction and overtime queues are reviewers' and are not asked
+ * for (the server would refuse them anyway).
+ */
+export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, initialTab = "all", readOnly = false }) {
   const { version } = useAttendanceActions();
   // A date range (alpha test A1), this cutoff by default; the board groups
   // every row of the range, so it reads 62 days at most.
@@ -77,8 +82,8 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
       const params = new URLSearchParams({ from: range.from, to: range.to });
       const [logsData, correctionsData, overtimeData] = await Promise.all([
         fetchJson(`/api/attendance/logs?${params}`),
-        fetchJson("/api/attendance/corrections?status=pending").catch(() => ({ corrections: [] })),
-        fetchJson(`/api/attendance/overtime?${params}`).catch(() => ({ overtime: [] })),
+        readOnly ? { corrections: [] } : fetchJson("/api/attendance/corrections?status=pending").catch(() => ({ corrections: [] })),
+        readOnly ? { overtime: [] } : fetchJson(`/api/attendance/overtime?${params}`).catch(() => ({ overtime: [] })),
       ]);
       setState({
         loading: false,
@@ -96,7 +101,7 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message, logs: [], corrections: [], overtime: [], blocked: [] }));
     }
-  }, [range]);
+  }, [range, readOnly]);
 
   React.useEffect(() => { load(); }, [load, version, refreshKey]);
 
@@ -206,7 +211,8 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
           : effectiveDay !== "all" ? "No attendance records for this day." : "No attendance records in this date range.";
   const emptyText = search.trim() ? `No employees match "${search.trim()}".` : empty;
 
-  const tabCount = (n) => (n ? <span className="ml-1 rounded-full bg-primary/12 px-1.5 text-[11px] font-semibold text-primary tabular-nums">{n}</span> : null);
+  // Tab counts go through FilterTabs' own badge (a JSX badge inside a text
+  // label showed "null" / "[object Object]", fixed 2026-11-09).
   const branchOptions = [...ctx.names.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
   const showBranch = groupByBranch && branchOptions.length > 0;
 
@@ -229,10 +235,10 @@ export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, in
             onChange={(next) => { setRange(next); setDay("all"); }} />
           <FilterTabs value={tab} onValueChange={setTab} label="Attendance view" options={[
             { value: "all", label: "All records" },
-            { value: "incomplete", label: `Incomplete queue${tabCount(incomplete.length)}` },
-            { value: "corrections", label: `Correction requests${tabCount(corrections.length)}` },
-            { value: "overtime", label: `Overtime${tabCount(overtime.filter((row) => !row.approval && !row.locked).length)}` },
-            { value: "blocked", label: `Blocked taps${tabCount(blocked.length)}` },
+            { value: "incomplete", label: "Incomplete queue", count: incomplete.length || undefined },
+            { value: "corrections", label: "Correction requests", count: corrections.length || undefined },
+            { value: "overtime", label: "Overtime", count: overtime.filter((row) => !row.approval && !row.locked).length || undefined },
+            { value: "blocked", label: "Blocked taps", count: blocked.length || undefined },
           ]} />
           {showBranch ? (
             <Select value={branch || ALL} onValueChange={(value) => setBranch(value === ALL ? "" : value)}>
