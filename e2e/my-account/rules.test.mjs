@@ -144,3 +144,65 @@ test("Every role on payroll gets an RFID card; HR is paid", async () => {
   const hr = await sql(`select count(*)::int n from rfid_cards c join profiles p on p.id = c.employee_id where p.role = 'hr' and p.is_demo`);
   assert.equal(hr[0].n, 2, "both demo HR have a card");
 });
+
+test("HR's payslip: the home-branch Accountant processes it, the OTHER HR approves it", async () => {
+  const rows = await sql(`select i.employee_id, i.processed_by, r.reviewed_by, r.status from payroll_run_items i join payroll_runs r on r.id = i.run_id
+    where i.employee_id in ('${P("hr1").id}', '${P("hr2").id}') and r.status = 'approved'`);
+  assert.ok(rows.length >= 20, `HR payslips in approved runs: ${rows.length}`);
+  for (const row of rows) {
+    const [home, other] = row.employee_id === P("hr1").id ? [["acc-b1-1", "acc-b1-2"], "hr2"] : [["acc-b2-1", "acc-b2-2"], "hr1"];
+    assert.ok(home.map((t) => P(t).id).includes(row.processed_by), "processed by the home branch's Accountant");
+    assert.equal(row.reviewed_by, P(other).id, "approved by the other HR");
+  }
+});
+
+test("An Accountant's payslip: the other Accountant (2 in the branch); self-processed with 1, labelled", async () => {
+  const b1 = await sql(`select i.processed_by from payroll_run_items i where i.employee_id = '${P("acc-b1-1").id}'`);
+  assert.ok(b1.length && b1.every((r) => r.processed_by === P("acc-b1-2").id), "Branch 1: by the other Accountant");
+  const b3 = await sql(`select e.payroll->'own_payslip'->>'label' label, i.processed_by from payroll_run_items i join payroll_entries e on e.id = i.entry_id where i.employee_id = '${P("acc-b3-1").id}'`);
+  assert.ok(b3.length && b3.every((r) => r.processed_by === P("acc-b3-1").id && r.label === "Self-processed"), "Branch 3: self-processed, labelled");
+});
+
+test("Self-processing switches with the headcount: refused with 2 Accountants, allowed again with 1", async () => {
+  const second = P("acc-b1-2");
+  const b3 = P("acc-b3-1");
+  await local.exec(`update profiles set branch_id = '${b3.branch_id}' where id = '${second.id}'`);
+  try {
+    const res = await as(b3).patch("/api/accountant/payroll", { action: "generate", employee_id: b3.id, pay_period: "November 1-15, 2026" });
+    assert.equal(res.status, 403, JSON.stringify(res.data).slice(0, 200));
+    assert.equal(res.data.code, "self_processing_blocked");
+  } finally {
+    await local.exec(`update profiles set branch_id = '${second.branch_id}' where id = '${second.id}'`);
+  }
+  const [count] = await sql(`select private.active_accountant_count('${b3.branch_id}') n`);
+  assert.equal(count.n, 1, "back to one Accountant: self-processing allowed again");
+});
+
+test("HR cannot approve a run holding their own payslip; it is hidden from their queue; the other HR sees it", async () => {
+  const [run] = await sql(`select r.id from payroll_runs r join payroll_run_items i on i.run_id = r.id and i.submission_no = r.submission_no where r.status = 'pending' and i.employee_id = '${P("hr1").id}' limit 1`);
+  assert.ok(run, "a pending run with HR One's payslip");
+  const own = await as(P("hr1")).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [run.id] });
+  assert.ok(own.status === 403 || own.data?.results?.[0]?.code === "own_payslip", JSON.stringify(own.data).slice(0, 200));
+  const q1 = await as(P("hr1")).get("/api/hr/payroll-runs?status=pending");
+  assert.ok(!q1.data.runs.some((r) => r.id === run.id) && q1.data.own_hidden >= 1);
+  const q2 = await as(P("hr2")).get("/api/hr/payroll-runs?status=pending");
+  assert.ok(q2.data.runs.some((r) => r.id === run.id), "in HR Two's queue");
+  await local.exec(`update profiles set archived = true where id = '${P("hr2").id}'`);
+  try {
+    const sa = await as(P("sa1")).get("/api/super-admin/fallback");
+    assert.ok(sa.data.items.some((i) => i.item_type === "payroll_run" && i.id === run.id), "with HR Two inactive it waits on the Super Admin");
+  } finally {
+    await local.exec(`update profiles set archived = false where id = '${P("hr2").id}'`);
+  }
+});
+
+test("The employer share is saved for HR and Accountant payslips, never on their own payslip", async () => {
+  // Recorded from the percentage rates (October 16-31, 2026 on); older payslips have none (existing rule).
+  const saved = await sql(`select count(*)::int n from payroll_entries where employee_id in ('${P("hr1").id}', '${P("acc-b1-1").id}') and pay_period = 'October 16-31, 2026' and payroll ? 'employer_contributions'`);
+  assert.equal(saved[0].n, 2, `employer shares saved for HR and the Accountant: ${saved[0].n}`);
+  for (const tag of ["hr1", "acc-b1-1", "emp1"]) {
+    const res = await as(P(tag)).get("/api/me/payslips");
+    assert.equal(res.status, 200);
+    assert.ok(!/employer_contributions|"sss_er"|"employer/i.test(JSON.stringify(res.data)), `${tag}: no employer share in the payslip API`);
+  }
+});
