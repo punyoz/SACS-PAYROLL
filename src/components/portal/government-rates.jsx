@@ -150,7 +150,7 @@ function MscCard({ data }) {
           </p>
         ) : (
           <div className="max-h-96 overflow-auto rounded-md border">
-            <Table className="min-w-120">
+            <Table className="sm:min-w-120">
               <TableCaption className="sr-only">SSS salary credit brackets</TableCaption>
               <TableHeader><TableRow><TableHead>Monthly salary</TableHead><TableHead>Salary credit</TableHead></TableRow></TableHeader>
               <TableBody>
@@ -219,7 +219,7 @@ export function GovernmentRatesPanel({ refreshKey }) {
       <Alert>
         <LockIcon aria-hidden="true" />
         <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-          <span>Read-only here. HR (on its Government Rates page) and the Super Admin change the SSS, PhilHealth and Pag-IBIG rates for future pay periods; the withholding tax table is fixed by law; the SSS salary credit table is the Super Admin's.</span>
+          <span>Read-only here. HR (on its Government Rates page) and the Super Admin change the SSS, PhilHealth and Pag-IBIG rates for future pay periods; the withholding tax table is fixed by law; the SSS salary credit table is the Super Admin&apos;s.</span>
           <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
         </AlertDescription>
       </Alert>

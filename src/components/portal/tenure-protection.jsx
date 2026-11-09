@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
@@ -262,39 +261,43 @@ export function TenureProtectionPanel({ refreshKey }) {
 
           <div className="space-y-2">
             <p className="text-sm font-medium">By branch</p>
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader><TableRow><TableHead>Branch</TableHead><TableHead>Policy</TableHead><TableHead>Minimum tenure</TableHead><TableHead>Not deducted for</TableHead>{canEdit ? <TableHead className="text-right">Actions</TableHead> : null}</TableRow></TableHeader>
-                <TableBody>
-                  {(data?.policy?.branches || []).length ? data.policy.branches.map((b) => (
-                    <TableRow key={b.branch_id}>
-                      <TableCell className="font-medium">{b.branch_name}</TableCell>
-                      <TableCell>
-                        {b.has_own ? <StatusBadge tone="gold">Own policy</StatusBadge> : <StatusBadge tone="muted">System-wide</StatusBadge>}
-                        {!b.effective.is_active ? <StatusBadge tone="warning" className="ml-1.5">Off</StatusBadge> : null}
-                      </TableCell>
-                      <TableCell className="tabular-nums">{years(b.effective.min_tenure_years)}</TableCell>
-                      <TableCell className="max-w-72 text-sm text-muted-foreground">{coveredLabel(b.effective, categories)}</TableCell>
-                      {canEdit ? (
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" onClick={() => open("branch", { branch: b, form: policyForm(b.has_own ? b.own : b.effective) })}>{b.has_own ? "Edit" : "Customize"}</Button>
-                            {b.has_own ? (
-                              <Button variant="ghost" size="sm" disabled={busy === "branch-reset"}
-                                onClick={() => post({ action: "save_policy", branch_id: b.branch_id, use_global: true }, `${b.branch_name} follows the system-wide policy again.`, "branch-reset")}>
-                                Use system-wide
-                              </Button>
-                            ) : null}
-                          </div>
-                        </TableCell>
+            {/* A clean table on desktop, cards on phones (alpha test B3): the
+                coverage text wraps and the actions never sit on top of it. */}
+            <DataTable
+              columns={[
+                { key: "branch_name", header: "Branch", sortable: true, mobilePrimary: true, className: "font-medium whitespace-normal", searchValue: (b) => b.branch_name },
+                { key: "policy", header: "Policy", className: "whitespace-normal", cell: (b) => (
+                  <div className="flex flex-wrap gap-1.5">
+                    {b.has_own ? <StatusBadge tone="gold">Own policy</StatusBadge> : <StatusBadge tone="muted">System-wide</StatusBadge>}
+                    {!b.effective.is_active ? <StatusBadge tone="warning">Off</StatusBadge> : null}
+                  </div>
+                ) },
+                { key: "tenure", header: "Minimum tenure", className: "tabular-nums whitespace-nowrap", cell: (b) => years(b.effective.min_tenure_years) },
+                { key: "covered", header: "Not deducted for", className: "min-w-56 whitespace-normal text-sm text-muted-foreground", cell: (b) => coveredLabel(b.effective, categories) },
+                ...(canEdit ? [{
+                  key: "actions", header: <span className="sr-only">Actions</span>, align: "right", className: "whitespace-normal",
+                  cell: (b) => (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => open("branch", { branch: b, form: policyForm(b.has_own ? b.own : b.effective) })}>{b.has_own ? "Edit" : "Customize"}</Button>
+                      {b.has_own ? (
+                        <Button variant="ghost" size="sm" disabled={busy === "branch-reset"}
+                          onClick={() => post({ action: "save_policy", branch_id: b.branch_id, use_global: true }, `${b.branch_name} follows the system-wide policy again.`, "branch-reset")}>
+                          Use system-wide
+                        </Button>
                       ) : null}
-                    </TableRow>
-                  )) : (
-                    <TableRow><TableCell colSpan={canEdit ? 5 : 4} className="text-muted-foreground">{state.loading ? "Loading…" : "No branches."}</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
+                    </div>
+                  ),
+                }] : []),
+              ]}
+              rows={data?.policy?.branches || []}
+              rowKey={(b) => b.branch_id}
+              loading={state.loading && !data}
+              searchable={false}
+              paginate={false}
+              empty={{ title: "No branches" }}
+              caption="Tenure Pay Protection policy by branch"
+              minWidth={760}
+            />
             {feedbackFor("branch-reset")}
           </div>
         </CardContent>

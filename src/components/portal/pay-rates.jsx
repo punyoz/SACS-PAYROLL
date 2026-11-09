@@ -77,9 +77,10 @@ export function PayRatesPanel({ refreshKey }) {
         {state.error && !data ? <ErrorState message={state.error} onRetry={load} /> : (
           <>
             <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full min-w-[40rem] text-sm">
+              {/* Phones: each rate stacks as a small card (alpha test B3). */}
+              <table className="w-full text-sm md:min-w-[40rem]">
                 <caption className="sr-only">Default daily and hourly rate</caption>
-                <thead className="bg-muted/60 text-xs text-muted-foreground">
+                <thead className="hidden bg-muted/60 text-xs text-muted-foreground md:table-header-group">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold">Rate</th>
                     <th className="w-32 px-3 py-2 text-right font-semibold">This period</th>
@@ -89,11 +90,11 @@ export function PayRatesPanel({ refreshKey }) {
                 </thead>
                 <tbody>
                   {state.loading && !data ? <tr><td colSpan={4} className="px-3 py-4 text-muted-foreground">Loading…</td></tr> : pairRows.map((r) => (
-                    <tr key={r.key} className="border-t align-top" data-testid={`pay-rate-${r.key}`}>
-                      <td className="px-3 py-2 font-medium">{r.label}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{rateDisplay(PESO, r.current?.value)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{rateDisplay(PESO, r.next_period?.value)}</td>
-                      <td className="px-3 py-2">
+                    <tr key={r.key} className="grid grid-cols-2 gap-x-3 border-t py-2 align-top first:border-t-0 md:table-row md:py-0" data-testid={`pay-rate-${r.key}`}>
+                      <td className="col-span-2 px-3 py-1 font-medium md:table-cell md:py-2">{r.label}</td>
+                      <td className="px-3 py-1 tabular-nums md:table-cell md:py-2 md:text-right"><span className="block text-xs text-muted-foreground md:hidden">This period</span>{rateDisplay(PESO, r.current?.value)}</td>
+                      <td className="px-3 py-1 tabular-nums md:table-cell md:py-2 md:text-right"><span className="block text-xs text-muted-foreground md:hidden">Next period</span>{rateDisplay(PESO, r.next_period?.value)}</td>
+                      <td className="col-span-2 px-3 py-1 md:table-cell md:py-2"><span className="block text-xs text-muted-foreground md:hidden">History</span>
                         <ol className="space-y-0.5 text-xs">
                           {rateHistory(PESO, r.history, today).map((v) => (
                             <li key={v.key} className={cn("grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2", v.now ? "font-medium text-primary" : "text-muted-foreground")}>
