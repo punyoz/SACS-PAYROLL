@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangleIcon, CheckCircle2Icon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckCircle2Icon, ChevronLeftIcon, ChevronRightIcon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -233,6 +233,10 @@ function BatchCard({ onNavigate }) {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [edits, setEdits] = React.useState({});
+  // The employee table in pages (alpha test B4). Edits are kept per employee,
+  // so moving between pages loses nothing; Process still covers everyone.
+  const [tablePage, setTablePage] = React.useState(1);
+  const [tableSize, setTableSize] = React.useState(25);
   const [reason, setReason] = React.useState("");
   const [reasonError, setReasonError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -469,7 +473,7 @@ function BatchCard({ onNavigate }) {
                 <TableRow key={i}>{Array.from({ length: 15 }, (__, c) => <TableCell key={c}><Skeleton className="h-4 w-16" /></TableCell>)}</TableRow>
               )) : !rows.length ? (
                 <TableRow className="hover:bg-transparent"><TableCell colSpan={15} className="p-0"><EmptyState title="No employees found" /></TableCell></TableRow>
-              ) : rows.flatMap((row) => {
+              ) : rows.slice((Math.min(tablePage, Math.max(1, Math.ceil(rows.length / tableSize))) - 1) * tableSize, Math.min(tablePage, Math.max(1, Math.ceil(rows.length / tableSize))) * tableSize).flatMap((row) => {
                 const { employee, base } = row;
                 const incentiveLabel = [
                   earlyBirdWinnerPay(base.info) ? "Early Bird Incentive" : "",
@@ -520,6 +524,24 @@ function BatchCard({ onNavigate }) {
             </TableBody>
           </Table>
         </div>
+        {rows.length > 10 ? (() => {
+          const pages = Math.max(1, Math.ceil(rows.length / tableSize));
+          const at = Math.min(tablePage, pages);
+          return (
+            <div className="flex flex-col-reverse gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between" data-testid="process-pager">
+              <p aria-live="polite">Showing {(at - 1) * tableSize + 1}–{Math.min(at * tableSize, rows.length)} of {rows.length} employees. Process payroll covers all of them.</p>
+              <div className="flex items-center gap-2">
+                <Select value={String(tableSize)} onValueChange={(v) => { setTableSize(Number(v)); setTablePage(1); }}>
+                  <SelectTrigger size="sm" className="w-18" aria-label="Rows per page"><SelectValue /></SelectTrigger>
+                  <SelectContent>{[10, 25, 50].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
+                </Select>
+                <span className="tabular-nums">Page {at} of {pages}</span>
+                <Button variant="outline" size="icon" className="size-8" onClick={() => setTablePage(at - 1)} disabled={at <= 1} aria-label="Previous page"><ChevronLeftIcon /></Button>
+                <Button variant="outline" size="icon" className="size-8" onClick={() => setTablePage(at + 1)} disabled={at >= pages} aria-label="Next page"><ChevronRightIcon /></Button>
+              </div>
+            </div>
+          );
+        })() : null}
 
         {anyChanged ? (
           <div className="space-y-2">
@@ -529,9 +551,11 @@ function BatchCard({ onNavigate }) {
           </div>
         ) : null}
 
-        <Button className="w-full" size="lg" onClick={processAll} disabled={busy || !ready || !finalWindow || allRunsLocked} title={allRunsLocked ? "This period's payroll run is with HR or approved: it cannot be processed again." : finalWindow ? "" : (win?.message || "")}>
+        <div className="flex justify-end">
+        <Button size="lg" className="w-full sm:w-auto" onClick={processAll} disabled={busy || !ready || !finalWindow || allRunsLocked} title={allRunsLocked ? "This period's payroll run is with HR or approved: it cannot be processed again." : finalWindow ? "" : (win?.message || "")}>
           {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Processing…</> : "Process payroll for all →"}
         </Button>
+        </div>
         {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
       </CardContent>
       {confirmDialog}
