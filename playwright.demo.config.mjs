@@ -20,6 +20,7 @@ export default defineConfig({
   projects: [
     { name: "setup", testMatch: /auth\.setup\.mjs/ },
     { name: "audit", testMatch: /crawl\.spec\.mjs/, dependencies: ["setup"] },
+    { name: "screens", testMatch: /sidebar\.spec\.mjs/, dependencies: ["setup"] },
   ],
   ...(local ? { webServer: { command: "node e2e/attendance/prod-server.mjs", url: `${BASE}/api/health`, reuseExistingServer: true, timeout: 300000 } } : {}),
 });

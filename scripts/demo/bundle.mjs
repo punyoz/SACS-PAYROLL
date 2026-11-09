@@ -20,12 +20,19 @@ const SKIP = new Set(["role_permissions", "system_config", "branches", "payroll_
   "payroll_schedule_settings", "payroll_subsidy_settings", "school_break_periods", "tenure_protection_policies", "work_schedules", "attendance_holidays",
   "payroll_window_enforcement", "payroll_window_enforcement_changes", "auth_email_otps", "auth_throttle", "hr_queue_claims", "notification_channels"]);
 
+/**
+ * Rows made BY a demo item go with it, whoever received them (a notification
+ * about a demo payroll run sent to a non-demo HR, the run's approval history).
+ */
+const DEMO_GENERATED = new Set(["notifications", "payroll_approval_history"]);
+
 /** Person columns without a foreign key. */
 const LOOSE_PERSON_COLUMNS = { audit_logs: ["actor_id"] };
 
 export async function schema(db) {
-  const fks = await db.rows(`select c.conrelid::regclass::text as tbl, a.attname as col, c.confrelid::regclass::text as ref
+  const fks = await db.rows(`select c.conrelid::regclass::text as tbl, a.attname as col, c.confrelid::regclass::text as ref, ra.attname as ref_col
     from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+    join pg_attribute ra on ra.attrelid = c.confrelid and ra.attnum = c.confkey[1]
     where c.contype = 'f' and c.connamespace = 'public'::regnamespace and array_length(c.conkey, 1) = 1`);
   const cols = await db.rows(`select table_name as tbl, column_name as col, is_generated = 'ALWAYS' or (column_default like 'nextval%' and false) as generated, data_type
     from information_schema.columns where table_schema = 'public' order by table_name, ordinal_position`);
@@ -37,7 +44,7 @@ export async function schema(db) {
     columns: cols.filter((c) => c.tbl === t).map((c) => c.col),
     generated: cols.filter((c) => c.tbl === t && c.generated).map((c) => c.col),
     person: [...new Set([...fks.filter((f) => f.tbl === t && (f.ref === "profiles" || f.ref === "auth.users")).map((f) => f.col), ...(LOOSE_PERSON_COLUMNS[t] || [])])],
-    parents: fks.filter((f) => f.tbl === t && f.ref !== "profiles" && f.ref !== "auth.users" && f.ref !== t).map((f) => ({ col: f.col, ref: f.ref })),
+    parents: fks.filter((f) => f.tbl === t && f.ref !== "profiles" && f.ref !== "auth.users" && f.ref !== t).map((f) => ({ col: f.col, ref: f.ref, refCol: f.ref_col })),
     key: pks.find((k) => k.tbl === t)?.col || null,
   }]));
   return byTable;
@@ -84,15 +91,13 @@ export async function collect(db, { withRows = true } = {}) {
         const parentIds = [...(found[ref]?.keys() || [])];
         if (!parentIds.length) continue;
         for (let i = 0; i < parentIds.length; i += 2000) {
-          const rows = await db.rows(`select ${pick(t)} from ${t} where ${col} in (${inList(parentIds.slice(i, i + 2000))}) and ${personOk(t)}`);
+          const rows = await db.rows(`select ${pick(t)} from ${t} where ${col} in (${inList(parentIds.slice(i, i + 2000))}) and ${DEMO_GENERATED.has(t) ? "true" : personOk(t)}`);
           added += add(t, rows);
         }
       }
     }
     if (!added) break;
   }
-  // Branch 4's "Demo seed" processor is not an employee: its run exclusions are not data.
-  if (found.payroll_run_exclusions) for (const [id, r] of found.payroll_run_exclusions) if (r.employee_id === SEED_ACTOR.id) found.payroll_run_exclusions.delete(id);
 
   const tables = Object.fromEntries(Object.entries(found).map(([t, map]) => [t, [...map.values()]]));
   tables.profiles = withRows ? await db.rows(`select * from profiles where is_demo`) : demoIds.map((id) => ({ id }));
@@ -116,4 +121,9 @@ export function insertOrder(meta, names) {
 
 export function counts(bundle) {
   return Object.fromEntries(Object.entries(bundle.tables).map(([t, rows]) => [t, rows.length]).filter(([, n]) => n).sort((a, b) => b[1] - a[1]));
+}
+
+/** For the bundle only: Branch 4's "Demo seed" processor is not an employee, so its run exclusions are not copied. */
+export function withoutSeedExclusions(tables) {
+  return { ...tables, payroll_run_exclusions: (tables.payroll_run_exclusions || []).filter((r) => r.employee_id !== SEED_ACTOR.id) };
 }

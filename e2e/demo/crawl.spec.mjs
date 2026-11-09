@@ -26,8 +26,15 @@ const EXPECTED_EMPTY = [
   [/^No payslips this month$/, "this month's cutoff is left open to process live in the defense"],
   [/^No accounts found$/, "local only: production already has an archived account"],
   [/^No employees found\.$/, "local-only branches (e.g. Main Campus) and the Unassigned tab"],
+  [/^Nobody tapped in without an assignment$/, "the page opens on the next holiday (Nov 30): nobody can have tapped in yet", { page: /Holidays/ }],
+  [/^No recent payroll activity$/, "this month's cutoff is left open to process live in the defense", { page: /Dashboard/ }],
+  [/^No payroll records found$/, "held pay shows once the held person's cutoff is processed (live)", { tab: /On hold/ }],
+  [/^No payroll records found$/, "a branch's latest run is either waiting or rejected; the other branches show the other state", { tab: /Pending HR Approval|Rejected by HR/ }],
+  [/^No (loans|cash advances|incentives) yet$/, "the only Accountant of a branch cannot file their own requests, and no other Accountant exists there (the payslip is the only self-processed item)", { role: /accountant_single/, page: /My Requests/ }],
+  [/^No records found\.$/, "a report not generated yet", { page: /HR Reports/ }],
 ];
-const expectedReason = (text) => EXPECTED_EMPTY.find(([re]) => re.test(text))?.[1] || null;
+const expectedReason = (text, where = {}) => EXPECTED_EMPTY.find(([re, , when = {}]) => re.test(text)
+  && (!when.page || when.page.test(where.page || "")) && (!when.tab || when.tab.test(where.tab || "")) && (!when.role || when.role.test(where.role || "")))?.[1] || null;
 
 /**
  * Track the page's own data calls (fetch / XHR to /api, not the live
@@ -45,7 +52,7 @@ function trackRequests(page) {
 async function settle(page) {
   const started = Date.now();
   let quietSince = 0;
-  while (Date.now() - started < 20000) {
+  while (Date.now() - started < 8000) {
     if (page.__inflight.size === 0) {
       if (!quietSince) quietSince = Date.now();
       if (Date.now() - quietSince >= 350) break;
@@ -90,8 +97,16 @@ for (const [role, { portal }] of Object.entries(AUDIT_ROLES)) {
     for (const label of labels) {
       await sidebarLabels(page);
       const button = page.locator("[data-nav-group] [data-sidebar=menu-button]").filter({ hasText: new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`) }).first();
+      if (!(await button.count())) continue;
       await button.click();
       await settle(page);
+      // A link that leaves the portal (the RFID kiosk screen): noted, then back.
+      if (!new URL(page.url()).pathname.startsWith(portal)) {
+        results.push({ role, width: 1366, page: label, id: null, tab: null, rows: 0, cards: 0, empties: [], bad: null, external: new URL(page.url()).pathname });
+        await page.goto(portal);
+        await page.locator("#portal-main").waitFor();
+        continue;
+      }
       const id = new URL(page.url()).searchParams.get("page") || label;
       pages.push({ id, label });
       const base = await measure(page);
@@ -125,8 +140,8 @@ for (const [role, { portal }] of Object.entries(AUDIT_ROLES)) {
     mkdirSync(OUT_DIR, { recursive: true });
     writeFileSync(join(OUT_DIR, `${role}.json`), JSON.stringify(results, null, 2));
     for (const r of results) {
-      r.expected = r.empties.filter((e) => expectedReason(e)).map((e) => ({ text: e, reason: expectedReason(e) }));
-      r.unexpected = r.empties.filter((e) => !expectedReason(e));
+      r.expected = r.empties.filter((e) => expectedReason(e, r)).map((e) => ({ text: e, reason: expectedReason(e, r) }));
+      r.unexpected = r.empties.filter((e) => !expectedReason(e, r));
       r.result = r.unexpected.length || r.bad || (r.sideways || 0) > 0 ? "FAIL" : r.expected.length ? "OK (expected empty)" : "OK";
     }
     writeFileSync(join(OUT_DIR, `${role}.json`), JSON.stringify(results, null, 2));

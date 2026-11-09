@@ -35,7 +35,8 @@ async function productionQuery(sql) {
  */
 export function database(target) {
   if (target !== "local" && target !== "production") throw new Error(`Unknown target ${target}.`);
-  const wrap = (sql) => `select coalesce(json_agg(t), '[]'::json) from (${sql.trim().replace(/;$/, "")}) t`;
+  // The alias is unusual on purpose: a selected column named like it would shadow the row.
+  const wrap = (sql) => `select coalesce(json_agg(__demo_row), '[]'::json) from (${sql.trim().replace(/;$/, "")}) __demo_row`;
   if (target === "local") {
     return {
       target,

@@ -543,7 +543,7 @@ async function stageExtras() {
   });
   await step("cash advances on the older Cash Advances page (history, read-only)", async () => {
     // That page is the history from before cash advances moved to Loans (read-only); two old entries, never deducted again.
-    const rows = [["acc-b1-1", "emp5", "cancelled", "Replaced by a salary loan"], ["acc-b3-1", "emp18", "on_hold", "Waiting for the employee's signature"]];
+    const rows = [["acc-b1-1", "emp5", "on_hold", "Waiting for the signed promissory note"], ["acc-b3-1", "emp18", "on_hold", "Waiting for the employee's signature"]];
     await local.exec(`begin; set local session_replication_role = replica;
       ${rows.map(([who, tag, status, reason]) => `insert into payroll_cash_advances (employee_id, branch_id, date_granted, principal, installment_amount, deduct_on, start_date, status, description, status_reason, status_changed_by, status_changed_by_name, status_changed_at, created_by, created_by_name, created_at)
         values (${lit(by(tag).id)}, ${lit(by(tag).branch_id)}, '2026-03-02', 1000, 500, 'second', '2026-03-16', ${lit(status)}, 'Demo cash advance (before Loans)', ${lit(reason)}, ${lit(by(who).id)}, ${lit(by(who).full)}, '2026-03-05T02:00:00Z', ${lit(by(who).id)}, ${lit(by(who).full)}, '2026-03-02T02:00:00Z');`).join(" ")}
@@ -624,6 +624,41 @@ async function stageExtras2() {
   log(failures.length ? `extras2: ${failures.length} step(s) failed` : "extras2: all steps passed");
 }
 
+/** The third audit's gaps: waiting items next to the decided ones (G8 → seed). */
+async function stageExtras3() {
+  const { roster, by, branchCodes } = await context();
+  const today = manilaToday();
+  await step("a correction left waiting for HR", async () => {
+    const [row] = await local.rows(`select a.id, a.employee_id from attendance_logs a join profiles p on p.id = a.employee_id where p.is_demo and a.status = 'Incomplete' and a.log_date < ${lit(today)} order by a.log_date desc limit 1`);
+    if (!row) return "no Incomplete day left";
+    ok("file", await as(roster.find((p) => p.id === row.employee_id)).post("/api/me/attendance/corrections", { log_id: row.id, corrected_time: "16:58", reason: "The reader was offline when I left." }));
+  });
+  await step("an AWOL case waiting (flagged)", async () => {
+    ok("open", await as(by("hr1")).post("/api/hr/awol-cases", { employee_id: by("emp14").id, first_absent_on: weekday(addDays(today, -4)), last_present_on: weekday(addDays(today, -7)), notes: "Absent three days in a row without notice." }));
+  });
+  await step("Branch Requests waiting in every section", async () => {
+    const flagLog = (await local.rows(`select a.id from attendance_logs a where a.employee_id = ${lit(by("emp2").id)} and a.status in ('Late', 'Undertime') order by a.log_date desc limit 1`))[0];
+    const file = async (who, body) => ok(body.kind, await as(who).post("/api/admin/branch-oversight", { action: "file", ...body }));
+    if (flagLog) await file(by("adm-b1-2"), { kind: "attendance_flag", ref_id: flagLog.id, note: "Left early twice; please check." });
+    await file(by("adm-b2-2"), { kind: "schedule_request", employee_id: by("emp11").id, note: "For the afternoon section.", details: { request_type: "schedule", effective_from: addDays(today, 21), requested: "Move to 9:00 AM - 6:00 PM" } });
+    await file(by("adm-b2-2"), { kind: "incentive_endorsement", employee_id: by("emp12").id, note: "Led the clean-up drive.", details: { kind: "incentive", item_date: addDays(today, -1), amount: 500, description: "Clean-up drive lead" } });
+    await file(by("adm-b3-1"), { kind: "incident_report", employee_id: by("emp19").id, note: "Left the campus without notice.", details: { incident_type: "misconduct", incident_date: weekday(addDays(today, -2)) } });
+    await file(by("adm-b1-2"), { kind: "overtime_confirmation", employee_id: by("emp4").id, decision: "endorse", note: "Stayed for the school program.", details: { work_type: "overtime", work_date: weekday(addDays(today, -3)), hours: 1.5 } });
+  });
+  await step("Branch 3 resubmits its rejected run (waiting for HR again)", async () => {
+    const { periodForDateKey } = await import("../../src/lib/payroll/periods.js");
+    const [run] = await local.rows(`select r.period_label from payroll_runs r join branches b on b.id = r.branch_id where b.code = 'BR-003' and r.status = 'rejected' order by r.period_start desc limit 1`);
+    if (!run) return "nothing rejected";
+    const people = roster.filter((p) => p.on_payroll && p.branch_code === "BR-003" && (!p.separated_on || p.separated_on > periodForDateKey(today).start_key));
+    ok("reprocess", await as(by("acc-b3-1")).post("/api/accountant/payroll", { action: "batch_submit", pay_period: run.period_label, entries: people.map((p) => ({ employee_id: p.id })) }));
+    ok("resubmit", await as(by("acc-b3-1")).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: branchCodes["BR-003"].id, period: run.period_label }));
+  });
+  await step("Branch 1's older cash advance on hold (shown on the history page)", async () => {
+    await local.exec(`begin; set local session_replication_role = replica; update payroll_cash_advances set status = 'on_hold', status_reason = 'Waiting for the signed promissory note' where employee_id = ${lit(by("emp5").id)}; commit;`);
+  });
+  log(failures.length ? `extras3: ${failures.length} step(s) failed` : "extras3: all steps passed");
+}
+
 /** After the flows: October (one rejected then approved; the latest submitted / rejected), 13th month, final pay. */
 async function stageClose() {
   const { by } = await context();
@@ -639,7 +674,7 @@ async function stageClose() {
   log(failures.length ? `close: ${failures.length} step(s) failed` : "close: all steps passed");
 }
 
-const stages = { base: stageBase, cards: stageCards, attendance: stageAttendance, payroll: () => stagePayroll({ history: true }), flows: stageFlows, close: stageClose, extras: stageExtras, extras2: stageExtras2 };
+const stages = { base: stageBase, cards: stageCards, attendance: stageAttendance, payroll: () => stagePayroll({ history: true }), flows: stageFlows, close: stageClose, extras: stageExtras, extras2: stageExtras2, extras3: stageExtras3 };
 
 if (String(process.argv[1] || "").split("\\").join("/").endsWith("scripts/demo/build-local.mjs")) {
   const order = stage === "all" ? Object.keys(stages) : stage.split(",");

@@ -28,7 +28,7 @@ async function fileLeave(who, offset) {
 
 test("Admin and Super Admin are refused every My Account API", async () => {
   for (const tag of ["adm-b1-1", "sa1"]) {
-    for (const path of ["/api/me/attendance/logs?from=2026-11-01&to=2026-11-09", "/api/me/payslips", "/api/me/leave-requests", "/api/me/requests", "/api/me/bir-2316", "/api/me/timesheet?from=2026-11-01&to=2026-11-09"]) {
+    for (const path of ["/api/me/attendance/logs?from=2026-11-01&to=2026-11-09", "/api/me/payslips", "/api/me/leave-requests", "/api/me/requests", "/api/me/bir-2316", "/api/me/timesheet?start_date=2026-11-01&end_date=2026-11-09"]) {
       const res = await as(P(tag)).get(path);
       assert.equal(res.status, 403, `${tag} ${path} -> ${res.status}`);
     }

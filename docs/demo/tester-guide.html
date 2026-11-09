@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Demo tester guide</title>
+<style>
+  :root { --green: #14532d; --gold: #b8860b; --ink: #1c1917; --muted: #57534e; --line: #d6d3d1; }
+  body { font: 11pt/1.45 "Segoe UI", Arial, sans-serif; color: var(--ink); margin: 0; }
+  h1 { color: var(--green); font-size: 20pt; margin: 0 0 4pt; }
+  h2 { color: var(--green); font-size: 14pt; border-bottom: 2px solid var(--gold); padding-bottom: 2pt; margin: 18pt 0 6pt; }
+  h3 { font-size: 11.5pt; margin: 12pt 0 4pt; }
+  p, li { margin: 3pt 0; }
+  .sub { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; margin: 6pt 0 10pt; font-size: 9.5pt; }
+  th, td { border: 1px solid var(--line); padding: 3pt 5pt; text-align: left; vertical-align: top; }
+  th { background: #f0fdf4; color: var(--green); }
+  code { font-family: Consolas, monospace; font-size: 9pt; background: #f5f5f4; padding: 0 2pt; }
+  .box { border-left: 4px solid var(--gold); background: #fffbeb; padding: 6pt 8pt; margin: 8pt 0; }
+  ol li { margin: 4pt 0; }
+  @page { size: A4; margin: 16mm 14mm; }
+</style>
+</head>
+<body>
+<h1>Shepherd Angels Christian School · Payroll System</h1>
+<p class="sub">Demo tester guide for the capstone defense · demo data, 40 accounts, all fake</p>
+
+<div class="box"><b>Security.</b> Passwords are only in <code>demo-data/credentials.csv</code> (never printed, never committed). Every login asks for a 6-digit code sent by email; all demo accounts use one inbox through plus-addressing, so each code arrives tagged with the account it is for (for example <code>+hr1</code>, <code>+acc-b3-1</code>, <code>+emp7</code>).</div>
+
+<h2>1. Accounts (40)</h2>
+<table>
+  <tr><th>Branch</th><th>Super Admin</th><th>HR</th><th>Admin</th><th>Accountant</th><th>Employees</th><th>On payroll</th></tr>
+  <tr><td>All branches</td><td>2 (+sa1, +sa2)</td><td>2 (+hr1 home Main, +hr2 home Spring Valley)</td><td>–</td><td>–</td><td>–</td><td>2 (HR)</td></tr>
+  <tr><td>BR-001 Main</td><td>–</td><td>–</td><td>2 (+adm-b1-1, +adm-b1-2)</td><td>2 (+acc-b1-1, +acc-b1-2)</td><td>8 (+emp1–+emp8)</td><td>10</td></tr>
+  <tr><td>BR-002 Spring Valley</td><td>–</td><td>–</td><td>2 (+adm-b2-1, +adm-b2-2)</td><td>2 (+acc-b2-1, +acc-b2-2)</td><td>8 (+emp9–+emp16)</td><td>10</td></tr>
+  <tr><td>BR-003 Robinson</td><td>–</td><td>–</td><td>1 (+adm-b3-1)</td><td>1 (+acc-b3-1)</td><td>5 (+emp17–+emp21)</td><td>6</td></tr>
+  <tr><td>BR-004 Pinugay</td><td>–</td><td>–</td><td>none (added live)</td><td>none (added live)</td><td>5 (+emp22–+emp26)</td><td>5</td></tr>
+  <tr><th>Total</th><th>2</th><th>2</th><th>5</th><th>5</th><th>26</th><th>33</th></tr>
+</table>
+<p>The full list (name, role, branch, employee ID, login tag; no passwords) is <code>demo-data/demo-roster.csv</code>. Every demo account shows a <b>DEMO DATA</b> badge.</p>
+
+<h2>2. Which account for which scenario</h2>
+<table>
+  <tr><th>Scenario</th><th>Use</th></tr>
+  <tr><td>Accountant processes a fresh cutoff, HR approves, Employee sees the payslip</td><td>+acc-b2-1 → +hr1 → +emp9</td></tr>
+  <tr><td>Self-processed payslip (branch with ONE Accountant)</td><td>+acc-b3-1 (Robinson) → +hr1 or +hr2 approves; label "Self-processed"</td></tr>
+  <tr><td>An Accountant's payslip in a branch with two Accountants</td><td>+acc-b1-2 processes +acc-b1-1's payslip; +acc-b1-1 cannot</td></tr>
+  <tr><td>HR's own payslip and leave</td><td>HR One's payslip: processed by a Main Accountant, approved by +hr2 (and the reverse for HR Two)</td></tr>
+  <tr><td>Shared HR queue with claims</td><td>+hr1 and +hr2 open Leave Approval at the same time; the first to claim an item holds it 30 minutes (Release, or sign out)</td></tr>
+  <tr><td>Super Admin fallback</td><td>see 3.2</td></tr>
+  <tr><td>Branch 4 (no Admin, no Accountant)</td><td>see 3.3</td></tr>
+  <tr><td>Employee pages (attendance, timesheet, leave, payslips, My Requests, BIR 2316)</td><td>+emp1 (Main) or +emp9 (Spring Valley)</td></tr>
+  <tr><td>Final Pay (separated)</td><td>+acc-b1-1 (emp7), +acc-b2-1 (emp15), +acc-b3-1 (emp21)</td></tr>
+</table>
+
+<h2>3. Live demo steps</h2>
+<h3>3.1 Self-processed payslip in Branch 3 (Robinson)</h3>
+<ol>
+  <li>Sign in as <b>+acc-b3-1</b>. Payroll → Process Payroll → the current cutoff → <i>Process payroll for all</i>. The Accountant's own row is processed with everyone's, system-computed only.</li>
+  <li>Submit the run. HR gets a notification "Self-processed payslip to review".</li>
+  <li>Sign in as <b>+hr1</b> → Payroll → Payroll Approval: the run shows the flag <b>Self-processed</b>. Approve it.</li>
+  <li>Back as +acc-b3-1: My Account → My Payslips shows the new payslip (employee share only). The Accountant can never approve it.</li>
+</ol>
+<h3>3.2 Super Admin fallback (deactivate one HR)</h3>
+<ol>
+  <li>Sign in as <b>+sa1</b> → Admin &amp; HR Accounts → deactivate <b>Demo HR Two</b>.</li>
+  <li><b>Important:</b> the routing counts <i>every</i> active HR account, including the 3 non-demo HR accounts already on production. The fallback appears only when exactly one HR is active, so the other HR accounts must be inactive for this step (open decision 3).</li>
+  <li>Sign in as <b>+hr1</b> → My Account → My Leave → file a leave. It goes to the Super Admin: the Super Admin gets a notification, the audit log says "fallback used" and why.</li>
+  <li>As +sa1: Dashboard → <b>Pending actions</b> shows 1 → open <b>Items Waiting on Fallback</b> → approve (or reject with a reason).</li>
+  <li>Reactivate Demo HR Two: new items go to HR again and nothing waits on the Super Admin.</li>
+</ol>
+<h3>3.3 Adding Branch 4's Admin and Accountant</h3>
+<ol>
+  <li>As <b>+sa1</b>: Admin &amp; HR Accounts → add an Admin for Pinugay Branch. As <b>+hr1</b>: User Management → add an Accountant for Pinugay Branch (real inboxes or new plus-address tags).</li>
+  <li>Sign in as the new Accountant: only Pinugay's people show. Its past payslips (January to October 15) were written by the "Demo seed" actor; the latest cutoffs are waiting to be processed.</li>
+  <li>Process the waiting cutoff: as the only Accountant there, their own payslip is self-processed. HR approves.</li>
+</ol>
+<h3>3.4 Two Accountants, one cutoff (Branch 1 or 2)</h3>
+<p>+acc-b1-1 and +acc-b1-2 open the same cutoff: a payslip already processed is not processed twice, and the run is submitted once (a second submit is refused with a clear message).</p>
+
+<h2>4. Login plan</h2>
+<ul>
+  <li>One inbox receives every code; the tag in the address (+sa1, +hr2, +acc-b1-1, +emp7 …) says which account it is for.</li>
+  <li>Gmail sends about 500 messages a day from a personal account (2,000 on Google Workspace): 40 accounts are far below it. Avoid repeated sign-ins in a loop; the login code is rate limited.</li>
+  <li>Only one sign-in per account at a time: signing in elsewhere signs the first device out. Use a separate browser profile per role during the defense.</li>
+  <li>Lockout recovery: both Super Admins and both HR have the recovery plan in docs (the other account resets; the Super Admin resets HR).</li>
+</ul>
+
+<h2>5. Defense-day checklist</h2>
+<ol>
+  <li>The day before: <code>node scripts/demo/demo.mjs roll-forward --target=production --defense=YYYY-MM-DD</code> (adds attendance up to the day before; nothing edited by hand is changed).</li>
+  <li>Check the processing-window switch (Super Admin → System Configuration): OFF for live processing of any cutoff (it expired on 2026-11-09).</li>
+  <li>Morning: <code>node scripts/demo/demo.mjs snapshot --target=production</code> (a copy of the demo rows to restore if something goes wrong).</li>
+  <li>Run <code>node scripts/demo/security-check.mjs --target=production</code> (anon key reads nothing; live channels per user).</li>
+  <li>Sign in once per role in separate browser profiles; keep the inbox open.</li>
+  <li>If a demo step breaks: <code>demo.mjs restore --target=production --file=&lt;the morning snapshot&gt;</code>.</li>
+</ol>
+
+<h2>6. After the defense: deletion checklist</h2>
+<ol>
+  <li><code>node scripts/demo/demo.mjs remove --target=production</code>: type the project URL, read the counts, confirm. A snapshot is taken first.</li>
+  <li>The check after it must show 0 demo profiles, 0 demo login accounts, 0 demo files; demo audit entries go with the demo rows.</li>
+  <li>Deleted rows remain in the Supabase Pro daily backups for about 7 days.</li>
+  <li>Delete <code>demo-data/</code> (credentials and snapshots) from the laptop.</li>
+</ol>
+
+<h2>7. Plan to the defense</h2>
+<table>
+  <tr><th>When</th><th>What</th></tr>
+  <tr><td>2 weeks before</td><td>New features stop (the defense date is not set yet: the schedule counts back from it).</td></tr>
+  <tr><td>Last week</td><td>Testing and fixes only; reset the demo data if needed; rehearse with this guide.</td></tr>
+  <tr><td>The day before</td><td>Roll-forward; check the window switch; sign-in test per role.</td></tr>
+  <tr><td>Defense day</td><td>Snapshot, security check, run the scenarios.</td></tr>
+</table>
+</body>
+</html>

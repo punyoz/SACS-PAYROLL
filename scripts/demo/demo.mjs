@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR, PRODUCTION, readEnvFile } from "./config.mjs";
 import { chooseTarget, confirm, database, lit } from "./db.mjs";
-import { collect, counts, insertOrder, schema } from "./bundle.mjs";
+import { collect, counts, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
 import { buildRoster } from "./roster.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
@@ -72,13 +72,13 @@ function printCounts(title, data) {
 }
 
 /** Insert rows into `table` as they are (triggers off for copied computed rows; generated columns left out). */
-async function insertRows(db, table, rows, columns, generated, { triggers = false } = {}) {
+async function insertRows(db, table, rows, columns, generated, { triggers = false, settings = "" } = {}) {
   const cols = columns.filter((c) => !generated.includes(c));
   const list = cols.map((c) => `"${c}"`).join(", ");
   for (let i = 0; i < rows.length; i += 400) {
     const chunk = rows.slice(i, i + 400).map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null])));
-    const body = `insert into ${table} (${list}) select ${list} from jsonb_populate_recordset(null::${table}, ${lit(chunk)}) on conflict do nothing;`;
-    await db.exec(triggers ? `begin; ${body} commit;` : `begin; alter table ${table} disable trigger user; ${body} alter table ${table} enable trigger user; commit;`);
+    const body = `insert into ${table} (${list}) overriding system value select ${list} from jsonb_populate_recordset(null::${table}, ${lit(chunk)}) on conflict do nothing;`;
+    await db.exec(triggers ? `begin; ${settings} ${body} commit;` : `begin; alter table ${table} disable trigger user; ${body} alter table ${table} enable trigger user; commit;`);
   }
 }
 
@@ -91,11 +91,11 @@ async function load(db, bundle) {
   const haveBranches = await db.rows(`select id from branches where id in (${branchIds.map(lit).join(", ")})`);
   if (haveBranches.length !== branchIds.length) throw new Error("The target is missing a demo branch: nothing loaded.");
   for (const [t, rows] of Object.entries(bundle.tables)) {
-    for (const { col, ref } of meta[t]?.parents || []) {
-      if (bundle.tables[ref]) continue;
+    for (const { col, ref, refCol } of meta[t]?.parents || []) {
+      if (bundle.tables[ref]?.length) continue;
       const ids = [...new Set(rows.map((r) => r[col]).filter(Boolean))];
       if (!ids.length) continue;
-      const key = meta[ref]?.key || "id";
+      const key = refCol || meta[ref]?.key || "id";
       const have = await db.rows(`select ${key} as k from ${ref} where ${key} in (${ids.map(lit).join(", ")})`);
       if (have.length !== ids.length) throw new Error(`${t}.${col} points at ${ids.length - have.length} ${ref} row(s) the target does not have: nothing loaded.`);
     }
@@ -125,8 +125,8 @@ async function load(db, bundle) {
   };
 
   // 1. Login accounts (the same bcrypt hashes, so the passwords stay as in the credentials file).
-  const authCols = await db.rows("select table_name t, column_name c, is_generated = 'ALWAYS' g from information_schema.columns where table_schema = 'auth' and table_name in ('users', 'identities')");
-  const colsOf = (t) => authCols.filter((x) => x.t === t && !x.g).map((x) => x.c);
+  const authCols = await db.rows("select table_name as tbl, column_name as col, is_generated = 'ALWAYS' as gen from information_schema.columns where table_schema = 'auth' and table_name in ('users', 'identities')");
+  const colsOf = (name) => authCols.filter((x) => x.tbl === name && !x.gen).map((x) => x.col);
   await insertRows(db, "auth.users", bundle.auth.users, colsOf("users"), [], { triggers: true });
   await insertRows(db, "auth.identities", bundle.auth.identities, colsOf("identities"), [], { triggers: true });
   // 2. Profiles with their triggers ON: the target encrypts the (fake) government numbers with its own key.
@@ -137,7 +137,8 @@ async function load(db, bundle) {
     return { ...row, sss_number: r?.sss_number ?? null, philhealth_number: r?.philhealth_number ?? null, pagibig_number: r?.pagibig_number ?? null, tin_number: r?.tin_number ?? null };
   });
   const profileCols = [...new Set(profiles.flatMap((p) => Object.keys(p)))];
-  await insertRows(db, "profiles", profiles, profileCols, meta.profiles.generated, { triggers: true });
+  // The card UID on a profile is written only inside the RFID registration flow (profiles_rfid_uid_guard).
+  await insertRows(db, "profiles", profiles, profileCols, meta.profiles.generated, { triggers: true, settings: "set local sacs.rfid_flow = 'on';" });
   // 3. Everything else as computed (triggers off: nothing recomputed or re-stamped), parents first.
   const names = Object.keys(bundle.tables).filter((t) => t !== "profiles" && bundle.tables[t].length);
   for (const t of insertOrder(meta, names)) {
@@ -154,6 +155,7 @@ async function load(db, bundle) {
 
 /** Delete the demo rows on `db` (children first, triggers off), clear mixed references, drop logins and files. */
 async function wipe(db, data) {
+  if (!data.demoIds?.length) { say("  nothing demo to delete"); return; }
   const meta = await schema(db);
   const D = data.demoIds.map(lit).join(", ");
   const names = Object.keys(data.tables).filter((t) => data.tables[t].length);
@@ -173,11 +175,22 @@ async function wipe(db, data) {
     const rows = data.tables[t] || [];
     if (!rows.length) continue;
     const key = meta[t]?.key || "id";
+    let kept = 0;
     for (let i = 0; i < rows.length; i += 1000) {
       const ids = rows.slice(i, i + 1000).map((r) => lit(r[key])).join(", ");
-      await db.exec(`begin; alter table ${t} disable trigger user; delete from ${t} where ${key} in (${ids}); alter table ${t} enable trigger user; commit;`);
+      try {
+        await db.exec(`begin; alter table ${t} disable trigger user; delete from ${t} where ${key} in (${ids}); alter table ${t} enable trigger user; commit;`);
+      } catch (error) {
+        // A non-demo row still points at one of these (e.g. a real account's payslip in a run a demo
+        // Accountant processed live): those stay, the rest go one by one.
+        await db.exec("rollback;").catch(() => null);
+        for (const id of rows.slice(i, i + 1000).map((r) => lit(r[key]))) {
+          try { await db.exec(`begin; alter table ${t} disable trigger user; delete from ${t} where ${key} = ${id}; alter table ${t} enable trigger user; commit;`); }
+          catch { kept += 1; await db.exec("rollback;").catch(() => null); }
+        }
+      }
     }
-    say(`  deleted ${t}: ${rows.length}`);
+    say(`  deleted ${t}: ${rows.length - kept}${kept ? ` (${kept} kept: a non-demo row still points at them; listed for you)` : ""}`);
   }
   await storageFor(db.target).remove((data.files || []).map((f) => f.path));
   await db.exec(`delete from auth.identities where user_id in (${D}); delete from auth.users where id in (${D});`);
@@ -204,6 +217,9 @@ const commands = {
     const db = database("local");
     globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     const data = await gather(db, "local");
+    // Never overwrite a bundle with nothing (after a local remove, build or restore first).
+    if (!data.demoIds.length) throw new Error("No demo data on the local stack: the bundle was NOT overwritten.");
+    data.tables = withoutSeedExclusions(data.tables);
     printCounts("local demo data", data);
     writeBundle(BUNDLE, data);
     say(`bundle written: ${BUNDLE}`);
