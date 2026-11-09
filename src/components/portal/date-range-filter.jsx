@@ -38,13 +38,14 @@ export function DateRangeFilter({ value, onChange, count = null, maxDays = MAX_R
         <SelectTrigger className="w-36" aria-label="Quick range"><SelectValue /></SelectTrigger>
         <SelectContent>
           {presets.map((p) => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-          <SelectItem value="custom" disabled>Custom range</SelectItem>
+          {/* Only shown (as the label) while two dates of one's own are chosen. */}
+          {preset === "custom" ? <SelectItem value="custom">Custom range</SelectItem> : null}
         </SelectContent>
       </Select>
-      <DatePicker id={`${idPrefix}-from`} value={draft?.from || ""} max={draft?.to || undefined} placeholder="From" aria-label="From date"
+      <DatePicker id={`${idPrefix}-from`} value={draft?.from || ""} max={draft?.to || undefined} placeholder="From" aria-label="From date" className="w-auto"
         onChange={(from) => apply({ ...draft, from: from || "" })} aria-invalid={Boolean(checked.error) || undefined} />
       <span className="text-sm text-muted-foreground" aria-hidden="true">to</span>
-      <DatePicker id={`${idPrefix}-to`} value={draft?.to || ""} min={draft?.from || undefined} placeholder="To" aria-label="To date"
+      <DatePicker id={`${idPrefix}-to`} value={draft?.to || ""} min={draft?.from || undefined} placeholder="To" aria-label="To date" className="w-auto"
         onChange={(to) => apply({ ...draft, to: to || "" })} aria-invalid={Boolean(checked.error) || undefined} />
       {!isDefault ? <Button type="button" variant="ghost" size="sm" onClick={reset}><RotateCcwIcon aria-hidden="true" />Reset</Button> : null}
       {checked.error ? <span role="alert" className="text-xs text-destructive">{checked.error}</span>

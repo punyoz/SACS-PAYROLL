@@ -499,7 +499,11 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     };
     await as(page, "accountant", "ac-reports");
     await settle(page);
-    await main(page).getByRole("button", { name: "Export CSV" }).click();
+    // Reports load by themselves now (alpha test B4): the toast comes from
+    // asking for the payroll sheet with no single period chosen.
+    await main(page).locator("#rpt-type").click();
+    await page.getByRole("option", { name: "Payroll sheet (school format)" }).click();
+    await main(page).getByRole("button", { name: "Refresh report" }).click();
     await toastAt("accountant");
     await as(page, "employee", "emp-timesheet");
     await settle(page);

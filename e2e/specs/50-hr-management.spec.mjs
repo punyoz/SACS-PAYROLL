@@ -31,9 +31,19 @@ test("transfer: HR asks for endorsement → Admin endorses → HR rejects → hi
     expect(pending[0].status).toBe("pending");
   });
 
-  await step(page, "Admin (Main) > Transfer Endorsements > Endorse the incoming move", async () => {
-    monitor.at("Admin > Transfer Endorsements");
+  // The source branch's Admin endorses (alpha test A3, 2026-11-09): Carlo
+  // is at North, so North's Admin; Main's Admin only sees the state.
+  await step(page, "Admin (Main) > Transfer Endorsements > no Endorse button for an incoming move", async () => {
+    monitor.at("Admin (Main) > Transfer Endorsements");
     await as(page, "admin", "adm-transfers");
+    const row = main(page).locator("tr", { hasText: "Carlo" }).filter({ hasText: remarks }).first();
+    await expect(row.getByTestId("transfer-state")).toBeVisible();
+    await expect(row.getByRole("button", { name: "Endorse" })).toHaveCount(0);
+  });
+
+  await step(page, "Admin (North) > Transfer Endorsements > Endorse the move out of its branch", async () => {
+    monitor.at("Admin (North) > Transfer Endorsements");
+    await as(page, "admin2", "adm-transfers");
     const row = main(page).locator("tr", { hasText: "Carlo" }).filter({ hasText: remarks }).first();
     await row.getByRole("button", { name: "Endorse" }).click();
     const dialog = page.getByRole("dialog");

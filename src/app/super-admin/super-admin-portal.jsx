@@ -34,6 +34,7 @@ import { RolesPage } from "./roles-page";
 import { ConfigPage } from "./config-page";
 import { BackupPage } from "./backup-page";
 import { BirExportsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
+import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -142,7 +143,9 @@ function SuperAdminScreens() {
       {current === "sa-accounts" ? <AccountsPage refreshKey={refreshKey} /> : null}
       {current === "sa-branches" ? <BranchesPage refreshKey={refreshKey} /> : null}
       {current === "sa-roles" ? <RolesPage /> : null}
-      {current === "sa-attendance" ? <AttendanceStatusBoard refreshKey={refreshKey} branchFilter /> : null}
+      {/* The board needs the attendance actions context (read-only here: the
+          server refuses any Super Admin change to attendance). */}
+      {current === "sa-attendance" ? <AttendanceActionsProvider><AttendanceStatusBoard refreshKey={refreshKey} branchFilter /></AttendanceActionsProvider> : null}
       {current === "sa-rfid-terminal" ? (
         <MaintenancePage refreshKey={refreshKey} section="terminal" auditActor={null}
           terminalText="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your Super Admin password." />

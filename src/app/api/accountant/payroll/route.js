@@ -3844,7 +3844,7 @@ export async function GET(request) {
     }
 
     // ?format=pdf&entry_id=… : the payslip as a PDF download.
-    if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
+    if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf" && view !== "records") {
       const visible = new Set(employees.map((e) => e.id));
       const entry = requestedEntryId ? (await readPayrollEntries(supabase, { ids: [requestedEntryId] })).entries[0] : null;
       if (!entry || (!guard.branchExempt && !visible.has(entry.employee_id))) {

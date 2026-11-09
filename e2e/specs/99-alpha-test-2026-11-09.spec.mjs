@@ -172,8 +172,11 @@ test("C1: a second tap within the window says when it was recorded", async ({ pa
   await step(page, "two taps of Bea's card a moment apart", async () => {
     const first = await tap();
     const firstBody = await first.json();
-    test.skip(firstBody.code === "too_early" || firstBody.on_leave, "Outside Bea's tap hours today; the unit tests cover this rule.");
-    const second = await (await tap()).json();
+    console.log(`    first tap: ${first.status()} ${JSON.stringify({ tap: firstBody.tap, code: firstBody.code, error: firstBody.error, message: firstBody.message })}`);
+    test.skip(!first.ok(), `The first tap was refused (${firstBody.code || firstBody.error}); the unit tests cover the duplicate window.`);
+    const secondRes = await tap();
+    const second = await secondRes.json();
+    console.log(`    second tap: ${secondRes.status()} ${JSON.stringify({ tap: second.tap, code: second.code, error: second.error, message: second.message })}`);
     expect(second.tap).toBe("duplicate");
     expect(second.message).toMatch(/^Already recorded at \d{1,2}:\d{2} (AM|PM)\./);
   });

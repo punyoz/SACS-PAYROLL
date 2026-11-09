@@ -304,8 +304,8 @@ function MobileCards({ columns, rows, loading, error, onRetry, rowKey, rowClassN
   return (
     <ul className="flex flex-col gap-2" aria-label={caption || undefined} data-slot="data-table-cards">
       {rows.map((row, index) => (
-        <li key={rowKey(row, index)} data-slot="data-table-card" className={cn("min-w-0 rounded-lg border bg-card p-3 text-sm shadow-xs", rowClassName?.(row))}>
-          {primary ? <div className="min-w-0 font-medium break-words">{value(primary, row)}</div> : null}
+        <li key={rowKey(row, index)} data-slot="data-table-card" className={cn("min-w-0 overflow-hidden rounded-lg border bg-card p-3 text-sm shadow-xs [overflow-wrap:anywhere]", rowClassName?.(row))}>
+          {primary ? <div className="min-w-0 font-medium [&_*]:max-w-full [&_*]:whitespace-normal [&_*]:[overflow-wrap:anywhere]">{value(primary, row)}</div> : null}
           {lines.length ? (
             <dl className="mt-2 grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)] gap-x-3 gap-y-1.5">
               {lines.map((column) => (

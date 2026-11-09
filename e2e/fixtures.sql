@@ -36,8 +36,8 @@ select id, full_name, employee_type, branch_id, day,
 from plan;
 
 -- Subsidy requests in every state (alpha test B4), so the Accountant's
--- processing and HR's approval can be tested: Ana (emp1) with an open 2026
--- subsidy year, and four requests:
+-- processing and HR's approval can be tested: Bea (emp2) with an open 2026
+-- subsidy year, and four requests (not Ana: 25-subsidy-flow starts her from nothing):
 --   pending   a missed-month adjustment raised by the system (Accountant to process)
 --   processed an advance the Accountant processed (HR to approve or reject)
 --   approved  an adjustment HR approved (payroll pays it)
@@ -53,7 +53,7 @@ set local session_replication_role = origin;
 -- Written directly (the processing functions' guards bypassed) because these
 -- are ready-made test states, LOCAL ONLY, like the attendance rows above.
 set local session_replication_role = replica;
-with ana as (select id, branch_id from profiles where email = 'emp1@e2e.test'),
+with ana as (select id, branch_id from profiles where email = 'emp2@e2e.test'),
 acct as (select id, full_name from profiles where email = 'acct@e2e.test'),
 hr as (select id, full_name from profiles where email = 'hr@e2e.test'),
 bal as (

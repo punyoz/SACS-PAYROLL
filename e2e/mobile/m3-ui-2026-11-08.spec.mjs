@@ -80,7 +80,11 @@ test("2026-11-08 on a phone: toolbars, dropdown sheets, toasts, rates, backup", 
   await step(page, "Toasts: top of the screen, full width with side margins, under the header", async () => {
     await as(page, "accountant", "ac-reports");
     await settle(page);
-    await main(page).getByRole("button", { name: "Export CSV" }).click();
+    // Reports load by themselves now (alpha test B4): the toast comes from
+    // asking for the payroll sheet with no single period chosen.
+    await main(page).locator("#rpt-type").click();
+    await page.getByRole("option", { name: "Payroll sheet (school format)" }).click();
+    await main(page).getByRole("button", { name: "Refresh report" }).click();
     const toast = page.locator('[data-sonner-toast][data-mounted="true"]').first();
     await toast.waitFor();
     await page.waitForTimeout(700);

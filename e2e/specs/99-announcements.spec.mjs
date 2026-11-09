@@ -74,7 +74,7 @@ test("announcements: HR and Admin manage, audiences hold, readers read only", as
     await postThroughForm(page, { title: T.north, body: "Fire drill at 10 AM.", audience: BRANCH_NORTH });
     check("HR", new RegExp(BRANCH_NORTH).test(await row(page, T.north).innerText()), `branch announcement listed, For: ${BRANCH_NORTH}`);
     say("Editing the North announcement…");
-    await row(page, T.north).getByRole("button", { name: "Edit" }).click();
+    await row(page, T.north).getByRole("button", { name: "Edit", exact: true }).click();
     await page.getByRole("dialog").locator("#an-body").fill("Fire drill moved to 2 PM.");
     await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeHidden({ timeout: 20000 });
@@ -82,7 +82,7 @@ test("announcements: HR and Admin manage, audiences hold, readers read only", as
     check("HR", /2 PM/.test(await row(page, T.north).innerText()), "edit saved");
     say("Posting a throwaway and deleting it (with the confirmation)…");
     await postThroughForm(page, { title: `${T.school} (delete me)`, body: "Posted by mistake.", audience: "Whole school" });
-    await row(page, `${T.school} (delete me)`).getByRole("button", { name: "Delete" }).click();
+    await row(page, `${T.school} (delete me)`).getByRole("button", { name: "Delete", exact: true }).click();
     const askText = await page.locator('[role="alertdialog"]:visible, [role="dialog"]:visible').last().innerText();
     check("HR", /Delete/.test(askText), "a confirmation appears before deleting");
     await confirm(page, "Delete");
@@ -180,7 +180,7 @@ test("announcements: HR and Admin manage, audiences hold, readers read only", as
     await openPage(page, "super_admin", "sa-announcements");
     check("Super Admin", (await main(page).getByRole("button", { name: "Post announcement" }).count()) === 1, "Post button shown (decided 2026-11-08)");
     say(`Deleting North's Admin post as moderation…`);
-    await row(page, T.northAdmin).getByRole("button", { name: "Delete" }).click();
+    await row(page, T.northAdmin).getByRole("button", { name: "Delete", exact: true }).click();
     await confirm(page, "Delete");
     check("Super Admin", /Deleted/.test(await row(page, T.northAdmin).innerText()), "deleted (moderation)");
   });
