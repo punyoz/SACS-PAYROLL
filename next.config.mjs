@@ -34,6 +34,9 @@ const CONTENT_SECURITY_POLICY = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // The fast attendance tests build into their own folder (NEXT_DIST_DIR),
+  // so a running dev server's .next is left alone. Unset everywhere else.
+  ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   // Next 16 writes AGENTS.md and CLAUDE.md into the project root on every dev
   // run. Nothing here reads them, so keep the tree free of generated files.

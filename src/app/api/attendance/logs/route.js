@@ -68,6 +68,13 @@ export async function GET(request) {
 
   try {
     const url = new URL(request.url);
+    // Two dates the wrong way round are refused with the reason (2026-11-09),
+    // not quietly replaced by the current pay period.
+    const askedFrom = normalizeText(url.searchParams.get("from"));
+    const askedTo = normalizeText(url.searchParams.get("to"));
+    if (isDateKey(askedFrom) && isDateKey(askedTo) && askedTo < askedFrom) {
+      return NextResponse.json({ error: "The To date is before the From date.", code: "range_reversed" }, { status: 400 });
+    }
     const range = resolveRange(url);
     const selfOnly = guard.scope === SCOPE_SELF;
     // An employee's own records: up to a year (alpha test A1). Reviewers'
@@ -268,7 +275,7 @@ export async function GET(request) {
         format: fileFormat, fileName: `attendance-${range.from}-to-${range.to}`, title: "Attendance",
         branch: guard.branchExempt && !normalizeText(url.searchParams.get("branch_id")) ? "All branches" : (labelled[0]?.branch_name || "Branch"),
         period: `${range.from} to ${range.to}`,
-        filters: [["Status", statusFilter || "All"]],
+        filters: [["Status", statusFilter === "unresolved" ? "Incomplete queue" : statusFilter || "All"], ["Search", q], ["Day", day]],
         columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Branch" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
           { header: "Hours", kind: "number" }, { header: "Status" }, { header: "Late (min)", kind: "number" }, { header: "Undertime (min)", kind: "number" }],
         rows: labelled.filter(notDemo(demoIds)).map((r) => [r.employee_name || "", r.employee_code || "", r.branch_name || "", r.log_date, clock(r.time_in), clock(r.time_out),
