@@ -603,7 +603,11 @@ async function findRepeat(supabase, employeeId, dateKey, tapIso) {
   // attendance_logs write failed (500) and the terminal sent it again.
   // `logged` false tells the caller to rebuild the day instead of ignoring it.
   const at = new Date(repeated).getTime();
-  const logged = (rows.data || []).some((row) => [row.time_in, row.time_out]
+  // A day HR / Admin corrected keeps its corrected times, so a tap never
+  // matches them: the earlier tap was handled (flagged for review), and this
+  // one is a plain repeat, not a re-send to rebuild (fixed 2026-11-09).
+  const corrected = (rows.data || []).some((row) => row.status === "Corrected" || row.tap_after_correction_at);
+  const logged = corrected || (rows.data || []).some((row) => [row.time_in, row.time_out]
     .some((value) => value && new Date(value).getTime() === at));
   return { repeated, record: day ? mapAttendanceRow(day) : null, logged };
 }

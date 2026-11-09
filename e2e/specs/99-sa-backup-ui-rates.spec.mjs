@@ -381,11 +381,11 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     ["hr", "hr-rfid-cards", "HR RFID cards"],
     ["accountant", "ac-monitoring", "Accountant payroll monitoring"],
     ["admin", "adm-leaves", "Admin leave recommendations"],
-    ["admin", "adm-attendance", "Admin branch attendance"],
+    // Attendance pages left this list with the attendance redesign (2026-11-09):
+    // their own toolbar is checked by e2e/attendance/ui.spec.mjs.
     ["admin", "adm-maintenance", "Admin RFID cards"],
     // Moved to the shared toolbar on 2026-11-08 (decision 4).
     ["hr", "hr-payroll-approval", "HR payroll approval"],
-    ["hr", "hr-attendance", "HR attendance status board"],
   ];
   await step(page, "4/6. Search first, tabs and dropdowns on the same row; no arrows beside tabs", async () => {
     for (const [role, pageId, label] of TOOLBAR_PAGES) {

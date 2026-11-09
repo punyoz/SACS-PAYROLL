@@ -159,6 +159,18 @@ describe("Every tap counts (but a repeat within 5 minutes)", () => {
     });
     expect(table("attendance_taps")).toHaveLength(1);
   });
+
+  it("on a corrected day, a second tap within the window is a duplicate (not a re-send)", async () => {
+    table("attendance_logs").push({
+      id: "log-c2", employee_id: EMP, employee_name: "Ella Employee", log_date: DAY, archived_duplicate: false,
+      time_in: manila("08:00:00"), time_out: manila("17:00:00"), status: "Corrected", created_at: manila("08:00:00"),
+    });
+    await tapAt("19:00:00");
+    const again = await tapAt("19:00:03");
+    expect(again.body).toMatchObject({ tap: "duplicate", persisted: false, message: "Already recorded at 7:00 PM." });
+    expect(table("attendance_taps")).toHaveLength(1);
+    expect(dayRows()[0]).toMatchObject({ time_in: manila("08:00:00"), time_out: manila("17:00:00"), status: "Corrected" });
+  });
 });
 
 describe("Refused only for a real reason", () => {
