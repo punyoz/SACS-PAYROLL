@@ -608,7 +608,10 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     await shot(page, "09-admin-pay-rates", panel);
     await as(page, "hr", "hr-gov-rates");
     await settle(page);
-    await shot(page, "09-hr-pay-rates", main(page).locator('[data-testid="pay-rates-panel"]'));
+    // HR changes the daily rate itself since the alpha test (Part E,
+    // 2026-11-09): the editable rates section replaced the read-only panel.
+    await expect(main(page).getByRole("button", { name: "Edit Daily rate" })).toBeVisible();
+    await shot(page, "09-hr-pay-rates", main(page).locator('[data-testid="pair-row-daily"]'));
   });
 
   console.log("\n  ── Summary ──");
