@@ -298,7 +298,6 @@ function PayPeriodCard({ refreshKey }) {
       key: "status",
       header: "Status",
       mobileBadge: true,
-      sortValue: (r) => normalizeAttendanceStatus(r.status),
       searchValue: (r) => normalizeAttendanceStatus(r.status),
       className: "whitespace-normal",
       cell: (r) => (
