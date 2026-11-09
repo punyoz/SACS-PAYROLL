@@ -20,10 +20,10 @@ import {
   StarIcon,
   TableIcon,
   UserMinusIcon,
-  UserRoundIcon,
 } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
@@ -56,8 +56,10 @@ const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.Das
  */
 const NAV = [
   { section: "Overview", items: [{ id: "ac-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
+  // Work pages in collapsible groups (2026-11-09 Part E); no page renamed or lost.
   {
     section: "Payroll",
+    collapsible: true,
     items: [
       { id: "ac-process", label: "Process Payroll", icon: CalculatorIcon, module: "process_payroll" },
       { id: "ac-records", label: "Payroll Records", icon: TableIcon, module: "payroll_records" },
@@ -71,23 +73,37 @@ const NAV = [
     ],
   },
   {
-    section: "Reference",
+    section: "Attendance",
+    collapsible: true,
     items: [
       { id: "ac-attendance", label: "View Attendance", icon: CalendarCheckIcon, module: "attendance" },
       { id: "ac-holidays", label: "Holidays & Duty", icon: CalendarHeartIcon, module: "attendance" },
-      // Read-only (2026-10-26): to check and explain each deduction.
-      { id: "ac-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
     ],
   },
-  { section: "Monitoring", items: [{ id: "ac-monitoring", label: "Payroll Monitoring", icon: ActivityIcon, module: "payroll_monitoring" }] },
-  { section: "Communication", items: [{ id: "ac-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
-  { section: "Reports", items: [{ id: "ac-reports", label: "Payroll Reports", icon: FileTextIcon, module: "payroll_reports" }] },
-  { section: "Account", items: [{ id: "ac-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  {
+    section: "Reports",
+    collapsible: true,
+    items: [
+      { id: "ac-monitoring", label: "Payroll Monitoring", icon: ActivityIcon, module: "payroll_monitoring" },
+      { id: "ac-reports", label: "Payroll Reports", icon: FileTextIcon, module: "payroll_reports" },
+    ],
+  },
+  {
+    section: "Settings",
+    collapsible: true,
+    items: [
+      // Read-only (2026-10-26): to check and explain each deduction.
+      { id: "ac-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
+      { id: "ac-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
+    ],
+  },
+  // The Accountant is an employee too: its own pages, below the work groups.
+  myAccountGroup("ac"),
 ];
 
 const NAV_ITEMS = NAV.flatMap((group) => group.items);
 const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
-const TITLES = { ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])), "ac-payslips": "Pay Record", "ac-attendance": "Attendance Records" };
+const TITLES = { ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])), "ac-payslips": "Pay Record", "ac-attendance": "Attendance Records", "ac-profile": "My Profile" };
 const DESCRIPTIONS = {
   "ac-dashboard": "Payroll overview and activity summary for the current period.",
   "ac-announcements": "Announcements for the whole school and for your branch.",
@@ -106,6 +122,7 @@ const DESCRIPTIONS = {
   "ac-reports": "Generate and export payroll reports for documentation and audit purposes.",
   "ac-gov-rates": "View-only — the daily and hourly pay rates, the SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll uses, and every change to them.",
   "ac-profile": null,
+  ...Object.fromEntries(Object.entries(MY_PAGE_IDS.ac).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, MY_DESCRIPTIONS[kind]])),
 };
 
 function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
@@ -149,6 +166,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
       {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}
       {current === "ac-profile" ? <StaffProfilePage roleLabel="Accountant" showPosition employeeIdLabel /> : null}
+      {myPageKind("ac", current) && myPageKind("ac", current) !== "profile" ? <MyAccountScreen kind={myPageKind("ac", current)} refreshKey={refreshKey} /> : null}
     </AppShell>
   );
 }

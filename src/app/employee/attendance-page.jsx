@@ -214,7 +214,7 @@ function CorrectionDialog({ row, onOpenChange, onDone }) {
     setBusy(true);
     setServerError("");
     try {
-      await fetchJson("/api/attendance/corrections", jsonBody("POST", { log_id: row.id, corrected_time: time, reason: r }));
+      await fetchJson("/api/me/attendance/corrections", jsonBody("POST", { log_id: row.id, corrected_time: time, reason: r }));
       notify("Correction Requested", "Your request was sent for review. The day shows Pending Correction until it is decided.", "success");
       onOpenChange(false);
       onDone();
@@ -279,7 +279,7 @@ function PayPeriodCard({ refreshKey }) {
     try {
       const params = new URLSearchParams({ from: range.from, to: range.to, page: String(paging.page), page_size: String(paging.pageSize) });
       if (status !== "all") params.set("status", status);
-      const data = await fetchJson(`/api/attendance/logs?${params}`);
+      const data = await fetchJson(`/api/me/attendance/logs?${params}`);
       setState({ logs: data.logs || [], total: Number(data.total) || 0, counts: data.counts || {}, loading: false, error: null });
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message }));

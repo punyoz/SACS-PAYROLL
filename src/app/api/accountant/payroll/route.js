@@ -4,7 +4,7 @@ import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { notify } from "@/lib/branch-requests-server";
+import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
@@ -99,6 +99,7 @@ import { attendanceOverrideState, attendanceOverrides } from "@/lib/payroll/over
 import { applyWindowEnforcement, loadWindowEnforcement } from "@/lib/payroll/window-enforcement";
 import { loadDemoIds, notDemo } from "@/lib/demo";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
+import { activeAccountantIds } from "@/lib/rbac/routing";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -115,6 +116,20 @@ const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has a
  * payroll.own_payslip, and flagged for HR, who approves it with the run.
  */
 const OWN_PAYROLL_MESSAGE = "You cannot change your own payroll by hand. Your own payslip is computed by the system only (Generate or Process payroll for all), and HR approves it with the branch's run.";
+
+/** HR's bell: a self-processed Accountant payslip waits in the branch's run (generic, no amounts). */
+async function notifySelfProcessed(supabase, guard, periodLabel) {
+  try {
+    await notify(supabase, await hrAccountIds(supabase), {
+      kind: "self_processed_payslip",
+      title: "Self-processed payslip to review",
+      body: `${normalizeText(guard.session?.full_name, "The Accountant")} generated their own payslip for ${periodLabel} (the branch's only Accountant). Review it with the branch's run.`,
+      link_page: "hr-payroll-approval",
+    });
+  } catch { /* never fails the payroll */ }
+}
+
+const SELF_PROCESSING_MESSAGE = "Another Accountant of your branch processes your payslip. Self-processing is only for a branch with one Accountant.";
 
 /** The mark a payslip processed after its generation window closed carries (HR's flag). */
 function lateMark(genWindow, guard) {
@@ -134,6 +149,8 @@ function ownPayslipMark(guard) {
     by_name: normalizeText(guard?.session?.full_name, guard?.session?.email) || null,
     at: new Date().toISOString(),
     rule: "System-computed only (no manual changes); HR reviews and approves it with the branch's run.",
+    // The HR approval queue and the audit log show it as "Self-processed".
+    label: "Self-processed",
   };
 }
 
@@ -287,7 +304,8 @@ async function fetchEmployees(supabase, guard = null) {
 
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return role === "employee" || role === "accountant";
+    // HR is on payroll too (decision 2026-11-09): its home-branch Accountant processes it.
+    return role === "employee" || role === "accountant" || role === "hr";
   });
 
   const userIds = employeeUsers.map((user) => user.id);
@@ -4151,6 +4169,12 @@ async function handleBatchSubmit(supabase, body, guard) {
 
     // The Accountant's own row: system-computed only, whatever the form sent.
     const own = isOwnPayroll(guard, employee.id);
+    // Self-processed only in a branch with ONE active Accountant (2026-11-09);
+    // with two or more, another Accountant of the branch processes it.
+    if (own && (await activeAccountantIds(supabase, employee.branch_id)).length > 1) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: SELF_PROCESSING_MESSAGE, code: "self_processing_blocked" });
+      continue;
+    }
 
     if (employee.payroll_hold) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: payrollHoldMessage(employee), code: PAYROLL_HOLD_CODE });
@@ -4293,11 +4317,13 @@ async function handleBatchSubmit(supabase, body, guard) {
     action: "batch_process",
     entity_type: "payroll_entry",
     entity_id: payPeriod,
-    description: `Batch payroll processed for ${processed.length} employee(s), pay period ${payPeriod}${skipped.length ? ` (${skipped.length} skipped)` : ""}.${processed.some((p) => isOwnPayroll(guard, p.employee_id)) ? " Includes the Accountant's own payslip: system-computed, for HR approval with the run." : ""}`,
+    description: `Batch payroll processed for ${processed.length} employee(s), pay period ${payPeriod}${skipped.length ? ` (${skipped.length} skipped)` : ""}.${processed.some((p) => isOwnPayroll(guard, p.employee_id)) ? " Includes a self-processed payslip (the branch's only Accountant, system-computed), for HR approval with the run." : ""}`,
     status: "success",
     source: "api",
     metadata: { pay_period: payPeriod, processed_count: processed.length, skipped_count: skipped.length, skipped, own_payslip: processed.some((p) => isOwnPayroll(guard, p.employee_id)) },
   });
+  // A self-processed payslip (the branch's only Accountant): HR is told (2026-11-09).
+  if (processed.some((p) => isOwnPayroll(guard, p.employee_id))) await notifySelfProcessed(supabase, guard, payPeriod);
 
   return NextResponse.json({ success: true, processed, skipped });
 }
@@ -4666,6 +4692,9 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   // is allowed and marked for HR; an override never is.
   const ownPayslip = isOwnPayroll(guard, employee.id);
   if (ownPayslip && override) return refuseOwnPayroll(guard, employee.id);
+  if (ownPayslip && (await activeAccountantIds(supabase, employee.branch_id)).length > 1) {
+    return NextResponse.json({ error: SELF_PROCESSING_MESSAGE, code: "self_processing_blocked" }, { status: 403 });
+  }
   // Held pay is never generated, not even by an override: HR closes the case
   // first (returned / excused), then the held payslip can be generated.
   const heldPay = refusePayrollHold(employee);
@@ -4898,7 +4927,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
         + `Payslip ${overrideResult?.old_payslip_no || "—"} -> ${baseEntry.payslip_no || "—"}; `
         + `gross ${money(oldValues.gross_pay)} -> ${money(newValues.gross_pay)}, net ${money(oldValues.net_pay)} -> ${money(newValues.net_pay)}. `
         + `${reviewFlags.length} record${reviewFlags.length === 1 ? "" : "s"} flagged for review.`
-      : `${final ? "Final" : "Draft"} payslip for ${employee.full_name}, ${period.label}, ${previous && !final ? "regenerated" : "generated"} (attendance up to ${formatDateKey(through)}).${ownPayslip ? " The Accountant's own payslip: system-computed, for HR approval with the run." : ""}`,
+      : `${final ? "Final" : "Draft"} payslip for ${employee.full_name}, ${period.label}, ${previous && !final ? "regenerated" : "generated"} (attendance up to ${formatDateKey(through)}).${ownPayslip ? " Self-processed: the branch's only Accountant generated their own payslip (system-computed), for HR approval with the run." : ""}`,
     status: "success",
     source: "api",
     metadata: {
@@ -4933,6 +4962,7 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     },
   });
 
+  if (ownPayslip && final) await notifySelfProcessed(supabase, guard, period.label);
   return NextResponse.json({
     success: true,
     status: final ? "final" : "draft",

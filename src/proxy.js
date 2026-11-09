@@ -139,6 +139,8 @@ const API_MODULES = [
   ["/api/hr/positions", "employee_information"],
   ["/api/hr/attendance", "attendance"],
   ["/api/hr/leave-requests", "leave_approval"],
+  // The shared HR queue's claim lock (2026-11-09).
+  ["/api/hr/queue-claims", "leave_approval"],
   ["/api/hr/reports", "hr_reports"],
   ["/api/hr/dashboard", "dashboard"],
   ["/api/accountant/payroll", "process_payroll"],
@@ -211,6 +213,10 @@ const API_MODULES = [
   // Profile pictures (20261102020000): every role, own picture only (the
   // route takes the user from the session).
   ["/api/profile-photo", "profile"],
+  // "My Account" (2026-11-09): the caller's own records, every role on payroll.
+  ["/api/me", "my_account"],
+  // Items waiting on the Super Admin as the fallback approver.
+  ["/api/super-admin/fallback", "fallback_approvals"],
   ["/api/employee/payslips", "payslips"],
   // The employee's own BIR Form 2316, for a finished year.
   ["/api/employee/bir-2316", "payslips"],

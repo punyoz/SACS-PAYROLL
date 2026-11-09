@@ -14,6 +14,7 @@ import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/r
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { notify, notifyEndorsers } from "@/lib/branch-requests-server";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { claimView, claimsFor, refuseClaimedByOther, refuseOwnItem, routingErrorResponse } from "@/lib/rbac/routing";
 
 export async function GET(request) {
   try {
@@ -45,6 +46,14 @@ export async function GET(request) {
       readAllLeaveRequests({ ...scope, statuses: PENDING }),
       status === "pending" ? [] : readAllLeaveRequests({ ...scope, excludeStatuses: PENDING, submittedSince: since }),
     ])).map((rows) => rows.map(withProofFlag));
+    // The viewer's own requests never appear in their queue (2026-11-09):
+    // another HR, or the Super Admin as the fallback, decides them.
+    const notMine = (row) => row.employee_id !== guard.userId;
+    const supabase = getAdminClient();
+    const claims = await claimsFor(supabase, "leave_request", pending.map((r) => r.id));
+    const withClaim = (row) => ({ ...row, claim: claimView(claims.get(row.id), guard) });
+    pending.splice(0, pending.length, ...pending.filter(notMine).map(withClaim));
+    history.splice(0, history.length, ...history.filter(notMine));
     const allRequests = [...pending, ...history];
 
     let requests;
@@ -93,6 +102,15 @@ export async function PATCH(request) {
     if (foreignBranch) return foreignBranch;
 
     const deciderName = String(guard.session?.full_name || guard.session?.email || "").trim();
+
+    // Nobody decides or cancels their own leave (2026-11-09); the database
+    // refuses it too (leave_requests_decision_guard). An item another HR
+    // claimed is theirs until released or expired (the shared HR queue).
+    if (current.employee_id === guard.userId) {
+      return refuseOwnItem(guard, { module: "leave", entityType: "leave_request", entityId: id, what: "leave request" });
+    }
+    const claimed = await refuseClaimedByOther(getAdminClient(), guard, "leave_request", id);
+    if (claimed) return claimed;
 
     // A rejection needs a reason the employee sees (decision 2026-11-06), as a
     // payroll rejection does: 5-500 characters.
@@ -198,6 +216,8 @@ export async function PATCH(request) {
       decidedByName: deciderName || null,
       ...(action === "reject" ? { decisionReason: rejectReason } : {}),
     });
+    // The decision is made: the item leaves the shared queue (its claim goes).
+    if (!result.conflict) await getAdminClient().from("hr_queue_claims").delete().eq("item_type", "leave_request").eq("item_id", id);
     if (result.conflict) {
       return NextResponse.json(
         { error: "This leave request was already decided by someone else. Refresh to see its current status." },
@@ -254,6 +274,8 @@ export async function PATCH(request) {
       attendance_conflicts: sync?.conflicts || [],
     });
   } catch (error) {
+    const routed = routingErrorResponse(error);
+    if (routed) return routed;
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

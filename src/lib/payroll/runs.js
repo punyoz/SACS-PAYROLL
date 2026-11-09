@@ -46,7 +46,7 @@ export const FLAG_LABELS = Object.freeze({
   negative_net: "Net pay below zero (paid ₱0)",
   zero_days: "No days worked",
   large_change: "Large change vs. previous period",
-  own_payslip: "Accountant's own payslip (system-computed): check it",
+  own_payslip: "Self-processed: the branch's only Accountant generated their own payslip (system-computed); check it",
   late_processing: "Processed after the generation window",
 });
 
@@ -304,7 +304,7 @@ export function describeRunError(error) {
   const text = String(error?.message || error || "");
   const [code] = /^[a-z_]+(?=:)/.exec(text) || [];
   const message = text.replace(/^[a-z_]+:\s*/, "") || "The payroll run could not be updated.";
-  const status = code === "forbidden" || code === "self_approval" ? 403
+  const status = code === "forbidden" || code === "self_approval" || code === "own_payslip" ? 403
     : code === "not_found" ? 404
       : code === "invalid_period" ? 400
         : 409;

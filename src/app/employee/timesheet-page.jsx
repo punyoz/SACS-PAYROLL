@@ -12,7 +12,7 @@ import { DateRangeFilter, defaultRange } from "@/components/portal/date-range-fi
 
 /*
  * Date-range timesheet (generateTimesheet / tsCopyTable / tsExportExcel,
- * public/legacy/js/employee.js): GET /api/employee/timesheet with the same
+ * public/legacy/js/employee.js): GET /api/me/timesheet with the same
  * parameters; Copy and Excel act on the rows the search shows.
  */
 
@@ -100,7 +100,7 @@ export function TimesheetPage() {
     setState((current) => ({ ...current, loading: true, error: null, generated: true }));
     try {
       const params = new URLSearchParams({ email: String(ctx?.email || "").trim(), start_date: start, end_date: end });
-      const response = await apiFetch(`/api/employee/timesheet?${params.toString()}`);
+      const response = await apiFetch(`/api/me/timesheet?${params.toString()}`);
       if (!response.ok) throw new Error("Failed to load timesheet data.");
       const data = await response.json();
       if (data.error) throw new Error(data.error);

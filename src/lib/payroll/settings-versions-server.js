@@ -150,7 +150,7 @@ async function listPayrollEmployees(supabase) {
   const profileMap = new Map((profiles.data || []).map((p) => [p.id, p]));
   const branchNames = new Map((branches.data || []).map((b) => [b.id, b.name]));
   return (usersResult.data.users || [])
-    .filter((user) => ["employee", "accountant"].includes(String(user.user_metadata?.role || "employee").toLowerCase()))
+    .filter((user) => ["employee", "accountant", "hr"].includes(String(user.user_metadata?.role || "employee").toLowerCase()))
     .filter((user) => !user.user_metadata?.archived)
     .map((user) => {
       const metadata = user.user_metadata || {};

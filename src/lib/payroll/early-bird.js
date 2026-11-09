@@ -38,7 +38,8 @@ export const DEFAULT_EARLY_BIRD_SETTINGS = Object.freeze({
   exclude_unexcused_absence: true,
 });
 
-const PAID_ROLES = ["employee", "accountant"];
+// HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
+const PAID_ROLES = ["employee", "accountant", "hr"];
 
 /** system_config rows (or a { key: value } section) -> settings. */
 export function parseEarlyBirdSettings(source) {

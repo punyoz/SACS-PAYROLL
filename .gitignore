@@ -46,3 +46,8 @@ next-env.d.ts
 
 # Exported PDF of FUNCTIONS_DOCUMENTATION.md: kept outside the repo (7 MB binary).
 FUNCTIONS_DOCUMENTATION.pdf
+
+# Demo data for the defense (scripts/demo): bundle, credentials, snapshots, base e-mail
+/demo-data/
+.env.demo.local
+.next-check

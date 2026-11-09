@@ -11,7 +11,7 @@ import { BACKGROUND, apiFetch, fetchJson } from "@/lib/portal/api";
 const STATS_POLL_MS = 30000;
 
 /**
- * GET /api/employee/stats — the month's counts, calendar records, today's
+ * GET /api/me/stats — the month's counts, calendar records, today's
  * log, upcoming leave and next holiday. Polled every 30 s while the tab is
  * visible (an RFID tap is recorded elsewhere), marked as background so the
  * poll never keeps an idle session alive.
@@ -22,7 +22,7 @@ export function useEmployeeStats(email, refreshKey) {
   const load = React.useCallback(async ({ background = false } = {}) => {
     if (!email) return;
     try {
-      const response = await apiFetch(`/api/employee/stats?email=${encodeURIComponent(email)}`, background ? BACKGROUND : undefined);
+      const response = await apiFetch(`/api/me/stats?email=${encodeURIComponent(email)}`, background ? BACKGROUND : undefined);
       if (!response.ok) throw new Error("Failed to load attendance data.");
       const data = await response.json();
       setState({ data, loading: false, error: null });
@@ -44,7 +44,7 @@ export function useEmployeeStats(email, refreshKey) {
   return { ...state, reload: load };
 }
 
-/** GET /api/employee/payslips — newest first. */
+/** GET /api/me/payslips — newest first. */
 export function usePayslips(email, refreshKey) {
   const [state, setState] = React.useState({ list: [], loading: true, error: null });
 
@@ -52,7 +52,7 @@ export function usePayslips(email, refreshKey) {
     if (!email) return;
     setState((current) => ({ ...current, loading: !current.list.length, error: null }));
     try {
-      const response = await apiFetch(`/api/employee/payslips?email=${encodeURIComponent(email)}`);
+      const response = await apiFetch(`/api/me/payslips?email=${encodeURIComponent(email)}`);
       if (!response.ok) throw new Error("Unable to load your payslips.");
       const data = await response.json();
       setState({ list: Array.isArray(data.payslips) ? data.payslips : [], loading: false, error: null });
@@ -104,7 +104,7 @@ function notifyLeaveDecisions(requests, ctx, notify) {
   try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* storage blocked: notices may repeat */ }
 }
 
-/** GET /api/employee/leave-requests — the person's requests and leave balance. */
+/** GET /api/me/leave-requests — the person's requests and leave balance. */
 export function useLeaveRequests(ctx, notify, refreshKey) {
   const [state, setState] = React.useState({ requests: [], balance: null, loading: true, error: null });
   const employeeId = String(ctx?.employee_id || "").trim();
@@ -122,7 +122,7 @@ export function useLeaveRequests(ctx, notify, refreshKey) {
       const params = new URLSearchParams();
       if (employeeId) params.set("employee_id", employeeId);
       if (fullName) params.set("employee_name", fullName);
-      const payload = await fetchJson(`/api/employee/leave-requests?${params.toString()}`);
+      const payload = await fetchJson(`/api/me/leave-requests?${params.toString()}`);
       const requests = Array.isArray(payload.requests) ? payload.requests : [];
       setState({ requests, balance: payload.balance || null, loading: false, error: null });
       notifyLeaveDecisions(requests, ctxRef.current, notify);

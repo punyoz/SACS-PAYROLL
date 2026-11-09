@@ -77,7 +77,7 @@ export async function GET(request) {
     const wantCounts = request.nextUrl?.searchParams?.get("with_counts") === "1" && can(session.role, "branch_management", "read");
     if (wantCounts && visible.length) {
       const counts = await Promise.all(visible.map((b) => supabase.from("profiles").select("id", { count: "exact", head: true })
-        .eq("branch_id", b.id).eq("archived", false).in("role", ["employee", "accountant"])));
+        .eq("branch_id", b.id).eq("archived", false).in("role", ["employee", "accountant", "hr"])));
       visible.forEach((b, i) => { b.employee_count = counts[i].error ? null : counts[i].count ?? 0; });
     }
 

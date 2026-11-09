@@ -43,7 +43,7 @@ function refused(error) {
 /** Employees and Accountants the caller may register cards for (an Admin: its branch). */
 async function peopleInReach(supabase, guard) {
   let query = supabase.from("profiles").select("id,full_name,email,employee_id,branch_id,role,archived,employee_status")
-    .in("role", ["employee", "accountant"]);
+    .in("role", ["employee", "accountant", "hr"]);
   if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId || "00000000-0000-0000-0000-000000000000");
   const result = await query;
   if (result.error) throw new Error(result.error.message);

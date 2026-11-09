@@ -10,6 +10,7 @@ import {
   ReceiptTextIcon,
   ScrollTextIcon,
   ServerIcon,
+  InboxIcon,
   UsersIcon,
   UsersRoundIcon,
 } from "lucide-react";
@@ -133,6 +134,13 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
     return () => { cancelled = true; };
   }, [refreshKey, onSummary]);
 
+  const [fallback, setFallback] = React.useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchJson("/api/super-admin/fallback").then((data) => { if (!cancelled) setFallback(Number(data?.counts?.total || 0)); }).catch(() => { if (!cancelled) setFallback(null); });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
   const d = state.dashboard || {};
   const p = d.panels || {};
   // The legacy page read these at the top level; the API sends them in panels.
@@ -146,12 +154,13 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
 
   return (
     <>
-      <section aria-label="System at a glance" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <section aria-label="System at a glance" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total employees" value={panel("total_employees", "totalEmployees") ?? "—"} hint="Active system-wide" icon={UsersIcon} loading={loading} onClick={() => onNavigate("sa-attendance")} actionLabel="open Attendance Records" />
         <StatCard label="Total users" value={totalUsers || "—"} hint="All registered accounts" icon={UsersRoundIcon} tone="info" loading={loading} onClick={() => onNavigate("sa-accounts")} actionLabel="open Admin & HR Accounts" />
         <StatCard label="System status" value="Online" hint="Database & services" icon={ServerIcon} tone="success" loading={loading} onClick={() => onNavigate("sa-backup")} actionLabel="open Backup & Recovery" />
-        {/* "Pending actions" removed (decision 2026-11-09 #10): it showed a fixed 0,
-            and nothing in the system waits on the Super Admin's approval. */}
+        {/* Pending actions (2026-11-09 Part D): the items waiting on the Super
+            Admin as the fallback approver, a real count (never a fixed 0). */}
+        <StatCard label="Pending actions" value={fallback === null ? "—" : fallback} hint={fallback ? "Waiting on you (no other HR active)" : "Nothing waits on the fallback"} icon={InboxIcon} tone={fallback ? "warning" : "primary"} loading={loading && fallback === null} onClick={() => onNavigate("sa-fallback")} actionLabel="open Items waiting on fallback" />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

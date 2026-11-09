@@ -3,9 +3,10 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, CalendarHeartIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, UserRoundIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, CalendarHeartIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsManager } from "@/components/portal/announcements";
@@ -45,47 +46,35 @@ const ReportsPage = dynamic(() => import("./reports-page").then((m) => m.Reports
  */
 const NAV = [
   { section: "Overview", items: [{ id: "hr-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
+  // Work pages in collapsible groups (2026-11-09 Part E); no page renamed or lost.
   {
     section: "Employees",
+    collapsible: true,
     items: [
       { id: "hr-employees", label: "User Management", icon: UsersIcon, module: "user_management" },
+      { id: "hr-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
       { id: "hr-transfers", label: "Transfer Requests", icon: ArrowLeftRightIcon, module: "transfer_requests" },
       { id: "hr-tenure", label: "Tenure Pay Protection", icon: ShieldCheckIcon, module: "tenure_protection" },
+      // What the branch Admins send (2026-10-20): HR decides.
+      { id: "hr-branch-requests", label: "Branch Requests", icon: InboxIcon, module: "branch_oversight" },
     ],
   },
   {
     section: "Attendance",
+    collapsible: true,
     items: [
       { id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
-      { id: "hr-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
+      { id: "hr-leaves", label: "Leave Approval", icon: CalendarDaysIcon, module: "leave_approval" },
+      { id: "hr-awol", label: "AWOL Cases", icon: UserXIcon, module: "awol_cases" },
       { id: "hr-holidays", label: "Holidays & Duty", icon: CalendarHeartIcon, module: "attendance" },
-    ],
-  },
-  {
-    // RFID registration and terminals for every branch (2026-10-21), the same
-    // records the Super Admin and each branch's Admin manage.
-    section: "RFID",
-    items: [
+      // RFID registration and terminals for every branch (2026-10-21).
       { id: "hr-rfid-cards", label: "RFID Cards", icon: CreditCardIcon, module: "rfid_devices" },
       { id: "hr-rfid-terminals", label: "RFID Terminal", icon: RadioTowerIcon, module: "rfid_devices" },
     ],
   },
   {
-    section: "Leave",
-    items: [
-      { id: "hr-leaves", label: "Leave Approval", icon: CalendarDaysIcon, module: "leave_approval" },
-      { id: "hr-awol", label: "AWOL Cases", icon: UserXIcon, module: "awol_cases" },
-    ],
-  },
-  {
-    // What the branch Admins send (2026-10-20): HR decides.
-    section: "Branch Admins",
-    items: [{ id: "hr-branch-requests", label: "Branch Requests", icon: InboxIcon, module: "branch_oversight" }],
-  },
-  // School-wide and branch announcements (2026-10-30).
-  { section: "Communication", items: [{ id: "hr-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
-  {
     section: "Payroll",
+    collapsible: true,
     items: [
       { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
@@ -93,12 +82,14 @@ const NAV = [
       { id: "hr-subsidy-approvals", label: "Subsidy Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
       // Incentives, overload and loans the Accountant filed (20261027020000).
       { id: "hr-adjustment-approvals", label: "Incentive & Loan Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
-      // Read-only (2026-10-26): to answer employees' questions about deductions.
       { id: "hr-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
     ],
   },
-  { section: "Reports", items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
-  { section: "Account", items: [{ id: "hr-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  { section: "Reports", collapsible: true, items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
+  // School-wide and branch announcements (2026-10-30).
+  { section: "Settings", collapsible: true, items: [{ id: "hr-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
+  // HR is an employee too (2026-11-09): its own pages, below the work groups.
+  myAccountGroup("hr"),
 ];
 
 const EMPLOYEE_PAGE = "hr-att-employee";
@@ -124,7 +115,8 @@ const TITLES = {
   "hr-adjustment-approvals": "Incentive & Loan Approvals",
   "hr-gov-rates": "Government Rates",
   "hr-reports": "HR Reports",
-  "hr-profile": "Profile",
+  "hr-profile": "My Profile",
+  ...Object.fromEntries(Object.entries(MY_PAGE_IDS.hr).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, myAccountGroup("hr").items.find((i) => i.id === id).label])),
 };
 const DESCRIPTIONS = {
   "hr-dashboard": "Attendance summaries, leave notifications, and quick HR access.",
@@ -148,6 +140,7 @@ const DESCRIPTIONS = {
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
   "hr-profile": null,
+  ...Object.fromEntries(Object.entries(MY_PAGE_IDS.hr).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, MY_DESCRIPTIONS[kind]])),
 };
 
 function HrScreens() {
@@ -165,6 +158,7 @@ function HrScreens() {
     return item ? can(item.module) : false;
   };
   const current = allowed(page) ? page : "hr-dashboard";
+  const myKind = myPageKind("hr", current);
   const { employeeId, openEmployee, navigate } = useEmployeeRecordPage(current, setPage, EMPLOYEE_PAGE, "hr-attendance");
 
   const refresh = React.useCallback(() => {
@@ -230,6 +224,7 @@ function HrScreens() {
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
+        {myKind && myKind !== "profile" ? <MyAccountScreen kind={myKind} refreshKey={refreshKey} /> : null}
       </AppShell>
     </AttendanceActionsProvider>
   );

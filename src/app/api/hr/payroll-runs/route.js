@@ -31,6 +31,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { claimView, claimsFor, refuseClaimedByOther } from "@/lib/rbac/routing";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { shapeWinner } from "@/lib/payroll/early-bird";
 import { money } from "@/lib/payroll/payslip-summary";
@@ -393,6 +394,20 @@ export async function GET(request) {
     if (result.error) return NextResponse.json({ available: false, error: NOT_READY, runs: [] });
     let runs = (result.data || []).map(shapeRun);
 
+    // A run holding the viewer's own payslip is never in their queue
+    // (2026-11-09): another HR decides it, or the Super Admin as the
+    // fallback. Claims of the shared HR queue ride along.
+    let ownHidden = 0;
+    if (runs.length && guard.role === "hr") {
+      const own = await supabase.from("payroll_run_items").select("run_id").eq("employee_id", guard.userId);
+      const ownRuns = new Set((own.data || []).map((row) => row.run_id));
+      const before = runs.length;
+      runs = runs.filter((run) => !(run.status === "pending" && ownRuns.has(run.id)));
+      ownHidden = before - runs.length;
+      const claims = await claimsFor(supabase, "payroll_run", runs.filter((run) => run.status === "pending").map((run) => run.id));
+      runs = runs.map((run) => ({ ...run, claim: claimView(claims.get(run.id), guard) }));
+    }
+
     // Search by branch, the people who handled the run, or an employee in it.
     if (q) {
       const byEmployee = runs.length
@@ -424,6 +439,8 @@ export async function GET(request) {
       available: true,
       runs,
       can_review: guard.role === "hr",
+      own_hidden: ownHidden,
+      ...(ownHidden ? { own_hidden_message: `${ownHidden} run${ownHidden === 1 ? " holds" : "s hold"} your own payslip, so another HR approves ${ownHidden === 1 ? "it" : "them"} (or the Super Admin when no other HR is active).` } : {}),
       ...(await listMeta()),
     });
   } catch (error) {
@@ -467,7 +484,10 @@ export async function PATCH(request) {
       if (remarks.length < 5) {
         return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters).", code: "remarks_required" }, { status: 400 });
       }
+      const claimedReject = await refuseClaimedByOther(supabase, guard, "payroll_run", runId);
+      if (claimedReject) return claimedReject;
       const result = await supabase.rpc("reject_payroll_run", { p_run_id: runId, p_actor: guard.userId, p_remarks: remarks });
+      if (!result.error) await supabase.from("hr_queue_claims").delete().eq("item_type", "payroll_run").eq("item_id", runId);
       if (result.error) {
         const failure = describeRunError(result.error);
         return NextResponse.json(failure, { status: failure.status });
@@ -484,6 +504,7 @@ export async function PATCH(request) {
       const results = [];
       for (const id of ids) {
         const result = await supabase.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: remarks || null });
+        if (!result.error) await supabase.from("hr_queue_claims").delete().eq("item_type", "payroll_run").eq("item_id", id);
         if (result.error) results.push({ run_id: id, ok: false, ...describeRunError(result.error) });
         else results.push({ run_id: id, ok: true, run: shapeRun(Array.isArray(result.data) ? result.data[0] : result.data) });
       }

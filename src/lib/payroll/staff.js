@@ -15,7 +15,8 @@ import { listUsersCached } from "@/lib/auth/users-cache";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
-const PAID_ROLES = new Set(["employee", "accountant"]);
+// HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
+const PAID_ROLES = new Set(["employee", "accountant", "hr"]);
 
 function isMissingColumn(error) {
   const text = String(error?.message || "").toLowerCase();

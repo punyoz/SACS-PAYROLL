@@ -462,7 +462,7 @@ export function MyBir2316Card() {
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const data = await fetchJson("/api/employee/bir-2316");
+      const data = await fetchJson("/api/me/bir-2316");
       setState({ loading: false, error: null, years: data.years || [] });
     } catch (error) {
       setState({ loading: false, error: error.message || "Unable to load your BIR 2316.", years: [] });
@@ -483,7 +483,7 @@ export function MyBir2316Card() {
             : state.years.length ? (
               <div className="flex flex-wrap gap-2">
                 {state.years.map((y) => (
-                  <Button key={y} variant="outline" size="sm" disabled={busy === String(y)} onClick={() => run(String(y), `/api/employee/bir-2316?year=${y}&format=pdf`, `BIR-2316-${y}.pdf`)}>
+                  <Button key={y} variant="outline" size="sm" disabled={busy === String(y)} onClick={() => run(String(y), `/api/me/bir-2316?year=${y}&format=pdf`, `BIR-2316-${y}.pdf`)}>
                     {busy === String(y) ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}{y}
                   </Button>
                 ))}

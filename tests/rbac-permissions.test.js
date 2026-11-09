@@ -583,6 +583,7 @@ describe("Matrix stays in step with the SQL seed", () => {
       "supabase/migrations/20261108020000_sa_posts_announcements.sql",
       "supabase/migrations/20261108030000_hourly_rate_always_derived.sql",
       "supabase/migrations/20261109020000_hr_rate_changes.sql",
+      "supabase/migrations/20261110030000_my_account_permissions.sql",
     ].map((file) => readFileSync(file, "utf8")).join("\n");
   });
 

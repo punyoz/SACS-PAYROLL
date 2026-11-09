@@ -23,7 +23,7 @@ import { REASON_MAX } from "@/lib/input-limits";
 
 /*
  * Leave request (submitLeaveRequest, public/legacy/js/employee.js): the same
- * fields, rules and POST /api/employee/leave-requests body. The proof file is
+ * fields, rules and POST /api/me/leave-requests body. The proof file is
  * sent as a data URL, under 2 MB, PDF / PNG / JPEG.
  */
 
@@ -78,7 +78,7 @@ function LeaveRequestForm({ onSubmitted }) {
     }
     try {
       const proofUrl = values.proof ? await readAsDataUrl(values.proof) : "";
-      const response = await apiFetch("/api/employee/leave-requests", jsonBody("POST", {
+      const response = await apiFetch("/api/me/leave-requests", jsonBody("POST", {
         employee_id: String(ctx?.employee_id || "").trim(),
         employee_name: employeeName,
         position: String(ctx?.position || "").trim(),

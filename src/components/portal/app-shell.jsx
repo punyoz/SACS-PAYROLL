@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   BellIcon,
+  ChevronRightIcon,
   CircleHelpIcon,
   ChevronsUpDownIcon,
   KeyRoundIcon,
@@ -99,17 +100,79 @@ function titleIfCut(event) {
   else host.removeAttribute("title");
 }
 
+/**
+ * Collapsible menu groups (2026-11-09 Part E). A group with `collapsible`
+ * gets a header button (aria-expanded) and starts as `defaultOpen` says; the
+ * group holding the current page opens by itself; on phones only one group
+ * is open at a time. Each person's open / closed groups are remembered in
+ * this browser (per role and account); if that cannot be saved, a group
+ * starts collapsed (unless defaultOpen). In the icon-only rail every link
+ * stays reachable. Non-collapsible groups (the Dashboard on top) stay as
+ * plain sections.
+ */
+function useOpenGroups(nav, page, isMobile) {
+  const { ctx, role } = usePortalSession();
+  const key = `sacs-nav-groups:${role || "portal"}:${String(ctx?.email || "").toLowerCase()}`;
+  const groupOf = React.useCallback((id) => nav.find((g) => g.items.some((item) => item.id === id))?.section, [nav]);
+  const [open, setOpen] = React.useState(() => {
+    const initial = Object.fromEntries(nav.filter((g) => g.collapsible).map((g) => [g.section, Boolean(g.defaultOpen)]));
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(key) || "null");
+      if (saved && typeof saved === "object") Object.assign(initial, Object.fromEntries(Object.entries(saved).filter(([k]) => k in initial)));
+    } catch { /* not saved: the defaults */ }
+    return initial;
+  });
+  // The group with the current page opens automatically.
+  React.useEffect(() => {
+    const section = groupOf(page);
+    if (!section || !(section in open) || open[section]) return;
+    setOpen((current) => (isMobile ? { ...Object.fromEntries(Object.keys(current).map((k) => [k, false])), [section]: true } : { ...current, [section]: true }));
+  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    try { window.localStorage.setItem(key, JSON.stringify(open)); } catch { /* blocked: defaults next time */ }
+  }, [key, open]);
+  const toggle = (section) => setOpen((current) => {
+    const next = !current[section];
+    if (isMobile && next) return { ...Object.fromEntries(Object.keys(current).map((k) => [k, false])), [section]: true };
+    return { ...current, [section]: next };
+  });
+  return { open, toggle };
+}
+
 function NavLinks({ nav, page, onNavigate, badges = {} }) {
   const { can } = usePortalSession();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile, state } = useSidebar();
+  const { open, toggle } = useOpenGroups(nav, page, isMobile);
+  const iconRail = !isMobile && state === "collapsed";
 
   return nav.map((group) => {
     const items = group.items.filter((item) => !item.module || can(item.module));
+    // A group that would be empty for this role is hidden.
     if (!items.length) return null;
+    const collapsible = Boolean(group.collapsible);
+    const expanded = !collapsible || iconRail || Boolean(open[group.section]);
+    const contentId = `nav-group-${String(group.section).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const waiting = collapsible && !expanded ? items.reduce((sum, item) => sum + (Number(badges[item.id]) || 0), 0) : 0;
     return (
-      <SidebarGroup key={group.section} className="px-1.5 py-1">
-        <SidebarGroupLabel className="h-7 px-1.5 text-[10px] tracking-wider text-sidebar-foreground/70 uppercase">{group.section}</SidebarGroupLabel>
-        <SidebarGroupContent>
+      <SidebarGroup key={group.section} className="px-1.5 py-1" data-nav-group={group.section} data-state={expanded ? "open" : "closed"}>
+        {collapsible ? (
+          <SidebarGroupLabel asChild className="h-7 px-1.5 text-[10px] tracking-wider text-sidebar-foreground/70 uppercase">
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-controls={contentId}
+              onClick={() => toggle(group.section)}
+              className="flex w-full items-center gap-1 rounded-md text-left outline-none hover:text-white focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+            >
+              <ChevronRightIcon aria-hidden="true" className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")} />
+              <span className="flex-1 truncate">{group.section}</span>
+              {waiting ? <span className="rounded-full bg-warning px-1.5 text-[10px] font-semibold text-white normal-case" aria-label={`${waiting} waiting`}>{waiting > 99 ? "99+" : waiting}</span> : null}
+            </button>
+          </SidebarGroupLabel>
+        ) : (
+          <SidebarGroupLabel className="h-7 px-1.5 text-[10px] tracking-wider text-sidebar-foreground/70 uppercase">{group.section}</SidebarGroupLabel>
+        )}
+        <SidebarGroupContent id={contentId} hidden={!expanded}>
           <SidebarMenu>
             {items.map((item) => {
               const Icon = item.icon;

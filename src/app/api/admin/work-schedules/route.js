@@ -46,7 +46,8 @@ const TEXT_CAPS = { note: [500, "The note"] };
 
 const NOT_READY = "Employee work schedules are not set up yet: apply supabase/migrations/20261013010000_employee_schedules_cutoffs_early_bird.sql.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PAID_ROLES = ["employee", "accountant"];
+// HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
+const PAID_ROLES = ["employee", "accountant", "hr"];
 
 function isMissing(error) {
   const text = `${error?.code || ""} ${error?.message || ""}`.toLowerCase();

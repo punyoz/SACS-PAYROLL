@@ -186,6 +186,20 @@ export const MODULES = {
   // them (system_configuration); HR every branch, the Accountant and the
   // branch Admin their own branch. HR and the Accountant see them on their
   // Government Rates page.
+  // "My Account" (2026-11-09 Part E): the person's OWN attendance, timesheet,
+  // leave, payslips, requests and Form 2316, for everyone on payroll (HR,
+  // Accountant, Employee). /api/me/* checks this module and pins every read
+  // to the caller (src/lib/rbac/guard.js). Admin / Super Admin: none.
+  my_account: {
+    order: 0.5, label: "My Account", section: "My Account",
+    page: {},
+  },
+  // Items waiting on the Super Admin as the fallback approver (an HR's own
+  // leave or payslip run when no other HR is active), 2026-11-09 Part D.
+  fallback_approvals: {
+    order: 0.6, label: "Items Waiting on Fallback", section: "Overview",
+    page: { super_admin: "sa-fallback" },
+  },
   pay_rates: {
     order: 15.6, label: "Pay Rates", section: "Reference",
     page: { admin: "adm-pay-rates" },
@@ -349,6 +363,8 @@ export const ROLE_PERMISSIONS = {
     announcements: full(SCOPE_ALL),
     // Reads the pay rates and adds new daily rate versions (alpha test Part E,
     // 2026-11-09): System Configuration, or the shared rate rules.
+    my_account: none(),
+    fallback_approvals: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     pay_rates: { scope: SCOPE_ALL, actions: ["create", "read"] },
   },
 
@@ -384,6 +400,8 @@ export const ROLE_PERMISSIONS = {
     system_configuration: none(),
     government_rates: none(),
     // Its own branch's daily / hourly rate, read-only (2026-11-08).
+    my_account: none(),
+    fallback_approvals: none(),
     pay_rates: view(SCOPE_BRANCH),
     audit_logs: none(),
     backup_recovery: none(),
@@ -445,6 +463,8 @@ export const ROLE_PERMISSIONS = {
     government_rates: { scope: SCOPE_ALL, actions: ["create", "read"] },
     // Every branch's daily rate: reads it and adds new versions (Part E). The
     // hourly rate is always the daily rate / 8, never typed.
+    my_account: { scope: SCOPE_SELF, actions: ["create", "read", "update"] },
+    fallback_approvals: none(),
     pay_rates: { scope: SCOPE_ALL, actions: ["create", "read"] },
     audit_logs: none(),
     backup_recovery: none(),
@@ -503,6 +523,8 @@ export const ROLE_PERMISSIONS = {
     // Read-only: checks and explains the deductions it processes.
     government_rates: view(SCOPE_BRANCH),
     // Its own branch's daily / hourly rate, read-only (2026-11-08).
+    my_account: { scope: SCOPE_SELF, actions: ["create", "read", "update"] },
+    fallback_approvals: none(),
     pay_rates: view(SCOPE_BRANCH),
     audit_logs: none(),
     backup_recovery: none(),
@@ -551,6 +573,8 @@ export const ROLE_PERMISSIONS = {
     system_maintenance: none(),
     system_configuration: none(),
     government_rates: none(),
+    my_account: { scope: SCOPE_SELF, actions: ["create", "read", "update"] },
+    fallback_approvals: none(),
     pay_rates: none(),
     audit_logs: none(),
     backup_recovery: none(),

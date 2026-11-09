@@ -197,7 +197,7 @@ export async function GET(request) {
         // The Blocked taps queue of the same range and branch.
         blocked_taps: selfOnly ? [] : await readBlockedTaps(supabase, { employeeIds, branchId: (guard.branchExempt ? normalizeText(url.searchParams.get("branch_id")) : guard.branchId) || null, from: range.from, to: range.to }),
         statuses: ATTENDANCE_STATUSES, engine_ready: engineReady, scope: guard.scope,
-        can_review: can(guard.role, "attendance_corrections", "update"), today: todayKey,
+        can_review: !guard.myAccount && can(guard.role, "attendance_corrections", "update"), today: todayKey,
       });
     }
     // A branch's employees in chunks (the whole id list made the URL too long).
@@ -305,7 +305,7 @@ export async function GET(request) {
       statuses: ATTENDANCE_STATUSES,
       engine_ready: engineReady,
       scope: guard.scope,
-      can_review: can(guard.role, "attendance_corrections", "update"),
+      can_review: !guard.myAccount && can(guard.role, "attendance_corrections", "update"),
       today: manilaDateKey(),
     });
   } catch (error) {

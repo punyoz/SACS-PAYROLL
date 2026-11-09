@@ -248,7 +248,7 @@ export function PayslipsPage({ payslips }) {
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{selected === 0 ? "My latest payslip" : "Selected payslip"}</p>
           {current?.id ? (
             <Button variant="outline" size="sm" disabled={busy === current.id}
-              onClick={() => download(current.id, `/api/employee/payslips?format=pdf&entry_id=${encodeURIComponent(current.id)}`, `payslip-${current.period_label || "payslip"}.pdf`)}>
+              onClick={() => download(current.id, `/api/me/payslips?format=pdf&entry_id=${encodeURIComponent(current.id)}`, `payslip-${current.period_label || "payslip"}.pdf`)}>
               {busy === current.id ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}Download PDF
             </Button>
           ) : null}

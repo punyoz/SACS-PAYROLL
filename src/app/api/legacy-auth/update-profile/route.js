@@ -21,7 +21,8 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 // Employee and Accountant government numbers are set by HR (payroll files
 // contributions under them), so neither can change their own here; other
 // roles' settings still can.
-const PAYROLL_LOCKED_ROLES = ["employee", "accountant"];
+// HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
+const PAYROLL_LOCKED_ROLES = ["employee", "accountant", "hr"];
 
 const CONTACT_NUMBER_PATTERN = /^09\d{9}$/;
 const ADDRESS_MIN = 5;

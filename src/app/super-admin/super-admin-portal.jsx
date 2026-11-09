@@ -14,12 +14,14 @@ import {
   ScrollTextIcon,
   SettingsIcon,
   ShieldCheckIcon,
+  InboxIcon,
   UserRoundIcon,
   UsersRoundIcon,
   WrenchIcon,
 } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
+import { FallbackPage } from "./fallback-page";
 import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsManager } from "@/components/portal/announcements";
@@ -52,6 +54,8 @@ const NAV = [
     section: "Overview",
     items: [
       { id: "sa-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" },
+      // Only what no active HR may decide (2026-11-09 Part D).
+      { id: "sa-fallback", label: "Items Waiting on Fallback", icon: InboxIcon, module: "fallback_approvals" },
     ],
   },
   {
@@ -91,6 +95,7 @@ const TITLES = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])
 
 const DESCRIPTIONS = {
   "sa-dashboard": "Centralized monitoring of all branches, system health, and overall activity.",
+  "sa-fallback": "Items you decide only because no other HR is active (an HR's own leave or payslip run).",
   "sa-accounts": "Create and maintain the login accounts of Super Admin, Admin and HR staff. Employee and Accountant accounts are managed by HR.",
   "sa-branches": "Manage branch information and status across all branches.",
   "sa-roles": "What each role can reach across the system.",
@@ -140,6 +145,7 @@ function SuperAdminScreens() {
       accountOptions={{ payrollReadOnly: false, titleCaseName: true }}
     >
       {current === "sa-dashboard" ? <DashboardPage refreshKey={refreshKey} onSummary={setSummary} onNavigate={navigate} /> : null}
+      {current === "sa-fallback" ? <FallbackPage refreshKey={refreshKey} /> : null}
       {current === "sa-accounts" ? <AccountsPage refreshKey={refreshKey} /> : null}
       {current === "sa-branches" ? <BranchesPage refreshKey={refreshKey} /> : null}
       {current === "sa-roles" ? <RolesPage /> : null}

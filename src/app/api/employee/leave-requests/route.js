@@ -16,6 +16,7 @@ import { manilaDateKey } from "@/lib/payroll/periods";
 import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { REASON_MAX } from "@/lib/input-limits";
+import { otherActiveHrIds, recordFallback } from "@/lib/rbac/routing";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -219,16 +220,58 @@ export async function POST(request) {
       throw error;
     }
     // HR's bell (2026-10-20 audit): a new request is waiting for a decision.
+    // Never the requester's own bell (an HR filing their own leave); when no
+    // OTHER HR is active it goes to the Super Admin (fallback, 2026-11-09).
     try {
       const supabase = getServiceClient();
-      await notify(supabase, await hrAccountIds(supabase), {
-        kind: "leave_filed",
-        title: `Leave request · ${employeeName || "Employee"}`,
-        body: `${leaveType}, ${startDate} to ${endDate}. Waiting for HR's decision.`,
-        link_page: "hr-leaves",
-      });
+      const deciders = (await hrAccountIds(supabase)).filter((id) => id !== employeeId);
+      const ownerRole = (await supabase.from("profiles").select("role").eq("id", employeeId).maybeSingle()).data?.role;
+      if (ownerRole === "hr" && !(await otherActiveHrIds(supabase, employeeId)).length) {
+        await recordFallback(supabase, { actor: guard, ownerId: employeeId, ownerName: employeeName, itemType: "leave_request", itemId: saved?.id, what: "leave request" });
+      } else {
+        await notify(supabase, deciders, {
+          kind: "leave_filed",
+          title: `Leave request · ${employeeName || "Employee"}`,
+          body: `${leaveType}, ${startDate} to ${endDate}. Waiting for HR's decision.`,
+          link_page: "hr-leaves",
+        });
+      }
     } catch { /* the request is saved either way */ }
     return NextResponse.json({ success: true, request: saved }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH { id, action: "cancel" } — the requester cancels their OWN request
+ * while it still waits for a decision (2026-11-09 Part B). A decided request
+ * is HR's to cancel (/api/hr/leave-requests).
+ */
+export async function PATCH(request) {
+  try {
+    const guard = await requirePermission(request, "leave_approval", "create");
+    if (guard.denied) return guard.denied;
+    const body = await request.json().catch(() => ({}));
+    const id = String(body.id || "").trim();
+    if (String(body.action || "") !== "cancel" || !UUID_PATTERN.test(id)) {
+      return NextResponse.json({ error: "Send { id, action: \"cancel\" }." }, { status: 400 });
+    }
+    const supabase = getServiceClient();
+    const current = (await supabase.from("leave_requests").select("id,employee_id,status,leave_type,start_date,end_date").eq("id", id).maybeSingle()).data;
+    // Only one's own request: another person's is "not found", never confirmed.
+    if (!current || current.employee_id !== guard.userId) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
+    if (!["pending_admin", "pending_accountant"].includes(current.status)) {
+      return NextResponse.json({ error: "Only a request still waiting for a decision can be cancelled here.", code: "not_pending" }, { status: 409 });
+    }
+    const nowIso = new Date().toISOString();
+    const updated = await supabase.from("leave_requests")
+      .update({ status: "cancelled", cancelled_at: nowIso, cancelled_by: guard.userId, cancelled_by_name: String(guard.session?.full_name || guard.session?.email || ""), updated_at: nowIso })
+      .eq("id", id).in("status", ["pending_admin", "pending_accountant"]).select("*").maybeSingle();
+    if (updated.error) return NextResponse.json({ error: sanitizeError(updated.error) }, { status: 400 });
+    if (!updated.data) return NextResponse.json({ error: "This request was decided meanwhile. Refresh to see it." }, { status: 409 });
+    await supabase.from("hr_queue_claims").delete().eq("item_type", "leave_request").eq("item_id", id);
+    return NextResponse.json({ success: true, request: normalizeLeaveRequest(updated.data) });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

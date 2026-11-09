@@ -71,7 +71,7 @@ async function roster(supabase) {
     .select("id,full_name,employee_id,branch_id,position,role,archived,employee_status")
     .order("full_name", { ascending: true }));
   if (result.error) throw new Error(result.error.message);
-  return (result.data || []).filter((p) => ["employee", "accountant"].includes(String(p.role || "").toLowerCase())
+  return (result.data || []).filter((p) => ["employee", "accountant", "hr"].includes(String(p.role || "").toLowerCase())
     && p.archived !== true && String(p.employee_status || "active").toLowerCase() !== "inactive");
 }
 

@@ -56,6 +56,16 @@ function deny(message, status) {
  *   branchExempt: boolean,
  * }>}
  */
+/** True for a "My Account" API call (/api/me/...): always the caller's own records. */
+export function isMyAccountRequest(request) {
+  try {
+    const url = request?.nextUrl || new URL(String(request?.url || ""), "http://local");
+    return url.pathname.startsWith("/api/me/");
+  } catch {
+    return false;
+  }
+}
+
 export async function requirePermission(request, module, action = "read") {
   // An RFID terminal tap carries the kiosk's own session
   // (src/lib/auth/kiosk-session.js), which src/proxy.js has already checked;
@@ -78,6 +88,26 @@ export async function requirePermission(request, module, action = "read") {
       denied: deny("Your account has no valid role assigned.", 403),
       session, role, userId: session.sub, branchId: null,
       scope: SCOPE_NONE, branchExempt: false,
+    };
+  }
+
+  // "My Account" (2026-11-09 Part E): /api/me/* reuses the Employee routes for
+  // HR, Accountant and Employee, pinned to the caller's OWN records whatever
+  // the role's wider scope on the module. Admin and Super Admin have no
+  // my_account permission (they are not on payroll), so they get 403 here.
+  if (isMyAccountRequest(request)) {
+    if (!can(role, "my_account", action === "delete" ? "update" : action)) {
+      return {
+        denied: deny("My Account pages are for people on payroll only.", 403),
+        session, role, userId: session.sub, branchId: null,
+        scope: SCOPE_NONE, branchExempt: false,
+      };
+    }
+    return {
+      denied: null, session, role, userId: String(session.sub || ""),
+      branchId: await resolveCurrentBranchId(session.sub, session.branch_id || null),
+      scope: SCOPE_SELF, branchExempt: false, myAccount: true,
+      clientIp: clientAddressFrom(request), kiosk: false,
     };
   }
 

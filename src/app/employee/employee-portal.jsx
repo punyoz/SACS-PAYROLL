@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { CalendarCheckIcon, CalendarDaysIcon, ClockIcon, LayoutDashboardIcon, MegaphoneIcon, ReceiptTextIcon, UserRoundIcon } from "lucide-react";
+import { LayoutDashboardIcon, MegaphoneIcon } from "lucide-react";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
@@ -15,6 +15,7 @@ import { TimesheetPage } from "./timesheet-page";
 import { PayslipsPage } from "./payslips-page";
 import { LeavePage } from "./leave-page";
 import { ProfilePage } from "./profile-page";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MY_REQUEST_ALIASES, MyBirPage, MyRequestsPage, myAccountGroup } from "@/components/portal/my-account";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -26,17 +27,11 @@ const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.Das
  */
 const NAV = [
   { section: "Overview", items: [{ id: "emp-dash", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
-  {
-    section: "Attendance",
-    items: [
-      { id: "emp-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
-      { id: "emp-timesheet", label: "Timesheet", icon: ClockIcon, module: "timesheet" },
-    ],
-  },
-  { section: "Payroll", items: [{ id: "emp-payslips", label: "Payslips", icon: ReceiptTextIcon, module: "payslips" }] },
-  { section: "Leave", items: [{ id: "emp-leave", label: "Leave", icon: CalendarDaysIcon, module: "leave_approval" }] },
+  // School-wide and branch announcements stay where they were.
   { section: "Communication", items: [{ id: "emp-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
-  { section: "Account", items: [{ id: "emp-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  // Every personal page in ONE group (2026-11-09 Part E): the same group HR and
+  // the Accountant get; expanded by default here (the Employee has no work pages).
+  myAccountGroup("emp", { defaultOpen: true }),
 ];
 
 const PAGES = NAV.flatMap((group) => group.items);
@@ -45,17 +40,16 @@ const PAGE_IDS = PAGES.map((item) => item.id);
 const DESCRIPTIONS = {
   "emp-dash": null,
   "emp-announcements": "Announcements for the whole school and for your branch.",
-  "emp-attendance": "Your attendance this month, recorded by RFID tap.",
-  "emp-timesheet": "Daily work hours, tardiness and undertime for any date range.",
-  "emp-payslips": "Your latest payslip and earlier ones, with the full breakdown.",
-  "emp-leave": "Request leave and follow its approval.",
-  "emp-profile": "Your personal, contact and government details on file.",
+  ...Object.fromEntries(Object.entries(MY_PAGE_IDS.emp).map(([kind, id]) => [id, MY_DESCRIPTIONS[kind]])),
 };
 
 function EmployeeScreens() {
   const session = usePortalSession();
   const { ctx, notify, can } = session;
-  const [page, setPage] = usePersistedPage("employee", PAGE_IDS, "emp-dash");
+  const [rawPage, setPage] = usePersistedPage("employee", [...PAGE_IDS, ...Object.keys(MY_REQUEST_ALIASES)], "emp-dash");
+  // Old personal URLs (?page=emp-loans …) open the matching tab of My Requests.
+  const aliasTab = MY_REQUEST_ALIASES[rawPage] || null;
+  const page = aliasTab ? MY_PAGE_IDS.emp.requests : rawPage;
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -110,6 +104,8 @@ function EmployeeScreens() {
       {current === "emp-timesheet" ? <TimesheetPage /> : null}
       {current === "emp-payslips" ? <PayslipsPage payslips={payslips} /> : null}
       {current === "emp-leave" ? <LeavePage leave={leave} /> : null}
+      {current === "emp-requests" ? <MyRequestsPage refreshKey={refreshKey} initialTab={aliasTab || undefined} /> : null}
+      {current === "emp-bir" ? <MyBirPage /> : null}
       {current === "emp-announcements" ? <AnnouncementsFeed /> : null}
       {current === "emp-profile" ? <ProfilePage /> : null}
     </AppShell>

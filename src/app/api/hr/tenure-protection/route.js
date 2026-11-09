@@ -57,7 +57,8 @@ import { textLimitError } from "@/lib/input-limits";
 const TEXT_CAPS = { notes: [500, "The notes"], note: [500, "The note"] };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PAID_ROLES = ["employee", "accountant"];
+// HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
+const PAID_ROLES = ["employee", "accountant", "hr"];
 const ROLE_LABELS = { super_admin: "Super Admin", admin: "Admin", hr: "HR" };
 
 function addDays(dateKey, days) {

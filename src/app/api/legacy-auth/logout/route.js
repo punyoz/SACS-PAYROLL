@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { clearSession, readSession } from "@/lib/rbac/session";
 import { checkActiveSession, revokeActiveSession } from "@/lib/auth/active-session";
+import { getServiceClient } from "@/lib/supabase/admin";
 
 export async function POST(request) {
   const session = request ? readSession(request) : null;
@@ -29,6 +30,8 @@ export async function POST(request) {
     try {
       if (await checkActiveSession(session.sub, session.sid) === "current") {
         await revokeActiveSession(session.sub);
+        // An HR's claims on the shared queue end with the sign-in (2026-11-09).
+        if (session.role === "hr") await getServiceClient().rpc("hr_release_claims", { p_actor: session.sub, p_type: null, p_item: null });
       }
     } catch {
       // Signing out must always clear the cookie, even if the server-side

@@ -33,8 +33,11 @@ import {
   validateSalaryChange,
 } from "@/lib/employees/salary-history";
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PAID_ROLES = ["employee", "accountant"];
+// HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
+const PAID_ROLES = ["employee", "accountant", "hr"];
 const money = (value) => `₱${roundPeso(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 async function guardHr(request) {
@@ -92,6 +95,11 @@ export async function POST(request) {
     const employee = await findEmployee(supabase, normalizeText(body.employee_id));
     if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
     if (employee.archived) return NextResponse.json({ error: "This employee is archived." }, { status: 409 });
+    // Nobody changes their own salary (2026-11-09): another HR does it, or the
+    // Super Admin when no other HR is active (database: writer guard).
+    if (employee.id === guard.userId) {
+      return refuseOwnItem(guard, { module: "employees", entityType: "employee_salary_change", entityId: employee.id, what: "salary" });
+    }
 
     const input = {
       new_salary: body.new_salary,
