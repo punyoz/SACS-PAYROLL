@@ -10,7 +10,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -23,6 +22,8 @@ import { nextSecondHalf } from "@/lib/payroll/loans";
 import { SUBSIDY_STATUS_LABELS, SUBSIDY_STATUS_TONES } from "@/lib/payroll/subsidy-requests";
 import { cn } from "@/lib/utils";
 import { PESO_MAX } from "@/lib/input-limits";
+import { TableToolbar } from "@/components/portal/table-toolbar";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 
 /*
  * Subsidies (/api/admin/approvals; decision of 2026-10-21): the Accountant
@@ -215,14 +216,12 @@ export function ApprovalsPage({ refreshKey }) {
         <Alert className="border-brand-gold/40 bg-brand-gold/5"><AlertDescription>{toProcess} subsidy item{toProcess === 1 ? "" : "s"} to process or fix (highlighted below). Rejected items show HR&apos;s reason.</AlertDescription></Alert>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Tabs value={status} onValueChange={setStatus} className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden scrollbar-none">
-          <TabsList className="w-max">
-            {STATUS_TABS.map((s) => <TabsTrigger key={s} value={s}>{s === "all" ? "All" : SUBSIDY_STATUS_LABELS[s]}</TabsTrigger>)}
-          </TabsList>
-        </Tabs>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
-      </div>
+      {/* The shared filter row (alpha test B4): no second scrollbar. */}
+      <TableToolbar>
+        <FilterTabs value={status} onValueChange={setStatus} label="Subsidy status"
+          options={STATUS_TABS.map((st) => ({ value: st, label: st === "all" ? "All" : SUBSIDY_STATUS_LABELS[st] }))} />
+        <Button variant="outline" size="sm" className="lg:ml-auto" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
+      </TableToolbar>
 
       {section("excess_settlement", HandCoinsIcon, "Excess subsidy advances",
         "Advances above what the teacher earned. The system raises them; the Accountant processes the settlement; HR approves or rejects.")}

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { DownloadIcon, FileTextIcon, Loader2Icon, PrinterIcon } from "lucide-react";
+import { DownloadIcon, FileTextIcon, Loader2Icon, PrinterIcon, RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -112,14 +112,17 @@ export function ReportsPage() {
   // Demo people's payslips are left out of reports (is_demo, 2026-11-08).
   const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])].filter((r) => !r.is_demo);
 
-  async function generate() {
+  async function generate({ auto = false } = {}) {
     setState({ loading: false, error: null });
     if (type === "summary" || type === "deductions") {
       setReport({ type, period, rows: period === "all" ? all : all.filter((r) => r.pay_period === period) });
       return;
     }
     if (type === "sheet" && period === "all") {
-      notify("Choose a Period", "The payroll sheet is for one pay period. Choose it under Pay Period.", "info");
+      // Changing filters never pops a toast; the page says it instead.
+      if (!auto) notify("Choose a Period", "The payroll sheet is for one pay period. Choose it under Pay Period.", "info");
+      setReport(null);
+      setState({ loading: false, error: "The payroll sheet is for one pay period: choose it under Pay Period." });
       return;
     }
     setState({ loading: true, error: null });
@@ -138,6 +141,16 @@ export function ReportsPage() {
       setState({ loading: false, error: error.message || "Unable to load the report." });
     }
   }
+
+  // Filters apply as soon as they change (alpha test B4); the button stays
+  // to reload on demand. A short pause groups quick changes into one load.
+  const generateRef = React.useRef(generate);
+  React.useEffect(() => { generateRef.current = generate; });
+  React.useEffect(() => {
+    if (!data) return undefined;
+    const timer = setTimeout(() => generateRef.current({ auto: true }), 250);
+    return () => clearTimeout(timer);
+  }, [period, type, branch, history, data]);
 
   function exportCsv() {
     if (!report) { notify("No Data", "Generate a report first before exporting.", "info"); return; }
@@ -262,7 +275,7 @@ export function ReportsPage() {
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button onClick={generate} disabled={state.loading}>{state.loading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Generate report</Button>
+              <Button variant="outline" onClick={() => generate()} disabled={state.loading}>{state.loading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <RefreshCwIcon aria-hidden="true" />}Refresh report</Button>
               <Button variant="outline" onClick={exportCsv}><DownloadIcon aria-hidden="true" />Export CSV</Button>
               <Button variant="outline" onClick={() => window.print()} disabled={!report}><PrinterIcon aria-hidden="true" />Print</Button>
             </div>
