@@ -191,14 +191,29 @@ async function attendanceView(supabase, branchId, staff, url) {
   const flagByLog = new Map();
   flags.rows.forEach((f) => { if (f.ref_id && !flagByLog.has(f.ref_id)) flagByLog.set(f.ref_id, shapeRequest(f)); });
   const names = new Map(staff.map((p) => [p.id, p]));
+  const all = logs.map((l) => ({
+    ...l,
+    employee_name: names.get(l.employee_id)?.full_name || l.employee_name,
+    employee_code: names.get(l.employee_id)?.employee_code || "",
+    flag: flagByLog.get(l.id) || null,
+  }));
+  // Search, day and status on the server, then one page (redesign
+  // 2026-11-09): counts are every status of the range (search and day applied).
+  const q = normalizeText(url.searchParams.get("q")).toLowerCase().slice(0, 80);
+  const day = normalizeText(url.searchParams.get("day"));
+  const status = normalizeText(url.searchParams.get("status"));
+  const matched = all.filter((l) => (!q || `${l.employee_name} ${l.employee_code}`.toLowerCase().includes(q)) && (!day || day === "all" || l.log_date === day));
+  const counts = {};
+  matched.forEach((l) => { counts[l.status] = (counts[l.status] || 0) + 1; });
+  const chosen = matched.filter((l) => !status || status === "all" || l.status === status);
+  const wantsPage = url.searchParams.has("page");
+  const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+  const size = Math.min(100, Math.max(1, Number(url.searchParams.get("page_size")) || 25));
   return {
     from, to,
-    logs: logs.map((l) => ({
-      ...l,
-      employee_name: names.get(l.employee_id)?.full_name || l.employee_name,
-      employee_code: names.get(l.employee_id)?.employee_code || "",
-      flag: flagByLog.get(l.id) || null,
-    })),
+    logs: wantsPage ? chosen.slice((page - 1) * size, page * size) : chosen,
+    total: chosen.length, page, page_size: size, counts,
+    days: [...new Set(all.map((l) => l.log_date))].filter(Boolean).sort().reverse(),
     flags: flags.rows.map((f) => shapeRequest(f)),
   };
 }

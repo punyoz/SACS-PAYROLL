@@ -145,7 +145,7 @@ function SuperAdminScreens() {
       {current === "sa-roles" ? <RolesPage /> : null}
       {/* The board needs the attendance actions context (read-only here: the
           server refuses any Super Admin change to attendance). */}
-      {current === "sa-attendance" ? <AttendanceActionsProvider><AttendanceStatusBoard refreshKey={refreshKey} branchFilter readOnly /></AttendanceActionsProvider> : null}
+      {current === "sa-attendance" ? <AttendanceActionsProvider><AttendanceStatusBoard refreshKey={refreshKey} branchFilter readOnly defaultPreset="this_month" urlKey="sa_att" title="Attendance records" help="Every branch, view only. Corrections are HR's." /></AttendanceActionsProvider> : null}
       {current === "sa-rfid-terminal" ? (
         <MaintenancePage refreshKey={refreshKey} section="terminal" auditActor={null}
           terminalText="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your Super Admin password." />

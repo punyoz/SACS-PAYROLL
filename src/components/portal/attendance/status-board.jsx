@@ -1,322 +1,260 @@
 "use client";
 
 import * as React from "react";
-import { RefreshCwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AttendanceBadge, StatusBadge, attendanceTone } from "@/components/portal/status-badge";
+import { StatusBadge } from "@/components/portal/status-badge";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
-import { EmployeeCell, GroupedAttendanceTable, RecordActions, StatusCell, recordColumns } from "@/components/portal/attendance/grouped-table";
+import { EmployeeCell, RecordActions, StatusCell } from "@/components/portal/attendance/grouped-table";
+import { AttendanceBadge } from "@/components/portal/status-badge";
+import { AttendanceView } from "@/components/portal/attendance/attendance-view";
+import { DataTable } from "@/components/portal/data-table";
+import { useUrlRange } from "@/components/portal/date-range-filter";
+import { useUrlParam } from "@/components/portal/use-url-param";
 import { apiFetch, fetchJson } from "@/lib/portal/api";
-import {
-  branchContext,
-  branchCounts,
-  countBy,
-  formatDateTime,
-  formatMinutes,
-  matchesEmployee,
-  oneRowPerDay,
-  rowBranchId,
-  sortByBranchDay,
-  sortByDay,
-} from "@/lib/portal/attendance";
-import { ATTENDANCE_STATUS_LIST, formatDateKey, formatTime } from "@/lib/portal/format";
-import { cn } from "@/lib/utils";
-import { FilterTabs } from "@/components/portal/filter-tabs";
-import { TableToolbar } from "@/components/portal/table-toolbar";
-import { DateRangeFilter, defaultRange } from "@/components/portal/date-range-filter";
-import { ExportButtons } from "@/components/portal/export-buttons";
+import { formatDateTime, formatMinutes, formatWorked } from "@/lib/portal/attendance";
+import { formatDateKey, formatTime } from "@/lib/portal/format";
+import { defaultRange, rangePresets } from "@/lib/portal/date-range";
+import { manilaDateKey } from "@/lib/payroll/periods";
 
 /*
- * The attendance status board (mountAttendanceBoard / renderAttendanceBoard,
- * public/legacy/js/app.js) for Admin, HR and Super Admin: one pay period's
- * records, the Incomplete queue, employees' correction requests, overtime
- * and blocked taps. GET /api/attendance/logs, /corrections?status=pending
- * and /overtime with the same parameters.
+ * The attendance board of the Super Admin (view only), HR (review) and the
+ * Accountant (view only, own branch), on the ONE shared attendance layout
+ * (src/components/portal/attendance/attendance-view.jsx, redesign 2026-11-09).
+ *
+ *   All records / Incomplete queue   GET /api/attendance/logs, server pages:
+ *                                    search, branch, status, day and the page
+ *                                    are sent; the summary counts come back
+ *   Correction requests / Overtime / Blocked taps
+ *                                    the reviewers' queues (small lists)
+ *
+ * The server keeps the branch limits as before: the Accountant and the Admin
+ * only ever get their own branch's rows.
  */
-
-const CHIP_STATUSES = ["On Time", "Early Bird", "Late", "Undertime", "Half Day", "Absent", "Incomplete", "Pending Correction", "Corrected", "On Leave", "Holiday"];
 
 const NOTES = {
-  incomplete: "Days with a time in but no time out after the shift ended. They are left out of payroll until resolved — by the employee's correction request, by recording the time out (or Absent / Half Day) here, or with Correct.",
-  blocked: "RFID taps that were refused: an unregistered card, an inactive employee, another branch's card, or an employee on approved leave. Nothing was recorded for them. Tapping again soon after a tap is never refused.",
+  all: "Statuses are computed automatically from each branch's schedule. Today, people who have not tapped yet show as \"Not tapped yet\", not Absent: the day is not over.",
+  incomplete: "Days with a time in but no time out after the shift ended. They are left out of payroll until resolved: by the employee's correction request, by recording the time out (or Absent / Half Day) here, or with Correct.",
+  blocked: "RFID taps that were refused: an unregistered card, an inactive employee, another branch's card, or an employee on approved leave. Nothing was recorded for them.",
   corrections: "Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day. Correct enters different times yourself and closes the request.",
+  overtime: "Days whose time out is well after the branch's end of shift. Payroll pays overtime only for the minutes approved here. Decisions lock once that pay period is processed.",
 };
 
-const ALL = "__all__";
-
 /**
- * readOnly (the Super Admin's Attendance Records, alpha test B1): the logs
- * only; the correction and overtime queues are reviewers' and are not asked
- * for (the server would refuse them anyway).
+ * branchFilter   the role sees several branches (Super Admin, HR)
+ * readOnly       view only, no reviewer queues (Super Admin, Accountant)
+ * defaultPreset  the range it opens on ("this_cutoff", "this_month", ...)
+ * urlKey         keeps range and filters in the address (Refresh / Back)
  */
-export function AttendanceStatusBoard({ branchFilter = false, refreshKey = 0, initialTab = "all", readOnly = false }) {
+export function AttendanceStatusBoard({
+  branchFilter = false, refreshKey = 0, initialTab = "all", readOnly = false,
+  defaultPreset = "this_cutoff", urlKey = "att", title = "Attendance", help = null,
+}) {
   const { version } = useAttendanceActions();
-  // A date range (alpha test A1), this cutoff by default; the board groups
-  // every row of the range, so it reads 62 days at most.
-  const [range, setRange] = React.useState(defaultRange);
-  const [tab, setTab] = React.useState(initialTab);
-  const [status, setStatus] = React.useState("all");
-  const [day, setDay] = React.useState("all");
-  const [branch, setBranch] = React.useState("");
+  const fallback = React.useMemo(() => {
+    const p = rangePresets(manilaDateKey()).find((x) => x.id === defaultPreset);
+    return p ? { from: p.from, to: p.to } : defaultRange();
+  }, [defaultPreset]);
+  const [range, setRange] = useUrlRange(urlKey, fallback);
+  const [tab, setTab] = useUrlParam(`${urlKey}_tab`, initialTab);
+  const [status, setStatus] = useUrlParam(`${urlKey}_status`, "all");
+  const [day, setDay] = useUrlParam(`${urlKey}_day`, "all");
+  const [branch, setBranch] = useUrlParam(`${urlKey}_branch`, "");
   const [search, setSearch] = React.useState("");
-  const [collapsed, setCollapsed] = React.useState(() => new Set());
-  const [knownBranches, setKnownBranches] = React.useState(() => new Map());
-  const [state, setState] = React.useState({ loading: true, error: null, logs: [], corrections: [], overtime: [], blocked: [], canReview: false, overtimeCanReview: false, overtimeMin: 30, scope: "", engineReady: true });
+  const [q, setQ] = React.useState("");
+  const [paging, setPaging] = React.useState({ page: 1, pageSize: 25 });
+  const [branches, setBranches] = React.useState([]);
+  const [state, setState] = React.useState({ loading: true, error: null, logs: [], total: 0, counts: {}, days: [], blocked: [], canReview: false, scope: "" });
+  const [queues, setQueues] = React.useState({ corrections: [], overtime: [], overtimeCanReview: false });
 
-  // Every branch by name, including ones with no rows yet.
+  // Search waits for a pause in typing (300 ms), then asks the server.
   React.useEffect(() => {
-    apiFetch("/api/admin/branches")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const list = (data?.branches || []).filter((b) => branchFilter || b.status === "Active");
-        setKnownBranches(new Map(list.filter((b) => b?.id).map((b) => [String(b.id), b.name || "Branch"])));
-      })
-      .catch(() => {});
+    const timer = setTimeout(() => { setQ(search.trim()); setPaging((c) => ({ ...c, page: 1 })); }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  React.useEffect(() => {
+    if (!branchFilter) return;
+    apiFetch("/api/admin/branches").then((r) => (r.ok ? r.json() : null)).then((data) => {
+      setBranches((data?.branches || []).filter((b) => b?.id).map((b) => [String(b.id), b.name || "Branch"]).sort((a, b) => a[1].localeCompare(b[1])));
+    }).catch(() => {});
   }, [branchFilter]);
 
+  const listTab = tab === "all" || tab === "incomplete";
+  const params = React.useMemo(() => {
+    const p = new URLSearchParams({ from: range.from, to: range.to });
+    if (branch) p.set("branch_id", branch);
+    if (q) p.set("q", q);
+    if (day !== "all") p.set("day", day);
+    return p;
+  }, [range, branch, q, day]);
+
   const load = React.useCallback(async () => {
-    setState((current) => ({ ...current, loading: true, error: null }));
+    setState((c) => ({ ...c, loading: true, error: null }));
     try {
-      const params = new URLSearchParams({ from: range.from, to: range.to });
-      const [logsData, correctionsData, overtimeData] = await Promise.all([
-        fetchJson(`/api/attendance/logs?${params}`),
-        readOnly ? { corrections: [] } : fetchJson("/api/attendance/corrections?status=pending").catch(() => ({ corrections: [] })),
-        readOnly ? { overtime: [] } : fetchJson(`/api/attendance/overtime?${params}`).catch(() => ({ overtime: [] })),
-      ]);
+      const p = new URLSearchParams(params);
+      p.set("page", String(paging.page));
+      p.set("page_size", String(paging.pageSize));
+      const effectiveStatus = tab === "incomplete" ? "unresolved" : status;
+      if (effectiveStatus !== "all") p.set("status", effectiveStatus);
+      const data = await fetchJson(`/api/attendance/logs?${p}`);
       setState({
-        loading: false,
-        error: null,
-        logs: oneRowPerDay(logsData.logs || []),
-        canReview: Boolean(logsData.can_review),
-        scope: String(logsData.scope || ""),
-        engineReady: logsData.engine_ready !== false,
-        blocked: logsData.blocked_taps || [],
-        corrections: correctionsData.corrections || [],
-        overtime: overtimeData.overtime || [],
-        overtimeCanReview: Boolean(overtimeData.can_review),
-        overtimeMin: Number(overtimeData.min_minutes) || 30,
+        loading: false, error: null, logs: data.logs || [], total: Number(data.total) || 0, counts: data.counts || {},
+        days: data.days || [], blocked: data.blocked_taps || [], canReview: Boolean(data.can_review), scope: String(data.scope || ""),
       });
     } catch (error) {
-      setState((current) => ({ ...current, loading: false, error: error.message, logs: [], corrections: [], overtime: [], blocked: [] }));
+      setState((c) => ({ ...c, loading: false, error: error.message }));
     }
-  }, [range, readOnly]);
+  }, [params, paging, tab, status]);
+
+  const loadQueues = React.useCallback(async () => {
+    if (readOnly) return;
+    const [corrections, overtime] = await Promise.all([
+      fetchJson("/api/attendance/corrections?status=pending").catch(() => ({ corrections: [] })),
+      fetchJson(`/api/attendance/overtime?from=${range.from}&to=${range.to}`).catch(() => ({ overtime: [] })),
+    ]);
+    setQueues({ corrections: corrections.corrections || [], overtime: overtime.overtime || [], overtimeCanReview: Boolean(overtime.can_review) });
+  }, [readOnly, range]);
 
   React.useEffect(() => { load(); }, [load, version, refreshKey]);
+  React.useEffect(() => { loadQueues(); }, [loadQueues, version, refreshKey]);
 
-  const groupByBranch = state.scope !== "self";
-  const ctx = React.useMemo(() => branchContext(state.logs, knownBranches), [state.logs, knownBranches]);
-  const inBranch = React.useCallback((row) => (!branch || rowBranchId(ctx, row) === branch) && matchesEmployee(row, search), [branch, ctx, search]);
+  const canReview = state.canReview && !readOnly;
+  const matches = React.useCallback((row) => (!branch || String(row.branch_id || row.group_branch_id || "") === branch)
+    && (!q || String(row.employee_name || "").toLowerCase().includes(q.toLowerCase())), [branch, q]);
+  const corrections = queues.corrections.filter(matches);
+  const overtime = queues.overtime.filter(matches);
+  const blocked = state.blocked.filter((row) => !q || String(row.employee_name || "").toLowerCase().includes(q.toLowerCase()));
+  const incompleteCount = Number(state.counts.Incomplete || 0) + Number(state.counts["Pending Correction"] || 0);
 
-  const logs = state.logs.filter(inBranch);
-  const corrections = state.corrections.filter(inBranch);
-  const overtime = state.overtime.filter(inBranch);
-  const blocked = state.blocked.filter(inBranch);
-  const incomplete = logs.filter((row) => row.status === "Incomplete" || row.status === "Pending Correction");
-  const dayCountsAll = countBy(logs, (row) => String(row.log_date || ""));
-  const days = [...dayCountsAll.keys()].filter(Boolean).sort().reverse();
-  const effectiveDay = day !== "all" && !dayCountsAll.has(day) ? "all" : day;
-  const dayRows = logs.filter((row) => effectiveDay === "all" || row.log_date === effectiveDay);
-  const statusCounts = countBy(dayRows, () => "x").get("x")?.statuses || new Map();
-
-  let rows;
-  let grouping = null;
-  if (tab === "all" || tab === "incomplete") {
-    const source = tab === "all" ? dayRows : incomplete;
-    const filtered = tab === "all" ? source.filter((row) => status === "all" || row.status === status) : source;
-    if (groupByBranch) {
-      rows = sortByBranchDay(ctx, filtered);
-      grouping = {
-        byBranch: true,
-        ctx,
-        collapsed,
-        onToggle: (b) => setCollapsed((current) => {
-          const next = new Set(current);
-          if (next.has(b)) next.delete(b); else next.add(b);
-          return next;
-        }),
-        branchCounts: branchCounts(ctx, source),
-        dayCounts: countBy(rows, (row) => `${rowBranchId(ctx, row)}|${row.log_date}`),
-        statusBreakdown: tab === "all",
-      };
-    } else {
-      rows = sortByDay(filtered);
-      grouping = { byBranch: false, dayCounts: countBy(rows, (row) => String(row.log_date || "")), statusBreakdown: tab === "all" };
-    }
-  } else if (tab === "overtime" || tab === "blocked") {
-    rows = sortByDay(tab === "overtime" ? overtime : blocked);
-    grouping = { byBranch: false, dayCounts: countBy(rows, (row) => String(row.log_date || "")) };
-  } else {
-    rows = corrections;
-  }
+  const tabOptions = [
+    { value: "all", label: "All records" },
+    ...(readOnly && !branchFilter ? [{ value: "incomplete", label: "Incomplete queue", count: incompleteCount || undefined }] : []),
+    ...(!readOnly ? [{ value: "incomplete", label: "Incomplete queue", count: incompleteCount || undefined }] : []),
+    ...(canReview ? [{ value: "corrections", label: "Correction requests", count: corrections.length || undefined }] : []),
+    ...(canReview || queues.overtimeCanReview ? [{ value: "overtime", label: "Overtime", count: overtime.filter((r) => !r.approval && !r.locked).length || undefined }] : []),
+    ...(!readOnly || branchFilter ? [{ value: "blocked", label: "Blocked taps", count: blocked.length || undefined }] : []),
+  ];
+  const activeTab = tabOptions.some((t) => t.value === tab) ? tab : "all";
+  const multiBranch = branchFilter && branches.length > 1;
 
   const columns = React.useMemo(() => {
-    if (tab === "all") return recordColumns({ canReview: state.canReview });
-    if (tab === "incomplete") {
-      const cols = [
-        { key: "employee", header: "Employee", cell: (r) => <EmployeeCell row={r} link={state.canReview} /> },
-        { key: "date", header: "Date", className: "whitespace-nowrap", cell: (r) => formatDateKey(r.log_date) },
-        { key: "in", header: "Time in", className: "tabular-nums", cell: (r) => formatTime(r.time_in) },
-        { key: "out", header: "Time out", className: "tabular-nums", cell: (r) => formatTime(r.time_out) },
-        { key: "status", header: "Status", cell: (r) => <StatusCell row={r} /> },
-      ];
-      if (state.canReview) cols.push({ key: "action", header: <span className="sr-only">Action</span>, align: "right", cell: (r) => <IncompleteActions row={r} /> });
-      return cols;
-    }
-    if (tab === "corrections") {
-      const cols = [
-        { key: "employee", header: "Employee", cell: (c) => <span className="font-medium">{c.employee_name || "—"}</span> },
+    if (activeTab === "corrections") {
+      return [
+        { key: "employee", header: "Employee", mobilePrimary: true, cell: (c) => <span className="font-medium">{c.employee_name || "—"}</span> },
         { key: "date", header: "Date", className: "whitespace-nowrap", cell: (c) => formatDateKey(c.log_date) },
         { key: "recorded", header: "Recorded", cell: (c) => <div className="space-y-1"><p className="tabular-nums">{formatTime(c.original_time_in)} – {formatTime(c.original_time_out)}</p><AttendanceBadge status={c.original_status} /></div> },
         { key: "requested_out", header: "Requested time out", className: "tabular-nums", cell: (c) => formatTime(c.corrected_time_out) },
         { key: "reason", header: "Reason", className: "max-w-64 whitespace-normal text-muted-foreground", cell: (c) => c.reason || "" },
         { key: "requested", header: "Requested", className: "whitespace-nowrap", cell: (c) => formatDateTime(c.requested_at) },
+        ...(canReview ? [{ key: "action", header: <span className="sr-only">Actions</span>, align: "right", cell: (c) => <CorrectionActions correction={c} /> }] : []),
       ];
-      if (state.canReview) cols.push({ key: "action", header: <span className="sr-only">Action</span>, align: "right", cell: (c) => <CorrectionActions correction={c} logs={state.logs} /> });
-      return cols;
     }
-    if (tab === "overtime") {
-      const cols = [
-        { key: "employee", header: "Employee", cell: (r) => <span className="font-medium">{r.employee_name || "—"}</span> },
+    if (activeTab === "overtime") {
+      return [
+        { key: "employee", header: "Employee", mobilePrimary: true, cell: (r) => <span className="font-medium">{r.employee_name || "—"}</span> },
         { key: "date", header: "Date", className: "whitespace-nowrap", cell: (r) => formatDateKey(r.log_date) },
         { key: "out", header: "Time out", cell: (r) => <div><p className="tabular-nums">{formatTime(r.time_out)}</p><p className="text-xs text-muted-foreground">Shift ends {r.work_end || ""}</p></div> },
-        { key: "past", header: "Past schedule", className: "tabular-nums", cell: (r) => formatMinutes(r.overtime_minutes) },
+        { key: "past", header: "Past schedule", align: "right", className: "tabular-nums", cell: (r) => formatMinutes(r.overtime_minutes) },
         { key: "decision", header: "Decision", cell: (r) => <OvertimeDecision row={r} /> },
+        ...(queues.overtimeCanReview ? [{ key: "action", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => <OvertimeAction row={r} /> }] : []),
       ];
-      if (state.overtimeCanReview) cols.push({ key: "action", header: <span className="sr-only">Action</span>, align: "right", cell: (r) => <OvertimeAction row={r} /> });
-      return cols;
     }
+    if (activeTab === "blocked") {
+      return [
+        { key: "employee", header: "Employee", mobilePrimary: true, cell: (r) => <span className="font-medium">{r.employee_name || (r.employee_id ? "—" : `Unregistered card ${r.rfid_code || ""}`.trim())}</span> },
+        { key: "date", header: "Date", className: "whitespace-nowrap", cell: (r) => formatDateKey(r.log_date) },
+        { key: "attempted", header: "Attempted", className: "tabular-nums whitespace-nowrap", cell: (r) => formatDateTime(r.attempted_at) },
+        { key: "source", header: "Source", cell: (r) => (r.source === "manual_entry" ? "Manual entry" : "RFID terminal") },
+        { key: "reason", header: "Reason", className: "max-w-72 whitespace-normal", cell: (r) => r.reason || "" },
+      ];
+    }
+    // All records and the Incomplete queue.
     return [
-      { key: "employee", header: "Employee", cell: (r) => <span className="font-medium">{r.employee_name || (r.employee_id ? "—" : `Unregistered card ${r.rfid_code || ""}`.trim())}</span> },
+      { key: "employee", header: "Employee", mobilePrimary: true, cell: (r) => <EmployeeCell row={r} link={canReview} /> },
+      ...(state.scope !== "self" && (branchFilter || multiBranch) ? [{ key: "branch", header: "Branch", className: "whitespace-nowrap", cell: (r) => r.branch_name || r.group_branch_name || "—" }] : []),
       { key: "date", header: "Date", className: "whitespace-nowrap", cell: (r) => formatDateKey(r.log_date) },
-      { key: "attempted", header: "Attempted", className: "tabular-nums whitespace-nowrap", cell: (r) => formatDateTime(r.attempted_at) },
-      { key: "source", header: "Source", cell: (r) => (r.source === "manual_entry" ? "Manual entry" : "RFID terminal") },
-      { key: "reason", header: "Reason", className: "max-w-72 whitespace-normal", cell: (r) => r.reason || "" },
+      { key: "in", header: "Time in", align: "right", mobile: false, className: "tabular-nums whitespace-nowrap", cell: (r) => formatTime(r.time_in) },
+      { key: "out", header: "Time out", align: "right", mobile: false, className: "tabular-nums whitespace-nowrap", cell: (r) => formatTime(r.time_out) },
+      { key: "hours", header: "Hours", align: "right", mobile: false, className: "tabular-nums whitespace-nowrap", cell: (r) => formatWorked(r) },
+      // Phones: in, out and hours on one line.
+      { key: "time", header: "Time", mobileOnly: true, cell: (r) => <span className="tabular-nums">{formatTime(r.time_in)} – {formatTime(r.time_out)} · {formatWorked(r)}</span> },
+      { key: "status", header: "Status", mobileBadge: true, className: "min-w-36", cell: (r) => (r.not_tapped_yet ? <AttendanceBadge status="Not tapped yet" /> : <StatusCell row={r} />) },
+      { key: "notes", header: "Notes", className: "min-w-40 max-w-72 text-xs whitespace-normal text-muted-foreground", cell: (r) => rowNote(r) },
+      ...(canReview ? [{ key: "action", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => (r.not_tapped_yet ? null : activeTab === "incomplete" ? <IncompleteActions row={r} /> : <RecordActions row={r} />) }] : []),
     ];
-  }, [tab, state.canReview, state.overtimeCanReview, state.logs]);
+  }, [activeTab, canReview, queues.overtimeCanReview, state.scope, branchFilter, multiBranch]);
 
-  const note = tab === "overtime"
-    ? `Days whose time out is at least ${state.overtimeMin} minutes after the branch's end of shift. Payroll pays overtime only for the minutes approved here (hourly rate plus the overtime premium in Payroll Rates). Decisions lock once that pay period is processed.`
-    : tab === "all"
-      ? (state.engineReady === false
-        ? "Automatic statuses are not active yet: apply the attendance database migration (20260926010000_attendance_status_engine.sql)."
-        : `Statuses are computed automatically from each branch's schedule. Today's list includes everyone who has not tapped yet.${state.canReview ? " Use Correct on any day to fix a wrong time in or time out, or to record a day someone worked but did not tap." : ""}`)
-      : NOTES[tab];
+  const resetFilters = () => {
+    setSearch(""); setQ(""); setStatus("all"); setDay("all"); setBranch("");
+    setRange(fallback); setPaging((c) => ({ ...c, page: 1 }));
+  };
+  const onFilter = (fn) => (value) => { fn(value); setPaging((c) => ({ ...c, page: 1 })); };
+  const rows = activeTab === "corrections" ? corrections : activeTab === "overtime" ? overtime : activeTab === "blocked" ? blocked : state.logs;
+  const exportParams = new URLSearchParams(params);
+  if (status !== "all" && activeTab === "all") exportParams.set("status", status);
+  if (activeTab === "incomplete") exportParams.set("status", "unresolved");
 
-  const empty = tab === "blocked" ? "No taps were blocked in this date range."
-    : tab === "corrections" ? "No correction requests waiting."
-      : tab === "incomplete" ? "Nothing to resolve."
-        : tab === "overtime" ? "No overtime in this date range."
-          : effectiveDay !== "all" ? "No attendance records for this day." : "No attendance records in this date range.";
-  const emptyText = search.trim() ? `No employees match "${search.trim()}".` : empty;
-
-  // Tab counts go through FilterTabs' own badge (a JSX badge inside a text
-  // label showed "null" / "[object Object]", fixed 2026-11-09).
-  const branchOptions = [...ctx.names.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
-  const showBranch = groupByBranch && branchOptions.length > 0;
+  const emptyText = q ? `No employees match "${q}".`
+    : activeTab === "blocked" ? "No taps were blocked in this range."
+      : activeTab === "corrections" ? "No correction requests waiting."
+        : activeTab === "incomplete" ? "Nothing to resolve."
+          : activeTab === "overtime" ? "No overtime in this range."
+            : "No attendance for this range.";
 
   return (
-    <Card className="min-w-0 shadow-xs">
-      <CardHeader>
-        <CardTitle>Attendance status</CardTitle>
-        <CardDescription>Any range of up to 62 days, computed from each branch&apos;s schedule.</CardDescription>
-        <CardAction className="flex flex-wrap items-center gap-2">
-          <ExportButtons href={`/api/attendance/logs?from=${range.from}&to=${range.to}${branch ? `&branch_id=${branch}` : ""}`} label="attendance" disabled={!state.logs.length} />
-          <Button variant="outline" size="sm" onClick={load} disabled={state.loading}>
-            <RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* One toolbar row (2026-11-08): search first, then the view tabs and the filters. */}
-        <TableToolbar search={{ value: search, onChange: setSearch, placeholder: "Search employees…" }}>
-          <DateRangeFilter idPrefix="board" value={range} maxDays={62} count={state.loading ? null : state.logs.length}
-            onChange={(next) => { setRange(next); setDay("all"); }} />
-          <FilterTabs value={tab} onValueChange={setTab} label="Attendance view" options={[
-            { value: "all", label: "All records" },
-            { value: "incomplete", label: "Incomplete queue", count: incomplete.length || undefined },
-            { value: "corrections", label: "Correction requests", count: corrections.length || undefined },
-            { value: "overtime", label: "Overtime", count: overtime.filter((row) => !row.approval && !row.locked).length || undefined },
-            { value: "blocked", label: "Blocked taps", count: blocked.length || undefined },
-          ]} />
-          {showBranch ? (
-            <Select value={branch || ALL} onValueChange={(value) => setBranch(value === ALL ? "" : value)}>
-              <SelectTrigger size="sm" className="w-48" aria-label="Branch"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All branches</SelectItem>
-                {branchOptions.map(([value, name]) => <SelectItem key={value} value={value}>{name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          ) : null}
-          {tab === "all" ? (
-            <>
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger size="sm" className="w-44" aria-label="Status"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  {ATTENDANCE_STATUS_LIST.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Select value={effectiveDay} onValueChange={setDay}>
-                <SelectTrigger size="sm" className="w-52" aria-label="Day"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All days</SelectItem>
-                  {days.map((key) => <SelectItem key={key} value={key}>{formatDateKey(key)} ({dayCountsAll.get(key).total})</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </>
-          ) : null}
-        </TableToolbar>
-
-        {tab === "all" ? (
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by status">
-            {CHIP_STATUSES.filter((s) => (s !== "Pending Correction" && s !== "Holiday") || statusCounts.get(s) || status === s).map((s) => {
-              const n = statusCounts.get(s) || 0;
-              const active = status === s;
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  aria-pressed={active}
-                  title={active ? "Show all statuses" : `Show only ${s}`}
-                  onClick={() => setStatus(active ? "all" : s)}
-                  className={cn(
-                    "rounded-full ring-offset-2 ring-offset-card transition focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-                    active && "ring-2 ring-primary",
-                    !n && !active && "opacity-50",
-                  )}
-                >
-                  <StatusBadge tone={attendanceTone(s)} className="cursor-pointer">
-                    {s}
-                    <span className="ml-0.5 rounded-full bg-current/10 px-1.5 text-[11px] font-semibold tabular-nums">
-                      {n}<span className="sr-only"> records</span>
-                    </span>
-                  </StatusBadge>
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
-
-        <p className="text-xs leading-relaxed text-muted-foreground">{note}</p>
-
-        <GroupedAttendanceTable
-          key={tab}
-          columns={columns}
-          rows={rows}
-          grouping={grouping}
-          loading={state.loading}
-          error={state.error}
-          onRetry={load}
-          empty={emptyText}
-          caption="Attendance status"
-          minWidth={tab === "all" ? 960 : 760}
-          rowKey={(r, i) => r.id || r.log_id || `${r.employee_id}|${r.log_date}|${i}`}
-        />
-      </CardContent>
-    </Card>
+    <AttendanceView
+      title={title}
+      help={help || (readOnly ? "View only. Any range of up to 62 days." : "Any range of up to 62 days, computed from each branch's schedule.")}
+      actions={{
+        onRefresh: () => { load(); loadQueues(); }, refreshing: state.loading,
+        exportHref: state.scope === "self" ? null : `/api/attendance/logs?${exportParams}`, exportLabel: "attendance", exportDisabled: !state.total,
+      }}
+      summary={{ counts: state.counts, active: activeTab === "all" ? status : "all", loading: state.loading && !state.logs.length, onSelect: (s) => { setTab("all"); onFilter(setStatus)(s); } }}
+      toolbar={{
+        search: { value: search, onChange: setSearch },
+        range: { value: range, onChange: onFilter((next) => { setRange(next); setDay("all"); }), maxDays: 62, idPrefix: `${urlKey}-range` },
+        branch: multiBranch ? { value: branch, onChange: onFilter(setBranch), options: branches } : null,
+        status: activeTab === "all" ? { value: status, onChange: onFilter(setStatus) } : null,
+        day: listTab ? { value: day, onChange: onFilter(setDay), options: state.days.map((d) => [d, formatDateKey(d)]) } : null,
+        onReset: resetFilters,
+        count: state.loading ? null : listTab ? state.total : rows.length,
+      }}
+      tabs={{ value: activeTab, onChange: (v) => { setTab(v); setPaging((c) => ({ ...c, page: 1 })); }, options: tabOptions }}
+      footer={NOTES[activeTab]}
+      testId="attendance-board"
+    >
+      <DataTable
+        key={activeTab}
+        columns={columns}
+        rows={rows}
+        loading={state.loading && !state.logs.length && listTab}
+        error={state.error}
+        onRetry={load}
+        searchable={false}
+        stickyHeader
+        striped
+        pageSize={listTab ? paging.pageSize : 25}
+        pageSizes={[10, 25, 50]}
+        server={listTab ? { total: state.total, page: paging.page, pageSize: paging.pageSize, query: "", onChange: (next) => setPaging((c) => ({ page: next.page ?? c.page, pageSize: next.pageSize ?? c.pageSize })) } : null}
+        empty={{ title: emptyText }}
+        caption={title}
+        minWidth={listTab ? 980 : 760}
+        rowKey={(r, i) => r.id || r.log_id || `${r.employee_id}|${r.log_date}|${i}`}
+      />
+    </AttendanceView>
   );
+}
+
+/** Late / undertime minutes, a holiday or leave, a correction waiting. */
+function rowNote(row) {
+  const parts = [];
+  if (Number(row.late_minutes) > 0) parts.push(`Late ${formatMinutes(row.late_minutes)}`);
+  if (Number(row.undertime_minutes) > 0) parts.push(`Undertime ${formatMinutes(row.undertime_minutes)}`);
+  if (row.holiday_name) parts.push(row.holiday_name);
+  if (row.leave?.leave_type) parts.push(`${row.leave.leave_type} leave`);
+  if (row.correction) parts.push("Correction requested");
+  if (row.corrected_reason || row.correction_reason) parts.push(`Corrected: ${row.corrected_reason || row.correction_reason}`);
+  return parts.join(" · ") || "—";
 }
 
 function IncompleteActions({ row }) {
@@ -324,25 +262,18 @@ function IncompleteActions({ row }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
       {row.status === "Incomplete"
-        ? <Button variant="default" size="sm" onClick={() => open("resolve", row)}>Resolve</Button>
+        ? <Button size="sm" onClick={() => open("resolve", row)}>Resolve</Button>
         : <span className="text-xs text-muted-foreground">See correction requests</span>}
       <RecordActions row={row} viewRecords={false} />
     </div>
   );
 }
 
-function CorrectionActions({ correction, logs }) {
+function CorrectionActions({ correction }) {
   const { open } = useAttendanceActions();
-  // The record a request is about: the loaded row, or the request's own copy (attCorrectionRecord).
-  const record = logs.find((row) => String(row.id) === String(correction.log_id)) || {
-    id: correction.log_id,
-    employee_id: correction.employee_id,
-    employee_name: correction.employee_name,
-    log_date: correction.log_date,
-    time_in: correction.original_time_in,
-    time_out: correction.original_time_out,
-    status: "Pending Correction",
-    group_branch_id: correction.branch_id,
+  const record = {
+    id: correction.log_id, employee_id: correction.employee_id, employee_name: correction.employee_name, log_date: correction.log_date,
+    time_in: correction.original_time_in, time_out: correction.original_time_out, status: "Pending Correction", group_branch_id: correction.branch_id,
   };
   return (
     <div className="flex flex-wrap justify-end gap-1.5">

@@ -50,6 +50,8 @@ export function attendanceTone(status) {
 }
 
 export function AttendanceBadge({ status, className }) {
+  // Today, before the day is over (redesign 2026-11-09): not an absence yet.
+  if (status === "Not tapped yet") return <StatusBadge tone="muted" className={cn("border-dashed", className)}>Not tapped yet</StatusBadge>;
   const label = normalizeAttendanceStatus(status);
   if (label === "—") return <StatusBadge tone="muted" className={className}>No data</StatusBadge>;
   return <StatusBadge tone={ATTENDANCE_TONE[label] || "muted"} className={className}>{label}</StatusBadge>;

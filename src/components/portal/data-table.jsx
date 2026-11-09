@@ -38,6 +38,14 @@ import { cn } from "@/lib/utils";
 
 const PAGE_SIZES = [10, 25, 50, 100];
 
+/** 1 … 4 5 [6] 7 8 … 20 */
+function pageWindow(current, count) {
+  const pages = new Set([1, count]);
+  for (let n = current - 2; n <= current + 2; n += 1) if (n >= 1 && n <= count) pages.add(n);
+  const sorted = [...pages].sort((a, b) => a - b);
+  return sorted.flatMap((n, i) => (i && n - sorted[i - 1] > 1 ? ["…", n] : [n]));
+}
+
 function sortValueOf(column, row) {
   if (column.sortValue) return column.sortValue(row);
   return row[column.key];
@@ -52,7 +60,7 @@ function compare(a, b) {
 }
 
 export function DataTable({
-  columns,
+  columns: allColumns,
   rows,
   loading = false,
   error = null,
@@ -74,9 +82,17 @@ export function DataTable({
   // The rows given are the current page; search and paging ask the server.
   server = null,
   mobileCards = true,
+  // Attendance redesign (2026-11-09): the header stays in view while the rows
+  // scroll (the table scrolls inside a box up to 70% of the screen high), and
+  // every other row is lightly shaded.
+  stickyHeader = false,
+  striped = false,
+  pageSizes = null,
 }) {
   const isMobile = useIsMobile();
   const asCards = mobileCards && isMobile;
+  // mobileOnly columns show on cards only (e.g. one "Time" line on phones).
+  const columns = React.useMemo(() => (asCards ? allColumns : allColumns.filter((c) => !c.mobileOnly)), [allColumns, asCards]);
   const [query, setQuery] = React.useState(server ? server.query || "" : "");
   const [sort, setSort] = React.useState(initialSort);
   const [page, setPage] = React.useState(1);
@@ -104,7 +120,7 @@ export function DataTable({
   const total = server ? Number(server.total || 0) : sorted.length;
   const sizeNow = server ? Number(server.pageSize || initialPageSize) : pageSize;
   // The table's own page size is always one of the choices.
-  const sizes = [...new Set([initialPageSize, sizeNow, ...PAGE_SIZES])].sort((a, b) => a - b);
+  const sizes = [...new Set([initialPageSize, sizeNow, ...(pageSizes || PAGE_SIZES)])].sort((a, b) => a - b);
   const pageCount = paginate ? Math.max(1, Math.ceil(total / sizeNow)) : 1;
   const currentPage = server ? Math.min(Number(server.page || 1), pageCount) : Math.min(page, pageCount);
   const start = paginate ? (currentPage - 1) * sizeNow : 0;
@@ -164,10 +180,10 @@ export function DataTable({
           caption={caption}
         />
       ) : (
-      <div className="overflow-hidden rounded-lg border bg-card">
+      <div className={cn("overflow-hidden rounded-lg border bg-card", stickyHeader && "[&_[data-slot=table-container]]:max-h-[70vh] [&_[data-slot=table-container]]:overflow-y-auto")}>
         <Table style={minWidth ? { minWidth } : undefined}>
           {caption ? <caption className="sr-only">{caption}</caption> : null}
-          <TableHeader className="bg-muted/60">
+          <TableHeader className={cn("bg-muted/60", stickyHeader && "sticky top-0 z-10 bg-muted shadow-[0_1px_0_var(--border)]")}>
             <TableRow className="hover:bg-transparent">
               {columns.map((column) => {
                 const sortable = Boolean(column.sortValue || column.sortable);
@@ -229,7 +245,7 @@ export function DataTable({
               </TableRow>
             ) : (
               visible.map((row, index) => (
-                <TableRow key={rowKey(row, start + index)} className={rowClassName?.(row)}>
+                <TableRow key={rowKey(row, start + index)} className={cn(striped && "even:bg-muted/25", rowClassName?.(row))}>
                   {columns.map((column) => (
                     <TableCell key={column.key} className={cn(alignClass(column.align), column.className)}>
                       {column.cell ? column.cell(row) : (row[column.key] ?? "—")}
@@ -262,6 +278,17 @@ export function DataTable({
             <Button variant="outline" size="icon" className="size-8" onClick={() => goTo(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">
               <ChevronLeftIcon />
             </Button>
+            {/* Page numbers (2026-11-09): the first, the last and two either side. */}
+            {pageCount > 1 ? (
+              <span className="hidden items-center gap-1 sm:flex" data-slot="page-numbers">
+                {pageWindow(currentPage, pageCount).map((n, i) => (n === "…"
+                  ? <span key={`gap-${i}`} className="px-1" aria-hidden="true">…</span>
+                  : (
+                    <Button key={n} variant={n === currentPage ? "default" : "ghost"} size="sm" className="h-8 min-w-8 px-2 tabular-nums"
+                      onClick={() => goTo(n)} aria-label={`Page ${n}`} aria-current={n === currentPage ? "page" : undefined}>{n}</Button>
+                  )))}
+              </span>
+            ) : null}
             <Button variant="outline" size="icon" className="size-8" onClick={() => goTo(currentPage + 1)} disabled={currentPage >= pageCount} aria-label="Next page">
               <ChevronRightIcon />
             </Button>
@@ -282,8 +309,10 @@ function cardLabel(column) {
 function MobileCards({ columns, rows, loading, error, onRetry, rowKey, rowClassName, empty, caption }) {
   const shown = columns.filter((column) => column.mobile !== false);
   const primary = shown.find((column) => column.mobilePrimary) || shown[0];
-  const lines = shown.filter((column) => column !== primary && cardLabel(column));
-  const trailing = shown.filter((column) => column !== primary && !cardLabel(column));
+  // mobileBadge: shown at the top right of the card, beside the title.
+  const badge = shown.find((column) => column.mobileBadge && column !== primary);
+  const lines = shown.filter((column) => column !== primary && column !== badge && cardLabel(column));
+  const trailing = shown.filter((column) => column !== primary && column !== badge && !cardLabel(column));
   const value = (column, row) => (column.cell ? column.cell(row) : (row[column.key] ?? "—"));
 
   if (loading) {
@@ -305,7 +334,10 @@ function MobileCards({ columns, rows, loading, error, onRetry, rowKey, rowClassN
     <ul className="flex flex-col gap-2" aria-label={caption || undefined} data-slot="data-table-cards">
       {rows.map((row, index) => (
         <li key={rowKey(row, index)} data-slot="data-table-card" className={cn("min-w-0 overflow-hidden rounded-lg border bg-card p-3 text-sm shadow-xs [overflow-wrap:anywhere]", rowClassName?.(row))}>
-          {primary ? <div className="min-w-0 font-medium [&_*]:max-w-full [&_*]:whitespace-normal [&_*]:[overflow-wrap:anywhere]">{value(primary, row)}</div> : null}
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            {primary ? <div className="min-w-0 font-medium [&_*]:max-w-full [&_*]:whitespace-normal [&_*]:[overflow-wrap:anywhere]">{value(primary, row)}</div> : null}
+            {badge ? <div className="shrink-0">{value(badge, row)}</div> : null}
+          </div>
           {lines.length ? (
             <dl className="mt-2 grid grid-cols-[minmax(6rem,auto)_minmax(0,1fr)] gap-x-3 gap-y-1.5">
               {lines.map((column) => (

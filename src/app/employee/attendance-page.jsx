@@ -26,7 +26,9 @@ import {
   weekdayOf,
 } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
-import { DateRangeFilter, defaultRange } from "@/components/portal/date-range-filter";
+import { defaultRange, useUrlRange } from "@/components/portal/date-range-filter";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { AttendanceView } from "@/components/portal/attendance/attendance-view";
 
 /* ── Month calendar (renderAttendanceCalendar, employee.js) ── */
 
@@ -263,8 +265,12 @@ function CorrectionDialog({ row, onOpenChange, onDone }) {
 // Records by date range (alpha test A1): From / To with quick choices, paged
 // on the server, this cutoff by default.
 function PayPeriodCard({ refreshKey }) {
-  const [state, setState] = React.useState({ logs: [], total: 0, loading: true, error: null });
-  const [range, setRange] = React.useState(defaultRange);
+  const [state, setState] = React.useState({ logs: [], total: 0, counts: {}, loading: true, error: null });
+  // The shared attendance view (redesign 2026-11-09): own records only, no
+  // search or branch; date range and status in the address.
+  const fallback = React.useMemo(() => defaultRange(), []);
+  const [range, setRange] = useUrlRange("emp_att", fallback);
+  const [status, setStatus] = useUrlParam("emp_att_status", "all");
   const [paging, setPaging] = React.useState({ page: 1, pageSize: 10 });
   const [requesting, setRequesting] = React.useState(null);
 
@@ -272,22 +278,26 @@ function PayPeriodCard({ refreshKey }) {
     setState((current) => ({ ...current, loading: true, error: null }));
     try {
       const params = new URLSearchParams({ from: range.from, to: range.to, page: String(paging.page), page_size: String(paging.pageSize) });
+      if (status !== "all") params.set("status", status);
       const data = await fetchJson(`/api/attendance/logs?${params}`);
-      setState({ logs: data.logs || [], total: Number(data.total) || 0, loading: false, error: null });
+      setState({ logs: data.logs || [], total: Number(data.total) || 0, counts: data.counts || {}, loading: false, error: null });
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message }));
     }
-  }, [range, paging]);
+  }, [range, paging, status]);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const columns = React.useMemo(() => [
-    { key: "log_date", header: "Date", sortable: true, className: "font-medium", cell: (r) => formatDateKey(r.log_date), searchValue: (r) => formatDateKey(r.log_date) },
-    { key: "time_in", header: "Time in", className: "tabular-nums whitespace-nowrap", cell: (r) => formatTime(r.time_in) },
-    { key: "time_out", header: "Time out", className: "tabular-nums whitespace-nowrap", cell: (r) => formatTime(r.time_out) },
+    { key: "log_date", header: "Date", mobilePrimary: true, className: "font-medium", cell: (r) => formatDateKey(r.log_date), searchValue: (r) => formatDateKey(r.log_date) },
+    { key: "time_in", header: "Time in", align: "right", mobile: false, className: "tabular-nums whitespace-nowrap", cell: (r) => formatTime(r.time_in) },
+    { key: "time_out", header: "Time out", align: "right", mobile: false, className: "tabular-nums whitespace-nowrap", cell: (r) => formatTime(r.time_out) },
+    { key: "hours", header: "Hours", align: "right", mobile: false, className: "tabular-nums whitespace-nowrap", cell: (r) => (Number(r.total_hours) ? Number(r.total_hours).toFixed(2) : "—") },
+    { key: "time", header: "Time", mobileOnly: true, cell: (r) => <span className="tabular-nums">{formatTime(r.time_in)} – {formatTime(r.time_out)} · {Number(r.total_hours) ? `${Number(r.total_hours).toFixed(2)} h` : "—"}</span> },
     {
       key: "status",
       header: "Status",
+      mobileBadge: true,
       sortValue: (r) => normalizeAttendanceStatus(r.status),
       searchValue: (r) => normalizeAttendanceStatus(r.status),
       className: "whitespace-normal",
@@ -310,16 +320,24 @@ function PayPeriodCard({ refreshKey }) {
     },
   ], []);
 
+  const toPage1 = (fn) => (v) => { fn(v); setPaging((c) => ({ ...c, page: 1 })); };
   return (
-    <Card className="shadow-xs">
-      <CardHeader>
-        <CardTitle>Attendance records by date</CardTitle>
-        <CardDescription>
-          Forgot to tap out, or think a day is wrong? Use <strong className="text-foreground">Request correction</strong> on an Incomplete,
-          Undertime or Half Day record.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <>
+      <AttendanceView
+        title="Attendance records by date"
+        help="Forgot to tap out, or think a day is wrong? Use Request correction on an Incomplete, Undertime or Half Day record."
+        actions={{ onRefresh: load, refreshing: state.loading }}
+        summary={{ counts: state.counts, active: status, loading: state.loading && !state.logs.length, onSelect: toPage1(setStatus) }}
+        toolbar={{
+          search: null,
+          range: { value: range, onChange: toPage1(setRange), maxDays: 366, idPrefix: "emp-att" },
+          status: { value: status, onChange: toPage1(setStatus) },
+          onReset: () => { setStatus("all"); setRange(fallback); setPaging((c) => ({ ...c, page: 1 })); },
+          count: state.loading ? null : state.total,
+        }}
+        footer="Statuses are computed automatically from your schedule."
+        testId="employee-attendance"
+      >
         <DataTable
           columns={columns}
           rows={state.logs}
@@ -327,16 +345,18 @@ function PayPeriodCard({ refreshKey }) {
           error={state.error}
           onRetry={load}
           searchable={false}
-          toolbar={<DateRangeFilter idPrefix="emp-att" value={range} count={state.loading ? null : state.total} onChange={(next) => { setRange(next); setPaging((c) => ({ ...c, page: 1 })); }} />}
+          striped
+          stickyHeader
           pageSize={paging.pageSize}
+          pageSizes={[10, 25, 50]}
           server={{ total: state.total, page: paging.page, pageSize: paging.pageSize, query: "", onChange: (next) => setPaging((c) => ({ page: next.page ?? c.page, pageSize: next.pageSize ?? c.pageSize })) }}
-          empty={{ title: "No attendance records in this date range", description: "Try another range, or Reset to this cutoff.", icon: CalendarXIcon }}
+          empty={{ title: "No attendance for this range", description: "Try another range, or Reset to this cutoff.", icon: CalendarXIcon }}
           caption="Attendance records by date"
-          minWidth={560}
+          minWidth={620}
         />
-      </CardContent>
+      </AttendanceView>
       <CorrectionDialog row={requesting} onOpenChange={(open) => { if (!open) setRequesting(null); }} onDone={load} />
-    </Card>
+    </>
   );
 }
 

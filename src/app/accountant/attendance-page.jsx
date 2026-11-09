@@ -43,6 +43,9 @@ export function AttendancePage({ refreshKey }) {
         <InfoIcon aria-hidden="true" />
         <AlertDescription>You can view attendance to assist with payroll. You cannot modify attendance records.</AlertDescription>
       </Alert>
+      {/* The shared attendance view (redesign 2026-11-09): own branch, view only. */}
+      <AttendanceStatusBoard refreshKey={refreshKey} initialTab={initialTab} readOnly urlKey="ac_att" title="Attendance"
+        help="Your branch, view only: the attendance payroll uses." />
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Attendance for payroll</CardTitle>
@@ -64,7 +67,6 @@ export function AttendancePage({ refreshKey }) {
           />
         </CardContent>
       </Card>
-      <AttendanceStatusBoard refreshKey={refreshKey} initialTab={initialTab} />
       {/* The branch Admin confirms overtime / substitute teaching before it is paid (2026-10-20). */}
       <BranchRequestsReview refreshKey={refreshKey} kinds={["overtime_confirmation"]} readOnly
         source="/api/admin/branch-oversight?view=requests&kind=overtime_confirmation"
