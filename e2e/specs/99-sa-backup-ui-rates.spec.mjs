@@ -508,8 +508,9 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     await as(page, "employee", "emp-timesheet");
     await settle(page);
     // The timesheet loads its range by itself since the alpha test (2026-11-09).
-    await pickDate(page, main(page).locator("#ts-from"), "2026-10-01");
-    await pickDate(page, main(page).locator("#ts-to"), "2026-10-31");
+    // The range is one control since the attendance redesign: the Last month preset.
+    await main(page).getByRole("combobox", { name: "Date range" }).click();
+    await page.getByRole("option", { name: "Last month" }).click();
     await settle(page);
     await main(page).getByRole("button", { name: "Copy" }).click();
     await toastAt("employee");

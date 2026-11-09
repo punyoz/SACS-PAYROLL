@@ -93,7 +93,7 @@ test("A1: the employee's attendance has a date range and pages", async ({ page }
   await settle(page);
   await step(page, "Employee > Attendance > date range filter is there", async () => {
     await expect(main(page).getByText("Attendance records by date").first()).toBeVisible();
-    await expect(page.locator("#emp-att-from")).toBeVisible();
+    await expect(page.locator("#emp-att-range")).toBeVisible();
     await shot(page, "a1-employee-attendance-range");
   });
   await step(page, "API: a range over 366 days is refused, paging returns a total", async () => {

@@ -181,3 +181,30 @@ test("phone: Filters sheet and cards", async ({ page }) => {
     expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
   });
 });
+
+// The biggest range the board allows (62 days, every branch), as the page
+// asks for it: the old board read the whole range at once; the new one asks
+// for one page (with the counts). Median of 5.
+test("timings: the biggest range, before / after", async ({ page }) => {
+  test.setTimeout(5 * 60 * 1000);
+  await as(page, "super_admin");
+  const from = manilaDay(-61);
+  const to = manilaDay(0);
+  const url = AFTER ? `/api/attendance/logs?from=${from}&to=${to}&page=1&page_size=25` : `/api/attendance/logs?from=${from}&to=${to}`;
+  const runs = [];
+  let bytes = 0;
+  for (let i = 0; i < 5; i += 1) {
+    const t0 = Date.now();
+    const res = await page.request.get(url);
+    const body = await res.body();
+    runs.push(Date.now() - t0);
+    bytes = body.length;
+    expect(res.status()).toBe(200);
+  }
+  runs.sort((a, b) => a - b);
+  const result = { label: LABEL, url, median_ms: runs[2], min_ms: runs[0], max_ms: runs[4], response_kb: Math.round(bytes / 1024) };
+  console.log(`    ${JSON.stringify(result)}`);
+  mkdirSync(join(process.cwd(), "test-results"), { recursive: true });
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(join(process.cwd(), "test-results", `attendance-timing-${LABEL}.json`), JSON.stringify(result, null, 2));
+});

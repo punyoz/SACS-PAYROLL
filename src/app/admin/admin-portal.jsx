@@ -87,7 +87,7 @@ const TITLES = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])
 
 const DESCRIPTIONS = {
   "adm-dashboard": "Today's attendance, pending leave, headcount and recent activity for your branch.",
-  "adm-attendance": "Daily and monthly attendance of your branch. View only: flag a record for HR to check.",
+  "adm-attendance": "Your branch's attendance for any range of up to 62 days. View only: flag a record for HR to check.",
   "adm-overtime": "Confirm overtime and substitute teaching before the Accountant pays it.",
   "adm-leaves": "Endorse or do not endorse each leave request. HR decides.",
   "adm-transfers": "Endorse transfers into and out of your branch. HR decides.",
