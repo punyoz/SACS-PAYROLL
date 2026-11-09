@@ -503,9 +503,9 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     await toastAt("accountant");
     await as(page, "employee", "emp-timesheet");
     await settle(page);
-    await pickDate(page, main(page).locator("#ts-start-date"), "2026-10-01");
-    await pickDate(page, main(page).locator("#ts-end-date"), "2026-10-31");
-    await main(page).getByRole("button", { name: "Generate" }).click();
+    // The timesheet loads its range by itself since the alpha test (2026-11-09).
+    await pickDate(page, main(page).locator("#ts-from"), "2026-10-01");
+    await pickDate(page, main(page).locator("#ts-to"), "2026-10-31");
     await settle(page);
     await main(page).getByRole("button", { name: "Copy" }).click();
     await toastAt("employee");

@@ -142,7 +142,9 @@ test("tenure pay protection: HR grants to an eligible employee; grant history st
 test("branch scoping: the Main Campus Admin never sees the North branch's people", async ({ page, monitor }) => {
   monitor.at("Admin > branch scope");
   await as(page, "admin", "adm-attendance");
-  await page.getByRole("tab", { name: "Monthly" }).click();
+  // Daily / Monthly became a date range (alpha test A1): last month holds the October fixtures.
+  await main(page).getByRole("combobox", { name: "Quick range" }).click();
+  await page.getByRole("option", { name: "Last month" }).click();
   await settle(page);
   await expect(main(page).getByText("Ana").first()).toBeVisible();
   await expect(main(page).getByText("Carlo")).toHaveCount(0);
@@ -151,7 +153,8 @@ test("branch scoping: the Main Campus Admin never sees the North branch's people
   await step(page, "Admin (North) > Branch Attendance > sees Carlo, not Ana", async () => {
     monitor.at("Admin (North) > branch scope");
     await as(page, "admin2", "adm-attendance");
-    await page.getByRole("tab", { name: "Monthly" }).click();
+    await main(page).getByRole("combobox", { name: "Quick range" }).click();
+    await page.getByRole("option", { name: "Last month" }).click();
     await settle(page);
     await expect(main(page).getByText("Carlo").first()).toBeVisible();
     await expect(main(page).getByText("Ana")).toHaveCount(0);

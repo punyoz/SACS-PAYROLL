@@ -5,7 +5,9 @@ import { expect } from "@playwright/test";
 export const PAGES = {
   super_admin: [
     ["sa-dashboard", "Dashboard"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
-    ["sa-roles", "Roles & Permissions"], ["sa-maintenance", "System Maintenance"], ["sa-config", "System Configuration"],
+    ["sa-roles", "Roles & Permissions"], ["sa-attendance", "Attendance Records"],
+    // The RFID Management group (alpha test B1, 2026-11-09).
+    ["sa-maintenance", "RFID Cards"], ["sa-rfid-terminal", "RFID Terminal"], ["sa-rfid-issues", "RFID Issues"], ["sa-config", "System Configuration"],
     ["sa-audit", "Audit & Monitoring"], ["sa-announcements", "Announcements"], ["sa-backup", "Backup & Recovery"], ["sa-profile", "Profile"],
   ],
   admin: [

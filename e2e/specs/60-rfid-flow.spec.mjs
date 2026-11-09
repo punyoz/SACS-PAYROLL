@@ -30,7 +30,8 @@ test("RFID: register card → unlock terminal → tap → attendance; duplicate,
   for (const [role, pageId, where] of [
     ["admin", "adm-maintenance", "Admin > RFID Terminal & Cards"],
     ["hr", "hr-rfid-terminals", "HR > RFID Terminal"],
-    ["super_admin", "sa-maintenance", "Super Admin > System Maintenance"],
+    // RFID Management group (alpha test B1): the terminal has its own page.
+    ["super_admin", "sa-rfid-terminal", "Super Admin > RFID Terminal"],
   ]) {
     await step(page, `${where} > Open RFID Terminal only; no terminals to add or edit`, async () => {
       monitor.at(where);
