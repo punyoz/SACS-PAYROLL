@@ -11,6 +11,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { manilaDateKey } from "@/lib/payroll/periods";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -216,6 +217,10 @@ export async function PATCH(request) {
     const effective = normalizeText(body.effective_date);
     if (effective && !/^\d{4}-\d{2}-\d{2}$/.test(effective)) return NextResponse.json({ error: "Choose a valid effective date." }, { status: 400 });
     const dated = effective ? { p_effective: effective } : {};
+    // A past date needs a reason (decision 2026-11-09 #7); the database checks it too.
+    if (effective && effective < manilaDateKey() && !reason) {
+      return NextResponse.json({ error: "A change dated in the past needs a reason.", code: "reason_required" }, { status: 400 });
+    }
     const supabase = getAdminClient();
 
     let result;

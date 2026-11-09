@@ -3426,7 +3426,8 @@ async function handleAddMonthlyItem(supabase, body, guard) {
 
   await notifyHrOfAdjustment(supabase, {
     title: `${kind === "incentive" ? "Incentive" : "Overload"} to approve: ${employee.full_name}`,
-    body: `${actorName} filed ${kind === "incentive" ? `an incentive of ${money(row.amount)}` : `${row.hours} h of overload`} for ${employee.full_name} (${description}).`,
+    // No amounts in notifications (decision 2026-11-09 #9).
+    body: `${actorName} filed ${kind === "incentive" ? "an incentive" : "overload hours"} for ${employee.full_name} (${description}). Open it to review.`,
   });
 
   return NextResponse.json({
@@ -4337,7 +4338,8 @@ async function handleFlagDeduction(supabase, body, guard) {
   const sent = await notify(supabase, recipients, {
     kind: "deduction_flag",
     title: `${label} flagged for review: ${employee.full_name}`,
-    body: `${actorName} flagged ${employee.full_name}'s ${label}${amount === null ? "" : ` (${money(amount)})`} for ${periodLabel}: ${note}`,
+    // No amounts in notifications (decision 2026-11-09 #9).
+    body: `${actorName} flagged ${employee.full_name}'s ${label} for ${periodLabel}: ${note}`,
   });
   await appendAuditLog({
     actor: guard, module: "payroll", action: "deduction_flagged", entity_type: "payroll_entry", entity_id: employee.id,

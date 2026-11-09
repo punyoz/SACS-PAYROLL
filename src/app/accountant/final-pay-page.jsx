@@ -150,7 +150,7 @@ export function FinalPayPage({ refreshKey }) {
                   <Table>
                     <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>How</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
                     <TableBody>
-                      {b.earnings.map((e, i) => (
+                      {b.earnings.filter((e) => e.kind !== "leave_conversion").map((e, i) => (
                         <TableRow key={`e${i}`}><TableCell>+ {LABELS[e.kind] || e.kind}{e.month_key ? ` (${e.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{e.note}</TableCell><TableCell className="text-right tabular-nums">{money(e.amount)}</TableCell></TableRow>
                       ))}
                       {b.deductions.map((d, i) => (
@@ -158,10 +158,15 @@ export function FinalPayPage({ refreshKey }) {
                       ))}
                       {/* Its own line, never mixed in: off until the school confirms its rule. */}
                       {detail.data?.leave_conversion ? (
-                        <TableRow data-testid="leave-conversion" className="text-muted-foreground">
-                          <TableCell>Unused leave conversion <span className="ml-1 rounded bg-muted px-1.5 text-xs">Off</span></TableCell>
-                          <TableCell className="max-w-md text-xs whitespace-normal">{detail.data.leave_conversion.days} unused day(s) × {money(detail.data.leave_conversion.daily)} would be {money(detail.data.leave_conversion.would_be)}. {detail.data.leave_conversion.note}</TableCell>
-                          <TableCell className="text-right tabular-nums">{money(0)}</TableCell>
+                        <TableRow data-testid="leave-conversion" className={detail.data.leave_conversion.enabled ? "" : "text-muted-foreground"}>
+                          <TableCell>Unused leave conversion <span className={cn("ml-1 rounded px-1.5 text-xs", detail.data.leave_conversion.enabled ? "bg-success/15 text-success" : "bg-muted")}>{detail.data.leave_conversion.enabled ? "On" : "Off"}</span></TableCell>
+                          <TableCell className="max-w-md text-xs whitespace-normal">
+                            {detail.data.leave_conversion.enabled
+                              ? `${detail.data.leave_conversion.paid_days} of ${detail.data.leave_conversion.days} unused day(s) × ${money(detail.data.leave_conversion.daily)}. `
+                              : `${detail.data.leave_conversion.days} unused day(s) × ${money(detail.data.leave_conversion.daily)} would be ${money(detail.data.leave_conversion.would_be)}. `}
+                            {detail.data.leave_conversion.note}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">{money(detail.data.leave_conversion.amount || 0)}</TableCell>
                         </TableRow>
                       ) : null}
                     </TableBody>

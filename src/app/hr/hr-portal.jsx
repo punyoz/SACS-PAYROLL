@@ -32,6 +32,7 @@ import { RfidTerminalLauncher } from "../admin/maintenance-page";
 import { HolidayDutyPage } from "@/components/portal/holiday-duty";
 import { RatesSection } from "@/app/super-admin/rates-section";
 import { PayrollSettingsSection } from "@/app/super-admin/tax-section";
+import { LeaveConversionCard } from "@/components/portal/leave-conversion-card";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -225,7 +226,7 @@ function HrScreens() {
         ) : null}
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
-        {current === "hr-gov-rates" ? <><RatesSection refreshKey={refreshKey} endpoint="/api/payroll/rates" onlyEditable /><PayrollSettingsSection refreshKey={refreshKey} endpoint="/api/payroll/settings" showTax={false} /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
+        {current === "hr-gov-rates" ? <><RatesSection refreshKey={refreshKey} endpoint="/api/payroll/rates" onlyEditable /><PayrollSettingsSection refreshKey={refreshKey} endpoint="/api/payroll/settings" showTax={false} /><LeaveConversionCard /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}

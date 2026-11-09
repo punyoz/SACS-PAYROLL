@@ -51,6 +51,7 @@ import { loadBirYear } from "@/lib/payroll/bir-forms";
 import { applyYearEndToFinalPay, yearEndAdjustment } from "@/lib/payroll/year-end-tax";
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 import { summarizeLeaveBalance } from "@/lib/leave-requests/store";
+import { leaveConversionAmount, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
 
 const peso = (value) => roundPeso(value);
 const DEADLINE_DAYS = 30;
@@ -255,22 +256,39 @@ function separationDetails(body) {
 }
 
 /**
- * Unused leave with pay this year, valued at the daily rate -- shown as its
- * own line and NOT paid: the school has not confirmed a conversion rule yet
- * (open decision). Nothing here reaches the final pay amount.
+ * Unused leave with pay this year, valued at the daily rate, as its own line.
+ * Paid only when HR or the Super Admin has switched the conversion on
+ * (decision 2026-11-09 #1, src/lib/payroll/leave-conversion.js); off by
+ * default. Withholding tax on it is not computed (open decision).
  */
 async function unusedLeave(supabase, person, daily) {
   const year = Number(String(person.separated_on).slice(0, 4));
   const leaves = await supabase.from("leave_requests").select("start_date,end_date,status,pay_status,employee_id").eq("employee_id", person.id);
   const balance = summarizeLeaveBalance((leaves.data || []).map((l) => ({ ...l, status: String(l.status || "").toLowerCase(), pay_status: String(l.pay_status || "").toLowerCase().includes("without") ? "without_pay" : "with_pay" })), person.id, year);
+  const setting = await loadLeaveConversion(supabase);
+  const { paid_days: paidDays, amount } = leaveConversionAmount(setting, balance.with_pay_remaining, daily);
   return {
-    enabled: false,
+    enabled: setting.enabled,
+    max_days: setting.max_days,
     days: balance.with_pay_remaining,
+    paid_days: paidDays,
     daily,
     would_be: peso(balance.with_pay_remaining * (Number(daily) || 0)),
-    amount: 0,
-    note: "Off until the school confirms whether unused leave is converted to cash, and for how many days.",
+    amount: peso(amount),
+    note: setting.enabled
+      ? `On${setting.max_days ? `, up to ${setting.max_days} days` : ""}: paid as its own line. Withholding tax on it is not computed.`
+      : "Off until the school confirms whether unused leave is converted to cash, and for how many days (HR or the Super Admin can switch it on).",
   };
+}
+
+/** The conversion line joins the earnings, gross and net when it pays something. */
+function addLeaveConversion(breakdown, conversion) {
+  if (!conversion?.enabled || !(conversion.amount > 0)) return breakdown;
+  breakdown.earnings.push({ kind: "leave_conversion", label: "Unused leave conversion", amount: conversion.amount, note: `${conversion.paid_days} day(s) × daily rate` });
+  breakdown.gross = peso(breakdown.gross + conversion.amount);
+  breakdown.net_pay = peso(breakdown.net_pay + conversion.amount);
+  breakdown.leave_conversion = conversion.amount;
+  return breakdown;
 }
 
 async function separatedPeople(supabase, guard) {
@@ -295,6 +313,7 @@ export async function GET(request) {
       const breakdown = computeFinalPay(input);
       settleYearEndTax(breakdown, await pendingYearEndTax(supabase, person, year), { year, releaseOn: today, input });
       const [separation, leaveConversion] = await Promise.all([separationRecord(supabase, person), unusedLeave(supabase, person, daily)]);
+      addLeaveConversion(breakdown, leaveConversion);
       return NextResponse.json({
         person: { id: person.id, full_name: person.full_name, employee_id: person.employee_id, separated_on: person.separated_on },
         salary, daily, breakdown, separation, leave_conversion: leaveConversion,
@@ -342,9 +361,11 @@ export async function POST(request) {
     const existing = await supabase.from("payroll_entries").select("id").eq("employee_id", person.id).eq("pay_period", label).eq("status", "paid").maybeSingle();
     if (existing.data) return NextResponse.json({ error: "This final pay is already saved." }, { status: 409 });
 
-    const { input, year } = await gather(supabase, person);
+    const { input, year, daily: dailyRate } = await gather(supabase, person);
     const fp = computeFinalPay(input);
     const yearEndTax = settleYearEndTax(fp, await pendingYearEndTax(supabase, person, year), { year, releaseOn, input });
+    const conversion = await unusedLeave(supabase, person, dailyRate);
+    addLeaveConversion(fp, conversion);
     const now = new Date().toISOString();
     const entryId = crypto.randomUUID();
     const payroll = {
@@ -353,8 +374,8 @@ export async function POST(request) {
       final_pay: {
         separated_on: person.separated_on, release_on: releaseOn, breakdown: fp, computed_by_name: actorName(guard),
         separation: { ...(await separationRecord(supabase, person)), ...details.value, recorded_in_final_pay_by: actorName(guard), recorded_in_final_pay_at: new Date().toISOString() },
-        // Unused leave conversion: OFF until the school confirms its rule (open decision).
-        leave_conversion: { enabled: false, amount: 0 },
+        // Unused leave conversion (decision 2026-11-09 #1): as set when generated.
+        leave_conversion: { enabled: conversion.enabled, max_days: conversion.max_days, days: conversion.days, paid_days: conversion.paid_days, amount: conversion.amount },
       },
       totals: { gross_pay: fp.gross, total_deductions: fp.total_deductions, total_incentives: 0, net_pay: fp.net_pay },
       ...(yearEndTax ? { year_end_tax: yearEndTax } : {}),
@@ -372,8 +393,11 @@ export async function POST(request) {
       deductions: fp.deductions.filter((d) => ["sss", "philhealth", "pagibig", "withholding_tax", "carry_over", "loan", "year_end_tax"].includes(d.kind) && !d.credit)
         .map((d) => ({ type: d.kind, quantity: null, unit: null, rate: null, amount: d.amount, is_override: true, note: d.note || `Final pay${d.month_key ? ` (${d.month_key})` : ""}` })),
       // A year-end tax refund is its own line.
-      incentives: fp.deductions.filter((d) => d.kind === "year_end_tax" && d.credit)
-        .map((d) => ({ type: "year_end_tax_refund", quantity: 1, unit: "year", rate: null, amount: d.amount, is_override: false, note: d.note })),
+      incentives: [
+        ...fp.deductions.filter((d) => d.kind === "year_end_tax" && d.credit)
+          .map((d) => ({ type: "year_end_tax_refund", quantity: 1, unit: "year", rate: null, amount: d.amount, is_override: false, note: d.note })),
+        ...(conversion.amount > 0 ? [{ type: "leave_conversion", quantity: conversion.paid_days, unit: "day", rate: conversion.daily, amount: conversion.amount, is_override: true, note: "Unused leave conversion" }] : []),
+      ],
       loan_payments: fp.loan_payments,
     };
     const { data, error } = await supabase.rpc("payroll_commit_entries", { p_items: [item] });

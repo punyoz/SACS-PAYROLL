@@ -101,6 +101,16 @@ export async function POST(request) {
     const toBranchId = normalizeText(body.to_branch_id);
     const remarks = normalizeText(body.remarks);
 
+    // Nobody transfers themselves: another HR or the Super Admin does it
+    // (the fallback rule, decision 2026-11-09 #8).
+    if (employeeId && employeeId === guard.userId) {
+      await appendAuditLog({
+        actor: guard, module: "transfer_requests", action: "own_transfer_blocked", entity_type: "transfer_request", entity_id: employeeId,
+        description: "A transfer of the requester's own account was refused (another HR or the Super Admin makes it).",
+        status: "failed", source: "api", metadata: { to_branch_id: toBranchId || null },
+      });
+      return NextResponse.json({ error: "You cannot transfer yourself. Ask another HR account or the Super Admin.", code: "own_transfer" }, { status: 403 });
+    }
     if (!employeeId || !toBranchId) {
       return NextResponse.json(
         { error: "employee_id and to_branch_id are required." },
@@ -175,8 +185,11 @@ export async function POST(request) {
     // Transfer History. Unless HR asks the branch Admins to endorse it first
     // (wait_for_endorsement, 2026-10-20): it then stays Pending until HR
     // approves or rejects it.
-    const waitForEndorsement = body.wait_for_endorsement === true;
-    const appliedImmediately = can(guard.role, "transfer_requests", "update") && !waitForEndorsement;
+    // Decision 2026-11-09 #8: a transfer HR starts needs no endorsement; it
+    // applies now and both branch Admins are told. (wait_for_endorsement is
+    // no longer offered or honored.)
+    const waitForEndorsement = false;
+    const appliedImmediately = can(guard.role, "transfer_requests", "update");
     if (appliedImmediately) {
       const moveResult = await applyBranchMove(supabase, employeeId, fromBranchId, toBranchId);
       if (!moveResult.moved) {
@@ -205,6 +218,18 @@ export async function POST(request) {
       source: "api",
       metadata: { employee_id: employeeId, from_branch_id: fromBranchId, to_branch_id: toBranchId },
     });
+
+    if (appliedImmediately) {
+      // Both branches' Admins are told (no amounts, decision #9).
+      const admins = await supabase.from("profiles").select("id").eq("role", "admin").eq("archived", false)
+        .in("branch_id", [fromBranchId, toBranchId].filter(Boolean));
+      await notify(supabase, (admins.data || []).map((a) => a.id), {
+        kind: "transfer_applied",
+        title: `Transfer · ${normalizeText(employeeMeta.full_name, "Employee")}`,
+        body: `Moved to ${destination.name} by HR.`,
+        link_page: "adm-transfers",
+      }).catch(() => 0);
+    }
 
     if (waitForEndorsement) {
       const supabaseNotify = getAdminClient();

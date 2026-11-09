@@ -189,6 +189,8 @@ const API_MODULES = [
   ["/api/payroll/rates", "government_rates"],
   // HR / Super Admin: SSS salary credit table and contribution amounts (decision 2026-11-09 #4).
   ["/api/payroll/settings", "government_rates"],
+  // Unused leave conversion in final pay: read by rate readers, switched by HR / Super Admin (decision #1).
+  ["/api/payroll/leave-conversion", "government_rates"],
   // Pay rates, read-only (2026-11-08): HR / Super Admin every branch, Accountant and Admin their own.
   ["/api/payroll/pay-rates", "pay_rates"],
   // Remittance (employee + employer shares, withholding tax), read-only:

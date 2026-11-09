@@ -278,7 +278,8 @@ export async function POST(request) {
       await notify(supabase, (hr.data || []).filter((p) => !p.archived).map((p) => p.id), {
         kind: "adjustment_approval",
         title: `${LOAN_TYPE_LABELS[row.loan_type]} to approve: ${person.full_name}`,
-        body: `${row.created_by_name || "The Accountant"} filed ${LOAN_TYPE_LABELS[row.loan_type].toLowerCase()} ${money(row.principal)} for ${personLabel(person)}, ${money(row.amortization)} per 16–end payslip from ${row.start_period}.`,
+        // No amounts in notifications (decision 2026-11-09 #9): they show in the app.
+        body: `${row.created_by_name || "The Accountant"} filed a ${LOAN_TYPE_LABELS[row.loan_type].toLowerCase()} for ${personLabel(person)}, from ${row.start_period}. Open it to review.`,
         link_page: "hr-adjustment-approvals",
       });
       return NextResponse.json({ success: true, id: result.data?.id || null, total_payable: result.data?.total_payable ?? totalPayable(row.principal, row.interest_pct) });

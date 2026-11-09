@@ -24,6 +24,7 @@ import { PayslipScheduleSection } from "./payslip-schedule-section";
 import { WindowEnforcementBanner, WindowEnforcementSection } from "./window-enforcement-section";
 import { TeacherSubsidySection } from "./teacher-subsidy-section";
 import { EarlyBirdCard } from "@/components/portal/early-bird-card";
+import { LeaveConversionCard } from "@/components/portal/leave-conversion-card";
 
 /*
  * System Configuration (loadSAConfig / saveSAConfig and the per-branch
@@ -582,7 +583,7 @@ export function ConfigPage({ refreshKey }) {
           <TeacherSubsidySection refreshKey={refreshKey} />
         </TabsContent>
         <TabsContent value="rates" className="flex flex-col gap-4"><RatesSection refreshKey={refreshKey} /></TabsContent>
-        <TabsContent value="tax" className="flex flex-col gap-4"><PayrollSettingsSection refreshKey={refreshKey} /></TabsContent>
+        <TabsContent value="tax" className="flex flex-col gap-4"><PayrollSettingsSection refreshKey={refreshKey} /><LeaveConversionCard /></TabsContent>
         <TabsContent value="holidays" className="flex flex-col gap-4"><HolidaysSection refreshKey={refreshKey} /></TabsContent>
         <TabsContent value="security" className="flex flex-col gap-4">
           {state.config ? (

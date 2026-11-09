@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -43,13 +42,11 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   const [error, setError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
-  const [askAdmins, setAskAdmins] = React.useState(false);
 
   React.useEffect(() => {
     if (!employee) return;
     setBranch("");
     setRemarks("");
-    setAskAdmins(false);
     setError("");
     setFeedback({ text: "", ok: false });
   }, [employee]);
@@ -57,7 +54,8 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   // Active branches other than the one the employee is already in.
   const destinations = branches.filter((b) => String(b.status || "Active").toLowerCase() === "active" && b.id !== employee?.branch);
   const moving = Boolean(employee?.branch);
-  const wait = moving && askAdmins;
+  // HR-started transfers need no endorsement (decision 2026-11-09 #8).
+  const wait = false;
 
   async function submit(event) {
     event.preventDefault();
@@ -125,10 +123,9 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
               <Textarea id="hr-ba-remarks" rows={3} maxLength={300} placeholder="Reason for the transfer" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
             </div>
             {moving ? (
-              <label htmlFor="hr-ba-ask" className="flex items-start gap-2 text-sm">
-                <Checkbox id="hr-ba-ask" checked={askAdmins} onCheckedChange={(v) => setAskAdmins(v === true)} className="mt-0.5" />
-                <span>Ask the branch Admin to endorse it first<span className="block text-xs text-muted-foreground">The Admin of the branch the employee is leaving endorses or not, with a reason. It stays Pending until you approve or reject it in Transfer History. Unticked, the transfer applies now and no endorsement is asked.</span></span>
-              </label>
+              <p className="text-xs text-muted-foreground">
+                No endorsement is needed when HR makes the transfer: it applies now, and the Admins of both branches are notified.
+              </p>
             ) : null}
             {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
             <DialogFooter className="gap-2 sm:gap-2">

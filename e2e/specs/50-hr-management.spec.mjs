@@ -9,65 +9,51 @@ import { api, choose, confirm, refresh } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 
-test("transfer: HR asks for endorsement → Admin endorses → HR rejects → history kept", async ({ page, monitor }) => {
+// Decision 2026-11-09 #8: a transfer HR starts needs no endorsement. It
+// applies now and the Admins of both branches are notified; nobody
+// transfers themselves.
+test("transfer: HR moves Carlo → applies now → both branch Admins notified → moved back", async ({ page, monitor }) => {
   const carlo = await profileByEmail(ACCOUNTS.employee3.email);
+  const admin = await profileByEmail(ACCOUNTS.admin.email);
+  const admin2 = await profileByEmail(ACCOUNTS.admin2.email);
+  const hr = await profileByEmail(ACCOUNTS.hr.email);
   const remarks = `E2E transfer to Main ${Date.now()}`;
+  const since = new Date(Date.now() - 1000).toISOString();
 
-  await step(page, "HR > Transfer Requests > Transfer Carlo (ask Admins first)", async () => {
+  await step(page, "HR > Transfer Requests > Transfer Carlo (no endorsement asked)", async () => {
     monitor.at("HR > Transfer Requests");
     await as(page, "hr", "hr-transfers");
     await page.getByRole("tab", { name: /^All/ }).click();
     await settle(page);
     await main(page).locator("tr", { hasText: "Carlo" }).first().getByRole("button", { name: "Transfer" }).click();
     const dialog = page.getByRole("dialog");
+    await expect(dialog.locator("#hr-ba-ask")).toHaveCount(0);
     await choose(page, dialog.locator("#hr-ba-destination"), BRANCH_MAIN);
     await dialog.locator("#hr-ba-remarks").fill(remarks);
-    await dialog.locator("#hr-ba-ask").check();
-    await dialog.getByRole("button", { name: "Ask for endorsement" }).click();
-    await confirm(page, "Ask for endorsement");
+    await dialog.getByRole("button", { name: "Transfer now" }).click();
+    await confirm(page, "Transfer");
     await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
-    const pending = await rows(db().from("transfer_requests").select("id,status").eq("employee_id", carlo.id).eq("remarks", remarks));
-    expect(pending).toHaveLength(1);
-    expect(pending[0].status).toBe("pending");
+    const done = await rows(db().from("transfer_requests").select("status").eq("employee_id", carlo.id).eq("remarks", remarks));
+    expect(done.map((r) => r.status)).toEqual(["approved"]);
+    expect((await profileByEmail(ACCOUNTS.employee3.email)).branch_id).not.toBe(carlo.branch_id);
   });
 
-  // The source branch's Admin endorses (alpha test A3, 2026-11-09): Carlo
-  // is at North, so North's Admin; Main's Admin only sees the state.
-  await step(page, "Admin (Main) > Transfer Endorsements > no Endorse button for an incoming move", async () => {
-    monitor.at("Admin (Main) > Transfer Endorsements");
-    await as(page, "admin", "adm-transfers");
-    const row = main(page).locator("tr", { hasText: "Carlo" }).filter({ hasText: remarks }).first();
-    await expect(row.getByTestId("transfer-state")).toBeVisible();
-    await expect(row.getByRole("button", { name: "Endorse" })).toHaveCount(0);
+  await step(page, "both branch Admins are notified, without amounts", async () => {
+    const notes = await rows(db().from("notifications").select("recipient_id,title,body").eq("kind", "transfer_applied").gte("created_at", since));
+    const to = new Set(notes.map((n) => n.recipient_id));
+    expect(to.has(admin.id) && to.has(admin2.id)).toBe(true);
+    expect(notes.map((n) => `${n.title} ${n.body}`).join(" ")).not.toMatch(/₱|\d+\.\d{2}/);
   });
 
-  await step(page, "Admin (North) > Transfer Endorsements > Endorse the move out of its branch", async () => {
-    monitor.at("Admin (North) > Transfer Endorsements");
-    await as(page, "admin2", "adm-transfers");
-    const row = main(page).locator("tr", { hasText: "Carlo" }).filter({ hasText: remarks }).first();
-    await row.getByRole("button", { name: "Endorse" }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.locator("#ov-note").fill("E2E: we have a vacancy");
-    await dialog.getByRole("button", { name: "Endorse", exact: true }).click();
-    await expect(dialog).toBeHidden({ timeout: 30000 });
-    await refresh(page);
-    await expect(main(page).getByText("E2E: we have a vacancy")).toBeVisible();
+  await step(page, "HR cannot transfer itself (API)", async () => {
+    const res = await api(page, "POST", "/api/admin/transfer-requests", { employee_id: hr.id, to_branch_id: carlo.branch_id, remarks: "self" });
+    expect(res.status).toBe(403);
   });
 
-  await step(page, "HR > Transfer Requests > sees the endorsement, rejects", async () => {
-    monitor.at("HR > Transfer Requests (decide)");
-    await as(page, "hr", "hr-transfers");
-    const row = main(page).locator("tr", { hasText: remarks }).first();
-    await expect(row.getByText(/Endorsed/)).toBeVisible();
-    await row.getByRole("button", { name: "Reject" }).click();
-    await confirm(page, "Reject");
-    const after = await rows(db().from("transfer_requests").select("status").eq("employee_id", carlo.id).eq("remarks", remarks).single());
-    expect(after.status).toBe("rejected");
-    const still = await profileByEmail(ACCOUNTS.employee3.email);
-    expect(still.branch_id, "a rejected transfer leaves the employee where they were").toBe(carlo.branch_id);
-    await refresh(page);
-    await expect(main(page).locator("tr", { hasText: remarks }).first()).toBeVisible();
-    await expect(main(page).locator("tr", { hasText: remarks }).first().getByText("Rejected")).toBeVisible();
+  await step(page, "HR moves Carlo back to North (test data restored)", async () => {
+    const res = await api(page, "POST", "/api/admin/transfer-requests", { employee_id: carlo.id, to_branch_id: carlo.branch_id, remarks: `${remarks} (back)` });
+    expect(res.status).toBe(201);
+    expect((await profileByEmail(ACCOUNTS.employee3.email)).branch_id).toBe(carlo.branch_id);
   });
 });
 

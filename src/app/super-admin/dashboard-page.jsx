@@ -7,7 +7,6 @@ import {
   CheckCircle2Icon,
   ClipboardListIcon,
   DatabaseIcon,
-  HourglassIcon,
   ReceiptTextIcon,
   ScrollTextIcon,
   ServerIcon,
@@ -147,11 +146,12 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
 
   return (
     <>
-      <section aria-label="System at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section aria-label="System at a glance" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Total employees" value={panel("total_employees", "totalEmployees") ?? "—"} hint="Active system-wide" icon={UsersIcon} loading={loading} onClick={() => onNavigate("sa-attendance")} actionLabel="open Attendance Records" />
         <StatCard label="Total users" value={totalUsers || "—"} hint="All registered accounts" icon={UsersRoundIcon} tone="info" loading={loading} onClick={() => onNavigate("sa-accounts")} actionLabel="open Admin & HR Accounts" />
         <StatCard label="System status" value="Online" hint="Database & services" icon={ServerIcon} tone="success" loading={loading} onClick={() => onNavigate("sa-backup")} actionLabel="open Backup & Recovery" />
-        <StatCard label="Pending actions" value={0} hint="Across all modules" icon={HourglassIcon} tone="gold" loading={loading} onClick={() => onNavigate("sa-rfid-issues")} actionLabel="open RFID Issues" />
+        {/* "Pending actions" removed (decision 2026-11-09 #10): it showed a fixed 0,
+            and nothing in the system waits on the Super Admin's approval. */}
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
