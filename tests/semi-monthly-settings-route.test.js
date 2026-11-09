@@ -73,23 +73,23 @@ describe("payroll settings", () => {
     });
   });
 
-  it("saves a new tax table version and refuses an invalid one", async () => {
-    const bad = await POST(requestAs(SUPER, "POST", { kind: "tax_table", effective_date: "2026-11-01", rows: [{ bracket_over: 100, base_tax: 0, rate_pct: 10 }] }));
-    expect(bad.status).toBe(400);
-    const good = await POST(requestAs(SUPER, "POST", {
-      kind: "tax_table", effective_date: "2026-11-01",
+  it("the tax table cannot be changed (fixed by law, decision 2026-11-09 #3)", async () => {
+    const res = await POST(requestAs(SUPER, "POST", {
+      kind: "tax_table", effective_date: "2027-01-01", note: "BIR",
       rows: [{ bracket_over: 0, base_tax: 0, rate_pct: 0 }, { bracket_over: 20833, base_tax: 0, rate_pct: 20 }],
     }));
-    expect(good.status).toBe(200);
-    expect(table("payroll_tax_brackets").filter((r) => r.effective_date === "2026-11-01")).toHaveLength(2);
+    expect(res.status).toBe(403);
+    expect(table("payroll_tax_brackets").filter((r) => r.effective_date === "2027-01-01")).toHaveLength(0);
   });
 
-  it("moves a change inside a processed period to the next one", async () => {
-    table("payroll_entries").push({ employee_id: "u-emp", pay_period: "October 16-31, 2026", status: "paid" });
-    const response = await POST(requestAs(SUPER, "POST", { kind: "contribution", employee_id: "u-emp", effective_date: "2026-10-01", sss: 900, philhealth: 200, pagibig: 100 }));
-    const body = await response.json();
-    expect(body).toMatchObject({ effective_date: "2026-11-01", adjusted: true });
-    expect(table("payroll_contribution_amounts")[0]).toMatchObject({ employee_id: "u-emp", sss: 900, philhealth: 200, pagibig: 100 });
+  it("contribution amounts: a reason and a future pay period are required (decision 2026-11-09 #4, #6)", async () => {
+    const base = { kind: "contribution", employee_id: "u-emp", sss: 900, philhealth: 200, pagibig: 100 };
+    expect((await POST(requestAs(SUPER, "POST", { ...base, effective_date: "2027-01-01" }))).status).toBe(400);
+    const past = await POST(requestAs(SUPER, "POST", { ...base, effective_date: "2026-10-01", note: "Exempt by contract" }));
+    expect((await past.json()).code).toBe("future_periods_only");
+    const ok = await POST(requestAs(SUPER, "POST", { ...base, effective_date: "2027-01-01", note: "Exempt by contract" }));
+    expect(ok.status).toBe(200);
+    expect(table("payroll_contribution_amounts")[0]).toMatchObject({ employee_id: "u-emp", sss: 900, philhealth: 200, pagibig: 100, note: "Exempt by contract" });
   });
 
   it("is Super Admin only", async () => {

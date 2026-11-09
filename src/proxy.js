@@ -187,6 +187,8 @@ const API_MODULES = [
   // HR / Super Admin add government rate and daily rate versions (alpha test
   // Part E); the route checks each rate type (government_rates / pay_rates).
   ["/api/payroll/rates", "government_rates"],
+  // HR / Super Admin: SSS salary credit table and contribution amounts (decision 2026-11-09 #4).
+  ["/api/payroll/settings", "government_rates"],
   // Pay rates, read-only (2026-11-08): HR / Super Admin every branch, Accountant and Admin their own.
   ["/api/payroll/pay-rates", "pay_rates"],
   // Remittance (employee + employer shares, withholding tax), read-only:

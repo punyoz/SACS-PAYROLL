@@ -243,12 +243,15 @@ export async function addRateVersion(request, guard) {
       warning = `${finalized.label} has already been processed, so this change will apply from the next pay period instead, starting ${effectiveDate}.`;
     }
 
-    // A date inside a period whose payroll is already being processed: saved,
-    // with a warning (that run keeps the rate it was computed with until it
-    // is processed again).
+    // Never inside a period whose payroll is being processed (decision
+    // 2026-11-09 #6): refused, with the first date that is allowed.
     const busy = processing.find((run) => run.period_start <= effectiveDate && effectiveDate <= run.period_end);
-    if (busy && !warning) {
-      warning = `${busy.period_label || `${busy.period_start} to ${busy.period_end}`} is being processed now (${busy.status}). Payslips already computed for it keep the old rate until they are processed again.`;
+    if (busy) {
+      const after = nextPeriod(String(busy.period_end).slice(0, 10)).start_key;
+      return NextResponse.json({
+        error: `${busy.period_label || `${busy.period_start} to ${busy.period_end}`} is being processed now: a rate change cannot start inside it. Choose ${after} or later.`,
+        code: "period_in_processing", min_effective_date: after,
+      }, { status: 400 });
     }
 
     // Changing the rate set for another HR, Accountant or the Super Admin:
@@ -313,7 +316,6 @@ export async function addRateVersion(request, guard) {
         requested_effective_date: input.effective_date,
         effective_date: effectiveDate,
         moved_past_finalized_period: effectiveDate !== input.effective_date,
-        in_processing_period: busy ? busy.period_label || busy.period_start : null,
         reason: reason || null,
         changed_by_role: guard.role,
         ...(fallbackFor ? { fallback_for: fallbackFor } : {}),

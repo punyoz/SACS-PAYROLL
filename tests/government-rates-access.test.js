@@ -156,21 +156,19 @@ describe("edit routes: only the Super Admin", () => {
     expect(entry.created_at || entry.timestamp).toBeTruthy();
   });
 
-  it("Super Admin: a tax table change logs each bracket old → new", async () => {
+  it("the tax table is locked for everyone, the Super Admin included (decision 2026-11-09 #3)", async () => {
     const { POST } = await settingsRoute();
     const rows = TAX.map((row) => (row.bracket_over === 20833 ? { ...row, rate_pct: 18 } : row));
-    expect((await POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-settings", "POST", { kind: "tax_table", effective_date: "2027-01-01", rows }))).status).toBe(200);
-    const [entry] = table("audit_logs");
-    expect(entry.description).toContain("Monthly withholding tax table: 6 brackets (version of 2023-01-01) → 6 brackets from 2027-01-01");
-    expect(entry.description).toContain("Changed: over ₱20833: ₱0 + 15% → ₱0 + 18%.");
-    expect(entry.metadata.previous_rows.find((r) => r.over === 20833)).toEqual({ over: 20833, base: 0, pct: 15 });
-    expect(entry.metadata.rows.find((r) => r.over === 20833)).toEqual({ over: 20833, base: 0, pct: 18 });
+    const res = await POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-settings", "POST", { kind: "tax_table", effective_date: "2027-01-01", rows, note: "BIR" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("tax_table_locked");
+    expect(table("payroll_tax_brackets")).toHaveLength(6);
   });
 
   it("Super Admin: an SSS table change logs the brackets that moved", async () => {
     const { POST } = await settingsRoute();
     const rows = [...MSC, { salary_from: 35250, msc: 35500 }];
-    expect((await POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-settings", "POST", { kind: "sss_msc_table", effective_date: "2027-01-01", rows }))).status).toBe(200);
+    expect((await POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-settings", "POST", { kind: "sss_msc_table", effective_date: "2027-01-01", rows, note: "SSS Circular 2026-1" }))).status).toBe(200);
     const [entry] = table("audit_logs");
     expect(entry.description).toContain("SSS salary credit table: 61 brackets (version of 2025-01-01) → 62 brackets, ₱5000–₱35500, from 2027-01-01");
     expect(entry.description).toContain("Changed: from ₱35250: none → ₱35500.");
@@ -185,9 +183,8 @@ describe("edit routes: only the Super Admin", () => {
     expect(validateRateInput({ rate_type: "pagibig_pct", scope: "global", value: 25, effective_date: "2026-12-01" })).toMatch(/not a government contribution rate/);
     const settings = await settingsRoute();
     const bad = (rows) => settings.POST(requestAs(PEOPLE.super_admin, "/api/admin/payroll-settings", "POST", { kind: "tax_table", effective_date: "2026-12-01", rows }));
-    expect((await bad([{ bracket_over: 100, base_tax: 0, rate_pct: 0 }])).status).toBe(400); // a gap below the first bracket
-    expect((await bad([...TAX.slice(0, 3), { bracket_over: 30000, base_tax: 0, rate_pct: 25 }])).status).toBe(400); // overlapping order
-    expect((await bad([{ bracket_over: 0, base_tax: 0, rate_pct: 120 }])).status).toBe(400);
+    // The tax table is locked whatever the rows (decision 2026-11-09 #3).
+    expect((await bad([{ bracket_over: 0, base_tax: 0, rate_pct: 120 }])).status).toBe(403);
     expect(table("payroll_rate_configs")).toHaveLength(9);
     expect(table("payroll_tax_brackets")).toHaveLength(6);
   });
@@ -239,11 +236,12 @@ describe("HR changes government rates and the daily rate (alpha test Part E)", (
     expect(saved()).toHaveLength(0);
   });
 
-  it("warns when the date falls in a period whose payroll is being processed", async () => {
+  it("refuses a date inside a period whose payroll is being processed (decision 2026-11-09 #6)", async () => {
     table("payroll_runs").push({ id: "run-1", period_label: "December 1-15, 2026", period_start: "2026-12-01", period_end: "2026-12-15", status: "pending" });
-    const body = await (await post("hr", { rate_type: "sss_pct", value: 4.5, effective_date: "2026-12-05" })).json();
-    expect(body.success).toBe(true);
-    expect(body.warning).toMatch(/December 1-15, 2026 is being processed/);
+    const res = await post("hr", { rate_type: "sss_pct", value: 4.5, effective_date: "2026-12-05" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "period_in_processing", min_effective_date: "2026-12-16" });
+    expect(saved()).toHaveLength(0);
   });
 
   it("nobody changes their own rate: refused and logged; another HR does it, logged as the fallback", async () => {
@@ -265,6 +263,18 @@ describe("HR changes government rates and the daily rate (alpha test Part E)", (
       expect((await proxy(requestAs(PEOPLE[role], "/api/payroll/rates", "POST", { rate_type: "sss_pct", value: 4.5 }))).status, `proxy ${role}`).toBe(403);
     }
     expect(saved()).toHaveLength(0);
+  });
+
+  it("HR changes the SSS salary credit table and contribution amounts with a reason; never its own; the Super Admin is notified (decision #4)", async () => {
+    const settings = await import("@/app/api/payroll/settings/route");
+    const call = (who, body) => settings.POST(requestAs(PEOPLE[who], "/api/payroll/settings", "POST", { effective_date: "2027-01-01", ...body }));
+    const rows = [...MSC, { salary_from: 35250, msc: 35500 }];
+    expect((await call("hr", { kind: "sss_msc_table", rows })).status).toBe(400); // no reason
+    expect((await call("hr", { kind: "sss_msc_table", rows, note: "SSS Circular 2026-1" })).status).toBe(200);
+    expect((await call("hr", { kind: "contribution", employee_id: "u-hr", sss: 0, note: "Exempt" })).status).toBe(403);
+    expect((await call("hr", { kind: "tax_table", rows: TAX, note: "BIR" })).status).toBe(403);
+    expect((await call("accountant", { kind: "sss_msc_table", rows, note: "x" })).status).toBe(403);
+    expect(table("notifications").some((n) => n.kind === "rate_change" && /SSS salary credit table/.test(n.title))).toBe(true);
   });
 
   it("the database guard (20261109020000) lets HR write only the daily and government rates, never its own, never without a reason or in the past", () => {
