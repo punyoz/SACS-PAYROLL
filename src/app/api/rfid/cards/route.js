@@ -54,19 +54,22 @@ export async function GET(request) {
     const guard = await requirePermission(request, "rfid_devices", "read");
     if (guard.denied) return guard.denied;
     const supabase = getAdminClient();
-    const people = await peopleInReach(supabase, guard);
+    // In parallel (alpha test B1: the cards list after Register was 4 reads in a row).
+    const [people, branchResult] = await Promise.all([peopleInReach(supabase, guard), supabase.from("branches").select("id,name").order("name")]);
     const byId = new Map(people.map((p) => [p.id, p]));
     const ids = people.map((p) => p.id);
-    const branches = (await supabase.from("branches").select("id,name").order("name")).data || [];
+    const branches = branchResult.data || [];
     const branchName = new Map(branches.map((b) => [b.id, b.name]));
     if (!ids.length) return NextResponse.json({ available: true, cards: [], events: [], employees: [], branches: guard.branchExempt ? branches : branches.filter((b) => b.id === guard.branchId) });
 
-    const cards = await fetchAllIn(() => supabase.from("rfid_cards").select("*")
-      .order("registered_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
+    const [cards, events] = await Promise.all([
+      fetchAllIn(() => supabase.from("rfid_cards").select("*")
+        .order("registered_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids),
+      fetchAllIn(() => supabase.from("rfid_card_events").select("*")
+        .order("created_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids),
+    ]);
     if (!cards.error) cards.data.sort((a, b) => String(b.registered_at || "").localeCompare(String(a.registered_at || "")));
     if (cards.error) return NextResponse.json({ available: false, error: NOT_READY, cards: [], events: [], employees: [], branches: [] });
-    const events = await fetchAllIn(() => supabase.from("rfid_card_events").select("*")
-      .order("created_at", { ascending: false }).order("id", { ascending: true }), "employee_id", ids);
     if (!events.error) events.data.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 
     const name = (id) => byId.get(id)?.full_name || "—";

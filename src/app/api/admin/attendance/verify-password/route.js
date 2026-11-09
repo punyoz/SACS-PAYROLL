@@ -96,8 +96,10 @@ export async function POST(request) {
       email,
       password,
     });
+    // The check's own sign-in is ended without waiting for it (alpha test
+    // B1: one round trip less before the terminal unlocks).
     if (!signInError && signInData?.user) {
-      await authClient.auth.signOut();
+      authClient.auth.signOut().catch(() => {});
     }
 
     const valid = !signInError && signInData?.user?.id === guard.userId;
