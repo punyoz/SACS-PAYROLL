@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { CheckCircle2Icon, ClockAlertIcon, DownloadIcon, FileBarChartIcon, ListIcon, Loader2Icon, XCircleIcon } from "lucide-react";
+import { CheckCircle2Icon, ClockAlertIcon, DownloadIcon, FileBarChartIcon, ListIcon, Loader2Icon, RefreshCwIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
@@ -15,6 +15,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson } from "@/lib/portal/api";
 import { downloadCsv } from "@/lib/portal/attendance";
+import { ExportButtons } from "@/components/portal/export-buttons";
 
 /*
  * HR Reports (loadHRReports / exportHRReportCsv, public/legacy/js/hr.js):
@@ -45,6 +46,8 @@ export function ReportsPage() {
   const [to, setTo] = React.useState(localDateKey());
   const [state, setState] = React.useState({ loading: false, error: null, type: null, rows: [], meta: {}, from: "", to: "" });
 
+  const [branch, setBranch] = React.useState("all");
+
   async function generate(event) {
     event?.preventDefault();
     setState((current) => ({ ...current, loading: true, error: null }));
@@ -62,6 +65,24 @@ export function ReportsPage() {
       setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load report." }));
     }
   }
+
+  // Filters apply as soon as they change (alpha test B3); a short pause
+  // groups quick changes into one load.
+  const generateRef = React.useRef(generate);
+  React.useEffect(() => { generateRef.current = generate; });
+  React.useEffect(() => {
+    const timer = setTimeout(() => generateRef.current(), 250);
+    return () => clearTimeout(timer);
+  }, [type, from, to]);
+
+  // The branches in the report, and the rows of the one chosen.
+  const branches = React.useMemo(() => {
+    const map = new Map();
+    state.rows.forEach((r) => map.set(String(r.branch_id || "none"), r.branch_name || "Unassigned"));
+    return [...map.entries()].sort((a, b) => (a[0] === "none" ? 1 : b[0] === "none" ? -1 : a[1].localeCompare(b[1])));
+  }, [state.rows]);
+  const shownRows = React.useMemo(() => (branch === "all" ? state.rows : state.rows.filter((r) => String(r.branch_id || "none") === branch)), [state.rows, branch]);
+  const exportHref = `/api/hr/reports?type=${state.type || type}${(state.type || type) === "attendance" ? `${state.from ? `&from=${state.from}` : ""}&to=${state.to || to}` : ""}&branch_id=${encodeURIComponent(branch)}`;
 
   function exportCsv() {
     if (!state.rows.length) { notify("Nothing to export", "No report data to export. Generate a report first.", "info"); return; }
@@ -119,11 +140,12 @@ export function ReportsPage() {
       <Card className="shadow-xs">
         <CardHeader>
           <CardTitle>Report options</CardTitle>
-          <CardDescription>Choose a report and, for attendance, a date range.</CardDescription>
+          <CardDescription>Choose a report, a date range for attendance, and a branch. The results update as you choose.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={generate} className="grid items-end gap-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
-            <div className="space-y-2">
+          {/* One row of options (alpha test B3); they apply as soon as they change. */}
+          <form onSubmit={generate} className="grid items-end gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap">
+            <div className="space-y-2 lg:w-52">
               <Label htmlFor="hr-report-type">Report type</Label>
               <Select value={type} onValueChange={setType}>
                 <SelectTrigger id="hr-report-type" className="w-full"><SelectValue /></SelectTrigger>
@@ -135,17 +157,27 @@ export function ReportsPage() {
             </div>
             {type === "attendance" ? (
               <>
-                <div className="space-y-2">
+                <div className="space-y-2 lg:w-44">
                   <Label htmlFor="hr-report-from">From date</Label>
                   <DatePicker id="hr-report-from" value={from} onChange={setFrom} placeholder="Start of records" />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-2 lg:w-44">
                   <Label htmlFor="hr-report-to">To date</Label>
                   <DatePicker id="hr-report-to" value={to} onChange={setTo} />
                 </div>
               </>
-            ) : <div className="hidden lg:col-span-2 lg:block" />}
-            <Button type="submit" disabled={state.loading}>{state.loading ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Generating…</> : "Generate"}</Button>
+            ) : null}
+            <div className="space-y-2 lg:w-52">
+              <Label htmlFor="hr-report-branch">Branch</Label>
+              <Select value={branch} onValueChange={setBranch}>
+                <SelectTrigger id="hr-report-branch" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All branches</SelectItem>
+                  {branches.map(([id, name]) => <SelectItem key={id} value={id}>{name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" variant="outline" disabled={state.loading} className="lg:ml-auto">{state.loading ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Loading…</> : <><RefreshCwIcon aria-hidden="true" />Refresh</>}</Button>
           </form>
         </CardContent>
       </Card>
@@ -185,12 +217,12 @@ export function ReportsPage() {
         </CardHeader>
         <CardContent>
           {state.type === null && !state.loading && !state.error ? (
-            <EmptyState icon={FileBarChartIcon} title="No report yet" description="Choose the options above and select Generate." />
+            <EmptyState icon={FileBarChartIcon} title="No report yet" description="Choose the options above." />
           ) : (
             <BranchGroupedTable
               key={state.type}
               columns={columns}
-              rows={state.rows}
+              rows={shownRows}
               groupOf={(r) => r.branch_name || ""}
               groupLabel={(key) => key || "Unassigned"}
               search={(r) => [r.employee_name, r.full_name, r.employee_id, r.branch_name, r.employee_type, r.position, r.email].join(" ")}
@@ -198,7 +230,12 @@ export function ReportsPage() {
               loading={state.loading}
               error={state.error}
               onRetry={generate}
-              toolbar={<Button variant="outline" size="sm" onClick={exportCsv} disabled={!state.rows.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>}
+              toolbar={(
+                <>
+                  <ExportButtons href={exportHref} label={isAttendance ? "attendance report" : "employee records"} disabled={!shownRows.length} />
+                  <Button variant="outline" size="sm" onClick={exportCsv} disabled={!state.rows.length}><DownloadIcon aria-hidden="true" />CSV</Button>
+                </>
+              )}
               caption="Report results"
               minWidth={760}
             />

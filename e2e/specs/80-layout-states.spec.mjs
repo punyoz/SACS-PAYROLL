@@ -19,7 +19,8 @@ const SHELL = /\/api\/(rbac\/me|legacy-auth\/|notifications|health|dev\/|profile
 // and HR's RFID Terminal launcher (one button since 2026-10-27, no data).
 const SESSION_ONLY = /-profile$|^hr-rfid-terminals$/;
 // Pages that load nothing until Generate: the failure must show after it.
-const ON_DEMAND = { "emp-timesheet": "Generate", "hr-reports": "Generate", "ac-reports": null };
+// All three load as soon as they open since the alpha test fixes (2026-11-09).
+const ON_DEMAND = { "emp-timesheet": null, "hr-reports": null, "ac-reports": null };
 
 for (const role of Object.keys(PAGES)) {
   test(`${ROLE_LABEL[role]}: every page at phone width in dark mode`, async ({ page, monitor }) => {

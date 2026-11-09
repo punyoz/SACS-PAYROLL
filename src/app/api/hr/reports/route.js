@@ -9,6 +9,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { loadDemoIds, notDemo } from "@/lib/demo";
+import { reportResponse, wantsFile } from "@/lib/export/report-file";
 
 export async function GET(request) {
   try {
@@ -75,9 +76,24 @@ export async function GET(request) {
         rec.total_hours += Number(row.total_hours || 0);
       });
 
+      const attendanceRecords = Array.from(byEmployee.values());
+      // Excel / PDF (alpha test B3): the branch chosen on the page, if any.
+      if (wantsFile(url)) {
+        const branchFilter = url.searchParams.get("branch_id");
+        const shown = attendanceRecords.filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        return reportResponse({
+          format: wantsFile(url), fileName: `attendance-report-${from || "start"}-to-${to}`, title: "Attendance report",
+          branch: branchFilter && branchFilter !== "all" ? shown[0]?.branch_name || "Branch" : "All branches",
+          period: `${from || "Start of records"} to ${to}`, totals: true,
+          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Type" }, { header: "Present", kind: "number", integer: true },
+            { header: "Late", kind: "number", integer: true }, { header: "Absent", kind: "number", integer: true }, { header: "On leave", kind: "number", integer: true },
+            { header: "Total hours", kind: "number" }],
+          rows: shown.map((r) => [r.branch_name || "Unassigned", r.employee_name || "", r.employee_type || "", r.present, r.late, r.absent, r.on_leave, Number(r.total_hours) || 0]),
+        });
+      }
       return NextResponse.json({
         type: "attendance",
-        records: Array.from(byEmployee.values()),
+        records: attendanceRecords,
         total_logs: logs.length,
         date_range: { from: from || null, to },
         generated_at: new Date().toISOString(),
@@ -126,6 +142,17 @@ export async function GET(request) {
           };
         });
 
+      if (wantsFile(url)) {
+        const branchFilter = url.searchParams.get("branch_id");
+        const shown = employees.filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        return reportResponse({
+          format: wantsFile(url), fileName: "employee-records", title: "Employee records",
+          branch: branchFilter && branchFilter !== "all" ? shown[0]?.branch_name || "Branch" : "All branches",
+          period: `As of ${to}`,
+          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Type" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
+          rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "", r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
+        });
+      }
       return NextResponse.json({
         type: "employees",
         records: employees,
