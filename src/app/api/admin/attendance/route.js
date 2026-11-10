@@ -990,6 +990,12 @@ export async function POST(request) {
       tapped_at: nowIso,
     });
   } catch (error) {
+    // Two terminals read the same card at the same instant: the other one saved
+    // the tap and the day's record a moment earlier (the database keeps one; the
+    // duplicate is in the audit log, 20261110040000). Not an error for the kiosk.
+    if (isDuplicateKeyError(error)) {
+      return NextResponse.json({ success: true, persisted: false, tap: "duplicate", message: "Already recorded a moment ago on another terminal. This tap is not counted." });
+    }
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

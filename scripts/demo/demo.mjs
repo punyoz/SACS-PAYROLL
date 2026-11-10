@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR, PRODUCTION, readEnvFile } from "./config.mjs";
 import { chooseTarget, confirm, database, lit } from "./db.mjs";
-import { collect, counts, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
+import { collect, counts, demoFilter, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
 import { buildRoster } from "./roster.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
@@ -221,7 +221,7 @@ async function wipe(db, data) {
 }
 
 async function checkZero(db) {
-  const [r] = await db.rows(`select (select count(*) from profiles where is_demo)::int profiles,
+  const [r] = await db.rows(`select (select count(*) from profiles where ${demoFilter()})::int profiles,
     (select count(*) from auth.users where email like '%+%@%' and raw_user_meta_data->>'is_demo' = 'true')::int logins,
     (select count(*) from storage.objects o where bucket_id = '${STORAGE_BUCKET}' and not exists (select 1 from profiles p where p.id::text = split_part(o.name, '/', 1)))::int orphan_files`);
   say(`after: ${r.profiles} demo profiles, ${r.logins} demo login accounts, ${r.orphan_files} files of removed people`);
@@ -258,7 +258,7 @@ const commands = {
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     if (!existsSync(BUNDLE)) throw new Error("No bundle: run export first.");
     const bundle = readBundle(BUNDLE);
-    const [have] = await db.rows("select count(*)::int n from profiles where is_demo");
+    const [have] = await db.rows(`select count(*)::int n from profiles where ${demoFilter()}`);
     if (have.n) { say(`${have.n} demo profiles already on ${db.target}.`); if (!(await confirm('Demo data exists. Type "add anyway" to load on top:', "add anyway"))) return say("Nothing done."); }
     printCounts(`will CREATE on ${db.target}`, bundle);
     if (!(await confirm(`Load this on ${db.target}? (yes/no)`))) return say("Nothing done.");

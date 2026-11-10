@@ -13,7 +13,17 @@
 // Used by export (local -> bundle file), load (bundle -> a database),
 // snapshot (a database -> file) and remove (delete the demo rows).
 import { lit } from "./db.mjs";
-import { SEED_ACTOR } from "./config.mjs";
+import { SEED_ACTOR, emailBase } from "./config.mjs";
+
+/**
+ * THE demo people: is_demo AND seeded by these scripts (a plus-address of the
+ * demo inbox, or the "Demo seed" actor). Another account someone flagged
+ * is_demo by hand (production has two) is never treated as ours.
+ */
+export function demoFilter() {
+  const [local, domain] = emailBase().split("@");
+  return `is_demo and (email like '${local.replace(/'/g, "''")}+%@${domain.replace(/'/g, "''")}' or id = '${SEED_ACTOR.id}')`;
+}
 
 /** Tables never copied: configuration that already exists everywhere, and transient state. */
 const SKIP = new Set(["role_permissions", "system_config", "branches", "payroll_rate_configs", "payroll_tax_brackets", "payroll_sss_msc_brackets",
@@ -58,7 +68,7 @@ const inList = (ids) => (ids.length ? ids.map(lit).join(", ") : "null");
  */
 export async function collect(db, { withRows = true } = {}) {
   const meta = await schema(db);
-  const demoIds = (await db.rows("select id from profiles where is_demo")).map((r) => r.id);
+  const demoIds = (await db.rows(`select id from profiles where ${demoFilter()}`)).map((r) => r.id);
   if (!demoIds.length) return { demoIds, tables: {}, mixed: {}, meta };
   const D = inList(demoIds);
   const found = {}; // table -> Map(id -> row)
@@ -100,7 +110,7 @@ export async function collect(db, { withRows = true } = {}) {
   }
 
   const tables = Object.fromEntries(Object.entries(found).map(([t, map]) => [t, [...map.values()]]));
-  tables.profiles = withRows ? await db.rows(`select * from profiles where is_demo`) : demoIds.map((id) => ({ id }));
+  tables.profiles = withRows ? await db.rows(`select * from profiles where ${demoFilter()}`) : demoIds.map((id) => ({ id }));
   return { demoIds, tables, mixed, meta };
 }
 

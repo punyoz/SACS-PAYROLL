@@ -16,7 +16,17 @@ const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 const addDays = (key, n) => new Date(Date.parse(`${key}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 
 // Each run files on its own dates (requests from an earlier run stay on file).
-const RUN = 30 + (Math.floor(Date.now() / 60000) % 500) * 10;
+/** Deactivate every OTHER active HR (the fallback needs exactly one active), and bring them back. */
+async function otherHrOff(keepId) {
+  const rows = await sql(`select id from profiles where role = 'hr' and not archived and id <> '${keepId}'`);
+  if (rows.length) await local.exec(`update profiles set archived = true where id in (${rows.map((r) => `'${r.id}'`).join(",")})`);
+  return rows.map((r) => r.id);
+}
+async function hrBackOn(ids) {
+  if (ids.length) await local.exec(`update profiles set archived = false where id in (${ids.map((id) => `'${id}'`).join(",")})`);
+}
+
+const RUN = 30 + (Math.floor(Date.now() / 1000) % 40000);
 
 /** File a leave as `who` weeks ahead (the advance rule), returning its id. */
 async function fileLeave(who, offset) {
@@ -104,7 +114,7 @@ test("The claim lock: one HR at a time; nobody claims their own; release frees i
 
 test("Only one HR active: an HR's leave goes to the Super Admin (audit + notifications); reactivating restores it", async () => {
   const hr2 = P("hr2");
-  await local.exec(`update profiles set archived = true where id = '${hr2.id}'`);
+  const others = await otherHrOff(P("hr1").id);
   try {
     const id = await fileLeave("hr1", 25);
     const sa = await as(P("sa1")).get("/api/super-admin/fallback");
@@ -117,7 +127,7 @@ test("Only one HR active: an HR's leave goes to the Super Admin (audit + notific
     const decided = await as(P("sa1")).post("/api/super-admin/fallback", { action: "approve", item_type: "leave_request", id });
     assert.equal(decided.status, 200, JSON.stringify(decided.data));
   } finally {
-    await local.exec(`update profiles set archived = false where id = '${hr2.id}'`);
+    await hrBackOn(others);
   }
   const id2 = await fileLeave("hr1", 26);
   const sa2 = await as(P("sa1")).get("/api/super-admin/fallback");
@@ -187,12 +197,12 @@ test("HR cannot approve a run holding their own payslip; it is hidden from their
   assert.ok(!q1.data.runs.some((r) => r.id === run.id) && q1.data.own_hidden >= 1);
   const q2 = await as(P("hr2")).get("/api/hr/payroll-runs?status=pending");
   assert.ok(q2.data.runs.some((r) => r.id === run.id), "in HR Two's queue");
-  await local.exec(`update profiles set archived = true where id = '${P("hr2").id}'`);
+  const others = await otherHrOff(P("hr1").id);
   try {
     const sa = await as(P("sa1")).get("/api/super-admin/fallback");
     assert.ok(sa.data.items.some((i) => i.item_type === "payroll_run" && i.id === run.id), "with HR Two inactive it waits on the Super Admin");
   } finally {
-    await local.exec(`update profiles set archived = false where id = '${P("hr2").id}'`);
+    await hrBackOn(others);
   }
 });
 
