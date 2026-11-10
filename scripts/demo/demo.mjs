@@ -119,8 +119,8 @@ async function load(db, bundle) {
   }
   const remapText = (row) => {
     if (!renumber.size) return row;
-    let text = JSON.stringify(row);
-    for (const [from, to] of renumber) text = text.split(`"${from}"`).join(`"${to}"`);
+    // One pass, each number looked up once (a chain of replacements could renumber a number twice).
+    const text = JSON.stringify(row).replace(/"(PS-\d{6}-\d+)"/g, (match, no) => (renumber.has(no) ? `"${renumber.get(no)}"` : match));
     return JSON.parse(text);
   };
 
@@ -315,15 +315,26 @@ const commands = {
     const people = buildRoster(branches).filter((p) => p.on_payroll);
     const live = await db.rows(`select id, separated_on, archived from profiles where is_demo and id in (${people.map((p) => lit(p.id)).join(", ")})`);
     const active = people.filter((p) => live.some((l) => l.id === p.id && !l.archived)).map((p) => ({ ...p, separated_on: live.find((l) => l.id === p.id).separated_on || p.separated_on }));
-    const [last] = await db.rows(`select max(log_date)::text d from attendance_logs where employee_id in (${active.map((p) => lit(p.id)).join(", ")})`);
+    const ids = active.map((p) => lit(p.id)).join(", ");
+    // From the day after the last TAPPED day: the nightly job (pg_cron) marks untapped days Absent
+    // between the seed and the defense; those automatic Absent days (no tap, never edited by anyone)
+    // are replaced. A day someone tapped, corrected or edited by hand is never touched.
+    const [last] = await db.rows(`select max(log_date)::text d from attendance_logs where employee_id in (${ids}) and time_in is not null`);
     const from = new Date(Date.parse(`${last.d}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
+    const [auto] = await db.rows(`select count(*)::int n from attendance_logs where employee_id in (${ids}) and log_date >= ${lit(from)}
+      and time_in is null and time_out is null and status = 'Absent' and changed_by is null and leave_request_id is null`);
     const to = new Date(Date.parse(`${defense}T00:00:00Z`) - 864e5).toISOString().slice(0, 10);
     const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
     const until = to < today ? to : today;
     if (from > until) return say(`Nothing to add: attendance already reaches ${last.d}.`);
     say(`Will ADD attendance for ${active.length} demo people from ${from} to ${until} (working days, never a future day; nothing existing is changed:`);
     say("passwords, rates, approvals and anything edited by hand stay as they are).");
+    say(`It first replaces ${auto.n} automatic Absent day(s) the nightly job made since ${from} (no tap, never edited).`);
     if (!(await confirm("Add it? (yes/no)"))) return say("Nothing done.");
+    await db.exec(`begin; alter table attendance_logs disable trigger user;
+      delete from attendance_logs where employee_id in (${ids}) and log_date >= ${lit(from)}
+        and time_in is null and time_out is null and status = 'Absent' and changed_by is null and leave_request_id is null;
+      alter table attendance_logs enable trigger user; commit;`);
     await db.exec(attendanceSql({ people: active, from, to: until, today, nowMinutes: 24 * 60 }));
     await db.exec(`select public.attendance_close_days(${lit(from)}::date, ${lit(until)}::date);`);
     const [n] = await db.rows(`select count(*)::int n from attendance_logs where log_date between ${lit(from)} and ${lit(until)} and employee_id in (${active.map((p) => lit(p.id)).join(", ")})`);

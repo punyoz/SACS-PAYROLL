@@ -27,7 +27,7 @@ const SKIP = new Set(["role_permissions", "system_config", "branches", "payroll_
 const DEMO_GENERATED = new Set(["notifications", "payroll_approval_history"]);
 
 /** Person columns without a foreign key. */
-const LOOSE_PERSON_COLUMNS = { audit_logs: ["actor_id"] };
+const LOOSE_PERSON_COLUMNS = { audit_logs: ["actor_id"], work_schedules: ["created_by"] };
 
 export async function schema(db) {
   const fks = await db.rows(`select c.conrelid::regclass::text as tbl, a.attname as col, c.confrelid::regclass::text as ref, ra.attname as ref_col

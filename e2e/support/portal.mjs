@@ -4,7 +4,7 @@ import { expect } from "@playwright/test";
 // Every sidebar page per role (ids from src/app/*/*-portal.jsx).
 export const PAGES = {
   super_admin: [
-    ["sa-dashboard", "Dashboard"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
+    ["sa-dashboard", "Dashboard"], ["sa-fallback", "Items Waiting on Fallback"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
     ["sa-roles", "Roles & Permissions"], ["sa-attendance", "Attendance Records"],
     // The RFID Management group (alpha test B1, 2026-11-09).
     ["sa-maintenance", "RFID Cards"], ["sa-rfid-terminal", "RFID Terminal"], ["sa-rfid-issues", "RFID Issues"], ["sa-config", "System Configuration"],
@@ -24,18 +24,20 @@ export const PAGES = {
     ["hr-awol", "AWOL Cases"], ["hr-branch-requests", "Branch Requests"], ["hr-announcements", "Announcements"], ["hr-payroll-approval", "Payroll Approval"],
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
     ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"],
-    ["hr-profile", "Profile"],
+    // "My Account" (2026-11-09): HR is on payroll; its own pages.
+    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "My Leave"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-my-bir", "My BIR Form 2316"], ["hr-profile", "My Profile"],
   ],
   accountant: [
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
     ["ac-13th", "13th Month Pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
     ["ac-attendance", "View Attendance"], ["ac-holidays", "Holidays & Duty"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
-    ["ac-profile", "Profile"],
+    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "My Leave"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-my-bir", "My BIR Form 2316"], ["ac-profile", "My Profile"],
   ],
   employee: [
-    ["emp-dash", "Dashboard"], ["emp-attendance", "Attendance"], ["emp-timesheet", "Timesheet"],
-    ["emp-payslips", "Payslips"], ["emp-leave", "Leave"], ["emp-announcements", "Announcements"], ["emp-profile", "Profile"],
+    // One "My Account" group (2026-11-09), with My Requests and My BIR Form 2316.
+    ["emp-dash", "Dashboard"], ["emp-announcements", "Announcements"], ["emp-attendance", "My Attendance"], ["emp-timesheet", "My Timesheet"],
+    ["emp-leave", "My Leave"], ["emp-payslips", "My Payslips"], ["emp-requests", "My Requests"], ["emp-bir", "My BIR Form 2316"], ["emp-profile", "My Profile"],
   ],
 };
 
@@ -43,13 +45,18 @@ export const main = (page) => page.locator("#portal-main");
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Click a sidebar entry by its exact label (opening the mobile sheet if needed). */
+/** Click a sidebar entry by its exact label (opening the mobile sheet, and its collapsed group, if needed). */
 export async function navTo(page, label) {
-  let item = page.locator('[data-sidebar="menu-button"]').filter({ hasText: new RegExp(`^\\s*${escapeRe(label)}\\s*(\\d+)?\\s*$`) }).first();
+  const exact = new RegExp(`^\\s*${escapeRe(label)}\\s*(\\d+)?\\s*$`);
+  let item = page.locator('[data-sidebar="menu-button"]').filter({ hasText: exact }).first();
   if (!(await item.isVisible().catch(() => false))) {
     const trigger = page.locator('[data-sidebar="trigger"]').first();
-    if (await trigger.isVisible().catch(() => false)) await trigger.click();
-    item = page.locator('[data-sidebar="menu-button"]:visible').filter({ hasText: new RegExp(`^\\s*${escapeRe(label)}\\s*(\\d+)?\\s*$`) }).first();
+    if (await trigger.isVisible().catch(() => false) && !(await page.locator('[data-nav-group]:visible').count())) await trigger.click();
+    // The entry may sit in a collapsed group (2026-11-09): open that group.
+    const group = page.locator('[data-nav-group]').filter({ has: page.locator('[data-sidebar="menu-button"]').filter({ hasText: exact }) }).last();
+    const header = group.locator('button[aria-expanded="false"]');
+    if (await header.count()) await header.first().click();
+    item = page.locator('[data-sidebar="menu-button"]:visible').filter({ hasText: exact }).first();
   }
   await item.click();
   await settle(page);

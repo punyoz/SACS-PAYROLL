@@ -85,31 +85,39 @@
   <li>Lockout recovery: both Super Admins and both HR have the recovery plan in docs (the other account resets; the Super Admin resets HR).</li>
 </ul>
 
-<h2>5. Defense-day checklist</h2>
-<ol>
-  <li>The day before: <code>node scripts/demo/demo.mjs roll-forward --target=production --defense=YYYY-MM-DD</code> (adds attendance up to the day before; nothing edited by hand is changed).</li>
-  <li>Check the processing-window switch (Super Admin → System Configuration): OFF for live processing of any cutoff (it expired on 2026-11-09).</li>
-  <li>Morning: <code>node scripts/demo/demo.mjs snapshot --target=production</code> (a copy of the demo rows to restore if something goes wrong).</li>
-  <li>Run <code>node scripts/demo/security-check.mjs --target=production</code> (anon key reads nothing; live channels per user).</li>
-  <li>Sign in once per role in separate browser profiles; keep the inbox open.</li>
-  <li>If a demo step breaks: <code>demo.mjs restore --target=production --file=&lt;the morning snapshot&gt;</code>.</li>
-</ol>
-
-<h2>6. After the defense: deletion checklist</h2>
-<ol>
-  <li><code>node scripts/demo/demo.mjs remove --target=production</code>: type the project URL, read the counts, confirm. A snapshot is taken first.</li>
-  <li>The check after it must show 0 demo profiles, 0 demo login accounts, 0 demo files; demo audit entries go with the demo rows.</li>
-  <li>Deleted rows remain in the Supabase Pro daily backups for about 7 days.</li>
-  <li>Delete <code>demo-data/</code> (credentials and snapshots) from the laptop.</li>
-</ol>
-
-<h2>7. Plan to the defense</h2>
+<h2>5. Dated plan (defense: Sunday, November 22, 2026)</h2>
 <table>
   <tr><th>When</th><th>What</th></tr>
-  <tr><td>2 weeks before</td><td>New features stop (the defense date is not set yet: the schedule counts back from it).</td></tr>
-  <tr><td>Last week</td><td>Testing and fixes only; reset the demo data if needed; rehearse with this guide.</td></tr>
-  <tr><td>The day before</td><td>Roll-forward; check the window switch; sign-in test per role.</td></tr>
-  <tr><td>Defense day</td><td>Snapshot, security check, run the scenarios.</td></tr>
+  <tr><td>By Fri Nov 13</td><td>The single "+" address login test on production (one demo Employee), then your confirmation of the counts and the migration list, then the production seed.</td></tr>
+  <tr><td>Nov 14 – 18</td><td>Fixes and rehearsal only. No new features.</td></tr>
+  <tr><td>Sat Nov 21</td><td><code>node scripts/demo/demo.mjs roll-forward --target=production --defense=2026-11-22</code> (attendance up to Nov 21; nothing edited by hand changes), then <code>demo.mjs snapshot --target=production</code>, then the empty-page audit (read-only).</td></tr>
+  <tr><td>Sun Nov 22</td><td>Security check, then the scenarios. Live taps: <b>Demo: Weekend Event Duty</b> covers Nov 22 for Elena Demo Lacson (+emp5, Main), Sheryl Demo Espiritu (+emp19, Robinson), Demo Accountant One Robinson (+acc-b3-1) and Demo HR One (+hr1), so their taps are a working day. Anyone else tapping on Sunday is told "Today is a rest day on your schedule: the tap is kept as rest-day work for HR to review."</td></tr>
 </table>
+<h3>Which cutoff can be processed live on November 22</h3>
+<ul>
+  <li>The open cutoff is <b>November 16–30</b> (not ended): processing it gives Draft payslips only; Final payslips and a run submission come after Nov 30.</li>
+  <li><b>November 1–15</b> is past its generation window (pay date Nov 20). With the processing-window switch <b>ON</b>, the Accountant may still process its missing payslips while the branch's run is not submitted (marked "processed late" for HR). With the switch <b>OFF</b> (its state on production on Nov 10: OFF, no expiry), any cutoff can be processed and the payslips are marked "created in testing mode".</li>
+  <li>The switch is a separate task: check it the day before; it was not changed by this work.</li>
+</ul>
+<h3>13th month on the defense day</h3>
+<p>Before December 1 the 2026 13th month cannot be processed (the button reads <b>Opens December 1</b>). The pages show: <b>Projected, not yet processed</b> (the year so far ÷ 12, from the payslips), <b>Paid in Final Pay</b> (the separated employees, pro-rated), <b>Processed · 2025 (demo)</b> history (13 records, no 2025 payslips; not on the 2026 Form 2316 or Alphalist), and <b>Not yet available</b> for someone with no paid payslip yet.</p>
+
+<h2>6. Defense-day checklist</h2>
+<ol>
+  <li>Saturday Nov 21: roll-forward, snapshot, empty-page audit (above).</li>
+  <li>Check the processing-window switch (Super Admin → System Configuration).</li>
+  <li>Sunday morning: <code>node scripts/demo/security-check.mjs --target=production</code> (anon key reads nothing; live channels per user).</li>
+  <li>Sign in once per role in separate browser profiles; keep the inbox open (codes arrive tagged +sa1, +hr1, +acc-b1-1, +emp1 …).</li>
+  <li>If a step breaks: <code>demo.mjs restore --target=production --file=&lt;Saturday's snapshot&gt;</code>.</li>
+</ol>
+
+<h2>7. After the defense: deletion checklist</h2>
+<ol>
+  <li><code>node scripts/demo/demo.mjs remove --target=production</code>: type the project URL, read the counts, confirm (a snapshot is taken first).</li>
+  <li>This also removes: the <b>DEMO subsidy settings</b> (replace them with the school's real settings before real data goes in), the four demo licensed teachers, the <b>2025 (demo) 13th month records</b>, the demo work schedule, the demo announcements and all demo audit entries.</li>
+  <li>The check after it must show 0 demo profiles, 0 demo login accounts, 0 demo files.</li>
+  <li><b>Payslip numbers:</b> demo payslips used numbers after production's own (PS-202611-…); removing them leaves a gap in the sequence. Report the gap and ask before resetting any counter; never renumber an existing payslip.</li>
+  <li>Deleted rows remain in the Supabase Pro daily backups for about 7 days. Delete <code>demo-data/</code> (credentials and snapshots) from the laptop.</li>
+</ol>
 </body>
 </html>

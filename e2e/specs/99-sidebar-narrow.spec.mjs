@@ -38,7 +38,7 @@ async function measure(page) {
     const box = (el) => (el ? el.getBoundingClientRect() : null);
     const container = document.querySelector('[data-slot="sidebar-container"]');
     const inset = document.querySelector('[data-slot="sidebar-inset"]');
-    const buttons = [...document.querySelectorAll('[data-sidebar="content"] [data-sidebar="menu-button"]')];
+    const buttons = [...document.querySelectorAll('[data-sidebar="content"] [data-sidebar="menu-button"]')].filter((b) => b.getBoundingClientRect().height > 0); // collapsed groups (2026-11-09) hide theirs
     const labels = buttons.map((b) => {
       const span = b.querySelector("[data-fit]") || b.querySelector("span:last-child");
       const lineHeight = parseFloat(getComputedStyle(span).lineHeight) || 20;
@@ -195,7 +195,7 @@ test("narrow sidebar: phone and tablet drawer with touch", async ({ browser }) =
       await page.waitForTimeout(400);
       const info = await drawer.evaluate((el) => {
         const r = el.getBoundingClientRect();
-        const rows = [...el.querySelectorAll('[data-sidebar="menu-button"]')];
+        const rows = [...el.querySelectorAll('[data-sidebar="menu-button"]')].filter((b) => b.getBoundingClientRect().height > 0);
         return {
           width: r.width,
           cut: rows.map((b) => b.querySelector("[data-fit]")).filter((s) => s && s.scrollWidth > s.clientWidth + 1).map((s) => s.textContent),

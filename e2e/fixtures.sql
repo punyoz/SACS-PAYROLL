@@ -80,3 +80,9 @@ from ana, acct, hr, bal, (values
 set local session_replication_role = origin;
 
 commit;
+
+-- HR is on payroll since 2026-11-09 (its home-branch Accountant processes it and ANOTHER HR
+-- approves). This suite has ONE HR, so a run holding its payslip would wait on the Super
+-- Admin fallback. The older flows test HR approving branch runs, so the fixture HR has no
+-- home branch (no branch run includes it). The routing itself is tested in e2e/my-account.
+update profiles set branch_id = null where email = 'hr@e2e.test';

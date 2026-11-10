@@ -98,6 +98,9 @@ async function signInAs(page, email, password) {
 }
 
 async function sidebarText(page) {
+  // Work groups are collapsible (2026-11-09): open every group, then read the menu.
+  const closed = page.locator('[data-nav-group] button[aria-expanded="false"]');
+  for (let i = 0; i < 12 && (await closed.count().catch(() => 0)); i += 1) await closed.first().click().catch(() => null);
   return (await page.locator('[data-sidebar="sidebar"]').first().innerText().catch(() => "")).replace(/\s+/g, " ");
 }
 
