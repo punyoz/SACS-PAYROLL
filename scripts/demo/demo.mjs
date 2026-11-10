@@ -75,8 +75,17 @@ function printCounts(title, data) {
 async function insertRows(db, table, rows, columns, generated, { triggers = false, settings = "" } = {}) {
   const cols = columns.filter((c) => !generated.includes(c));
   const list = cols.map((c) => `"${c}"`).join(", ");
-  for (let i = 0; i < rows.length; i += 400) {
-    const chunk = rows.slice(i, i + 400).map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null])));
+  // Batches of at most 400 rows and about 700 KB (the Management API refuses large requests).
+  const shaped = rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null])));
+  const batches = [];
+  let current = []; let size = 0;
+  for (const row of shaped) {
+    const bytes = JSON.stringify(row).length;
+    if (current.length && (current.length >= 400 || size + bytes > 700_000)) { batches.push(current); current = []; size = 0; }
+    current.push(row); size += bytes;
+  }
+  if (current.length) batches.push(current);
+  for (const chunk of batches) {
     const body = `insert into ${table} (${list}) overriding system value select ${list} from jsonb_populate_recordset(null::${table}, ${lit(chunk)}) on conflict do nothing;`;
     await db.exec(triggers ? `begin; ${settings} ${body} commit;` : `begin; alter table ${table} disable trigger user; ${body} alter table ${table} enable trigger user; commit;`);
   }
@@ -259,7 +268,7 @@ const commands = {
     if (!existsSync(BUNDLE)) throw new Error("No bundle: run export first.");
     const bundle = readBundle(BUNDLE);
     const [have] = await db.rows(`select count(*)::int n from profiles where ${demoFilter()}`);
-    if (have.n) { say(`${have.n} demo profiles already on ${db.target}.`); if (!(await confirm('Demo data exists. Type "add anyway" to load on top:', "add anyway"))) return say("Nothing done."); }
+    if (have.n) { say(`${have.n} demo profiles already on ${db.target}.`); if (process.env.DEMO_RESUME === "1") say("Resuming an interrupted seed (DEMO_RESUME=1): rows already there are skipped."); else if (!(await confirm('Demo data exists. Type "add anyway" to load on top:', "add anyway"))) return say("Nothing done."); }
     printCounts(`will CREATE on ${db.target}`, bundle);
     if (!(await confirm(`Load this on ${db.target}? (yes/no)`))) return say("Nothing done.");
     await load(db, bundle);
