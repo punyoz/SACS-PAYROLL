@@ -17,7 +17,7 @@ import { SEED_ACTOR } from "./config.mjs";
 
 /** Tables never copied: configuration that already exists everywhere, and transient state. */
 const SKIP = new Set(["role_permissions", "system_config", "branches", "payroll_rate_configs", "payroll_tax_brackets", "payroll_sss_msc_brackets",
-  "payroll_schedule_settings", "payroll_subsidy_settings", "school_break_periods", "tenure_protection_policies", "work_schedules", "attendance_holidays",
+  "payroll_schedule_settings", "school_break_periods", "tenure_protection_policies", "attendance_holidays",
   "payroll_window_enforcement", "payroll_window_enforcement_changes", "auth_email_otps", "auth_throttle", "hr_queue_claims", "notification_channels"]);
 
 /**

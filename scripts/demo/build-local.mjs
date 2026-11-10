@@ -67,6 +67,12 @@ async function stageBase() {
     log("resetting the local database (migrations + seed)…");
     execSync("npx supabase db reset", { stdio: "ignore" });
   }
+  const branches = await stageMirror();
+  return finishBase(branches);
+}
+
+/** Copy production's configuration (same ids) into local: read-only on production. */
+async function stageMirror() {
   const branches = await loadBranches();
   log("mirroring production configuration into local…");
   const sql = ["begin;", "set local session_replication_role = replica;"];
@@ -81,7 +87,10 @@ async function stageBase() {
   sql.push("update payroll_window_enforcement set enforced = false, expires_on = null, reason = 'Local demo build', changed_by = null, changed_by_name = 'Demo seed';");
   sql.push("commit;");
   await local.exec(sql.join("\n"));
+  return branches;
+}
 
+async function finishBase(branches) {
   const branchCodes = Object.fromEntries(branches.map((b) => [b.code, b]));
   const roster = buildRoster(branchCodes);
   saveCredentials(roster);
@@ -659,6 +668,90 @@ async function stageExtras3() {
   log(failures.length ? `extras3: ${failures.length} step(s) failed` : "extras3: all steps passed");
 }
 
+/**
+ * Item 5 (2026-11-09): demo licensed-teacher subsidy settings (fake amount,
+ * labelled DEMO, made by Demo Super Admin One so the cleanup removes them),
+ * four licensed demo teachers, and subsidy items in each state.
+ * Item 6c: a 2025 (demo) 13th month batch: records only, no 2025 payslips.
+ */
+async function stageSubsidy13th() {
+  const { roster, by } = await context();
+  const today = manilaToday();
+  const sa = by("sa1");
+  await step("DEMO subsidy settings (fake amount)", async () => {
+    await local.exec(`begin; set local session_replication_role = replica;
+      insert into payroll_subsidy_settings (effective_year_start, annual_amount, year_basis, year_start_month, payout_month, proration, advance_limit, on_resignation, on_dismissal, tax_treatment, note, created_by, created_by_name)
+      select '2026-01-01', 6000, 'calendar', 1, 12, 'monthly', 'earned_to_date', 'prorate', 'forfeit', 'other_benefit',
+        'DEMO subsidy settings (fake amount) for the defense. Remove or replace with the school''s real settings before real data goes in.', ${lit(sa.id)}, ${lit(sa.full)}
+      where not exists (select 1 from payroll_subsidy_settings where created_by = ${lit(sa.id)});
+      commit;`);
+  });
+  const teachers = ["emp1", "emp2", "emp9", "emp17"].map(by);
+  await step("four licensed demo teachers (fake PRC numbers)", async () => {
+    for (const [i, t] of teachers.entries()) {
+      const body = { action: "turn_on", employee_id: t.id, reason: "Demo: licensed teacher", prc_license_no: `99000${String(i + 1).padStart(2, "0")}`, license_expires_on: "2028-06-30", document: { data_url: PROOF, file_name: "demo-prc-id.pdf" } };
+      const on = await as(by("hr1")).post("/api/hr/teacher-license", body);
+      if (on.status >= 300 && !/already/i.test(JSON.stringify(on.data))) ok(`license ${t.tag}`, on);
+      const v = await as(by("hr2")).post("/api/hr/teacher-license", { action: "verify", employee_id: t.id, reason: "PRC ID checked" });
+      if (v.status >= 300 && !/already/i.test(JSON.stringify(v.data))) ok(`verify ${t.tag}`, v);
+    }
+    await local.exec(teachers.map((t) => `select public.payroll_subsidy_refresh(${lit(t.id)});`).join("\n"));
+    const [n] = await local.rows(`select count(*)::int n from payroll_subsidy_balances where employee_id in (${teachers.map((t) => lit(t.id)).join(", ")})`);
+    return `${n.n} balances`;
+  });
+  await step("subsidy items (processed, approved, rejected)", async () => {
+    const accOf = { BR001: by("acc-b1-1"), BR002: by("acc-b2-1"), BR003: by("acc-b3-1") };
+    const items = [];
+    for (const [i, t] of teachers.entries()) {
+      const acc = accOf[t.branch_code.replace("-", "")];
+      const [bal] = await local.rows(`select id from payroll_subsidy_balances where employee_id = ${lit(t.id)} order by subsidy_year_start desc limit 1`);
+      if (!bal) continue;
+      const res = await as(acc).post("/api/admin/approvals", { action: "process", kind: i % 2 ? "advance" : "adjustment", subsidy_balance_id: bal.id, amount: 500, reason: i % 2 ? "Demo subsidy advance for school supplies" : "Demo missed-month adjustment",
+        details: i % 2 ? { date_granted: today, description: "School supplies" } : { months_missed: 1, months_label: "October 2026" } });
+      if (res.status >= 300) throw new Error(`${t.tag}: ${res.status} ${JSON.stringify(res.data).slice(0, 200)}`);
+      items.push({ t, id: res.data?.request?.id || res.data?.id });
+    }
+    const list = (await as(by("hr1")).get("/api/admin/approvals")).data;
+    const reqs = (list?.requests || []).filter((r) => teachers.some((t) => t.id === r.employee_id) && r.status === "processed");
+    for (const [i, r] of reqs.entries()) {
+      if (i === 0) ok("approve", await as(by("hr1")).patch("/api/admin/approvals", { action: "decide", request_id: r.id, decision: "approve", note: "Approved (demo)." }));
+      if (i === 1) ok("reject", await as(by("hr2")).patch("/api/admin/approvals", { action: "decide", request_id: r.id, decision: "reject", note: "Attach the receipt and resubmit." }));
+    }
+    return `${items.length} processed, ${Math.min(reqs.length, 2)} decided`;
+  });
+  await step("a demo schedule that works on Sunday, Nov 22 (the defense)", async () => {
+    // From the defense day only, so the days before stay Monday-Friday (roll-forward adds weekdays only).
+    const hr1 = by("hr1");
+    await local.exec(`begin;
+      insert into work_schedules (schedule_key, name, work_start, work_end, grace_minutes, work_hours, working_days, effective_from, archived, note, created_by, created_by_name)
+      select 'de000000-0000-4000-8000-0000000022aa', 'Demo: Weekend Event Duty', '08:00', '17:00', 10, 8, '{1,2,3,4,5,6,7}', '2026-11-22', false, 'DEMO schedule: every day, for the live taps on the defense day (a Sunday).', ${lit(hr1.id)}, ${lit(hr1.full)}
+      where not exists (select 1 from work_schedules where schedule_key = 'de000000-0000-4000-8000-0000000022aa');
+      ${["emp5", "emp19", "acc-b3-1", "hr1"].map((t) => `insert into work_schedule_assignments (employee_id, schedule_key, effective_from, note, created_by, created_by_name)
+        select ${lit(by(t).id)}, 'de000000-0000-4000-8000-0000000022aa', '2026-11-22', 'Defense day duty (demo)', ${lit(hr1.id)}, ${lit(hr1.full)}
+        where not exists (select 1 from work_schedule_assignments where employee_id = ${lit(by(t).id)} and schedule_key = 'de000000-0000-4000-8000-0000000022aa');`).join("\n")}
+      commit;`);
+    const [r] = await local.rows(`select (select public.attendance_is_rest_day_on('2026-11-22'::date, s.working_days, p.branch_id)) rest from profiles p, lateral public.attendance_schedule_for(p.id, p.branch_id, '2026-11-22') s where p.id = ${lit(by("emp5").id)}`);
+    return `Nov 22 is a rest day for them: ${r.rest}`;
+  });
+  await step("2025 (demo) 13th month batch: records only, no 2025 payslips", async () => {
+    // Real formula: basic earned in 2025 ÷ 12 (full year at the current basic; pro-rated for a 2025 hire).
+    const eligible = roster.filter((p) => p.on_payroll && p.date_hired && p.date_hired < "2025-12-01" && p.role === "employee").slice(0, 13);
+    const rows = eligible.map((p) => {
+      const from = p.date_hired > "2025-01-01" ? p.date_hired : "2025-01-01";
+      const months = 12 - Number(from.slice(5, 7)) + 1 - (Number(from.slice(8, 10)) > 15 ? 0.5 : 0);
+      const basic = Math.round(Number(p.basic_salary) * months * 100) / 100;
+      return `insert into payroll_thirteenth_month (employee_id, employee_name, year, basic_earned, amount, breakdown, processed_by, processed_by_name, processed_at)
+        values (${lit(p.id)}, ${lit(p.full)}, 2025, ${basic}, ${Math.round((basic / 12) * 100) / 100},
+          ${lit({ demo: true, label: "2025 (demo)", pay_date: "2025-12-15", formula: "Total basic salary earned in 2025 ÷ 12", months_covered: months, note: "Demo record for the defense; no 2025 payslips exist." })},
+          ${lit(by("acc-b1-1").id)}, 'Demo seed', '2025-12-10T02:00:00Z')
+        on conflict (employee_id, year) do nothing;`;
+    });
+    await local.exec(rows.join("\n"));
+    return `${rows.length} records`;
+  });
+  log(failures.length ? `subsidy13th: ${failures.length} step(s) failed` : "subsidy13th: all steps passed");
+}
+
 /** After the flows: October (one rejected then approved; the latest submitted / rejected), 13th month, final pay. */
 async function stageClose() {
   const { by } = await context();
@@ -674,7 +767,7 @@ async function stageClose() {
   log(failures.length ? `close: ${failures.length} step(s) failed` : "close: all steps passed");
 }
 
-const stages = { base: stageBase, cards: stageCards, attendance: stageAttendance, payroll: () => stagePayroll({ history: true }), flows: stageFlows, close: stageClose, extras: stageExtras, extras2: stageExtras2, extras3: stageExtras3 };
+const stages = { mirror: async () => { await stageMirror(); }, base: stageBase, cards: stageCards, attendance: stageAttendance, payroll: () => stagePayroll({ history: true }), flows: stageFlows, close: stageClose, extras: stageExtras, extras2: stageExtras2, extras3: stageExtras3, subsidy13th: stageSubsidy13th };
 
 if (String(process.argv[1] || "").split("\\").join("/").endsWith("scripts/demo/build-local.mjs")) {
   const order = stage === "all" ? Object.keys(stages) : stage.split(",");

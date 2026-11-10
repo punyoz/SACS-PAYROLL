@@ -136,6 +136,16 @@ async function load(db, bundle) {
     const row = Object.fromEntries(Object.entries(p).filter(([k]) => !/_enc$|_last4$/.test(k)));
     return { ...row, sss_number: r?.sss_number ?? null, philhealth_number: r?.philhealth_number ?? null, pagibig_number: r?.pagibig_number ?? null, tin_number: r?.tin_number ?? null };
   });
+  // A profile points at its PRC ID document (and verifier), which points back: set those after the documents.
+  // A licensed teacher arrives unlicensed and is licensed after the PRC documents (profiles_license_guard);
+  // the fake PRC number (990 + its last 4) is encrypted with the target's own key.
+  const links = profiles.filter((p) => p.prc_id_document_id || p.license_verified_by || p.is_licensed_teacher).map((p) => ({
+    id: p.id, doc: p.prc_id_document_id, by: p.license_verified_by, licensed: Boolean(p.is_licensed_teacher), expires: p.license_expires_on,
+    last4: p.prc_license_no_last4, at: p.license_verified_at, byName: p.license_verified_by_name }));
+  for (const p of profiles) {
+    p.prc_id_document_id = null; p.license_verified_by = null; p.license_verified_at = null; p.license_verified_by_name = null;
+    p.is_licensed_teacher = false; p.license_expires_on = null;
+  }
   const profileCols = [...new Set(profiles.flatMap((p) => Object.keys(p)))];
   // The card UID on a profile is written only inside the RFID registration flow (profiles_rfid_uid_guard).
   await insertRows(db, "profiles", profiles, profileCols, meta.profiles.generated, { triggers: true, settings: "set local sacs.rfid_flow = 'on';" });
@@ -145,6 +155,12 @@ async function load(db, bundle) {
     if (t === "profiles") continue;
     await insertRows(db, t, bundle.tables[t].map(remapText), meta[t].columns, meta[t].generated);
     say(`  loaded ${t}: ${bundle.tables[t].length}`);
+  }
+  if (links.length) {
+    await db.exec(`begin; alter table profiles disable trigger user;
+      ${links.map((l) => `update profiles set prc_id_document_id = ${lit(l.doc)}, license_verified_by = ${lit(l.by)}, license_verified_at = ${lit(l.at)}, license_verified_by_name = ${lit(l.byName)}${l.licensed ? `,
+        is_licensed_teacher = true, license_expires_on = ${lit(l.expires)}, prc_license_no_enc = private.encrypt_pii(${lit(`990${l.last4}`)}), prc_license_no_last4 = ${lit(l.last4)}` : ""} where id = ${lit(l.id)};`).join(" ")}
+      alter table profiles enable trigger user; commit;`);
   }
   // 4. Leave-proof files.
   const storage = storageFor(db.target);
@@ -159,7 +175,15 @@ async function wipe(db, data) {
   const meta = await schema(db);
   const D = data.demoIds.map(lit).join(", ");
   const names = Object.keys(data.tables).filter((t) => data.tables[t].length);
-  const order = insertOrder(meta, [...names, "profiles"]).reverse();
+  // Profiles last (other rows point at them); first drop the loops: a profile's
+  // PRC ID document and verifier, and the transient rows the bundle skips.
+  const order = [...insertOrder(meta, names.filter((t) => t !== "profiles")).reverse(), "profiles"];
+  await db.exec(`begin; alter table profiles disable trigger user;
+    update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D}) or license_verified_by in (${D});
+    alter table profiles enable trigger user;
+    delete from hr_queue_claims where claimed_by in (${D});
+    delete from notification_channels where user_id in (${D});
+    commit;`);
   // Mixed rows keep themselves; only their pointer to a demo person is cleared.
   for (const t of Object.keys(data.mixed || {})) {
     const m = meta[t];

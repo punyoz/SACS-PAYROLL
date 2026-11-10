@@ -31,7 +31,7 @@ export const localAuthAdmin = {
   },
 };
 
-async function sessionCookie(person) {
+export async function sessionCookie(person) {
   if (sessions.has(person.id)) return sessions.get(person.id);
   const sid = randomUUID();
   await adminFetch(`/auth/v1/admin/users/${person.id}`, { method: "PUT", body: JSON.stringify({ app_metadata: { session_id: sid, session_started_at: new Date().toISOString() } }) });

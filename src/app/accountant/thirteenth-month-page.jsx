@@ -27,7 +27,8 @@ export function ThirteenthMonthPage({ refreshKey }) {
   const [confirmDialog, confirm] = useConfirm();
   const thisYear = Number(manilaDateKey().slice(0, 4));
   const years = [];
-  for (let y = thisYear; y >= Math.min(2026, thisYear); y -= 1) years.push(y);
+  // 2025: the prior-year history (demo records for the defense, 2026-11-09).
+  for (let y = thisYear; y >= Math.min(2025, thisYear); y -= 1) years.push(y);
   const [year, setYear] = React.useState(thisYear);
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [busy, setBusy] = React.useState(false);
@@ -90,17 +91,24 @@ export function ThirteenthMonthPage({ refreshKey }) {
     {
       key: "status",
       header: "Status",
+      sortValue: (r) => r.state,
       cell: (r) => (r.processed ? (
         <div className="space-y-1">
-          <StatusBadge tone="success">{r.paid_in_final_pay ? "Paid in Final Pay" : "Processed"}</StatusBadge>
-          <p className="text-xs text-muted-foreground">{dateTime(r.processed.processed_at)}{r.processed.processed_by_name ? ` · ${r.processed.processed_by_name}` : ""}</p>
+          <StatusBadge tone="success">{r.state === "final_pay" ? "Paid in Final Pay" : r.state === "processed_demo" ? `Processed · ${r.processed.breakdown?.label || `${data?.year} (demo)`}` : "Processed"}</StatusBadge>
+          <p className="text-xs text-muted-foreground">{r.processed.breakdown?.pay_date ? `Paid ${dateLabel(r.processed.breakdown.pay_date)}` : dateTime(r.processed.processed_at)}{r.processed.processed_by_name ? ` · ${r.processed.processed_by_name}` : ""}</p>
         </div>
-      ) : r.separated_on ? (
+      ) : r.state === "final_pay_pending" ? (
         <div className="space-y-1">
           <StatusBadge tone="info">Pro-rated: paid in Final Pay</StatusBadge>
           <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">Basic earned up to the separation ÷ 12. Generate it on the Final Pay page.</p>
         </div>
-      ) : <StatusBadge tone="gold">Not processed</StatusBadge>),
+      ) : r.state === "projected" ? (
+        <div className="space-y-1">
+          <StatusBadge tone="gold">Projected, not yet processed</StatusBadge>
+          <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">The year so far. Opens for processing {dateLabel(data?.process_opens)}.</p>
+        </div>
+      ) : r.state === "ready" ? <StatusBadge tone="gold">Not processed</StatusBadge>
+        : <StatusBadge tone="muted">Not yet available</StatusBadge>),
     },
   ];
 
@@ -151,7 +159,7 @@ export function ThirteenthMonthPage({ refreshKey }) {
               {blockedReason || `${pending.length} employee${pending.length === 1 ? "" : "s"} ready · ${money(pendingTotal)} in all.`}
             </p>
             <Button onClick={() => setPreview(true)} disabled={busy || Boolean(blockedReason)} data-testid="thirteenth-generate">
-              {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <WalletIcon aria-hidden="true" />}Generate 13th month pay
+              {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <WalletIcon aria-hidden="true" />}{data && !data.can_process && data.year >= thisYear ? `Opens ${new Date(`${data.process_opens}T00:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" })}` : "Generate 13th month pay"}
             </Button>
           </div>
           {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}

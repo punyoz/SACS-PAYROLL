@@ -3171,7 +3171,18 @@ async function handleThirteenthMonthView(supabase, employees, entries, url) {
       paid_in_final_pay: Boolean(row?.breakdown?.final_pay),
       processed: row,
     };
-  });
+  }).map((row) => ({
+    ...row,
+    // The row's state (2026-11-09, item 6): Processed (or a "2025 (demo)"
+    // history record), paid in Final Pay, pro-rated for Final Pay, Projected
+    // (the year so far, before December 1), or Not yet available.
+    state: row.processed
+      ? (row.processed.breakdown?.final_pay ? "final_pay" : row.processed.breakdown?.demo ? "processed_demo" : "processed")
+      : row.separated_on ? "final_pay_pending"
+        : row.amount > 0 ? (today >= `${year}-12-01` ? "ready" : "projected") : "not_available",
+  }))
+    // A past year lists who has a record or earned basic pay in it.
+    .filter((row) => year >= Number(today.slice(0, 4)) || row.processed || row.amount > 0);
 
   return NextResponse.json({
     year,

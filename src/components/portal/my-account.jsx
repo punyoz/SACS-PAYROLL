@@ -124,7 +124,9 @@ const REQUEST_COLUMNS = {
     { key: "status", header: "Status", cell: (r) => <RequestStatusBadge status={r.status} />, mobileBadge: true },
   ],
   thirteenth_month: [
-    { key: "year", header: "Year", sortable: true },
+    { key: "year", header: "Year", sortable: true, cell: (r) => (r.projected ? `${r.year} (so far)` : r.year) },
+    { key: "label", header: "Status", cell: (r) => <RequestStatusBadge status={r.projected ? "pending" : "approved"} className="whitespace-nowrap" />, mobileBadge: true },
+    { key: "note", header: "", cell: (r) => <span className="text-xs text-muted-foreground">{r.projected ? `Projected, not yet processed · opens ${day(r.opens)}` : r.label}{r.pay_date ? ` · paid ${day(r.pay_date)}` : ""}</span> },
     { key: "basic_earned", header: "Basic pay earned", cell: (r) => peso(r.basic_earned), align: "right" },
     { key: "amount", header: "13th month", cell: (r) => peso(r.amount), align: "right" },
     { key: "processed_at", header: "Processed", cell: (r) => day(r.processed_at) },
@@ -144,7 +146,11 @@ export function MyRequestsPage({ refreshKey = 0, initialTab = "loans" }) {
     }
   }, []);
   React.useEffect(() => { load(); }, [load, refreshKey]);
-  const counts = Object.fromEntries(MY_REQUEST_TABS.map((t) => [t.value, state.data?.[t.value]?.length ?? 0]));
+  // The 13th month tab: this year's projection on top, then processed years.
+  const rowsOf = (value) => (value === "thirteenth_month" && state.data?.thirteenth_projected
+    ? [{ id: "projected", projected: true, ...state.data.thirteenth_projected }, ...(state.data.thirteenth_month || [])]
+    : state.data?.[value] || []);
+  const counts = Object.fromEntries(MY_REQUEST_TABS.map((t) => [t.value, rowsOf(t.value).length]));
   return (
     <Card data-testid="my-requests">
       <CardHeader>
@@ -164,7 +170,7 @@ export function MyRequestsPage({ refreshKey = 0, initialTab = "loans" }) {
             <TabsContent key={t.value} value={t.value} className="mt-3">
               <DataTable
                 columns={REQUEST_COLUMNS[t.value]}
-                rows={state.data?.[t.value] || []}
+                rows={rowsOf(t.value)}
                 loading={state.loading && !state.data}
                 error={state.data ? null : state.error}
                 onRetry={load}

@@ -967,11 +967,23 @@ export async function POST(request) {
       after_correction: "Tap recorded. This day was corrected by HR / Admin, so its times stay as corrected; the tap is flagged for review.",
     };
 
+    // A tap on the person's rest day is recorded as before, and the terminal
+    // says so plainly (2026-11-09: the defense falls on a Sunday).
+    let restDayNote = "";
+    try {
+      // The database's own rule (the person's schedule, else the branch / default working days).
+      const sched = await supabase.rpc("attendance_schedule_for", { p_employee: employee.id, p_branch: employee.branch_id, p_day: dateKey });
+      const days = (Array.isArray(sched.data) ? sched.data[0] : sched.data)?.working_days ?? null;
+      const rest = await supabase.rpc("attendance_is_rest_day_on", { p_day: dateKey, p_working_days: days, p_branch: employee.branch_id });
+      if (rest.data === true) restDayNote = " Today is a rest day on your schedule: the tap is kept as rest-day work for HR to review.";
+    } catch { /* the tap is saved either way */ }
+
     return NextResponse.json({
       success: true,
       persisted: true,
       tap,
-      message: messages[tap],
+      rest_day: Boolean(restDayNote),
+      message: `${messages[tap]}${restDayNote}`,
       record,
       // What the terminal screen shows.
       employee: { name: employee.full_name, branch_id: employee.branch_id || null },
