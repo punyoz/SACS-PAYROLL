@@ -85,10 +85,12 @@ export async function POST(request) {
     const escalation = denyRoleEscalation(guard, record.role);
     if (escalation) return escalation;
 
-    // Super Admin and HR reach every branch, so they are stored without one.
+    // A Super Admin is stored without a branch. HR reaches every branch; an
+    // optional HOME branch says which branch's Accountant processes its pay
+    // (HR is on payroll, decision 2026-11-10).
     const branchId = STAFF_BRANCH_REQUIRED_ROLES.includes(record.role)
       ? record.branch_id
-      : null;
+      : record.role === "hr" ? (record.branch_id || null) : null;
 
     const supabase = getAdminClient();
 

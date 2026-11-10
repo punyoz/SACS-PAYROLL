@@ -216,3 +216,34 @@ test("The employer share is saved for HR and Accountant payslips, never on their
     assert.ok(!/employer_contributions|"sss_er"|"employer/i.test(JSON.stringify(res.data)), `${tag}: no employer share in the payslip API`);
   }
 });
+
+test("An HR's home branch: the Super Admin sets, keeps and clears it; that branch's Accountant processes the HR", async () => {
+  const hr2 = P("hr2");
+  const branchOf = async () => (await sql(`select branch_id from profiles where id = '${hr2.id}'`))[0].branch_id;
+  const home = await branchOf();
+  const other = P("acc-b3-1").branch_id;
+  const set = await as(P("sa1")).patch("/api/admin/users", { id: hr2.id, action: "update", branch_id: other });
+  assert.equal(set.status, 200, JSON.stringify(set.data).slice(0, 200));
+  assert.equal(await branchOf(), other, "set");
+  const keep = await as(P("sa1")).patch("/api/admin/users", { id: hr2.id, action: "update", first_name: "Demo", last_name: "HR Two" });
+  assert.equal(keep.status, 200, JSON.stringify(keep.data).slice(0, 200));
+  assert.equal(await branchOf(), other, "kept when not sent");
+  const list = await as(P("acc-b3-1")).get(`/api/accountant/payroll?period=${encodeURIComponent("November 1-15, 2026")}`);
+  assert.ok((list.data.employees || []).some((e) => e.id === hr2.id), "the home branch's Accountant has the HR");
+  await as(P("sa1")).patch("/api/admin/users", { id: hr2.id, action: "update", branch_id: "" });
+  assert.equal(await branchOf(), null, "cleared on purpose");
+  await as(P("sa1")).patch("/api/admin/users", { id: hr2.id, action: "update", branch_id: home });
+  assert.equal(await branchOf(), home, "restored");
+});
+
+test("HR keeps ANOTHER HR's record in User Management, never its own; the login stays the Super Admin's", async () => {
+  const list = await as(P("hr1")).get("/api/hr/employees");
+  assert.equal(list.status, 200);
+  assert.ok(list.data.employees.some((e) => e.id === P("hr2").id), "HR Two is listed for HR One");
+  assert.ok(!list.data.employees.some((e) => e.id === P("hr1").id), "never HR One itself");
+  const own = await as(P("hr1")).patch("/api/hr/employees", { id: P("hr1").id, first_name: "Demo" });
+  assert.equal(own.status, 403);
+  const separate = await as(P("hr1")).patch("/api/hr/employees", { id: P("hr2").id, action: "separate", effective: "2026-11-30", reason: "Resigned" });
+  assert.equal(separate.status, 403);
+  assert.equal(separate.data.code, "hr_login_super_admin");
+});

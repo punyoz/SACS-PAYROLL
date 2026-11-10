@@ -80,3 +80,16 @@ test.describe("phones", () => {
     });
   }
 });
+
+test.describe("Super Admin: an HR's home branch", () => {
+  test.use({ storageState: stateFile("super_admin") });
+  test("the HR row shows its home branch; the edit dialog picks it", async ({ page }) => {
+    await page.goto("/super-admin?page=sa-accounts");
+    await expect(page.locator("#portal-main").getByText("All Branches · paid in Main Branch").first()).toBeVisible();
+    await page.getByRole("button", { name: "Edit Demo HR One" }).click();
+    const pick = page.getByTestId("hr-home-branch");
+    await expect(pick).toBeVisible();
+    await expect(pick).toContainText("Main Branch");
+    await expect(page.getByText("Home branch (for payroll)")).toBeVisible();
+  });
+});

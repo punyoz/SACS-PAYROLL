@@ -57,7 +57,11 @@ export function AccountsPage({ refreshKey }) {
 
   // HR serves every branch; a Super Admin has none.
   const branchLabel = React.useCallback((user) => {
-    if (user?.role === "hr") return "All Branches";
+    // HR serves every branch; a home branch (for payroll) is shown with it.
+    if (user?.role === "hr") {
+      const home = user?.branch_id ? state.branches.find((b) => String(b.id) === String(user.branch_id))?.name : null;
+      return home ? `All Branches · paid in ${home}` : "All Branches";
+    }
     if (user?.role === "super_admin" || !user?.branch_id) return "—";
     return state.branches.find((b) => String(b.id) === String(user.branch_id))?.name || "Unknown branch";
   }, [state.branches]);

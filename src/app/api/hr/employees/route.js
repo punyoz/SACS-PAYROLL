@@ -4,6 +4,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission, denyRoleEscalation, denyForeignBranch, scopeListToBranch, denySelfScopeList } from "@/lib/rbac/guard";
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { normalizeEmployeeFields, validateEmployeeRecord } from "@/lib/employees/record";
 import { normalizeSuffix } from "@/lib/employees/staff-record";
 import {
@@ -91,6 +92,10 @@ function shapeEmployee(user, profile) {
 }
 
 const MANAGED_ROLES = ["employee", "accountant"];
+// HR is on payroll (2026-11-10): an HR keeps ANOTHER HR's 201 file and salary
+// here (never their own). Creating, archiving, separating or changing an HR
+// login stays the Super Admin's (Admin & HR Accounts).
+const PEER_ROLES = ["hr"];
 
 export async function GET(request) {
   const guard = await requirePermission(request, "employee_information", "read");
@@ -107,9 +112,10 @@ export async function GET(request) {
     const usersResult = await listUsersCached(supabase);
     if (usersResult.error) throw new Error(usersResult.error.message);
 
-    const employeeUsers = (usersResult.data.users || []).filter((u) =>
-      MANAGED_ROLES.includes(String(u.user_metadata?.role || "employee").toLowerCase()),
-    );
+    const employeeUsers = (usersResult.data.users || []).filter((u) => {
+      const role = String(u.user_metadata?.role || "employee").toLowerCase();
+      return MANAGED_ROLES.includes(role) || (guard.role === "hr" && PEER_ROLES.includes(role) && u.id !== guard.userId);
+    });
 
     const userIds = employeeUsers.map((u) => u.id);
     const profileMap = new Map();
@@ -179,7 +185,15 @@ export async function PATCH(request) {
     const currentMeta = userData.user.user_metadata || {};
     const currentRole = normalizeText(currentMeta.role, "employee").toLowerCase();
 
-    const escalation = denyRoleEscalation(guard, currentRole);
+    // Another HR's 201 details (never one's own); nothing else about an HR login.
+    const peerHr = guard.role === "hr" && PEER_ROLES.includes(currentRole);
+    if (peerHr && id === guard.userId) {
+      return refuseOwnItem(guard, { module: "employees", entityType: "employee", entityId: id, what: "employee record" });
+    }
+    if (peerHr && normalizeText(body.action)) {
+      return NextResponse.json({ error: "An HR login is separated, archived or changed by the Super Admin (Admin & HR Accounts).", code: "hr_login_super_admin" }, { status: 403 });
+    }
+    const escalation = peerHr ? null : denyRoleEscalation(guard, currentRole);
     if (escalation) return escalation;
 
     // { action: "separate", effective, reason, note }: resigned, end of

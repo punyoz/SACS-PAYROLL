@@ -44,7 +44,9 @@ import { fetchAllIn } from "@/lib/supabase/fetch-all";
  */
 
 // Roles that serve every branch and are stored with no branch.
-const BRANCHLESS_ROLES = ["super_admin", "hr"];
+// A Super Admin never has a branch. HR serves every branch but may have a
+// HOME branch for payroll (decision 2026-11-10), kept unless changed here.
+const BRANCHLESS_ROLES = ["super_admin"];
 
 const PROFILE_COLUMNS = `id,email,full_name,role,branch_id,cp_number,date_hired,address,${PII_LAST4_COLUMNS}`;
 // Added by 20260924010000_profiles_name_parts.sql.
@@ -77,9 +79,10 @@ function shapeUser(user, profile) {
     employee_id: normalizeText(metadata.employee_id, ""),
     // STAFF-### for Super Admin / Admin / HR (src/lib/employees/staff-id.js).
     staff_id: isStaffIdRole(role) ? normalizeText(profile?.staff_id, "") : "",
-    // Super Admin and HR serve every branch; a stale branch left on one of
-    // them is never shown.
-    branch_id: BRANCHLESS_ROLES.includes(role) ? null : (profile?.branch_id || metadata.branch_id || null),
+    // A Super Admin has no branch. HR serves every branch; its branch_id is
+    // only its HOME branch for payroll (2026-11-10: the Accountant of that
+    // branch processes the HR's payslip), or none.
+    branch_id: BRANCHLESS_ROLES.includes(role) ? null : (profile?.branch_id || (role === "hr" ? null : metadata.branch_id) || null),
     archived: Boolean(metadata.archived),
     last_sign_in: user.last_sign_in_at || null,
     created_at: user.created_at || null,
@@ -354,6 +357,26 @@ export async function PATCH(request) {
       nextMetadata.branch_id = adminBranchId;
     }
 
+    // HR's home branch for payroll (2026-11-10): optional. Sent -> that branch
+    // (active), or "" to clear it; not sent -> unchanged. HR still serves every
+    // branch; only the payslip is processed by that branch's Accountant.
+    let hrHome; // undefined = leave as it is
+    if (action === "update" && normalizeRole(nextMetadata.role) === "hr") {
+      if (body.branch_id !== undefined) {
+        hrHome = normalizeText(body.branch_id) || null;
+        if (hrHome) {
+          const { data: branch } = await supabase.from("branches").select("id,status").eq("id", hrHome).maybeSingle();
+          if (!branch) return NextResponse.json({ error: "The selected home branch does not exist." }, { status: 400 });
+          if (String(branch.status || "Active").toLowerCase() !== "active") {
+            return NextResponse.json({ error: "The selected home branch is inactive." }, { status: 400 });
+          }
+        }
+        nextMetadata.branch_id = hrHome;
+      } else {
+        nextMetadata.branch_id = await fetchUserBranch(supabase, id, currentMetadata);
+      }
+    }
+
     const updatePayload = { user_metadata: nextMetadata };
 
     if (action === "update") {
@@ -413,6 +436,7 @@ export async function PATCH(request) {
       if (clearBranch) profileRow.branch_id = null;
       // Saved with the role, in the same write, so the Admin is never branchless.
       if (adminBranchId) profileRow.branch_id = adminBranchId;
+      if (hrHome !== undefined) profileRow.branch_id = hrHome;
 
       const profileResult = await supabase.from("profiles").upsert(profileRow, { onConflict: "id" });
       if (profileResult.error) {

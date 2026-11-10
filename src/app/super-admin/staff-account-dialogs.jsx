@@ -166,9 +166,26 @@ function useFieldKit(form, prefix) {
   /** HR serves every branch and Super Admin reaches every branch, so only Admin picks one (saApplyStaffBranchRule). */
   const branch = (branches) => {
     const role = values.role;
-    if (role === "hr" || role === "super_admin") {
+    // HR serves every branch, but is on payroll (2026-11-10): an optional HOME
+    // branch says which branch's Accountant processes the HR's payslip.
+    if (role === "hr") {
       return field("branch_id", (
-        <Select value={role === "hr" ? "__all__" : NONE} disabled>
+        <Select value={values.branch_id || NONE} onValueChange={(v) => set("branch_id", v === NONE ? "" : v)}>
+          <SelectTrigger id={id("branch_id")} className="w-full" data-testid="hr-home-branch"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>No home branch (not on payroll)</SelectItem>
+            {branches.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      ), {
+        required: false,
+        label: "Home branch (for payroll)",
+        hint: "HR still serves every branch. The home branch's Accountant processes this HR's payslip, and another HR approves it.",
+      });
+    }
+    if (role === "super_admin") {
+      return field("branch_id", (
+        <Select value={NONE} disabled>
           <SelectTrigger id={id("branch_id")} className="w-full opacity-60"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Branches</SelectItem>
