@@ -20,7 +20,7 @@ const EXPECTED_EMPTY = [
   [/^Nobody is waiting: every employee left out has been paid$/, "a good result: nobody left out of a run"],
   [/^No annualization for 2026 yet$|^No 13th month yet$/, "December only (the 13th month and the year-end tax are processed from Dec 1)"],
   [/^No paid payslips in 2025$/, "the system starts in 2026: no 2025 payroll exists"],
-  [/subsidy|^Nothing (here yet|pending|processed|approved|rejected|applied to payroll)$|^No decisions yet$/i, "licensed-teacher subsidy: production has no subsidy settings (open decision)"],
+  [/subsidy|^Nothing (here yet|pending|processed|approved|rejected|applied to payroll)$|^No decisions yet$/i, "subsidy: an approved item is Applied when the next payroll runs; Pending and excess settlements are raised by the system only when an advance exceeds the entitlement"],
   [/^Nothing waits on the fallback$/, "correct: both HR are active, so nothing waits on the Super Admin"],
   [/^No suspensions declared from today on$/, "a suspension is a school-wide rule that would also affect real accounts: not seeded"],
   [/^No payslips this month$/, "this month's cutoff is left open to process live in the defense"],
