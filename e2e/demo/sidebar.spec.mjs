@@ -93,3 +93,24 @@ test.describe("Super Admin: an HR's home branch", () => {
     await expect(page.getByText("Home branch (for payroll)")).toBeVisible();
   });
 });
+
+test.describe("Super Admin: saving an HR's home branch", () => {
+  test.use({ storageState: stateFile("super_admin") });
+  test("the dialog saves it; after a reload the list shows it (then it is put back)", async ({ page }) => {
+    const pickHome = async (name) => {
+      await page.getByRole("button", { name: "Edit Demo HR Two" }).click();
+      await page.getByTestId("hr-home-branch").click();
+      await page.getByRole("option", { name, exact: true }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+      await expect(page.getByRole("dialog").getByText("Account updated.")).toBeVisible();
+      await page.keyboard.press("Escape");
+    };
+    await page.goto("/super-admin?page=sa-accounts");
+    await pickHome("Robinson Branch");
+    await page.reload();
+    await expect(page.locator("#portal-main").getByText("All Branches · paid in Robinson Branch")).toBeVisible();
+    await pickHome("Spring Valley Branch");
+    await page.reload();
+    await expect(page.locator("#portal-main").getByText("All Branches · paid in Spring Valley Branch")).toBeVisible();
+  });
+});

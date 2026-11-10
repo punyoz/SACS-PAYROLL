@@ -282,8 +282,10 @@ export function EditStaffDialog({ user, branches, open, onOpenChange, onSaved })
       email: v("email").toLowerCase(),
       role,
       // An Admin is saved with its branch in the same request (the server
-      // refuses an Admin without one, 2026-11-06).
+      // refuses an Admin without one, 2026-11-06). An HR's HOME branch for
+      // payroll is always sent ("" clears it), 2026-11-10.
       ...(branchId ? { branch_id: branchId } : {}),
+      ...(role === "hr" ? { branch_id: v("branch_id") } : {}),
       emergency_contact_name: v("emergency_contact_name"),
       emergency_contact_relationship: v("emergency_contact_relationship"),
       emergency_contact_address: v("emergency_contact_address"),
@@ -465,7 +467,8 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
       suffix: v("suffix"),
       email: v("email").toLowerCase(),
       role,
-      branch_id: role === "admin" ? v("branch_id") : "",
+      // Admin: its branch; HR: its optional home branch for payroll (2026-11-10).
+      branch_id: role === "admin" || role === "hr" ? v("branch_id") : "",
       employee_status: v("employee_status"),
       date_of_birth: v("date_of_birth"),
       date_hired: v("date_hired"),
