@@ -246,3 +246,16 @@ describe("Leave over the paid balance: split, never blocked (decision 2026-11-12
     });
   });
 });
+
+describe("Super Admin Edit account saves Date hired (it was dropped before 2026-11-12)", () => {
+  const edit = (date) => call(who.sa, "admin/users", "PATCH", { id: HR2, action: "update", date_hired: date });
+  beforeEach(() => { ROUTES["admin/users"] = () => import("@/app/api/admin/users/route"); });
+
+  it("saves a real past date; refuses an impossible or future one", async () => {
+    expect((await edit("2026-13-45")).status).toBe(400);
+    expect((await edit("2099-01-01")).status).toBe(400);
+    const ok = await edit("2026-09-01");
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    expect(table("profiles").find((p) => p.id === HR2).date_hired).toBe("2026-09-01");
+  });
+});
