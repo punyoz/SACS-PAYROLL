@@ -303,7 +303,7 @@ function BirEmployerSection({ config, onConfig }) {
     <SectionCard
       icon={FileTextIcon}
       title="BIR employer details"
-      description="Printed on each employee's BIR Form 2316 and on the alphalist, which you make under BIR Forms."
+      description="Printed on each employee's BIR Form 2316 and on the alphalist."
       applies="Leave a field blank if you do not have it yet; the forms say which details are missing."
       footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
     >

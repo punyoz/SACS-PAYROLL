@@ -129,9 +129,9 @@ async function beaYear(beaId, { approvedOnly }) {
 
 const card = (page) => main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "Year-end tax annualization" }) }).first();
 
-/** The Super Admin's BIR Forms page, the annualization card on Bea's branch and the year. */
+/** The Super Admin's Audit & Monitoring, the annualization card on Bea's branch and the year. */
 async function openAnnualization(page, branchName) {
-  await as(page, "super_admin", "sa-bir");
+  await as(page, "super_admin", "sa-audit");
   await settle(page);
   await choose(page, card(page).getByRole("combobox", { name: "Branch of the annualization" }), branchName);
   await settle(page);
@@ -164,7 +164,7 @@ test("year-end tax: Super Admin annualizes and schedules, the Accountant's payro
   const before = await rows(db().from("payroll_entries").select("id,pay_period,status,withholding_tax,net_pay,payroll,updated_at").eq("employee_id", bea.id).order("pay_period"));
   const [beaBranch] = await rows(db().from("branches").select("id,name").eq("id", bea.branch_id));
 
-  await step(page, "Super Admin > BIR Forms > Year-end tax annualization > Bea's branch > Run 2026", async () => {
+  await step(page, "Super Admin > Audit & Monitoring > Year-end tax annualization > Bea's branch > Run 2026", async () => {
     monitor.at("Super Admin > Year-end tax");
     await openAnnualization(page, beaBranch.name);
     await card(page).getByRole("button", { name: /Run annualization|Run again/ }).click();
@@ -375,9 +375,9 @@ test("year-end tax: Super Admin annualizes and schedules, the Accountant's payro
     test.info().annotations.push({ type: "Fix 2 final pay (Ana)", description: JSON.stringify({ year_end_tax: entry.payroll.year_end_tax, net_pay: entry.payroll.totals.net_pay }) });
   });
 
-  await step(page, "Super Admin > BIR Forms > Generated BIR files: every file, as generated", async () => {
+  await step(page, "Super Admin > Audit & Monitoring > Generated BIR files: every file, as generated", async () => {
     monitor.at("Super Admin > generated files");
-    await as(page, "super_admin", "sa-bir");
+    await as(page, "super_admin", "sa-audit");
     await settle(page);
     const files = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "Generated BIR files" }) }).first();
     await expect(files.getByText("1604-C alphalist (CSV)").first()).toBeVisible();

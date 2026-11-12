@@ -134,8 +134,8 @@ async function defaultAction(page, where) {
 
 // Page-specific checks (the rest get defaultAction).
 const ACTIONS = {
-  // The BIR is the Super Admin's only (2026-11-12): annualization, 2316, alphalist, generated files.
-  "sa-bir": async (page, where) => {
+  // The BIR is the Super Admin's only (2026-11-12): the annualization and the generated files, on Audit & Monitoring.
+  "sa-audit": async (page, where) => {
     const card = (title) => main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: title }) }).first();
     const yearEnd = card("Year-end tax annualization");
     if (await yearEnd.count()) {
@@ -152,28 +152,6 @@ const ACTIONS = {
         tour.actions.push(`${where}: year-end annualization run`);
       }
     } else await problem(page, where, "no year-end tax annualization section");
-    const bir = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: /^BIR forms$/ }) }).first();
-    if (await bir.count()) {
-      await bir.scrollIntoViewIfNeeded();
-      await settle(page, 40000);
-      // The card opens on last year; the local payslips are this year's.
-      await bir.getByRole("button", { name: "All 2316 (PDF)" }).waitFor({ timeout: 60000 }).catch(() => {});
-      const thisYear = new Date(Date.now() + 8 * 3600 * 1000).getUTCFullYear(); // Manila
-      say(`Choosing tax year ${thisYear} in BIR forms…`);
-      await choose(page, bir.getByRole("combobox", { name: "Tax year" }), String(thisYear)).catch(() => {});
-      await settle(page, 40000);
-      for (const [label, name] of [["Form 2316 (PDF)", "All 2316 (PDF)"], ["Alphalist (CSV)", "Alphalist (CSV)"]]) {
-        const button = bir.getByRole("button", { name, exact: true });
-        if (!(await button.isEnabled().catch(() => false))) { say(`${label}: button disabled (no paid payslips in the shown year).`); continue; }
-        say(`Generating ${label}…`);
-        const download = page.waitForEvent("download", { timeout: 60000 }).catch(() => null);
-        await button.click();
-        const file = await download;
-        if (file) say(`${label}: downloaded ${file.suggestedFilename()}`);
-        else await problem(page, where, `${label} produced no file`);
-        tour.actions.push(`${where}: ${label}`);
-      }
-    } else await problem(page, where, "no BIR forms section");
     const files = card("Generated BIR files");
     if (await files.count()) { await files.scrollIntoViewIfNeeded(); say(`${where}: Generated BIR files (2316 / alphalist) list shown.`); }
     else await problem(page, where, "no Generated BIR files section");

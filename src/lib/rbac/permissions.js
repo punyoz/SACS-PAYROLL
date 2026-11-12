@@ -228,9 +228,10 @@ export const MODULES = {
   // to the school and is handled by the Super Admin only. Payroll processing
   // still applies a scheduled year-end adjustment (it reads the records
   // directly); no other role has a BIR page, API or database function.
+  // No page of its own: the cards sit on the Super Admin's Audit & Monitoring.
   bir_forms: {
     order: 19.5, label: "BIR Forms", section: "Reports",
-    page: { super_admin: "sa-bir" },
+    page: {},
   },
   branch_reports: {
     // NEW — the branch-level summary the matrix flags as missing for Admin.

@@ -403,23 +403,17 @@ test("AC-11: BIR 2316 and the alphalist (the Super Admin only: sets the employer
     expect(saved[0].value).toBe("1600");
   });
 
-  await step(page, "Super Admin > BIR Forms > the branch and year, download the alphalist and a 2316", async () => {
+  await step(page, "Super Admin > BIR forms by API: the alphalist and a 2316 (no screen generates them)", async () => {
     monitor.at("Super Admin > BIR forms");
     const bea = await profileByEmail(ACCOUNTS.employee2.email);
-    const [branch] = await rows(db().from("branches").select("id,name").eq("id", bea.branch_id));
-    await as(page, "super_admin", "sa-bir");
+    await as(page, "super_admin", "sa-audit");
     await settle(page);
-    const card = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: /^BIR forms$/ }) }).first();
-    await choose(page, card.getByRole("combobox", { name: "Branch of the 2316s" }), branch.name);
-    await settle(page);
-    await choose(page, card.getByRole("combobox", { name: "Tax year" }), String(year));
-    await settle(page);
-    await expect(card.getByText(`${year} is not over yet`)).toBeVisible();
-    await expect(card.locator("tr", { hasText: "Bea" })).toBeVisible();
-    const [sheet] = await Promise.all([page.waitForEvent("download"), card.getByRole("button", { name: "Alphalist (Excel)" }).click()]);
-    expect(sheet.suggestedFilename()).toBe(`Alphalist-1604C-${year}.xlsx`);
-    const [pdf] = await Promise.all([page.waitForEvent("download"), card.locator("tr", { hasText: "Bea" }).getByRole("button", { name: /2316/ }).click()]);
-    expect(pdf.suggestedFilename()).toMatch(/^BIR-2316-\d{4}-E2E-EMP-002\.pdf$/);
+    const sheet = await page.request.get(`/api/payroll/bir-forms?year=${year}&format=xlsx`);
+    expect(sheet.status()).toBe(200);
+    expect(sheet.headers()["content-disposition"]).toContain(`Alphalist-1604C-${year}.xlsx`);
+    const pdf = await page.request.get(`/api/payroll/bir-forms?year=${year}&branch_id=${bea.branch_id}&format=pdf&employee_id=${bea.id}`);
+    expect(pdf.status()).toBe(200);
+    expect(pdf.headers()["content-disposition"]).toMatch(/BIR-2316-\d{4}-E2E-EMP-002\.pdf/);
     const logs = await rows(db().from("audit_logs").select("action").eq("action", "bir_forms_export"));
     expect(logs.length).toBeGreaterThanOrEqual(2);
     // TINs on screen are masked (the full ones are only in the files).

@@ -150,15 +150,16 @@ for (const [role, portal, retired] of [["employee", "/employee", "emp-bir"], ["h
   }
 }
 
-test.describe("Super Admin: BIR Forms", () => {
+test.describe("Super Admin: the BIR cards stay on Audit & Monitoring", () => {
   test.use({ storageState: stateFile("super_admin") });
-  test("the menu item is there and the page shows the annualization, the forms and the generated files", async ({ page }) => {
+  test("no new BIR page; Audit & Monitoring shows the annualization and the generated files", async ({ page }) => {
     await page.goto("/super-admin");
     await page.locator("#portal-main").waitFor();
-    await page.locator("[data-nav-group] [data-sidebar=menu-button]").filter({ hasText: /^BIR Forms$/ }).first().click();
-    for (const title of ["Year-end tax annualization", "BIR forms", "Generated BIR files"]) {
+    await expect(page.locator("[data-nav-group] [data-sidebar=menu-button]").filter({ hasText: /^BIR Forms$/ })).toHaveCount(0);
+    await page.goto("/super-admin?page=sa-audit");
+    for (const title of ["Year-end tax annualization", "Generated BIR files"]) {
       await expect(page.locator("#portal-main [data-slot=card-title]").filter({ hasText: new RegExp(`^${title}$`) })).toBeVisible();
     }
-    await expect(page.getByRole("combobox", { name: "Branch of the 2316s" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Branch of the annualization" })).toBeVisible();
   });
 });
