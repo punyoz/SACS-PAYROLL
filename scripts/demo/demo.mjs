@@ -133,6 +133,10 @@ async function load(db, bundle) {
     return JSON.parse(text);
   };
 
+  // 0. No RFID cards (defense reset, 2026-11-12): the cards are registered live
+  // with Register many cards. Only Lost cards are kept (those numbers stay
+  // blocked); attendance history does not depend on a card.
+  bundle.tables = withoutCards(bundle.tables);
   // 1. Login accounts (the same bcrypt hashes, so the passwords stay as in the credentials file).
   const authCols = await db.rows("select table_name as tbl, column_name as col, is_generated = 'ALWAYS' as gen from information_schema.columns where table_schema = 'auth' and table_name in ('users', 'identities')");
   const colsOf = (name) => authCols.filter((x) => x.tbl === name && !x.gen).map((x) => x.col);
@@ -243,6 +247,18 @@ async function snapshot(db) {
   writeBundle(file, data);
   say(`snapshot: ${file}`);
   return { data, file };
+}
+
+/** The bundle's tables without card numbers: Lost cards (and their history) only, no card number on any profile. */
+export function withoutCards(tables) {
+  const kept = (tables.rfid_cards || []).filter((c) => c.status === "lost");
+  const ids = new Set(kept.map((c) => c.id));
+  return {
+    ...tables,
+    rfid_cards: kept.map((c) => (c.replaces_card_id && !ids.has(c.replaces_card_id) ? { ...c, replaces_card_id: null } : c)),
+    rfid_card_events: (tables.rfid_card_events || []).filter((e) => ids.has(e.card_id)),
+    profiles: (tables.profiles || []).map((p) => ({ ...p, rfid_uid: null })),
+  };
 }
 
 const commands = {

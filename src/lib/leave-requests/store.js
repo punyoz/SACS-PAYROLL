@@ -245,8 +245,30 @@ export async function syncLeaveAttendance(id) {
 
 // ─── Leave Balance ────────────────────────────────────────────────────────────
 
-// Only policy number in this file: annual Leave-With-Pay day allotment per employee.
-export const DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS = 15;
+// Only policy number in this file: the annual Leave-With-Pay days per employee
+// when the Super Admin's setting (system_config payroll.leave_with_pay_days,
+// 20261112020000) cannot be read. Was 15 until 2026-11-12.
+export const DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS = 6;
+export const LEAVE_WITH_PAY_KEY = "leave_with_pay_days";
+
+/** A valid yearly paid-leave setting (whole days, 0 to 30), or null. */
+export function parseLeaveWithPayDays(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,2}$/.test(text)) return null;
+  const n = Number(text);
+  return n >= 0 && n <= 30 ? n : null;
+}
+
+/** Years before the setting existed keep the 15 days that applied then (past years are never recalculated). */
+export function allotmentForYear(year, setting) {
+  return Number(year) < 2026 ? 15 : setting;
+}
+
+/** The yearly Leave-With-Pay days from System Configuration (default 6). */
+export async function readLeaveWithPayDays(supabase) {
+  const result = await supabase.from("system_config").select("value").eq("section", "payroll").eq("key", LEAVE_WITH_PAY_KEY).maybeSingle();
+  return parseLeaveWithPayDays(result.data?.value) ?? DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS;
+}
 
 // Inclusive day count between two YYYY-MM-DD dates.
 export function countLeaveDays(startDate, endDate) {
@@ -276,7 +298,7 @@ export function findOverlappingApprovedLeave(requests, employeeId, startDate, en
 // approved leave requests only (pending/rejected requests don't count), for
 // one leave year at a time — the allotment is annual, so a request approved
 // in a prior year must not keep counting against this year's balance.
-export function summarizeLeaveBalance(requests, employeeId, year = new Date().getFullYear()) {
+export function summarizeLeaveBalance(requests, employeeId, year = new Date().getFullYear(), allotment = DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS) {
   const approved = requests.filter((r) => {
     if (r.status !== "approved") return false;
     if (employeeId && r.employee_id !== employeeId) return false;
@@ -293,9 +315,9 @@ export function summarizeLeaveBalance(requests, employeeId, year = new Date().ge
     .reduce((sum, r) => sum + countLeaveDays(r.start_date, r.end_date), 0);
 
   return {
-    with_pay_allotment: DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS,
+    with_pay_allotment: allotment,
     with_pay_used: withPayUsed,
-    with_pay_remaining: Math.max(0, DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS - withPayUsed),
+    with_pay_remaining: Math.max(0, allotment - withPayUsed),
     without_pay_used: withoutPayUsed,
   };
 }

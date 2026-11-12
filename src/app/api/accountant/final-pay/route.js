@@ -50,7 +50,7 @@ import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadBirYear } from "@/lib/payroll/bir-forms";
 import { applyYearEndToFinalPay, yearEndAdjustment } from "@/lib/payroll/year-end-tax";
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
-import { summarizeLeaveBalance } from "@/lib/leave-requests/store";
+import { readLeaveWithPayDays, summarizeLeaveBalance } from "@/lib/leave-requests/store";
 import { leaveConversionAmount, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
 
 const peso = (value) => roundPeso(value);
@@ -264,7 +264,7 @@ function separationDetails(body) {
 async function unusedLeave(supabase, person, daily) {
   const year = Number(String(person.separated_on).slice(0, 4));
   const leaves = await supabase.from("leave_requests").select("start_date,end_date,status,pay_status,employee_id").eq("employee_id", person.id);
-  const balance = summarizeLeaveBalance((leaves.data || []).map((l) => ({ ...l, status: String(l.status || "").toLowerCase(), pay_status: String(l.pay_status || "").toLowerCase().includes("without") ? "without_pay" : "with_pay" })), person.id, year);
+  const balance = summarizeLeaveBalance((leaves.data || []).map((l) => ({ ...l, status: String(l.status || "").toLowerCase(), pay_status: String(l.pay_status || "").toLowerCase().includes("without") ? "without_pay" : "with_pay" })), person.id, year, await readLeaveWithPayDays(supabase));
   const setting = await loadLeaveConversion(supabase);
   const { paid_days: paidDays, amount } = leaveConversionAmount(setting, balance.with_pay_remaining, daily);
   return {

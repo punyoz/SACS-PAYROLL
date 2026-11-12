@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
-import { CheckIcon, CircleIcon, EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react";
+import { CheckIcon, CircleIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { usePortalSession } from "@/components/portal/session";
+import { PasswordInput } from "@/components/portal/password-input";
 import { PASSWORD_MIN_LENGTH } from "@/app/login/auth-context";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
 import { digitsOnly, formatDigitField, isMaskedPii } from "@/lib/portal/format";
@@ -422,40 +423,8 @@ export function firstRuleError(rules) {
   return "";
 }
 
-export function PasswordInput({ id, label, value, onChange, autoComplete = "new-password", placeholder, readOnly, autoFocus, invalid }) {
-  const [show, setShow] = React.useState(false);
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="relative">
-        <Input
-          id={id}
-          type={show ? "text" : "password"}
-          autoComplete={autoComplete}
-          maxLength={72}
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          readOnly={readOnly}
-          autoFocus={autoFocus}
-          aria-invalid={invalid || undefined}
-          className="pr-11"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground"
-          onClick={() => setShow((v) => !v)}
-          aria-label={show ? "Hide password" : "Show password"}
-          aria-pressed={show}
-        >
-          {show ? <EyeOffIcon /> : <EyeIcon />}
-        </Button>
-      </div>
-    </div>
-  );
-}
+// Moved to its own file (2026-11-12) so every password box shares it; kept exported from here.
+export { PasswordInput };
 
 export function ChangePasswordDialog({ open, onOpenChange }) {
   const { ctx, updateContext, notify } = usePortalSession();

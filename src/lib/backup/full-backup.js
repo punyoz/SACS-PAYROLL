@@ -16,7 +16,7 @@
 
 import { fetchProfilesPii } from "@/lib/employees/pii";
 import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
-import { summarizeLeaveBalance, DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS } from "@/lib/leave-requests/store";
+import { summarizeLeaveBalance, DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, allotmentForYear, readLeaveWithPayDays } from "@/lib/leave-requests/store";
 import { branchPayRates, derivedHourly, loadRateConfigs, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey } from "@/lib/payroll/periods";
 import { loadDemoIds } from "@/lib/demo";
@@ -290,13 +290,14 @@ export async function leaveBalancesSheet(supabase, actorId, context) {
     requests.push({ ...row, status: String(row.status || "").toLowerCase(), pay_status: String(row.pay_status || "").toLowerCase().includes("without") ? "without_pay" : String(row.pay_status || "").toLowerCase().includes("with") ? "with_pay" : row.pay_status });
   }
   const year = Number(manilaDateKey().slice(0, 4));
+  const setting = await readLeaveWithPayDays(supabase);
   const people = context.profiles.filter((p) => !["super_admin"].includes(String(p.role || "").toLowerCase()));
   const columns = ["Employee ID", "Full name", "Branch", "Year", "Leave with pay allotment", "Leave with pay used", "Leave with pay remaining", "Leave without pay used"]
     .map((header, i) => ({ header, width: i < 3 ? 24 : 14, integer: i >= 3 }));
   function* rows() {
     for (const y of [year, year - 1]) {
       for (const p of people) {
-        const b = summarizeLeaveBalance(requests, p.id, y);
+        const b = summarizeLeaveBalance(requests, p.id, y, allotmentForYear(y, setting));
         yield [p.employee_id || p.staff_id || "", fullName(p), context.branchNames.get(String(p.branch_id || "")) || "", y,
           b.with_pay_allotment ?? DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, b.with_pay_used, b.with_pay_remaining, b.without_pay_used];
       }

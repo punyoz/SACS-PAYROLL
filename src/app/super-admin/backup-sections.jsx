@@ -1,5 +1,6 @@
 "use client";
 
+import { PasswordInput } from "@/components/portal/password-input";
 import * as React from "react";
 import {
   AlertTriangleIcon, ArchiveRestoreIcon, DatabaseBackupIcon, DownloadIcon, FileSpreadsheetIcon, Loader2Icon, LockKeyholeIcon, ShieldAlertIcon, XIcon,
@@ -9,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { usePortalSession } from "@/components/portal/session";
@@ -156,7 +156,7 @@ export function FullBackupCard({ refreshKey }) {
             <p className="flex gap-2 rounded-md border border-warning/40 bg-warning/5 p-3 text-sm text-warning"><AlertTriangleIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />{PRIVACY_TEXT}</p>
             <div className="space-y-1.5">
               <Label htmlFor="backup-password">Your password</Label>
-              <Input id="backup-password" type="password" autoComplete="current-password" value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} disabled={Boolean(run)} autoFocus />
+              <PasswordInput id="backup-password" autoComplete="current-password" value={password} onChange={(v) => { setPassword(v); setError(""); }} disabled={Boolean(run)} autoFocus />
             </div>
             <label className="flex min-h-10 cursor-pointer items-start gap-2 text-sm">
               <Checkbox checked={agreed} onCheckedChange={(v) => { setAgreed(Boolean(v)); setError(""); }} disabled={Boolean(run)} className="mt-0.5" aria-label="I will keep this file private" />
