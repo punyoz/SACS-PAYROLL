@@ -1,15 +1,15 @@
 /**
  * BIR files already generated (payroll_bir_exports, 20261029010000):
- * read-only. The Accountant sees its branch's; the Super Admin, for
- * oversight, every branch's (src/lib/payroll/bir-access.js, decision
- * 2026-10-29). Nothing is computed or generated here: a file is shown as it
- * was generated (TINs read again from the encrypted profiles).
+ * read-only. The Super Admin only, every branch (src/lib/payroll/
+ * bir-access.js, decision 2026-11-12). Nothing is computed or generated
+ * here: a file is shown as it was generated (TINs read again from the
+ * encrypted profiles).
  *
  *   GET ?year=YYYY     the files generated for that tax year (newest first)
  *   GET ?id=…          that file (PDF, Excel or CSV)
  *
  * No POST / PATCH / DELETE: files are generated through /api/payroll/bir-forms
- * (the Accountant only) and never changed or deleted.
+ * (the Super Admin only) and never changed or deleted.
  */
 
 import { NextResponse } from "next/server";
@@ -66,7 +66,10 @@ export async function GET(request) {
     }
 
     const thisYear = Number(manilaDateKey().slice(0, 4));
-    const year = /^\d{4}$/.test(url.searchParams.get("year") || "") ? Number(url.searchParams.get("year")) : thisYear;
+    const yearParam = url.searchParams.get("year") || "";
+    if (yearParam && !/^\d{4}$/.test(yearParam)) return NextResponse.json({ error: "The tax year is 4 digits (for example 2026)." }, { status: 400 });
+    const year = yearParam ? Number(yearParam) : thisYear;
+    if (year < 2000 || year > thisYear) return NextResponse.json({ error: "Choose a year up to this one." }, { status: 400 });
     let query = supabase.from("payroll_bir_exports").select(LIST_COLUMNS).eq("tax_year", year).order("generated_at", { ascending: false }).limit(500);
     if (scope.branch_id) query = query.eq("branch_id", scope.branch_id);
     const [list, branches] = await Promise.all([query, supabase.from("branches").select("id,name")]);

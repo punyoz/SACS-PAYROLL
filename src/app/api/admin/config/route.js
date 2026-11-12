@@ -7,6 +7,7 @@ import { ORG_NAME_SECTION, invalidateOrgName } from "@/lib/org-name";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { DUPLICATE_TAP_KEY, duplicateTapSecondsError } from "@/lib/attendance/taps";
+import { BIR_EMPLOYER_KEYS, BIR_EMPLOYER_SECTION, birEmployerErrors, birEmployerStoredValue } from "@/lib/payroll/bir-employer";
 
 /**
  * The sections the Super Admin's System Configuration screen writes:
@@ -96,6 +97,18 @@ export async function PATCH(request) {
       if (section !== "attendance") return NextResponse.json({ error: "The duplicate tap window is one setting for every branch (default attendance section)." }, { status: 400 });
       const dupError = duplicateTapSecondsError(dupEntry[1]);
       if (dupError) return NextResponse.json({ error: dupError }, { status: 400 });
+    }
+
+    // The BIR employer details (General section): the same rules as the boxes
+    // (src/lib/payroll/bir-employer.js), so a direct call with letters in a
+    // number field, or digits in a name, is refused with a clear message.
+    const birEntries = entries.filter(([key]) => BIR_EMPLOYER_KEYS.includes(normalizeText(key)));
+    if (birEntries.length) {
+      if (section !== BIR_EMPLOYER_SECTION) return NextResponse.json({ error: "The BIR employer details belong to the General section." }, { status: 400 });
+      const birErrors = birEmployerErrors(Object.fromEntries(birEntries.map(([key, value]) => [normalizeText(key), value])));
+      const firstKey = Object.keys(birErrors)[0];
+      if (firstKey) return NextResponse.json({ error: birErrors[firstKey], code: "invalid_bir_employer", field: firstKey, errors: birErrors }, { status: 400 });
+      for (const entry of birEntries) entry[1] = birEmployerStoredValue(normalizeText(entry[0]), entry[1]);
     }
 
     const supabase = getAdminClient();

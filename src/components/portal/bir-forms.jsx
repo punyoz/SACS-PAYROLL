@@ -17,17 +17,17 @@ import { cn } from "@/lib/utils";
 
 /*
  * BIR Form 2316 and the 1604-C alphalist (scenario AC-11, 2026-10-22), and
- * the year-end tax annualization (2026-10-29). The Accountant only.
- *   YearEndTaxCard   Accountant → Payroll Reports (its branch): run the
- *                    annualization, schedule each difference onto a 2nd-cutoff
- *                    payslip. GET / POST /api/payroll/year-end-tax
- *   BirFormsCard     Accountant → Payroll Reports (its branch).
+ * the year-end tax annualization (2026-10-29). The Super Admin only
+ * (Super Admin → BIR Forms, decision 2026-11-12); no other role has them.
+ *   YearEndTaxCard   one branch at a time: run the annualization, schedule
+ *                    each difference onto a 2nd-cutoff payslip.
+ *                    GET / POST /api/payroll/year-end-tax
+ *   BirFormsCard     the 2316s of one branch; the alphalist of every branch.
  *                    GET /api/payroll/bir-forms
- *   MyBir2316Card    Employee → Payslips: their own 2316 for a finished year.
- *                    GET /api/employee/bir-2316
+ *   BirExportsCard   every BIR file generated. GET /api/payroll/bir-exports
  * The forms are computed from paid, approved payslips each time; nothing
  * here changes a payslip. A year-end difference goes on the scheduled payslip
- * as its own "Year-end tax adjustment" line when it is processed.
+ * as its own "Year-end tax adjustment" line when payroll is processed.
  */
 
 async function download(url, fallbackName) {
@@ -70,26 +70,45 @@ export function useDownloader() {
   return [busy, run];
 }
 
+/** The branch picker of a BIR card (fixed choices: the school's branches). */
+function BranchSelect({ id, value, branches, onChange, label }) {
+  if (!branches?.length) return null;
+  return (
+    <Select value={value || undefined} onValueChange={onChange}>
+      <SelectTrigger id={id} size="sm" className="w-44" aria-label={label}><SelectValue placeholder="Branch" /></SelectTrigger>
+      <SelectContent>{branches.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
+    </Select>
+  );
+}
+
+const query = (params) => {
+  const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v));
+  return q.toString() ? `?${q.toString()}` : "";
+};
+
 export function BirFormsCard({ refreshKey = 0 }) {
   const [year, setYear] = React.useState("");
+  const [branch, setBranch] = React.useState("");
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [busy, run] = useDownloader();
 
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const data = await fetchJson(`/api/payroll/bir-forms${year ? `?year=${year}` : ""}`);
+      const data = await fetchJson(`/api/payroll/bir-forms${query({ year, branch_id: branch })}`);
       setState({ loading: false, error: null, data });
     } catch (error) {
       setState({ loading: false, error: error.message || "Unable to load the BIR forms.", data: null });
     }
-  }, [year]);
+  }, [year, branch]);
 
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const data = state.data;
   const shownYear = String(data?.year || year || "");
-  const base = `/api/payroll/bir-forms?year=${shownYear}`;
+  const shownBranch = String(data?.branch_id || branch || "");
+  const branchName = (data?.branches || []).find((b) => b.id === shownBranch)?.name || "the branch";
+  const base = `/api/payroll/bir-forms?year=${shownYear}${shownBranch ? `&branch_id=${shownBranch}` : ""}`;
   const rows = data?.rows || [];
   const off = (data?.rows || []).filter((r) => r.settlement !== "none").length;
   const noTin = rows.filter((r) => !r.has_tin).length;
@@ -124,9 +143,9 @@ export function BirFormsCard({ refreshKey = 0 }) {
         <CardTitle>BIR forms</CardTitle>
         <CardDescription>
           BIR Form 2316 for each employee and the 1604-C alphalist, from the year&apos;s paid and approved payslips, 13th month and benefits.
-          {data && !data.can_generate ? " Read-only." : ""}
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
+          <BranchSelect id="bir-forms-branch" value={shownBranch} branches={data?.branches} onChange={setBranch} label="Branch of the 2316s" />
           <Select value={shownYear} onValueChange={setYear}>
             <SelectTrigger size="sm" className="w-28" aria-label="Tax year"><SelectValue placeholder="Year" /></SelectTrigger>
             <SelectContent>{(data?.years || []).map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
@@ -145,7 +164,7 @@ export function BirFormsCard({ refreshKey = 0 }) {
         {data?.employer_missing?.length ? (
           <Alert className="border-warning/40 bg-warning/5">
             <AlertTriangleIcon className="text-warning" aria-hidden="true" />
-            <AlertDescription>Employer details still blank on the forms: {data.employer_missing.join(", ")}. The Super Admin fills them in under System Configuration → General → BIR employer details.</AlertDescription>
+            <AlertDescription>Employer details still blank on the forms: {data.employer_missing.join(", ")}. Fill them in under System Configuration → General → BIR employer details.</AlertDescription>
           </Alert>
         ) : null}
         {data && !data.tax_table_ready ? (
@@ -169,7 +188,7 @@ export function BirFormsCard({ refreshKey = 0 }) {
               {rows.length} employee{rows.length === 1 ? "" : "s"} · tax due {moneyCompact(data.totals?.tax_due || 0)} · withheld {moneyCompact(data.totals?.tax_withheld || 0)}
               {noTin ? ` · ${noTin} without a TIN` : ""}
             </p>
-            <p className="basis-full text-xs text-muted-foreground">The 2316s cover your branch. The alphalist is one school-wide filing: it lists every branch&apos;s employees (approved payroll only).</p>
+            <p className="basis-full text-xs text-muted-foreground">The 2316s cover {branchName}. The alphalist is one school-wide filing: it lists every branch&apos;s employees (approved payroll only).</p>
           </div>
         ) : null}
         {data || state.loading ? (
@@ -202,27 +221,30 @@ const SCHEDULE_STATE = {
   final: { tone: "success", label: "On Final payslip" },
 };
 
-export function YearEndTaxCard() {
+export function YearEndTaxCard({ refreshKey = 0 }) {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
   const [year, setYear] = React.useState("");
+  const [branch, setBranch] = React.useState("");
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [busy, setBusy] = React.useState("");
 
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const data = await fetchJson(`/api/payroll/year-end-tax${year ? `?year=${year}` : ""}`);
+      const data = await fetchJson(`/api/payroll/year-end-tax${query({ year, branch_id: branch })}`);
       setState({ loading: false, error: null, data });
     } catch (error) {
       setState({ loading: false, error: error.message || "Unable to load the annualization.", data: null });
     }
-  }, [year]);
+  }, [year, branch]);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const data = state.data;
   const shownYear = String(data?.year || year || "");
+  const shownBranch = String(data?.branch_id || branch || "");
+  const branchName = (data?.branches || []).find((b) => b.id === shownBranch)?.name || "this branch";
   const rows = data?.rows || [];
   const targets = data?.targets || [];
 
@@ -242,11 +264,11 @@ export function YearEndTaxCard() {
   const runAnnualization = async () => {
     const ok = await confirm({
       title: `Run the ${shownYear} annualization?`,
-      description: `Computes each employee's tax due for ${shownYear} from the BIR annual table and compares it with the tax withheld. Running it again updates the figures; no payslip is changed.`,
+      description: `Computes the tax due for ${shownYear} of each employee of ${branchName} from the BIR annual table and compares it with the tax withheld. Running it again updates the figures; no payslip is changed.`,
       confirmLabel: "Run annualization",
     });
     if (!ok) return;
-    post("run", { action: "run", year: Number(shownYear) }, (next) => `${next.saved} employee${next.saved === 1 ? "" : "s"} annualized for ${shownYear}.`);
+    post("run", { action: "run", year: Number(shownYear), branch_id: shownBranch }, (next) => `${next.saved} employee${next.saved === 1 ? "" : "s"} annualized for ${shownYear}.`);
   };
 
   const schedule = async (row, period) => {
@@ -261,7 +283,6 @@ export function YearEndTaxCard() {
 
   const unschedule = (row) => post(row.id, { action: "unschedule", id: row.id }, () => "Schedule cleared.");
 
-  // The Super Admin's oversight: records only, nothing to run or schedule.
   const readOnly = Boolean(data?.read_only);
 
   const columns = [
@@ -315,11 +336,12 @@ export function YearEndTaxCard() {
         <CardTitle>Year-end tax annualization</CardTitle>
         <CardDescription>
           {readOnly
-            ? "Every branch's annualization records, read-only for oversight: each Accountant runs and schedules its own branch's."
-            : <>Each employee&apos;s tax due for the whole year from the BIR annual table, against the tax withheld on every cutoff. Run it again whenever payslips change;
+            ? "The annualization records, read-only."
+            : <>One branch at a time: each employee&apos;s tax due for the whole year from the BIR annual table, against the tax withheld on every cutoff. Run it again whenever payslips change;
               schedule a difference onto a 2nd-cutoff payslip (usually December 16-31), where it is its own line and the regular withholding tax is not changed.</>}
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
+          <BranchSelect id="bir-annualization-branch" value={shownBranch} branches={data?.branches} onChange={setBranch} label="Branch of the annualization" />
           <Select value={shownYear} onValueChange={setYear}>
             <SelectTrigger size="sm" className="w-28" aria-label="Annualization year"><SelectValue placeholder="Year" /></SelectTrigger>
             <SelectContent>{(data?.years || []).map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
@@ -344,7 +366,7 @@ export function YearEndTaxCard() {
         {data && data.available !== false ? (
           <div className="flex flex-wrap items-center gap-2">
             {readOnly ? <StatusBadge tone="info">Read-only</StatusBadge> : (
-              <Button size="sm" disabled={busy === "run" || !shownYear} onClick={runAnnualization}>
+              <Button size="sm" disabled={busy === "run" || !shownYear || !shownBranch} onClick={runAnnualization}>
                 {busy === "run" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <CalculatorIcon aria-hidden="true" />}{rows.length ? "Run again" : "Run annualization"}
               </Button>
             )}
@@ -361,7 +383,7 @@ export function YearEndTaxCard() {
             loading={state.loading && !data}
             pageSize={15}
             searchPlaceholder="Search employee…"
-            empty={{ title: `No annualization for ${shownYear || "this year"} yet`, description: readOnly ? "No Accountant has run it for this year." : "Choose Run annualization.", icon: CalculatorIcon }}
+            empty={{ title: `No annualization for ${shownYear || "this year"} yet`, description: readOnly ? "Nobody has run it for this year." : "Choose Run annualization.", icon: CalculatorIcon }}
             caption={`Year-end tax annualization ${shownYear}`}
             minWidth={900}
           />
@@ -375,8 +397,7 @@ const EXPORT_KIND = { bir_2316: "BIR Form 2316", alphalist: "1604-C alphalist" }
 
 /**
  * The BIR files already generated, as they were generated (GET
- * /api/payroll/bir-exports): the Accountant its branch's, the Super Admin
- * every branch's, read-only. Viewing one computes nothing.
+ * /api/payroll/bir-exports), every branch. Viewing one computes nothing.
  */
 export function BirExportsCard({ refreshKey = 0 }) {
   const [year, setYear] = React.useState(String(new Date().getFullYear()));
@@ -418,8 +439,7 @@ export function BirExportsCard({ refreshKey = 0 }) {
       <CardHeader>
         <CardTitle>Generated BIR files</CardTitle>
         <CardDescription>
-          Every BIR Form 2316 and 1604-C alphalist generated{data?.read_only ? " in every branch" : " in your branch"}, kept exactly as generated.
-          {data?.read_only ? " Read-only: only the Accountant generates them." : ""}
+          Every BIR Form 2316 and 1604-C alphalist generated, in every branch, kept exactly as generated.
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
           <Select value={year} onValueChange={setYear}>
@@ -450,45 +470,6 @@ export function BirExportsCard({ refreshKey = 0 }) {
             minWidth={760}
           />
         ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-export function MyBir2316Card() {
-  const [state, setState] = React.useState({ loading: true, error: null, years: [] });
-  const [busy, run] = useDownloader();
-
-  const load = React.useCallback(async () => {
-    setState((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const data = await fetchJson("/api/me/bir-2316");
-      setState({ loading: false, error: null, years: data.years || [] });
-    } catch (error) {
-      setState({ loading: false, error: error.message || "Unable to load your BIR 2316.", years: [] });
-    }
-  }, []);
-
-  React.useEffect(() => { load(); }, [load]);
-
-  return (
-    <Card className="min-w-0 shadow-xs">
-      <CardHeader>
-        <CardTitle>My BIR 2316</CardTitle>
-        <CardDescription>Your certificate of compensation and tax withheld, for each year that has ended.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {state.error ? <ErrorState message={state.error} onRetry={load} />
-          : state.loading ? <p className="text-sm text-muted-foreground">Loading…</p>
-            : state.years.length ? (
-              <div className="flex flex-wrap gap-2">
-                {state.years.map((y) => (
-                  <Button key={y} variant="outline" size="sm" disabled={busy === String(y)} onClick={() => run(String(y), `/api/me/bir-2316?year=${y}&format=pdf`, `BIR-2316-${y}.pdf`)}>
-                    {busy === String(y) ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <DownloadIcon aria-hidden="true" />}{y}
-                  </Button>
-                ))}
-              </div>
-            ) : <p className="text-sm text-muted-foreground">None yet. Your 2316 for a year is ready here once the year has ended.</p>}
       </CardContent>
     </Card>
   );

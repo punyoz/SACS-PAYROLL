@@ -129,7 +129,20 @@ async function beaYear(beaId, { approvedOnly }) {
 
 const card = (page) => main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "Year-end tax annualization" }) }).first();
 
-test("year-end tax: Accountant annualizes, schedules, payroll applies, forms carry it; Super Admin reads only; HR refused", async ({ page, monitor }) => {
+/** The Super Admin's BIR Forms page, the annualization card on Bea's branch and the year. */
+async function openAnnualization(page, branchName) {
+  await as(page, "super_admin", "sa-bir");
+  await settle(page);
+  await choose(page, card(page).getByRole("combobox", { name: "Branch of the annualization" }), branchName);
+  await settle(page);
+  await choose(page, card(page).getByRole("combobox", { name: "Annualization year" }), String(YEAR));
+  await settle(page);
+}
+
+// The BIR is the Super Admin's only (decision 2026-11-12): it annualizes,
+// schedules and generates the forms; the Accountant still processes payroll
+// and final pay, which apply the scheduled adjustment.
+test("year-end tax: Super Admin annualizes and schedules, the Accountant's payroll applies it, forms carry it; every other role refused", async ({ page, monitor }) => {
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
   // Ana (Main Campus) resigns at the end; Carlo is in the North branch.
   const ana = await profileByEmail(ACCOUNTS.employee.email);
@@ -149,13 +162,11 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
   // Ana: ₱500 withheld each 2nd half though her year stays under ₱250,000 (all of it is refundable).
   plant([...history(bea), ...plainHistory(ana, { basic: 9000, wht: 500, tag: "ANA" }), ...plainHistory(carlo, { basic: 25000, tag: "CARLO" })]);
   const before = await rows(db().from("payroll_entries").select("id,pay_period,status,withholding_tax,net_pay,payroll,updated_at").eq("employee_id", bea.id).order("pay_period"));
+  const [beaBranch] = await rows(db().from("branches").select("id,name").eq("id", bea.branch_id));
 
-  await step(page, "Accountant > Payroll Reports > Year-end tax annualization > Run 2026", async () => {
-    monitor.at("Accountant > Year-end tax");
-    await as(page, "accountant", "ac-reports");
-    await settle(page);
-    await choose(page, card(page).getByRole("combobox", { name: "Annualization year" }), String(YEAR));
-    await settle(page);
+  await step(page, "Super Admin > BIR Forms > Year-end tax annualization > Bea's branch > Run 2026", async () => {
+    monitor.at("Super Admin > Year-end tax");
+    await openAnnualization(page, beaBranch.name);
     await card(page).getByRole("button", { name: /Run annualization|Run again/ }).click();
     await confirm(page, "Run annualization");
     await expect(card(page).locator("tr", { hasText: "Bea" })).toBeVisible();
@@ -169,16 +180,18 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     test.info().annotations.push({ type: "run 1 (Jan-Oct 15)", description: JSON.stringify({ taxable: mine.taxable, due: mine.due, withheld: mine.withheld, balance: Number(record.balance) }) });
   });
 
-  await step(page, "Accountant > schedule Bea's adjustment on October 16-31", async () => {
+  await step(page, "Super Admin > schedule Bea's adjustment on October 16-31", async () => {
     await choose(page, card(page).getByRole("combobox", { name: /^Schedule the adjustment of Bea/ }), OCT2);
     await confirm(page, "Schedule");
     await expect(card(page).locator("tr", { hasText: "Bea" }).getByText("Scheduled")).toBeVisible();
     const [record] = await rows(db().from("payroll_tax_annualizations").select("status,target_period,scheduled_by").eq("employee_id", bea.id).eq("tax_year", YEAR));
-    expect(record).toMatchObject({ status: "scheduled", target_period: OCT2, scheduled_by: accountant.id });
+    expect(record).toMatchObject({ status: "scheduled", target_period: OCT2, scheduled_by: sa.id });
   });
 
   await step(page, "Accountant > Process Payroll October 16-31 (Bea; an incentive HR approved) > submit to HR", async () => {
     monitor.at("Accountant > process October 16-31");
+    // Processing payroll needs no BIR page: the engine reads the schedule itself.
+    await as(page, "accountant", "ac-process");
     // Filed pending, approved by HR through the database's own decision function.
     const [incentive] = await rows(db().from("payroll_monthly_incentives").insert({
       employee_id: bea.id, branch_id: bea.branch_id, item_date: "2026-10-20", kind: "incentive", description: "E2E year-end incentive", amount: 2000,
@@ -274,12 +287,9 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     expect((await rows(db().from("payroll_runs").select("status").eq("id", run.id).single())).status).toBe("approved");
   });
 
-  await step(page, "Accountant > Run again > Bea balanced at zero; the forms carry the adjustment", async () => {
-    monitor.at("Accountant > re-run");
-    await as(page, "accountant", "ac-reports");
-    await settle(page);
-    await choose(page, card(page).getByRole("combobox", { name: "Annualization year" }), String(YEAR));
-    await settle(page);
+  await step(page, "Super Admin > Run again > Bea balanced at zero; the forms carry the adjustment", async () => {
+    monitor.at("Super Admin > re-run");
+    await openAnnualization(page, beaBranch.name);
     await card(page).getByRole("button", { name: "Run again" }).click();
     await confirm(page, "Run annualization");
     const row = card(page).locator("tr", { hasText: "Bea" });
@@ -293,7 +303,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     expect(Number(record.balance)).toBe(0);
     expect(record.history.map((h) => h.action)).toEqual(["computed", "scheduled", "computed"]);
 
-    const forms = await api(page, "GET", `/api/payroll/bir-forms?year=${YEAR}`);
+    const forms = await api(page, "GET", `/api/payroll/bir-forms?year=${YEAR}&branch_id=${bea.branch_id}`);
     const f = forms.data.rows.find((r) => r.employee_id === bea.id);
     expect(f).toMatchObject({ taxable: year.taxable, tax_due: year.due, tax_withheld: r2(year.withheld + year.adjustments), year_end_adjustment: year.adjustments, settlement: "none" });
 
@@ -313,7 +323,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     expect(col("SSS, PHIC, Pag-IBIG contributions and union dues")).toBe(year.contributions);
 
     // Her 2316 alone.
-    const pdf = await page.request.get(`/api/payroll/bir-forms?year=${YEAR}&format=pdf&employee_id=${bea.id}`);
+    const pdf = await page.request.get(`/api/payroll/bir-forms?year=${YEAR}&branch_id=${bea.branch_id}&format=pdf&employee_id=${bea.id}`);
     expect(pdf.status()).toBe(200);
     const text = (await pdf.body()).toString("latin1");
     expect(text).toContain("/Count 1");
@@ -321,12 +331,13 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     expect(text).toContain(`(${year.due.toLocaleString("en-US", { minimumFractionDigits: 2 })})`);
     test.info().annotations.push({ type: "after HR approval", description: JSON.stringify({ taxable: year.taxable, due: year.due, withheld: year.withheld, adjustments: year.adjustments, balance: Number(record.balance) }) });
 
-    // Branch scope (decision 2026-10-29): Carlo (North) is in the school-wide
-    // alphalist, but not in this Accountant's annualization, summary or 2316s.
+    // One branch at a time: Carlo (North) is in the school-wide alphalist
+    // (the one place that combines the branches), but not in the Main
+    // Campus annualization, summary or 2316s.
     expect(lines.some((l) => l.includes(",Cruz,Carlo"))).toBe(true);
     expect(forms.data.rows.some((r) => r.employee_id === carlo.id)).toBe(false);
     expect((await rows(db().from("payroll_tax_annualizations").select("id").eq("employee_id", carlo.id))).length).toBe(0);
-    expect((await page.request.get(`/api/payroll/bir-forms?year=${YEAR}&format=pdf&employee_id=${carlo.id}`)).status()).toBe(404);
+    expect((await page.request.get(`/api/payroll/bir-forms?year=${YEAR}&branch_id=${bea.branch_id}&format=pdf&employee_id=${carlo.id}`)).status()).toBe(404);
     // Each generated file is recorded as generated (the alphalist: school-wide).
     const files = await rows(db().from("payroll_bir_exports").select("kind,format,scope,employee_id,employee_count,rows").eq("tax_year", YEAR));
     expect(files.some((f) => f.kind === "alphalist" && f.scope === "school" && f.rows.some((r) => r.employee_id === carlo.id))).toBe(true);
@@ -337,6 +348,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
 
   await step(page, "Accountant > Final Pay of a resigned employee settles the pending year-end tax (Fix 2)", async () => {
     monitor.at("Accountant > Final Pay");
+    await as(page, "accountant", "ac-final-pay");
     psql(`update profiles set employee_status = 'Separated', separated_on = '${testToday().slice(0, 10)}', separation_reason = 'Resigned' where id = '${ana.id}';`);
     const [record] = await rows(db().from("payroll_tax_annualizations").select("id,balance").eq("employee_id", ana.id).eq("tax_year", YEAR));
     expect(record, "Ana was annualized with her branch").toBeTruthy();
@@ -363,61 +375,39 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     test.info().annotations.push({ type: "Fix 2 final pay (Ana)", description: JSON.stringify({ year_end_tax: entry.payroll.year_end_tax, net_pay: entry.payroll.totals.net_pay }) });
   });
 
-  await step(page, "Super Admin > Audit & Monitoring > year-end records and generated files, read-only", async () => {
-    monitor.at("Super Admin > year-end oversight");
-    monitor.allow(/^403 (GET|POST) \/api\/payroll\/(year-end-tax|bir-forms)/, /status of 403/);
-    await as(page, "super_admin", "sa-audit");
+  await step(page, "Super Admin > BIR Forms > Generated BIR files: every file, as generated", async () => {
+    monitor.at("Super Admin > generated files");
+    await as(page, "super_admin", "sa-bir");
     await settle(page);
-    const records = card(page);
-    await choose(page, records.getByRole("combobox", { name: "Annualization year" }), String(YEAR));
-    await settle(page);
-    await expect(records.getByText("Read-only", { exact: true })).toBeVisible();
-    await expect(records.locator("tr", { hasText: "Bea" })).toBeVisible();
-    await expect(records.getByRole("button", { name: /Run annualization|Run again/ })).toHaveCount(0);
-    await expect(records.getByRole("combobox", { name: /Schedule the adjustment/ })).toHaveCount(0);
     const files = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "Generated BIR files" }) }).first();
     await expect(files.getByText("1604-C alphalist (CSV)").first()).toBeVisible();
     const [download] = await Promise.all([page.waitForEvent("download"), files.getByRole("button", { name: /^View the 1604-C alphalist/ }).first().click()]);
     expect(download.suggestedFilename()).toBe(`Alphalist-1604C-${YEAR}.csv`);
-    const view = await api(page, "GET", `/api/payroll/year-end-tax?year=${YEAR}`);
+    const view = await api(page, "GET", `/api/payroll/year-end-tax?year=${YEAR}&branch_id=${bea.branch_id}`);
     expect(view.status).toBe(200);
-    expect(view.data.read_only).toBe(true);
+    expect(view.data.read_only).toBe(false);
     expect(view.data.rows.some((r) => r.employee_id === bea.id)).toBe(true);
     const list = await api(page, "GET", `/api/payroll/bir-exports?year=${YEAR}`);
     expect(list.status).toBe(200);
-    const exportsBefore = (await rows(db().from("payroll_bir_exports").select("id"))).length;
-    const recordsBefore = await rows(db().from("payroll_tax_annualizations").select("id,run_count,updated_at,status,target_period").order("id"));
-    for (const [method, path, body] of [
-      ["POST", "/api/payroll/year-end-tax", { action: "run", year: YEAR }],
-      ["POST", "/api/payroll/year-end-tax", { action: "schedule", id: recordsBefore[0].id, period: "December 16-31, 2026" }],
-      ["POST", "/api/payroll/year-end-tax", { action: "unschedule", id: recordsBefore[0].id }],
-      ["GET", `/api/payroll/bir-forms?year=${YEAR}`],
-      ["GET", `/api/payroll/bir-forms?year=${YEAR}&format=pdf`],
-      ["GET", `/api/payroll/bir-forms?year=${YEAR}&format=csv`],
-      ["GET", `/api/payroll/bir-forms?year=${YEAR}&format=xlsx`],
-    ]) {
-      expect((await api(page, method, path, body)).status, `super_admin ${method} ${path}`).toBe(403);
-    }
-    expect([403, 405]).toContain((await api(page, "POST", "/api/payroll/bir-exports", { kind: "alphalist" })).status);
-    // Nothing was generated or changed by viewing.
-    expect((await rows(db().from("payroll_bir_exports").select("id"))).length).toBe(exportsBefore);
-    expect(await rows(db().from("payroll_tax_annualizations").select("id,run_count,updated_at,status,target_period").order("id"))).toEqual(recordsBefore);
+    expect([403, 404, 405]).toContain((await api(page, "POST", "/api/payroll/bir-exports", { kind: "alphalist" })).status);
   });
 
-  for (const [role, home] of [["hr", "hr-payroll-records"]]) {
-    await step(page, "HR > no year-end section, and every API refused", async () => {
+  for (const [role, home, retired] of [["hr", "hr-payroll-records", "hr-my-bir"], ["accountant", "ac-reports", "ac-my-bir"], ["admin", "adm-dashboard", null], ["employee", "emp-payslips", "emp-bir"]]) {
+    await step(page, `${role} > no BIR section, every BIR API refused, the old BIR page shows Not found`, async () => {
       monitor.at(`${role} > refused`);
       monitor.allow(/^403 (GET|POST) \/api\/payroll\/(year-end-tax|bir-forms|bir-exports)/, /status of 403/);
+      const exportsBefore = (await rows(db().from("payroll_bir_exports").select("id"))).length;
+      const recordsBefore = await rows(db().from("payroll_tax_annualizations").select("id,run_count,updated_at,status,target_period").order("id"));
       await as(page, role, home);
       await settle(page);
-      const shown = await main(page).innerText();
+      const shown = await page.locator("body").innerText();
       expect(shown).not.toContain("Year-end tax annualization");
-      expect(shown).not.toContain("BIR forms");
-      await expect(page.getByText("Payroll Reports", { exact: true })).toHaveCount(0);
+      expect(shown).not.toMatch(/BIR forms|BIR Form 2316|Alphalist|Generated BIR files/i);
       for (const [method, path, body] of [
         ["GET", `/api/payroll/year-end-tax?year=${YEAR}`],
-        ["POST", "/api/payroll/year-end-tax", { action: "run", year: YEAR }],
-        ["POST", "/api/payroll/year-end-tax", { action: "unschedule", id: "00000000-0000-4000-8000-000000000000" }],
+        ["POST", "/api/payroll/year-end-tax", { action: "run", year: YEAR, branch_id: bea.branch_id }],
+        ["POST", "/api/payroll/year-end-tax", { action: "schedule", id: recordsBefore[0].id, period: "December 16-31, 2026" }],
+        ["POST", "/api/payroll/year-end-tax", { action: "unschedule", id: recordsBefore[0].id }],
         ["GET", `/api/payroll/bir-forms?year=${YEAR}`],
         ["GET", `/api/payroll/bir-forms?year=${YEAR}&format=pdf`],
         ["GET", `/api/payroll/bir-forms?year=${YEAR}&format=csv`],
@@ -426,41 +416,47 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
       ]) {
         expect((await api(page, method, path, body)).status, `${role} ${method} ${path}`).toBe(403);
       }
-      // The Accountant's page by URL: stays in its own portal.
-      await page.goto("/accountant?page=ac-reports");
-      await page.waitForURL((url) => url.pathname.startsWith(ACCOUNTS[role].portal), { timeout: 30000 }).catch(() => {});
-      expect(new URL(page.url()).pathname.startsWith(ACCOUNTS[role].portal)).toBe(true);
+      // Nothing was generated or changed.
+      expect((await rows(db().from("payroll_bir_exports").select("id"))).length).toBe(exportsBefore);
+      expect(await rows(db().from("payroll_tax_annualizations").select("id,run_count,updated_at,status,target_period").order("id"))).toEqual(recordsBefore);
+      if (retired) {
+        await page.goto(`${ACCOUNTS[role].portal}?page=${retired}`);
+        await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+        expect(new URL(page.url()).searchParams.get("page")).toBe(retired);
+      }
     });
   }
 
-  await step(page, "Database > read scope: Accountant its branch, Super Admin read-only, HR refused; files kept as generated", async () => {
+  await step(page, "Database > read scope: the Super Admin only (every branch); everyone else refused; files kept as generated", async () => {
     const scope = async (actor) => db().rpc("payroll_bir_read_scope", { p_actor: actor.id });
-    expect((await scope(accountant)).data).toEqual([{ role: "accountant", branch_id: accountant.branch_id, read_only: false }]);
-    expect((await scope(sa)).data).toEqual([{ role: "super_admin", branch_id: null, read_only: true }]);
+    expect((await scope(sa)).data).toEqual([{ role: "super_admin", branch_id: null, read_only: false }]);
+    expect((await scope(accountant)).error?.message).toMatch(/^forbidden: only the Super Admin/);
     expect((await scope(hr)).error?.message).toMatch(/^forbidden/);
     const file = (actor, kind, rowsOf) => db().rpc("payroll_bir_export_save", { p_actor: actor.id, p_kind: kind, p_year: YEAR, p_format: kind === "alphalist" ? "csv" : "pdf", p_employee: null, p_rows: rowsOf, p_employer: {}, p_totals: {} });
-    expect((await file(sa, "alphalist", [])).error?.message).toMatch(/^forbidden: only the Accountant/);
-    expect((await file(hr, "alphalist", [])).error?.message).toMatch(/^forbidden: only the Accountant/);
-    // A 2316 never covers another branch; the alphalist may.
-    expect((await file(accountant, "bir_2316", [{ employee_id: carlo.id }])).error?.message).toMatch(/^forbidden: a 2316 covers only employees of your branch/);
-    const school = await file(accountant, "alphalist", [{ employee_id: carlo.id }, { employee_id: bea.id }]);
+    expect((await file(accountant, "alphalist", [])).error?.message).toMatch(/^forbidden: only the Super Admin/);
+    expect((await file(hr, "alphalist", [])).error?.message).toMatch(/^forbidden: only the Super Admin/);
+    // A 2316 records its employees' branch; the alphalist is school-wide.
+    const one = await file(sa, "bir_2316", [{ employee_id: carlo.id }]);
+    expect(one.error).toBeNull();
+    expect((await rows(db().from("payroll_bir_exports").select("branch_id,scope").eq("id", one.data)))[0]).toEqual({ branch_id: carlo.branch_id, scope: "branch" });
+    const school = await file(sa, "alphalist", [{ employee_id: carlo.id }, { employee_id: bea.id }]);
     expect(school.error).toBeNull();
     // Kept as generated: no update, no delete.
     expect((await db().from("payroll_bir_exports").update({ employee_count: 0 }).eq("id", school.data)).error?.message).toMatch(/kept as it was generated/);
     expect((await db().from("payroll_bir_exports").delete().eq("id", school.data)).error).toBeTruthy();
   });
 
-  await step(page, "Database > the functions refuse HR and the Super Admin; clients cannot reach the table", async () => {
+  await step(page, "Database > the functions refuse HR and the Accountant; clients cannot reach the table", async () => {
     const [record] = await rows(db().from("payroll_tax_annualizations").select("id").eq("employee_id", bea.id).eq("tax_year", YEAR));
-    for (const actor of [hr, sa]) {
+    for (const actor of [hr, accountant]) {
       const saved = await db().rpc("payroll_tax_annualization_save", { p_actor: actor.id, p_year: YEAR, p_rows: [{ employee_id: bea.id, tax_due: 1 }] });
-      expect(saved.error?.message, actor.role).toMatch(/^forbidden: only the Accountant/);
+      expect(saved.error?.message, actor.role).toMatch(/^forbidden: only the Super Admin/);
       const scheduled = await db().rpc("payroll_tax_annualization_schedule", { p_actor: actor.id, p_id: record.id, p_period: "December 16-31, 2026" });
-      expect(scheduled.error?.message, actor.role).toMatch(/^forbidden: only the Accountant/);
+      expect(scheduled.error?.message, actor.role).toMatch(/^forbidden: only the Super Admin/);
     }
-    // The Accountant cannot put it on a 1st cutoff, or on a Final payslip.
-    expect((await db().rpc("payroll_tax_annualization_schedule", { p_actor: accountant.id, p_id: record.id, p_period: "December 1-15, 2026" })).error?.message).toMatch(/^invalid: choose a 2nd-cutoff/);
-    expect((await db().rpc("payroll_tax_annualization_schedule", { p_actor: accountant.id, p_id: record.id, p_period: OCT2 })).error?.message).toMatch(/already Final/);
+    // Not on a 1st cutoff, nor on a Final payslip.
+    expect((await db().rpc("payroll_tax_annualization_schedule", { p_actor: sa.id, p_id: record.id, p_period: "December 1-15, 2026" })).error?.message).toMatch(/^invalid: choose a 2nd-cutoff/);
+    expect((await db().rpc("payroll_tax_annualization_schedule", { p_actor: sa.id, p_id: record.id, p_period: OCT2 })).error?.message).toMatch(/already Final/);
     // Nothing deletes it.
     expect((await db().from("payroll_tax_annualizations").delete().eq("id", record.id)).error).toBeTruthy();
     // Signed-in browser clients (anon key) reach neither the table nor the functions.
@@ -468,7 +464,7 @@ test("year-end tax: Accountant annualizes, schedules, payroll applies, forms car
     const anon = createClient(s.url, s.anonKey, { auth: { persistSession: false } });
     const read = await anon.from("payroll_tax_annualizations").select("id");
     expect(read.error || (read.data || []).length === 0 ? "refused" : "open").toBe("refused");
-    expect((await anon.rpc("payroll_tax_annualization_save", { p_actor: accountant.id, p_year: YEAR, p_rows: [] })).error).toBeTruthy();
+    expect((await anon.rpc("payroll_tax_annualization_save", { p_actor: sa.id, p_year: YEAR, p_rows: [] })).error).toBeTruthy();
     const files = await anon.from("payroll_bir_exports").select("id");
     expect(files.error || (files.data || []).length === 0 ? "refused" : "open").toBe("refused");
     expect((await anon.rpc("payroll_bir_read_scope", { p_actor: sa.id })).error).toBeTruthy();

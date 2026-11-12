@@ -18,7 +18,7 @@ const BAD_TEXT = /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/;
 const EXPECTED_EMPTY = [
   [/^No payslip selected$|^No report (generated )?yet$|^No records for selected period$/, "needs a click (choose a payslip / generate a report)"],
   [/^Nobody is waiting: every employee left out has been paid$/, "a good result: nobody left out of a run"],
-  [/^No annualization for 2026 yet$|^No 13th month yet$/, "December only (the 13th month and the year-end tax are processed from Dec 1)"],
+  [/^No annualization for 2026 yet$|^No 13th month yet$/, "December only (the 13th month and the Super Admin's year-end tax annualization are done from Dec 1)"],
   [/^No paid payslips in 2025$/, "the system starts in 2026: no 2025 payroll exists"],
   [/subsidy|^Nothing (here yet|pending|processed|approved|rejected|applied to payroll)$|^No decisions yet$/i, "subsidy: an approved item is Applied when the next payroll runs; Pending and excess settlements are raised by the system only when an advance exceeds the entitlement"],
   [/^Nothing waits on the fallback$/, "correct: both HR are active, so nothing waits on the Super Admin"],
@@ -33,6 +33,21 @@ const EXPECTED_EMPTY = [
   [/^No (loans|cash advances|incentives) yet$/, "the only Accountant of a branch cannot file their own requests, and no other Accountant exists there (the payslip is the only self-processed item)", { role: /accountant_single/, page: /My Requests/ }],
   [/^No records found\.$/, "a report not generated yet", { page: /HR Reports/ }],
 ];
+/**
+ * BIR text outside the Super Admin (decision 2026-11-12): HR, Accountant,
+ * Employee and Admin see no BIR page, form or export. What may remain is the
+ * withholding tax itself (its payslip line, the table it comes from, the tax
+ * remitted to the BIR). Every match is listed in bir-text.json with its reason;
+ * an unexplained one fails the audit.
+ */
+const BIR_TEXT = /.{0,50}(?:\bBIR\b|2316|alphalist).{0,50}/gi;
+const BIR_ALLOWED = [
+  [/withholding|withheld/i, "the withholding tax (its payslip line or the BIR table it is computed from): stays"],
+  [/Tax \(BIR\)|remit/i, "the withholding tax remitted to the BIR (remittance tax column): stays (open decision 1)"],
+  [/TRAIN|tax table|BIR table|RR 11-2018|revises|fixed by law/i, "the withholding tax table and its source note (RR 11-2018, fixed by law): stays"],
+];
+const birReason = (text) => BIR_ALLOWED.find(([re]) => re.test(text))?.[1] || null;
+
 const expectedReason = (text, where = {}) => EXPECTED_EMPTY.find(([re, , when = {}]) => re.test(text)
   && (!when.page || when.page.test(where.page || "")) && (!when.tab || when.tab.test(where.tab || "")) && (!when.role || when.role.test(where.role || "")))?.[1] || null;
 
@@ -63,7 +78,7 @@ async function settle(page) {
 }
 
 async function measure(page) {
-  return page.evaluate((bad) => {
+  return page.evaluate(({ bad, birSource }) => {
     const main = document.querySelector("#portal-main");
     const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
     const rows = [...main.querySelectorAll("[data-slot=table] tbody tr")].filter((tr) => visible(tr) && !tr.querySelector("[data-slot=empty-state]")).length;
@@ -71,8 +86,10 @@ async function measure(page) {
     const empties = [...main.querySelectorAll("[data-slot=empty-state]")].filter(visible).map((el) => el.querySelector("p")?.textContent?.trim() || "empty");
     const text = main.innerText || "";
     const badMatch = text.match(new RegExp(bad));
-    return { rows, cards, empties, bad: badMatch ? text.slice(Math.max(0, badMatch.index - 40), badMatch.index + 30).replace(/\s+/g, " ") : null };
-  }, BAD_TEXT.source);
+    // The whole screen (sidebar, header, page) for the BIR text search.
+    const bir = [...(document.body.innerText || "").replace(/\s+/g, " ").matchAll(new RegExp(birSource, "gi"))].map((m) => m[0].trim());
+    return { rows, cards, empties, bir, bad: badMatch ? text.slice(Math.max(0, badMatch.index - 40), badMatch.index + 30).replace(/\s+/g, " ") : null };
+  }, { bad: BAD_TEXT.source, birSource: BIR_TEXT.source });
 }
 
 /** Open every collapsible group, then return the sidebar's page buttons' labels. */
@@ -142,11 +159,16 @@ for (const [role, { portal }] of Object.entries(AUDIT_ROLES)) {
     for (const r of results) {
       r.expected = r.empties.filter((e) => expectedReason(e, r)).map((e) => ({ text: e, reason: expectedReason(e, r) }));
       r.unexpected = r.empties.filter((e) => !expectedReason(e, r));
-      r.result = r.unexpected.length || r.bad || (r.sideways || 0) > 0 ? "FAIL" : r.expected.length ? "OK (expected empty)" : "OK";
+      // The Super Admin keeps the BIR; everyone else may show only the withholding tax.
+      r.bir = role === "super_admin" ? [] : (r.bir || []).map((text) => ({ text, reason: birReason(text) }));
+      r.birUnexplained = r.bir.filter((m) => !m.reason).map((m) => m.text);
+      r.result = r.unexpected.length || r.bad || r.birUnexplained.length || (r.sideways || 0) > 0 ? "FAIL" : r.expected.length ? "OK (expected empty)" : "OK";
     }
     writeFileSync(join(OUT_DIR, `${role}.json`), JSON.stringify(results, null, 2));
+    const birRows = results.flatMap((r) => r.bir.map((m) => ({ width: r.width, page: r.page, tab: r.tab, ...m })));
+    writeFileSync(join(OUT_DIR, `bir-text-${role}.json`), JSON.stringify(birRows, null, 2));
     const problems = results.filter((r) => r.result === "FAIL")
-      .map((r) => `${r.width}px ${r.page}${r.tab ? ` › ${r.tab}` : ""}: ${[...r.unexpected.map((e) => `empty "${e}"`), r.bad ? `shows "${r.bad}"` : null, r.sideways > 0 ? `scrolls sideways ${r.sideways}px` : null].filter(Boolean).join("; ")}`);
+      .map((r) => `${r.width}px ${r.page}${r.tab ? ` › ${r.tab}` : ""}: ${[...r.unexpected.map((e) => `empty "${e}"`), r.bad ? `shows "${r.bad}"` : null, ...r.birUnexplained.map((t) => `BIR text "${t}"`), r.sideways > 0 ? `scrolls sideways ${r.sideways}px` : null].filter(Boolean).join("; ")}`);
     expect(problems, `${role}: pages with empty states or bad text`).toEqual([]);
   });
 }

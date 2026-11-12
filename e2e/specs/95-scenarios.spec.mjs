@@ -336,39 +336,85 @@ test("HR-07 / SA-03 / SC-14 / SA-01: audit search reaches old entries; size warn
   expect(JSON.stringify(branches.data)).toContain(name);
 });
 
-test("AC-11: BIR 2316 and the alphalist (SA sets the employer, Accountant generates, HR refused, employee waits for year end)", async ({ page, monitor }) => {
+test("AC-11: BIR 2316 and the alphalist (the Super Admin only: sets the employer with checked boxes, generates; HR, Accountant, Employee refused)", async ({ page, monitor }) => {
   const year = Number(manilaDay().slice(0, 4));
   const paid = await rows(db().from("payroll_entries").select("id").eq("status", "paid").like("pay_period", `%, ${year}`).limit(1));
   test.skip(!paid.length, "needs a paid payslip from 20-payroll-flow");
 
-  await step(page, "Super Admin > System Configuration > General > BIR employer details", async () => {
-    monitor.at("Super Admin > BIR employer details");
-    await as(page, "super_admin", "sa-config");
-    await settle(page);
-    const card = main(page).locator("[data-slot=card]").filter({ hasText: "BIR employer details" });
-    await card.locator("#cfg-bir-bir_employer_tin").fill("12");
-    await card.getByRole("button", { name: "Save" }).click();
-    await expect(card.getByText("Enter the 9-digit TIN")).toBeVisible();
-    await card.locator("#cfg-bir-bir_employer_name").fill("E2E Christian School, Inc.");
-    await card.locator("#cfg-bir-bir_employer_tin").fill("111-222-333-000");
-    await card.locator("#cfg-bir-bir_rdo_code").fill("046");
-    await card.locator("#cfg-bir-bir_zip_code").fill("1600");
-    await card.getByRole("button", { name: "Save" }).click();
-    await confirm(page, "Save");
-    await expect(card.getByText("BIR employer details saved.")).toBeVisible();
-    const saved = await rows(db().from("system_config").select("key,value").eq("section", "general").like("key", "bir_%"));
-    expect(Object.fromEntries(saved.map((r) => [r.key, r.value]))).toMatchObject({ bir_employer_tin: "111-222-333-000", bir_rdo_code: "046" });
+  for (const [label, viewport] of [["desktop 1366", { width: 1366, height: 900 }], ["mobile 390", { width: 390, height: 844 }]]) {
+    await step(page, `Super Admin > System Configuration > General > BIR employer details: the boxes refuse the wrong characters (${label})`, async () => {
+      monitor.at(`Super Admin > BIR employer details (${label})`);
+      await page.setViewportSize(viewport);
+      await as(page, "super_admin", "sa-config");
+      await settle(page);
+      const card = main(page).locator("[data-slot=card]").filter({ hasText: "BIR employer details" });
+      const box = (key) => card.locator(`#cfg-bir-bir_${key}`);
+      // Numbers-only boxes: the numeric keyboard, a maximum, letters dropped as typed and as pasted.
+      for (const [key, max] of [["employer_tin", "17"], ["rdo_code", "3"], ["zip_code", "4"]]) {
+        await expect(box(key)).toHaveAttribute("inputmode", "numeric");
+        await expect(box(key)).toHaveAttribute("maxlength", max);
+      }
+      await box("employer_tin").fill("");
+      await box("employer_tin").pressSequentially("1a2b3");
+      await expect(box("employer_tin")).toHaveValue("123");
+      await expect(card.getByText("Numbers only: letters and symbols are not accepted.").first()).toBeVisible();
+      await box("employer_tin").fill("TIN 111-222-333-000 (main)");
+      await expect(box("employer_tin")).toHaveValue("111-222-333-000");
+      await box("rdo_code").fill("0a4b6c");
+      await expect(box("rdo_code")).toHaveValue("046");
+      await box("zip_code").fill("16x00");
+      await expect(box("zip_code")).toHaveValue("1600");
+      // Name boxes: digits and symbols dropped.
+      await expect(box("signatory_name")).toHaveAttribute("maxlength", "120");
+      await box("signatory_name").fill("Juan2 Dela Cruz#");
+      await expect(box("signatory_name")).toHaveValue("Juan Dela Cruz");
+      await expect(card.getByText(/Names can only have letters/)).toBeVisible();
+      await box("employer_name").fill("Shepherd Angels Christian School 1 Inc.");
+      await expect(box("employer_name")).toHaveValue("Shepherd Angels Christian School  Inc.");
+      await box("employer_name").fill("Shepherd Angels Christian School Inc.");
+      // A wrong TIN length: the shared TIN rule, inline.
+      await box("employer_tin").fill("12");
+      await card.getByRole("button", { name: "Save" }).click();
+      await expect(card.getByText("TIN must be 9, 12 or 14 digits (with the branch code).")).toBeVisible();
+      await box("employer_tin").fill("111-222-333-000");
+      await card.getByRole("button", { name: "Save" }).click();
+      await confirm(page, "Save");
+      await expect(card.getByText("BIR employer details saved.")).toBeVisible();
+      const saved = await rows(db().from("system_config").select("key,value").eq("section", "general").like("key", "bir_%"));
+      // The TIN is stored as digits, as the employees' TINs.
+      expect(Object.fromEntries(saved.map((r) => [r.key, r.value]))).toMatchObject({ bir_employer_tin: "111222333000", bir_rdo_code: "046", bir_zip_code: "1600", bir_signatory_name: "Juan Dela Cruz" });
+    });
+  }
+  await page.setViewportSize({ width: 1366, height: 900 });
+
+  await step(page, "Super Admin > the config API refuses bad BIR values on a direct call", async () => {
+    for (const [fields, message] of [
+      [{ bir_zip_code: "16a0" }, /4 digits/],
+      [{ bir_rdo_code: "4-6" }, /3 digits/],
+      [{ bir_employer_tin: "111222333x" }, /numbers only/],
+      [{ bir_signatory_name: "Juan 3" }, /letters, spaces/],
+      [{ bir_registered_address: "x".repeat(251) }, /at most 250/],
+    ]) {
+      const res = await api(page, "PATCH", "/api/admin/config", { section: "general", fields });
+      expect(res.status, JSON.stringify(fields)).toBe(400);
+      expect(res.data.error).toMatch(message);
+    }
+    const saved = await rows(db().from("system_config").select("key,value").eq("section", "general").eq("key", "bir_zip_code"));
+    expect(saved[0].value).toBe("1600");
   });
 
-  await step(page, "Accountant > Payroll Reports > BIR forms > choose the year, download the alphalist and a 2316", async () => {
-    monitor.at("Accountant > BIR forms");
-    await as(page, "accountant", "ac-reports");
+  await step(page, "Super Admin > BIR Forms > the branch and year, download the alphalist and a 2316", async () => {
+    monitor.at("Super Admin > BIR forms");
+    const bea = await profileByEmail(ACCOUNTS.employee2.email);
+    const [branch] = await rows(db().from("branches").select("id,name").eq("id", bea.branch_id));
+    await as(page, "super_admin", "sa-bir");
     await settle(page);
-    const card = main(page).locator("[data-slot=card]").filter({ hasText: "BIR forms" }).last();
+    const card = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: /^BIR forms$/ }) }).first();
+    await choose(page, card.getByRole("combobox", { name: "Branch of the 2316s" }), branch.name);
+    await settle(page);
     await choose(page, card.getByRole("combobox", { name: "Tax year" }), String(year));
     await settle(page);
     await expect(card.getByText(`${year} is not over yet`)).toBeVisible();
-    await expect(card.getByText(/Employer details still blank/)).toBeVisible();
     await expect(card.locator("tr", { hasText: "Bea" })).toBeVisible();
     const [sheet] = await Promise.all([page.waitForEvent("download"), card.getByRole("button", { name: "Alphalist (Excel)" }).click()]);
     expect(sheet.suggestedFilename()).toBe(`Alphalist-1604C-${year}.xlsx`);
@@ -376,33 +422,24 @@ test("AC-11: BIR 2316 and the alphalist (SA sets the employer, Accountant genera
     expect(pdf.suggestedFilename()).toMatch(/^BIR-2316-\d{4}-E2E-EMP-002\.pdf$/);
     const logs = await rows(db().from("audit_logs").select("action").eq("action", "bir_forms_export"));
     expect(logs.length).toBeGreaterThanOrEqual(2);
-  });
-
-  await step(page, "Accountant > BIR forms API: TINs on screen are masked", async () => {
-    const body = await api(page, "GET", `/api/payroll/bir-forms?year=${year}`);
-    expect(body.status).toBe(200);
     // TINs on screen are masked (the full ones are only in the files).
+    const body = await api(page, "GET", `/api/payroll/bir-forms?year=${year}&branch_id=${bea.branch_id}`);
+    expect(body.status).toBe(200);
     expect(body.data.rows.every((r) => !/\d{5}/.test(r.tin_masked))).toBe(true);
     expect([403, 405]).toContain((await api(page, "POST", "/api/payroll/bir-forms", {})).status);
+    expect((await api(page, "GET", "/api/payroll/bir-forms?year=2O26")).status).toBe(400);
   });
 
-  await step(page, "HR > Payroll Records > no BIR forms (the Accountant's only, 2026-10-29)", async () => {
-    monitor.at("HR > BIR forms refused");
-    monitor.allow(/^403 GET \/api\/payroll\/bir-forms/, /status of 403/);
-    await as(page, "hr", "hr-payroll-records");
-    await settle(page);
-    await expect(main(page).locator("[data-slot=card]").filter({ hasText: "BIR forms" })).toHaveCount(0);
-    expect((await api(page, "GET", `/api/payroll/bir-forms?year=${year}`)).status).toBe(403);
-  });
-
-  await step(page, "Employee > Payslips > My BIR 2316: this year's comes after year end", async () => {
-    monitor.at("Employee > My BIR 2316");
-    monitor.allow(/^400 GET \/api\/employee\/bir-2316/, /status of 400/);
-    await as(page, "employee", "emp-payslips");
-    await settle(page);
-    await expect(main(page).getByText("My BIR 2316")).toBeVisible();
-    await expect(main(page).getByText(/once the year has ended/)).toBeVisible();
-    expect((await api(page, "GET", `/api/employee/bir-2316?year=${year}&format=pdf`)).status).toBe(400);
-    expect((await api(page, "GET", `/api/payroll/bir-forms?year=${year}`)).status).toBe(403);
-  });
+  for (const [role, home] of [["hr", "hr-payroll-records"], ["accountant", "ac-reports"], ["employee", "emp-payslips"]]) {
+    await step(page, `${role} > no BIR forms anywhere, every BIR call refused (the Super Admin's only, 2026-11-12)`, async () => {
+      monitor.at(`${role} > BIR refused`);
+      monitor.allow(/^40[34] GET \/api\/(payroll\/bir-forms|employee\/bir-2316|me\/bir-2316)/, /status of 40[34]/);
+      await as(page, role, home);
+      await settle(page);
+      await expect(main(page).locator("[data-slot=card]").filter({ hasText: /BIR forms|My BIR 2316|BIR Form 2316/ })).toHaveCount(0);
+      expect((await api(page, "GET", `/api/payroll/bir-forms?year=${year}`)).status).toBe(403);
+      expect((await api(page, "GET", `/api/employee/bir-2316?year=${year - 1}&format=pdf`)).status).toBe(403);
+      expect([403, 404]).toContain((await api(page, "GET", "/api/me/bir-2316")).status);
+    });
+  }
 });

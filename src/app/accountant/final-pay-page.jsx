@@ -183,7 +183,7 @@ export function FinalPayPage({ refreshKey }) {
                     <AlertDescription>{b.uncovered.map((u) => `${money(u.amount)} not covered (${u.reason})`).join("; ")}. Saving leaves it on the loan as &quot;Separated – for collection&quot;; send a demand letter.</AlertDescription>
                   </Alert>
                 ) : null}
-                <p className="text-xs text-muted-foreground">Tax is withheld per month on the monthly table; the year-end annualization (BIR 2316) settles any difference.</p>
+                <p className="text-xs text-muted-foreground">Tax is withheld per month on the monthly table; the year-end tax annualization settles any difference.</p>
                 <fieldset data-testid="separation-details" className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2">
                   <legend className="px-1 text-sm font-medium">Separation details (kept with the Final Pay record)</legend>
                   <p className="text-sm sm:col-span-2"><span className="text-muted-foreground">Separated on</span> {dateLabel(selected.separated_on)}{detail.data?.separation?.hr_reason ? ` · HR: ${detail.data.separation.hr_reason}` : ""}{detail.data?.separation?.recorded_by ? ` · recorded by ${detail.data.separation.recorded_by}${detail.data.separation.recorded_at ? ` on ${dateLabel(String(detail.data.separation.recorded_at).slice(0, 10))}` : ""}` : ""}</p>

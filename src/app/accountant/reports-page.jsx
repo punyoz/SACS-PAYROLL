@@ -15,7 +15,6 @@ import { fetchJson } from "@/lib/portal/api";
 import { dateLabel, money, moneyCompact, recordStatusMeta, toAmount } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
-import { BirExportsCard, BirFormsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
 import { RemittanceCard } from "@/components/portal/remittance-report";
 
 /*
@@ -323,11 +322,8 @@ export function ReportsPage() {
         </CardContent>
       </Card>
 
-      {/* Year-end tax annualization, BIR Form 2316 and the 1604-C alphalist (AC-11, 2026-10-29). */}
+      {/* The BIR forms (2316, alphalist, year-end annualization) are the Super Admin's only (2026-11-12). */}
       <RemittanceCard />
-      <YearEndTaxCard />
-      <BirFormsCard />
-      <BirExportsCard />
     </>
   );
 }

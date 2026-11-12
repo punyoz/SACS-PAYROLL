@@ -36,10 +36,10 @@ const ROUTES = [
   ["/api/accountant/final-pay", [AC]],
   // An Employee may call it, and gets only its own loans (loans: self scope).
   ["/api/accountant/loans", [AC, EM]],
-  ["/api/payroll/bir-forms", [AC]],
-  // Accountant generates, Super Admin reads; HR and others blocked.
-  ["/api/payroll/bir-exports", [AC, SA]],
-  ["/api/payroll/year-end-tax", [AC, SA]],
+  // The BIR forms: the Super Admin only (2026-11-12); every other role blocked.
+  ["/api/payroll/bir-forms", [SA]],
+  ["/api/payroll/bir-exports", [SA]],
+  ["/api/payroll/year-end-tax", [SA]],
   // Rates: SA edits, HR and Accountant read, Employee blocked.
   ["/api/payroll/government-rates", [SA, HR, AC]],
   // 2026-11-08: read-only pay rates; the Super Admin's backup exports.
@@ -102,7 +102,8 @@ const ROUTES = [
   ["/api/holiday-duty", [SA, HR, AC, EM]],
   // Employee's own records.
   ["/api/employee/payslips", [HR, AC, EM]],
-  ["/api/employee/bir-2316", [HR, AC, EM]],
+  // Removed 2026-11-12 (the employee's own 2316): no role reaches it.
+  ["/api/employee/bir-2316", []],
   ["/api/employee/stats", ALL],
   ["/api/employee/timesheet", [HR, AC, EM]],
   ["/api/employee/leave-requests", [HR, EM]],

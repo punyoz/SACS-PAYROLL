@@ -164,7 +164,7 @@ let SESSION_COOKIE;
 
 async function call(path, as) {
   const token = createSessionToken({ ...as, email: `${as.user_id}@sacs.test`, session_id: "s-1" });
-  const mod = path.startsWith("/api/employee") ? await import("@/app/api/employee/bir-2316/route") : await import("@/app/api/payroll/bir-forms/route");
+  const mod = await import("@/app/api/payroll/bir-forms/route");
   return mod.GET(new Request(`https://sacs.test${path}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } }));
 }
 
@@ -186,6 +186,7 @@ describe("BIR forms routes", () => {
       { id: "u-hr", role: "hr", branch_id: null, archived: false },
       { id: "u-adm", role: "admin", branch_id: MAIN, archived: false },
       { id: "u-acct", role: "accountant", branch_id: MAIN, archived: false },
+      { id: "u-sa", role: "super_admin", branch_id: null, archived: false },
     );
     table("system_config").push({ section: "general", key: "bir_employer_name", value: "SACS Inc." }, { section: "general", key: "bir_employer_tin", value: "111222333" });
     table("payroll_tax_brackets").push(...MONTHLY.map((r, i) => ({ version_id: "v1", effective_date: "2023-01-01", bracket_over: r.over, base_tax: r.base, rate_pct: r.rate * 100, created_at: `2023-01-01T00:00:0${i}Z` })));
@@ -210,10 +211,12 @@ describe("BIR forms routes", () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it("gives the Accountant its branch, from approved payslips only, with TINs masked", async () => {
-    const response = await call("/api/payroll/bir-forms?year=2026", who.accountant);
+  it("gives the Super Admin the chosen branch, from approved payslips only, with TINs masked", async () => {
+    const response = await call(`/api/payroll/bir-forms?year=2026&branch_id=${MAIN}`, who.super_admin);
     expect(response.status).toBe(200);
     const body = await response.json();
+    expect(body.branch_id).toBe(MAIN);
+    expect(body.branches.map((b) => b.name)).toEqual(["Antipolo", "Pasig"]);
     expect(body.rows.map((r) => r.full_name)).toEqual(["Paolo Diaz"]);
     const paolo = body.rows[0];
     expect(paolo.gross).toBe(32500);
@@ -225,65 +228,78 @@ describe("BIR forms routes", () => {
     expect(body.finished).toBe(true);
     expect(body.employer_missing).toContain("RDO code");
     expect(body.years).toEqual([2026, 2025]);
+    // No branch given: the first branch by name, never every branch combined.
+    const first = await (await call("/api/payroll/bir-forms?year=2026", who.super_admin)).json();
+    expect(first.branch_id).toBe(OTHER);
+    expect(first.rows.map((r) => r.full_name)).toEqual(["Far Away"]);
   });
 
-  it("refuses HR, the Super Admin, the Admin and the employee (Accountant only, 2026-10-29)", async () => {
+  it("refuses HR, the Accountant, the Admin and the employee (Super Admin only, 2026-11-12)", async () => {
     for (const path of ["/api/payroll/bir-forms?year=2026", "/api/payroll/bir-forms?year=2026&format=pdf", "/api/payroll/bir-forms?year=2026&format=xlsx", "/api/payroll/bir-forms?year=2026&format=csv"]) {
-      expect((await call(path, who.hr)).status, `hr ${path}`).toBe(403);
-      expect((await call(path, who.super_admin)).status, `super_admin ${path}`).toBe(403);
+      for (const role of ["hr", "accountant", "admin", "paolo"]) {
+        expect((await call(path, who[role])).status, `${role} ${path}`).toBe(403);
+      }
     }
-    expect((await call("/api/payroll/bir-forms?year=2026", who.admin)).status).toBe(403);
-    expect((await call("/api/payroll/bir-forms?year=2026", who.paolo)).status).toBe(403);
     const route = await import("@/app/api/payroll/bir-forms/route");
     expect(route.POST || route.PATCH || route.PUT || route.DELETE).toBeUndefined();
   });
 
+  it("refuses letters in the year and an unknown branch, with a clear message", async () => {
+    const bad = await call("/api/payroll/bir-forms?year=20a6", who.super_admin);
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/4 digits/);
+    const branch = await call("/api/payroll/bir-forms?year=2026&branch_id=nope", who.super_admin);
+    expect(branch.status).toBe(400);
+    expect((await branch.json()).error).toMatch(/branch/i);
+  });
+
   it("downloads the 2316 PDF and the alphalist, and logs it", async () => {
-    const pdf = await call("/api/payroll/bir-forms?year=2026&format=pdf", who.accountant);
+    const pdf = await call(`/api/payroll/bir-forms?year=2026&branch_id=${MAIN}&format=pdf`, who.super_admin);
     expect(pdf.headers.get("Content-Type")).toBe("application/pdf");
     expect(Buffer.from(await pdf.arrayBuffer()).toString("latin1")).toContain("/Count 1");
 
-    const csv = await call("/api/payroll/bir-forms?year=2026&format=csv", who.accountant);
+    const csv = await call("/api/payroll/bir-forms?year=2026&format=csv", who.super_admin);
     const text = await csv.text();
     expect(text).toContain("123-456-789-00000");
-    // School-wide (decision 2026-10-29): the other branch's Far Away is listed too, by last name.
+    // School-wide: the alphalist is the one place that combines every branch.
     expect(text.split("\r\n")[1].startsWith("1,1,,Away,Far")).toBe(true);
     expect(text.split("\r\n")[2].startsWith("1,2,123-456-789-00000,Diaz,Paolo")).toBe(true);
 
-    const xlsx = await call("/api/payroll/bir-forms?year=2026&format=xlsx", who.accountant);
+    const xlsx = await call("/api/payroll/bir-forms?year=2026&format=xlsx", who.super_admin);
     expect(Buffer.from(await xlsx.arrayBuffer()).subarray(0, 2).toString()).toBe("PK");
     expect(table("audit_logs").filter((log) => log.action === "bir_forms_export")).toHaveLength(3);
 
-    // Another branch's employee is not reachable by id.
-    expect((await call("/api/payroll/bir-forms?year=2026&format=pdf&employee_id=00000000-0000-0000-0000-000000000000", who.accountant)).status).toBe(404);
+    // An employee of another branch is not in the chosen branch's 2316s.
+    expect((await call(`/api/payroll/bir-forms?year=2026&branch_id=${MAIN}&format=pdf&employee_id=00000000-0000-0000-0000-000000000000`, who.super_admin)).status).toBe(404);
   });
 
-  it("gives the employee their own 2316 for a finished year only", async () => {
-    const list = await (await call("/api/employee/bir-2316", who.paolo)).json();
-    expect(list.years).toEqual([2026, 2025]);
-    expect((await call("/api/employee/bir-2316?year=2027&format=pdf", who.paolo)).status).toBe(400);
-    const pdf = await call("/api/employee/bir-2316?year=2026&format=pdf", who.paolo);
-    expect(pdf.status).toBe(200);
-    const text = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
-    expect(text).toContain("/Count 1");
-    expect(text).toContain("(Paolo Diaz)");
-    expect(text).not.toContain("Far Away");
+  it("no longer has an employee or My Account 2316 route", async () => {
+    const { existsSync } = await import("node:fs");
+    expect(existsSync("src/app/api/employee/bir-2316/route.js")).toBe(false);
+    expect(existsSync("src/app/api/me/bir-2316/route.js")).toBe(false);
   });
 
-  it("is mapped in the proxy", async () => {
+  it("is mapped in the proxy: the Super Admin only", async () => {
     const { proxy } = await import("@/proxy");
-    const as = (role, path) => {
+    const as = (role, path, method = "GET") => {
       const token = createSessionToken({ ...who[role], email: `${who[role].user_id}@sacs.test`, session_id: "s-1" });
-      return new NextRequest(`https://sacs.test${path}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } });
+      return new NextRequest(`https://sacs.test${path}`, { method, headers: { cookie: `${SESSION_COOKIE}=${token}` } });
     };
     users.find((u) => u.id === "u-paolo").app_metadata = { session_id: "s-1" };
     users.push({ id: "u-hr", email: "u-hr@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "hr" } });
     users.push({ id: "u-acct", email: "u-acct@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "accountant" } });
+    users.push({ id: "u-adm", email: "u-adm@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "admin" } });
     users.push({ id: "u-sa", email: "u-sa@sacs.test", app_metadata: { session_id: "s-1" }, user_metadata: { role: "super_admin" } });
-    expect((await proxy(as("accountant", "/api/payroll/bir-forms"))).status).toBe(200);
-    expect((await proxy(as("hr", "/api/payroll/bir-forms"))).status).toBe(403);
-    expect((await proxy(as("super_admin", "/api/payroll/bir-forms"))).status).toBe(403);
-    expect((await proxy(as("paolo", "/api/payroll/bir-forms"))).status).toBe(403);
-    expect((await proxy(as("paolo", "/api/employee/bir-2316"))).status).toBe(200);
+    for (const path of ["/api/payroll/bir-forms", "/api/payroll/year-end-tax", "/api/payroll/bir-exports"]) {
+      expect((await proxy(as("super_admin", path))).status, `super_admin ${path}`).toBe(200);
+      for (const role of ["hr", "accountant", "admin", "paolo"]) {
+        expect((await proxy(as(role, path))).status, `${role} ${path}`).toBe(403);
+      }
+    }
+    for (const role of ["hr", "accountant", "admin", "paolo"]) {
+      expect((await proxy(as(role, "/api/payroll/year-end-tax", "POST"))).status, `${role} POST`).toBe(403);
+    }
+    // The old employee route is gone: unmapped paths fail closed.
+    expect((await proxy(as("paolo", "/api/employee/bir-2316"))).status).toBe(403);
   });
 });

@@ -7,7 +7,7 @@ export const PAGES = {
     ["sa-dashboard", "Dashboard"], ["sa-fallback", "Items Waiting on Fallback"], ["sa-accounts", "Admin & HR Accounts"], ["sa-branches", "Branch Management"],
     ["sa-roles", "Roles & Permissions"], ["sa-attendance", "Attendance Records"],
     // The RFID Management group (alpha test B1, 2026-11-09).
-    ["sa-maintenance", "RFID Cards"], ["sa-rfid-terminal", "RFID Terminal"], ["sa-rfid-issues", "RFID Issues"], ["sa-config", "System Configuration"],
+    ["sa-maintenance", "RFID Cards"], ["sa-rfid-terminal", "RFID Terminal"], ["sa-rfid-issues", "RFID Issues"], ["sa-bir", "BIR Forms"], ["sa-config", "System Configuration"],
     ["sa-audit", "Audit & Monitoring"], ["sa-announcements", "Announcements"], ["sa-backup", "Backup & Recovery"], ["sa-profile", "Profile"],
   ],
   admin: [
@@ -25,19 +25,20 @@ export const PAGES = {
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
     ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"],
     // "My Account" (2026-11-09): HR is on payroll; its own pages.
-    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "My Leave"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-my-bir", "My BIR Form 2316"], ["hr-profile", "My Profile"],
+    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "My Leave"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-profile", "My Profile"],
   ],
   accountant: [
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
     ["ac-13th", "13th Month Pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
     ["ac-attendance", "View Attendance"], ["ac-holidays", "Holidays & Duty"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
-    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "My Leave"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-my-bir", "My BIR Form 2316"], ["ac-profile", "My Profile"],
+    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "My Leave"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-profile", "My Profile"],
   ],
   employee: [
-    // One "My Account" group (2026-11-09), with My Requests and My BIR Form 2316.
+    // One "My Account" group (2026-11-09), with My Requests; six items since
+    // 2026-11-12 (no "My BIR Form 2316": the BIR is the Super Admin's only).
     ["emp-dash", "Dashboard"], ["emp-announcements", "Announcements"], ["emp-attendance", "My Attendance"], ["emp-timesheet", "My Timesheet"],
-    ["emp-leave", "My Leave"], ["emp-payslips", "My Payslips"], ["emp-requests", "My Requests"], ["emp-bir", "My BIR Form 2316"], ["emp-profile", "My Profile"],
+    ["emp-leave", "My Leave"], ["emp-payslips", "My Payslips"], ["emp-requests", "My Requests"], ["emp-profile", "My Profile"],
   ],
 };
 

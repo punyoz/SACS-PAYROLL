@@ -1,69 +1,64 @@
 /**
- * Who reaches the year-end BIR functions (2026-10-29): the year-end tax
- * annualization, BIR Form 2316 and the 1604-C alphalist. Server only.
+ * Who reaches the BIR functions: the year-end tax annualization screen, BIR
+ * Form 2316, the 1604-C alphalist and the generated BIR files. Server only.
  *
- * GENERATE / CHANGE (requireBirAccountant): the Accountant only — running and
- * scheduling the annualization, generating 2316s and the alphalist. HR, Admin
- * and Super Admin are refused (403) at the proxy (/api/payroll/bir-forms is
- * mapped to "payroll_reports", which only the Accountant holds) and again here
- * by role, so a later change to the matrix cannot open these by accident.
+ * THE SUPER ADMIN ONLY (decision 2026-11-12): the BIR belongs to the school.
+ * HR, Accountant, Employee and Admin are refused (403) at the proxy (module
+ * "bir_forms", held by the Super Admin alone), again here by role, and again
+ * in the database functions (20261112010000_bir_super_admin_only.sql).
  *
- * READ (requireBirReader, decision 2026-10-29): the Accountant (its branch)
- * and, read-only for oversight, the Super Admin (every branch): the
- * annualization records and the BIR files already generated. The database
- * answers who reads what (payroll_bir_read_scope, 20261029010000).
+ * SCOPE: the Super Admin chooses a branch for the 2316s and the
+ * annualization (birBranchScope); the 1604-C alphalist is the one place that
+ * combines every branch (one school-wide filing under one TIN).
  *
- * SCOPE (decision 2026-10-29): the annualization and the 2316 stay on the
- * Accountant's own branch, like processing payroll; the 1604-C alphalist is
- * one school-wide filing under one TIN, so any Accountant generates it from
- * every branch's approved payroll — a read for that export only, never an
- * edit (birBranchScope / ALPHALIST_SCOPE; payroll_bir_export_save checks the
- * 2316's branch again). An employee downloads only their own 2316
- * (/api/employee/bir-2316).
+ * Payroll processing does not come through here: a scheduled year-end
+ * adjustment is read and applied by the payroll engine itself
+ * (loadYearEndTaxContext in src/lib/payroll/bir-forms.js).
  */
 
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/rbac/guard";
 
-export const BIR_MODULE = "payroll_reports";
+export const BIR_MODULE = "bir_forms";
 
-const ACCOUNTANT_ONLY = "Only the Accountant can use the year-end tax annualization, BIR Form 2316 and the alphalist.";
+const SUPER_ADMIN_ONLY = "Only the Super Admin handles the BIR forms and the year-end tax annualization.";
 
-/** requirePermission() for the BIR functions, then the Accountant role and a branch. */
-export async function requireBirAccountant(request, action = "read") {
+/** requirePermission() for the BIR functions, then the Super Admin role. */
+export async function requireBirSuperAdmin(request, action = "read") {
   const guard = await requirePermission(request, BIR_MODULE, action);
   if (guard.denied) return guard;
-  if (guard.role !== "accountant") {
-    return { ...guard, denied: NextResponse.json({ error: ACCOUNTANT_ONLY, code: "accountant_only" }, { status: 403 }) };
-  }
-  if (!guard.branchId) {
-    return { ...guard, denied: NextResponse.json({ error: "Your account has no branch.", code: "no_branch" }, { status: 403 }) };
+  if (guard.role !== "super_admin") {
+    return { ...guard, denied: NextResponse.json({ error: SUPER_ADMIN_ONLY, code: "super_admin_only" }, { status: 403 }) };
   }
   return guard;
 }
 
-/** The branch the Accountant's annualization and 2316 cover (see SCOPE above). */
-export function birBranchScope(guard) {
-  return guard.branchId;
+/**
+ * The branch a 2316 list or an annualization covers: the branch_id the Super
+ * Admin chose (one of the school's branches), or the first branch by name. Returns
+ * { branchId, branches } or { error } for an unknown branch.
+ */
+export async function birBranchScope(supabase, requested) {
+  const value = String(requested ?? "").trim();
+  if (value.length > 64) return { error: "Choose a branch from the list." };
+  const result = await supabase.from("branches").select("id,name").order("name", { ascending: true });
+  if (result.error) throw new Error(`Branches: ${result.error.message}`);
+  const branches = (result.data || []).map((b) => ({ id: b.id, name: b.name }));
+  if (value && !branches.some((b) => b.id === value)) return { error: "Choose a branch from the list." };
+  return { branchId: value || branches[0]?.id || null, branches };
 }
 
 /** The alphalist covers every branch (null = no branch filter). */
 export const ALPHALIST_SCOPE = null;
 
-const READERS_ONLY = "Only the Accountant and (read-only) the Super Admin see the year-end tax records.";
-
 /**
- * A signed-in Accountant or Super Admin, with what it may read:
- * guard.birScope = { role, branch_id (null = every branch), read_only }.
- * The database decides (payroll_bir_read_scope); `supabase` is the service client.
+ * The signed-in Super Admin, with what it may read, as the database decides
+ * (payroll_bir_read_scope): guard.birScope = { role, branch_id: null, read_only: false }.
+ * `supabase` is the service client.
  */
 export async function requireBirReader(request, supabase) {
-  // Every role holds "profile" (its own): this only checks the session.
-  const guard = await requirePermission(request, "profile", "read");
+  const guard = await requireBirSuperAdmin(request, "read");
   if (guard.denied) return guard;
-  if (!["accountant", "super_admin"].includes(guard.role)) {
-    return { ...guard, denied: NextResponse.json({ error: READERS_ONLY, code: "not_a_reader" }, { status: 403 }) };
-  }
   const scope = await supabase.rpc("payroll_bir_read_scope", { p_actor: guard.userId });
   if (scope.error) {
     const failure = describeYearEndError(scope.error);
@@ -71,7 +66,7 @@ export async function requireBirReader(request, supabase) {
   }
   const row = Array.isArray(scope.data) ? scope.data[0] : scope.data;
   if (!row || row.role !== guard.role) {
-    return { ...guard, denied: NextResponse.json({ error: READERS_ONLY, code: "not_a_reader" }, { status: 403 }) };
+    return { ...guard, denied: NextResponse.json({ error: SUPER_ADMIN_ONLY, code: "super_admin_only" }, { status: 403 }) };
   }
   return { ...guard, birScope: { role: row.role, branch_id: row.branch_id || null, read_only: row.read_only === true } };
 }
@@ -87,7 +82,7 @@ export function describeYearEndError(error) {
     return { status: STATUS_BY_CODE[match[1]], error: text, code: match[1] };
   }
   if (/does not exist|schema cache|could not find the function/i.test(message)) {
-    return { status: 503, error: "The year-end tax annualization is not set up yet: apply 20261029010000_tax_annualization.sql.", code: "not_ready" };
+    return { status: 503, error: "The year-end tax annualization is not set up yet: apply 20261029010000_tax_annualization.sql and 20261112010000_bir_super_admin_only.sql.", code: "not_ready" };
   }
   return { status: 500, error: "Not saved. Please try again.", code: "error" };
 }

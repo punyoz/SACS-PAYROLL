@@ -11,7 +11,7 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { formatIssued, formatPeso, formatPesoShort, holidayLineLabel } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
-import { MyBir2316Card, useDownloader } from "@/components/portal/bir-forms";
+import { useDownloader } from "@/components/portal/bir-forms";
 import { LineTagLegend, PayrollLineGroups, WhyTaxNote } from "@/components/portal/payroll-lines";
 
 /*
@@ -274,8 +274,6 @@ export function PayslipsPage({ payslips }) {
             />
           </CardContent>
         </Card>
-        {/* The year-end BIR 2316 (AC-11). */}
-        <MyBir2316Card />
       </div>
     </div>
   );

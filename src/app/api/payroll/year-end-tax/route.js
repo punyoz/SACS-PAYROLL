@@ -1,27 +1,28 @@
 /**
  * Year-end tax annualization (2026-10-29, src/lib/payroll/year-end-tax.js).
- * The Accountant runs and schedules, its own branch (src/lib/payroll/
- * bir-access.js). The Super Admin reads every branch's records, read-only
- * (GET only; decision 2026-10-29). HR and Admin are refused. The database functions of
- * 20261029010000_tax_annualization.sql check the role and the branch again.
+ * The Super Admin only (decision 2026-11-12, src/lib/payroll/bir-access.js):
+ * it runs and schedules, one branch at a time. HR, Accountant, Employee and
+ * Admin are refused; the database functions (20261112010000) check the role again.
  *
- *   GET  ?year=YYYY                          the year's annualizations, with
- *                                            the payslips that carry their adjustment
- *   POST { action: "run", year }             annualize every employee of the
+ *   GET  ?year=YYYY[&branch_id=]             the branch's annualizations of the
+ *                                            year, with the payslips that carry
+ *                                            their adjustment
+ *   POST { action: "run", year, branch_id }  annualize every employee of the
  *                                            branch with payslips in that year
  *                                            (again: updates the records in place)
  *        { action: "schedule", id, period }  put the adjustment on that 2nd cutoff
  *        { action: "unschedule", id }
  *
  * Nothing here changes a payslip: the scheduled payslip computes and carries
- * the adjustment when the Accountant processes it.
+ * the adjustment when the Accountant processes payroll (the payroll engine
+ * reads the scheduled records itself; it never calls this route).
  */
 
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { birBranchScope, describeYearEndError, requireBirAccountant, requireBirReader } from "@/lib/payroll/bir-access";
+import { birBranchScope, describeYearEndError, requireBirReader, requireBirSuperAdmin } from "@/lib/payroll/bir-access";
 import { birYears, loadBirYear } from "@/lib/payroll/bir-forms";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { annualizationFigures, yearEndTargetAllowed, yearEndTargetOptions } from "@/lib/payroll/year-end-tax";
@@ -117,7 +118,8 @@ async function readYear(supabase, branchId, year) {
   };
 }
 
-async function payload(supabase, branchId, year, { readOnly = false } = {}) {
+async function payload(supabase, scope, year, { readOnly = false } = {}) {
+  const branchId = scope.branchId || NO_BRANCH;
   const thisYear = Number(manilaDateKey().slice(0, 4));
   const [data, years] = await Promise.all([readYear(supabase, branchId, year), birYears(supabase)]);
   const totals = data.rows.reduce((acc, r) => {
@@ -131,31 +133,37 @@ async function payload(supabase, branchId, year, { readOnly = false } = {}) {
     year,
     years: [...new Set([...years.filter((y) => y <= thisYear), year, thisYear])].sort((a, b) => b - a),
     finished: year < thisYear,
+    branch_id: scope.branchId,
+    branches: scope.branches,
     ...data,
     totals,
-    // The Super Admin's oversight: nothing can be run or scheduled.
     read_only: readOnly,
     targets: readOnly ? [] : yearEndTargetOptions(year, manilaDateKey()),
   };
 }
 
 export async function GET(request) {
-  // The Accountant (its branch) or, read-only, the Super Admin (every branch).
+  // The Super Admin only, one branch at a time.
   const supabase = getAdminClient();
   const guard = await requireBirReader(request, supabase);
   if (guard.denied) return guard.denied;
   try {
+    const url = new URL(request.url);
     const thisYear = Number(manilaDateKey().slice(0, 4));
-    const year = yearOf(new URL(request.url).searchParams.get("year") ?? thisYear, thisYear);
+    const yearParam = url.searchParams.get("year");
+    if (yearParam !== null && yearParam !== "" && !/^\d{4}$/.test(yearParam)) return NextResponse.json({ error: "The tax year is 4 digits (for example 2026)." }, { status: 400 });
+    const year = yearOf(yearParam || thisYear, thisYear);
     if (!year) return NextResponse.json({ error: "Choose a year up to this one." }, { status: 400 });
-    return NextResponse.json(await payload(supabase, guard.birScope.branch_id, year, { readOnly: guard.birScope.read_only }));
+    const scope = await birBranchScope(supabase, url.searchParams.get("branch_id"));
+    if (scope.error) return NextResponse.json({ error: scope.error, code: "invalid_branch" }, { status: 400 });
+    return NextResponse.json(await payload(supabase, scope, year, { readOnly: guard.birScope.read_only }));
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }
 
 export async function POST(request) {
-  const guard = await requireBirAccountant(request, "create");
+  const guard = await requireBirSuperAdmin(request, "create");
   if (guard.denied) return guard.denied;
   try {
     const body = await request.json().catch(() => ({}));
@@ -164,9 +172,12 @@ export async function POST(request) {
     const thisYear = Number(manilaDateKey().slice(0, 4));
 
     if (action === "run") {
-      const year = yearOf(body.year, thisYear);
+      if (!/^\d{4}$/.test(String(body.year ?? "").trim())) return NextResponse.json({ error: "The tax year is 4 digits (for example 2026)." }, { status: 400 });
+      const year = yearOf(String(body.year).trim(), thisYear);
       if (!year) return NextResponse.json({ error: "Choose a year up to this one." }, { status: 400 });
-      const data = await loadBirYear(supabase, { year, branchId: birBranchScope(guard) || NO_BRANCH });
+      const scope = await birBranchScope(supabase, body.branch_id);
+      if (scope.error || !scope.branchId) return NextResponse.json({ error: scope.error || "Choose a branch from the list.", code: "invalid_branch" }, { status: 400 });
+      const data = await loadBirYear(supabase, { year, branchId: scope.branchId });
       if (!data.tax_table_ready) return NextResponse.json({ error: `No tax table is in force for ${year}.`, code: "no_tax_table" }, { status: 400 });
       const rows = data.rows.map((row) => ({
         employee_id: row.employee_id,
@@ -183,15 +194,15 @@ export async function POST(request) {
       await appendAuditLog({
         actor: guard, module: "payroll", action: "tax_annualization_run", entity_type: "tax_annualization", entity_id: String(year),
         description: `Year-end tax annualization ${year}: ${rows.length} employee${rows.length === 1 ? "" : "s"} (${collect} under-withheld, ${refund} over-withheld).`,
-        status: "success", source: "api", metadata: { year, count: rows.length, collect, refund },
+        status: "success", source: "api", metadata: { year, branch_id: scope.branchId, count: rows.length, collect, refund },
       });
-      return NextResponse.json({ ...(await payload(supabase, birBranchScope(guard) || NO_BRANCH, year)), saved: rows.length });
+      return NextResponse.json({ ...(await payload(supabase, scope, year)), saved: rows.length });
     }
 
     if (action === "schedule" || action === "unschedule") {
       const id = normalizeText(body.id);
       if (!UUID.test(id)) return NextResponse.json({ error: "Choose the annualization." }, { status: 400 });
-      const current = await supabase.from("payroll_tax_annualizations").select("id,tax_year,employee_name").eq("id", id).maybeSingle();
+      const current = await supabase.from("payroll_tax_annualizations").select("id,tax_year,employee_name,branch_id").eq("id", id).maybeSingle();
       if (current.error) return refused(current.error);
       if (!current.data) return NextResponse.json({ error: "No such annualization." }, { status: 404 });
       const period = action === "schedule" ? normalizeText(body.period) : null;
@@ -208,7 +219,9 @@ export async function POST(request) {
           : `Year-end tax adjustment ${current.data.tax_year} of ${current.data.employee_name || "an employee"} unscheduled.`,
         status: "success", source: "api", metadata: { id, year: current.data.tax_year, period },
       });
-      return NextResponse.json(await payload(supabase, birBranchScope(guard) || NO_BRANCH, current.data.tax_year));
+      // The page shows the record's branch afterwards.
+      const scope = await birBranchScope(supabase, current.data.branch_id || "");
+      return NextResponse.json(await payload(supabase, scope.error ? { branchId: null, branches: [] } : scope, current.data.tax_year));
     }
 
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });

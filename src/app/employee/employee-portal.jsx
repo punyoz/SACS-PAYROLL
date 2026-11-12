@@ -7,7 +7,7 @@ import { LayoutDashboardIcon, MegaphoneIcon } from "lucide-react";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
-import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
+import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { isPendingRequest } from "@/components/portal/status-badge";
 import { useEmployeeStats, useLeaveRequests, usePayslips } from "./use-employee-data";
 import { AttendancePage } from "./attendance-page";
@@ -15,7 +15,7 @@ import { TimesheetPage } from "./timesheet-page";
 import { PayslipsPage } from "./payslips-page";
 import { LeavePage } from "./leave-page";
 import { ProfilePage } from "./profile-page";
-import { MY_DESCRIPTIONS, MY_PAGE_IDS, MY_REQUEST_ALIASES, MyBirPage, MyRequestsPage, myAccountGroup } from "@/components/portal/my-account";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MY_REQUEST_ALIASES, MyRequestsPage, myAccountGroup } from "@/components/portal/my-account";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -59,7 +59,8 @@ function EmployeeScreens() {
   const leave = useLeaveRequests(ctx, notify, refreshKey);
 
   // A page the role may not open (a stale saved id) falls back to the dashboard.
-  const current = PAGES.find((item) => item.id === page && can(item.module)) ? page : "emp-dash";
+  // An old link to a retired page (My BIR Form 2316) shows "Page not found".
+  const current = page === NOT_FOUND_PAGE ? NOT_FOUND_PAGE : PAGES.find((item) => item.id === page && can(item.module)) ? page : "emp-dash";
 
   const refresh = React.useCallback(() => {
     setRefreshing(true);
@@ -105,7 +106,6 @@ function EmployeeScreens() {
       {current === "emp-payslips" ? <PayslipsPage payslips={payslips} /> : null}
       {current === "emp-leave" ? <LeavePage leave={leave} /> : null}
       {current === "emp-requests" ? <MyRequestsPage refreshKey={refreshKey} initialTab={aliasTab || undefined} /> : null}
-      {current === "emp-bir" ? <MyBirPage /> : null}
       {current === "emp-announcements" ? <AnnouncementsFeed /> : null}
       {current === "emp-profile" ? <ProfilePage /> : null}
     </AppShell>

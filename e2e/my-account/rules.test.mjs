@@ -45,6 +45,15 @@ test("Admin and Super Admin are refused every My Account API", async () => {
   }
 });
 
+test("No BIR Form 2316 under My Account (2026-11-12): the route is gone for HR, the Accountant and the Employee", async () => {
+  for (const tag of ["hr1", "acc-b1-1", "emp1"]) {
+    for (const path of ["/api/me/bir-2316", "/api/me/bir-2316?year=2025&format=pdf", "/api/employee/bir-2316"]) {
+      const res = await as(P(tag)).get(path);
+      assert.ok([403, 404].includes(res.status), `${tag} ${path} -> ${res.status}`);
+    }
+  }
+});
+
 test("My pages return only the caller's own rows, whatever is asked", async () => {
   const hr = P("hr1");
   const other = P("emp1");

@@ -273,6 +273,15 @@ export function usePortalSession() {
  * The page a portal had open, kept per role exactly where the legacy portals
  * keep it (localStorage "sacs-active-page-<role>"), so sign-out clears it.
  */
+/**
+ * Page ids that no longer exist (the employee-side "My BIR Form 2316",
+ * removed 2026-11-12: the BIR forms are the Super Admin's only). An old link
+ * to one shows the normal "Page not found" screen, not a quiet redirect.
+ */
+export const RETIRED_PAGE_IDS = Object.freeze(["emp-bir", "hr-my-bir", "ac-my-bir"]);
+/** The page value while a retired page's link is open (AppShell shows the 404 screen). */
+export const NOT_FOUND_PAGE = "page-not-found";
+
 export function usePersistedPage(role, pages, fallback) {
   const key = `sacs-active-page-${role}`;
   const [page, setPageState] = React.useState(fallback);
@@ -287,24 +296,31 @@ export function usePersistedPage(role, pages, fallback) {
   React.useEffect(() => {
     try {
       const fromUrl = new URLSearchParams(window.location.search).get("page");
+      if (fromUrl && RETIRED_PAGE_IDS.includes(fromUrl)) {
+        setPageState(NOT_FOUND_PAGE);
+        pageRef.current = NOT_FOUND_PAGE;
+      }
       const saved = fromUrl || localStorage.getItem(key);
-      if (saved && pages.includes(saved)) {
+      if (pageRef.current !== NOT_FOUND_PAGE && saved && pages.includes(saved)) {
         setPageState(saved);
         pageRef.current = saved;
       }
     } catch {
       // storage blocked
     }
-    // Stamp the first entry with its page, so Back can return to it.
-    window.history.replaceState(window.history.state, "", urlWithPage(pageRef.current));
+    // Stamp the first entry with its page, so Back can return to it (an old
+    // link to a retired page keeps its own address).
+    if (pageRef.current !== NOT_FOUND_PAGE) window.history.replaceState(window.history.state, "", urlWithPage(pageRef.current));
 
     // Back / Forward between portal pages: show the page the entry names.
     const onPopState = () => {
       const fromUrl = new URLSearchParams(window.location.search).get("page");
-      const next = fromUrl && pages.includes(fromUrl) ? fromUrl : fallback;
+      const next = fromUrl && RETIRED_PAGE_IDS.includes(fromUrl) ? NOT_FOUND_PAGE : fromUrl && pages.includes(fromUrl) ? fromUrl : fallback;
       pageRef.current = next;
       setPageState(next);
-      try { localStorage.setItem(key, next); } catch { /* storage blocked */ }
+      if (next !== NOT_FOUND_PAGE) {
+        try { localStorage.setItem(key, next); } catch { /* storage blocked */ }
+      }
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);

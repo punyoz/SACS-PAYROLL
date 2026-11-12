@@ -39,7 +39,7 @@ export const FAKE = {
   tinPrefix: "999", // 9 digits
 };
 
-/** The first payroll month seeded (Form 2316 / Alphalist coverage). */
+/** The first payroll month seeded (the Super Admin's Form 2316 / Alphalist coverage). */
 export const HISTORY_FROM = "2026-01-01";
 
 /** The "Demo seed" actor (decision 6): flagged demo, no login, no branch. */

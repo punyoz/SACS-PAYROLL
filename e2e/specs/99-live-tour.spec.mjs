@@ -134,18 +134,49 @@ async function defaultAction(page, where) {
 
 // Page-specific checks (the rest get defaultAction).
 const ACTIONS = {
-  "sa-audit": async (page, where) => {
-    say(`Scrolling to the year-end records on ${where} (Super Admin: read only)…`);
-    const records = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "Year-end tax annualization" }) }).first();
-    if (!(await records.count())) return problem(page, where, "no year-end tax section found");
-    await records.scrollIntoViewIfNeeded();
-    await settle(page);
-    if (await records.getByRole("button", { name: /Run annualization|Run again/ }).count()) {
-      await problem(page, where, "the Super Admin sees a Run annualization button (should be read only)");
-    } else say(`${where}: year-end records shown with no Run button (read only).`);
-    const files = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "Generated BIR files" }) }).first();
+  // The BIR is the Super Admin's only (2026-11-12): annualization, 2316, alphalist, generated files.
+  "sa-bir": async (page, where) => {
+    const card = (title) => main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: title }) }).first();
+    const yearEnd = card("Year-end tax annualization");
+    if (await yearEnd.count()) {
+      await yearEnd.scrollIntoViewIfNeeded();
+      await settle(page);
+      const run = yearEnd.getByRole("button", { name: /Run annualization|Run again/ });
+      if (await run.isEnabled().catch(() => false)) {
+        say("Clicking Run annualization (a computation only; nothing is scheduled onto a payslip)…");
+        await run.click();
+        const dialog = page.locator('[role="alertdialog"]:visible, [role="dialog"]:visible').last();
+        await dialog.getByRole("button", { name: "Run annualization", exact: true }).click();
+        await expect(dialog).toBeHidden({ timeout: 30000 }).catch(() => {});
+        await settle(page);
+        tour.actions.push(`${where}: year-end annualization run`);
+      }
+    } else await problem(page, where, "no year-end tax annualization section");
+    const bir = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: /^BIR forms$/ }) }).first();
+    if (await bir.count()) {
+      await bir.scrollIntoViewIfNeeded();
+      await settle(page, 40000);
+      // The card opens on last year; the local payslips are this year's.
+      await bir.getByRole("button", { name: "All 2316 (PDF)" }).waitFor({ timeout: 60000 }).catch(() => {});
+      const thisYear = new Date(Date.now() + 8 * 3600 * 1000).getUTCFullYear(); // Manila
+      say(`Choosing tax year ${thisYear} in BIR forms…`);
+      await choose(page, bir.getByRole("combobox", { name: "Tax year" }), String(thisYear)).catch(() => {});
+      await settle(page, 40000);
+      for (const [label, name] of [["Form 2316 (PDF)", "All 2316 (PDF)"], ["Alphalist (CSV)", "Alphalist (CSV)"]]) {
+        const button = bir.getByRole("button", { name, exact: true });
+        if (!(await button.isEnabled().catch(() => false))) { say(`${label}: button disabled (no paid payslips in the shown year).`); continue; }
+        say(`Generating ${label}…`);
+        const download = page.waitForEvent("download", { timeout: 60000 }).catch(() => null);
+        await button.click();
+        const file = await download;
+        if (file) say(`${label}: downloaded ${file.suggestedFilename()}`);
+        else await problem(page, where, `${label} produced no file`);
+        tour.actions.push(`${where}: ${label}`);
+      }
+    } else await problem(page, where, "no BIR forms section");
+    const files = card("Generated BIR files");
     if (await files.count()) { await files.scrollIntoViewIfNeeded(); say(`${where}: Generated BIR files (2316 / alphalist) list shown.`); }
-    tour.actions.push(`${where}: year-end / 2316 / alphalist read-only views`);
+    else await problem(page, where, "no Generated BIR files section");
   },
 
   "hr-payroll-records": async (page, where) => {
@@ -199,59 +230,19 @@ const ACTIONS = {
   },
 
   "ac-reports": async (page, where) => {
-    const card = (title) => main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: title }) }).first();
-    const yearEnd = card("Year-end tax annualization");
-    if (await yearEnd.count()) {
-      await yearEnd.scrollIntoViewIfNeeded();
-      const run = yearEnd.getByRole("button", { name: /Run annualization|Run again/ });
-      if (await run.isEnabled().catch(() => false)) {
-        say("Clicking Run annualization (a computation only; nothing is scheduled onto a payslip)…");
-        await run.click();
-        const dialog = page.locator('[role="alertdialog"]:visible, [role="dialog"]:visible').last();
-        await dialog.getByRole("button", { name: "Run annualization", exact: true }).click();
-        await expect(dialog).toBeHidden({ timeout: 30000 }).catch(() => {});
-        await settle(page);
-        tour.actions.push(`${where}: year-end annualization run`);
-      }
-    } else await problem(page, where, "no year-end tax annualization section");
-    const bir = card("BIR forms");
-    if (await bir.count()) {
-      await bir.scrollIntoViewIfNeeded();
-      await settle(page, 40000);
-      // The card opens on last year; the local payslips are this year's.
-      await bir.getByRole("button", { name: "All 2316 (PDF)" }).waitFor({ timeout: 60000 }).catch(() => {});
-      const thisYear = new Date(Date.now() + 8 * 3600 * 1000).getUTCFullYear(); // Manila
-      say(`Choosing tax year ${thisYear} in BIR forms…`);
-      await choose(page, bir.getByRole("combobox", { name: "Tax year" }), String(thisYear)).catch(() => {});
-      await settle(page, 40000);
-      for (const [label, name] of [["Form 2316 (PDF)", "All 2316 (PDF)"], ["Alphalist (CSV)", "Alphalist (CSV)"]]) {
-        const button = bir.getByRole("button", { name, exact: true });
-        if (!(await button.isEnabled().catch(() => false))) { say(`${label}: button disabled (no paid payslips in the shown year).`); continue; }
-        say(`Generating ${label}…`);
-        const download = page.waitForEvent("download", { timeout: 60000 }).catch(() => null);
-        await button.click();
-        const file = await download;
-        if (file) say(`${label}: downloaded ${file.suggestedFilename()}`);
-        else await problem(page, where, `${label} produced no file`);
-        tour.actions.push(`${where}: ${label}`);
-      }
-    } else await problem(page, where, "no BIR forms section");
+    await settle(page);
+    // No BIR card for the Accountant (2026-11-12): the remittance and payroll reports only.
+    const shown = await main(page).innerText();
+    if (/Year-end tax annualization|BIR forms|Generated BIR files|Alphalist/i.test(shown)) await problem(page, where, "a BIR section is shown to the Accountant (the Super Admin's only)");
+    else say(`${where}: no BIR section (the Super Admin's only).`);
+    await defaultAction(page, where);
   },
 
   "emp-payslips": async (page, where) => {
     await watchStill(page, where);
-    const mine = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: "My BIR 2316" }) }).first();
-    if (!(await mine.count())) return problem(page, where, "no My BIR 2316 section");
-    await mine.scrollIntoViewIfNeeded();
-    const button = mine.getByRole("button").first();
-    if (!(await button.isEnabled().catch(() => false))) { say(`${where}: no 2316 year to download yet.`); return; }
-    say("Downloading my Form 2316…");
-    const download = page.waitForEvent("download", { timeout: 60000 }).catch(() => null);
-    await button.click();
-    const file = await download;
-    if (file) say(`${where}: downloaded ${file.suggestedFilename()}`);
-    else await problem(page, where, "Form 2316 download produced no file");
-    tour.actions.push(`${where}: idle watch + Form 2316 download`);
+    // No "My BIR 2316" (2026-11-12): the school gives the 2316, made by the Super Admin.
+    if (/My BIR 2316|BIR Form 2316/.test(await main(page).innerText())) await problem(page, where, "a BIR 2316 section is shown to the employee");
+    tour.actions.push(`${where}: idle watch, no BIR section`);
   },
 };
 

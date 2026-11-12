@@ -8,6 +8,7 @@ import {
   CalendarCheckIcon,
   CreditCardIcon,
   DatabaseBackupIcon,
+  FileTextIcon,
   LayoutDashboardIcon,
   MegaphoneIcon,
   RadioTowerIcon,
@@ -35,7 +36,7 @@ import { AccountsPage } from "./accounts-page";
 import { RolesPage } from "./roles-page";
 import { ConfigPage } from "./config-page";
 import { BackupPage } from "./backup-page";
-import { BirExportsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
+import { BirExportsCard, BirFormsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 
 // Charts (recharts) load with this page, not with the portal.
@@ -78,6 +79,11 @@ const NAV = [
     ],
   },
   {
+    // The BIR belongs to the school: the Super Admin only (2026-11-12).
+    section: "BIR",
+    items: [{ id: "sa-bir", label: "BIR Forms", icon: FileTextIcon, module: "bir_forms" }],
+  },
+  {
     section: "System",
     items: [
       { id: "sa-config", label: "System Configuration", icon: SettingsIcon, module: "system_configuration" },
@@ -103,6 +109,7 @@ const DESCRIPTIONS = {
   "sa-rfid-terminal": "Open the tap-in / tap-out screen for an RFID reader.",
   "sa-rfid-issues": "Lost or broken cards and faulty readers reported by branch Admins.",
   "sa-attendance": "View-only attendance records of every branch, by date range, with export. Corrections are HR's.",
+  "sa-bir": "Year-end tax annualization, BIR Form 2316 for each employee, the 1604-C alphalist (all branches) and every BIR file generated.",
   "sa-config": "System-wide settings, payroll rules, attendance policies and holidays.",
   "sa-audit": "System-wide audit trails, login activity and transaction history across all branches.",
   "sa-announcements": "Post to the whole school or one branch, edit your own, and delete any announcement (moderation).",
@@ -173,9 +180,10 @@ function SuperAdminScreens() {
       {current === "sa-audit" ? (
         <AuditLogsPage refreshKey={refreshKey} limit={200} csvName={() => `sacs-sa-audit-${manilaDateKey()}.csv`} auditActor={null} />
       ) : null}
-      {/* Year-end tax records and generated BIR files: read-only oversight (decision 2026-10-29). */}
-      {current === "sa-audit" ? <YearEndTaxCard /> : null}
-      {current === "sa-audit" ? <BirExportsCard refreshKey={refreshKey} /> : null}
+      {/* The BIR forms: the Super Admin only (decision 2026-11-12). */}
+      {current === "sa-bir" ? <YearEndTaxCard refreshKey={refreshKey} /> : null}
+      {current === "sa-bir" ? <BirFormsCard refreshKey={refreshKey} /> : null}
+      {current === "sa-bir" ? <BirExportsCard refreshKey={refreshKey} /> : null}
       {current === "sa-backup" ? <BackupPage refreshKey={refreshKey} /> : null}
       {current === "sa-announcements" ? <AnnouncementsManager refreshKey={refreshKey} description="Post to the whole school or to one branch. You can edit your own, and delete any announcement (moderation)." /> : null}
       {current === "sa-profile" ? <StaffProfilePage roleLabel="Super Admin" accountOnly /> : null}

@@ -24,7 +24,7 @@ import {
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
-import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
+import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
@@ -177,7 +177,8 @@ function AccountantScreens() {
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const item = NAV_ITEMS.find((i) => i.id === page);
-  const current = item && can(item.module) ? page : "ac-dashboard";
+  // An old link to a retired page (My BIR Form 2316) shows "Page not found".
+  const current = page === NOT_FOUND_PAGE ? NOT_FOUND_PAGE : item && can(item.module) ? page : "ac-dashboard";
 
   return (
     <AccountantDataProvider navigate={setPage}>

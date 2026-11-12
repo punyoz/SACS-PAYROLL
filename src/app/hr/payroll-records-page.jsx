@@ -187,8 +187,8 @@ export function PayrollRecordsPage({ refreshKey }) {
           <p className="mt-3 text-xs text-muted-foreground">Read-only. Payslips are processed by each branch&apos;s Accountant; drafts are not listed.</p>
         </CardContent>
       </Card>
-      {/* Every branch's remittance, read-only. BIR 2316, the alphalist and the
-          year-end tax annualization are the Accountant's only (2026-10-29). */}
+      {/* Every branch's remittance, read-only. The BIR forms are the Super
+          Admin's only (2026-11-12). */}
       <RemittanceCard refreshKey={refreshKey} />
     </>
   );

@@ -9,11 +9,12 @@
  *   PATCH { id, note }           mark one reviewed (note: what was done)
  *
  * Who:
- *   Accountant   its branch's remittance, BIR, annualization and 13th month
- *                flags (payroll_reports); reads and marks them
+ *   Accountant   its branch's remittance and 13th month flags
+ *                (payroll_reports); reads and marks them
  *   HR           the payroll-run flags of runs it approved (payroll_run_approval)
- *   Super Admin  reads every flag (payroll_override); never marks its own
- *                override's consequences reviewed
+ *   Super Admin  reads every flag (payroll_override); marks only the BIR
+ *                ones (2316, alphalist, annualization), since the BIR is
+ *                the Super Admin's alone (decision 2026-11-12)
  */
 
 import { NextResponse } from "next/server";
@@ -33,7 +34,9 @@ const NO_BRANCH = "00000000-0000-0000-0000-000000000000";
 const COLUMNS = "id,override_id,kind,ref_id,employee_id,branch_id,pay_period,tax_year,month,message,status,"
   + "reviewed_by_name,reviewed_at,review_note,created_at";
 
-const ACCOUNTANT_KINDS = ["remittance", "bir_2316", "bir_alphalist", "tax_annualization", "thirteenth_month"];
+const ACCOUNTANT_KINDS = ["remittance", "thirteenth_month"];
+// The BIR is the Super Admin's alone (2026-11-12): only it sees these to act on.
+const BIR_KINDS = ["bir_2316", "bir_alphalist", "tax_annualization"];
 const MODULE_FOR = { accountant: "payroll_reports", hr: "payroll_run_approval", super_admin: "payroll_override" };
 
 async function guardFor(request, action) {
@@ -62,7 +65,7 @@ export async function GET(request) {
     const result = await query;
     if (result.error) throw new Error(result.error.message);
 
-    return NextResponse.json({ flags: result.data || [], can_review: guard.role !== "super_admin" });
+    return NextResponse.json({ flags: result.data || [], can_review: guard.role !== "super_admin", super_admin_reviews: guard.role === "super_admin" ? BIR_KINDS : [] });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -72,9 +75,6 @@ export async function PATCH(request) {
   try {
     const guard = await guardFor(request, "update");
     if (guard.denied) return guard.denied;
-    if (guard.role === "super_admin") {
-      return NextResponse.json({ error: "The records an override affects are reviewed by the Accountant and HR, not the Super Admin." }, { status: 403 });
-    }
 
     const body = await request.json().catch(() => ({}));
     // Over-long text is refused, not cut short (input limits).
@@ -89,6 +89,9 @@ export async function PATCH(request) {
     const found = await scoped(supabase.from("payroll_review_flags").select(COLUMNS), guard).eq("id", id).maybeSingle();
     if (found.error) throw new Error(found.error.message);
     if (!found.data) return NextResponse.json({ error: "Review flag not found." }, { status: 404 });
+    if (guard.role === "super_admin" && !BIR_KINDS.includes(found.data.kind)) {
+      return NextResponse.json({ error: "The records an override affects are reviewed by the Accountant and HR; the Super Admin reviews only the BIR ones." }, { status: 403 });
+    }
     if (found.data.status !== "open") return NextResponse.json({ error: "This flag was already reviewed.", code: "already_reviewed" }, { status: 409 });
 
     const actorName = normalizeText(guard.session?.full_name, guard.session?.email) || null;

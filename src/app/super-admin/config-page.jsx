@@ -16,7 +16,8 @@ import { ErrorState } from "@/components/portal/empty-state";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { cn } from "@/lib/utils";
-import { BIR_EMPLOYER_FIELDS, BIR_EMPLOYER_SECTION, birEmployerErrors } from "@/lib/payroll/bir-employer";
+import { BIR_EMPLOYER_FIELDS, BIR_EMPLOYER_SECTION, birEmployerErrors, birEmployerStoredValue, cleanBirEmployerInput } from "@/lib/payroll/bir-employer";
+import { formatDigitField } from "@/lib/portal/format";
 import { RatesSection } from "./rates-section";
 import { PayrollSettingsSection } from "./tax-section";
 import { HolidaysSection } from "./holidays-section";
@@ -129,7 +130,9 @@ function SettingInputs({ fields, values, errors, onChange, idPrefix }) {
             min={f.min}
             max={f.max}
             step={f.step}
-            inputMode={f.type === "number" ? "decimal" : undefined}
+            inputMode={f.inputMode ?? (f.type === "number" ? "decimal" : undefined)}
+            pattern={f.pattern}
+            autoComplete={f.autoComplete}
             placeholder={f.placeholder}
             maxLength={f.maxLength}
             value={values[f.key] ?? ""}
@@ -236,16 +239,41 @@ function SimpleSection({ section, config, onConfig, icon, title, description, no
   );
 }
 
-/** The employer's details on BIR Form 2316 and the alphalist (AC-11); each one optional. */
+/**
+ * The employer's details on BIR Form 2316 and the alphalist (AC-11); each one
+ * optional. The boxes follow the system's shared rules (src/lib/payroll/
+ * bir-employer.js): numbers-only boxes take digits only, name boxes take no
+ * digits, as typed and as pasted; the server checks the same rules.
+ */
+const NUMERIC_KINDS = new Set(["tin", "digits"]);
+const NAME_HINTS = {
+  name: "Letters, spaces, hyphens (-), apostrophes (') and periods (.).",
+  tin: "Numbers only: 9, 12 or 14 digits (with the branch code).",
+  digits: "Numbers only.",
+};
+
 function BirEmployerSection({ config, onConfig }) {
-  const fields = BIR_EMPLOYER_FIELDS.map(([key, label, placeholder, maxLength]) => ({ key, label, placeholder, maxLength, type: "text" }));
-  const [values, setValues] = React.useState(() => initialValues(fields, config?.[BIR_EMPLOYER_SECTION]));
+  const [hints, setHints] = React.useState({});
+  const fields = BIR_EMPLOYER_FIELDS.map(([key, label, placeholder, maxLength, kind]) => ({
+    key, label, placeholder, maxLength, type: "text", autoComplete: "off",
+    inputMode: NUMERIC_KINDS.has(kind) ? "numeric" : undefined,
+    pattern: kind === "digits" ? "[0-9]*" : undefined,
+    hint: hints[key] || NAME_HINTS[kind] || (kind === "title" ? "Letters, numbers, spaces and . , ' ( ) / & -." : undefined),
+  }));
+  const [values, setValues] = React.useState(() => {
+    const start = initialValues(fields, config?.[BIR_EMPLOYER_SECTION]);
+    // A saved TIN shows as the employees' TINs do (123-456-789-00000); nothing is changed until saved.
+    if (/^[0-9 -]+$/.test(start.bir_employer_tin || "")) start.bir_employer_tin = formatDigitField(start.bir_employer_tin, "tin_number");
+    return start;
+  });
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
   const [confirmDialog, saveConfig] = useSaveConfig();
 
-  const change = (key, value) => {
+  const change = (key, raw) => {
+    const { value, hint } = cleanBirEmployerInput(key, raw);
+    setHints((current) => ({ ...current, [key]: hint }));
     setValues((current) => ({ ...current, [key]: value }));
     if (errors[key]) setErrors((e) => ({ ...e, [key]: "" }));
   };
@@ -259,7 +287,7 @@ function BirEmployerSection({ config, onConfig }) {
     }
     setBusy(true);
     try {
-      const next = await saveConfig(BIR_EMPLOYER_SECTION, "BIR employer details", Object.fromEntries(fields.map((f) => [f.key, String(values[f.key] || "").trim()])));
+      const next = await saveConfig(BIR_EMPLOYER_SECTION, "BIR employer details", Object.fromEntries(fields.map((f) => [f.key, birEmployerStoredValue(f.key, values[f.key])])));
       if (next) {
         onConfig(next);
         setFeedback({ text: "BIR employer details saved.", ok: true });
@@ -275,7 +303,7 @@ function BirEmployerSection({ config, onConfig }) {
     <SectionCard
       icon={FileTextIcon}
       title="BIR employer details"
-      description="Printed on each employee's BIR Form 2316 and on the alphalist the Accountant makes under Payroll Reports → BIR forms."
+      description="Printed on each employee's BIR Form 2316 and on the alphalist, which you make under BIR Forms."
       applies="Leave a field blank if you do not have it yet; the forms say which details are missing."
       footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
     >

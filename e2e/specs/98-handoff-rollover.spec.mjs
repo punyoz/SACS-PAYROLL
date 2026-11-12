@@ -438,12 +438,16 @@ test("Part 2: December 2026 → January 2027 and beyond", async ({ page, monitor
       `PhilHealth January 2027 ${janRow2?.defaults?.philhealth} → February 2027 ${febRow?.defaults?.philhealth}`);
 
     // 4. Tax year choice after the new year.
-    await step(page, "Accountant > Payroll Reports > year-end for 2026 (now in 2027)", async () => {
-      await as(page, "accountant", "ac-reports");
+    // The BIR is the Super Admin's only (2026-11-12).
+    await step(page, "Super Admin > BIR Forms > year-end for 2026 (now in 2027)", async () => {
+      await as(page, "super_admin", "sa-bir");
       await settle(page);
+      const [anaBranch] = await rows(db().from("branches").select("id,name").eq("id", ana.branch_id));
       const card = (t) => main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: t }) }).first();
       const ye = card("Year-end tax annualization");
       await ye.scrollIntoViewIfNeeded();
+      await choose(page, ye.getByRole("combobox", { name: "Branch of the annualization" }), anaBranch.name);
+      await settle(page);
       const yearBox = ye.getByRole("combobox", { name: "Annualization year" });
       await yearBox.click();
       const options = (await page.getByRole("option").allInnerTexts()).map((t) => t.trim());
@@ -454,12 +458,13 @@ test("Part 2: December 2026 → January 2027 and beyond", async ({ page, monitor
       say("Running the 2026 annualization in January 2027…");
       await ye.getByRole("button", { name: /Run annualization|Run again/ }).click();
       await confirm(page, "Run annualization");
-      const bir = card("BIR forms");
+      const bir = main(page).locator("[data-slot=card]").filter({ has: page.locator("[data-slot=card-title]", { hasText: /^BIR forms$/ }) }).first();
       await bir.scrollIntoViewIfNeeded();
+      await choose(page, bir.getByRole("combobox", { name: "Branch of the 2316s" }), anaBranch.name);
       await settle(page, 40000);
       const birYear = (await bir.getByRole("combobox", { name: "Tax year" }).innerText()).trim();
       check("Tax year", birYear === "2026", `BIR forms open on ${birYear} (last year) in January 2027`);
-      const res = await api(page, "GET", "/api/payroll/bir-forms?year=2026");
+      const res = await api(page, "GET", `/api/payroll/bir-forms?year=2026&branch_id=${ana.branch_id}`);
       const anaRow = (res.data?.rows || []).find((r) => r.employee_id === ana.id);
       const paid2026 = await rows(db().from("payroll_entries").select("withholding_tax,pay_period").eq("employee_id", ana.id).eq("status", "paid").like("pay_period", "%, 2026"));
       const withheld = num(paid2026.reduce((s, e) => s + num(e.withholding_tax), 0));

@@ -53,6 +53,7 @@ Legend: **F** = Full (CRUD), **P** = Partial/Branch-scoped, **V** = View only, *
 | **REPORTS** |
 | 18 | HR Reports | F (all branches) | V (own branch) | F (all branches) | — | — |
 | 19 | Payroll Reports | F (all branches) | V (own branch) | — | F (own branch) | — |
+| 19a | BIR Forms (BIR Form 2316, the 1604-C Alphalist of all branches, the year-end tax annualization screen, the generated BIR files) — decision 2026-11-12 | F — exclusive: runs and schedules the annualization per branch, generates the 2316s per branch and the Alphalist (the only view that combines all branches), sets the BIR employer details | — | — | — (still processes payroll: a scheduled year-end adjustment is applied by the payroll engine; Payroll Reports keep the tax columns but no BIR form or export) | — (no "My BIR Form 2316"; the school gives the 2316, produced by the Super Admin) |
 | **ACCOUNT** |
 | 20 | Profile | F (own) | F (own) | F (own) | F (own) | F (own) |
 | 21 | Timesheet | F (all, view/adjust) | V (own branch) | V (all branches) | V (reference) | F (own — view/print) |

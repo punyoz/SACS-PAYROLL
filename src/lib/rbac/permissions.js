@@ -187,7 +187,7 @@ export const MODULES = {
   // branch Admin their own branch. HR and the Accountant see them on their
   // Government Rates page.
   // "My Account" (2026-11-09 Part E): the person's OWN attendance, timesheet,
-  // leave, payslips, requests and Form 2316, for everyone on payroll (HR,
+  // leave, payslips and requests, for everyone on payroll (HR,
   // Accountant, Employee). /api/me/* checks this module and pins every read
   // to the caller (src/lib/rbac/guard.js). Admin / Super Admin: none.
   my_account: {
@@ -222,6 +222,15 @@ export const MODULES = {
   payroll_reports: {
     order: 19, label: "Payroll Reports", section: "Reports",
     page: { accountant: "ac-reports" },
+  },
+  // BIR Form 2316, the 1604-C alphalist, the generated BIR files and the
+  // year-end tax annualization screen (decision 2026-11-12): the BIR belongs
+  // to the school and is handled by the Super Admin only. Payroll processing
+  // still applies a scheduled year-end adjustment (it reads the records
+  // directly); no other role has a BIR page, API or database function.
+  bir_forms: {
+    order: 19.5, label: "BIR Forms", section: "Reports",
+    page: { super_admin: "sa-bir" },
   },
   branch_reports: {
     // NEW — the branch-level summary the matrix flags as missing for Admin.
@@ -343,6 +352,8 @@ export const ROLE_PERMISSIONS = {
     backup_recovery: full(SCOPE_ALL),
     hr_reports: none(),
     payroll_reports: none(),
+    // The only role with the BIR forms (2026-11-12).
+    bir_forms: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     branch_reports: view(SCOPE_ALL),
     profile: full(SCOPE_SELF),
     timesheet: none(),
@@ -407,6 +418,7 @@ export const ROLE_PERMISSIONS = {
     backup_recovery: none(),
     hr_reports: none(),
     payroll_reports: none(),
+    bir_forms: none(),
     // Attendance rate, lateness and leave usage; the payroll summary is run totals only.
     branch_reports: view(SCOPE_BRANCH),
     profile: full(SCOPE_SELF),
@@ -470,6 +482,7 @@ export const ROLE_PERMISSIONS = {
     backup_recovery: none(),
     hr_reports: full(SCOPE_ALL),
     payroll_reports: none(),
+    bir_forms: none(),
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_ALL),
@@ -529,7 +542,9 @@ export const ROLE_PERMISSIONS = {
     audit_logs: none(),
     backup_recovery: none(),
     hr_reports: none(),
+    // Payroll Reports without the BIR forms (bir_forms, 2026-11-12).
     payroll_reports: full(SCOPE_BRANCH),
+    bir_forms: none(),
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_BRANCH),
@@ -580,6 +595,7 @@ export const ROLE_PERMISSIONS = {
     backup_recovery: none(),
     hr_reports: none(),
     payroll_reports: none(),
+    bir_forms: none(),
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_SELF),

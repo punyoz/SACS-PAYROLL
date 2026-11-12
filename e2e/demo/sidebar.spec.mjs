@@ -14,9 +14,13 @@ test.describe("Employee", () => {
   test("My Account is open by default; old request URLs open the right tab of My Requests", async ({ page }) => {
     await page.goto("/employee");
     await expect(header(page, "My Account")).toHaveAttribute("aria-expanded", "true");
-    for (const label of ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My BIR Form 2316", "My Profile"]) {
+    // Six items (2026-11-12: no "My BIR Form 2316"; the BIR is the Super Admin's only).
+    const SIX = ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My Profile"];
+    for (const label of SIX) {
       await expect(group(page, "My Account").getByRole("button", { name: label, exact: true })).toBeVisible();
     }
+    await expect(group(page, "My Account").getByRole("button")).toHaveCount(SIX.length + 1); // + the group header
+    await expect(group(page, "My Account")).not.toContainText(/BIR|2316/);
     await page.goto("/employee?page=emp-loans");
     await expect(page.getByTestId("my-requests")).toBeVisible();
     await expect(page.getByTestId("my-requests-tab-loans")).toHaveAttribute("aria-selected", "true");
@@ -112,5 +116,49 @@ test.describe("Super Admin: saving an HR's home branch", () => {
     await pickHome("Spring Valley Branch");
     await page.reload();
     await expect(page.locator("#portal-main").getByText("All Branches · paid in Spring Valley Branch")).toBeVisible();
+  });
+});
+
+// 2026-11-12: the BIR is the Super Admin's only. "My Account" has six items,
+// with no gap where "My BIR Form 2316" was, on desktop and on phones; the old
+// BIR page addresses show the normal "Page not found" screen.
+const SIX_ITEMS = ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My Profile"];
+for (const [role, portal, retired] of [["employee", "/employee", "emp-bir"], ["hr", "/hr", "hr-my-bir"], ["accountant", "/accountant", "ac-my-bir"]]) {
+  for (const width of [1366, 390]) {
+    test.describe(`${role} ${width}px`, () => {
+      test.use({ storageState: stateFile(role), viewport: { width, height: 844 }, isMobile: width < 700, hasTouch: width < 700 });
+      test(`${role} at ${width}px: My Account has the six items in order, evenly spaced; no BIR anywhere in the menu`, async ({ page }) => {
+        await page.goto(portal);
+        await page.locator("#portal-main").waitFor();
+        if (width < 768) await page.locator("[data-sidebar=trigger]").first().click();
+        if ((await header(page, "My Account").getAttribute("aria-expanded")) === "false") await header(page, "My Account").click();
+        const items = group(page, "My Account").locator("[data-sidebar=menu-button]");
+        await expect(items).toHaveText(SIX_ITEMS);
+        // No gap: the six rows are evenly spaced (same step between each).
+        const tops = await items.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().top));
+        const steps = tops.slice(1).map((t, i) => Math.round(t - tops[i]));
+        expect(Math.max(...steps) - Math.min(...steps), `row steps ${steps.join(",")}`).toBeLessThanOrEqual(1);
+        await expect(page.locator("[data-sidebar=sidebar]").first()).not.toContainText(/BIR|2316|Alphalist/i);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+      });
+      test(`${role} at ${width}px: the old BIR address shows Page not found (no redirect)`, async ({ page }) => {
+        await page.goto(`${portal}?page=${retired}`);
+        await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
+        expect(new URL(page.url()).searchParams.get("page")).toBe(retired);
+      });
+    });
+  }
+}
+
+test.describe("Super Admin: BIR Forms", () => {
+  test.use({ storageState: stateFile("super_admin") });
+  test("the menu item is there and the page shows the annualization, the forms and the generated files", async ({ page }) => {
+    await page.goto("/super-admin");
+    await page.locator("#portal-main").waitFor();
+    await page.locator("[data-nav-group] [data-sidebar=menu-button]").filter({ hasText: /^BIR Forms$/ }).first().click();
+    for (const title of ["Year-end tax annualization", "BIR forms", "Generated BIR files"]) {
+      await expect(page.locator("#portal-main [data-slot=card-title]").filter({ hasText: new RegExp(`^${title}$`) })).toBeVisible();
+    }
+    await expect(page.getByRole("combobox", { name: "Branch of the 2316s" })).toBeVisible();
   });
 });

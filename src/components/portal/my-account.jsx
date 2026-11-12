@@ -15,13 +15,11 @@ import {
   CalendarCheckIcon,
   CalendarDaysIcon,
   ClockIcon,
-  FileTextIcon,
   InboxIcon,
   ReceiptTextIcon,
   UserRoundIcon,
 } from "lucide-react";
 import { DataTable } from "@/components/portal/data-table";
-import { MyBir2316Card } from "@/components/portal/bir-forms";
 import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,9 +34,9 @@ import { ProfilePage } from "@/app/employee/profile-page";
 
 /** The page ids per portal. The Employee keeps its existing ids (saved pages and links still work). */
 export const MY_PAGE_IDS = {
-  emp: { attendance: "emp-attendance", timesheet: "emp-timesheet", leave: "emp-leave", payslips: "emp-payslips", requests: "emp-requests", bir: "emp-bir", profile: "emp-profile" },
-  hr: { attendance: "hr-my-attendance", timesheet: "hr-my-timesheet", leave: "hr-my-leave", payslips: "hr-my-payslips", requests: "hr-my-requests", bir: "hr-my-bir", profile: "hr-profile" },
-  ac: { attendance: "ac-my-attendance", timesheet: "ac-my-timesheet", leave: "ac-my-leave", payslips: "ac-my-payslips", requests: "ac-my-requests", bir: "ac-my-bir", profile: "ac-profile" },
+  emp: { attendance: "emp-attendance", timesheet: "emp-timesheet", leave: "emp-leave", payslips: "emp-payslips", requests: "emp-requests", profile: "emp-profile" },
+  hr: { attendance: "hr-my-attendance", timesheet: "hr-my-timesheet", leave: "hr-my-leave", payslips: "hr-my-payslips", requests: "hr-my-requests", profile: "hr-profile" },
+  ac: { attendance: "ac-my-attendance", timesheet: "ac-my-timesheet", leave: "ac-my-leave", payslips: "ac-my-payslips", requests: "ac-my-requests", profile: "ac-profile" },
 };
 
 export const MY_REQUEST_TABS = [
@@ -70,7 +68,6 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
       { id: ids.leave, label: "My Leave", icon: CalendarDaysIcon, module: "my_account" },
       { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, module: "my_account" },
       { id: ids.requests, label: "My Requests", icon: InboxIcon, module: "my_account" },
-      { id: ids.bir, label: "My BIR Form 2316", icon: FileTextIcon, module: "my_account" },
       { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
     ],
   };
@@ -82,7 +79,6 @@ export const MY_DESCRIPTIONS = {
   leave: "File your own leave and follow its approval.",
   payslips: "Your own payslips and earlier ones: your deductions only.",
   requests: "Your own loans, cash advances, incentives, subsidy and 13th month pay.",
-  bir: "Your own BIR Form 2316 for a finished year.",
   profile: "Your personal, contact and government details on file.",
 };
 
@@ -185,11 +181,6 @@ export function MyRequestsPage({ refreshKey = 0, initialTab = "loans" }) {
   );
 }
 
-/** My BIR Form 2316. */
-export function MyBirPage() {
-  return <MyBir2316Card />;
-}
-
 /**
  * Render the "My" page `kind` with the Employee portal's components. Mounted
  * only while a My page is open, so other pages do not load personal data.
@@ -205,7 +196,6 @@ export function MyAccountScreen({ kind, refreshKey = 0, initialTab }) {
   if (kind === "leave") return <LeavePage leave={leave} />;
   if (kind === "payslips") return <PayslipsPage payslips={payslips} />;
   if (kind === "requests") return <MyRequestsPage refreshKey={refreshKey} initialTab={initialTab} />;
-  if (kind === "bir") return <MyBirPage />;
   if (kind === "profile") return <ProfilePage />;
   return null;
 }

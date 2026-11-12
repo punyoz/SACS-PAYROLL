@@ -4,15 +4,15 @@
  * file generated is recorded as generated (payroll_bir_exports; viewed later
  * through /api/payroll/bir-exports, also by the Super Admin, read-only).
  *
- *   GET ?year=YYYY                        the year's certificates (summary; TINs masked)
- *   GET ?year=YYYY&format=pdf[&employee_id=]   2316 PDF (one page per employee)
+ *   GET ?year=YYYY[&branch_id=]           the year's certificates of a branch (summary; TINs masked)
+ *   GET ?year=YYYY&branch_id=&format=pdf[&employee_id=]   2316 PDF (one page per employee)
  *   GET ?year=YYYY&format=xlsx | csv      the alphalist (Schedule 1 as of Dec 31,
  *                                         Schedule 2 separated during the year)
  *
- * The Accountant only, under Payroll Reports (2026-10-29,
- * src/lib/payroll/bir-access.js): HR, Admin and Super Admin are refused.
- * The summary and the 2316 cover its own branch; the alphalist every branch
- * (one school-wide filing under one TIN).
+ * The Super Admin only (decision 2026-11-12, src/lib/payroll/bir-access.js):
+ * HR, Accountant, Employee and Admin are refused. The summary and the 2316
+ * cover the branch the Super Admin chose (the first branch by name when none
+ * is given); the alphalist every branch (one school-wide filing under one TIN).
  * The tax withheld includes the year-end tax adjustments settled on payslips
  * (/api/payroll/year-end-tax).
  */
@@ -20,7 +20,7 @@
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
-import { ALPHALIST_SCOPE, birBranchScope, describeYearEndError, requireBirAccountant } from "@/lib/payroll/bir-access";
+import { ALPHALIST_SCOPE, birBranchScope, describeYearEndError, requireBirSuperAdmin } from "@/lib/payroll/bir-access";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { buildBirFile, recordBirExport } from "@/lib/payroll/bir-exports";
 import { birYears, loadBirYear } from "@/lib/payroll/bir-forms";
@@ -65,13 +65,15 @@ function file(buffer, name, type) {
 }
 
 export async function GET(request) {
-  // The Accountant only, its own branch (src/lib/payroll/bir-access.js).
-  const guard = await requireBirAccountant(request, "read");
+  // The Super Admin only (src/lib/payroll/bir-access.js).
+  const guard = await requireBirSuperAdmin(request, "read");
   if (guard.denied) return guard.denied;
   try {
     const url = new URL(request.url);
     const thisYear = Number(manilaDateKey().slice(0, 4));
-    const year = /^\d{4}$/.test(url.searchParams.get("year") || "") ? Number(url.searchParams.get("year")) : thisYear - 1;
+    const yearParam = url.searchParams.get("year") || "";
+    if (yearParam && !/^\d{4}$/.test(yearParam)) return NextResponse.json({ error: "The tax year is 4 digits (for example 2026)." }, { status: 400 });
+    const year = yearParam ? Number(yearParam) : thisYear - 1;
     if (year < 2000 || year > thisYear) return NextResponse.json({ error: "Choose a year up to this one." }, { status: 400 });
     const format = String(url.searchParams.get("format") || "json").toLowerCase();
     const employeeId = url.searchParams.get("employee_id") || "";
@@ -80,9 +82,11 @@ export async function GET(request) {
     if (!["json", "pdf", "xlsx", "csv"].includes(format)) return NextResponse.json({ error: "Unknown format." }, { status: 400 });
     const supabase = getAdminClient();
     // The alphalist is one school-wide filing: every branch's approved
-    // payroll, read for this export only. Everything else: the Accountant's branch.
+    // payroll. Everything else: the branch the Super Admin chose.
     const alphalist = format === "xlsx" || format === "csv";
-    const branchId = alphalist ? ALPHALIST_SCOPE : birBranchScope(guard);
+    const scope = await birBranchScope(supabase, url.searchParams.get("branch_id"));
+    if (scope.error) return NextResponse.json({ error: scope.error, code: "invalid_branch" }, { status: 400 });
+    const branchId = alphalist ? ALPHALIST_SCOPE : scope.branchId;
     const data = await loadBirYear(supabase, { year, branchId, employeeId: alphalist ? null : employeeId || null });
     // Demo people are left out of BIR reports and files (is_demo, 2026-11-08).
     const demo = await loadDemoIds(supabase);
@@ -92,6 +96,8 @@ export async function GET(request) {
       const years = await birYears(supabase);
       return NextResponse.json({
         year,
+        branch_id: scope.branchId,
+        branches: scope.branches,
         years: [...new Set([...years.filter((y) => y <= thisYear), year])].sort((a, b) => b - a),
         finished: year < thisYear,
         employer: data.employer,
@@ -104,15 +110,15 @@ export async function GET(request) {
           tax_due: data.rows.reduce((s, r) => s + r.form.boxes[24], 0),
           tax_withheld: data.rows.reduce((s, r) => s + r.form.boxes[26], 0),
         },
-        can_generate: guard.role === "accountant",
+        can_generate: guard.role === "super_admin",
       });
     }
 
-    if (employeeId && !data.rows.length) return NextResponse.json({ error: "No paid payslips for this employee in that year, or not in your branch." }, { status: 404 });
+    if (employeeId && !data.rows.length) return NextResponse.json({ error: "No paid payslips for this employee in that year, or not in that branch." }, { status: 404 });
 
     const kind = alphalist ? "alphalist" : "bir_2316";
     const built = buildBirFile({ kind, format, rows: data.rows, employer: data.employer, year, employeeCode: employeeId ? data.rows[0].employee_code || "employee" : "" });
-    // Kept as generated, for the record and the Super Admin's oversight.
+    // Kept as generated, for the record (Generated BIR files).
     let exportId = null;
     try {
       exportId = await recordBirExport(supabase, guard, { kind, format, year, employeeId: employeeId && !alphalist ? employeeId : null, rows: data.rows, employer: data.employer });
@@ -133,7 +139,7 @@ export async function GET(request) {
       description: `${format === "pdf" ? "BIR Form 2316" : "1604-C alphalist (all branches)"} ${year} generated (${data.rows.length} employee${data.rows.length === 1 ? "" : "s"}).`,
       status: "success",
       source: "api",
-      metadata: { year, format, employee_id: employeeId || null, count: data.rows.length, export_id: exportId, scope: alphalist ? "school" : "branch" },
+      metadata: { year, format, employee_id: employeeId || null, count: data.rows.length, export_id: exportId, scope: alphalist ? "school" : "branch", branch_id: alphalist ? null : branchId },
     });
     return response;
   } catch (error) {

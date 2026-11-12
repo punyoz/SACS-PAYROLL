@@ -10,7 +10,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 
 export const POSITION_MIN = 2;
 export const POSITION_MAX = 80;
-const POSITION_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9][A-Za-zÀ-ÖØ-öø-ÿ0-9 .,'()/&-]*$/;
+export const POSITION_PATTERN = /^[A-Za-zÀ-ÖØ-öø-ÿ0-9][A-Za-zÀ-ÖØ-öø-ÿ0-9 .,'()/&-]*$/;
 
 /** "  teacher   I " -> "teacher I" (spaces folded, case kept). */
 export function tidyPosition(raw) {

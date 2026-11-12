@@ -567,8 +567,9 @@ async function stageExtras() {
   await step("holiday duty (Bonifacio Day)", async () => {
     ok("assign", await as(by("hr1")).post("/api/holiday-duty", { action: "assign", holiday_date: "2026-11-30", employee_ids: [by("emp1").id, by("emp2").id, by("emp9").id, by("emp19").id], note: "School event" }));
   });
+  // The BIR is the Super Admin's only (2026-11-12): it generates the files.
   await step("BIR alphalist file (2026)", async () => {
-    for (const who of ["acc-b1-1", "acc-b3-1"]) { const r = await as(by(who)).get("/api/payroll/bir-forms?year=2026&format=xlsx"); if (r.status >= 300) throw new Error(`${who}: ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`); }
+    for (const who of ["sa1"]) { const r = await as(by(who)).get("/api/payroll/bir-forms?year=2026&format=xlsx"); if (r.status >= 300) throw new Error(`${who}: ${r.status} ${JSON.stringify(r.data).slice(0, 160)}`); }
   });
   await step("a separation in Branch 3 (Final Pay)", async () => {
     const p = by("emp21");

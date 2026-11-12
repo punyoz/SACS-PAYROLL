@@ -53,7 +53,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChangePasswordDialog, EditAccountDialog } from "@/components/portal/account-dialogs";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { HelpTour, useFirstTimeHelp } from "@/components/portal/help-tour";
-import { usePortalSession, useSystemName } from "@/components/portal/session";
+import { NOT_FOUND_PAGE, usePortalSession, useSystemName } from "@/components/portal/session";
+import { NotFoundScreen } from "@/components/portal/status-screen";
 import { apiFetch, BACKGROUND, jsonBody } from "@/lib/portal/api";
 import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
@@ -510,6 +511,10 @@ export function AppShell({
     window.addEventListener(NAVIGATE_EVENT, go);
     return () => window.removeEventListener(NAVIGATE_EVENT, go);
   }, [nav, onNavigate]);
+
+  // An old link to a page that no longer exists (RETIRED_PAGE_IDS): the
+  // normal "Page not found" screen, not a quiet redirect to the dashboard.
+  if (page === NOT_FOUND_PAGE) return <NotFoundScreen />;
 
   return (
     <AccountDialogsContext.Provider value={dialogs}>

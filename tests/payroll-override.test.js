@@ -171,8 +171,8 @@ describe("review flags (GET / PATCH /api/payroll/review-flags)", () => {
     return response.status === 200 ? (await response.json()).flags.map((f) => f.id.slice(-1)).sort() : response.status;
   };
 
-  it("each role sees the flags it reviews", async () => {
-    expect(await ids("accountant")).toEqual(["1", "2"]);
+  it("each role sees the flags it reviews (the BIR ones: the Super Admin only, 2026-11-12)", async () => {
+    expect(await ids("accountant")).toEqual(["1"]);
     expect(await ids("hr")).toEqual(["3"]);
     expect(await ids("super_admin")).toEqual(["1", "2", "3", "4"]);
     expect(await ids("admin")).toBe(403);
@@ -190,5 +190,15 @@ describe("review flags (GET / PATCH /api/payroll/review-flags)", () => {
     expect(table("payroll_review_flags").find((f) => f.id === id)).toMatchObject({ status: "reviewed", reviewed_by: IDS.accountant, review_note: "Re-filed the October remittance" });
     expect(table("audit_logs").find((row) => row.action === "review_flag_reviewed")).toMatchObject({ module: "payroll_override" });
     expect((await PATCH(request("accountant", "/api/payroll/review-flags", "PATCH", { id, note: "Again" }))).status).toBe(409);
+  });
+
+  it("the Super Admin marks only the BIR flags reviewed; the Accountant cannot reach them", async () => {
+    const { PATCH } = await import("@/app/api/payroll/review-flags/route");
+    const bir = "aaaaaaaa-0000-4000-8000-0000000f0002";
+    expect((await PATCH(request("accountant", "/api/payroll/review-flags", "PATCH", { id: bir, note: "Generated again" }))).status).toBe(404);
+    expect((await PATCH(request("super_admin", "/api/payroll/review-flags", "PATCH", { id: "aaaaaaaa-0000-4000-8000-0000000f0003", note: "Run totals checked" }))).status).toBe(403);
+    const done = await PATCH(request("super_admin", "/api/payroll/review-flags", "PATCH", { id: bir, note: "Generated the 2316 again" }));
+    expect(done.status).toBe(200);
+    expect(table("payroll_review_flags").find((f) => f.id === bir)).toMatchObject({ status: "reviewed", review_note: "Generated the 2316 again" });
   });
 });

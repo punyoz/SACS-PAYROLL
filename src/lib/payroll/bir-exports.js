@@ -5,13 +5,13 @@
  *   buildBirFile({ kind, format, rows, employer, year, employeeCode })
  *     → { buffer, name, type }        the file, from loadBirYear() rows
  *   recordBirExport(supabase, guard, { kind, format, year, employeeId, rows, employer })
- *     → export id                     the Accountant generated it (the database
- *                                     checks the role and a 2316's branch)
+ *     → export id                     the Super Admin generated it (the database
+ *                                     checks the role and records a 2316's branch)
  *   exportRows(stored, tinOf)         a stored export's rows, TINs filled in again
  *
  * A stored export keeps the figures exactly as generated, never the TINs:
  * those stay encrypted in profiles and are read again when the file is shown.
- * Viewing a stored export (the Super Admin's oversight) computes nothing.
+ * Viewing a stored export computes nothing.
  */
 
 import { ALPHALIST_COLUMNS, alphalistRow, toCsv } from "@/lib/payroll/bir-2316";

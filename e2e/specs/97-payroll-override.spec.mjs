@@ -194,11 +194,19 @@ test("override: Super Admin only, reason required, logged on its own, downstream
     expect((await api(page, "PATCH", "/api/accountant/payroll", { ...body, reason: REASON })).status).toBe(403);
   });
 
-  await step(page, "Accountant > sees the BIR flag, regenerates nothing silently, marks it reviewed", async () => {
+  await step(page, "Accountant > its review flags no longer include the BIR ones (the Super Admin's only, 2026-11-12)", async () => {
     monitor.at("Accountant > review flags");
     await as(page, "accountant");
     const res = await api(page, "GET", "/api/payroll/review-flags");
-    const flag = res.data.flags.find((f) => f.kind === "bir_2316");
+    expect(res.status).toBe(200);
+    expect(res.data.flags.some((f) => ["bir_2316", "bir_alphalist", "tax_annualization"].includes(f.kind))).toBe(false);
+  });
+
+  await step(page, "Super Admin > sees the BIR flag, regenerates nothing silently, marks it reviewed", async () => {
+    monitor.at("Super Admin > review flags");
+    await as(page, "super_admin");
+    const res = await api(page, "GET", "/api/payroll/review-flags");
+    const flag = res.data.flags.find((f) => f.kind === "bir_2316" && f.status === "open");
     expect(flag, "the 2316 flag").toBeTruthy();
     expect(flag.message).toContain("generate it again");
     const done = await api(page, "PATCH", "/api/payroll/review-flags", { id: flag.id, note: "Regenerated Bea's 2026 BIR 2316" });

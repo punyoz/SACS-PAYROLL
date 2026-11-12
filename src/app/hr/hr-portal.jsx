@@ -7,7 +7,7 @@ import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, Radio
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
-import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
+import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsManager } from "@/components/portal/announcements";
 import { GovernmentRatesPanel } from "@/components/portal/government-rates";
@@ -157,7 +157,8 @@ function HrScreens() {
     const item = NAV_ITEMS.find((i) => i.id === id);
     return item ? can(item.module) : false;
   };
-  const current = allowed(page) ? page : "hr-dashboard";
+  // An old link to a retired page (My BIR Form 2316) shows "Page not found".
+  const current = page === NOT_FOUND_PAGE ? NOT_FOUND_PAGE : allowed(page) ? page : "hr-dashboard";
   const myKind = myPageKind("hr", current);
   const { employeeId, openEmployee, navigate } = useEmployeeRecordPage(current, setPage, EMPLOYEE_PAGE, "hr-attendance");
 
