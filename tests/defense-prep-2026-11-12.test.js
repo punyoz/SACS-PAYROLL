@@ -182,3 +182,67 @@ describe("Leave with pay: 6 days per calendar year, a setting", () => {
     expect(entry.description).toMatch(/to 6 days\. Reason: School policy 2026/);
   });
 });
+
+describe("Leave over the paid balance: split, never blocked (decision 2026-11-12)", () => {
+  it("splitForBalance: within, exactly at, over, and nothing left", async () => {
+    const { splitForBalance, describeSplit } = await import("@/lib/leave-requests/split");
+    const req = (start, end, pay = "with_pay") => ({ start_date: start, end_date: end, pay_status: pay });
+    expect(splitForBalance(req("2026-12-07", "2026-12-09"), 4)).toMatchObject({ with_pay_days: 3, without_pay_days: 0 });
+    expect(splitForBalance(req("2026-12-07", "2026-12-10"), 4)).toMatchObject({ with_pay_days: 4, without_pay_days: 0, with_pay_end: "2026-12-10" });
+    const over = splitForBalance(req("2026-12-07", "2026-12-11"), 4);
+    expect(over).toEqual({ with_pay_days: 4, without_pay_days: 1, with_pay_end: "2026-12-10", without_pay_start: "2026-12-11" });
+    expect(describeSplit(over)).toBe("4 days with pay, 1 day without pay");
+    expect(splitForBalance(req("2026-12-07", "2026-12-08"), 0)).toMatchObject({ with_pay_days: 0, without_pay_days: 2, without_pay_start: "2026-12-07" });
+    expect(splitForBalance(req("2026-12-07", "2026-12-08", "without_pay"), 6)).toMatchObject({ with_pay_days: 0, without_pay_days: 2 });
+  });
+
+  describe("HR approval re-checks the balance on the server", () => {
+    const pendingLeave = (id, start, end, extra = {}) => ({ id, employee_id: PAOLO, employee_name: "Paolo Diaz", branch_id: MAIN, leave_type: "Vacation Leave", pay_status: "with_pay", start_date: start, end_date: end, reason: "Family trip", status: "pending_admin", ...extra });
+    const used = (id, start, end) => pendingLeave(id, start, end, { status: "approved", decided_at: "2026-03-01T00:00:00Z", decided_by_name: "Hana HR" });
+    const approve = (id) => call(who.hr, "hr/leave-requests", "PATCH", { id, action: "approve" });
+    beforeEach(() => {
+      ROUTES["hr/leave-requests"] = () => import("@/app/api/hr/leave-requests/route");
+      rpc.results.attendance_sync_leave = { data: { marked: 0, removed: 0, conflicts: [] }, error: null };
+      table("system_config").push({ section: "payroll", key: "leave_with_pay_days", value: "6" });
+      table("leave_requests").push(used("u1", "2026-03-02", "2026-03-03")); // 2 used: 4 left
+    });
+    const rows = () => table("leave_requests").filter((r) => r.id !== "u1");
+
+    it("within the balance: approved whole, with pay", async () => {
+      table("leave_requests").push(pendingLeave("l1", "2026-12-07", "2026-12-09"));
+      const { status, body } = await approve("l1");
+      expect(status).toBe(200);
+      expect(body.split).toBeNull();
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ status: "approved", pay_status: "with_pay", end_date: "2026-12-09" });
+    });
+
+    it("exactly at the balance: approved whole, with pay", async () => {
+      table("leave_requests").push(pendingLeave("l1", "2026-12-07", "2026-12-10"));
+      const { body } = await approve("l1");
+      expect(body.split).toBeNull();
+      expect(rows()).toHaveLength(1);
+    });
+
+    it("over the balance: the first 4 days with pay, the extra day a linked without-pay row; audited", async () => {
+      table("leave_requests").push(pendingLeave("l1", "2026-12-07", "2026-12-11"));
+      const { status, body } = await approve("l1");
+      expect(status).toBe(200);
+      expect(body.split).toMatchObject({ with_pay_days: 4, without_pay_days: 1, remaining_before: 4 });
+      const [paid, unpaid] = [rows().find((r) => r.id === "l1"), rows().find((r) => r.split_from === "l1")];
+      expect(paid).toMatchObject({ status: "approved", pay_status: "with_pay", start_date: "2026-12-07", end_date: "2026-12-10" });
+      expect(unpaid).toMatchObject({ status: "approved", pay_status: "without_pay", start_date: "2026-12-11", end_date: "2026-12-11", employee_id: PAOLO });
+      expect(table("audit_logs").find((a) => a.module === "leave").description).toMatch(/Over the paid leave balance \(4 days left\): 4 days with pay, 1 day without pay/);
+      expect(JSON.stringify(table("notifications"))).not.toMatch(/₱|PHP/);
+    });
+
+    it("nothing left: the whole request becomes without pay; past approved leave is unchanged", async () => {
+      table("leave_requests").push(used("u2", "2026-04-06", "2026-04-09"), pendingLeave("l1", "2026-12-07", "2026-12-08"));
+      const before = JSON.stringify(table("leave_requests").filter((r) => r.id.startsWith("u")));
+      const { body } = await approve("l1");
+      expect(body.split).toMatchObject({ with_pay_days: 0, without_pay_days: 2 });
+      expect(rows().find((r) => r.id === "l1")).toMatchObject({ pay_status: "without_pay", end_date: "2026-12-08" });
+      expect(JSON.stringify(table("leave_requests").filter((r) => r.id.startsWith("u")))).toBe(before);
+    });
+  });
+});

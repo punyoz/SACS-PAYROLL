@@ -1,5 +1,6 @@
 "use client";
 
+import { describeSplit, splitForBalance } from "@/lib/leave-requests/split";
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -60,7 +61,7 @@ function readAsDataUrl(file) {
   });
 }
 
-function LeaveRequestForm({ onSubmitted }) {
+function LeaveRequestForm({ onSubmitted, balance = null }) {
   const { ctx, notify } = usePortalSession();
   const [serverError, setServerError] = React.useState("");
   const [fileKey, setFileKey] = React.useState(0);
@@ -68,6 +69,11 @@ function LeaveRequestForm({ onSubmitted }) {
   // Days before today + 7 (Manila) cannot be picked.
   const earliest = earliestLeaveStart();
   const startDate = form.watch("start_date");
+  const endDate = form.watch("end_date");
+  const payStatus = form.watch("pay_status");
+  // Over the paid balance (2026-11-12): not blocked; the extra days are without pay.
+  const split = balance && payStatus === "with_pay" && startDate && endDate
+    ? splitForBalance({ start_date: startDate, end_date: endDate, pay_status: payStatus }, balance.with_pay_remaining) : null;
 
   async function onSubmit(values) {
     setServerError("");
@@ -158,6 +164,11 @@ function LeaveRequestForm({ onSubmitted }) {
             </FormItem>
           )}
         />
+        {split?.without_pay_days ? (
+          <p role="status" className="rounded-md border border-warning/40 bg-warning/5 p-2 text-sm text-warning sm:col-span-2" data-testid="leave-split-preview">
+            This is more than your {balance.with_pay_remaining} paid day{balance.with_pay_remaining === 1 ? "" : "s"} left: if approved, {describeSplit(split)} (deducted at your daily rate).
+          </p>
+        ) : null}
         <FormField
           control={form.control}
           name="reason"
@@ -294,7 +305,7 @@ export function LeavePage({ leave }) {
             <CardDescription>Your request goes to HR / your Administrator for approval.</CardDescription>
           </CardHeader>
           <CardContent>
-            <LeaveRequestForm onSubmitted={leave.reload} />
+            <LeaveRequestForm onSubmitted={leave.reload} balance={leave.balance} />
           </CardContent>
         </Card>
         <LeaveBalance balance={leave.balance} loading={leave.loading} />

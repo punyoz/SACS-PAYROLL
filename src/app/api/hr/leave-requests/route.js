@@ -3,6 +3,8 @@ import {
   readAllLeaveRequests,
   readLeaveRequestsWithoutProof,
   updateLeaveRequestStatus,
+  applyBalanceSplit,
+  leaveBalancesFor,
   findOverlappingApprovedLeave,
   cancelApprovedLeaveRequest,
   syncLeaveAttendance,
@@ -69,6 +71,8 @@ export async function GET(request) {
 
     return NextResponse.json({
       requests,
+      // Read-only paid-leave balance of the people waiting (2026-11-12).
+      balances: await leaveBalancesFor(pending.map((r) => r.employee_id)),
       pending_requests: pending,
       history_requests: history,
       generated_at: new Date().toISOString(),
@@ -225,6 +229,10 @@ export async function PATCH(request) {
       );
     }
 
+    // Over the yearly paid balance: the extra days become without pay (re-checked here, at approval).
+    const split = action === "approve" ? await applyBalanceSplit(id) : null;
+    const splitText = split ? ` · ${split.text} (over the paid leave balance)` : "";
+
     // The branch Admin who recommended it learns HR's decision (2026-10-20).
     await notifyEndorsers(getAdminClient(), "leave_endorsement", id, {
       title: `Leave ${newStatus === "approved" ? "approved" : "rejected"} by HR · ${current.employee_name}`,
@@ -236,7 +244,7 @@ export async function PATCH(request) {
       await notify(getAdminClient(), [current.employee_id], {
         kind: `leave_${newStatus}`,
         title: `Your leave was ${newStatus}`,
-        body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
+        body: `${current.leave_type || "Leave"}, ${current.start_date} to ${current.end_date}${splitText}${deciderName ? ` · ${deciderName}` : ""}${action === "reject" ? ` · Reason: ${rejectReason}` : ""}`,
         link_page: "emp-leave",
       });
     } catch { /* never fails the decision */ }
@@ -249,7 +257,7 @@ export async function PATCH(request) {
       entity_type: "leave_request",
       entity_id: id,
       branch_id: current.branch_id || null,
-      description: `Leave request for ${current.employee_name} (${current.start_date} to ${current.end_date}, ${current.pay_status === "without_pay" ? "without pay" : "with pay"}) ${newStatus}.`,
+      description: `Leave request for ${current.employee_name} (${current.start_date} to ${current.end_date}, ${current.pay_status === "without_pay" ? "without pay" : "with pay"}) ${newStatus}.${split ? ` Over the paid leave balance (${split.remaining_before} day${split.remaining_before === 1 ? "" : "s"} left): ${split.text}.` : ""}`,
       status: "success",
       source: "api",
       metadata: {
@@ -259,6 +267,7 @@ export async function PATCH(request) {
         start_date: current.start_date,
         end_date: current.end_date,
         previous_status: current.status,
+        ...(split ? { split } : {}),
         ...(action === "reject" ? { reason: rejectReason } : {}),
       },
     });
@@ -266,10 +275,12 @@ export async function PATCH(request) {
     // Approval wrote the On Leave days (database trigger). Days that already
     // have a real tap were left as recorded; HR is told so it can resolve them.
     const sync = action === "approve" ? await syncLeaveAttendance(id) : null;
+    if (split?.without_pay_id) await syncLeaveAttendance(split.without_pay_id);
 
     return NextResponse.json({
       success: true,
       new_status: newStatus,
+      split,
       attendance: sync,
       attendance_conflicts: sync?.conflicts || [],
     });
