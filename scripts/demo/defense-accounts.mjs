@@ -115,6 +115,9 @@ const byCode = (code) => person(`employee_id = ${lit(code)}`);
 const superAdmin = await person("role = 'super_admin' and is_demo and not coalesce(archived, false) order by email");
 const tag = (table, ids, note = null) => (ids.length ? db.exec(`insert into defense_data_rows (table_name, row_id, batch, note) values ${ids.map((id) => `(${lit(table)}, ${lit(String(id))}, ${lit(BATCH)}, ${lit(note)})`).join(", ")} on conflict do nothing;`) : null);
 
+// Before migration 20261112040000 (a --plan on production) the tag table does not exist yet.
+const [{ ok: HAS_TAGS }] = await db.rows("select to_regclass('public.defense_data_rows') is not null as ok");
+if (!HAS_TAGS && !PLAN) throw new Error("Apply migration 20261112040000_defense_data_rows first.");
 const report = [];
 const skipped = [];
 const runStart = new Date().toISOString();
@@ -125,7 +128,9 @@ for (const t of TARGETS) {
   const name = `${me.full_name} (${t.code})`;
 
   // 1. Hire date, only when empty; never before an attendance row.
-  if (!me.date_hired) {
+  // The Super Admin's Edit refuses Accountant accounts (HR manages them): listed, not bypassed.
+  if (!me.date_hired && me.role === "accountant") skipped.push(`${name}: date hired not set: the Super Admin may not edit Accountant accounts (HR does, in User Management)`);
+  else if (!me.date_hired) {
     const [first] = await db.rows(`select min(log_date)::text d from attendance_logs where employee_id = ${lit(me.id)}`);
     const hired = first?.d && first.d < t.hiredDefault ? first.d : t.hiredDefault;
     report.push([name, "Date hired", hired, `Super Admin (${superAdmin.full_name})`]);
@@ -149,12 +154,19 @@ for (const t of TARGETS) {
 
   // 3. Nov 1-12: the generated Absent days, by plan.
   const corrector = await byCode(CORRECTOR[t.code]);
-  const days = await db.rows(`select id, log_date::text d, status from attendance_logs where employee_id = ${lit(me.id)} and log_date between '2026-11-01' and least('2026-11-12', ${lit(today)}) and coalesce(archived_duplicate, false) = false order by log_date`);
+  const days = await db.rows(`select id, log_date::text d, status from attendance_logs where employee_id = ${lit(me.id)} and log_date between '2026-11-01'::date and least('2026-11-12'::date, ${lit(today)}::date) and coalesce(archived_duplicate, false) = false order by log_date`);
   const absent = days.filter((d) => d.status === "Absent");
   const planned = days.length ? days.slice(0, DAY_PLAN.length) : [];
   for (const [i, day] of planned.entries()) {
     const step = DAY_PLAN[i];
     if (step.kind === "absent") { report.push([name, day.d, "stays Absent (deduction shows)", "—"]); continue; }
+    // Rule (2026-11-12 local run): Correct record refuses a time in alone on an
+    // Absent day ("This day has no time out"), so no time-out request can be
+    // filed for it. Kept Absent and listed; never bypassed.
+    if (step.kind === "request" && day.status === "Absent") {
+      skipped.push(`${name} ${day.d}: stays Absent: Correct record refuses a time in alone on an Absent day, so no time-out request can be filed (rule kept)`);
+      continue;
+    }
     if (day.status === "Absent") {
       const type = step.kind === "request" ? "time_in" : "both";
       report.push([name, day.d, `${step.in}${type === "both" ? `–${step.out}` : " (time in)"}`, `${corrector.full_name}: Correct record`]);
@@ -184,14 +196,14 @@ for (const t of TARGETS) {
   if (!absent.length && !PLAN) say(`${name}: no Absent day left in Nov 1-12 (already done).`);
 
   // 4. One pending leave request (7+ days ahead), within the paid balance.
-  const [leave] = await db.rows(`select count(*)::int n from leave_requests l join defense_data_rows t on t.table_name = 'leave_requests' and t.row_id = l.id::text where l.employee_id = ${lit(me.id)}`);
+  const [leave] = HAS_TAGS ? await db.rows(`select count(*)::int n from leave_requests l join defense_data_rows t on t.table_name = 'leave_requests' and t.row_id = l.id::text where l.employee_id = ${lit(me.id)}`) : [{ n: 0 }];
   if (!leave.n) {
     const start = new Date(Date.now() + (8 + 8) * 86400e3); // 8+ days from now, on a weekday
     while ([0, 6].includes(start.getUTCDay())) start.setUTCDate(start.getUTCDate() + 1);
     const day = start.toISOString().slice(0, 10);
     report.push([name, "Leave request", `${day}, Vacation Leave, with pay, pending`, "the employee"]);
     if (!PLAN) {
-      const r = await call(me, "POST", "/api/employee/leave-requests", { leave_type: "Vacation Leave", pay_status: "with_pay", start_date: day, end_date: day, reason: "Family errand (defense data)." });
+      const r = await call(me, "POST", "/api/me/leave-requests", { leave_type: "Vacation Leave", pay_status: "with_pay", start_date: day, end_date: day, reason: "Family errand (defense data)." });
       if (r.status >= 300) skipped.push(`${name}: leave refused (${r.status} ${JSON.stringify(r.data).slice(0, 160)})`);
       else {
         const [row] = await db.rows(`select id from leave_requests where employee_id = ${lit(me.id)} and start_date = ${lit(day)} order by submitted_at desc limit 1`);
@@ -202,9 +214,9 @@ for (const t of TARGETS) {
 
   // The defense-data tag: what was added for this account in this run.
   if (!PLAN) {
-    const added = async (table, where) => (await db.rows(`select id from ${table} where ${where} and created_at >= ${lit(runStart)}`)).map((r) => r.id);
-    await tag("employee_salary_changes", await added("employee_salary_changes", `employee_id = ${lit(me.id)}`));
-    await tag("attendance_corrections", (await db.rows(`select id from attendance_corrections where employee_id = ${lit(me.id)} and requested_at >= ${lit(runStart)}`)).map((r) => r.id));
+    // By what the rows are (this script's own notes), so a run that stopped half-way is tagged on the next one.
+    await tag("employee_salary_changes", (await db.rows(`select id from employee_salary_changes where employee_id = ${lit(me.id)} and note like 'Defense data:%'`)).map((r) => r.id));
+    await tag("attendance_corrections", (await db.rows(`select id from attendance_corrections where employee_id = ${lit(me.id)} and (reason like 'Logbook%' or review_note like 'Logbook%' or reason like 'Forgot to tap out; logbook%')`)).map((r) => r.id));
   }
 }
 if (!PLAN) {
@@ -216,5 +228,5 @@ say(`\n${PLAN ? "PLAN (nothing written)" : "Done"} on ${db.target}:`);
 for (const r of report) say(`  ${r[0].padEnd(34)} ${r[1].padEnd(14)} ${r[2].padEnd(48)} ${r[3]}`);
 if (!report.length) say("  nothing to do (already applied)");
 if (skipped.length) { say("Skipped (a rule refused it; not bypassed):"); for (const s of skipped) say(`  ${s}`); }
-const [tagged] = await db.rows(`select count(*)::int n from defense_data_rows where batch = ${lit(BATCH)}`);
+const [tagged] = HAS_TAGS ? await db.rows(`select count(*)::int n from defense_data_rows where batch = ${lit(BATCH)}`) : [{ n: 0 }];
 say(`Rows tagged ${BATCH}: ${tagged.n}`);

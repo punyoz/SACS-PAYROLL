@@ -6,7 +6,7 @@
 -- (split_from stays null): no past approved leave or payslip changes.
 
 ALTER TABLE public.leave_requests
-  ADD COLUMN IF NOT EXISTS split_from UUID REFERENCES public.leave_requests(id);
+  ADD COLUMN IF NOT EXISTS split_from TEXT REFERENCES public.leave_requests(id);
 
 COMMENT ON COLUMN public.leave_requests.split_from IS
   'The approved WITH-pay request these days were split from (the days over the yearly paid balance, without pay).';

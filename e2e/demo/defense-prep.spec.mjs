@@ -247,3 +247,18 @@ test.describe("Super Admin: backup password prompt", () => {
     }
   });
 });
+
+for (const [role, portal, pageId] of [["hr", "/hr", "hr-leaves"], ["admin", "/admin", "adm-leaves"]]) {
+  test.describe(`${role}: the paid-leave balance on the approval screen`, () => {
+    test.use({ storageState: stateFile(role) });
+    test("a pending request shows x of 6 days used, y remaining", async ({ page }) => {
+      for (const [label, viewport] of [["desktop", DESKTOP], ["phone", PHONE]]) {
+        await page.setViewportSize(viewport);
+        await page.goto(`${portal}?page=${pageId}`);
+        await page.locator("#portal-main").waitFor();
+        await expect(page.getByTestId("leave-balance").first()).toContainText(/\d+ of 6 days used, \d+ remaining/, { timeout: 30000 });
+        await shot(page, `${role}-leave-balance-${label}`);
+      }
+    });
+  });
+}

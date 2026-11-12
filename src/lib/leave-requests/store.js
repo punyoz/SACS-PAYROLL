@@ -362,7 +362,7 @@ export async function applyBalanceSplit(id) {
     return { ...split, text: describeSplit(split), remaining_before: balance.with_pay_remaining };
   }
   const { id: _id, created_at: _c, updated_at: _u, cancelled_at: _ca, cancelled_by: _cb, cancelled_by_name: _cn, ...copy } = row;
-  const rest = { ...copy, start_date: split.without_pay_start, end_date: row.end_date, pay_status: "without_pay", split_from: id, updated_at: now };
+  const rest = { ...copy, id: crypto.randomUUID(), start_date: split.without_pay_start, end_date: row.end_date, pay_status: "without_pay", split_from: id, updated_at: now };
   const cut = await supabase.from("leave_requests").update({ end_date: split.with_pay_end, updated_at: now }).eq("id", id);
   if (cut.error) throw new Error(cut.error.message);
   const added = await supabase.from("leave_requests").insert(rest).select("id").maybeSingle();

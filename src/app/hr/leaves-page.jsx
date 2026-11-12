@@ -19,6 +19,7 @@ import { STATUS_TONES } from "@/lib/branch-requests";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { LeaveBalanceNote } from "@/components/portal/leave-balance-note";
+import { countLeaveDays } from "@/lib/leave-requests/split";
 import { REASON_MAX } from "@/lib/input-limits";
 
 /*
@@ -32,7 +33,7 @@ function localDateKey(date = new Date()) {
 }
 
 const range = (req) => ({
-  days: req.days || req.duration_days || "?",
+  days: req.days || req.duration_days || countLeaveDays(req.start_date, req.end_date || req.start_date) || "?",
   from: req.from_date || req.start_date || "—",
   to: req.to_date || req.end_date || "—",
   // A truthy marker for a stored proof (fetched on View, 20261105030000).
