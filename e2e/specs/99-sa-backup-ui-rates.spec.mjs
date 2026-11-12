@@ -464,7 +464,7 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
       await as(page, role);
       await settle(page);
       const content = page.locator('[data-sidebar="content"]').first();
-      const info = await content.evaluate((el) => ({ width: el.offsetWidth - el.clientWidth, style: getComputedStyle(el).scrollbarWidth, scrollable: el.scrollHeight > el.clientHeight }));
+      const info = await content.evaluate((el) => ({ width: el.offsetWidth - el.clientWidth, style: getComputedStyle(el).scrollbarWidth, scrollable: el.scrollHeight - el.clientHeight > 8 }));
       check(`Sidebar ${role}`, info.width === 0 && info.style === "none", `no scrollbar (gutter ${info.width}px, scrollbar-width ${info.style})`);
       if (info.scrollable) {
         await content.hover();

@@ -28,6 +28,9 @@ for (const role of Object.keys(PAGES)) {
           await page.reload();
           await main(page).waitFor();
           expect(await settle(page), `${where}: still loading after refresh`).toBe(true);
+          // Filters apply after a short pause (Payroll Reports: 250 ms): let them finish.
+          await page.waitForTimeout(500);
+          await settle(page);
           await expectHealthy(page, `${where} (after refresh)`);
           const again = await snapshot(page);
           expect(lostLines(first, again), `${where}: data gone after refresh`).toEqual([]);

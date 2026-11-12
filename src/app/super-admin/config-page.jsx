@@ -255,7 +255,9 @@ const NAME_HINTS = {
 function BirEmployerSection({ config, onConfig }) {
   const [hints, setHints] = React.useState({});
   const fields = BIR_EMPLOYER_FIELDS.map(([key, label, placeholder, maxLength, kind]) => ({
-    key, label, placeholder, maxLength, type: "text", autoComplete: "off",
+    // Number boxes: the cleaning keeps at most the field's digits, so a pasted
+    // "TIN 123-456-789 (main)" is not cut by the browser before it is cleaned.
+    key, label, placeholder, maxLength: NUMERIC_KINDS.has(kind) ? undefined : maxLength, type: "text", autoComplete: "off",
     inputMode: NUMERIC_KINDS.has(kind) ? "numeric" : undefined,
     pattern: kind === "digits" ? "[0-9]*" : undefined,
     hint: hints[key] || NAME_HINTS[kind] || (kind === "title" ? "Letters, numbers, spaces and . , ' ( ) / & -." : undefined),

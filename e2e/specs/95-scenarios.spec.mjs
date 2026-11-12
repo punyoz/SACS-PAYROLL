@@ -349,15 +349,21 @@ test("AC-11: BIR 2316 and the alphalist (the Super Admin only: sets the employer
       await settle(page);
       const card = main(page).locator("[data-slot=card]").filter({ hasText: "BIR employer details" });
       const box = (key) => card.locator(`#cfg-bir-bir_${key}`);
-      // Numbers-only boxes: the numeric keyboard, a maximum, letters dropped as typed and as pasted.
-      for (const [key, max] of [["employer_tin", "17"], ["rdo_code", "3"], ["zip_code", "4"]]) {
+      // Numbers-only boxes: the numeric keyboard, a maximum (the cleaning keeps
+      // at most 14 / 3 / 4 digits), letters dropped as typed and as pasted.
+      for (const [key, long, capped] of [["employer_tin", "1234567890123456789", "123-456-789-01234"], ["rdo_code", "12345", "123"], ["zip_code", "123456", "1234"]]) {
         await expect(box(key)).toHaveAttribute("inputmode", "numeric");
-        await expect(box(key)).toHaveAttribute("maxlength", max);
+        await box(key).fill(long);
+        await expect(box(key)).toHaveValue(capped);
       }
+      await box("rdo_code").fill("RDO 046");
+      await expect(box("rdo_code")).toHaveValue("046");
       await box("employer_tin").fill("");
-      await box("employer_tin").pressSequentially("1a2b3");
-      await expect(box("employer_tin")).toHaveValue("123");
+      // A letter is dropped as it is typed, with the hint (cleared by the next good digit, as the name boxes do).
+      await box("employer_tin").pressSequentially("1a");
       await expect(card.getByText("Numbers only: letters and symbols are not accepted.").first()).toBeVisible();
+      await box("employer_tin").pressSequentially("2b3");
+      await expect(box("employer_tin")).toHaveValue("123");
       await box("employer_tin").fill("TIN 111-222-333-000 (main)");
       await expect(box("employer_tin")).toHaveValue("111-222-333-000");
       await box("rdo_code").fill("0a4b6c");
