@@ -130,7 +130,7 @@ export function RfidBulkRegisterDialog({ open, onOpenChange, employees, onDone }
             <div key={r.key} role="row" data-testid="bulk-row"
               className={cn("grid gap-2 rounded-lg border p-2 md:grid-cols-[2rem_minmax(0,1fr)_11rem_minmax(0,14rem)_2.5rem] md:items-center md:border-0 md:p-1",
                 r.result && !r.result.ok && "border-destructive/40 bg-destructive/5 md:bg-destructive/5", r.result?.ok && "md:bg-success/5")}>
-              <span role="cell" className="text-xs font-medium text-muted-foreground tabular-nums">Row {i + 1}</span>
+              <span role="cell" className="text-xs font-medium text-muted-foreground tabular-nums" aria-label={`Row ${i + 1}`}>{i + 1}</span>
               <div role="cell" className="min-w-0">
                 <Label htmlFor={`bulk-emp-${r.key}`} className="mb-1 text-xs md:sr-only">Employee</Label>
                 <SearchableSelect id={`bulk-emp-${r.key}`} label="Employee" value={r.employee_id} onValueChange={(v) => update(r.key, { employee_id: v })}
