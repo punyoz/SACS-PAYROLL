@@ -241,6 +241,89 @@ describe("The 2nd half waits for a Final 1st half (2026-11-13)", () => {
   });
 });
 
+describe("1st and 2nd half line up (2026-11-14)", () => {
+  beforeEach(() => {
+    table("payroll_tax_brackets").push(...[[0, 0, 0], [20833, 0, 15], [33333, 1875, 20]].map(([over, base, pct]) => ({
+      id: `bir-${over}`, version_id: "bir", effective_date: "2023-01-01", bracket_over: over, base_tax: base, rate_pct: pct, created_at: "2023-01-01T00:00:00Z",
+    })));
+  });
+  const cents = (value) => Math.round(value * 100) / 100;
+  /** The 1st half saved through the API (Oct 15, its generation day). */
+  async function firstHalf(action = "save_draft", extra = {}) {
+    vi.setSystemTime(new Date("2026-10-15T10:00:00+08:00"));
+    const response = await POST(request("POST", { action, employee_id: EMP, pay_period: OCT_1, ...extra }));
+    expect(response.status).toBe(200);
+    return table("payroll_entries").find((row) => row.employee_id === EMP && row.pay_period === OCT_1);
+  }
+  /** The 2nd half's preview (Oct 30). */
+  async function secondHalfPreview() {
+    vi.setSystemTime(new Date("2026-10-30T10:00:00+08:00"));
+    const page = await (await GET(request("GET", null, `?period=${encodeURIComponent(OCT_16)}`))).json();
+    return page.attendance_rows.find((r) => r.employee_id === EMP).defaults;
+  }
+  function expectLinesUp(first, defaults) {
+    const m = defaults.monthly;
+    expect(m.first_half_paid).toBe(first.payroll.totals.net_pay);
+    expect(m.prior_attendance_deductions).toBe(first.payroll.monthly.attendance_deductions);
+    expect(cents(first.payroll.totals.net_pay + m.second_half_net)).toBe(m.monthly_net);
+  }
+
+  it("absences only in the 1st half; 1st half a Draft: its figures are the estimate, never ₱0; processing still blocked", async () => {
+    table("attendance_logs").push(absentLog("a-05", "2026-10-05"), absentLog("a-06", "2026-10-06"));
+    const first = await firstHalf();
+    expect(first.status).toBe("draft");
+    expect(first.payroll.monthly.attendance_deductions).toBeGreaterThan(0);
+    expect(first.payroll.totals.net_pay).toBe(cents(15000 - first.payroll.monthly.attendance_deductions));
+
+    const d = await secondHalfPreview();
+    expect(d).toMatchObject({ per_cutoff: true, first_half_status: "draft", first_half_estimate: true, first_half_basic: 15000 });
+    expect(d.first_half_block).toContain("still a Draft");
+    expect(d.monthly.this_half_attendance_deductions).toBe(0); // not deducted twice
+    expect(d.cutoff_gross).toBe(15000);                         // this payslip's own half
+    expectLinesUp(first, d);
+  });
+
+  it("absences split across both halves: each payslip deducts its own; the month's tax sees both", async () => {
+    table("attendance_logs").push(absentLog("a-05", "2026-10-05"), absentLog("a-20", "2026-10-20"));
+    const first = await firstHalf();
+    const day = first.payroll.monthly.attendance_deductions;
+    const d = await secondHalfPreview();
+    expect(d.monthly.this_half_attendance_deductions).toBe(day);
+    expect(d.monthly.attendance_deductions).toBe(cents(2 * day));
+    expectLinesUp(first, d);
+  });
+
+  it("absences only in the 2nd half: 1st half pays its full Rate; the 2nd half deducts them", async () => {
+    table("attendance_logs").push(absentLog("a-20", "2026-10-20"), absentLog("a-21", "2026-10-21"));
+    const first = await firstHalf();
+    expect(first.payroll.totals.net_pay).toBe(15000);
+    const d = await secondHalfPreview();
+    expect(d.monthly.prior_attendance_deductions).toBe(0);
+    expect(d.monthly.this_half_attendance_deductions).toBeGreaterThan(0);
+    expect(d.monthly.attendance_deductions).toBe(d.monthly.this_half_attendance_deductions);
+    expectLinesUp(first, d);
+  });
+
+  it("a logged override on a Final 1st half: the month's tax uses the overridden amount; totals reconcile", async () => {
+    table("attendance_logs").push(absentLog("a-05", "2026-10-05"), absentLog("a-06", "2026-10-06"));
+    const first = await firstHalf("submit", { deductions: { absences_days: 1 }, override_reason: "Oct 6 excused by HR (seminar)" });
+    expect(first.status).toBe("paid");
+    expect(first.payroll.deductions.absences_days).toBe(1);
+    const oneDay = first.payroll.monthly.attendance_deductions;
+
+    const d = await secondHalfPreview();
+    expect(d.first_half_block).toBeNull();
+    expect(d.first_half_estimate).toBe(false);
+    expect(d.monthly.attendance_deductions).toBe(oneDay); // the override, not the 2 logged days
+    expectLinesUp(first, d);
+
+    const { response } = await generate("2026-10-30", EMP, OCT_16);
+    expect(response.status).toBe(200);
+    const saved = table("payroll_entries").find((row) => row.employee_id === EMP && row.pay_period === OCT_16);
+    expect(cents(first.payroll.totals.net_pay + saved.payroll.monthly.second_half_net)).toBe(saved.payroll.monthly.monthly_net);
+  });
+});
+
 describe("Payroll hold (AWOL / Separated)", () => {
   it("a held employee is not generated, not even inside the window", async () => {
     const { response, body } = await generate("2026-10-15", HELD);

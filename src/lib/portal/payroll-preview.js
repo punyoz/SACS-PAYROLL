@@ -74,6 +74,9 @@ export function semiExtras(info) {
     overloadHours: toAmount(d.overload_hours || 0),
     firstHalfPaid: toAmount(d.first_half_paid || 0),
     firstHalfStatus: d.first_half_status || "not_processed",
+    // Per-cutoff: the 1st cutoff's Rate; this payslip's basic is the month's less it.
+    perCutoff: Boolean(d.per_cutoff),
+    firstHalfBasic: toAmount(d.first_half_basic || 0),
     carryIn: toAmount(d.carry_in || 0),
     // Licensed-teacher subsidy (2nd half): paid, and its taxable part.
     subsidy: toAmount(d.subsidy_pay || 0),

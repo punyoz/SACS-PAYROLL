@@ -108,7 +108,7 @@ describe("the ₱18,500 employee on the screen, October 16-31 (preview)", () => 
     expect(summary).toMatchObject({ sss: 925, philhealth: 462.5, pagibig: 200, tax: 0 });
 
     expect(groups.groups.map((g) => g.title)).toEqual([
-      "Additions", "Government contributions (employee share)", "Withholding tax (income tax)", "Attendance deductions", "Loans / advances", "Month settlement",
+      "Additions", "Government contributions (employee share)", "Withholding tax (income tax)", "Attendance deductions", "Loans / advances",
     ]);
     expect(lineIn(groups, "contributions", "sss")).toMatchObject({ tag: "percentage", sign: "-", how: "SSS: 5% of ₱18,500.00 (monthly salary credit) = ₱925.00" });
     expect(lineIn(groups, "contributions", "philhealth")).toMatchObject({ tag: "percentage", how: "PhilHealth: 2.5% of ₱18,500.00 (monthly basic salary) = ₱462.50" });
@@ -122,8 +122,9 @@ describe("the ₱18,500 employee on the screen, October 16-31 (preview)", () => 
     expect(tax.how).toBe("Taxable income ₱16,912.50 is in the exempt bracket (up to ₱20,833 a month), so no tax is withheld.");
     expect(groups.tax).toMatchObject({ index: 0, range: "up to ₱20,833", tax: 0 });
 
-    expect(lineIn(groups, "additions", "basic")).toMatchObject({ tag: "fixed", sign: "+" });
-    expect(lineIn(groups, "settlement", "first_half_paid")).toMatchObject({ tag: "fixed", amount: 9250 });
+    // The 2nd half shows its own half (2026-11-14): no "Paid in 1st half" settlement line.
+    expect(lineIn(groups, "additions", "basic")).toMatchObject({ tag: "fixed", sign: "+", label: "Basic salary (2nd half)", amount: 9250 });
+    expect(groups.reconciliation).toMatchObject({ first_half_net: 9250, total: summary.monthNet, monthly_net: summary.monthNet });
     // Every line has a known tag and a text; the lines add up to the net shown.
     allLines(groups).forEach((l) => { expect(LINE_TAGS[l.tag]).toBeTruthy(); expect(l.how).toBeTruthy(); });
     expect(linesNet(groups)).toBe(summary.net);
