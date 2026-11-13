@@ -152,10 +152,10 @@ function SettingInputs({ fields, values, errors, onChange, idPrefix }) {
 function useSaveConfig() {
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
-  const save = React.useCallback(async (section, label, fields) => {
+  const save = React.useCallback(async (section, label, fields, extra = {}) => {
     const ok = await confirm({ title: "Confirm save", description: `Save the ${label} changes? This will apply system-wide immediately.`, confirmLabel: "Save" });
     if (!ok) return null;
-    const data = await fetchJson("/api/admin/config", jsonBody("PATCH", { section, fields }));
+    const data = await fetchJson("/api/admin/config", jsonBody("PATCH", { section, fields, ...extra }));
     const name = section.split(":")[0];
     notify("Configuration Saved", `${name} settings updated.`, "success");
     return data.config || null;
@@ -450,6 +450,63 @@ function DuplicateTapSection({ config, onConfig }) {
   );
 }
 
+/**
+ * Leave with pay per year (2026-11-12): the days of leave WITH pay each
+ * employee has per calendar year (default 6). The balance on My Leave, the
+ * backup and Final Pay's unused leave read it; past years keep the 15 days
+ * that applied then. A change needs a reason and goes to the audit log.
+ */
+function LeaveWithPaySection({ config, onConfig }) {
+  const saved = config?.payroll?.leave_with_pay_days;
+  const [value, setValue] = React.useState(() => String(saved ?? "6"));
+  const [reason, setReason] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [feedback, setFeedback] = React.useState({ text: "", ok: false });
+  const [busy, setBusy] = React.useState(false);
+  const [confirmDialog, saveConfig] = useSaveConfig();
+
+  async function save() {
+    const n = Number(value);
+    if (!/^\d{1,2}$/.test(String(value).trim()) || n > 30) { setError("A whole number of days from 0 to 30."); setFeedback({ text: "Fix the highlighted setting.", ok: false }); return; }
+    if (reason.trim().length < 5) { setError("Give the reason for the change (at least 5 characters)."); setFeedback({ text: "Fix the highlighted setting.", ok: false }); return; }
+    setError("");
+    setBusy(true);
+    try {
+      const next = await saveConfig("payroll", "Leave with pay per year", { leave_with_pay_days: String(n) }, { reason: reason.trim() });
+      if (next) { onConfig(next); setReason(""); setFeedback({ text: "Leave with pay per year saved.", ok: true }); }
+    } catch (e) {
+      setFeedback({ text: e.message || "Failed to save configuration.", ok: false });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={CalendarClockIcon}
+      title="Leave with pay per year"
+      description="The days of leave WITH pay each employee has per calendar year. My Leave shows “x of this many days”; Final Pay converts what is left. Leave without pay is not limited and is deducted at the daily rate."
+      applies="Applies to the current year from the moment it is saved. Approved leave and past payslips are never changed; past years keep the days that applied then."
+      footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="cfg-leave-days">Days with pay per year (0 to 30)</Label>
+          <Input id="cfg-leave-days" type="number" inputMode="numeric" min={0} max={30} step={1} value={value}
+            onChange={(e) => { setValue(e.target.value); setError(""); }} aria-invalid={error ? true : undefined} />
+          <p className="text-xs text-muted-foreground">Default 6 days.</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="cfg-leave-reason">Reason for the change (required)</Label>
+          <Input id="cfg-leave-reason" maxLength={300} value={reason} placeholder="e.g. School policy 2026" onChange={(e) => { setReason(e.target.value); setError(""); }} />
+        </div>
+      </div>
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {confirmDialog}
+    </SectionCard>
+  );
+}
+
 function PayrollSection({ config, onConfig }) {
   const saved = config?.payroll;
   const [values, setValues] = React.useState(() => ({ ...initialValues(FIELDS.payroll, saved), ...initialValues(SHEET_FIELDS, saved) }));
@@ -608,6 +665,7 @@ export function ConfigPage({ refreshKey }) {
         </TabsContent>
         <TabsContent value="payroll" className="flex flex-col gap-4">
           {state.config ? <PayrollSection key={`pay-${state.version}`} config={config} onConfig={onConfig} /> : null}
+          {state.config ? <LeaveWithPaySection key={`leave-${state.version}`} config={config} onConfig={onConfig} /> : null}
           <PayslipScheduleSection refreshKey={refreshKey} />
           <WindowEnforcementSection refreshKey={refreshKey} onChanged={() => setEnforcementKey((k) => k + 1)} />
           <TeacherSubsidySection refreshKey={refreshKey} />

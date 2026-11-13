@@ -78,6 +78,12 @@
 <h3>3.4 Two Accountants, one cutoff (Branch 1 or 2)</h3>
 <p>+acc-b1-1 and +acc-b1-2 open the same cutoff: a payslip already processed is not processed twice, and the run is submitted once (a second submit is refused with a clear message).</p>
 
+<h3>3.5 RFID cards: register them live (reset 2026-11-12)</h3>
+<ol>
+  <li>No account has a card: every Active, Inactive and Replaced card record was removed before the defense (Lost cards stay blocked). The RFID Cards page shows Active 0.</li>
+  <li>As <b>+hr1</b> (or the Super Admin, or a branch Admin for its own branch): RFID Cards → <b>Register many cards</b>. One row per person: choose the employee, tap the card on the reader (it types the 10 digits and moves to the next row), then <i>Check rows</i> → <i>Register cards</i>.</li>
+  <li>Open the RFID Terminal and tap one of the new cards: the attendance appears on the employee's Attendance page. A card not registered shows "Card not registered".</li>
+</ol>
 <h2>4. Login plan</h2>
 <ul>
   <li>One inbox receives every code; the tag in the address (+sa1, +hr2, +acc-b1-1, +emp7 …) says which account it is for.</li>
@@ -107,6 +113,7 @@
 <ol>
   <li>Saturday Nov 21: roll-forward, snapshot, empty-page audit (above).</li>
   <li>Check the processing-window switch (Super Admin → System Configuration).</li>
+  <li>Have the physical cards ready: they are registered live with Register many cards (no card is pre-registered).</li>
   <li>Sunday morning: <code>node scripts/demo/security-check.mjs --target=production</code> (anon key reads nothing; live channels per user).</li>
   <li>Sign in once per role in separate browser profiles; keep the inbox open (codes arrive tagged +sa1, +hr1, +acc-b1-1, +emp1 …).</li>
   <li>If a step breaks: <code>demo.mjs restore --target=production --file=&lt;Saturday's snapshot&gt;</code>.</li>

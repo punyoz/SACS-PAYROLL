@@ -12,7 +12,7 @@ import { formatContactNumber } from "@/lib/portal/format";
 import { EmployeeFormDialog } from "./employee-form-dialog";
 import { EmployeeImportDialog } from "./employee-import-dialog";
 import { SalaryChangeDialog } from "./salary-change-dialog";
-import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
+import { BulkRowsDialog } from "@/components/portal/bulk-rows-dialog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { fetchJson as fetchJsonApi, jsonBody } from "@/lib/portal/api";
@@ -211,38 +211,43 @@ export function EmployeesPage({ refreshKey }) {
         onSaved={load}
       />
       <EmployeeImportDialog open={importing} onOpenChange={setImporting} onImported={load} />
-      <BulkLinesDialog
+      <BulkRowsDialog
         open={offboarding}
         onOpenChange={setOffboarding}
+        testId="offboard-many"
         title="Offboard many employees"
-        description="One line per employee: their employee ID and their last day (YYYY-MM-DD). Each becomes Separated from that day: no more taps, card deactivated, pay settled through Final Pay."
-        placeholder={"SACS-0101, 2027-05-31\nSACS-0102, 2027-05-31"}
-        inputLabel="Employee ID, last day"
-        reportName="sacs-offboarding-report.csv"
-        runLabel="Separate"
+        description="Choose each employee and their last day. Each becomes Separated from that day: no more taps, card deactivated, pay settled through Final Pay. Check first: only the rows that pass are separated."
+        employees={state.employees
+          .filter((e) => !e.archived && e.employee_status !== "Separated")
+          .map((e) => ({
+            id: e.id, full_name: e.full_name, employee_code: e.employee_id, branch_name: branchName(e.branch_id),
+            ...(String(e.role || "employee").toLowerCase() === "hr" ? { disabled: true, hint: "an HR login is separated by the Super Admin" } : {}),
+          }))}
+        showBranch={branches.length > 1}
+        field={{ key: "effective", label: "Last day", kind: "date" }}
+        pasteLabel="One line per employee: their employee ID (or name), then the last day (YYYY-MM-DD)"
+        pastePlaceholder={"SACS-0101, 2027-05-31\nSACS-0102, 2027-05-31"}
+        check={async (rows) => (await fetchJsonApi("/api/hr/employees", jsonBody("PATCH", {
+          action: "check_separation", reason: offboard.reason, note: offboard.note.trim(),
+          rows: rows.map((r) => ({ employee_id: r.employee_id, effective: /^\d{4}-\d{2}-\d{2}$/.test(r.value) ? r.value : "" })),
+        }))).results}
+        run={(row) => fetchJsonApi("/api/hr/employees", jsonBody("PATCH", { id: row.employee_id, action: "separate", effective: row.value, reason: offboard.reason, note: offboard.note.trim() }))}
+        actionLabel={(n) => `Separate ${n || ""} employee${n === 1 ? "" : "s"}`}
         ready={!["Terminated", "Other"].includes(offboard.reason) || offboard.note.trim().length >= 10}
-        parseLine={(text) => {
-          const [code, day] = text.split(/[,;\t]/).map((part) => part.trim());
-          const person = state.employees.find((e) => String(e.employee_id || "").toLowerCase() === String(code || "").toLowerCase());
-          if (!person) return { label: text, error: `No employee with ID ${code || "(blank)"}.` };
-          if (person.archived || person.employee_status === "Separated") return { label: person.full_name, error: "Already archived or separated." };
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(day || "")) return { label: person.full_name, error: "Give the last day as YYYY-MM-DD." };
-          return { label: `${person.full_name} (${day})`, payload: { id: person.id, effective: day } };
-        }}
-        run={(item) => fetchJsonApi("/api/hr/employees", jsonBody("PATCH", { id: item.id, action: "separate", effective: item.effective, reason: offboard.reason, note: offboard.note.trim() }))}
+        notReadyText="State the grounds in the note (at least 10 characters)."
         onDone={(n) => { if (n) load(); }}
         extra={(
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="off-reason">Reason</Label>
               <Select value={offboard.reason} onValueChange={(reason) => setOffboard((c) => ({ ...c, reason }))}>
-                <SelectTrigger id="off-reason" className="w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger id="off-reason" className="h-10 w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>{SEPARATION_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="off-note">{["Terminated", "Other"].includes(offboard.reason) ? "Grounds (required)" : "Note (optional)"}</Label>
-              <Input id="off-note" maxLength={1000} value={offboard.note} onChange={(e) => setOffboard((c) => ({ ...c, note: e.target.value }))} />
+              <Input id="off-note" className="h-10" maxLength={1000} value={offboard.note} onChange={(e) => setOffboard((c) => ({ ...c, note: e.target.value }))} />
             </div>
           </div>
         )}

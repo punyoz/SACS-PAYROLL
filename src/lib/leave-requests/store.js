@@ -7,7 +7,8 @@
 
 import crypto from "node:crypto";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { fetchAllRows } from "@/lib/supabase/fetch-all";
+import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
+import { countLeaveDays, describeSplit, splitForBalance } from "@/lib/leave-requests/split";
 
 export function normalizeLeaveRequest(row) {
   return {
@@ -245,16 +246,33 @@ export async function syncLeaveAttendance(id) {
 
 // ─── Leave Balance ────────────────────────────────────────────────────────────
 
-// Only policy number in this file: annual Leave-With-Pay day allotment per employee.
-export const DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS = 15;
+// Only policy number in this file: the annual Leave-With-Pay days per employee
+// when the Super Admin's setting (system_config payroll.leave_with_pay_days,
+// 20261112020000) cannot be read. Was 15 until 2026-11-12.
+export const DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS = 6;
+export const LEAVE_WITH_PAY_KEY = "leave_with_pay_days";
 
-// Inclusive day count between two YYYY-MM-DD dates.
-export function countLeaveDays(startDate, endDate) {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
-  return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+/** A valid yearly paid-leave setting (whole days, 0 to 30), or null. */
+export function parseLeaveWithPayDays(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{1,2}$/.test(text)) return null;
+  const n = Number(text);
+  return n >= 0 && n <= 30 ? n : null;
 }
+
+/** Years before the setting existed keep the 15 days that applied then (past years are never recalculated). */
+export function allotmentForYear(year, setting) {
+  return Number(year) < 2026 ? 15 : setting;
+}
+
+/** The yearly Leave-With-Pay days from System Configuration (default 6). */
+export async function readLeaveWithPayDays(supabase) {
+  const result = await supabase.from("system_config").select("value").eq("section", "payroll").eq("key", LEAVE_WITH_PAY_KEY).maybeSingle();
+  return parseLeaveWithPayDays(result.data?.value) ?? DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS;
+}
+
+// Inclusive day count (one definition, client-safe, in split.js).
+export { countLeaveDays };
 
 /**
  * Find an already-approved leave request for the same employee whose date
@@ -276,7 +294,7 @@ export function findOverlappingApprovedLeave(requests, employeeId, startDate, en
 // approved leave requests only (pending/rejected requests don't count), for
 // one leave year at a time — the allotment is annual, so a request approved
 // in a prior year must not keep counting against this year's balance.
-export function summarizeLeaveBalance(requests, employeeId, year = new Date().getFullYear()) {
+export function summarizeLeaveBalance(requests, employeeId, year = new Date().getFullYear(), allotment = DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS) {
   const approved = requests.filter((r) => {
     if (r.status !== "approved") return false;
     if (employeeId && r.employee_id !== employeeId) return false;
@@ -293,9 +311,65 @@ export function summarizeLeaveBalance(requests, employeeId, year = new Date().ge
     .reduce((sum, r) => sum + countLeaveDays(r.start_date, r.end_date), 0);
 
   return {
-    with_pay_allotment: DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS,
+    with_pay_allotment: allotment,
     with_pay_used: withPayUsed,
-    with_pay_remaining: Math.max(0, DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS - withPayUsed),
+    with_pay_remaining: Math.max(0, allotment - withPayUsed),
     without_pay_used: withoutPayUsed,
   };
+}
+
+/**
+ * Each employee's balance for `year` (approved leave of that calendar year),
+ * { [employee_id]: { with_pay_allotment, with_pay_used, with_pay_remaining, without_pay_used } }.
+ * For the approval screens (Leave Approval, Leave Recommendation).
+ */
+export async function leaveBalancesFor(employeeIds, year = Number(new Date().toISOString().slice(0, 4))) {
+  const ids = [...new Set((employeeIds || []).filter(Boolean))];
+  if (!ids.length) return {};
+  const supabase = getAdminClient();
+  const allotment = allotmentForYear(year, await readLeaveWithPayDays(supabase));
+  const result = await fetchAllIn(() => supabase.from("leave_requests").select("id,employee_id,start_date,end_date,status,pay_status")
+    .eq("status", "approved").gte("start_date", `${year}-01-01`).lte("start_date", `${year}-12-31`).order("id", { ascending: true }), "employee_id", ids);
+  if (result.error) throw new Error(result.error.message);
+  const rows = (result.data || []).map((r) => normalizeLeaveRequest(r));
+  return Object.fromEntries(ids.map((id) => [id, summarizeLeaveBalance(rows, id, year, allotment)]));
+}
+
+/**
+ * Right after a WITH-pay request is approved: re-check the employee's balance
+ * on the server (decision 2026-11-12). Days past the paid days remaining
+ * become leave WITHOUT pay: the approved row keeps the first days (with pay)
+ * and a linked row (split_from) holds the rest, approved in the same action,
+ * so payroll, attendance and Final Pay read pay_status per row as before.
+ * No balance left: the row itself becomes without pay. Returns the split, or
+ * null when it all fits. Only this just-approved request is changed.
+ */
+export async function applyBalanceSplit(id) {
+  const supabase = getAdminClient();
+  const found = await supabase.from("leave_requests").select("*").eq("id", id).maybeSingle();
+  if (found.error) throw new Error(found.error.message);
+  const row = found.data;
+  if (!row || row.status !== "approved" || normalizeLeaveRequest(row).pay_status !== "with_pay") return null;
+  const year = Number(String(row.start_date).slice(0, 4));
+  const others = (await readLeaveRequestsWithoutProof({ employeeId: row.employee_id, status: "approved" })).filter((r) => r.id !== id);
+  const balance = summarizeLeaveBalance(others, row.employee_id, year, allotmentForYear(year, await readLeaveWithPayDays(supabase)));
+  const split = splitForBalance(row, balance.with_pay_remaining);
+  if (!split.without_pay_days) return null;
+  const now = new Date().toISOString();
+  if (!split.with_pay_days) {
+    const all = await supabase.from("leave_requests").update({ pay_status: "without_pay", updated_at: now }).eq("id", id);
+    if (all.error) throw new Error(all.error.message);
+    return { ...split, text: describeSplit(split), remaining_before: balance.with_pay_remaining };
+  }
+  const { id: _id, created_at: _c, updated_at: _u, cancelled_at: _ca, cancelled_by: _cb, cancelled_by_name: _cn, ...copy } = row;
+  const rest = { ...copy, id: crypto.randomUUID(), start_date: split.without_pay_start, end_date: row.end_date, pay_status: "without_pay", split_from: id, updated_at: now };
+  const cut = await supabase.from("leave_requests").update({ end_date: split.with_pay_end, updated_at: now }).eq("id", id);
+  if (cut.error) throw new Error(cut.error.message);
+  const added = await supabase.from("leave_requests").insert(rest).select("id").maybeSingle();
+  if (added.error) {
+    // Put the request back whole rather than lose its last days.
+    await supabase.from("leave_requests").update({ end_date: row.end_date, updated_at: now }).eq("id", id);
+    throw new Error(added.error.message);
+  }
+  return { ...split, text: describeSplit(split), remaining_before: balance.with_pay_remaining, without_pay_id: added.data?.id || null };
 }

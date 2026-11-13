@@ -3,7 +3,7 @@
 import * as React from "react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { toast } from "sonner";
-import { CheckIcon, CircleIcon, EyeIcon, EyeOffIcon, Loader2Icon } from "lucide-react";
+import { CheckIcon, CircleIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/portal/password-input";
 import { PASSWORD_MIN_LENGTH, evaluatePasswordShape, saveAuthContext } from "./auth-context";
 import { EMAIL_MAX } from "@/lib/input-limits";
 
@@ -51,36 +52,9 @@ async function post(body) {
   return { response, result: await response.json().catch(() => ({})) };
 }
 
-function PasswordField({ id, label, value, onChange, placeholder }) {
-  const [show, setShow] = React.useState(false);
-  return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <div className="relative">
-        <Input
-          id={id}
-          type={show ? "text" : "password"}
-          autoComplete="new-password"
-          maxLength={72}
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-10 pr-11"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
-          onClick={() => setShow((v) => !v)}
-          aria-label={show ? "Hide password" : "Show password"}
-          aria-pressed={show}
-        >
-          {show ? <EyeOffIcon /> : <EyeIcon />}
-        </Button>
-      </div>
-    </div>
-  );
+// The shared password box (one toggle; src/components/portal/password-input.jsx).
+function PasswordField(props) {
+  return <PasswordInput {...props} autoComplete="new-password" className="h-10" />;
 }
 
 export function ResetPasswordDialog({ open, onOpenChange }) {

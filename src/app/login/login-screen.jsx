@@ -5,8 +5,6 @@ import { REGEXP_ONLY_DIGITS } from "input-otp";
 import { toast } from "sonner";
 import {
   ArrowLeftIcon,
-  EyeIcon,
-  EyeOffIcon,
   InboxIcon,
   Loader2Icon,
   LockIcon,
@@ -17,6 +15,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { IconInput } from "@/components/galaxy/icon-input";
+import { PasswordInput } from "@/components/portal/password-input";
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme";
@@ -81,7 +80,6 @@ function formatClock(seconds) {
 function PasswordStep({ notice, onOtpRequired, onForgot }) {
   const [identity, setIdentity] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [showPassword, setShowPassword] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
   const navigating = React.useRef(false);
@@ -167,31 +165,16 @@ function PasswordStep({ notice, onOtpRequired, onForgot }) {
                 Forgot password?
               </Button>
             </div>
-            <div className="relative">
-              <IconInput
-                icon={LockIcon}
-                id="login-password"
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                placeholder="Enter your password"
-                maxLength={72}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                aria-invalid={Boolean(error) && !password.trim()}
-                className="h-11 pr-11"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-                onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                aria-pressed={showPassword}
-              >
-                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
-              </Button>
-            </div>
+            <PasswordInput
+              icon={LockIcon}
+              id="login-password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={setPassword}
+              invalid={Boolean(error) && !password.trim()}
+              className="h-11"
+            />
           </div>
         </CardContent>
         <CardFooter className="mt-6 flex-col gap-3">

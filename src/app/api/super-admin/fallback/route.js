@@ -19,7 +19,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient } from "@/lib/supabase/admin";
-import { readLeaveRequestsWithoutProof, updateLeaveRequestStatus } from "@/lib/leave-requests/store";
+import { applyBalanceSplit, readLeaveRequestsWithoutProof, updateLeaveRequestStatus } from "@/lib/leave-requests/store";
 import { PENDING_LEAVE, loadFallbackItems } from "@/lib/rbac/fallback-items";
 import { recordFallback, routingErrorResponse } from "@/lib/rbac/routing";
 import { describeRunError } from "@/lib/payroll/runs";
@@ -65,6 +65,8 @@ export async function POST(request) {
         fromStatuses: PENDING_LEAVE, decidedBy: guard.userId, decidedByName: actorName, ...(action === "reject" ? { decisionReason: reason } : {}),
       });
       if (result.conflict) return NextResponse.json({ error: "This leave request was already decided. Refresh to see it." }, { status: 409 });
+      // Over the yearly paid balance: the extra days become without pay (re-checked at approval).
+      if (action === "approve") await applyBalanceSplit(id);
     } else if (type === "payroll_run") {
       const rpc = action === "approve"
         ? await supabase.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason || "Approved by the Super Admin as the fallback (no other HR is active)." })

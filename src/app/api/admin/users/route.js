@@ -422,6 +422,18 @@ export async function PATCH(request) {
       }
     }
 
+    // Date hired (2026-11-12): the Edit dialog has always sent it, but an
+    // update dropped it. A real past-or-today date, or blank to keep it.
+    let dateHired;
+    if (action === "update" && body.date_hired !== undefined) {
+      dateHired = normalizeText(body.date_hired);
+      const stamp = Date.parse(`${dateHired}T00:00:00Z`);
+      const valid = /^\d{4}-\d{2}-\d{2}$/.test(dateHired) && !Number.isNaN(stamp) && new Date(stamp).toISOString().slice(0, 10) === dateHired;
+      if (dateHired && (!valid || dateHired > new Date().toISOString().slice(0, 10))) {
+        return NextResponse.json({ error: "Date hired must be a real date, today or earlier." }, { status: 400 });
+      }
+    }
+
     if (action === "update") {
       const email = updatePayload.email || existingUser.email;
       const profileRow = { id, email, role: nextMetadata.role, full_name: nextMetadata.full_name };
@@ -437,6 +449,7 @@ export async function PATCH(request) {
       // Saved with the role, in the same write, so the Admin is never branchless.
       if (adminBranchId) profileRow.branch_id = adminBranchId;
       if (hrHome !== undefined) profileRow.branch_id = hrHome;
+      if (dateHired) profileRow.date_hired = dateHired;
 
       const profileResult = await supabase.from("profiles").upsert(profileRow, { onConflict: "id" });
       if (profileResult.error) {

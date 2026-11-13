@@ -87,3 +87,15 @@ a:not(.sacs-ui a, .sacs-ui-portal a) {
 .legacy-frame {
   background: var(--bg);
 }
+
+/* One eye per password box (2026-11-12): Microsoft Edge / old IE add their own
+   "reveal password" and "clear" buttons, and Safari its autofill buttons, on
+   top of the app's own show/hide toggle (src/components/portal/password-input.jsx).
+   Hidden here; password managers and autofill still work (autocomplete is kept). */
+/* One rule per pseudo-element: a browser drops a whole rule whose selector list
+   holds one it does not know. */
+input::-ms-reveal { display: none; }
+input::-ms-clear { display: none; }
+input[type="password"]::-webkit-credentials-auto-fill-button { visibility: hidden; display: none !important; pointer-events: none; }
+input[type="password"]::-webkit-contacts-auto-fill-button { visibility: hidden; display: none !important; pointer-events: none; }
+input[type="password"]::-webkit-strong-password-auto-fill-button { visibility: hidden; display: none !important; pointer-events: none; }

@@ -21,6 +21,7 @@
  * kind=overtime_confirmation: it reads the Admin's confirmations before paying.
  */
 
+import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -222,7 +223,10 @@ async function leavesView(supabase, branchId, staff) {
   const ids = staff.map((p) => p.id);
   const [leaves, recs] = await Promise.all([branchLeaves(supabase, branchId, ids), branchRequests(supabase, branchId, ["leave_endorsement"])]);
   const recBy = new Map(recs.rows.map((r) => [r.ref_id, shapeRequest(r)]));
+  // Read-only paid-leave balance of this branch's people (2026-11-12).
+  const balances = await leaveBalancesFor(ids);
   return {
+    balances,
     leaves: leaves.map((l) => ({
       ...l,
       pending: LEAVE_PENDING.includes(l.status),

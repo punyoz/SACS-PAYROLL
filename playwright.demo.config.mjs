@@ -22,6 +22,7 @@ export default defineConfig({
     { name: "audit", testMatch: /crawl\.spec\.mjs/, dependencies: ["setup"] },
     { name: "screens", testMatch: /sidebar\.spec\.mjs/, dependencies: ["setup"] },
     { name: "live", testMatch: /live-flow\.spec\.mjs/ },
+    { name: "defense", testMatch: /defense-prep\.spec\.mjs/, dependencies: ["setup"] },
   ],
   ...(local ? { webServer: { command: "node e2e/attendance/prod-server.mjs", url: `${BASE}/api/health`, reuseExistingServer: true, timeout: 300000 } } : {}),
 });

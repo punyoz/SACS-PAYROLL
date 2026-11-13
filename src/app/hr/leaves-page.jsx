@@ -18,6 +18,8 @@ import { RequestStatusBadge, StatusBadge } from "@/components/portal/status-badg
 import { STATUS_TONES } from "@/lib/branch-requests";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { LeaveBalanceNote } from "@/components/portal/leave-balance-note";
+import { countLeaveDays } from "@/lib/leave-requests/split";
 import { REASON_MAX } from "@/lib/input-limits";
 
 /*
@@ -31,7 +33,7 @@ function localDateKey(date = new Date()) {
 }
 
 const range = (req) => ({
-  days: req.days || req.duration_days || "?",
+  days: req.days || req.duration_days || countLeaveDays(req.start_date, req.end_date || req.start_date) || "?",
   from: req.from_date || req.start_date || "—",
   to: req.to_date || req.end_date || "—",
   // A truthy marker for a stored proof (fetched on View, 20261105030000).
@@ -65,7 +67,7 @@ export function LeavesPage({ refreshKey }) {
       notify("Cannot open proof", error.message || "The proof document could not be loaded.", "error");
     }
   }, [openInlineProof, notify]);
-  const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [] });
+  const [state, setState] = React.useState({ loading: true, error: null, pending: [], history: [], balances: {} });
   const [busy, setBusy] = React.useState(null);
   // The request being rejected: HR writes the reason the employee sees (2026-11-06).
   const [rejecting, setRejecting] = React.useState(null);
@@ -84,7 +86,7 @@ export function LeavesPage({ refreshKey }) {
     setState((current) => ({ ...current, loading: !current.pending.length && !current.history.length, error: null }));
     try {
       const data = await fetchJson("/api/hr/leave-requests?status=all");
-      setState({ loading: false, error: null, pending: data.pending_requests || [], history: data.history_requests || [] });
+      setState({ loading: false, error: null, pending: data.pending_requests || [], history: data.history_requests || [], balances: data.balances || {} });
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load leave requests." }));
     }
@@ -205,6 +207,7 @@ export function LeavesPage({ refreshKey }) {
                       </p>
                       <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.from} to {x.to}</p>
                       <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{req.reason || "—"}</p>
+                      <LeaveBalanceNote balance={state.balances[req.employee_id]} request={req} />
                       <AdminRecommendation rec={recs.get(req.id)} />
                     </div>
                     <div className="mt-auto flex flex-wrap items-center gap-2">

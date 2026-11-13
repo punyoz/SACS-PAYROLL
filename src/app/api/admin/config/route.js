@@ -7,6 +7,7 @@ import { ORG_NAME_SECTION, invalidateOrgName } from "@/lib/org-name";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { DUPLICATE_TAP_KEY, duplicateTapSecondsError } from "@/lib/attendance/taps";
+import { LEAVE_WITH_PAY_KEY, parseLeaveWithPayDays } from "@/lib/leave-requests/store";
 import { BIR_EMPLOYER_KEYS, BIR_EMPLOYER_SECTION, birEmployerErrors, birEmployerStoredValue } from "@/lib/payroll/bir-employer";
 
 /**
@@ -114,6 +115,22 @@ export async function PATCH(request) {
     const supabase = getAdminClient();
     const now = new Date().toISOString();
 
+    // Leave with pay per year (2026-11-12): whole days 0 to 30, Payroll
+    // section, and a reason; old and new value go to the audit log.
+    const leaveEntry = entries.find(([key]) => normalizeText(key) === LEAVE_WITH_PAY_KEY);
+    let leaveChange = null;
+    if (leaveEntry) {
+      if (section !== "payroll") return NextResponse.json({ error: "Leave with pay per year belongs to the Payroll section." }, { status: 400 });
+      const days = parseLeaveWithPayDays(leaveEntry[1]);
+      if (days === null) return NextResponse.json({ error: "Leave with pay per year: a whole number of days from 0 to 30." }, { status: 400 });
+      const reason = normalizeText(body.reason);
+      if (reason.length < 5) return NextResponse.json({ error: "Give the reason for the change (at least 5 characters).", code: "reason_required" }, { status: 400 });
+      if (reason.length > 300) return NextResponse.json({ error: "The reason can be at most 300 characters." }, { status: 400 });
+      const old = await supabase.from("system_config").select("value").eq("section", "payroll").eq("key", LEAVE_WITH_PAY_KEY).maybeSingle();
+      leaveEntry[1] = String(days);
+      leaveChange = { from: old.data?.value ?? null, to: String(days), reason };
+    }
+
     const upserts = entries.map(([key, value]) => ({
       section,
       key: normalizeText(key),
@@ -143,8 +160,15 @@ export async function PATCH(request) {
       description: `System configuration section "${section}" was updated.`,
       status: "success",
       source: "api",
-      metadata: { section, keys: entries.map(([k]) => k) },
+      metadata: { section, keys: entries.map(([k]) => k), ...(leaveChange ? { leave_with_pay_days: leaveChange } : {}) },
     });
+    if (leaveChange) {
+      await appendAuditLog({
+        actor: guard, module: "config", action: "leave_with_pay_days_changed", entity_type: "system_config", entity_id: `payroll.${LEAVE_WITH_PAY_KEY}`,
+        description: `Leave with pay per year changed from ${leaveChange.from ?? "the default"} to ${leaveChange.to} days. Reason: ${leaveChange.reason}`,
+        status: "success", source: "api", metadata: leaveChange,
+      });
+    }
 
     const allResult = await supabase
       .from("system_config")

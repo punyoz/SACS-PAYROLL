@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { BranchGroupedTable } from "@/components/portal/branch-grouped-table";
-import { BulkLinesDialog } from "@/components/portal/bulk-lines-dialog";
+import { BulkRowsDialog } from "@/components/portal/bulk-rows-dialog";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { StatCard } from "@/components/portal/stat-card";
@@ -340,36 +340,40 @@ export function TransfersPage({ refreshKey }) {
       </Card>
 
       <TransferDialog employee={editing} branches={branches} onOpenChange={(open) => { if (!open) setEditing(null); }} onDone={async () => { await Promise.all([load(), loadEndorsements()]); }} />
-      <BulkLinesDialog
+      <BulkRowsDialog
         open={moving}
         onOpenChange={setMoving}
+        testId="move-many"
         title="Move many employees"
-        description="One employee ID per line. Each moves to the chosen branch now and the move is kept in Transfer History (e.g. a branch closing or merging into another)."
-        placeholder={"SACS-0101\nSACS-0102"}
-        inputLabel="Employee IDs"
-        reportName="sacs-move-report.csv"
-        runLabel="Move"
+        description="Choose each employee. Each moves to the chosen branch now and the move is kept in Transfer History (e.g. a branch closing or merging into another). Check first: only the rows that pass are moved."
+        employees={all.map((e) => ({ id: e.id, full_name: e.full_name, employee_code: e.employee_id, branch_name: branches.find((b) => b.id === e.branch)?.name || "Unassigned" }))}
+        pasteLabel="One employee ID (or name) per line"
+        pastePlaceholder={"SACS-0101\nSACS-0102"}
+        // A quick check here; each move is checked again by the server when it runs.
+        check={async (rows) => rows.map((r) => {
+          const person = all.find((e) => e.id === r.employee_id);
+          if (!person) return { ok: false, error: "Choose the employee." };
+          if (!move.to) return { ok: false, error: "Choose the branch to move to (below)." };
+          if (person.branch === move.to) return { ok: false, error: "Already in that branch." };
+          return { ok: true, note: `${branches.find((b) => b.id === person.branch)?.name || "Unassigned"} → ${branches.find((b) => b.id === move.to)?.name || "the chosen branch"}` };
+        })}
+        run={(row) => fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: row.employee_id, to_branch_id: move.to, remarks: move.remarks.trim(), wait_for_endorsement: false }))}
+        actionLabel={(n) => `Move ${n || ""} employee${n === 1 ? "" : "s"}`}
         ready={Boolean(move.to) && move.remarks.trim().length >= 5}
-        parseLine={(text) => {
-          const person = all.find((e) => String(e.employee_id || "").toLowerCase() === text.toLowerCase());
-          if (!person) return { label: text, error: `No employee with ID ${text}.` };
-          if (person.branch === move.to) return { label: person.full_name, error: "Already in that branch." };
-          return { label: person.full_name, payload: person };
-        }}
-        run={(person) => fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: person.id, to_branch_id: move.to, remarks: move.remarks.trim(), wait_for_endorsement: false }))}
+        notReadyText="Choose the branch and give the reason (at least 5 characters)."
         onDone={(n) => { if (n) { notify("Employees Moved", `${n} moved. Each move is in Transfer History.`, "success"); load(); } }}
         extra={(
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="mv-to">Move to</Label>
               <Select value={move.to} onValueChange={(to) => setMove((c) => ({ ...c, to }))}>
-                <SelectTrigger id="mv-to" className="w-full"><SelectValue placeholder="Choose the branch" /></SelectTrigger>
+                <SelectTrigger id="mv-to" className="h-10 w-full"><SelectValue placeholder="Choose the branch" /></SelectTrigger>
                 <SelectContent>{branches.filter((b) => String(b.status || "Active").toLowerCase() === "active").map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="mv-remarks">Reason (required)</Label>
-              <Input id="mv-remarks" maxLength={300} placeholder="e.g. East Campus merged into Main Campus" value={move.remarks} onChange={(e) => setMove((c) => ({ ...c, remarks: e.target.value }))} />
+              <Input id="mv-remarks" className="h-10" maxLength={300} placeholder="e.g. East Campus merged into Main Campus" value={move.remarks} onChange={(e) => setMove((c) => ({ ...c, remarks: e.target.value }))} />
             </div>
           </div>
         )}

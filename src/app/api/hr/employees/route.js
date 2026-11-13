@@ -171,6 +171,13 @@ export async function PATCH(request) {
     // Over-long text is refused, not cut short (input limits).
     const tooLong = textLimitError(body, TEXT_CAPS);
     if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
+    // Offboard many, step 1: check every row and write nothing (the dialog
+    // then separates only the rows that passed, one by one, through the
+    // "separate" action below: same rules, one audit entry each).
+    if (normalizeText(body.action).toLowerCase() === "check_separation") {
+      return await checkSeparations(getAdminClient(), guard, body);
+    }
+
     const id = normalizeText(body.id);
 
     if (!id) {
@@ -352,4 +359,51 @@ export async function PATCH(request) {
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
+}
+
+const MAX_BULK_ROWS = 50;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const longDate = (key) => new Date(`${key}T00:00:00+08:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Manila" });
+
+/**
+ * { action: "check_separation", rows: [{ employee_id, effective }], reason, note }
+ * -> { results: [{ ok, error?, note? }] } in the same order. The same checks
+ * as the "separate" action (branch, own account, HR logins, already separated,
+ * the date and reason rules), plus the same employee twice.
+ */
+async function checkSeparations(supabase, guard, body) {
+  const list = Array.isArray(body.rows) ? body.rows : [];
+  if (!list.length) return NextResponse.json({ error: "Add at least one row." }, { status: 400 });
+  if (list.length > MAX_BULK_ROWS) return NextResponse.json({ error: `At most ${MAX_BULK_ROWS} rows at a time.` }, { status: 400 });
+  const rows = list.map((r) => ({ id: normalizeText(r?.employee_id), effective: normalizeText(r?.effective) }));
+  const reason = normalizeText(body.reason);
+  const note = normalizeText(body.note).slice(0, 1000);
+  const ids = [...new Set(rows.map((r) => r.id).filter((id) => UUID_RE.test(id)))];
+  const [people, cards] = ids.length ? await Promise.all([
+    fetchAllIn(() => supabase.from("profiles").select("id,full_name,role,branch_id,date_hired,employee_status,archived").order("id"), "id", ids),
+    fetchAllIn(() => supabase.from("rfid_cards").select("employee_id,uid_last4").eq("status", "active").order("id"), "employee_id", ids),
+  ]) : [{ data: [] }, { data: [] }];
+  if (people.error || cards.error) return NextResponse.json({ error: "Could not check the rows. Try again." }, { status: 500 });
+  const byId = new Map((people.data || []).map((p) => [p.id, p]));
+  const card = new Map((cards.data || []).map((c) => [c.employee_id, c.uid_last4]));
+  const seen = rows.map((r) => r.id);
+  const results = rows.map((r, i) => {
+    const p = byId.get(r.id);
+    const role = String(p?.role || "").toLowerCase();
+    let error = null;
+    if (!r.id) error = "Choose the employee.";
+    else if (!p) error = "Unknown employee.";
+    else if (r.id === guard.userId) error = "You cannot offboard your own account.";
+    else if (PEER_ROLES.includes(role)) error = "An HR login is separated by the Super Admin (Admin & HR Accounts).";
+    else if (!MANAGED_ROLES.includes(role)) error = "Only Employee and Accountant accounts are offboarded here.";
+    else if (!guard.branchExempt && String(p.branch_id || "") !== String(guard.branchId || "")) error = "This employee is in another branch.";
+    else if (p.archived) error = "This account is archived.";
+    else if (p.employee_status === "Separated") error = "Already separated.";
+    else if (seen.indexOf(r.id) !== i) error = `The same employee is on row ${seen.indexOf(r.id) + 1}.`;
+    else error = validateSeparation({ effective: r.effective, reason, note }, { dateHired: p.date_hired });
+    if (error) return { row: i + 1, ok: false, error };
+    const last4 = card.get(r.id);
+    return { row: i + 1, ok: true, note: `Separated on ${longDate(r.effective)}; ${last4 ? `card ••••${last4} will be deactivated` : "no active card"}; final pay needed.` };
+  });
+  return NextResponse.json({ results, valid: results.filter((r) => r.ok).length, invalid: results.filter((r) => !r.ok).length });
 }

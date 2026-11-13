@@ -6,6 +6,7 @@ import {
   insertLeaveRequest,
   normalizeLeaveRequest,
   summarizeLeaveBalance,
+  readLeaveWithPayDays,
 } from "@/lib/leave-requests/store";
 import { createClient } from "@supabase/supabase-js";
 import { requirePermission, resolveTargetUserId, denyForeignBranch } from "@/lib/rbac/guard";
@@ -55,7 +56,7 @@ export async function GET(request) {
 
     const requests = await readLeaveRequestsWithoutProof({ employeeId });
 
-    const balance = summarizeLeaveBalance(requests, employeeId);
+    const balance = summarizeLeaveBalance(requests, employeeId, new Date().getFullYear(), await readLeaveWithPayDays(getServiceClient()));
 
     return NextResponse.json({ requests, balance });
   } catch (error) {

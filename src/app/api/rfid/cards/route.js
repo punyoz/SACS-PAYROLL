@@ -129,8 +129,13 @@ export async function GET(request) {
  * one employee for good), an employee who already has an active card, or an
  * employee outside the caller's reach (an Admin: its own branch).
  */
-async function checkRows(guard, rawRows) {
-  const rows = (Array.isArray(rawRows) ? rawRows : []).slice(0, 200).map((r) => ({ employee_id: normalizeText(r?.employee_id), uid: normalizeText(r?.uid).replace(/\s+/g, "") }));
+// The most rows one Check / one bulk action takes (the shared bulk dialog, BULK_MAX_ROWS).
+const MAX_BULK_ROWS = 50;
+
+async function checkRows(guard, rawRows, mode = "register") {
+  const list = Array.isArray(rawRows) ? rawRows : [];
+  if (list.length > MAX_BULK_ROWS) return NextResponse.json({ error: `At most ${MAX_BULK_ROWS} rows at a time.` }, { status: 400 });
+  const rows = list.map((r) => ({ employee_id: normalizeText(r?.employee_id), uid: normalizeText(r?.uid).replace(/\s+/g, "") }));
   if (!rows.length) return NextResponse.json({ error: "Add at least one row." }, { status: 400 });
   const supabase = getAdminClient();
   const people = await peopleInReach(supabase, guard);
@@ -139,11 +144,12 @@ async function checkRows(guard, rawRows) {
   const ids = [...new Set(rows.map((r) => r.employee_id).filter((id) => UUID.test(id)))];
   const [taken, active] = await Promise.all([
     uids.length ? fetchAllIn(() => supabase.from("rfid_cards").select("id,uid,employee_id,status").order("id", { ascending: true }), "uid", uids) : Promise.resolve({ data: [] }),
-    ids.length ? fetchAllIn(() => supabase.from("rfid_cards").select("id,employee_id").eq("status", "active").order("id", { ascending: true }), "employee_id", ids) : Promise.resolve({ data: [] }),
+    ids.length ? fetchAllIn(() => supabase.from("rfid_cards").select("id,employee_id,uid_last4").eq("status", "active").order("id", { ascending: true }), "employee_id", ids) : Promise.resolve({ data: [] }),
   ]);
   if (taken.error || active.error) return NextResponse.json({ error: "Could not check the cards. Try again." }, { status: 500 });
   const takenBy = new Map((taken.data || []).map((c) => [c.uid, c]));
-  const hasActive = new Set((active.data || []).map((c) => c.employee_id));
+  const activeCard = new Map((active.data || []).map((c) => [c.employee_id, c]));
+  const hasActive = new Set(activeCard.keys());
   const seenUid = new Map();
   const seenEmployee = new Map();
   rows.forEach((r, i) => {
@@ -159,9 +165,13 @@ async function checkRows(guard, rawRows) {
     else if (!isCardUid(r.uid)) error = "The card number must be exactly 10 digits.";
     else if (seenUid.get(r.uid).length > 1) error = `The same card number is on rows ${seenUid.get(r.uid).map((n) => n + 1).join(" and ")}.`;
     else if (seenEmployee.get(r.employee_id).length > 1) error = `The same employee is on rows ${seenEmployee.get(r.employee_id).map((n) => n + 1).join(" and ")}.`;
-    else if (takenBy.has(r.uid)) error = takenBy.get(r.uid).employee_id === r.employee_id ? "This card is already this employee's." : "This card number is already registered to someone (card numbers are never reused).";
-    else if (hasActive.has(r.employee_id)) error = "Already has an active card (use Replace).";
-    return { row: i + 1, employee_id: r.employee_id, employee_name: person?.full_name || null, uid_masked: isCardUid(r.uid) ? maskUid(r.uid.slice(-4)) : null, ok: !error, error };
+    else if (takenBy.has(r.uid)) error = takenBy.get(r.uid).status === "lost" ? "This card number was reported lost and can never be used again."
+      : takenBy.get(r.uid).employee_id === r.employee_id ? "This card is already this employee's." : "This card number is already registered to someone (card numbers are never reused).";
+    else if (mode === "register" && hasActive.has(r.employee_id)) error = "Already has an active card (use Replace).";
+    else if (mode === "replace" && !hasActive.has(r.employee_id)) error = "Has no active card to replace (use Register).";
+    const old = activeCard.get(r.employee_id);
+    const note = !error && mode === "replace" ? `Card ${maskUid(old.uid_last4)} stops recording at once; ${maskUid(r.uid.slice(-4))} takes over.` : null;
+    return { row: i + 1, employee_id: r.employee_id, employee_name: person?.full_name || null, uid_masked: isCardUid(r.uid) ? maskUid(r.uid.slice(-4)) : null, card_id: mode === "replace" && !error ? old.id : undefined, ok: !error, error, note };
   });
   return NextResponse.json({ results, valid: results.filter((r) => r.ok).length, invalid: results.filter((r) => !r.ok).length });
 }
@@ -174,7 +184,7 @@ export async function POST(request) {
     // Over-long text is refused, not cut short (input limits).
     const tooLong = textLimitError(body, TEXT_CAPS);
     if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
-    if (normalizeText(body.action) === "check") return await checkRows(guard, body.rows);
+    if (normalizeText(body.action) === "check") return await checkRows(guard, body.rows, normalizeText(body.mode) === "replace" ? "replace" : "register");
     if (normalizeText(body.action) !== "register") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
     const employeeId = normalizeText(body.employee_id);
     const uid = normalizeText(body.uid);
