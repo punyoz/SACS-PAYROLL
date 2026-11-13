@@ -128,9 +128,20 @@ for (const t of TARGETS) {
   const name = `${me.full_name} (${t.code})`;
 
   // 1. Hire date, only when empty; never before an attendance row.
-  // The Super Admin's Edit refuses Accountant accounts (HR manages them): listed, not bypassed.
-  if (!me.date_hired && me.role === "accountant") skipped.push(`${name}: date hired not set: the Super Admin may not edit Accountant accounts (HR does, in User Management)`);
-  else if (!me.date_hired) {
+  // Accountant accounts are HR's (the Super Admin's Edit refuses them): Demo HR
+  // One sets the date (user decision 2026-11-13), resending the current name,
+  // type and position so nothing else changes.
+  if (!me.date_hired && me.role === "accountant") {
+    const [first] = await db.rows(`select min(log_date)::text d from attendance_logs where employee_id = ${lit(me.id)}`);
+    const hired = first?.d && first.d < t.hiredDefault ? first.d : t.hiredDefault;
+    const hrActor = await byCode("DEMO-001");
+    const [cur] = await db.rows(`select full_name, employee_type, position from profiles where id = ${lit(me.id)}`);
+    report.push([name, "Date hired", hired, `${hrActor.full_name} (HR, User Management)`]);
+    if (!PLAN) {
+      const r = await call(hrActor, "PATCH", "/api/admin/employees", { id: me.id, action: "update", date_hired: hired, full_name: cur.full_name, employee_type: cur.employee_type, position: cur.position });
+      if (r.status !== 200) skipped.push(`${name}: date hired refused (${r.status} ${JSON.stringify(r.data).slice(0, 160)})`);
+    }
+  } else if (!me.date_hired) {
     const [first] = await db.rows(`select min(log_date)::text d from attendance_logs where employee_id = ${lit(me.id)}`);
     const hired = first?.d && first.d < t.hiredDefault ? first.d : t.hiredDefault;
     report.push([name, "Date hired", hired, `Super Admin (${superAdmin.full_name})`]);

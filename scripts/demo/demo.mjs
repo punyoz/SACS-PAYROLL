@@ -179,6 +179,16 @@ async function load(db, bundle) {
   const storage = storageFor(db.target);
   for (const f of bundle.files || []) await storage.upload(f.path, f.base64, f.mime);
   if (renumber.size) say(`  ${renumber.size} payslip numbers moved up past the target's own`);
+  // Rows came with their own ids: move every id counter past the highest id,
+  // or the next new row collides (2026-11-13: HR corrections failed with
+  // "A record for this day was just created" on a fresh local seed).
+  await db.exec(`do $$ declare r record; begin
+    for r in select c.relname t, a.attname col, pg_get_serial_sequence('public.' || c.relname, a.attname) s
+             from pg_class c join pg_attribute a on a.attrelid = c.oid join pg_namespace n on n.oid = c.relnamespace
+             where n.nspname = 'public' and c.relkind = 'r' and a.attnum > 0 and not a.attisdropped
+               and pg_get_serial_sequence('public.' || c.relname, a.attname) is not null loop
+      execute format('select setval(%L, greatest((select coalesce(max(%I), 0) from public.%I), (select last_value from %s)))', r.s, r.col, r.t, r.s);
+    end loop; end $$;`);
   return { renumbered: renumber.size };
 }
 
