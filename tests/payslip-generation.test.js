@@ -338,6 +338,18 @@ describe("Draft, regenerate, Final", () => {
     }
   });
 
+  it("saving with another period's draft id never moves that draft (2026-11-13)", async () => {
+    await generate("2026-09-30");
+    const draft = entry();
+    expect(draft.status).toBe("draft");
+    const { POST } = await import("@/app/api/accountant/payroll/route");
+    const response = await POST(request(ACCOUNTANT, "POST", { action: "save_draft", entry_id: draft.id, employee_id: EMP, pay_period: "September 1-15, 2026" }));
+    expect(response.status).toBe(200);
+    expect(entry()).toMatchObject({ id: draft.id, pay_period: PERIOD });
+    const other = table("payroll_entries").find((row) => row.employee_id === EMP && row.pay_period === "September 1-15, 2026");
+    expect(other.id).not.toBe(draft.id);
+  });
+
   it("downloads the payslip as a PDF", async () => {
     await generate("2026-10-01");
     const response = await GET(request(ACCOUNTANT, "GET", null, `?format=pdf&entry_id=${entry().id}`));

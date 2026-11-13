@@ -17,6 +17,7 @@ import {
   toAmount,
   withholdingTax,
 } from "@/lib/portal/payroll-preview";
+import { computeSecondHalf } from "@/lib/payroll/semi-monthly";
 
 const TAX_TABLE = [
   { over: 0, base: 0, rate: 0 },
@@ -96,6 +97,37 @@ describe("computation summary", () => {
     const monthNet = toAmount(25000 - (1125 + 625 + 200 + s.taxDefault + 1000 + 62.5 + 1000) + 500);
     expect(s.monthNet).toBe(monthNet);
     expect(s.net).toBe(toAmount(monthNet - 12500));
+  });
+
+  it("2nd half: 'Monthly gross (less attendance)' is the server's monthly gross, not Total additions (Benjie, 2026-11-13)", () => {
+    const data = {
+      tax_table: [{ over: 0, base: 0, rate: 0 }, { over: 20833, base: 0, rate: 0.15 }, { over: 33333, base: 1875, rate: 0.2 }],
+      semi_monthly: { half: "second" },
+      employees: [{ id: "b", full_name: "Benjie Demo Quiambao", employee_id: "DEMO-006", basic_salary: 32000 }],
+      leave_summary: [],
+      attendance_rows: [{
+        employee_id: "b",
+        rates: { daily: 1471.26, hourly: 183.91 },
+        defaults: { basic_salary: 32000, statutory_method: "legal", government_locked: true, sss: 1600, philhealth: 800, pagibig: 200, overload_pay: 1103.46, overload_hours: 6, first_half_paid: 0 },
+        pay: {
+          counts: { absent_days: 4, late_days: 1, undertime_minutes: 0, half_days: 0 },
+          amounts: { absent: 5885.04, late: 0, undertime: 0, half_day: 0, perfect_attendance: 0, late_minutes_charge: 0 },
+          unit_amounts: { hourly: 183.91, daily: 1471.26, half_day: 735.63, absent: 1471.26, perfect_attendance: 0, late_days_per_absent: 0, late_minute_pct: 0 },
+          perfect_attendance: false,
+          blocking: [],
+        },
+      }],
+    };
+    const employee = data.employees[0];
+    const s = computeSummary(data, employee, defaultForm(data, employee));
+    const server = computeSecondHalf({
+      monthlySalary: 32000, dailyRate: 1471.26, absenceDeduction: 5885.04, overloadPay: 1103.46,
+      contributions: { sss: 1600, philhealth: 800, pagibig: 200 }, taxTable: data.tax_table,
+    });
+    expect(server.monthly_gross).toBe(27218.42);
+    expect(s.monthGross).toBe(server.monthly_gross);
+    expect(s.tax).toBe(567.81);
+    expect(s.monthNet).toBe(24050.61);
   });
 
   it("1st half: nothing deducted, whatever the form says", () => {

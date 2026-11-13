@@ -188,9 +188,8 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
     const monthGross = pick(summary, /^Monthly gross/);
     const firstHalf = await rows(db().from("payroll_entries").select("gross_pay").eq("employee_id", ana.id).eq("pay_period", "October 1-15, 2026").single());
     check("Process → database", near(payslipGross, entry.gross_pay), `summary "Gross pay" ${payslipGross} = the payslip's gross ${entry.gross_pay}`);
-    // The cutoff gross includes this payslip's incentives, which the summary lists on their own lines.
-    const cutoffIncentives = num(entry.payroll?.totals?.total_incentives);
-    check("Process → database", near(monthGross, num(entry.gross_pay) - cutoffIncentives + num(firstHalf.gross_pay)), `summary "Monthly gross" ${monthGross} = 1st half ${firstHalf.gross_pay} + this cutoff ${entry.gross_pay} less its incentives ${cutoffIncentives}`);
+    // "Monthly gross (less attendance)" is the month's gross the tax starts from (2026-11-13).
+    check("Process → database", near(monthGross, num(entry.payroll?.monthly?.monthly_gross)), `summary "Monthly gross (less attendance)" ${monthGross} = stored monthly gross ${entry.payroll?.monthly?.monthly_gross} (1st half gross ${firstHalf.gross_pay})`);
     for (const [k, re] of [["sss", /^SSS/], ["philhealth", /^PhilHealth/], ["pagibig", /^Pag-IBIG/], ["withholding_tax", /^Withholding tax/]]) {
       check("Process → database", nearAbs(entry[k], pick(summary, re)), `${k}: summary ${pick(summary, re)} vs stored ${entry[k]}`);
     }

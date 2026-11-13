@@ -285,11 +285,14 @@ export function computeSummary(data, employee, rawForm) {
     + (extras.priorEarnings || 0) - (extras.priorAttendance || 0));
   // Year-end tax adjustment on a 2nd cutoff (+ deducted, − refunded; src/lib/payroll/year-end-tax.js).
   const yearEndTax = settling ? toAmount(info.row?.defaults?.year_end_tax || 0) : 0;
+  // The month's gross less attendance (the server's monthly.monthly_gross):
+  // the monthly net before contributions, tax and cash advances.
+  const monthGross = toAmount(monthNet + sss + philhealth + pagibig + tax + cashAdvance);
   const secondHalfNet = toAmount(monthNet - extras.firstHalfPaid - extras.carryIn);
   const net = Math.max(0, settling ? toAmount(secondHalfNet - yearEndTax) : monthNet);
   return {
     info, basic, sss, philhealth, pagibig, tax, taxDefault, amounts, lwpDays, lwopDeduct, incentives, earnings, gross,
-    settling, extras, cashAdvance, monthNet, secondHalfNet, net, yearEndTax,
+    settling, extras, cashAdvance, monthGross, monthNet, secondHalfNet, net, yearEndTax,
     shownIncentives: incentives + (settling ? 0 : extras.other),
   };
 }

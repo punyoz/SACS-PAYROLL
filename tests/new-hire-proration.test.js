@@ -229,6 +229,8 @@ describe("A month with no earnings deducts no contributions", () => {
 
   it("a month with any earnings still deducts them (worked example 7.1 unchanged)", async () => {
     absentEveryWorkday("u-old", "2026-10-29", "2026-10-29");
+    // The 2nd half is processed only after the 1st half is Final (2026-11-13).
+    await generate("2026-10-15", "u-old", OCT_1);
     const { entry } = await generate("2026-10-30", "u-old", OCT_16);
     expect(entry.payroll.monthly).toMatchObject({ monthly_gross: 28620.69, sss: 400, pagibig: 200, contributions: 600 });
   });

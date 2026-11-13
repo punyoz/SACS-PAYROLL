@@ -848,6 +848,12 @@ function SingleEntry({ onNavigate }) {
                 </AlertDescription>
               </Alert>
             ) : null}
+            {summary.info.row?.defaults?.first_half_block ? (
+              <Alert className="border-warning/40 bg-warning/10 text-warning" data-testid="first-half-not-final">
+                <AlertTriangleIcon aria-hidden="true" />
+                <AlertDescription className="text-warning">Preview only: {summary.info.row.defaults.first_half_block}</AlertDescription>
+              </Alert>
+            ) : null}
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="pc-employee">Select employee</Label>
@@ -978,7 +984,7 @@ function SingleEntry({ onNavigate }) {
                   {/* Totals for reference (2nd half: the month is computed once; the
                       payslip's own gross is what HR and the employee see, 2026-10-29). */}
                   <div className="space-y-1.5 border-t pt-2">
-                    <SummaryRow label={summary.settling ? "Monthly gross" : "Gross pay"} value={money(summary.gross)} />
+                    <SummaryRow label={summary.settling ? "Monthly gross (less attendance)" : "Gross pay"} value={money(summary.settling ? summary.monthGross : summary.gross)} />
                     {summary.settling ? <SummaryRow label="Monthly net (before what the 1st half paid)" value={money(summary.monthNet)} strong /> : null}
                     {summary.settling && summary.secondHalfNet < 0 ? <SummaryRow label="Carried to next month" value={money(Math.max(0, -summary.secondHalfNet))} tone="warn" /> : null}
                     {summary.settling && summary.info.row?.defaults?.cutoff_gross !== undefined ? <SummaryRow label="Gross pay (this payslip, 2nd cutoff)" value={money(summary.info.row.defaults.cutoff_gross)} /> : null}
@@ -997,7 +1003,7 @@ function SingleEntry({ onNavigate }) {
           <Card className="shadow-xs">
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground"><strong className="text-foreground">Ready to process.</strong> Review all computed values before processing. Once confirmed, the payslip will be generated and stored in Payroll Records.</p>
-              <Button className="w-full" size="lg" onClick={() => submit("submit")} disabled={busy || Boolean(blocking.length) || !ready || !finalWindow} title={finalWindow ? "" : (win?.message || "")}>
+              <Button className="w-full" size="lg" onClick={() => submit("submit")} disabled={busy || Boolean(blocking.length) || !ready || !finalWindow || Boolean(summary.info.row?.defaults?.first_half_block)} title={finalWindow ? "" : (win?.message || "")}>
                 {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Process payroll →
               </Button>
               <Button className="w-full" variant="outline" onClick={() => submit("save_draft")} disabled={busy}>Save as draft</Button>

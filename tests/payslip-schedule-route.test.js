@@ -132,6 +132,11 @@ describe("Generation on the scheduled day", () => {
 });
 
 const NOV_16 = "November 16-30, 2026";
+// A Final 1st-half payslip (the 2nd half is processed only after it, 2026-11-13).
+const finalFirstHalf = (label, status = "paid") => table("payroll_entries").push({
+  id: `first-${label}`, employee_id: EMP, employee_name: "Maria Santos", pay_period: label, status, branch_id: BRANCH,
+  payroll: { basic_salary: 15000, totals: { gross_pay: 15000, total_deductions: 0, total_incentives: 0, net_pay: 15000 } },
+});
 const absentLog = (id, date) => ({
   id, employee_id: EMP, log_date: date, time_in: null, time_out: null, created_at: `${date}T00:00:00Z`,
   status: "Absent", late_minutes: 0, undertime_minutes: 0, is_half_day: false, is_early_bird: false, branch_id: BRANCH,
@@ -149,6 +154,8 @@ describe("The generation day is the end of the payroll; its attendance goes to n
 
   it("an absence ON the generation day (Fri Oct 30) is not deducted in October, but on the November payslip", async () => {
     table("attendance_logs").push(absentLog("a-29", "2026-10-29"), absentLog("a-30", "2026-10-30"));
+    finalFirstHalf(OCT_1);
+    finalFirstHalf("November 1-15, 2026");
 
     const oct = await generate("2026-10-30", EMP, OCT_16);
     expect(oct.response.status).toBe(200);
@@ -170,6 +177,7 @@ describe("The generation day is the end of the payroll; its attendance goes to n
       non_working_day_rule: "previous_working_day", note: "School asked for the 25th", created_at: "2026-10-10T00:00:00Z",
     });
     table("attendance_logs").push(absentLog("a-22", "2026-10-22"), absentLog("a-23", "2026-10-23"));
+    finalFirstHalf(OCT_1);
 
     vi.setSystemTime(new Date("2026-10-22T10:00:00+08:00"));
     const before = await (await GET(request("GET", null, `?period=${encodeURIComponent(OCT_16)}`))).json();
@@ -179,6 +187,57 @@ describe("The generation day is the end of the payroll; its attendance goes to n
     expect(response.status).toBe(200);
     const saved = table("payroll_entries").find((row) => row.employee_id === EMP && row.pay_period === OCT_16);
     expect(saved.payroll.monthly).toMatchObject({ absent_days: 1, window: { start_key: "2026-10-01", end_key: "2026-10-22" } });
+  });
+});
+
+describe("The 2nd half waits for a Final 1st half (2026-11-13)", () => {
+  beforeEach(() => {
+    table("payroll_tax_brackets").push(...[[0, 0, 0], [20833, 0, 15], [33333, 1875, 20]].map(([over, base, pct]) => ({
+      id: `bir-${over}`, version_id: "bir", effective_date: "2023-01-01", bracket_over: over, base_tax: base, rate_pct: pct, created_at: "2023-01-01T00:00:00Z",
+    })));
+  });
+  const secondHalf = () => table("payroll_entries").find((row) => row.employee_id === EMP && row.pay_period === OCT_16);
+
+  it("1st half Final: the 2nd half processes and subtracts what the 1st half released", async () => {
+    finalFirstHalf(OCT_1);
+    const { response } = await generate("2026-10-30", EMP, OCT_16);
+    expect(response.status).toBe(200);
+    expect(secondHalf().status).toBe("paid");
+    expect(secondHalf().payroll.monthly).toMatchObject({ first_half_status: "final", first_half_paid: 15000 });
+  });
+
+  it("1st half Draft: preview shows the warning, processing is refused on the server", async () => {
+    finalFirstHalf(OCT_1, "draft");
+    vi.setSystemTime(new Date("2026-10-30T10:00:00+08:00"));
+    const page = await (await GET(request("GET", null, `?period=${encodeURIComponent(OCT_16)}`))).json();
+    const row = page.attendance_rows.find((r) => r.employee_id === EMP);
+    expect(row.defaults.first_half_block).toContain("October 1-15, 2026 payslip is still a Draft");
+
+    const { response, body } = await generate("2026-10-30", EMP, OCT_16);
+    expect(response.status).toBe(422);
+    expect(body).toMatchObject({ code: "first_half_not_final" });
+    expect(body.error).toContain("still a Draft");
+    const submit = await POST(request("POST", { action: "submit", employee_id: EMP, pay_period: OCT_16 }));
+    expect(submit.status).toBe(422);
+    expect((await submit.json()).code).toBe("first_half_not_final");
+    expect(secondHalf()).toBeUndefined();
+  });
+
+  it("no 1st-half entry: refused (never assumed ₱0 or half the salary); a 2nd-half draft can still be saved", async () => {
+    const { response, body } = await generate("2026-10-30", EMP, OCT_16);
+    expect(response.status).toBe(422);
+    expect(body.error).toContain("not processed");
+    const draft = await POST(request("POST", { action: "save_draft", employee_id: EMP, pay_period: OCT_16 }));
+    expect(draft.status).toBe(200);
+    expect(secondHalf().status).toBe("draft");
+  });
+
+  it("batch processing skips the employee with the same reason", async () => {
+    vi.setSystemTime(new Date("2026-10-30T10:00:00+08:00"));
+    const response = await POST(request("POST", { action: "batch_submit", pay_period: OCT_16, entries: [{ employee_id: EMP }] }));
+    const body = await response.json();
+    expect(body.skipped).toEqual(expect.arrayContaining([expect.objectContaining({ employee_id: EMP, code: "first_half_not_final" })]));
+    expect(secondHalf()).toBeUndefined();
   });
 });
 
