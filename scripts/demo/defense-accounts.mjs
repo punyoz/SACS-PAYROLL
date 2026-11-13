@@ -21,6 +21,8 @@
 // Every added row is listed in defense_data_rows (the defense-data tag).
 // Nothing dated after today; nothing approved for payroll; no key printed.
 import { createHmac, randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { chooseTarget, lit } from "./db.mjs";
 import { readEnvFile } from "./config.mjs";
@@ -38,7 +40,11 @@ const TARGETS = [
   { code: "SACS-ACCT-001", salaryFrom: "DEMO-003", hiredDefault: "2026-09-01" },
 ];
 // Who corrects whose days (never their own): HR Officer's by Demo HR One.
-const CORRECTOR = { "SACS-EMP-001": "SACS-HR-001", "SACS-HR-001": "DEMO-001", "SACS-ACCT-001": "DEMO-001" };
+// Production 2026-11-13: HR Officer cannot sign in (maxxspace.com no longer receives
+// mail, so no sign-in code arrives); Demo HR One corrects all three there.
+const CORRECTOR = db.target === "production"
+  ? { "SACS-EMP-001": "DEMO-001", "SACS-HR-001": "DEMO-001", "SACS-ACCT-001": "DEMO-001" }
+  : { "SACS-EMP-001": "SACS-HR-001", "SACS-HR-001": "DEMO-001", "SACS-ACCT-001": "DEMO-001" };
 // Nov 1-12 plan, by the order of the account's Absent days (one stays Absent).
 const DAY_PLAN = [
   { kind: "both", in: "07:24", out: "16:35", note: "Logbook: on time; card not yet issued (RFID reset)." },
@@ -56,12 +62,24 @@ const LAST_DECISION = { "SACS-EMP-001": "pending", "SACS-HR-001": "pending", "SA
 const env = db.target === "production" ? readEnvFile(join(process.cwd(), ".env.live.local")) : null;
 const local = db.target === "local" ? (await import("../../e2e/local-env.mjs")).localSupabase() : null;
 const BASE = db.target === "production" ? "https://sacs-payroll.vercel.app" : (process.env.DEMO_LOCAL_BASE || "http://localhost:3101");
-const SECRET = db.target === "production" ? env.SESSION_SECRET : (await import("../../e2e/accounts.mjs")).TEST_SESSION_SECRET;
+// Production: the live site's own SESSION_SECRET (`vercel env pull` into a file
+// outside the repo; .env.live.local may hold an older one). Never printed.
+const LIVE_ENV = join(homedir(), "sacs-secrets", "vercel-production.env");
+const SECRET = db.target === "production"
+  ? (existsSync(LIVE_ENV) ? readEnvFile(LIVE_ENV).SESSION_SECRET : env.SESSION_SECRET)
+  : (await import("../../e2e/accounts.mjs")).TEST_SESSION_SECRET;
 const auth = db.target === "production" ? { url: env.NEXT_PUBLIC_SUPABASE_URL, key: env.SUPABASE_SERVICE_ROLE_KEY } : { url: local.url, key: local.serviceKey };
 const cookies = new Map();
 
+// Production: sessions from live-signin.mjs (the live signing key is not readable).
+const LIVE_SESSIONS = join(homedir(), "sacs-secrets", "live-sessions.json");
+if (db.target === "production" && existsSync(LIVE_SESSIONS)) {
+  for (const [id, value] of Object.entries(JSON.parse(readFileSync(LIVE_SESSIONS, "utf8")))) cookies.set(id, `sacs-session=${encodeURIComponent(value)}`);
+}
+
 async function cookieFor(p) {
   if (cookies.has(p.id)) return cookies.get(p.id);
+  if (db.target === "production") throw new Error(`No live session for ${p.full_name}: run scripts/demo/live-signin.mjs first.`);
   const sid = randomUUID();
   const res = await fetch(`${auth.url}/auth/v1/admin/users/${p.id}`, { method: "PUT", headers: { apikey: auth.key, Authorization: `Bearer ${auth.key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ app_metadata: { session_id: sid, session_started_at: new Date().toISOString() } }) });
@@ -208,7 +226,9 @@ for (const t of TARGETS) {
 
   // 4. One pending leave request (7+ days ahead), within the paid balance.
   const [leave] = HAS_TAGS ? await db.rows(`select count(*)::int n from leave_requests l join defense_data_rows t on t.table_name = 'leave_requests' and t.row_id = l.id::text where l.employee_id = ${lit(me.id)}`) : [{ n: 0 }];
-  if (!leave.n) {
+  if (!leave.n && db.target === "production" && !cookies.has(me.id)) {
+    skipped.push(`${name}: own leave request not filed: the account cannot sign in (its email domain receives no mail)`);
+  } else if (!leave.n) {
     const start = new Date(Date.now() + (8 + 8) * 86400e3); // 8+ days from now, on a weekday
     while ([0, 6].includes(start.getUTCDay())) start.setUTCDate(start.getUTCDate() + 1);
     const day = start.toISOString().slice(0, 10);
