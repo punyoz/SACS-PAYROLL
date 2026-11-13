@@ -989,6 +989,30 @@ function SingleEntry({ onNavigate }) {
                     {summary.settling && summary.secondHalfNet < 0 ? <SummaryRow label="Carried to next month" value={money(Math.max(0, -summary.secondHalfNet))} tone="warn" /> : null}
                     {summary.settling && summary.info.row?.defaults?.cutoff_gross !== undefined ? <SummaryRow label="Gross pay (this payslip, 2nd cutoff)" value={money(summary.info.row.defaults.cutoff_gross)} /> : null}
                   </div>
+                  {lineGroups.monthly_tax ? (
+                    <div data-testid="monthly-tax-box" className="space-y-1.5 rounded-lg border bg-muted/40 p-3">
+                      <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation</p>
+                      <SummaryRow label="Monthly basic salary" value={money(lineGroups.monthly_tax.basic)} />
+                      {lineGroups.monthly_tax.earnings ? <SummaryRow label="+ Taxable earnings (overload, incentives)" value={money(lineGroups.monthly_tax.earnings)} /> : null}
+                      <SummaryRow label="− Attendance, whole month (both halves)" value={money(lineGroups.monthly_tax.attendance)} />
+                      <SummaryRow label="− SSS, PhilHealth, Pag-IBIG" value={money(lineGroups.monthly_tax.contributions)} />
+                      <SummaryRow label="= Taxable income (monthly table)" value={money(lineGroups.monthly_tax.taxable)} strong />
+                      <SummaryRow label="Withholding tax" value={money(lineGroups.monthly_tax.tax)} />
+                    </div>
+                  ) : null}
+                  {lineGroups.reconciliation ? (
+                    <div data-testid="reconciliation" className="space-y-1">
+                      <SummaryRow
+                        label={`Reconciliation: 1st half ${money(lineGroups.reconciliation.first_half_net)} + 2nd half ${money(lineGroups.reconciliation.second_half_net)}`}
+                        value={money(lineGroups.reconciliation.total)}
+                        tone={lineGroups.reconciliation.total === lineGroups.reconciliation.monthly_net ? undefined : "warn"}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        = monthly net {money(lineGroups.reconciliation.monthly_net)}
+                        {lineGroups.reconciliation.estimate ? " · estimate, 1st half not Final" : ""}
+                      </p>
+                    </div>
+                  ) : null}
                   {summary.lwpDays ? <SummaryRow label="Leave with pay (no deduction)" value={`${summary.lwpDays} day${summary.lwpDays === 1 ? "" : "s"}`} /> : null}
                 </PayrollLineGroups>
               ) : (

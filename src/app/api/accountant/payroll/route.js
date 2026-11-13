@@ -1290,11 +1290,13 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
     const first = find(employee.id, month.first_half_label);
     const firstPaid = first?.status === "paid";
     const totals = first?.payroll?.totals || {};
-    // A Final 1st cutoff that deducted its own attendance: this half reads only
-    // the days after its window. Otherwise (a 1st half paid in full before the
+    // A 1st cutoff that deducted its own attendance: this half reads only the
+    // days after its window. Otherwise (a 1st half paid in full before the
     // per-cutoff rule, or not processed) this half settles the whole month.
+    // A Draft counts as an estimate (decision 2026-11-14): its figures, never
+    // ₱0; processing still waits for it to be Final (first_half_block).
     const firstMonthly = first?.payroll?.monthly || {};
-    const firstPerCutoff = firstPaid && firstMonthly.rule === PER_CUTOFF_RULE && firstMonthly.window?.end_key;
+    const firstPerCutoff = first && firstMonthly.rule === PER_CUTOFF_RULE && firstMonthly.window?.end_key;
     const attendanceWindow = firstPerCutoff
       ? { start_key: addDayKey(firstMonthly.window.end_key, 1), end_key: window.end_key }
       : window;
@@ -1318,9 +1320,10 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
 
     byEmployee.set(employee.id, {
       ...base,
-      first_half: firstPaid
+      first_half: firstPaid || firstPerCutoff
         ? {
-          status: "final",
+          status: firstPaid ? "final" : "draft",
+          estimate: !firstPaid,
           payslip_no: first.payslip_no || null,
           gross_pay: toAmount(totals.gross_pay),
           total_deductions: toAmount(totals.total_deductions),
@@ -2660,6 +2663,10 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
         overload_pay: overloadPay,
         first_half_paid: semi.first_half.net_pay,
         first_half_status: semi.first_half.status,
+        // The 1st cutoff's Rate (this payslip's basic is the month's less it),
+        // and whether its figures are a Draft's (an estimate).
+        first_half_basic: firstHalfCutoff ? toAmount(firstHalfCutoff.basic_salary) : 0,
+        first_half_estimate: Boolean(semi.first_half.estimate),
         carry_in: semi.carry_in,
         // Licensed-teacher subsidy this payslip pays, and the part of it that
         // is taxable income (the preview's net and tax estimate).

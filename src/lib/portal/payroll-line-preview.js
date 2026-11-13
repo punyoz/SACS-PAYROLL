@@ -69,16 +69,23 @@ export function previewLineGroups(data, employee, form, summary, computedForm) {
   // Whatever the total holds beyond the listed lines (a subsidy advance offset).
   if (toAmount(summary.cashAdvance - listed) > 0) loanLines.push({ kind: "other", label: "Subsidy advance offset", amount: toAmount(summary.cashAdvance - listed), how: "Prior-year subsidy advance recovered as approved" });
 
-  const basicHow = settling
+  // After a per-cutoff 1st half the 2nd half shows its own half only
+  // (decision 2026-11-14): the month less the 1st cutoff's Rate, its own
+  // attendance; the whole month appears in the tax basis and reconciliation.
+  const ownHalf = settling && extras.perCutoff;
+  const ownBasic = ownHalf ? toAmount(summary.basic - extras.firstHalfBasic) : summary.basic;
+  const basicHow = ownHalf
+    ? `Monthly salary ${pesoText(summary.basic)} − 1st half ${pesoText(extras.firstHalfBasic)} = ${pesoText(ownBasic)}`
+    : settling
     ? `Monthly salary ${pesoText(summary.basic)}: the 2nd half computes the whole month, then takes off what the 1st half paid`
     : same(summary.basic, monthly / 2)
       ? `Monthly salary ${pesoText(monthly)} ÷ 2 = ${pesoText(summary.basic)}`
       : `Basic pay for the period = ${pesoText(summary.basic)}`;
 
-  return buildLineGroups({
+  const result = buildLineGroups({
     half: half === "first" ? "first" : settling ? "second" : null,
     additions: {
-      basic: { label: settling ? "Monthly salary" : "Basic salary", amount: summary.basic, how: basicHow },
+      basic: { label: ownHalf ? "Basic salary (2nd half)" : settling ? "Monthly salary" : "Basic salary", amount: ownBasic, how: basicHow },
       overtime: { amount: summary.earnings.overtime, minutes: info.pay?.counts?.overtime_minutes || 0, hourly: unit.hourly, premium_pct: Number(rates.overtime_premium_pct) || 0 },
       holiday: {
         amount: summary.earnings.holiday,
@@ -89,7 +96,7 @@ export function previewLineGroups(data, employee, form, summary, computedForm) {
       incentives: { amount: settling ? otherIncentive : toAmount(otherIncentive), label: "Approved incentives" },
       overload: settling ? { amount: overloadPay, hours: toAmount(d.overload_hours || 0), rate: d.overload_hours ? toAmount(overloadPay / d.overload_hours) : null } : null,
       subsidy: { amount: extras.subsidy || 0 },
-      prior_earnings: extras.priorEarnings || 0,
+      prior_earnings: ownHalf ? 0 : extras.priorEarnings || 0,
       year_end_refund: summary.yearEndTax < 0 ? -summary.yearEndTax : 0,
     },
     contributions: {
@@ -111,13 +118,37 @@ export function previewLineGroups(data, employee, form, summary, computedForm) {
       undertime: { amount: summary.amounts.undertime, minutes: g("undertime"), hourly: unit.hourly },
       half_day: { amount: summary.amounts.half_day, days: g("halfDays"), unit: unit.half_day },
       lwop: { amount: summary.lwopDeduct, days: g("lwop"), daily: unit.daily },
-      prior: extras.priorAttendance || 0,
+      prior: ownHalf ? 0 : extras.priorAttendance || 0,
     },
     loans: loanLines,
     settlement: settling ? [
-      { key: "first_half_paid", label: extras.firstHalfStatus === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)", amount: extras.firstHalfPaid, how: `Net pay of the 1st cutoff payslip = ${pesoText(extras.firstHalfPaid)}` },
+      ...(ownHalf ? [] : [{ key: "first_half_paid", label: extras.firstHalfStatus === "final" ? "Paid in 1st half" : "Paid in 1st half (not processed)", amount: extras.firstHalfPaid, how: `Net pay of the 1st cutoff payslip = ${pesoText(extras.firstHalfPaid)}` }]),
       { key: "carry_in", label: "Balance carried from last month", amount: extras.carryIn, how: "Last month's negative 2nd half, recovered here" },
     ] : [],
     overrides: formOverrides(info, form, computedForm),
   });
+  if (!ownHalf || taxable === null) return result;
+  // The tax basis: the whole month, the 1st cutoff's attendance as it deducted it.
+  const a = summary.amounts;
+  const attendance = toAmount(a.absent + a.late + a.undertime + a.half_day + summary.lwopDeduct + extras.priorAttendance);
+  const contributions = toAmount(summary.sss + summary.philhealth + summary.pagibig);
+  return {
+    ...result,
+    monthly_tax: {
+      basic: summary.basic,
+      // The month's taxable earnings beyond the salary (overload, incentives, the 1st cutoff's extras).
+      earnings: toAmount(taxable + attendance + contributions - summary.basic),
+      attendance,
+      contributions,
+      taxable,
+      tax: summary.tax,
+    },
+    reconciliation: {
+      first_half_net: extras.firstHalfPaid,
+      second_half_net: summary.net,
+      total: toAmount(extras.firstHalfPaid + summary.net),
+      monthly_net: toAmount(summary.monthNet - extras.carryIn - summary.yearEndTax),
+      estimate: extras.firstHalfStatus !== "final",
+    },
+  };
 }
