@@ -2607,9 +2607,17 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
     });
   }
   const monthSettled = firstCutoff && semi.second_half_final;
+  // 2nd half: previewed freely, but made Final only after the month's 1st-half
+  // payslip is Final (decision 2026-11-13); never assumed ₱0 or half the
+  // salary. Someone hired after the 15th has no 1st half to wait for.
+  const hiredAfterFirstHalf = settling && String(employee.date_hired || "").slice(0, 10) > `${semi.month_key}-15`;
+  const firstHalfBlock = settling && semi.first_half?.status !== "final" && !hiredAfterFirstHalf
+    ? `${employee.full_name}'s ${semi.first_half_label} payslip is ${semi.first_half?.status === "draft" ? "still a Draft" : "not processed"}. Process it as Final first (₱0 or prorated when nothing is due), then process ${period.label}.`
+    : null;
 
   return {
     payroll,
+    first_half_block: firstHalfBlock,
     deviations,
     reason,
     blocking: auto.blocking,
@@ -2629,6 +2637,7 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       contribution_basis: schoolMonthly?.basis || null,
       tax_bracket: settling ? settle(withholdingTax).tax_bracket : null,
       basic_salary: defaultBasic,
+      first_half_block: firstHalfBlock,
       // The period's Early Bird incentive when this employee won it.
       early_bird_winner: earlyBirdPay,
       ...(firstCutoff ? {
@@ -4225,8 +4234,8 @@ async function handleBatchSubmit(supabase, body, guard) {
       actor,
     });
 
-    if (built.refusal) {
-      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: built.refusal, code: built.refusal_code || "month_settled" });
+    if (built.refusal || built.first_half_block) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: built.refusal || built.first_half_block, code: built.refusal ? built.refusal_code || "month_settled" : "first_half_not_final" });
       continue;
     }
     // A changed Leave without pay is an attendance override (2026-11-03):
@@ -4465,6 +4474,9 @@ export async function POST(request) {
     if (built.refusal) {
       return NextResponse.json({ error: built.refusal, code: built.refusal_code || "month_settled" }, { status: 422 });
     }
+    if (action === "submit" && built.first_half_block) {
+      return NextResponse.json({ error: built.first_half_block, code: "first_half_not_final" }, { status: 422 });
+    }
     // Absent / Late / Undertime / Half day / Perfect attendance changed from
     // the attendance logs: only inside the processing window, on a payroll
     // still open, for the Accountant's own branch (override-window.js).
@@ -4504,9 +4516,11 @@ export async function POST(request) {
     // constraint — reusing whatever id already holds that combination (rather
     // than minting a new one) is what lets syncPayrollEntryToDb()'s upsert
     // update that row instead of colliding with it under a different id.
-    const existingIndex = existingId
-      ? entries.findIndex((entry) => entry.id === existingId)
-      : entries.findIndex((entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod);
+    // An entry_id of another employee or period is ignored: reusing it moved
+    // that row (a 1st-half draft became the 2nd half, the 1st half was lost).
+    const sameSlot = (entry) => entry.employee_id === employee.id && entry.pay_period === payPeriod;
+    const byId = existingId ? entries.findIndex((entry) => entry.id === existingId && sameSlot(entry)) : -1;
+    const existingIndex = byId >= 0 ? byId : entries.findIndex(sameSlot);
     const resolvedExistingId = existingIndex >= 0 ? entries[existingIndex].id : "";
 
     // The entry being written is itself already paid. The duplicate checks
@@ -4818,6 +4832,9 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   }
 
   const final = genWindow.state === "final" || genWindow.state === "closed";
+  if (final && built.first_half_block) {
+    return NextResponse.json({ error: built.first_half_block, code: "first_half_not_final" }, { status: 422 });
+  }
   const nowIso = new Date().toISOString();
   const branch = employee.branch_id
     ? await supabase.from("branches").select("name").eq("id", employee.branch_id).maybeSingle()

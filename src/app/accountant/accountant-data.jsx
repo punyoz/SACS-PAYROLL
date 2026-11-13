@@ -120,8 +120,14 @@ export function AccountantDataProvider({ children, navigate }) {
       const shown = chosen && options_.includes(chosen) ? chosen : active && options_.includes(active) ? active : options_[0] || "";
       periodRef.current = shown;
       setPeriodState(shown);
-      // With no entry chosen, the first saved draft opens in the form.
-      if (!entryRef.current && data.draft_entries?.length) chooseEntry(data.draft_entries[0].id);
+      // draft_entries holds every period's drafts: a draft of another period
+      // never stays open (its 1st-half basic showed as the 2nd half's salary).
+      const drafts = data.draft_entries || [];
+      const open = drafts.find((draft) => String(draft.id) === entryRef.current);
+      if (open && open.pay_period !== shown) chooseEntry("");
+      // With no entry chosen, the period's first saved draft opens in the form.
+      const first = drafts.find((draft) => draft.pay_period === shown);
+      if (!entryRef.current && first) chooseEntry(first.id);
       setState({ loading: false, error: null, data });
       return data;
     } catch (error) {
@@ -146,7 +152,12 @@ export function AccountantDataProvider({ children, navigate }) {
     /** Open an entry's payslip on the Pay Record page (openPayslipFromRecord). */
     openPayslip: (id) => { load({ entryId: id }); navigate("ac-payslips"); },
     /** Edit a draft in the Process Payroll form (editDraftEntry). */
-    editDraft: (id) => { chooseEntry(id); navigate("ac-process"); load({ entryId: id }); },
+    editDraft: (id) => {
+      // Opens in its own period, so the form never mixes two periods.
+      const draftPeriod = (state.data?.draft_entries || []).find((draft) => String(draft.id) === String(id))?.pay_period;
+      if (draftPeriod) { periodRef.current = draftPeriod; setPeriodState(draftPeriod); keepPeriodInUrl(draftPeriod); }
+      chooseEntry(id); navigate("ac-process"); load({ entryId: id, period: draftPeriod });
+    },
   }), [state, period, entryId, history, load, navigate, chooseEntry]);
 
   return <AccountantContext.Provider value={value}>{children}</AccountantContext.Provider>;
