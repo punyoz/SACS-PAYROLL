@@ -40,7 +40,11 @@ const TARGETS = [
   { code: "SACS-ACCT-001", salaryFrom: "DEMO-003", hiredDefault: "2026-09-01" },
 ];
 // Who corrects whose days (never their own): HR Officer's by Demo HR One.
-const CORRECTOR = { "SACS-EMP-001": "SACS-HR-001", "SACS-HR-001": "DEMO-001", "SACS-ACCT-001": "DEMO-001" };
+// Production 2026-11-13: HR Officer cannot sign in (maxxspace.com no longer receives
+// mail, so no sign-in code arrives); Demo HR One corrects all three there.
+const CORRECTOR = db.target === "production"
+  ? { "SACS-EMP-001": "DEMO-001", "SACS-HR-001": "DEMO-001", "SACS-ACCT-001": "DEMO-001" }
+  : { "SACS-EMP-001": "SACS-HR-001", "SACS-HR-001": "DEMO-001", "SACS-ACCT-001": "DEMO-001" };
 // Nov 1-12 plan, by the order of the account's Absent days (one stays Absent).
 const DAY_PLAN = [
   { kind: "both", in: "07:24", out: "16:35", note: "Logbook: on time; card not yet issued (RFID reset)." },
@@ -222,7 +226,9 @@ for (const t of TARGETS) {
 
   // 4. One pending leave request (7+ days ahead), within the paid balance.
   const [leave] = HAS_TAGS ? await db.rows(`select count(*)::int n from leave_requests l join defense_data_rows t on t.table_name = 'leave_requests' and t.row_id = l.id::text where l.employee_id = ${lit(me.id)}`) : [{ n: 0 }];
-  if (!leave.n) {
+  if (!leave.n && db.target === "production" && !cookies.has(me.id)) {
+    skipped.push(`${name}: own leave request not filed: the account cannot sign in (its email domain receives no mail)`);
+  } else if (!leave.n) {
     const start = new Date(Date.now() + (8 + 8) * 86400e3); // 8+ days from now, on a weekday
     while ([0, 6].includes(start.getUTCDay())) start.setUTCDate(start.getUTCDate() + 1);
     const day = start.toISOString().slice(0, 10);
