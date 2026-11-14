@@ -193,7 +193,8 @@ test("B: Branch Management, positions, loans, avatar menu, Help, SA cards", asyn
   await step(page, "SA > Dashboard: the Total users card opens Admin & HR Accounts", async () => {
     await as(page, "super_admin", "sa-dashboard");
     await settle(page);
-    await main(page).getByRole("button", { name: /Total users: open Admin & HR Accounts/ }).click();
+    // A real link since 2026-11-14: "Total users: 8. Open Admin & HR Accounts".
+    await main(page).getByRole("link", { name: /^Total users: .*Open Admin & HR Accounts$/ }).click();
     await expect(page.locator("h1")).toHaveText("Admin & HR Accounts");
   });
   await step(page, "Avatar menu: Profile, Change password, Help, Sign out; Help opens the tour", async () => {

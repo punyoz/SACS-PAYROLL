@@ -23,6 +23,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { fetchJson } from "@/lib/portal/api";
+import { portalHref } from "@/lib/portal/navigate";
 
 /*
  * SA Dashboard (loadSADashboard / renderSARecentActivity,
@@ -155,12 +156,12 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
   return (
     <>
       <section aria-label="System at a glance" className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total employees" value={panel("total_employees", "totalEmployees") ?? "—"} hint="Active system-wide" icon={UsersIcon} loading={loading} onClick={() => onNavigate("sa-attendance")} actionLabel="open Attendance Records" />
-        <StatCard label="Total users" value={totalUsers || "—"} hint="All registered accounts" icon={UsersRoundIcon} tone="info" loading={loading} onClick={() => onNavigate("sa-accounts")} actionLabel="open Admin & HR Accounts" />
-        <StatCard label="System status" value="Online" hint="Database & services" icon={ServerIcon} tone="success" loading={loading} onClick={() => onNavigate("sa-backup")} actionLabel="open Backup & Recovery" />
+        <StatCard label="Total employees" value={panel("total_employees", "totalEmployees") ?? "—"} hint="Active system-wide" icon={UsersIcon} loading={loading} href={portalHref("sa-attendance")} actionLabel="Open Attendance Records" />
+        <StatCard label="Total users" value={totalUsers || "—"} hint="All registered accounts" icon={UsersRoundIcon} tone="info" loading={loading} href={portalHref("sa-accounts")} actionLabel="Open Admin & HR Accounts" />
+        <StatCard label="System status" value="Online" hint="Database & services" icon={ServerIcon} tone="success" loading={loading} href={portalHref("sa-backup")} actionLabel="Open Backup & Recovery" />
         {/* Pending actions (2026-11-09 Part D): the items waiting on the Super
             Admin as the fallback approver, a real count (never a fixed 0). */}
-        <StatCard label="Pending actions" value={fallback === null ? "—" : fallback} hint={fallback ? "Waiting on you (no other HR active)" : "Nothing waits on the fallback"} icon={InboxIcon} tone={fallback ? "warning" : "primary"} loading={loading && fallback === null} onClick={() => onNavigate("sa-fallback")} actionLabel="open Items waiting on fallback" />
+        <StatCard label="Pending actions" value={fallback === null ? "—" : fallback} hint={fallback ? "Waiting on you (no other HR active)" : "Nothing waits on the fallback"} icon={InboxIcon} tone={fallback ? "warning" : "primary"} loading={loading && fallback === null} href={portalHref("sa-fallback")} actionLabel="Open Items Waiting on Fallback" />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

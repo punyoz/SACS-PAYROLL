@@ -13,6 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
 import { StatCard } from "@/components/portal/stat-card";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -82,7 +84,7 @@ export function LoansPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const starts = React.useMemo(startOptions, []);
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [filter, setFilter] = React.useState("open");
+  const [filter, setFilter] = useUrlParam("loan_status", "open");
   const [form, setForm] = React.useState({ employee: "", type: "salary_loan", principal: "", interest: "0", payrolls: "6", amortization: "", granted: manilaDateKey(), start: starts[0].value, description: "", authority: true });
   const [advance, setAdvance] = React.useState({ balance: "", amount: "", granted: manilaDateKey(), description: "" });
   const [errors, setErrors] = React.useState({});
@@ -267,7 +269,7 @@ export function LoansPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Open loans" value={summary.open_count || 0} hint="Active, suspended or awaiting a decision" icon={HandCoinsIcon} tone="info" loading={first} />
+        <StatCard label="Open loans" value={summary.open_count || 0} hint="Active, suspended or awaiting a decision" icon={HandCoinsIcon} tone="info" loading={first} href={currentPageHref({ loan_status: "open" })} onClick={() => setFilter("open")} scrollTo="loans-table" actionLabel="Show open loans" />
         <StatCard label="Outstanding balance" value={moneyCompact(summary.outstanding || 0)} hint="Still to be repaid" icon={WalletIcon} tone="danger" loading={first} />
         <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips and final pay" icon={CoinsIcon} tone="success" loading={first} />
         <StatCard label="Awaiting decision" value={summary.awaiting_decision || 0} hint="Excess subsidy advances (HR decides)" icon={HourglassIcon} tone="gold" loading={first} />
@@ -336,7 +338,7 @@ export function LoansPage({ refreshKey }) {
         </div>
       ) : null}
 
-      <Card className="min-w-0 shadow-xs">
+      <Card id="loans-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>Loans</CardTitle>
           <CardAction className="flex gap-2">

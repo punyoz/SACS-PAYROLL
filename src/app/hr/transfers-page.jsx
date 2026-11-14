@@ -14,6 +14,8 @@ import { BulkRowsDialog } from "@/components/portal/bulk-rows-dialog";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { StatCard } from "@/components/portal/stat-card";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -144,7 +146,7 @@ export function TransfersPage({ refreshKey }) {
   const branches = useBranches(refreshKey);
   const [roster, setRoster] = React.useState({ loading: true, error: null, employees: [] });
   const [history, setHistory] = React.useState({ loading: true, error: null, rows: [] });
-  const [filter, setFilter] = React.useState("all");
+  const [filter, setFilter] = useUrlParam("tr_branch", "all");
   const [editing, setEditing] = React.useState(null);
   // Move many (a branch closing or merging, scenario AD-05): each move is
   // recorded in Transfer History like a single transfer.
@@ -279,14 +281,14 @@ export function TransfersPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Employees by branch" className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
-        <StatCard label="Total employees" value={all.length} hint="All active employees" icon={UsersIcon} loading={first} />
-        <StatCard label="Unassigned" value={unassigned} hint="Not yet in a branch" icon={UserMinusIcon} tone="danger" loading={first} />
+        <StatCard label="Total employees" value={all.length} hint="All active employees" icon={UsersIcon} loading={first} href={currentPageHref({ tr_branch: "all" })} onClick={() => setFilter("all")} scrollTo="transfers-table" actionLabel="Show every employee" />
+        <StatCard label="Unassigned" value={unassigned} hint="Not yet in a branch" icon={UserMinusIcon} tone="danger" loading={first} href={currentPageHref({ tr_branch: "unassigned" })} onClick={() => setFilter("unassigned")} scrollTo="transfers-table" actionLabel="Show unassigned employees" />
         {branches.map((b, i) => (
-          <StatCard key={b.id} label={b.name} value={countFor(b.id)} hint="Branch campus" icon={Building2Icon} tone={["success", "gold", "info", "primary"][i % 4]} loading={first} />
+          <StatCard key={b.id} label={b.name} value={countFor(b.id)} hint="Branch campus" icon={Building2Icon} tone={["success", "gold", "info", "primary"][i % 4]} loading={first} href={currentPageHref({ tr_branch: b.id })} onClick={() => setFilter(b.id)} scrollTo="transfers-table" actionLabel={`Show employees of ${b.name}`} />
         ))}
       </section>
 
-      <Card className="min-w-0 shadow-xs">
+      <Card id="transfers-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>Employee branch list</CardTitle>
           <CardDescription>Where every Employee and Accountant is assigned.</CardDescription>

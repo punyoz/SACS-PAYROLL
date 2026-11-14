@@ -26,6 +26,7 @@ import { PortalSessionProvider, usePersistedPage, usePortalSession } from "@/com
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsManager } from "@/components/portal/announcements";
 import { manilaDateKey } from "@/lib/portal/format";
+import { BACKGROUND, fetchJson } from "@/lib/portal/api";
 import { AuditLogsPage } from "../admin/audit-logs-page";
 import { MaintenancePage } from "../admin/maintenance-page";
 import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
@@ -58,8 +59,10 @@ const NAV = [
       { id: "sa-fallback", label: "Items Waiting on Fallback", icon: InboxIcon, module: "fallback_approvals" },
     ],
   },
+  // Work pages in collapsible groups, as HR's (2026-11-14); no page renamed, moved or lost.
   {
     section: "Management",
+    collapsible: true,
     items: [
       { id: "sa-accounts", label: "Admin & HR Accounts", icon: UsersRoundIcon, module: "user_management" },
       { id: "sa-branches", label: "Branch Management", icon: BuildingIcon, module: "branch_management" },
@@ -70,7 +73,8 @@ const NAV = [
   },
   {
     // One clearly named group (alpha test B1); it was all "System Maintenance".
-    section: "RFID Management",
+    section: "RFID",
+    collapsible: true,
     items: [
       { id: "sa-maintenance", label: "RFID Cards", icon: CreditCardIcon, module: "system_maintenance" },
       { id: "sa-rfid-terminal", label: "RFID Terminal", icon: RadioTowerIcon, module: "system_maintenance" },
@@ -79,6 +83,7 @@ const NAV = [
   },
   {
     section: "System",
+    collapsible: true,
     items: [
       { id: "sa-config", label: "System Configuration", icon: SettingsIcon, module: "system_configuration" },
       { id: "sa-audit", label: "Audit & Monitoring", icon: ScrollTextIcon, module: "audit_logs" },
@@ -86,7 +91,7 @@ const NAV = [
       { id: "sa-backup", label: "Backup & Recovery", icon: DatabaseBackupIcon, module: "backup_recovery" },
     ],
   },
-  { section: "Account", items: [{ id: "sa-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  { section: "My Account", collapsible: true, items: [{ id: "sa-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
 
 const NAV_ITEMS = NAV.flatMap((group) => group.items);
@@ -116,6 +121,15 @@ function SuperAdminScreens() {
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const [summary, setSummary] = React.useState([]);
+  // The sidebar badge: the same count as the dashboard's Pending actions card.
+  const [fallbackCount, setFallbackCount] = React.useState(0);
+  const canFallback = can("fallback_approvals");
+  React.useEffect(() => {
+    if (!canFallback) return undefined;
+    let cancelled = false;
+    fetchJson("/api/super-admin/fallback", BACKGROUND).then((data) => { if (!cancelled) setFallbackCount(Number(data?.counts?.total || 0)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [canFallback, refreshKey]);
 
   const allowed = (id) => {
     const item = NAV_ITEMS.find((i) => i.id === id);
@@ -141,6 +155,7 @@ function SuperAdminScreens() {
       onRefresh={refresh}
       refreshing={refreshing}
       notificationSummary={summary}
+      badges={{ "sa-fallback": fallbackCount }}
       profilePage="sa-profile"
       accountOptions={{ payrollReadOnly: false, titleCaseName: true }}
     >

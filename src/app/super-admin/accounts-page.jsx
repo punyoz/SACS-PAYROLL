@@ -7,6 +7,8 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { DataTable } from "@/components/portal/data-table";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatCard } from "@/components/portal/stat-card";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { fetchJson } from "@/lib/portal/api";
 import { STAFF_ROLE_LABELS, STAFF_ROLES } from "@/lib/portal/staff-rules";
@@ -38,7 +40,7 @@ function lastLogin(user) {
 
 export function AccountsPage({ refreshKey }) {
   const [state, setState] = React.useState({ loading: true, error: null, users: [], branches: [] });
-  const [filter, setFilter] = React.useState("all");
+  const [filter, setFilter] = useUrlParam("acc_filter", "all");
   const [editing, setEditing] = React.useState({ open: false, user: null });
   const [adding, setAdding] = React.useState(false);
 
@@ -112,11 +114,11 @@ export function AccountsPage({ refreshKey }) {
     <>
       <section aria-label="Accounts" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Admin & HR accounts" value={state.users.length} hint="Registered logins" icon={UsersRoundIcon} loading={first} />
-        <StatCard label="Active" value={counts.all} hint="Can sign in" icon={CheckCircle2Icon} tone="success" loading={first} />
-        <StatCard label="Archived" value={counts.archived} hint="Deactivated accounts" icon={ArchiveIcon} tone="danger" loading={first} />
+        <StatCard label="Active" value={counts.all} hint="Can sign in" icon={CheckCircle2Icon} tone="success" loading={first} href={currentPageHref({ acc_filter: "all" })} onClick={() => setFilter("all")} scrollTo="accounts-table" actionLabel="Show active accounts" />
+        <StatCard label="Archived" value={counts.archived} hint="Deactivated accounts" icon={ArchiveIcon} tone="danger" loading={first} href={currentPageHref({ acc_filter: "archived" })} onClick={() => setFilter("archived")} scrollTo="accounts-table" actionLabel="Show archived accounts" />
       </section>
 
-      <Card className="min-w-0 shadow-xs">
+      <Card id="accounts-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>Admin &amp; HR logins</CardTitle>
           <CardDescription>Super Admin, Admin and HR sign-in accounts. Archived accounts cannot sign in.</CardDescription>

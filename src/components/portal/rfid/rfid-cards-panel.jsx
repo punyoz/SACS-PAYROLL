@@ -16,6 +16,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateTime } from "@/lib/portal/payroll-preview";
 import { CARD_STATUS_LABELS, CARD_STATUS_TONES } from "@/lib/rfid/cards";
@@ -173,13 +174,13 @@ export function RfidCardsPanel({ refreshKey }) {
   return (
     <>
       <section aria-label="Cards" className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Active" value={count("active")} icon={CreditCardIcon} tone="success" loading={first} />
-        <StatCard label="Inactive" value={count("inactive")} icon={CreditCardIcon} loading={first} />
-        <StatCard label="Lost" value={count("lost")} icon={CreditCardIcon} tone="danger" loading={first} />
-        <StatCard label="Replaced" value={count("replaced")} icon={CreditCardIcon} tone="gold" loading={first} />
+        <StatCard label="Active" value={count("active")} icon={CreditCardIcon} tone="success" loading={first} href={currentPageHref({ rf_status: "active" })} onClick={() => setStatus("active")} scrollTo="rfid-cards-table" actionLabel="Show active cards" />
+        <StatCard label="Inactive" value={count("inactive")} icon={CreditCardIcon} loading={first} href={currentPageHref({ rf_status: "inactive" })} onClick={() => setStatus("inactive")} scrollTo="rfid-cards-table" actionLabel="Show inactive cards" />
+        <StatCard label="Lost" value={count("lost")} icon={CreditCardIcon} tone="danger" loading={first} href={currentPageHref({ rf_status: "lost" })} onClick={() => setStatus("lost")} scrollTo="rfid-cards-table" actionLabel="Show lost cards" />
+        <StatCard label="Replaced" value={count("replaced")} icon={CreditCardIcon} tone="gold" loading={first} href={currentPageHref({ rf_status: "replaced" })} onClick={() => setStatus("replaced")} scrollTo="rfid-cards-table" actionLabel="Show replaced cards" />
       </section>
 
-      <Card className="min-w-0 shadow-xs">
+      <Card id="rfid-cards-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><CreditCardIcon className="size-4 text-gold-text" aria-hidden="true" />RFID cards</CardTitle>
           <CardDescription>Only an Active card records attendance. One active card per employee; a card number belongs to one employee.</CardDescription>

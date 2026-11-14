@@ -33,6 +33,7 @@ import {
   PASSWORD_OTP_RESEND_SECONDS,
 } from "@/lib/auth/password-otp";
 import { resolveLoginProfile } from "@/lib/auth/resolve-profile-claims";
+import { RESET_EMAIL_INVALID, RESET_EMAIL_REQUIRED, isResetEmail } from "@/lib/auth/reset-email";
 import { otpAllowed, otpFailure, otpReset } from "@/lib/auth/persistent-throttle";
 import { completeLogin, isRoutableRole } from "@/lib/auth/complete-login";
 
@@ -40,7 +41,7 @@ import { completeLogin, isRoutableRole } from "@/lib/auth/complete-login";
  * POST /api/legacy-auth/reset-password: the login page's "Forgot Password?"
  * dialog, in three steps.
  *
- *   { action: "send",   identity }                  email a 6-digit OTP
+ *   { action: "send",   identity }                  email a 6-digit OTP (identity = the registered email)
  *   { action: "verify", code }                      check it
  *   { action: "reset",  password, confirm_password } set the new password
  *
@@ -64,8 +65,7 @@ const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const GENERIC_SENT =
-  "If the account exists, an OTP has been sent to its registered email address.";
+const GENERIC_SENT = "If this email is registered, a code has been sent.";
 
 const START_AGAIN = "Your OTP has expired or was not requested. Request a new OTP.";
 const LOCKED_OUT = "Too many incorrect attempts. Request a new OTP.";
@@ -92,8 +92,11 @@ async function resolveUser(admin, identity) {
 }
 
 async function handleSend(body) {
-  const identity = normalizeText(body.identity);
-  if (!identity) return fail("Enter your Employee ID or email address.", 400, "identity_required");
+  // Email only (2026-11-14): an Employee ID or any other non-email is refused
+  // before any lookup, so a direct call cannot reset by Employee ID either.
+  const identity = normalizeText(body.identity).toLowerCase();
+  if (!identity) return fail(RESET_EMAIL_REQUIRED, 400, "identity_required");
+  if (!isResetEmail(identity)) return fail(RESET_EMAIL_INVALID, 400, "email_invalid");
 
   const key = resetThrottleKey(identity);
   const cooldown = checkResendAllowed(key, Date.now(), PASSWORD_OTP_RESEND_MS);
