@@ -154,3 +154,79 @@ export function previewLineGroups(data, employee, form, summary, computedForm) {
     },
   };
 }
+
+/** "₱32,000" for whole pesos, "₱1,471.26" otherwise. */
+const pesoShort = (value) => pesoText(value).replace(/\.00$/, "");
+const daysText = (n) => `${toAmount(n)} day${toAmount(n) === 1 ? "" : "s"}`;
+
+/**
+ * The Process Payroll summary, compact (2026-11-14): each line's text is its
+ * formula only ("₱32,000 ÷ 2", "5 days × ₱1,471.26"), a ₱0 line shows none,
+ * Late not charged keeps its explanation behind the tag (line.tip), and a
+ * 1st half drops the "deducted on the 2nd half" group notes (the form says
+ * it once). Same lines, tags, amounts and subtotals as previewLineGroups.
+ */
+export function compactLineGroups(result, { employee, form, summary }) {
+  if (!result) return result;
+  const unit = summary.info.unit || {};
+  const d = summary.info.row?.defaults || {};
+  const source = d.contribution_source || {};
+  const basis = d.contribution_basis || {};
+  const extras = summary.extras || {};
+  const monthly = toAmount(employee?.basic_salary);
+  const g = (key) => toAmount(form[key]);
+  const formula = (l) => {
+    if (l.tag === "not_charged") return null;
+    if (!(l.amount > 0)) return null;
+    switch (l.key) {
+      case "basic":
+        if (summary.settling && extras.perCutoff) return `${pesoShort(summary.basic)} − ${pesoShort(extras.firstHalfBasic)} (1st half)`;
+        if (summary.settling) return `${pesoShort(summary.basic)} a month`;
+        return same(l.amount, monthly / 2) ? `${pesoShort(monthly)} ÷ 2` : null;
+      case "overtime": {
+        const hours = Math.round(((summary.info.pay?.counts?.overtime_minutes || 0) / 60) * 100) / 100;
+        const premium = Number(summary.info.rates?.overtime_premium_pct) || 0;
+        return hours ? `${hours} h × ${pesoShort(unit.hourly)}${premium ? ` × ${100 + premium}%` : ""}` : null;
+      }
+      case "overload":
+        return d.overload_hours ? `${toAmount(d.overload_hours)} h × ${pesoShort(l.amount / d.overload_hours)}` : null;
+      case "early_bird": case "perfect": case "incentives": case "subsidy": return null;
+      case "prior_earnings": case "prior_attendance": return "From the 1st cutoff payslip";
+      case "sss": case "philhealth": case "pagibig": {
+        if (source[l.key] === "fixed") return "Fixed monthly amount";
+        if (source[l.key] === "employee") return "Set for this employee";
+        const b = basis[l.key];
+        if (!b || !Number.isFinite(Number(b.pct))) return null;
+        const limit = /ceiling/.test(l.how) ? " (ceiling)" : /SSS minimum/.test(l.how) ? " (minimum)" : /floor/.test(l.how) ? " (floor)" : /capped/.test(l.how) ? " (cap)" : "";
+        return `${Number(b.pct)}% × ${pesoShort(b.base)}${limit}`;
+      }
+      case "withholding_tax": {
+        const e = result.tax;
+        if (!e?.bracket) return null;
+        return `${e.bracket.base > 0 ? `${pesoShort(e.bracket.base)} + ` : ""}${e.bracket.rate_pct}% × (${pesoShort(e.taxable)} − ${pesoShort(e.bracket.over)})`;
+      }
+      case "absent": return `${daysText(g("absences"))} × ${pesoShort(unit.absent)}`;
+      case "undertime": return `${g("undertime")} min × ${pesoShort(unit.hourly)} ÷ 60`;
+      case "half_day": return `${daysText(g("halfDays"))} × ${pesoShort(unit.half_day)}`;
+      case "lwop": return `${daysText(g("lwop"))} × ${pesoShort(unit.daily)}`;
+      case "first_half_paid": return "1st half net pay";
+      default: return String(l.how || "").replace(/ = -?₱[\d,.]+$/, "") || null;
+    }
+  };
+  const first = result.half === "first";
+  return {
+    ...result,
+    taxable: result.taxable ? { ...result.taxable, how: null } : result.taxable,
+    groups: result.groups.map((group) => ({
+      ...group,
+      note: first && (group.key === "contributions" || group.key === "tax") ? null : group.note,
+      lines: group.lines.map((l) => ({
+        ...l,
+        how: formula(l),
+        ...(l.tag === "not_charged" ? { tip: l.how } : {}),
+        // A ₱0 tax still says why (exempt bracket / no taxable income).
+        ...(l.key === "withholding_tax" && !(l.amount > 0) ? { how: /exempt/.test(result.tax?.reason || "") ? "Exempt bracket" : result.tax?.reason || null } : {}),
+      })),
+    })),
+  };
+}

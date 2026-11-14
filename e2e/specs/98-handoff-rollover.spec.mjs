@@ -173,7 +173,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
       await settle(page);
       say("Clicking Process payroll for all →…");
       const before = monitor.issues.length;
-      await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
+      await main(page).getByTestId("process-all").click();
       await confirm(page, "Process payroll");
       await waitForResponse(page, "Process (batch)", /Payroll processed for \d+ employee|No payslips processed/);
       await reportIssues(page, monitor, before, "Process (batch)");
@@ -321,7 +321,7 @@ async function processAndApprove(page, period, branchId, { ui = false } = {}) {
   await settle(page);
   if (ui) {
     say(`Clicking Process payroll for all → for ${period}…`);
-    await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
+    await main(page).getByTestId("process-all").click();
     await confirm(page, "Process payroll");
     await waitForResponse(page, `Process ${period}`, /Payroll processed for \d+ employee|No payslips processed/);
   } else {

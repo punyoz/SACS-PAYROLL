@@ -108,7 +108,8 @@ export function PayslipScheduleSection({ refreshKey }) {
         <CardDescription>When payslips are generated. Each half deducts attendance up to the day before its generation day; that day carries to the next payslip.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        {/* field-grid: a label that wraps onto two lines keeps its box level with the one beside it. */}
+        <div className="field-grid grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5"><Label htmlFor="sch-first">1st half (1–15) generation day</Label>
             <Input id="sch-first" type="number" min="1" max="15" placeholder="15 — last day of the period" value={form.first} onChange={(e) => setForm((c) => ({ ...c, first: e.target.value }))} /></div>
           <div className="space-y-1.5"><Label htmlFor="sch-second">2nd half (16–end) generation day</Label>

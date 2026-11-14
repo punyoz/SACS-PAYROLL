@@ -37,7 +37,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
   });
 
   await step(page, "Accountant > Process Payroll > click Process payroll for all", async () => {
-    await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
+    await main(page).getByTestId("process-all").click();
     await confirm(page, "Process payroll");
     // A processed batch opens the first payslip (Pay Record).
     await expect(page.getByText(/Payroll processed for \d+ employee|No payslips processed/).first()).toBeVisible({ timeout: 90000 });

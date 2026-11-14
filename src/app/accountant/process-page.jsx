@@ -1,11 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangleIcon, CheckCircle2Icon, ChevronLeftIcon, ChevronRightIcon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, RefreshCwIcon } from "lucide-react";
+import { AlertTriangleIcon, CheckCircle2Icon, ChevronDownIcon, ChevronLeftIcon, ChevronRightIcon, FlagIcon, InfoIcon, Loader2Icon, LockIcon, MoreHorizontalIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,7 +22,6 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
-import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import {
   SALARY_MAX,
   batchRowBase,
@@ -50,9 +52,11 @@ import { DeferredIncentivesNotice } from "./incentives-page";
 import { CONTRIBUTION_MAX, DAYS_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX } from "@/lib/input-limits";
 import { attendanceOverrideState } from "@/lib/payroll/override-window";
 import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
-import { DEFERRED_NOTE, pesoText } from "@/lib/payroll/line-tags";
-import { previewLineGroups } from "@/lib/portal/payroll-line-preview";
-import { LineTag, LineTagLegend, PayrollLineGroups, TaxHowDetails } from "@/components/portal/payroll-lines";
+import { pesoText } from "@/lib/payroll/line-tags";
+import { compactLineGroups, previewLineGroups } from "@/lib/portal/payroll-line-preview";
+import { InfoTip } from "@/components/portal/info-tip";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { LineTag, LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { SearchableSelect } from "@/components/portal/searchable-select";
 
 /*
@@ -97,7 +101,7 @@ function Banners({ data }) {
   return (
     <>
       {/* Super Admin testing switch OFF (window-enforcement.js). */}
-      <TestingModeBanner enforcement={win?.window_enforcement} />
+      <TestingModeBanner enforcement={win?.window_enforcement} compact />
       {data && data.payroll_ready === false ? (
         <Alert className="border-warning/40 bg-warning/10 text-warning">
           <AlertTriangleIcon aria-hidden="true" />
@@ -173,82 +177,207 @@ function EarlyBirdBanner({ earlyBird }) {
   );
 }
 
-/** The Payslip cell of an employee's batch row (acctPayslipCell). */
-function PayslipCell({ data, employee, onGenerate, onView, busy }) {
+/** "₱1,234.56"; ₱0 is "—" in the batch table (cleanup 2026-11-14). */
+const cellPeso = (value) => (toAmount(value) ? pesoText(value) : "—");
+
+const BATCH_STATUS = {
+  ready: { label: "Ready", tone: "info" },
+  draft: { label: "Draft", tone: "gold" },
+  final: { label: "Final", tone: "success" },
+  blocked: { label: "Blocked", tone: "warning" },
+  first_half: { label: "1st half not Final", tone: "warning" },
+};
+
+/**
+ * One batch row's payslip state (was acctPayslipCell): status, what can be
+ * generated or reprocessed, and why a row is blocked. Display only: the
+ * server checks every one of these again.
+ */
+function batchRowState(data, employee, base) {
   const win = data?.generation_window;
-  const state = (data?.attendance_rows || []).find((r) => r.employee_id === employee.id)?.payslip || null;
+  const slip = (data?.attendance_rows || []).find((r) => r.employee_id === employee.id)?.payslip || null;
   // The branch's payroll run (Payroll Approval): Pending / Approved locks it;
   // Draft / Rejected lets a Final payslip be reprocessed.
   const run = data?.payroll_runs?.[String(employee.branch_id || "")] || null;
   // A Final payslip follows the run it is in (a period can also have a
   // supplemental run); a new one waits only while the latest run is with HR.
-  const ownStatus = state?.status === "final" ? (state.run_status || (run?.status === "approved" ? null : run?.status)) : run?.status;
-  const runLocked = state?.status === "final" ? ownStatus === "pending" || ownStatus === "approved" : run?.status === "pending";
-  if (state?.status === "final") {
-    const canReprocess = !runLocked && (win?.state === "final" || (win?.state === "closed" && run?.status === "rejected"));
-    return (
-      <div className="space-y-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <StatusBadge tone="success">Final</StatusBadge>
-          <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.entry_id)}>View</Button>
-          {canReprocess ? (
-            <Button variant="outline" size="sm" className="h-7" disabled={busy} onClick={() => onGenerate(employee.id, false, true)} title="Recompute this Final payslip from the latest records (the run is not yet submitted, or HR sent it back)">
-              {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Reprocess
-            </Button>
-          ) : null}
-        </div>
-        <p className="text-xs text-muted-foreground">{state.payslip_no || ""} · {runLocked ? (ownStatus === "pending" ? "waiting for HR" : "approved, locked") : "processed"}</p>
-      </div>
-    );
-  }
-  if (runLocked) {
-    return <p className="text-xs text-muted-foreground">{run.status === "pending" ? "Run waiting for HR approval" : "Run approved"}: locked</p>;
-  }
+  const final = slip?.status === "final";
+  const ownStatus = final ? (slip.run_status || (run?.status === "approved" ? null : run?.status)) : run?.status;
+  const runLocked = final ? ownStatus === "pending" || ownStatus === "approved" : run?.status === "pending";
+  const canReprocess = final && !runLocked && (win?.state === "final" || (win?.state === "closed" && run?.status === "rejected"));
   // After the window closes: still generated (marked late for HR) while the run is open.
   const canGenerate = Boolean(win?.can_generate) || win?.state === "closed";
-  const isDraft = state?.status === "draft";
   const finalNext = win?.state === "final";
-  const title = canGenerate
+  const firstHalfBlock = base.info.row?.defaults?.first_half_block || null;
+  const reasons = [];
+  let status;
+  if (final) status = "final";
+  else if (base.blocking.length) { status = "blocked"; reasons.push(...base.blocking.map((b) => ({ kind: "attendance", text: `${b.status} record, ${shortDate(b.log_date)}` }))); }
+  else if (firstHalfBlock) { status = "first_half"; reasons.push({ kind: "first_half", text: firstHalfBlock }); }
+  else if (employee.payroll_hold) { status = "blocked"; reasons.push({ kind: "hold", text: "Pay on hold: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay." }); }
+  else if (runLocked) { status = "blocked"; reasons.push({ kind: "run", text: "Run waiting for HR approval: locked" }); }
+  else status = slip?.status === "draft" ? "draft" : "ready";
+  const sub = final
+    ? `${slip.payslip_no || ""} · ${runLocked ? (ownStatus === "pending" ? "waiting for HR" : "approved, locked") : "processed"}`
+    : status === "draft" ? `Up to ${dateLabel(slip.attendance_through)}`
+      : status === "ready" && !canGenerate && win?.state === "not_open" ? `Opens ${dateLabel(win.opens_on)}`
+        : status === "ready" && win?.state === "closed" ? "Window closed: marked late for HR" : "";
+  const generateTitle = canGenerate
     ? (finalNext ? "Creates the Final payslip (locked once saved)" : `Draft with attendance up to ${dateLabel(win.attendance_through)}`)
     : (win?.message || "");
+  return { status, slip, reasons, sub, canReprocess, canGenerate, finalNext, generateTitle, processable: status === "ready" || status === "draft" };
+}
+
+/** The status pill; a blocked row's pill opens the reason (tap / Enter). */
+function BatchStatus({ row, onResolve }) {
+  const meta = BATCH_STATUS[row.state.status];
+  const pill = <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
+  // A Final payslip made with unresolved days ("Generate anyway") keeps its warning.
+  const warn = row.state.status === "final" && row.base.blocking.length;
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {isDraft ? <StatusBadge tone="gold">Draft</StatusBadge> : null}
-        <Button size="sm" className="h-7" variant={finalNext && canGenerate ? "default" : "outline"} title={title} disabled={!canGenerate || busy} onClick={() => onGenerate(employee.id)}>
-          {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}
-          {finalNext && canGenerate ? "Generate final" : isDraft ? "Regenerate" : "Generate"}
-        </Button>
-        {isDraft ? <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.entry_id)}>View</Button> : null}
+    <div className="space-y-0.5" data-testid="batch-status" data-status={row.state.status}>
+      <div className="flex items-center gap-1">
+        {row.state.reasons.length || warn ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" className="inline-flex cursor-pointer items-center gap-1 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50" aria-label={`${meta.label}: why`}>
+                {pill}{warn ? <AlertTriangleIcon className="size-3.5 text-warning" aria-hidden="true" /> : null}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72 space-y-1.5 text-xs" data-testid="batch-blocked-reason">
+              {(warn ? row.base.blocking.map((b) => ({ kind: "attendance", text: `${b.status} record, ${shortDate(b.log_date)} (not counted on this payslip)` })) : row.state.reasons).map((r, i) => <p key={i}>{r.text}</p>)}
+              {row.base.blocking.length ? (
+                <Button variant="link" className="h-auto p-0 text-xs" onClick={onResolve}>Open in Attendance →</Button>
+              ) : null}
+            </PopoverContent>
+          </Popover>
+        ) : pill}
       </div>
-      {isDraft ? <p className="text-xs text-muted-foreground">Up to {dateLabel(state.attendance_through)}</p>
-        : !canGenerate && win?.state === "not_open" ? <p className="text-xs text-muted-foreground">Opens {dateLabel(win.opens_on)}</p>
-          : win?.state === "closed" ? <p className="text-xs text-warning">Window closed: marked late for HR</p> : null}
+      {row.state.sub ? <p className="text-[11px] whitespace-nowrap text-muted-foreground">{row.state.sub}</p> : null}
     </div>
   );
 }
 
-function BatchCard({ onNavigate }) {
+/** View / Generate / Resolve, and a ⋯ menu with Reprocess, Edit, Generate anyway. */
+function BatchActions({ row, busy, onGenerate, onView, onEdit, onResolve }) {
+  const { state, employee } = row;
+  const generateLabel = state.finalNext && state.canGenerate ? "Generate final" : state.status === "draft" ? "Regenerate" : "Generate";
+  const attendanceBlocked = state.reasons.some((r) => r.kind === "attendance");
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      {state.processable ? (
+        <Button size="sm" className="h-7" variant={state.finalNext && state.canGenerate ? "default" : "outline"} title={state.generateTitle} disabled={!state.canGenerate || busy} onClick={() => onGenerate(employee.id)}>
+          {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{generateLabel}
+        </Button>
+      ) : null}
+      {state.slip?.entry_id && (state.status === "final" || state.status === "draft") ? (
+        <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.slip.entry_id)}>View</Button>
+      ) : null}
+      {attendanceBlocked ? <Button variant="link" size="sm" className="h-7 px-1 text-warning" onClick={onResolve}>Resolve</Button> : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-7" aria-label={`More actions for ${employee.full_name}`} disabled={busy}>
+            {busy && !state.processable ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <MoreHorizontalIcon aria-hidden="true" />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {state.canReprocess ? (
+            <DropdownMenuItem onSelect={() => onGenerate(employee.id, false, true)} title="Recompute this Final payslip from the latest records (the run is not yet submitted, or HR sent it back)">Reprocess</DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem onSelect={() => onEdit(employee.id)}>Edit in the form</DropdownMenuItem>
+          {attendanceBlocked && state.canGenerate ? (
+            <DropdownMenuItem onSelect={() => onGenerate(employee.id)}>Generate without the unresolved days…</DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+}
+
+/** The expanded breakdown: every attendance item, incentive and adjustment with its amount. */
+function BatchBreakdown({ row }) {
+  const { base } = row;
+  const c = base.counts;
+  const a = base.amounts;
+  const unit = base.info.unit || {};
+  const incentiveLabel = [
+    earlyBirdWinnerPay(base.info) ? "Early Bird Incentive" : "",
+    base.info.pay?.perfect_attendance && base.half !== "first" ? "Perfect" : "",
+    base.extras.other ? `Incentive/overload${base.extras.overloadHours ? ` (${base.extras.overloadHours} h)` : ""}` : "",
+  ].filter(Boolean).join(" · ");
+  const items = [
+    ["Absent", c.absent_days ? `${c.absent_days} day${c.absent_days === 1 ? "" : "s"}` : "—", -toAmount(a.absent)],
+    ["Late", c.late_days ? `${c.late_days} day${c.late_days === 1 ? "" : "s"}${c.late_minutes ? `, ${c.late_minutes} min` : ""}` : "—", -toAmount(a.late)],
+    ["Undertime", c.undertime_minutes ? `${c.undertime_minutes} min` : "—", -toAmount(a.undertime)],
+    ["Half day", c.half_days ? `${c.half_days} day${c.half_days === 1 ? "" : "s"}` : "—", -toAmount(a.half_day)],
+    ["Leave with pay", base.lwp ? `${base.lwp} day${base.lwp === 1 ? "" : "s"} · no deduction` : "—", 0],
+    ["Leave without pay", base.lwop ? `${base.lwop} day${base.lwop === 1 ? "" : "s"}` : "—", -toAmount(base.lwop * (unit.daily || 0))],
+    ["Incentives", incentiveLabel || "—", toAmount(base.incentives + base.extras.other)],
+    ...(base.earnings ? [["Overtime / holiday", "approved", base.earnings]] : []),
+    ...(row.firstHalf ? [] : [
+      ["SSS", "", -toAmount(row.values.sss)],
+      ["PhilHealth", "", -toAmount(row.values.philhealth)],
+      ["Pag-IBIG", "", -toAmount(row.values.pagibig)],
+      ["Withholding tax", "", -toAmount(row.values.tax)],
+    ]),
+    ...(base.half === "second" ? [["Paid in 1st half", "", -toAmount(base.extras.firstHalfPaid)]] : []),
+    ...(base.extras.carryIn ? [["Carried from last month", "", -base.extras.carryIn]] : []),
+    ...(base.cashAdvance ? [["Loans / cash advance", "", -base.cashAdvance]] : []),
+    ...(base.yearEndTax ? [[base.yearEndTax > 0 ? "Year-end tax adjustment" : "Year-end tax refund", "", -base.yearEndTax]] : []),
+  ];
+  return (
+    <dl className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 gap-y-1 text-xs sm:max-w-xl" data-testid="batch-breakdown">
+      {items.map(([label, qty, amount]) => (
+        <React.Fragment key={label}>
+          <dt className="text-muted-foreground">{label}</dt>
+          <dd className="text-right text-muted-foreground tabular-nums">{qty}</dd>
+          <dd className={cn("text-right tabular-nums", amount < 0 && "text-destructive/80", amount > 0 && "text-success")}>{amount ? `${amount < 0 ? "−" : "+"}${pesoText(Math.abs(amount))}` : "—"}</dd>
+        </React.Fragment>
+      ))}
+    </dl>
+  );
+}
+
+/** "9 absent · 1 late": the non-zero attendance items, short. */
+function attendanceSummary(base) {
+  const c = base.counts;
+  return [
+    c.absent_days ? `${c.absent_days} absent` : "",
+    c.late_days ? `${c.late_days} late` : "",
+    c.undertime_minutes ? `${c.undertime_minutes} min undertime` : "",
+    c.half_days ? `${c.half_days} half day` : "",
+    base.lwop ? `${base.lwop} LWOP` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function BatchCard({ onNavigate, onEdit }) {
   const { data, loading, period, setPeriod, load, openPayslip } = useAccountant();
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
-  const [edits, setEdits] = React.useState({});
-  // The employee table in pages (alpha test B4). Edits are kept per employee,
-  // so moving between pages loses nothing; Process still covers everyone.
+  const isMobile = useIsMobile();
+  // The employee table in pages (alpha test B4; 10 rows by default, cleanup
+  // 2026-11-14). Process still covers every page.
   const [tablePage, setTablePage] = React.useState(1);
-  const [tableSize, setTableSize] = React.useState(25);
-  const [reason, setReason] = React.useState("");
-  const [reasonError, setReasonError] = React.useState("");
+  const [tableSize, setTableSize] = React.useState(10);
+  const [filter, setFilter] = React.useState("all");
+  const [query, setQuery] = React.useState("");
+  const [typeFilter, setTypeFilter] = React.useState("all");
+  const [selected, setSelected] = React.useState(() => new Set());
+  const [expanded, setExpanded] = React.useState(() => new Set());
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
   const [generating, setGenerating] = React.useState("");
 
-  // New data: every row starts again from its computed defaults.
-  React.useEffect(() => { setEdits({}); }, [data]);
+  // New data: the selection starts again.
+  React.useEffect(() => { setSelected(new Set()); }, [data]);
+  // A new period or filter starts on page 1 (the page size stays).
+  React.useEffect(() => { setTablePage(1); }, [period, filter, query, typeFilter]);
 
   const employees = data?.employees || [];
   const ready = data?.payroll_ready !== false;
   const win = data?.generation_window || null;
+  const firstHalf = semiHalf(data) === "first";
+  const secondHalf = semiHalf(data) === "second";
   // Closed: the Accountant still processes what is missing (marked late)
   // while the run is not submitted; a submitted run stays locked.
   const finalWindow = !win || win.state === "final" || win.state === "closed";
@@ -262,66 +391,74 @@ function BatchCard({ onNavigate }) {
     return status === "pending" || (status === "approved" && employees.filter((e) => String(e.branch_id || "") === id).every((e) => finalFor(e.id)));
   });
 
+  // Read-only rows (cleanup 2026-11-14): every value is the computed default;
+  // a change goes through the single-entry form, where the reason is asked.
   const rows = employees.map((employee) => {
     const base = batchRowBase(data, employee);
-    const e = edits[employee.id] || {};
-    // Leave w/o pay is an attendance override (2026-11-03): only in the
-    // processing window or a run HR rejected (override-window.js).
-    const rowRun = data?.payroll_runs?.[String(employee.branch_id || "")] || null;
-    const rowSlip = (data?.attendance_rows || []).find((r) => r.employee_id === employee.id)?.payslip || null;
-    const rowFinal = rowSlip?.status === "final";
-    const rowLatest = rowRun?.status === "approved" ? null : rowRun?.status || null;
-    const lwopGate = attendanceOverrideState({ window: win, runStatus: rowFinal ? rowSlip.run_status || rowLatest : rowLatest, payslipStatus: rowFinal ? "final" : null });
-    // Computed government deductions cannot be typed (2026-10-26).
     const locked = governmentLocked(base.info);
-    const value = (field, def) => (e[field] !== undefined && !(locked && GOVERNMENT_FIELDS.includes(field)) ? e[field] : String(def));
-    const sss = value("sss", base.contributions.sss);
-    const philhealth = value("philhealth", base.contributions.philhealth);
-    const pagibig = value("pagibig", base.contributions.pagibig);
-    const lwop = lwopGate.allowed ? value("lwop", base.lwop) : String(base.lwop);
-    const nums = { sss: toAmount(sss), philhealth: toAmount(philhealth), pagibig: toAmount(pagibig), lwop: toAmount(lwop) };
-    // With the legal tables the tax follows this row's figures until typed.
-    const taxDefault = base.legal ? batchTaxDefault(data, base, nums) : batchTaxDefault(data, base, { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop });
-    const tax = e.tax !== undefined && !locked ? e.tax : String(taxDefault);
+    const { sss, philhealth, pagibig } = base.contributions;
+    const tax = batchTaxDefault(data, base, { sss, philhealth, pagibig, lwop: base.lwop });
     const net = batchRowNet({
-      basic_salary: base.basic, sss: nums.sss, philhealth: nums.philhealth, pagibig: nums.pagibig, tax: toAmount(tax),
-      leave_without_pay_days: nums.lwop, daily_rate: base.info.unit.daily, attendance_deductions: base.attendanceDeductions,
+      basic_salary: base.basic, sss, philhealth, pagibig, tax,
+      leave_without_pay_days: base.lwop, daily_rate: base.info.unit.daily, attendance_deductions: base.attendanceDeductions,
       incentives: base.incentives, earnings: base.earnings, other_incentives: base.extras.other + (base.extras.subsidy || 0),
       first_half_paid: base.extras.firstHalfPaid, carry_in: base.extras.carryIn, cash_advance: base.cashAdvance,
       prior_attendance: base.extras.priorAttendance || 0, prior_earnings: base.extras.priorEarnings || 0,
       year_end_tax: base.yearEndTax,
     });
-    const defaults = { sss: base.contributions.sss, philhealth: base.contributions.philhealth, pagibig: base.contributions.pagibig, lwop: base.lwop, tax: taxDefault };
-    const values = { sss, philhealth, pagibig, lwop, tax };
-    // Withholding tax counts as a change only with the legal tables.
-    const fields = locked ? ["lwop"] : ["sss", "philhealth", "pagibig", "lwop", ...(base.legal ? ["tax"] : [])];
-    const changed = fields.filter((f) => !same(values[f], defaults[f]));
-    return { employee, base, values, defaults, net, changed, locked, lwopGate };
+    const attendance = toAmount(base.attendanceDeductions + base.lwop * base.info.unit.daily);
+    // This payslip's own gross in a 2nd half (as HR and the employee see it).
+    const gross = secondHalf ? toAmount(base.info.row?.defaults?.cutoff_gross ?? (base.basic + base.earnings + base.incentives + base.extras.other)) : base.basic;
+    return {
+      employee, base, locked, net, attendance, gross, firstHalf,
+      values: { sss, philhealth, pagibig, tax, lwop: base.lwop },
+      contributions: toAmount(sss + philhealth + pagibig),
+      state: batchRowState(data, employee, base),
+    };
   });
 
-  const anyChanged = rows.some((r) => !r.base.blocking.length && r.changed.length);
+  const counts = { all: rows.length, ready: 0, draft: 0, final: 0, blocked: 0 };
+  rows.forEach((r) => { counts[r.state.status === "first_half" ? "blocked" : r.state.status] += 1; });
+  const totalNet = toAmount(rows.reduce((sum, r) => sum + r.net, 0));
+  const types = [...new Set(employees.map((e) => e.employee_type).filter(Boolean))];
+  const q = query.trim().toLowerCase();
+  const shown = rows.filter((r) => (filter === "all" || r.state.status === filter || (filter === "blocked" && r.state.status === "first_half"))
+    && (typeFilter === "all" || r.employee.employee_type === typeFilter)
+    && (!q || `${r.employee.full_name} ${r.employee.employee_id || ""}`.toLowerCase().includes(q)));
+  const pages = Math.max(1, Math.ceil(shown.length / tableSize));
+  const at = Math.min(tablePage, pages);
+  const pageRows = shown.slice((at - 1) * tableSize, at * tableSize);
+  const processable = rows.filter((r) => r.state.processable);
+  const selectedRows = processable.filter((r) => selected.has(r.employee.id));
+  const blockedBy = (kind) => rows.filter((r) => r.state.status !== "final" && r.state.reasons.some((x) => x.kind === kind)).length;
+  const attendanceBlocked = blockedBy("attendance");
+  const otherBlocked = [
+    [blockedBy("first_half"), "waiting for a Final 1st half"],
+    [blockedBy("hold"), "on pay hold"],
+    [blockedBy("run"), "in a run with HR"],
+  ].filter(([n]) => n).map(([n, why]) => `${n} ${why}`).join(", ");
+  const canProcess = ready && finalWindow && !allRunsLocked;
+  const processTitle = allRunsLocked ? "This period's payroll run is with HR or approved: it cannot be processed again." : finalWindow ? "" : (win?.message || "");
 
-  const setField = (employeeId, field, value) => setEdits((current) => ({ ...current, [employeeId]: { ...(current[employeeId] || {}), [field]: value } }));
+  const resolve = () => openIncompleteQueue(onNavigate);
+  const toggle = (set, id) => set((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const pageProcessable = pageRows.filter((r) => r.state.processable);
+  const pageAllSelected = pageProcessable.length > 0 && pageProcessable.every((r) => selected.has(r.employee.id));
 
-  async function processAll() {
+  async function processRows(onlySelected) {
     if (!period) { setFeedback({ text: "Select a pay period first.", ok: false }); return; }
     if (!ready) { setFeedback({ text: data?.payroll_not_ready_message || "", ok: false }); return; }
-    const eligible = rows.filter((r) => !r.base.blocking.length);
-    const blockedCount = rows.length - eligible.length;
+    const eligible = onlySelected ? selectedRows : processable;
     if (!eligible.length) {
-      setFeedback({ text: blockedCount ? "Every employee has unresolved attendance for this period." : "No employees to process.", ok: false });
+      setFeedback({ text: counts.blocked ? "Every employee left is blocked for this period." : "No employees to process.", ok: false });
       return;
     }
-    if (eligible.some((r) => r.changed.length) && !reason.trim()) {
-      setReasonError("Give a reason for the changed values.");
-      setFeedback({ text: "Give a reason for the values changed from the computed defaults (highlighted).", ok: false });
-      document.getElementById("pc-batch-reason")?.focus();
-      return;
-    }
-    setReasonError("");
+    const sum = toAmount(eligible.reduce((s, r) => s + r.net, 0));
     const ok = await confirm({
-      title: `Process payroll for ${eligible.length} employee${eligible.length === 1 ? "" : "s"}?`,
-      description: `This will generate a payslip for each employee. Already-paid employees for this period will be skipped.${blockedCount ? ` ${blockedCount} employee${blockedCount === 1 ? "" : "s"} with unresolved attendance will wait.` : ""}`,
+      title: `Process ${eligible.length} payslip${eligible.length === 1 ? "" : "s"}?`,
+      description: onlySelected
+        ? `Only the ${eligible.length} selected employee${eligible.length === 1 ? "" : "s"}. Total net pay ${pesoText(sum)}.`
+        : `${counts.blocked ? `${counts.blocked} blocked will be skipped, ` : ""}${counts.final ? `${counts.final} already Final are unchanged. ` : ""}Total net pay ${pesoText(sum)}. This covers every page of the table, not only the one shown.`,
       confirmLabel: "Process payroll",
     });
     if (!ok) return;
@@ -341,9 +478,9 @@ function BatchCard({ onNavigate }) {
       },
     }));
     setBusy(true);
-    setFeedback({ text: "Processing payroll for all employees…", ok: true });
+    setFeedback({ text: "Processing payroll…", ok: true });
     try {
-      const response = await apiFetch("/api/accountant/payroll", jsonBody("POST", { action: "batch_submit", pay_period: period, entries, override_reason: reason.trim() }));
+      const response = await apiFetch("/api/accountant/payroll", jsonBody("POST", { action: "batch_submit", pay_period: period, entries, override_reason: "" }));
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "Failed to process batch payroll.");
       const processed = result.processed || [];
@@ -351,7 +488,6 @@ function BatchCard({ onNavigate }) {
       let message = `Processed ${processed.length} payslip${processed.length === 1 ? "" : "s"}.`;
       if (skipped.length) message += ` ${skipped.length} skipped — ${skipped.map((s) => `${s.employee_name || s.employee_id || "Unknown"}: ${s.reason || "skipped"}`).join(" · ")}`;
       setFeedback({ text: message, ok: true });
-      setReason("");
       // One summary toast per action (alpha test B4): green when all went
       // through, amber when some were skipped (the names are in the note
       // under the button), never one toast per employee.
@@ -420,36 +556,50 @@ function BatchCard({ onNavigate }) {
     }
   }
 
-  const amountLine = (quantity, amount, sign = "-") => (
-    <div>
-      <span>{quantity}</span>
-      {amount ? <p className={cn("text-xs", sign === "+" ? "text-success" : "text-destructive")}>{sign} {money(amount)}</p> : null}
+  const actions = (row) => <BatchActions row={row} busy={generating === row.employee.id} onGenerate={generate} onView={openPayslip} onEdit={onEdit} onResolve={resolve} />;
+  const select = (row) => (row.state.processable ? (
+    <Checkbox checked={selected.has(row.employee.id)} onCheckedChange={() => toggle(setSelected, row.employee.id)} aria-label={`Select ${row.employee.full_name}`} />
+  ) : null);
+  const who = (row) => (
+    <div className="min-w-0">
+      <p className="truncate font-medium">{row.employee.full_name}</p>
+      <p className="truncate text-[11px] text-muted-foreground">{[row.employee.employee_id, row.employee.employee_type].filter(Boolean).join(" · ")}</p>
     </div>
   );
-
-  const numberInput = (row, field, step = "0.01") => (row.locked && GOVERNMENT_FIELDS.includes(field) ? (
-    <span className="tabular-nums" title="Computed from the government rate tables">{row.base.half === "first" ? "—" : money(row.values[field])}</span>
-  ) : (
-    <Input
-      type="number"
-      min="0"
-      max={NUMBER_MAX[field] || PESO_MAX}
-      step={step}
-      inputMode={step === "1" ? "numeric" : "decimal"}
-      aria-label={`${field.toUpperCase()} for ${row.employee.full_name}`}
-      value={row.values[field]}
-      disabled={Boolean(row.base.blocking.length) || row.base.half === "first" || (field === "lwop" && !row.lwopGate.allowed)}
-      title={field === "lwop" && !row.lwopGate.allowed ? row.lwopGate.message : undefined}
-      onChange={(e) => setField(row.employee.id, field, e.target.value)}
-      className={cn("h-8 w-24 px-2 text-right tabular-nums", !same(row.values[field], row.defaults[field]) && "border-warning ring-1 ring-warning/40", field === "lwop" && !row.lwopGate.allowed && "border-dashed bg-muted text-muted-foreground")}
-    />
-  ));
+  const attendanceCell = (row) => (
+    <div className="text-right">
+      <p className={cn("tabular-nums", row.attendance ? "text-destructive/80" : "text-muted-foreground")}>{row.attendance ? `−${pesoText(row.attendance)}` : "—"}</p>
+      {attendanceSummary(row.base) ? <p className="text-[11px] text-muted-foreground">{attendanceSummary(row.base)}</p> : null}
+    </div>
+  );
+  const expandButton = (row) => (
+    <Button variant="ghost" size="icon" className="size-7" aria-expanded={expanded.has(row.employee.id)} aria-label={`${expanded.has(row.employee.id) ? "Hide" : "Show"} breakdown for ${row.employee.full_name}`}
+      onClick={() => toggle(setExpanded, row.employee.id)}>
+      <ChevronDownIcon className={cn("transition-transform", expanded.has(row.employee.id) && "rotate-180")} aria-hidden="true" />
+    </Button>
+  );
+  // A row click expands it, except on its own buttons, links and checkbox.
+  const rowClick = (row) => (event) => { if (!event.target.closest("button, a, input, [role=checkbox], [role=menuitem]")) toggle(setExpanded, row.employee.id); };
+  const headers = [
+    "", "Employee", secondHalf ? "Gross (this payslip)" : firstHalf ? "Basic pay" : "Gross", "Attendance deductions",
+    ...(firstHalf ? [] : ["Contributions", "Tax"]), "Net pay", "Status", "",
+  ];
+  const statFilter = (key, label, value) => (
+    <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(filter === key && key !== "all" ? "all" : key)} data-testid={`batch-count-${key}`}
+      className={cn("flex min-w-0 cursor-pointer flex-col items-start rounded-md border px-3 py-1.5 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50", filter === key && "border-primary bg-primary/8")}>
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="font-semibold tabular-nums">{value}</span>
+    </button>
+  );
 
   return (
-    <Card className="min-w-0 shadow-xs">
+    <Card className="min-w-0 shadow-xs" data-testid="batch-card">
       <CardHeader>
         <CardTitle>Batch process payroll</CardTitle>
-        <CardDescription>Review every employee&apos;s computed values — auto-filled from attendance logs and approved leave — then process payroll for everyone in one go. Absent, Late, Undertime, Half Day and incentives come from the attendance logs and the rates in force on the period&apos;s first day; they cannot be typed in here.</CardDescription>
+        <CardDescription className="flex items-center gap-1">
+          Values come from attendance logs and approved leave.
+          <InfoTip label="About batch processing">Absent, Late, Undertime, Half day and incentives come from the attendance logs and the rates in force on the period&apos;s first day; they cannot be typed in here. To change a value, choose Edit in the form from a row&apos;s ⋯ menu: the form asks for a reason and logs it.</InfoTip>
+        </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
           <Select value={period} onValueChange={setPeriod} disabled={!data?.period_options?.length}>
             <SelectTrigger size="sm" className="w-44" aria-label="Pay period"><SelectValue placeholder="Current period" /></SelectTrigger>
@@ -459,103 +609,158 @@ function BatchCard({ onNavigate }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="overflow-hidden rounded-lg border">
-          <Table style={{ minWidth: 1500 }}>
-            <TableHeader className="bg-muted/60">
-              <TableRow className="hover:bg-transparent">
-                {/* Label only (2026-11-14): a 1st half shows half the month, a 2nd half the whole month. */}
-                {["Employee", semiHalf(data) === "first" ? "Basic pay (1st half)" : "Basic salary (monthly)", "SSS", "PhilHealth", "Pag-IBIG", "Tax", "Absent", "Late", "Undertime", "Half day", "Early bird / incentive", "Leave w/ pay", "Leave w/o pay", "Net pay", "Payslip"].map((h) => (
-                  <TableHead key={h} className="text-xs font-semibold text-muted-foreground">{h}</TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {!data && loading ? Array.from({ length: 4 }, (_, i) => (
-                <TableRow key={i}>{Array.from({ length: 15 }, (__, c) => <TableCell key={c}><Skeleton className="h-4 w-16" /></TableCell>)}</TableRow>
-              )) : !rows.length ? (
-                <TableRow className="hover:bg-transparent"><TableCell colSpan={15} className="p-0"><EmptyState title="No employees found" /></TableCell></TableRow>
-              ) : rows.slice((Math.min(tablePage, Math.max(1, Math.ceil(rows.length / tableSize))) - 1) * tableSize, Math.min(tablePage, Math.max(1, Math.ceil(rows.length / tableSize))) * tableSize).flatMap((row) => {
-                const { employee, base } = row;
-                const incentiveLabel = [
-                  earlyBirdWinnerPay(base.info) ? "Early Bird Incentive" : "",
-                  base.info.pay?.perfect_attendance && base.half !== "first" ? "Perfect" : "",
-                  base.extras.other ? `Incentive/overload${base.extras.overloadHours ? ` (${base.extras.overloadHours} h)` : ""}` : "",
-                ].filter(Boolean).join(" · ") || "0";
-                const blocked = base.blocking.length > 0;
-                const out = [
-                  <TableRow key={employee.id} className={cn(blocked && "opacity-75")}>
-                    <TableCell className="font-medium">{employee.full_name}</TableCell>
-                    <TableCell className="tabular-nums">
-                      {money(base.basic)}
-                      {base.earnings ? <p className="text-xs text-success" title="Approved overtime and holiday pay">+ {money(base.earnings)} OT/holiday</p> : null}
-                    </TableCell>
-                    <TableCell>{numberInput(row, "sss")}</TableCell>
-                    <TableCell>{numberInput(row, "philhealth")}</TableCell>
-                    <TableCell>{numberInput(row, "pagibig")}</TableCell>
-                    <TableCell>{numberInput(row, "tax")}</TableCell>
-                    <TableCell className="tabular-nums">{amountLine(`${base.counts.absent_days || 0}`, base.amounts.absent)}</TableCell>
-                    <TableCell className="tabular-nums">{amountLine(`${base.counts.late_days || 0}`, base.amounts.late)}</TableCell>
-                    <TableCell className="tabular-nums">{amountLine(base.counts.undertime_minutes ? `${base.counts.undertime_minutes} min` : "0", base.amounts.undertime)}</TableCell>
-                    <TableCell className="tabular-nums">{amountLine(`${base.counts.half_days || 0}`, base.amounts.half_day)}</TableCell>
-                    <TableCell className="whitespace-normal tabular-nums">{amountLine(incentiveLabel, toAmount(base.incentives + base.extras.other), "+")}</TableCell>
-                    <TableCell className="tabular-nums">{base.lwp}</TableCell>
-                    <TableCell>{numberInput(row, "lwop", "1")}</TableCell>
-                    <TableCell className="font-semibold tabular-nums">
-                      {money(row.net)}
-                      {base.half === "second" ? <p className="text-xs font-normal whitespace-normal text-muted-foreground" title="Monthly net less what the 1st half paid">less 1st half {money(base.extras.firstHalfPaid)}{base.extras.carryIn ? ` and carried ${money(base.extras.carryIn)}` : ""}</p> : null}
-                      {base.cashAdvance ? <p className="text-xs font-normal whitespace-normal text-destructive">less loans / cash advance {money(base.cashAdvance)}</p> : null}
-                      {base.yearEndTax ? <p className={cn("text-xs font-normal whitespace-normal", base.yearEndTax > 0 ? "text-destructive" : "text-success")}>{base.yearEndTax > 0 ? "less" : "plus"} year-end tax adjustment {money(Math.abs(base.yearEndTax))}</p> : null}
-                    </TableCell>
-                    <TableCell><PayslipCell data={data} employee={employee} onGenerate={generate} onView={openPayslip} busy={generating === employee.id} /></TableCell>
-                  </TableRow>,
-                ];
-                if (blocked) {
-                  out.push(
-                    <TableRow key={`${employee.id}-blocked`} className="bg-warning/8 hover:bg-warning/8">
-                      <TableCell colSpan={15} className="whitespace-normal text-sm text-warning">
-                        <AlertTriangleIcon className="mr-1 inline size-4" aria-hidden="true" />
-                        {employee.full_name} will be skipped — unresolved attendance: {describeBlockingDays(base.blocking)}. HR or the branch Administrator must resolve {base.blocking.length === 1 ? "it" : "them"} first.{" "}
-                        <Button variant="link" className="h-auto p-0 text-warning" onClick={() => openIncompleteQueue(onNavigate)}>View in attendance →</Button>
-                      </TableCell>
-                    </TableRow>,
-                  );
-                }
-                return out;
-              })}
-            </TableBody>
-          </Table>
+        {/* Whole period, every page (cleanup 2026-11-14); each count filters the table. */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" data-testid="batch-summary">
+          {statFilter("all", "Employees", counts.all)}
+          {statFilter("ready", "Ready", counts.ready)}
+          {counts.draft ? statFilter("draft", "Draft", counts.draft) : null}
+          {statFilter("final", "Final", counts.final)}
+          {statFilter("blocked", "Blocked", counts.blocked)}
+          <div className="col-span-2 flex flex-col items-start rounded-md border border-dashed px-3 py-1.5 sm:col-span-1">
+            <span className="text-[11px] text-muted-foreground">Total net pay</span>
+            <span className="font-semibold tabular-nums" data-testid="batch-total-net">{pesoText(totalNet)}</span>
+          </div>
         </div>
-        {rows.length > 10 ? (() => {
-          const pages = Math.max(1, Math.ceil(rows.length / tableSize));
-          const at = Math.min(tablePage, pages);
-          return (
-            <div className="flex flex-col-reverse gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between" data-testid="process-pager">
-              <p aria-live="polite">Showing {(at - 1) * tableSize + 1}–{Math.min(at * tableSize, rows.length)} of {rows.length} employees. Process payroll covers all of them.</p>
-              <div className="flex items-center gap-2">
-                <Select value={String(tableSize)} onValueChange={(v) => { setTableSize(Number(v)); setTablePage(1); }}>
-                  <SelectTrigger size="sm" className="w-18" aria-label="Rows per page"><SelectValue /></SelectTrigger>
-                  <SelectContent>{[10, 25, 50].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
-                </Select>
-                <span className="tabular-nums">Page {at} of {pages}</span>
-                <Button variant="outline" size="icon" className="size-8" onClick={() => setTablePage(at - 1)} disabled={at <= 1} aria-label="Previous page"><ChevronLeftIcon /></Button>
-                <Button variant="outline" size="icon" className="size-8" onClick={() => setTablePage(at + 1)} disabled={at >= pages} aria-label="Next page"><ChevronRightIcon /></Button>
-              </div>
-            </div>
-          );
-        })() : null}
 
-        {anyChanged ? (
-          <div className="space-y-2">
-            <Label htmlFor="pc-batch-reason">Reason for manual changes <span className="font-normal text-muted-foreground">(required — {rows.some((r) => r.locked) ? "Leave w/o Pay" : "SSS, PhilHealth, Pag-IBIG, tax or Leave w/o Pay"} was changed from the computed value; logged with your name)</span></Label>
-            <Input id="pc-batch-reason" maxLength={REASON_MAX} placeholder="e.g. Contribution table update for this employee" value={reason} onChange={(e) => { setReason(e.target.value); setReasonError(""); }} aria-invalid={Boolean(reasonError) || undefined} />
-            {reasonError ? <p className="text-sm text-destructive">{reasonError}</p> : null}
+        {counts.blocked ? (
+          <Alert className="border-warning/40 bg-warning/10" data-testid="batch-blocked-banner">
+            <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+            <AlertDescription className="text-warning">
+              <p>
+                {attendanceBlocked ? <>{attendanceBlocked} employee{attendanceBlocked === 1 ? " is" : "s are"} blocked: unresolved attendance (HR or the branch Administrator resolves it).{" "}
+                  <Button variant="link" className="h-auto p-0 text-warning" onClick={resolve}>Resolve in Attendance →</Button>{" "}</> : null}
+                {otherBlocked ? `${attendanceBlocked ? "Also blocked" : "Blocked"}: ${otherBlocked}. Tap a row's pill for why.` : null}
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative sm:max-w-xs sm:flex-1">
+            <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or ID" aria-label="Search employees" className="h-8 pl-8" />
+          </div>
+          <Select value={filter} onValueChange={setFilter}>
+            <SelectTrigger size="sm" className="w-full sm:w-36" aria-label="Status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              {["ready", "draft", "final", "blocked"].map((k) => <SelectItem key={k} value={k}>{BATCH_STATUS[k].label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {types.length > 1 ? (
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Employee type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All types</SelectItem>
+                {types.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : null}
+        </div>
+
+        {isMobile ? (
+          // Phone: one card per employee; tap to expand the breakdown.
+          <ul className="space-y-2" data-testid="batch-cards">
+            {!data && loading ? Array.from({ length: 3 }, (_, i) => <li key={i}><Skeleton className="h-20 w-full" /></li>)
+              : !pageRows.length ? <li><EmptyState title="No employees found" /></li>
+                : pageRows.map((row) => (
+                  <li key={row.employee.id} className="space-y-2 rounded-lg border p-3" data-testid="batch-row">
+                    <div className="flex items-start gap-2">
+                      <div className="pt-0.5">{select(row)}</div>
+                      <button type="button" className="min-w-0 flex-1 cursor-pointer text-left" onClick={() => toggle(setExpanded, row.employee.id)} aria-expanded={expanded.has(row.employee.id)}>
+                        {who(row)}
+                      </button>
+                      <div className="text-right">
+                        <p className="font-semibold tabular-nums">{cellPeso(row.net)}</p>
+                        {row.attendance ? <p className="text-[11px] text-destructive/80 tabular-nums">−{pesoText(row.attendance)}</p> : null}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <BatchStatus row={row} onResolve={resolve} />
+                      {actions(row)}
+                    </div>
+                    {expanded.has(row.employee.id) ? (
+                      <div className="space-y-2 border-t pt-2">
+                        <p className="flex justify-between text-xs"><span className="text-muted-foreground">{headers[2]}</span><span className="tabular-nums">{cellPeso(row.gross)}</span></p>
+                        <BatchBreakdown row={row} />
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+          </ul>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader className="bg-muted/60">
+                <TableRow className="hover:bg-transparent">
+                  {headers.map((h, i) => (
+                    <TableHead key={i} className={cn("text-xs font-semibold text-muted-foreground", i >= 2 && i < headers.length - 2 && "text-right")}>
+                      {i === 0 ? (
+                        <Checkbox checked={pageAllSelected} disabled={!pageProcessable.length} aria-label="Select every ready employee on this page"
+                          onCheckedChange={(v) => setSelected((current) => { const next = new Set(current); pageProcessable.forEach((r) => (v ? next.add(r.employee.id) : next.delete(r.employee.id))); return next; })} />
+                      ) : h || <span className="sr-only">Actions</span>}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {!data && loading ? Array.from({ length: 4 }, (_, i) => (
+                  <TableRow key={i}>{headers.map((_h, c) => <TableCell key={c}><Skeleton className="h-4 w-16" /></TableCell>)}</TableRow>
+                )) : !pageRows.length ? (
+                  <TableRow className="hover:bg-transparent"><TableCell colSpan={headers.length} className="p-0"><EmptyState title="No employees found" /></TableCell></TableRow>
+                ) : pageRows.flatMap((row) => {
+                  const open = expanded.has(row.employee.id);
+                  return [
+                    <TableRow key={row.employee.id} data-testid="batch-row" className="cursor-pointer" onClick={rowClick(row)}>
+                      <TableCell className="w-8">{select(row)}</TableCell>
+                      <TableCell className="max-w-56">{who(row)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{cellPeso(row.gross)}</TableCell>
+                      <TableCell><div className="flex items-start justify-end gap-1">{attendanceCell(row)}{expandButton(row)}</div></TableCell>
+                      {firstHalf ? null : <>
+                        <TableCell className={cn("text-right tabular-nums", row.contributions && "text-destructive/80")}>{row.contributions ? `−${pesoText(row.contributions)}` : "—"}</TableCell>
+                        <TableCell className={cn("text-right tabular-nums", row.values.tax && "text-destructive/80")}>{row.values.tax ? `−${pesoText(row.values.tax)}` : "—"}</TableCell>
+                      </>}
+                      <TableCell className="text-right font-semibold tabular-nums">{cellPeso(row.net)}</TableCell>
+                      <TableCell><BatchStatus row={row} onResolve={resolve} /></TableCell>
+                      <TableCell>{actions(row)}</TableCell>
+                    </TableRow>,
+                    ...(open ? [
+                      <TableRow key={`${row.employee.id}-breakdown`} className="bg-muted/30 hover:bg-muted/30">
+                        <TableCell />
+                        <TableCell colSpan={headers.length - 1} className="whitespace-normal"><BatchBreakdown row={row} /></TableCell>
+                      </TableRow>,
+                    ] : []),
+                  ];
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {rows.length ? (
+          <div className="flex flex-col-reverse gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between" data-testid="process-pager">
+            <p aria-live="polite">{shown.length ? `Showing ${(at - 1) * tableSize + 1}–${Math.min(at * tableSize, shown.length)} of ${shown.length}` : "Showing 0 of 0"}</p>
+            <div className="flex items-center gap-2">
+              <Select value={String(tableSize)} onValueChange={(v) => { setTableSize(Number(v)); setTablePage(1); }}>
+                <SelectTrigger size="sm" className="w-18" aria-label="Rows per page"><SelectValue /></SelectTrigger>
+                <SelectContent>{[10, 25, 50].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
+              </Select>
+              <span className="tabular-nums">Page {at} of {pages}</span>
+              <Button variant="outline" size="icon" className="size-8" onClick={() => setTablePage(at - 1)} disabled={at <= 1} aria-label="Previous page"><ChevronLeftIcon /></Button>
+              <Button variant="outline" size="icon" className="size-8" onClick={() => setTablePage(at + 1)} disabled={at >= pages} aria-label="Next page"><ChevronRightIcon /></Button>
+            </div>
           </div>
         ) : null}
 
-        <div className="flex justify-end">
-        <Button size="lg" className="w-full sm:w-auto" onClick={processAll} disabled={busy || !ready || !finalWindow || allRunsLocked} title={allRunsLocked ? "This period's payroll run is with HR or approved: it cannot be processed again." : finalWindow ? "" : (win?.message || "")}>
-          {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Processing…</> : "Process payroll for all →"}
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          {selectedRows.length ? (
+            <Button variant="outline" size="lg" className="w-full sm:w-auto" onClick={() => processRows(true)} disabled={busy || !canProcess} title={processTitle} data-testid="process-selected">
+              Process selected ({selectedRows.length})
+            </Button>
+          ) : null}
+          <Button size="lg" className="w-full sm:w-auto" onClick={() => processRows(false)} disabled={busy || !canProcess || !processable.length} title={processTitle} data-testid="process-all">
+            {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Processing…</> : `Process all ready (${processable.length})`}
+          </Button>
         </div>
         {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
       </CardContent>
@@ -564,8 +769,6 @@ function BatchCard({ onNavigate }) {
   );
 }
 
-/** SSS, PhilHealth, Pag-IBIG and tax: computed, never typed (2026-10-26). */
-const GOVERNMENT_FIELDS = ["sss", "philhealth", "pagibig", "tax"];
 
 /*
  * Flag for review: the Accountant questions a computed government deduction
@@ -632,7 +835,7 @@ function SummaryRow({ label, value, tone, strong }) {
   );
 }
 
-function SingleEntry({ onNavigate }) {
+function SingleEntry({ onNavigate, editRequest }) {
   const { data, period, setPeriod, entryId, setEntryId, load, openPayslip } = useAccountant();
   const { notify } = usePortalSession();
   const employees = data?.employees || [];
@@ -660,6 +863,17 @@ function SingleEntry({ onNavigate }) {
     // Re-fill only when new data arrives or another draft is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, entryId]);
+
+  // "Edit in the form" from a batch row: that employee's computed values, then scroll here.
+  React.useEffect(() => {
+    if (!editRequest) return;
+    setEmployeeId(editRequest.id);
+    setEntryId("");
+    setForm(defaultForm(data, employees.find((e) => e.id === editRequest.id)));
+    document.getElementById("pc-entry")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Only a new request re-fills the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest]);
 
   const employee = employees.find((e) => e.id === employeeId) || null;
   const win = data?.generation_window || null;
@@ -707,26 +921,20 @@ function SingleEntry({ onNavigate }) {
   const contributionHint = (type, pctLabel) => (legal
     ? (source && sourceWords[source[type]] ? `(${sourceWords[source[type]]}, editable)` : pctLabel)
     : `(default ${info.rates[`${type}_pct`]}% of Basic, editable)`);
-  // Computed government deductions (2026-10-26): read-only, each labelled with
-  // its rate and base (or "fixed monthly amount" / "set for this employee"),
-  // the tax with its bracket.
+  // Computed government deductions (2026-10-26): read-only. Labels are the
+  // name only (cleanup 2026-11-14); each formula is in the Computation summary.
   const locked = governmentLocked(info);
-  const basis = info.row?.defaults?.contribution_basis || {};
-  const govLabel = (type, name) => (source?.[type] === "fixed" ? `${name} (fixed monthly amount)`
-    : source?.[type] === "employee" ? `${name} (set for this employee)`
-      : contributionLabel(name, basis[type]));
   const computedField = (id, label, field, name, amount, tagged = null) => (
     <div className="space-y-1.5">
-      <p id={id} className="flex flex-wrap items-center gap-1.5 text-sm font-medium">{label}{!firstHalf && tagged ? <LineTag tag={tagged.tag} /> : null}</p>
+      <p id={id} className="flex min-h-5 flex-wrap items-center gap-1.5 text-sm leading-none font-medium">{label}{tagged ? <LineTag tag={tagged.tag} /> : null}</p>
       <div aria-labelledby={id} className="flex min-h-9 items-center justify-between gap-2 rounded-md border bg-muted px-3 py-1.5 text-sm tabular-nums">
-        <span className={cn(firstHalf && "text-xs text-muted-foreground")}>{firstHalf ? DEFERRED_NOTE : money(amount)}</span>
-        {!firstHalf && employee ? (
+        <span>{money(amount)}</span>
+        {employee ? (
           <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => setFlag({ field, name, amount })} aria-label={`Flag ${name} for review`}>
             <FlagIcon className="size-3.5" aria-hidden="true" />Flag for review
           </Button>
         ) : null}
       </div>
-      {!firstHalf && tagged?.how ? <p className="text-xs break-words text-muted-foreground">{tagged.how}</p> : null}
     </div>
   );
   const unitDays = (n, rate) => `${toAmount(n)} day${toAmount(n) === 1 ? "" : "s"} × ${peso(rate)}/day`;
@@ -737,9 +945,6 @@ function SingleEntry({ onNavigate }) {
 
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
   const shownTax = form.taxEdited ? form.tax : String(summary.taxDefault);
-  const taxLabel = same(summary.tax, info.row?.defaults?.withholding_tax)
-    ? withholdingTaxLabel("Withholding tax", info.row?.defaults?.tax_bracket)
-    : "Withholding tax (BIR monthly table)";
   const dates = (list) => (list || []).map((key) => {
     const d = new Date(`${key}T00:00:00+08:00`);
     return Number.isNaN(d.getTime()) ? key : new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" }).format(d);
@@ -801,9 +1006,15 @@ function SingleEntry({ onNavigate }) {
     }
   }
 
-  const numberField = (id, label, key, { hint, step = "0.01", disabled = attendanceLocked, readOnly = false, locked: lockedField = false, children } = {}) => (
+  // Short label; the rate as small muted text; units / ₱ inside the field; longer notes behind ⓘ (cleanup 2026-11-14).
+  const numberField = (id, label, key, { hint, tip, suffix, prefix, step = "0.01", disabled = attendanceLocked, readOnly = false, locked: lockedField = false, children } = {}) => (
     <div className="space-y-1.5">
-      <Label htmlFor={id} className="flex-wrap gap-x-1">{lockedField ? <LockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" /> : null}{label}{hint ? <span className="font-normal text-muted-foreground">{hint}</span> : null}</Label>
+      <div className="flex min-h-5 flex-wrap items-center gap-x-1">
+        <Label htmlFor={id} className="flex-wrap items-baseline gap-x-1.5">{lockedField ? <LockIcon className="size-3.5 self-center text-muted-foreground" aria-hidden="true" /> : null}{label}{hint ? <span className="text-xs font-normal text-muted-foreground">{hint}</span> : null}</Label>
+        {tip ? <InfoTip label={`About ${label}`}>{tip}</InfoTip> : null}
+      </div>
+      <div className="relative">
+      {prefix ? <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground" aria-hidden="true">{prefix}</span> : null}
       <Input
         id={id}
         type="number"
@@ -822,8 +1033,10 @@ function SingleEntry({ onNavigate }) {
         disabled={disabled || lockedField}
         readOnly={readOnly}
         title={lockedField ? overrideGate.message : undefined}
-        className={cn("tabular-nums", (readOnly || lockedField) && "bg-muted text-muted-foreground", lockedField && "border-dashed")}
+        className={cn("tabular-nums", (readOnly || lockedField) && "bg-muted text-muted-foreground", lockedField && "border-dashed", prefix && "pl-7", suffix && "pr-12")}
       />
+      {suffix ? <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground" aria-hidden="true">{suffix}</span> : null}
+      </div>
       {children}
     </div>
   );
@@ -837,10 +1050,9 @@ function SingleEntry({ onNavigate }) {
         </Alert>
       ) : null}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <Card className="min-w-0 shadow-xs">
+        <Card className="min-w-0 shadow-xs" id="pc-entry">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">Payroll entry form {entryId ? <Badge variant="secondary">Editing saved entry</Badge> : null}</CardTitle>
-            <CardDescription>Single entry, or edit a saved draft.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {blocking.length ? (
@@ -860,64 +1072,84 @@ function SingleEntry({ onNavigate }) {
             ) : null}
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="pc-employee">Select employee</Label>
+                <Label htmlFor="pc-employee" className="min-h-5">Select employee</Label>
                 <SearchableSelect id="pc-employee" label="Employee" value={employeeId} disabled={!employees.length}
                   onValueChange={(id) => { setEmployeeId(id); setEntryId(""); setForm(defaultForm(data, employees.find((e) => e.id === id))); }}
                   placeholder={employees.length ? "Select employee" : "No employees found"} searchPlaceholder="Search name or employee ID…"
                   options={employees.map((e) => ({ value: e.id, label: `${e.full_name} — ${e.employee_id} (${e.employee_type})` }))} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pc-period">Pay period</Label>
+                <Label htmlFor="pc-period" className="min-h-5">Pay period</Label>
                 <Select value={period} onValueChange={setPeriod} disabled={!data?.period_options?.length}>
                   <SelectTrigger id="pc-period" className="w-full"><SelectValue placeholder="Current period" /></SelectTrigger>
                   <SelectContent>{(data?.period_options || []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {/* From the employee's record: HR changes a salary (2026-10-26), never payroll processing. */}
-              {numberField("pc-basic", "Basic salary (₱, monthly)", "basic", { disabled: false, readOnly: true, hint: "(fixed by contract, from the employee's record; HR changes it)" })}
+              <div className="space-y-1.5">
+                <div className="flex min-h-5 items-center gap-1">
+                  <Label htmlFor="pc-basic">Basic salary (monthly)</Label>
+                  <InfoTip label="About Basic salary">Set by HR in the employee&apos;s record.</InfoTip>
+                </div>
+                <div className="relative">
+                  <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-muted-foreground" aria-hidden="true">₱</span>
+                  <Input id="pc-basic" readOnly value={employee ? toAmount(employee.basic_salary).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""}
+                    className="bg-muted pr-9 pl-7 text-muted-foreground tabular-nums" />
+                  <LockIcon className="pointer-events-none absolute top-1/2 right-3 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                </div>
+              </div>
             </div>
 
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Deductions</p>
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
-              {locked ? (
+              {firstHalf ? (
+                // One note instead of "Deducted on the 2nd half" on every box (cleanup 2026-11-14).
+                <p data-testid="deferred-note" className="flex items-start gap-2 rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground sm:col-span-2">
+                  <InfoIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />Government contributions and withholding tax are deducted on the 2nd-half payslip.
+                </p>
+              ) : locked ? (
                 <>
-                  {/* A. Social insurance, the employee's share (2026-11-03). */}
-                  <p className="text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-contributions">A. Government contributions (employee share)</p>
-                  {computedField("pc-sss", govLabel("sss", "SSS"), "sss", "SSS", summary.sss, lineOf("contributions", "sss"))}
-                  {computedField("pc-philhealth", govLabel("philhealth", "PhilHealth"), "philhealth", "PhilHealth", summary.philhealth, lineOf("contributions", "philhealth"))}
-                  {computedField("pc-pagibig", govLabel("pagibig", "Pag-IBIG"), "pagibig", "Pag-IBIG", summary.pagibig, lineOf("contributions", "pagibig"))}
+                  {/* Social insurance, the employee's share (2026-11-03). */}
+                  <p className="flex items-center gap-1 text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-contributions">
+                    Government contributions
+                    <InfoTip label="About government contributions">SSS, PhilHealth, Pag-IBIG and withholding tax are computed from the government rate tables (Government Rates) and cannot be changed here. If one looks wrong, flag it for review: HR and the Super Admin are notified.</InfoTip>
+                  </p>
+                  {computedField("pc-sss", "SSS", "sss", "SSS", summary.sss, lineOf("contributions", "sss"))}
+                  {computedField("pc-philhealth", "PhilHealth", "philhealth", "PhilHealth", summary.philhealth, lineOf("contributions", "philhealth"))}
+                  {computedField("pc-pagibig", "Pag-IBIG", "pagibig", "Pag-IBIG", summary.pagibig, lineOf("contributions", "pagibig"))}
                   <div className="flex items-baseline justify-between gap-3 self-end border-t border-dashed pt-1 text-sm font-semibold">
                     <span>Subtotal: contributions</span>
-                    <span className="tabular-nums">{firstHalf ? <span className="text-xs font-normal text-muted-foreground">{DEFERRED_NOTE}</span> : `− ${pesoText(toAmount(summary.sss + summary.philhealth + summary.pagibig))}`}</span>
+                    <span className="text-destructive/80 tabular-nums">− {pesoText(toAmount(summary.sss + summary.philhealth + summary.pagibig))}</span>
                   </div>
                   {lineGroups?.taxable ? (
                     <div className="flex items-baseline justify-between gap-3 rounded-md border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-sm sm:col-span-2" data-testid="form-taxable-income">
-                      <span className="min-w-0"><span className="font-medium">Taxable income used for the tax</span><span className="block text-xs text-muted-foreground">Gross less the contributions above (and non-taxable items)</span></span>
+                      <span className="flex min-w-0 items-center gap-1 font-medium">Taxable income
+                        <InfoTip label="About taxable income">Gross less the contributions above (and non-taxable items). The withholding tax is computed on this.</InfoTip>
+                      </span>
                       <span className="shrink-0 font-medium tabular-nums">{pesoText(lineGroups.taxable.amount)}</span>
                     </div>
                   ) : null}
-                  {/* B. Income tax (TRAIN law), withheld for the BIR. */}
-                  <p className="text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-tax">B. Withholding tax (income tax)</p>
-                  {computedField("pc-tax", taxLabel, "withholding_tax", "withholding tax", summary.tax, lineOf("tax", "withholding_tax"))}
-                  <div className="space-y-2">
-                    <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 text-sm font-semibold">
-                      <span>Subtotal: withholding tax</span>
-                      <span className="tabular-nums">{firstHalf ? <span className="text-xs font-normal text-muted-foreground">{DEFERRED_NOTE}</span> : `− ${pesoText(summary.tax)}`}</span>
-                    </div>
-                    {!firstHalf && lineGroups?.tax ? <TaxHowDetails explanation={lineGroups.tax} /> : null}
+                  {/* Income tax (TRAIN law), withheld for the BIR. */}
+                  <p className="text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-tax">Income tax</p>
+                  {computedField("pc-tax", "Withholding tax", "withholding_tax", "withholding tax", summary.tax, lineOf("tax", "withholding_tax"))}
+                  <div className="flex items-baseline justify-between gap-3 self-end border-t border-dashed pt-1 text-sm font-semibold">
+                    <span>Subtotal: withholding tax</span>
+                    <span className="text-destructive/80 tabular-nums">− {pesoText(summary.tax)}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground sm:col-span-2">SSS, PhilHealth, Pag-IBIG and withholding tax are computed from the government rate tables (Government Rates) and cannot be changed here. If one looks wrong, flag it for review: HR and the Super Admin are notified.</p>
                 </>
               ) : (
                 <>
-                  {numberField("pc-sss", "SSS", "sss", { disabled: firstHalf, hint: contributionHint("sss", `(legal table: ${info.rates.sss_pct}% of salary credit, editable)`) })}
-                  {numberField("pc-philhealth", "PhilHealth", "philhealth", { disabled: firstHalf, hint: contributionHint("philhealth", `(legal table: ${info.rates.philhealth_pct}% of monthly salary, editable)`) })}
-                  {numberField("pc-pagibig", "Pag-IBIG", "pagibig", { disabled: firstHalf, hint: contributionHint("pagibig", `(legal table: ${info.rates.pagibig_pct}% up to the cap, editable)`) })}
-                  {numberField("pc-tax", "Withholding tax (₱)", "tax", { disabled: firstHalf })}
+                  {numberField("pc-sss", "SSS", "sss", { disabled: false, hint: contributionHint("sss", `(legal table: ${info.rates.sss_pct}% of salary credit, editable)`) })}
+                  {numberField("pc-philhealth", "PhilHealth", "philhealth", { disabled: false, hint: contributionHint("philhealth", `(legal table: ${info.rates.philhealth_pct}% of monthly salary, editable)`) })}
+                  {numberField("pc-pagibig", "Pag-IBIG", "pagibig", { disabled: false, hint: contributionHint("pagibig", `(legal table: ${info.rates.pagibig_pct}% up to the cap, editable)`) })}
+                  {numberField("pc-tax", "Withholding tax", "tax", { disabled: false, prefix: "₱" })}
                 </>
               )}
-              <p className="text-xs text-muted-foreground sm:col-span-2">Absent, Late, Undertime, Half Day, Leave without pay and incentives are filled in from the attendance logs and approved leave. Changing one is an override: only in the processing window, it needs a reason and is logged.</p>
+              <p className="flex items-center gap-1 text-xs font-semibold tracking-wide text-gold-text sm:col-span-2" data-testid="group-attendance">
+                Attendance
+                <InfoTip label="About attendance">Absent, Late, Undertime, Half day, Leave without pay and incentives are filled in from the attendance logs and approved leave. Changing one is an override: only in the processing window, it needs a reason and is logged.</InfoTip>
+              </p>
               {employee && !attendanceLocked ? (
                 overrideLocked ? (
                   <div role="status" data-testid="override-locked" className="flex items-start gap-2 rounded-lg border border-dashed border-muted-foreground/40 bg-muted/60 px-3 py-2 text-sm text-muted-foreground sm:col-span-2">
@@ -930,31 +1162,43 @@ function SingleEntry({ onNavigate }) {
                   </p>
                 )
               ) : null}
+              {/* field-grid: a label that wraps (narrow screens) keeps its box level with its neighbour. */}
+              <div className="field-grid grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-2">
               {numberField("pc-absences", "Absent (days)", "absences", { hint: `${peso(unit.absent)}/day`, step: "1", locked: overrideLocked })}
-              {numberField("pc-late", "Late (days)", "late", { hint: lateRules, step: "1", locked: overrideLocked })}
-              {numberField("pc-undertime", "Undertime (minutes)", "undertime", { hint: `${peso(unit.hourly)}/hour`, step: "1", locked: overrideLocked })}
+              {numberField("pc-late", "Late", "late", { hint: lateRules, suffix: "days", step: "1", locked: overrideLocked })}
+              {numberField("pc-undertime", "Undertime (min)", "undertime", { hint: `${peso(unit.hourly)}/hour`, step: "1", locked: overrideLocked })}
               {numberField("pc-half-days", "Half day (days)", "halfDays", { hint: `${peso(unit.half_day)}/day`, step: "1", locked: overrideLocked })}
-              {numberField("pc-leave-with-pay-days", "Leave with pay", "lwp", {
-                hint: "(days, no deduction)", step: "1", readOnly: true,
-                children: leave?.with_pay_dates?.length ? <p className="text-xs text-muted-foreground">{dates(leave.with_pay_dates)} · paid, no deduction</p> : null,
+              {numberField("pc-leave-with-pay-days", "Leave with pay (days)", "lwp", {
+                tip: "No deduction.", step: "1", readOnly: true,
+                children: leave?.with_pay_dates?.length ? <p className="text-xs text-muted-foreground">{dates(leave.with_pay_dates)}</p> : null,
               })}
-              {numberField("pc-leave-without-pay-days", "Leave without pay", "lwop", {
-                hint: `(days, ${peso(unit.daily)}/day)`, step: "1", locked: overrideLocked,
-                children: leave?.without_pay_dates?.length ? <p className="text-xs text-muted-foreground">{dates(leave.without_pay_dates)} · deducted at the daily rate</p> : null,
+              {numberField("pc-leave-without-pay-days", "Leave without pay (days)", "lwop", {
+                hint: `${peso(unit.daily)}/day`, step: "1", locked: overrideLocked,
+                children: leave?.without_pay_dates?.length ? <p className="text-xs text-muted-foreground">{dates(leave.without_pay_dates)}</p> : null,
               })}
+              </div>
+              {/* The override rule next to the fields it is about (cleanup 2026-11-14). */}
+              {deviations.length ? (
+                <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/8 p-3 sm:col-span-2">
+                  <Label htmlFor="pc-override-reason">Reason for override <span className="font-normal text-muted-foreground">(required to process; logged with your name)</span></Label>
+                  <Textarea id="pc-override-reason" rows={2} maxLength={REASON_MAX} placeholder="Why the computed value was changed" value={form.overrideReason} onChange={set("overrideReason")} aria-invalid={Boolean(reasonError) || undefined} />
+                  {reasonError ? <p className="text-sm text-destructive">{reasonError}</p> : null}
+                  <p className="text-xs text-warning">Changed from computed: {deviations.join(" · ")}</p>
+                </div>
+              ) : null}
             </div>
 
             <Separator />
             <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Incentives</p>
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <p className="text-sm font-medium">Early Bird Incentive</p>
+                <p className="flex min-h-5 items-center text-sm leading-none font-medium">Early Bird Incentive</p>
                 <p className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm text-muted-foreground tabular-nums">
                   {winnerPay ? `${money(winnerPay)} — this period's winner` : "Not this period's winner"}
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="pc-perfect" className="flex-wrap gap-x-1">{overrideLocked ? <LockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" /> : null}Perfect attendance <span className="font-normal text-muted-foreground">{peso(unit.perfect_attendance)}/period</span></Label>
+                <Label htmlFor="pc-perfect" className="min-h-5 flex-wrap gap-x-1">{overrideLocked ? <LockIcon className="size-3.5 text-muted-foreground" aria-hidden="true" /> : null}Perfect attendance <span className="font-normal text-muted-foreground">{peso(unit.perfect_attendance)}/period</span></Label>
                 <Select value={shownForm.perfect ? "yes" : "no"} onValueChange={(v) => setForm((c) => ({ ...c, perfect: v === "yes" }))} disabled={attendanceLocked || overrideLocked}>
                   <SelectTrigger id="pc-perfect" className={cn("w-full", overrideLocked && "border-dashed bg-muted text-muted-foreground")} title={overrideLocked ? overrideGate.message : undefined}><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent>
@@ -962,14 +1206,6 @@ function SingleEntry({ onNavigate }) {
               </div>
             </div>
 
-            {deviations.length ? (
-              <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/8 p-3">
-                <Label htmlFor="pc-override-reason">Reason for override <span className="font-normal text-muted-foreground">(required to process; logged with your name)</span></Label>
-                <Textarea id="pc-override-reason" rows={2} maxLength={REASON_MAX} placeholder="Why the computed value was changed" value={form.overrideReason} onChange={set("overrideReason")} aria-invalid={Boolean(reasonError) || undefined} />
-                {reasonError ? <p className="text-sm text-destructive">{reasonError}</p> : null}
-                <p className="text-xs text-warning">Changed from computed: {deviations.join(" · ")}</p>
-              </div>
-            ) : null}
           </CardContent>
         </Card>
 
@@ -981,7 +1217,7 @@ function SingleEntry({ onNavigate }) {
                   the same figures as before, from computeSummary(). */}
               {lineGroups ? (
                 <PayrollLineGroups
-                  result={lineGroups}
+                  result={compactLineGroups(lineGroups, { employee, form: shownForm, summary })}
                   net={summary.net}
                   netLabel={semiHalf(data) === "second" ? "2nd half net pay" : semiHalf(data) === "first" ? "1st half net pay" : "Net pay"}
                 >
@@ -995,7 +1231,9 @@ function SingleEntry({ onNavigate }) {
                   </div>
                   {lineGroups.monthly_tax ? (
                     <div data-testid="monthly-tax-box" className="space-y-1.5 rounded-lg border bg-muted/40 p-3">
-                      <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation</p>
+                      <p className="flex items-center gap-1 text-xs font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation
+                        <InfoTip label="About the monthly tax">The 2nd half computes the whole month, then takes off what the 1st half paid.</InfoTip>
+                      </p>
                       <SummaryRow label="Monthly basic salary" value={money(lineGroups.monthly_tax.basic)} />
                       {lineGroups.monthly_tax.earnings ? <SummaryRow label="+ Taxable earnings (overload, incentives)" value={money(lineGroups.monthly_tax.earnings)} /> : null}
                       <SummaryRow label="− Attendance, whole month (both halves)" value={money(lineGroups.monthly_tax.attendance)} />
@@ -1030,7 +1268,7 @@ function SingleEntry({ onNavigate }) {
           </Card>
           <Card className="shadow-xs">
             <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground"><strong className="text-foreground">Ready to process.</strong> Review all computed values before processing. Once confirmed, the payslip will be generated and stored in Payroll Records.</p>
+              <p className="text-sm text-muted-foreground">Review the computation before processing. The payslip is saved to Payroll Records.</p>
               <Button className="w-full" size="lg" onClick={() => submit("submit")} disabled={busy || Boolean(blocking.length) || !ready || !finalWindow || Boolean(summary.info.row?.defaults?.first_half_block)} title={finalWindow ? "" : (win?.message || "")}>
                 {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Process payroll →
               </Button>
@@ -1047,6 +1285,7 @@ function SingleEntry({ onNavigate }) {
 
 export function ProcessPage({ onNavigate }) {
   const { data, error, load } = useAccountant();
+  const [editRequest, setEditRequest] = React.useState(null);
   // A failed first load said "No employees found" with Process enabled (E2E 2026-10-22).
   if (error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={error} onRetry={() => load()} /></CardContent></Card>;
   return (
@@ -1055,9 +1294,9 @@ export function ProcessPage({ onNavigate }) {
       {/* Incentives filed after the 15th are paid next month (intended). */}
       <DeferredIncentivesNotice monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />
       <RunApprovalPanel />
-      <BatchCard onNavigate={onNavigate} />
+      <BatchCard onNavigate={onNavigate} onEdit={(id) => setEditRequest({ id, at: Date.now() })} />
       <h2 className="mt-2 text-base font-semibold">Single entry / edit draft</h2>
-      <SingleEntry onNavigate={onNavigate} />
+      <SingleEntry onNavigate={onNavigate} editRequest={editRequest} />
     </>
   );
 }

@@ -246,23 +246,25 @@ for (const [role, portal, fromPages, cardPages] of [
         await page.locator("#pc-period").click();
         await page.getByRole("option", { name: period, exact: true }).click();
         await settle(page);
-        const basic = Number(await page.locator("#pc-basic").inputValue());
+        // Shown as "32,000.00" with ₱ inside the field (cleanup 2026-11-14).
+        const basic = Number((await page.locator("#pc-basic").inputValue()).replace(/,/g, ""));
         const summaryCard = page.locator('[data-slot="card"]').filter({ hasText: "Computation summary" }).first();
         const line = summaryCard.getByText(/^Basic (pay|salary) \(/).first();
         await expect(line, `${period}: the summary names the half's Basic pay`).toHaveText(/Basic pay \((1st|2nd) half\)|Basic salary \(whole month\)/);
-        await expect(summaryCard.getByText(new RegExp(`Basic salary ₱${basic.toLocaleString("en-PH", { minimumFractionDigits: 2 })} a month`)).first(), `${period}: worked out from the same Basic salary`).toBeVisible();
+        // The line's formula starts from the monthly Basic salary: "₱32,000 ÷ 2", "₱32,000 − ₱16,000 (1st half)", "₱32,000 a month".
+        await expect(summaryCard.getByText(new RegExp(`^₱${basic.toLocaleString("en-PH")}(\\.00)? (÷ 2|−|a month)`)).first(), `${period}: worked out from the same Basic salary`).toBeVisible();
         shownBasic.push(basic);
         await page.screenshot({ path: join(OUT, PHASE, `basic-salary-${/1-15/.test(period) ? "1st" : "2nd"}-half.png`), fullPage: false });
       }
       expect(shownBasic.length).toBe(2);
-      // Batch table header (label only): "Basic pay (1st half)" in a 1st half, "Basic salary (monthly)" in a 2nd half.
-      const batch = page.locator('[data-slot="card"]').filter({ hasText: "Batch process payroll" }).first();
+      // Batch table header (label only, cleanup 2026-11-14): "Basic pay" in a 1st half, "Gross (this payslip)" in a 2nd half.
+      const batch = page.getByTestId("batch-card");
       for (const period of options.filter((o) => /1-15|16-3[01]/.test(o)).slice(0, 2)) {
         await batch.getByRole("combobox", { name: "Pay period" }).click();
         await page.getByRole("option", { name: period, exact: true }).click();
         await settle(page);
         const first = /1-15/.test(period);
-        await expect(batch.locator("thead th").nth(1)).toHaveText(first ? "Basic pay (1st half)" : "Basic salary (monthly)");
+        await expect(batch.locator("thead th").nth(2)).toHaveText(first ? "Basic pay" : "Gross (this payslip)");
         for (const [w, h] of [[1366, 800], [390, 844]]) {
           await page.setViewportSize({ width: w, height: h });
           await batch.scrollIntoViewIfNeeded();

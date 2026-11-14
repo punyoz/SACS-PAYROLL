@@ -134,7 +134,7 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
       await page.goto(`/accountant?page=ac-process&period=${encodeURIComponent(OCT2)}`);
       await main(page).waitFor();
       await settle(page);
-      await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
+      await main(page).getByTestId("process-all").click();
       await confirm(page, "Process payroll");
       await expect(page.getByText(/Payroll processed for \d+ employee|No payslips processed/).first()).toBeVisible({ timeout: 90000 });
     });

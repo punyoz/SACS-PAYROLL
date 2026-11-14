@@ -231,7 +231,7 @@ function SimpleSection({ section, config, onConfig, icon, title, description, no
 
   return (
     <SectionCard icon={icon} title={title} description={description} note={note} footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="field-grid grid gap-4 sm:grid-cols-2">
         <SettingInputs fields={fields} values={values} errors={errors} onChange={change} idPrefix={`cfg-${section}`} />
       </div>
       {confirmDialog}
@@ -309,7 +309,7 @@ function BirEmployerSection({ config, onConfig }) {
       applies="Leave a field blank if you do not have it yet; the forms say which details are missing."
       footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="field-grid grid gap-4 sm:grid-cols-2">
         <SettingInputs fields={fields} values={values} errors={errors} onChange={change} idPrefix="cfg-bir" />
       </div>
       {confirmDialog}
@@ -388,7 +388,7 @@ function AttendanceSection({ config, onConfig, branches }) {
         </Select>
         <p id="cfg-att-branch-hint" className="text-xs text-muted-foreground">{hint}</p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="field-grid grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <SettingInputs fields={fields} values={values} errors={errors} onChange={change} idPrefix="cfg-att" />
       </div>
       {confirmDialog}
@@ -563,7 +563,7 @@ function PayrollSection({ config, onConfig }) {
       applies="Rates, the tax table and contribution amounts are on their own tabs; each change there applies from the effective date you set — past payslips are not affected."
       footer={<SaveRow busy={busy} onSave={save} feedback={feedback} />}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="field-grid grid gap-4 sm:grid-cols-2">
         <SettingInputs fields={FIELDS.payroll} values={values} errors={errors} onChange={change} idPrefix="cfg-pay" />
         <SettingInputs fields={SHEET_FIELDS.map((f) => ({ ...f, type: "text" }))} values={values} errors={{}} onChange={change} idPrefix="cfg-sheet" />
       </div>

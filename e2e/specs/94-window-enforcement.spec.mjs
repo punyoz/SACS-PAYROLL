@@ -124,7 +124,7 @@ test("processing window enforcement: ON blocks, OFF opens own-branch processing,
     await as(page, "accountant", `ac-process&period=${encodeURIComponent(NOV1)}`);
     await settle(page);
     await expect(banner(page).first()).toContainText(BANNER);
-    await main(page).getByRole("button", { name: "Process payroll for all →" }).click();
+    await main(page).getByTestId("process-all").click();
     await confirm(page, "Process payroll");
     await expect(page.getByText(/Payroll processed for \d+ employee|No payslips processed/).first()).toBeVisible({ timeout: 90000 });
     const entries = await rows(db().from("payroll_entries").select("id,status,created_in_testing_mode,employee_id").eq("pay_period", NOV1));

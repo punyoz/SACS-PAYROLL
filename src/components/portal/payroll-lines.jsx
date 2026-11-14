@@ -23,8 +23,21 @@ const TAG_CLASS = {
 };
 const TAG_SHORT = { percentage: "%", bracket: "Bracket", rate_units: "Rate × units", fixed: "Fixed", not_charged: "Not charged" };
 
-export function LineTag({ tag, className }) {
+export function LineTag({ tag, className, note }) {
   if (!tag || !LINE_TAGS[tag]) return null;
+  // A line's own note (e.g. why Late is not charged): the tag opens it on tap or Enter.
+  if (note) {
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button type="button" data-tag={tag} aria-label={`${LINE_TAGS[tag].label}: details`} className="inline-flex shrink-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+            <LineTag tag={tag} className={className} />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-72 text-xs">{note}</PopoverContent>
+      </Popover>
+    );
+  }
   return (
     <Badge variant="outline" title={`${LINE_TAGS[tag].label}: ${LINE_TAGS[tag].hint}`} data-tag={tag}
       className={cn("h-4.5 shrink-0 rounded px-1 py-0 text-[10px] font-semibold tracking-wide uppercase", TAG_CLASS[tag], className)}>
@@ -117,7 +130,7 @@ function LineRow({ line }) {
       <div className="flex items-baseline justify-between gap-3">
         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="min-w-0 break-words">{line.label}</span>
-          <LineTag tag={line.tag} />
+          <LineTag tag={line.tag} note={line.tip} />
           <OverriddenMarker overridden={line.overridden} />
         </span>
         <SignedAmount line={line} />

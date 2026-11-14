@@ -126,7 +126,7 @@ export function TeacherSubsidySection({ refreshKey }) {
           {year ? (
             <p className="rounded-md bg-muted/50 p-3 text-sm">This year ({dateLabel(year.year_start)} – {dateLabel(year.year_end)}): {money(year.annual_amount)} · {data.totals.teachers} licensed teacher{data.totals.teachers === 1 ? "" : "s"} · {money(data.totals.advanced)} advanced · {money(data.totals.to_pay)} to pay out on the 16–end payslip of {MONTHS[Number(String(year.payout_period_start).slice(5, 7)) - 1]} {String(year.payout_period_start).slice(0, 4)}</p>
           ) : null}
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="field-grid grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5"><Label htmlFor="sub-amount">Annual subsidy amount (₱)</Label>
               <Input id="sub-amount" type="number" min="0" max={PESO_MAX} step="0.01" value={form.amount} onChange={(e) => set("amount", e.target.value)} /></div>
             <div className="space-y-1.5"><Label htmlFor="sub-basis">Subsidy year</Label>
