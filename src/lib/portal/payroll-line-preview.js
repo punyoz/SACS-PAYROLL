@@ -74,18 +74,20 @@ export function previewLineGroups(data, employee, form, summary, computedForm) {
   // attendance; the whole month appears in the tax basis and reconciliation.
   const ownHalf = settling && extras.perCutoff;
   const ownBasic = ownHalf ? toAmount(summary.basic - extras.firstHalfBasic) : summary.basic;
+  // Wording (2026-11-14): "Basic salary" is the fixed monthly pay of the
+  // contract (the same in both halves); each half pays its "Basic pay" from it.
   const basicHow = ownHalf
-    ? `Monthly salary ${pesoText(summary.basic)} − 1st half ${pesoText(extras.firstHalfBasic)} = ${pesoText(ownBasic)}`
+    ? `Basic salary ${pesoText(summary.basic)} a month − 1st half ${pesoText(extras.firstHalfBasic)} = ${pesoText(ownBasic)}`
     : settling
-    ? `Monthly salary ${pesoText(summary.basic)}: the 2nd half computes the whole month, then takes off what the 1st half paid`
+    ? `Basic salary ${pesoText(summary.basic)} a month: the 2nd half computes the whole month, then takes off what the 1st half paid`
     : same(summary.basic, monthly / 2)
-      ? `Monthly salary ${pesoText(monthly)} ÷ 2 = ${pesoText(summary.basic)}`
+      ? `Basic salary ${pesoText(monthly)} a month ÷ 2 = ${pesoText(summary.basic)}`
       : `Basic pay for the period = ${pesoText(summary.basic)}`;
 
   const result = buildLineGroups({
     half: half === "first" ? "first" : settling ? "second" : null,
     additions: {
-      basic: { label: ownHalf ? "Basic salary (2nd half)" : settling ? "Monthly salary" : "Basic salary", amount: ownBasic, how: basicHow },
+      basic: { label: ownHalf ? "Basic pay (2nd half)" : settling ? "Basic salary (whole month)" : half === "first" ? "Basic pay (1st half)" : "Basic pay", amount: ownBasic, how: basicHow },
       overtime: { amount: summary.earnings.overtime, minutes: info.pay?.counts?.overtime_minutes || 0, hourly: unit.hourly, premium_pct: Number(rates.overtime_premium_pct) || 0 },
       holiday: {
         amount: summary.earnings.holiday,

@@ -12,6 +12,7 @@ import { as } from "../support/auth.mjs";
 import { ACCOUNTS, TEST_OTP } from "../accounts.mjs";
 import { plantOtp, profileByEmail } from "../support/db.mjs";
 import { PAGES, settle } from "../support/portal.mjs";
+import { saveReport, walkCards } from "../support/cards.mjs";
 
 test.describe.configure({ mode: "parallel" });
 
@@ -21,78 +22,20 @@ mkdirSync(join(OUT, PHASE), { recursive: true });
 const shot = (page, name, opts = {}) => page.screenshot({ path: join(OUT, PHASE, `${name}.png`), ...opts });
 const DESKTOP = { width: 1366, height: 800 };
 const PHONE = { width: 390, height: 844 };
+const ADMIN_ITEMS = [
+  ["adm-dashboard", "Dashboard"], ["adm-attendance", "Branch Attendance"], ["adm-overtime", "Overtime & Substitute"],
+  ["adm-leaves", "Leave Recommendations"], ["adm-transfers", "Transfer Endorsements"], ["adm-incentives", "Incentive Recommendations"], ["adm-schedules", "Schedule Requests"],
+  ["adm-incidents", "Incident & AWOL Reports"], ["adm-rfid-issues", "RFID Issues"],
+  ["adm-announcements", "Announcements"], ["adm-payroll", "Payroll Summary"], ["adm-branch-reports", "Branch Reports"], ["adm-pay-rates", "Pay Rates"],
+  ["adm-maintenance", "RFID Terminal & Cards"], ["adm-profile", "Profile"],
+];
 const DASHBOARD = { super_admin: "sa-dashboard", admin: "adm-dashboard", hr: "hr-dashboard", accountant: "ac-dashboard", employee: "emp-dash" };
 
 const pageParam = (page) => new URL(page.url()).searchParams.get("page");
 const sidebar = (page) => page.locator('[data-slot="sidebar-container"]');
 
-/** Every card link on the page: its label, number and address. */
-async function cardLinks(page) {
-  return page.locator('#portal-main a[data-testid="stat-card-link"]').evaluateAll((links) => links.map((a) => ({
-    aria: a.getAttribute("aria-label"),
-    href: a.getAttribute("href"),
-  })));
-}
 
-/** The rows the opened view shows: the attendance count, a table's "of N", or its body rows. */
-async function shownRows(page, scope = "#portal-main") {
-  return page.evaluate((sel) => {
-    const root = document.querySelector(sel) || document;
-    const att = root.querySelector('[data-testid="att-count"]');
-    if (att) return Number(att.textContent.replace(/[^\d]/g, ""));
-    const of = [...root.querySelectorAll("*")].find((el) => el.children.length === 0 && /^Showing \d+–\d+ of \d+$/.test(el.textContent.trim()));
-    if (of) return Number(of.textContent.trim().split(" of ")[1]);
-    const table = root.querySelector("table tbody");
-    if (!table) return null;
-    return [...table.querySelectorAll("tr")].filter((tr) => tr.querySelectorAll("td").length > 1).length;
-  }, scope);
-}
-
-const report = [];
-function record(row) {
-  report.push(row);
-  console.log(`  CARD ${row.role} ${row.page} "${row.card}" -> ${row.href} | number ${row.number} rows ${row.rows} ${row.match ? "MATCH" : "differs"}`);
-}
-test.afterAll(() => {
-  writeFileSync(join(OUT, `cards-${PHASE}-${process.pid}.json`), JSON.stringify(report, null, 2));
-});
-
-/**
- * Every card of `pageId`: click it (in place), check the address carries the
- * card's filters, count the rows, come back. Same-page cards must not reload.
- */
-async function walkCards(page, role, pageId, { tabEnter = false } = {}) {
-  await page.goto(`${ACCOUNTS[role].portal}?page=${pageId}`);
-  await page.locator("#portal-main").waitFor();
-  await settle(page);
-  const links = await cardLinks(page);
-  for (const [i, link] of links.entries()) {
-    const card = page.locator('#portal-main a[data-testid="stat-card-link"]').nth(i);
-    const number = Number(String(link.aria.split(":")[1] || "").replace(/[^\d.]/g, "").split(".")[0]);
-    const wanted = new URLSearchParams(link.href.startsWith("#") ? "" : link.href.replace(/^[^?]*\?/, ""));
-    const samePage = link.href.startsWith("#") || (wanted.get("page") ? wanted.get("page") === pageId : true);
-    await page.evaluate(() => { window.__noReload = true; });
-    if (tabEnter && i === 0) { await card.focus(); await page.keyboard.press("Enter"); } else await card.click();
-    await settle(page);
-    // No full reload: the marker survives an in-place navigation.
-    expect(await page.evaluate(() => window.__noReload), `${link.aria}: opened without a reload`).toBe(true);
-    const now = new URL(page.url()).searchParams;
-    // A filter set to the page's default is left out of the address (useUrlParam).
-    for (const [k, v] of wanted) expect([v, ...(samePage && ["all", "open"].includes(v) ? [null] : [])], `${link.aria}: ?${k}`).toContain(now.get(k));
-    // Same page: the table the card scrolled to; another page: its main view.
-    const rows = link.href.startsWith("#") ? await page.locator(link.href).locator("li, tr").count()
-      : await shownRows(page, samePage ? '#portal-main [id$="-table"]' : "#portal-main");
-    // The filter shows in the page's own controls.
-    const status = [...wanted].find(([k]) => /_status$|_filter$|_branch$/.test(k));
-    if (status && status[1] !== "all") {
-      const shown = await page.locator('#portal-main [data-testid="att-status"], #portal-main [aria-pressed="true"], #portal-main [aria-selected="true"], #portal-main [data-state="on"], #portal-main [data-state="active"], #portal-main [data-testid="loan-status-filter"], #portal-main [role="combobox"]').allInnerTexts();
-      expect(shown.join(" ").length, `${link.aria}: the filter is shown`).toBeGreaterThan(0);
-    }
-    record({ role, page: pageId, card: link.aria, href: link.href, number, rows, match: rows === number });
-    if (!samePage) { await page.goBack(); await settle(page); expect(pageParam(page)).toBe(pageId); }
-  }
-  return links.length;
-}
+test.afterAll(() => saveReport(OUT, `cards-${PHASE}`));
 
 /* ── Part 1 + 2 + 3: Super Admin ─────────────────────────────────────── */
 
@@ -174,6 +117,41 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
   await page.locator('#portal-main a[data-testid="stat-card-link"]').first().hover();
   await shot(page, "sa-dashboard-card-hover-1366");
   for (const id of ["sa-accounts", "sa-maintenance"]) await walkCards(page, "super_admin", id);
+  // Total employees, Total users and System status are not links (decision 2026-11-14).
+  await page.goto("/super-admin?page=sa-dashboard");
+  await settle(page);
+  for (const label of ["Total employees", "Total users", "System status"]) {
+    await expect(page.locator('#portal-main a[data-testid="stat-card-link"]').filter({ hasText: label })).toHaveCount(0);
+  }
+
+  // "Items Waiting on Fallback" wraps to two lines (no "…") and keeps its tooltip.
+  const fallbackLabel = async () => sidebar(page).locator('[data-sidebar="menu-button"]').filter({ hasText: "Items Waiting on Fallback" }).first().evaluate((a) => {
+    const span = a.querySelector("[data-fit]");
+    const lh = parseFloat(getComputedStyle(span).lineHeight) || 16;
+    return { lines: Math.round(span.getBoundingClientRect().height / lh), cut: span.scrollHeight > span.clientHeight + 1 || span.scrollWidth > span.clientWidth + 1, title: a.getAttribute("title"), fits: a.getBoundingClientRect().right <= a.closest('[data-sidebar="sidebar"]').getBoundingClientRect().right + 0.5 };
+  });
+  const wrapped = await fallbackLabel();
+  expect(wrapped, "wraps to two lines at 1366").toMatchObject({ lines: 2, cut: false, title: "Items Waiting on Fallback", fits: true });
+  await sidebar(page).locator('[data-nav-group="Overview"]').screenshot({ path: join(OUT, PHASE, "sa-fallback-label-1366.png") });
+  await page.locator('[data-sidebar="trigger"]').first().click();
+  const railItem = sidebar(page).locator('[data-sidebar="menu-button"]').filter({ hasText: "Items Waiting on Fallback" }).first();
+  await expect(railItem).toHaveAttribute("title", "Items Waiting on Fallback");
+  expect((await railItem.boundingBox()).height, "collapsed: an icon row like the others").toBeLessThanOrEqual(37);
+  await shot(page, "sa-fallback-label-collapsed-1366");
+  await page.locator('[data-sidebar="trigger"]').first().click();
+
+  // The badge follows a decision at once (the same query, reloaded; mocked item: the local data has none).
+  let total = 1;
+  await page.route("**/api/super-admin/fallback", (route) => (route.request().method() === "POST"
+    ? (total = 0, route.fulfill({ json: { ok: true } }))
+    : route.fulfill({ json: { counts: { total }, items: total ? [{ id: "mock-1", item_type: "leave", title: "Mock leave", detail: "", reason: "No other HR active", submitted_at: "2026-11-14" }] : [] } })));
+  await page.goto("/super-admin?page=sa-fallback");
+  await page.locator("#portal-main").waitFor();
+  const badge = sidebar(page).locator('[data-sidebar="menu-badge"]');
+  await expect(badge).toHaveText("1");
+  await page.getByRole("button", { name: "Approve" }).click();
+  await expect(badge).toHaveCount(0);
+  await page.unroute("**/api/super-admin/fallback");
 
   // Phone: same menu; the drawer closes after a choice and after the logo.
   await page.setViewportSize(PHONE);
@@ -195,6 +173,12 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
   await expect(page.locator('[data-mobile="true"]')).toBeHidden();
   await expect.poll(() => pageParam(page)).toBe("sa-dashboard");
   await shot(page, "sa-dashboard-390");
+  await page.locator('[data-sidebar="trigger"]').first().click();
+  await page.locator('[data-mobile="true"]').waitFor();
+  const phoneLabel = await page.locator('[data-mobile="true"] [data-sidebar="menu-button"]').filter({ hasText: "Items Waiting on Fallback" }).first()
+    .evaluate((a) => { const span = a.querySelector("[data-fit]"); return { cut: span.scrollHeight > span.clientHeight + 1 || span.scrollWidth > span.clientWidth + 1, title: a.getAttribute("title") }; });
+  expect(phoneLabel, "390: not cut, tooltip kept").toEqual({ cut: false, title: "Items Waiting on Fallback" });
+  await shot(page, "sa-fallback-label-390");
 });
 
 /* ── HR: the sidebar looks as before; logo; cards ───────────────────── */
@@ -247,6 +231,51 @@ for (const [role, portal, fromPages, cardPages] of [
     test.skip(PHASE === "before");
     await page.setViewportSize(DESKTOP);
     await as(page, role, fromPages[0]);
+    if (role === "accountant") {
+      // Basic salary (2026-11-14): the contract's monthly pay, the same in both halves;
+      // each half's "Basic pay" line is computed from it.
+      await page.goto("/accountant?page=ac-process");
+      await settle(page);
+      await page.locator("#pc-employee").click();
+      await page.getByRole("option").first().click();
+      await settle(page);
+      const shownBasic = [];
+      const options = await page.locator("#pc-period").click().then(() => page.getByRole("option").allInnerTexts());
+      await page.keyboard.press("Escape");
+      for (const period of options.filter((o) => /1-15|16-3[01]/.test(o)).slice(0, 2)) {
+        await page.locator("#pc-period").click();
+        await page.getByRole("option", { name: period, exact: true }).click();
+        await settle(page);
+        const basic = Number(await page.locator("#pc-basic").inputValue());
+        const summaryCard = page.locator('[data-slot="card"]').filter({ hasText: "Computation summary" }).first();
+        const line = summaryCard.getByText(/^Basic (pay|salary) \(/).first();
+        await expect(line, `${period}: the summary names the half's Basic pay`).toHaveText(/Basic pay \((1st|2nd) half\)|Basic salary \(whole month\)/);
+        await expect(summaryCard.getByText(new RegExp(`Basic salary ₱${basic.toLocaleString("en-PH", { minimumFractionDigits: 2 })} a month`)).first(), `${period}: worked out from the same Basic salary`).toBeVisible();
+        shownBasic.push(basic);
+        await page.screenshot({ path: join(OUT, PHASE, `basic-salary-${/1-15/.test(period) ? "1st" : "2nd"}-half.png`), fullPage: false });
+      }
+      expect(shownBasic.length).toBe(2);
+      expect(shownBasic[0], "Basic salary is the same in both halves").toBe(shownBasic[1]);
+      expect(shownBasic[0]).toBeGreaterThan(0);
+    }
+    if (role === "admin") {
+      // Collapsible groups (decision 2026-11-14): every item, same order, same route; a URL opens its group.
+      for (const [id, label] of ADMIN_ITEMS) {
+        await page.goto(`/admin?page=${id}`);
+        await page.locator("#portal-main").waitFor();
+        const active = sidebar(page).locator('[data-sidebar="menu-button"][data-active="true"]');
+        await expect(active, `${id} is the active item`).toHaveText(label);
+        const header = active.locator("xpath=ancestor::*[@data-nav-group][1]").locator("button[aria-expanded]");
+        if (await header.count()) await expect(header, `${id}: its group opens`).toHaveAttribute("aria-expanded", "true");
+      }
+      const order = await sidebar(page).locator('[data-sidebar="content"] [data-sidebar="menu-button"]').evaluateAll((els) => els.map((e) => e.textContent.trim()));
+      expect(order).toEqual(ADMIN_ITEMS.map(([, l]) => l));
+      expect(await sidebar(page).locator("[data-nav-group]").evaluateAll((els) => els.map((e) => e.dataset.navGroup)))
+        .toEqual(["Overview", "Attendance", "Recommendations", "Reports to HR", "Branch", "RFID", "My Account"]);
+      await page.goto("/admin?page=adm-dashboard");
+      await settle(page);
+      await shot(page, "admin-sidebar-1366");
+    }
     for (const from of fromPages) {
       await page.goto(`${portal}?page=${from}`);
       await page.locator("#portal-main").waitFor();

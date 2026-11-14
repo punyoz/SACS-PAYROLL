@@ -56,7 +56,7 @@ const NAV = [
     items: [
       { id: "sa-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" },
       // Only what no active HR may decide (2026-11-09 Part D).
-      { id: "sa-fallback", label: "Items Waiting on Fallback", icon: InboxIcon, module: "fallback_approvals" },
+      { id: "sa-fallback", label: "Items Waiting on Fallback", icon: InboxIcon, module: "fallback_approvals", wrap: true },
     ],
   },
   // Work pages in collapsible groups, as HR's (2026-11-14); no page renamed, moved or lost.
@@ -160,7 +160,7 @@ function SuperAdminScreens() {
       accountOptions={{ payrollReadOnly: false, titleCaseName: true }}
     >
       {current === "sa-dashboard" ? <DashboardPage refreshKey={refreshKey} onSummary={setSummary} onNavigate={navigate} /> : null}
-      {current === "sa-fallback" ? <FallbackPage refreshKey={refreshKey} /> : null}
+      {current === "sa-fallback" ? <FallbackPage refreshKey={refreshKey} onCounts={setFallbackCount} /> : null}
       {current === "sa-accounts" ? <AccountsPage refreshKey={refreshKey} /> : null}
       {current === "sa-branches" ? <BranchesPage refreshKey={refreshKey} /> : null}
       {current === "sa-roles" ? <RolesPage /> : null}

@@ -65,7 +65,7 @@ export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds 
     const role = String(p.role || "").toLowerCase();
     if (role !== "employee" && role !== "accountant") return false;
     if (p.archived === true) return false;
-    if (String(p.employee_status || "").toLowerCase() === "inactive") return false;
+    if (["inactive", "separated"].includes(String(p.employee_status || "").toLowerCase())) return false;
     const hired = String(p.date_hired || p.created_at || "").slice(0, 10);
     if (hired && hired > dateKey) return false;
     if (dayOff && holidayAppliesTo(dayOff, p.branch_id)) return false;
@@ -107,4 +107,18 @@ export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds 
       late_minutes: 0,
       undertime_minutes: 0,
     }));
+}
+
+/**
+ * "Absent today" on the dashboards (decision 2026-11-14): the people the
+ * board lists as "Not tapped yet" -- scheduled to work today (no weekend or
+ * holiday), no record today, not on approved leave, not separated, hired by
+ * today. The same query as GET /api/attendance/logs, so the card and the
+ * list it opens always agree. employeeIds: a branch's people, or null for all.
+ */
+export async function countAbsentToday(supabase, { dateKey, employeeIds = null }) {
+  const build = () => supabase.from("attendance_logs").select("employee_id,id").eq("log_date", dateKey).eq("archived_duplicate", false).order("id", { ascending: true });
+  const rows = Array.isArray(employeeIds) ? await fetchAllIn(build, "employee_id", employeeIds) : await fetchAllRows(build);
+  const loggedIds = new Set((rows.error ? [] : rows.data || []).map((row) => String(row.employee_id)));
+  return (await listNotTapped(supabase, { dateKey, loggedIds, employeeIds })).length;
 }

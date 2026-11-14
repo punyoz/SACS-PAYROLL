@@ -1,5 +1,6 @@
 "use client";
 
+import { PRESENT_FILTER } from "@/lib/attendance/status";
 import * as React from "react";
 import {
   AlertCircleIcon, CalendarOffIcon, CheckCircle2Icon, CircleSlashIcon, ClockIcon, FilterIcon, HourglassIcon,
@@ -46,7 +47,10 @@ export const SUMMARY_STATUSES = [
   { status: "On Leave", icon: CalendarOffIcon, tone: "text-info" },
   { status: "Not tapped yet", icon: HourglassIcon, tone: "text-muted-foreground" },
 ];
-export const FILTER_STATUSES = [...SUMMARY_STATUSES.map((s) => s.status), "Pending Correction", "Holiday"];
+// "Present" first: the group the dashboards count (On Time, Early Bird, Late,
+// Undertime, Half Day, Corrected; decision 2026-11-14), so a card's number
+// and the filtered rows match.
+export const FILTER_STATUSES = [PRESENT_FILTER, ...SUMMARY_STATUSES.map((s) => s.status), "Pending Correction", "Holiday"];
 
 /** 2 · The summary strip. Zero counts stay visible so the layout is stable. */
 export function AttendanceSummary({ counts = {}, active = "all", onSelect, loading = false, statuses = SUMMARY_STATUSES }) {

@@ -29,7 +29,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { attendanceBucket } from "@/lib/attendance/status";
+import { attendanceBucket, matchesStatusFilter } from "@/lib/attendance/status";
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 import { manilaDateKey, dateKeysBetween } from "@/lib/payroll/periods";
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
@@ -206,7 +206,7 @@ async function attendanceView(supabase, branchId, staff, url) {
   const matched = all.filter((l) => (!q || `${l.employee_name} ${l.employee_code}`.toLowerCase().includes(q)) && (!day || day === "all" || l.log_date === day));
   const counts = {};
   matched.forEach((l) => { counts[l.status] = (counts[l.status] || 0) + 1; });
-  const chosen = matched.filter((l) => !status || status === "all" || l.status === status);
+  const chosen = matched.filter((l) => matchesStatusFilter(l.status, status));
   const wantsPage = url.searchParams.has("page");
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const size = Math.min(100, Math.max(1, Number(url.searchParams.get("page_size")) || 25));

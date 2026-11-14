@@ -43,7 +43,7 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />
       <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} href={todayHref()} actionLabel="View today's branch attendance" />
+        <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} href={todayHref("Present")} actionLabel="View who is present today" />
         <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} href={todayHref("Late")} actionLabel="View today's late records" />
         <StatCard label="Absent" value={a.absent ?? 0} icon={XCircleIcon} tone="danger" loading={view.first} href={todayHref("Absent")} actionLabel="View today's absent records" />
         <StatCard label="Not tapped in yet" value={a.not_tapped ?? 0} hint={data?.rest_day || ""} icon={UserXIcon} tone="danger" loading={view.first} href="#admin-not-tapped" onClick={() => {}} scrollTo="admin-not-tapped" actionLabel="Show the list below" />

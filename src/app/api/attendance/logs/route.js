@@ -6,6 +6,8 @@ import { can, SCOPE_SELF } from "@/lib/rbac/permissions";
 import {
   ATTENDANCE_STATUSES,
   CORRECTABLE_STATUSES,
+  PRESENT_FILTER,
+  PRESENT_STATUSES,
   UNRESOLVED_STATUSES,
   normalizeAttendanceStatus,
 } from "@/lib/attendance/status";
@@ -136,6 +138,8 @@ export async function GET(request) {
       // Paged reads count every status first; the status is chosen below.
       if (paging) return query;
       if (statusFilter === "unresolved") query = query.in("status", UNRESOLVED_STATUSES);
+      // "Present": the shared group (decision 2026-11-14), as on the dashboards.
+      else if (statusFilter === PRESENT_FILTER) query = query.in("status", PRESENT_STATUSES);
       else if (statusFilter && statusFilter !== "all") query = query.eq("status", normalizeAttendanceStatus(statusFilter, statusFilter));
       return query;
     };
@@ -143,6 +147,7 @@ export async function GET(request) {
       if (!statusFilter || statusFilter === "all") return true;
       if (statusFilter === "unresolved") return UNRESOLVED_STATUSES.includes(row.status);
       if (statusFilter === NOT_TAPPED_YET) return row.status === NOT_TAPPED_YET;
+      if (statusFilter === PRESENT_FILTER) return PRESENT_STATUSES.includes(row.status);
       return row.status === normalizeAttendanceStatus(statusFilter, statusFilter);
     };
 

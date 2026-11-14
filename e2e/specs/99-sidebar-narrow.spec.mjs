@@ -45,7 +45,8 @@ async function measure(page) {
       return {
         text: span.textContent.trim(),
         cut: span.scrollWidth > span.clientWidth + 1,
-        wraps: span.getBoundingClientRect().height > lineHeight * 1.5,
+        // "Items Waiting on Fallback" wraps to two lines on purpose (decision 2026-11-14).
+        wraps: span.getBoundingClientRect().height > lineHeight * 1.5 && span.textContent.trim() !== "Items Waiting on Fallback",
         spills: b.getBoundingClientRect().right > container.getBoundingClientRect().right + 0.5,
         height: b.getBoundingClientRect().height,
         fontSize: parseFloat(getComputedStyle(span).fontSize),

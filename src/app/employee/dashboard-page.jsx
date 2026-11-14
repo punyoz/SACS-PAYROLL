@@ -29,7 +29,7 @@ import { portalHref } from "@/lib/portal/navigate";
 import { manilaDateKey } from "@/lib/payroll/periods";
 
 const ATTENDANCE_CHART = {
-  present: { label: "Present", color: "var(--chart-1)" },
+  present: { label: "Present (not late)", color: "var(--chart-1)" },
   late: { label: "Late", color: "var(--chart-2)" },
   absent: { label: "Absent", color: "var(--destructive)" },
   on_leave: { label: "On Leave", color: "var(--info)" },
@@ -63,7 +63,9 @@ function nextHolidayText(holiday, todayKey) {
 }
 
 function AttendanceDonut({ data, loading, error, onRetry }) {
-  const slices = Object.keys(ATTENDANCE_CHART).map((key) => ({ key, value: Number(data?.[key] || 0), fill: `var(--color-${key})` }));
+  // "Present" counts Late too (decision 2026-11-14); the slices must not overlap.
+  const sliceValue = (key) => (key === "present" ? Math.max(0, Number(data?.present || 0) - Number(data?.late || 0)) : Number(data?.[key] || 0));
+  const slices = Object.keys(ATTENDANCE_CHART).map((key) => ({ key, value: sliceValue(key), fill: `var(--color-${key})` }));
   const total = slices.reduce((sum, slice) => sum + slice.value, 0);
 
   return (
@@ -185,8 +187,8 @@ export function DashboardPage({ stats, payslips, onNavigate }) {
       <BranchAnnouncementsCard />
 
       <section aria-label="This month at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <StatCard label="Present" value={data?.present} icon={CheckCircle2Icon} tone="success" loading={loading} href={monthHref()} actionLabel="View this month's attendance" />
-        <StatCard label="Late" value={data?.late} icon={ClockAlertIcon} tone="gold" loading={loading} href={monthHref("Late")} actionLabel="View this month's late days" />
+        <StatCard label="Present" value={data?.present} icon={CheckCircle2Icon} tone="success" loading={loading} href={monthHref("Present")} actionLabel="View this month's present days" />
+        <StatCard label="Late" value={data?.late} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={loading} href={monthHref("Late")} actionLabel="View this month's late days" />
         <StatCard label="Absent" value={data?.absent} icon={XCircleIcon} tone="danger" loading={loading} href={monthHref("Absent")} actionLabel="View this month's absences" />
         <StatCard label="On Leave" value={data?.on_leave} icon={CalendarDaysIcon} tone="info" loading={loading} href={monthHref("On Leave")} actionLabel="View this month's leave days" />
         <StatCard label="Basic Salary" value={data?.basic_salary || "—"} icon={WalletIcon} tone="primary" loading={loading} className="col-span-2 md:col-span-1" />

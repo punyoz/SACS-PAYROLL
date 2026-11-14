@@ -810,7 +810,10 @@ function SingleEntry({ onNavigate }) {
         max={NUMBER_MAX[key] || PESO_MAX}
         step={step}
         inputMode={step === "1" ? "numeric" : "decimal"}
-        value={key === "tax" ? shownTax : shownForm[key]}
+        // Basic salary (2026-11-14): the contract's fixed monthly pay from the
+        // employee's record, the same in both halves; each half's Basic pay
+        // (computed from it) is in the summary.
+        value={key === "tax" ? shownTax : key === "basic" && employee ? String(toAmount(employee.basic_salary)) : shownForm[key]}
         onChange={key === "tax"
           ? (e) => setForm((c) => ({ ...c, tax: e.target.value, taxEdited: true }))
           // Basic salary keeps to 7 whole digits and the maximum.
@@ -870,7 +873,7 @@ function SingleEntry({ onNavigate }) {
                 </Select>
               </div>
               {/* From the employee's record: HR changes a salary (2026-10-26), never payroll processing. */}
-              {numberField("pc-basic", "Basic salary (₱)", "basic", { disabled: false, readOnly: true, hint: "(from the employee's record; HR changes it)" })}
+              {numberField("pc-basic", "Basic salary (₱, monthly)", "basic", { disabled: false, readOnly: true, hint: "(fixed by contract, from the employee's record; HR changes it)" })}
             </div>
 
             <Separator />

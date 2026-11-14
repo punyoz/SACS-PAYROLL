@@ -184,8 +184,10 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                     asChild
                     isActive={active}
                     tooltip={item.label}
-                    onPointerEnter={titleIfCut}
-                    onFocus={titleIfCut}
+                    // A `wrap` label (2026-11-14) takes two lines instead of "…" and keeps its full name on hover.
+                    title={item.wrap ? item.label : undefined}
+                    onPointerEnter={item.wrap ? undefined : titleIfCut}
+                    onFocus={item.wrap ? undefined : titleIfCut}
                     className={cn(
                       "relative font-medium text-sidebar-foreground hover:bg-white/10 hover:text-white",
                       // 36 px a row (40 px on touch screens), a tighter icon gap for the narrower sidebar.
@@ -193,6 +195,7 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                       "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
                       "data-[active=true]:before:absolute data-[active=true]:before:top-1/2 data-[active=true]:before:left-0 data-[active=true]:before:h-4 data-[active=true]:before:w-[3px] data-[active=true]:before:-translate-y-1/2 data-[active=true]:before:rounded-r data-[active=true]:before:bg-sidebar-primary",
                       vengeanceLineHoverHost,
+                      item.wrap && "h-auto min-h-9 py-1 pointer-coarse:h-auto pointer-coarse:min-h-10",
                     )}
                   >
                     {/* A real link (2026-11-14): middle click and "open in new tab" work; a plain click stays in place. */}
@@ -207,7 +210,7 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                       }}
                     >
                       {Icon ? <Icon aria-hidden="true" /> : null}
-                      <span data-fit className={vengeanceLineHover}>{item.label}</span>
+                      <span data-fit className={cn(vengeanceLineHover, item.wrap && "line-clamp-2 whitespace-normal! leading-tight")}>{item.label}</span>
                     </a>
                   </SidebarMenuButton>
                   {badges[item.id] ? (
