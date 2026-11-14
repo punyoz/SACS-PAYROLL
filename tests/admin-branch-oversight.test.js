@@ -134,6 +134,9 @@ beforeEach(async () => {
     { id: "run-b", branch_id: B, period_label: "October 1-15, 2026", period_start: "2026-10-01", cutoff_type: "first", status: "approved", total_employees: 1, total_gross: 20000, total_deductions: 0, total_net: 20000 },
     { id: "run-a2", branch_id: A, period_label: "October 16-31, 2026", period_start: "2026-10-16", cutoff_type: "second", status: "pending", total_employees: 1, total_gross: 15000, total_deductions: 900, total_net: 14100 },
   );
+  // Who has not tapped in (public.attendance_missing_days, the nightly close's
+  // rule): both tapped in today, so nobody.
+  rpc.results.attendance_missing_days = () => ({ data: [], error: null });
   ({ createSessionToken, SESSION_COOKIE } = await import("@/lib/rbac/session"));
   oversight = await import("@/app/api/admin/branch-oversight/route");
   hrRequests = await import("@/app/api/hr/branch-requests/route");
@@ -153,6 +156,16 @@ describe("branch isolation", () => {
     expect(tr.body.transfers).toEqual([]);
     const dash = await view(who.adminA, "view=dashboard");
     expect(dash.body.headcount.total).toBe(1);
+  });
+
+  it("lists and counts only its own branch's people who have not tapped in (decision 2026-11-14)", async () => {
+    rpc.results.attendance_missing_days = () => ({ data: [{ employee_id: BEN, full_name: "Ben Cruz", employee_type: "Teaching", branch_id: B, day: TODAY }], error: null });
+    const att = await view(who.adminA, `view=attendance&from=${TODAY}&to=${TODAY}`);
+    expect(att.body.logs.map((l) => l.employee_id)).not.toContain(BEN);
+    const dash = await view(who.adminA, "view=dashboard");
+    expect(dash.body.attendance.absent_today).toBe(0);
+    expect(dash.body.not_tapped).toEqual([]);
+    rpc.results.attendance_missing_days = () => ({ data: [], error: null });
   });
 
   it("refuses branch B's records to the Admin of branch A, by id", async () => {

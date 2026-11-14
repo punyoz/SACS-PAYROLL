@@ -255,6 +255,22 @@ for (const [role, portal, fromPages, cardPages] of [
         await page.screenshot({ path: join(OUT, PHASE, `basic-salary-${/1-15/.test(period) ? "1st" : "2nd"}-half.png`), fullPage: false });
       }
       expect(shownBasic.length).toBe(2);
+      // Batch table header (label only): "Basic pay (1st half)" in a 1st half, "Basic salary (monthly)" in a 2nd half.
+      const batch = page.locator('[data-slot="card"]').filter({ hasText: "Batch process payroll" }).first();
+      for (const period of options.filter((o) => /1-15|16-3[01]/.test(o)).slice(0, 2)) {
+        await batch.getByRole("combobox", { name: "Pay period" }).click();
+        await page.getByRole("option", { name: period, exact: true }).click();
+        await settle(page);
+        const first = /1-15/.test(period);
+        await expect(batch.locator("thead th").nth(1)).toHaveText(first ? "Basic pay (1st half)" : "Basic salary (monthly)");
+        for (const [w, h] of [[1366, 800], [390, 844]]) {
+          await page.setViewportSize({ width: w, height: h });
+          await batch.scrollIntoViewIfNeeded();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `${w}px: the page does not scroll sideways`).toBe(true);
+          await batch.screenshot({ path: join(OUT, PHASE, `batch-header-${first ? "1st" : "2nd"}-half-${w}.png`) });
+        }
+        await page.setViewportSize(DESKTOP);
+      }
       expect(shownBasic[0], "Basic salary is the same in both halves").toBe(shownBasic[1]);
       expect(shownBasic[0]).toBeGreaterThan(0);
     }

@@ -75,7 +75,14 @@ test("card numbers equal the opened rows on a weekday and a weekend; numbers bef
           numbers.push({ date, name, card: "Employee Present (this month)", before: me.present - me.late, after: me.present });
         }
         if (role === "admin") {
+          // One merged "Absent today" card (decision 2026-11-14), same rule as HR's, this branch only.
+          await page.goto(`/admin?page=${dash}`);
+          await settle(page);
+          await expect(page.locator('#portal-main a[data-testid="stat-card-link"]').filter({ hasText: "Absent today" })).toHaveCount(1);
+          await expect(page.locator("#portal-main section").getByText("Not tapped in yet", { exact: true })).toHaveCount(0);
           const adm = await getJson(page, "/api/admin/branch-oversight?view=dashboard");
+          expect(adm.attendance.absent_today, "the card counts the names listed under it").toBe(adm.not_tapped.length);
+          numbers.push({ date, name, card: "Admin Absent today (was: recorded Absent + Not tapped in yet)", before: "-", after: adm.attendance.absent_today });
           numbers.push({ date, name, card: "Admin Present (Late included before and after)", before: adm.attendance.present, after: adm.attendance.present });
         }
       }

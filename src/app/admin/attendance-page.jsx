@@ -58,7 +58,7 @@ export function AttendancePage({ refreshKey }) {
     { key: "time", header: "Time", mobileOnly: true, cell: (l) => <span className="tabular-nums">{l.time_in ? formatTime(l.time_in) : "—"} – {l.time_out ? formatTime(l.time_out) : "—"} · {Number(l.total_hours) ? `${Number(l.total_hours).toFixed(2)} h` : "—"}</span> },
     { key: "status", header: "Status", mobileBadge: true, cell: (l) => <div><AttendanceBadge status={l.status} />{l.late_minutes ? <p className="mt-0.5 text-xs text-muted-foreground">{l.late_minutes} min late</p> : null}</div>, searchValue: (l) => l.status },
     { key: "flag", header: "Flag", cell: (l) => (l.flag ? <div className="flex items-center gap-1"><RequestStatus status={l.flag.status} label={l.flag.status_label} /><HistoryButton request={l.flag} /></div> : <span className="text-xs text-muted-foreground">—</span>) },
-    { key: "act", header: <span className="sr-only">Flag issue</span>, align: "right", cell: (l) => (l.flag?.status === "pending" ? null : <Button size="sm" variant="outline" onClick={() => setTarget(l)}><FlagIcon aria-hidden="true" />Flag issue</Button>) },
+    { key: "act", header: <span className="sr-only">Flag issue</span>, align: "right", cell: (l) => (l.flag?.status === "pending" || l.not_tapped_yet ? null : <Button size="sm" variant="outline" onClick={() => setTarget(l)}><FlagIcon aria-hidden="true" />Flag issue</Button>) },
   ];
 
   const flagColumns = [

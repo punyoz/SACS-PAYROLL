@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UserXIcon, UsersIcon, XCircleIcon } from "lucide-react";
+import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UsersIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
@@ -42,11 +42,11 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
       {view.error ? <p role="alert" className="text-sm text-destructive">{view.error} Showing the last loaded data.</p> : null}
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />
-      <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} href={todayHref("Present")} actionLabel="View who is present today" />
         <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} href={todayHref("Late")} actionLabel="View today's late records" />
-        <StatCard label="Absent" value={a.absent ?? 0} icon={XCircleIcon} tone="danger" loading={view.first} href={todayHref("Absent")} actionLabel="View today's absent records" />
-        <StatCard label="Not tapped in yet" value={a.not_tapped ?? 0} hint={data?.rest_day || ""} icon={UserXIcon} tone="danger" loading={view.first} href="#admin-not-tapped" onClick={() => {}} scrollTo="admin-not-tapped" actionLabel="Show the list below" />
+        {/* One card (decision 2026-11-14): the same label, rule and link as HR's "Absent today", this branch only. */}
+        <StatCard label="Absent today" value={a.absent_today ?? 0} hint="Not yet recorded" icon={XCircleIcon} tone="danger" loading={view.first} href={todayHref("Not tapped yet")} actionLabel="View who has not tapped in today" />
         <StatCard label="On leave" value={a.on_leave ?? 0} icon={CalendarDaysIcon} loading={view.first} href={todayHref("On Leave")} actionLabel="View today's leave records" />
       </section>
       <section aria-label="Branch" className="grid grid-cols-1 gap-3 sm:grid-cols-3">

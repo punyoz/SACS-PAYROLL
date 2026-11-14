@@ -29,7 +29,8 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { attendanceBucket, matchesStatusFilter } from "@/lib/attendance/status";
+import { attendanceBucket, isAttendedStatus, matchesStatusFilter } from "@/lib/attendance/status";
+import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 import { manilaDateKey, dateKeysBetween } from "@/lib/payroll/periods";
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
@@ -134,32 +135,28 @@ async function cutoffsFor(supabase, monthKeys) {
 async function dashboardView(supabase, branchId, staff) {
   const today = manilaDateKey();
   const ids = staff.filter((p) => !p.archived).map((p) => p.id);
-  const [logs, leaves, requests, announcements, holidays] = await Promise.all([
+  const [logs, leaves, requests, announcements, holidays, missing] = await Promise.all([
     attendanceLogs(supabase, ids, today, today),
     branchLeaves(supabase, branchId, ids),
     branchRequests(supabase, branchId, null),
     supabase.from("branch_announcements").select("id,title,category,created_at,created_by_name").eq("branch_id", branchId).eq("archived", false).order("created_at", { ascending: false }).limit(5),
     supabase.from("attendance_holidays").select("holiday_date,name,day_part,type,branch_ids").eq("holiday_date", today),
+    // "Absent today" (decision 2026-11-14): the nightly close's own rule, this branch only.
+    listNotTapped(supabase, { dateKey: today, employeeIds: ids }),
   ]);
   const byEmployee = new Map(logs.map((l) => [l.employee_id, l]));
   const onLeaveToday = new Set(leaves.filter((l) => l.status === "approved" && l.start_date <= today && l.end_date >= today).map((l) => l.employee_id));
-  const counts = { present: 0, late: 0, absent: 0, on_leave: 0, not_tapped: 0 };
-  const notTapped = [];
+  const counts = { present: 0, late: 0, on_leave: 0, absent_today: missing.length };
+  const notTapped = missing.map((row) => ({ id: row.employee_id, full_name: row.employee_name, employee_code: staff.find((p) => p.id === row.employee_id)?.employee_code || "", employee_type: row.employee_type }));
   const weekend = [0, 6].includes(new Date(`${today}T00:00:00Z`).getUTCDay());
   const holiday = (holidays.data || []).find((h) => isDayOff(shapeHolidayRow(h)) && holidayAppliesTo(h, branchId)) || null;
   staff.filter((p) => !p.archived).forEach((person) => {
     const log = byEmployee.get(person.id);
     const bucket = log ? attendanceBucket(log.status) : null;
     if (onLeaveToday.has(person.id) || bucket === "leave") { counts.on_leave += 1; return; }
-    if (log?.time_in) {
-      if (bucket === "late") counts.late += 1;
-      counts.present += 1;
-      return;
-    }
-    if (bucket === "absent") { counts.absent += 1; return; }
-    if (weekend || holiday || bucket === "holiday") return;
-    counts.not_tapped += 1;
-    notTapped.push({ id: person.id, full_name: person.full_name, employee_code: person.employee_code, employee_type: person.employee_type });
+    // Present = the shared group, Late included (decision 2026-11-14).
+    if (log && isAttendedStatus(log.status)) counts.present += 1;
+    if (bucket === "late") counts.late += 1;
   });
   const pendingLeaves = leaves.filter((l) => LEAVE_PENDING.includes(l.status));
   const activity = [
@@ -198,6 +195,15 @@ async function attendanceView(supabase, branchId, staff, url) {
     employee_code: names.get(l.employee_id)?.employee_code || "",
     flag: flagByLog.get(l.id) || null,
   }));
+  // Today's "Not tapped yet" rows, as on HR's board (decision 2026-11-14): the
+  // nightly close's own rule, this branch only; nothing is written.
+  const today = manilaDateKey();
+  const dayParam = normalizeText(url.searchParams.get("day"));
+  if (today >= from && today <= to && (!dayParam || dayParam === "all" || dayParam === today)) {
+    (await listNotTapped(supabase, { dateKey: today, employeeIds: ids })).forEach((row) => all.push({
+      ...row, status: "Not tapped yet", not_tapped_yet: true, employee_code: names.get(row.employee_id)?.employee_code || "", flag: null,
+    }));
+  }
   // Search, day and status on the server, then one page (redesign
   // 2026-11-09): counts are every status of the range (search and day applied).
   const q = normalizeText(url.searchParams.get("q")).toLowerCase().slice(0, 80);

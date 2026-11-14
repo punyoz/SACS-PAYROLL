@@ -463,7 +463,8 @@ function BatchCard({ onNavigate }) {
           <Table style={{ minWidth: 1500 }}>
             <TableHeader className="bg-muted/60">
               <TableRow className="hover:bg-transparent">
-                {["Employee", "Basic salary", "SSS", "PhilHealth", "Pag-IBIG", "Tax", "Absent", "Late", "Undertime", "Half day", "Early bird / incentive", "Leave w/ pay", "Leave w/o pay", "Net pay", "Payslip"].map((h) => (
+                {/* Label only (2026-11-14): a 1st half shows half the month, a 2nd half the whole month. */}
+                {["Employee", semiHalf(data) === "first" ? "Basic pay (1st half)" : "Basic salary (monthly)", "SSS", "PhilHealth", "Pag-IBIG", "Tax", "Absent", "Late", "Undertime", "Half day", "Early bird / incentive", "Leave w/ pay", "Leave w/o pay", "Net pay", "Payslip"].map((h) => (
                   <TableHead key={h} className="text-xs font-semibold text-muted-foreground">{h}</TableHead>
                 ))}
               </TableRow>
