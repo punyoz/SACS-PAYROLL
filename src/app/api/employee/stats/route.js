@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
-import { attendanceBucket, isAttendedStatus } from "@/lib/attendance/status";
+import { attendanceBucket, isPresentRow } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { readApprovedLeave } from "@/lib/attendance/leave";
 import { describeDayPart, holidayAppliesTo, readHolidayMap } from "@/lib/attendance/holidays";
@@ -104,7 +104,7 @@ export async function GET(request) {
           // into present / late / absent (src/lib/attendance/status.js).
           const status = attendanceBucket(row.status);
           // Present = the shared group, Late included (decision 2026-11-14).
-          if (isAttendedStatus(row.status)) present++;
+          if (isPresentRow(row, todayKey)) present++;
           if (status === "late") late++;
           else if (status === "absent") absent++;
           else if (status === "leave") onLeave++;

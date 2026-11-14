@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
-import { attendanceBucket, isAttendedStatus } from "@/lib/attendance/status";
+import { attendanceBucket, isPresentRow } from "@/lib/attendance/status";
 import { countAbsentToday } from "@/lib/attendance/not-tapped";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
@@ -72,7 +72,7 @@ export async function GET(request) {
         // One record per employee: status comes from the day's first tap.
         // Present = the shared group (Late included, decision 2026-11-14).
         collapseDailyTaps(attRows, { dateKey: () => today }).forEach((row) => {
-          if (isAttendedStatus(row.status)) presentToday++;
+          if (isPresentRow(row, today)) presentToday++;
           if (attendanceBucket(row.status) === "late") lateToday++;
         });
       }

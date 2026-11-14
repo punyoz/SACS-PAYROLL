@@ -29,7 +29,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { attendanceBucket, isAttendedStatus, matchesStatusFilter } from "@/lib/attendance/status";
+import { PRESENT_FILTER, attendanceBucket, isPresentRow, matchesStatusFilter } from "@/lib/attendance/status";
 import { listNotTapped } from "@/lib/attendance/not-tapped";
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 import { manilaDateKey, dateKeysBetween } from "@/lib/payroll/periods";
@@ -155,7 +155,7 @@ async function dashboardView(supabase, branchId, staff) {
     const bucket = log ? attendanceBucket(log.status) : null;
     if (onLeaveToday.has(person.id) || bucket === "leave") { counts.on_leave += 1; return; }
     // Present = the shared group, Late included (decision 2026-11-14).
-    if (log && isAttendedStatus(log.status)) counts.present += 1;
+    if (log && isPresentRow(log, today)) counts.present += 1;
     if (bucket === "late") counts.late += 1;
   });
   const pendingLeaves = leaves.filter((l) => LEAVE_PENDING.includes(l.status));
@@ -212,7 +212,7 @@ async function attendanceView(supabase, branchId, staff, url) {
   const matched = all.filter((l) => (!q || `${l.employee_name} ${l.employee_code}`.toLowerCase().includes(q)) && (!day || day === "all" || l.log_date === day));
   const counts = {};
   matched.forEach((l) => { counts[l.status] = (counts[l.status] || 0) + 1; });
-  const chosen = matched.filter((l) => matchesStatusFilter(l.status, status));
+  const chosen = matched.filter((l) => (status === PRESENT_FILTER ? isPresentRow(l, today) : matchesStatusFilter(l.status, status)));
   const wantsPage = url.searchParams.has("page");
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const size = Math.min(100, Math.max(1, Number(url.searchParams.get("page_size")) || 25));

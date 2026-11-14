@@ -76,6 +76,16 @@ export function isAttendedStatus(status) {
   return PRESENT_STATUSES.includes(normalizeAttendanceStatus(status, ""));
 }
 
+/**
+ * Present for counting one attendance row (decision 2026-11-14, round 4): the
+ * Present group, or any time-in TODAY -- someone who tapped in today and has
+ * not tapped out yet (Incomplete once the shift ends) is present today.
+ * Past Incomplete days stay out until resolved.
+ */
+export function isPresentRow(row, todayKey) {
+  return isAttendedStatus(row?.status) || (Boolean(todayKey) && row?.log_date === todayKey && Boolean(row?.time_in));
+}
+
 /** A row matches a status filter: one status, the "Present" group, or "all". */
 export function matchesStatusFilter(status, filter) {
   if (!filter || filter === "all") return true;

@@ -168,6 +168,16 @@ describe("branch isolation", () => {
     rpc.results.attendance_missing_days = () => ({ data: [], error: null });
   });
 
+  it("counts someone tapped in today with no tap-out as Present, and lists them under Present (round 4)", async () => {
+    const log = table("attendance_logs").find((l) => l.id === LOG_A);
+    Object.assign(log, { status: "Incomplete", time_out: null });
+    const dash = await view(who.adminA, "view=dashboard");
+    expect(dash.body.attendance.present).toBe(1);
+    expect(dash.body.attendance.absent_today).toBe(0);
+    const att = await view(who.adminA, `view=attendance&from=${TODAY}&to=${TODAY}&status=Present`);
+    expect(att.body.logs.map((l) => l.id)).toEqual([LOG_A]);
+  });
+
   it("refuses branch B's records to the Admin of branch A, by id", async () => {
     expect((await file(who.adminA, { kind: "attendance_flag", ref_id: LOG_B, note: "Wrong time" })).status).toBe(404);
     expect((await file(who.adminA, { kind: "leave_endorsement", ref_id: "lr-b", decision: "endorse", note: "Fine by me" })).status).toBe(404);
