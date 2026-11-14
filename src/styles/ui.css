@@ -487,6 +487,30 @@ body.sacs-ui-portal.dark {
    sideways on a phone. Data tables and long pages keep their scrollbars so
    the reader can see where they are. Chrome, Edge, Safari: ::-webkit-scrollbar;
    Firefox: scrollbar-width; old Edge: -ms-overflow-style. */
+/* Side-by-side form fields line up (2026-11-14). On a grid of field cells
+   (label, box, then help / error lines), each cell shares its row's tracks
+   (CSS subgrid): a label that wraps onto two lines makes the whole row's
+   label track taller, so every box in the row still starts on the same line,
+   and help text under one box does not move the others. Use only on grids
+   whose children are all field cells of at most 4 parts. Without subgrid
+   support the cells just stack as before. */
+@utility field-grid {
+  /* The parent's row gap would sit between all four tracks of every cell:
+     no row gap; each cell carries the 1rem above it instead, and the grid
+     takes that first 1rem back so its own spacing is unchanged. */
+  row-gap: 0 !important;
+  margin-top: -1rem;
+
+  & > * {
+    grid-row: span 4;
+    display: grid;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+    align-content: start;
+    padding-top: 1rem;
+  }
+}
+
 @utility scrollbar-none {
   scrollbar-width: none;
   -ms-overflow-style: none;

@@ -27,7 +27,7 @@ const page = await context.newPage();
 await loginThroughUi(page, "accountant");
 await page.goto(`${BASE}/accountant?page=ac-process&period=${encodeURIComponent(PERIOD)}`);
 await page.locator("#portal-main").waitFor();
-await page.getByRole("button", { name: "Process payroll for all →" }).waitFor({ timeout: 120000 });
+await page.getByTestId("process-all").waitFor({ timeout: 120000 });
 await page.waitForFunction(() => !document.querySelector('#portal-main [data-slot="skeleton"]'), null, { timeout: 120000 });
 
 const before = await count();
@@ -37,7 +37,7 @@ page.on("request", (req) => {
 });
 const started = Date.now();
 const response = page.waitForResponse((r) => r.request().method() === "POST" && r.url().includes("/api/accountant/payroll"), { timeout: 600000 });
-await page.getByRole("button", { name: "Process payroll for all →" }).click();
+await page.getByTestId("process-all").click();
 await page.locator('[role="alertdialog"]').getByRole("button", { name: "Process payroll" }).click();
 const res = await response;
 const result = await res.json().catch(() => ({}));

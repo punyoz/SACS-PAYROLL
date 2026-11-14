@@ -103,7 +103,7 @@ export function EarlyBirdCard({ refreshKey }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {state.error ? <Alert className="border-warning/40 bg-warning/5"><AlertDescription>{state.error}</AlertDescription></Alert> : null}
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="field-grid grid gap-4 sm:grid-cols-3">
           <div className="space-y-1.5">
             <Label htmlFor="eb-threshold">Early by at least (minutes)</Label>
             <Input id="eb-threshold" type="number" min="1" max="120" inputMode="numeric" className="tabular-nums" value={form.threshold} disabled={!canSettings}

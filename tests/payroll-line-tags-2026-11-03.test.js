@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, table, users } from "./helpers/fake-supabase.js";
 import { computeSummary, defaultForm } from "@/lib/portal/payroll-preview";
-import { previewLineGroups } from "@/lib/portal/payroll-line-preview";
+import { compactLineGroups, previewLineGroups } from "@/lib/portal/payroll-line-preview";
 import { DEFERRED_NOTE, LINE_TAGS, buildLineGroups, linesNet, payrollLineGroups, taxExplanation } from "@/lib/payroll/line-tags";
 import { buildPayslipDetails } from "@/lib/payroll/payslip-details";
 
@@ -237,5 +237,43 @@ describe("rate × units, fixed and not charged lines; overrides marked", () => {
   it("a ₱0 tax with no taxable income says why", () => {
     expect(taxExplanation({ taxable: 0, tax: 0, table: BIR_MONTHLY.map(([over, base, pct]) => ({ over, base, rate: pct / 100 })) }).reason)
       .toBe("No taxable income this month after the government contributions.");
+  });
+});
+
+describe("compact Process Payroll summary (cleanup 2026-11-14)", () => {
+  const shape = (result) => allLines(result).map((l) => [l.key, l.amount, l.sign, l.tag]);
+
+  it("2nd half: formula-only texts, the same lines, amounts and tags", async () => {
+    await processFirstHalf();
+    const mid = await preview("u-mid");
+    const compact = compactLineGroups(mid.groups, mid);
+    expect(shape(compact)).toEqual(shape(mid.groups));
+    expect(lineIn(compact, "contributions", "sss").how).toBe("5% × ₱18,500");
+    expect(lineIn(compact, "contributions", "philhealth").how).toBe("2.5% × ₱18,500");
+    expect(lineIn(compact, "contributions", "pagibig").how).toBe("2% × ₱10,000 (cap)");
+    expect(lineIn(compact, "tax", "withholding_tax").how).toBe("Exempt bracket");
+    expect(lineIn(compact, "additions", "basic").how).toBe("₱18,500 − ₱9,250 (1st half)");
+    expect(compact.taxable.how).toBeNull();
+    const high = await preview("u-high");
+    const compactHigh = compactLineGroups(high.groups, high);
+    expect(lineIn(compactHigh, "contributions", "sss").how).toBe("5% × ₱35,000 (ceiling)");
+    expect(lineIn(compactHigh, "tax", "withholding_tax").how).toBe("₱1,875 + 20% × (₱41,925 − ₱33,333)");
+  });
+
+  it("1st half: no deferred notes, ₱0 lines show no text, Late not charged keeps its reason behind the tag", () => {
+    const result = buildLineGroups({
+      half: "first",
+      additions: { basic: { label: "Basic pay (1st half)", amount: 16000, how: "x" } },
+      attendance: { absent: { amount: 0, days: 0 }, late: { amount: 0, days: 1, minutes: 24 } },
+      overrides: { absent: { reason: "RFID down", from: 1, to: 0 } },
+    });
+    const summary = { info: { unit: { absent: 1471.26 }, row: { defaults: {} } }, extras: {}, basic: 16000 };
+    const compact = compactLineGroups(result, { employee: { basic_salary: 32000 }, form: { absences: "0" }, summary });
+    expect(shape(compact)).toEqual(shape(result));
+    expect(compact.groups.find((g) => g.key === "contributions").note).toBeNull();
+    expect(compact.groups.find((g) => g.key === "tax").note).toBeNull();
+    expect(lineIn(compact, "additions", "basic").how).toBe("₱32,000 ÷ 2");
+    expect(lineIn(compact, "attendance", "absent")).toMatchObject({ how: null, overridden: { reason: "RFID down" } });
+    expect(lineIn(compact, "attendance", "late")).toMatchObject({ how: null, tag: "not_charged", tip: "Late charge 0% under the current policy: recorded, not deducted" });
   });
 });

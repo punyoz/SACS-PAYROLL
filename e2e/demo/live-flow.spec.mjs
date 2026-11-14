@@ -30,10 +30,10 @@ test("Accountant processes, HR approves, Employee sees the payslip", async ({ br
   const acc = await (await browser.newContext()).newPage();
   await signIn(acc, "acc-b2-1", "/accountant");
   await acc.goto(`/accountant?page=ac-process&period=${encodeURIComponent(PERIOD)}`);
-  await acc.getByRole("button", { name: "Process payroll for all →" }).click();
+  await acc.getByTestId("process-all").click();
   const confirmProcess = acc.getByRole("alertdialog").or(acc.getByRole("dialog")).getByRole("button", { name: /Process|Confirm|Continue/ }).last();
   if (await confirmProcess.isVisible().catch(() => false)) await confirmProcess.click();
-  await expect(acc.getByRole("button", { name: "Process payroll for all →" })).toBeEnabled({ timeout: 60000 });
+  await expect(acc.getByTestId("process-all")).toBeEnabled({ timeout: 60000 });
   await acc.getByRole("button", { name: "Resubmit for HR Approval" }).click();
   await acc.getByRole("alertdialog").or(acc.getByRole("dialog")).getByRole("button", { name: "Resubmit" }).click();
   await expect(acc.getByText(/Locked until HR decides/)).toBeVisible({ timeout: 30000 });

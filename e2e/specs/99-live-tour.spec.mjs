@@ -179,13 +179,11 @@ const ACTIONS = {
     say("Single: SSS / PhilHealth / Pag-IBIG / Tax checked (should be read-only text with Flag for review).");
     await page.waitForTimeout(1500);
     say("Batch: scrolling to the batch table (Process payroll for all is NOT clicked)…");
-    const batch = main(page).locator("table").filter({ has: page.locator("th", { hasText: "PhilHealth" }) }).first();
+    // The batch table is read-only since 2026-11-14 (contributions and tax in one column each): no number box at all.
+    const batch = main(page).getByTestId("batch-card");
     if (await batch.count()) {
       await batch.scrollIntoViewIfNeeded();
-      const header = (await batch.locator("thead th").allInnerTexts()).map((t) => t.trim());
-      const govCols = ["SSS", "PhilHealth", "Pag-IBIG", "Tax"].map((h) => header.indexOf(h)).filter((i) => i >= 0);
-      let editable = 0;
-      for (const col of govCols) editable += await batch.locator(`tbody tr td:nth-child(${col + 1}) input`).count();
+      const editable = await batch.locator("[data-testid=batch-row] input[type=number]").count();
       if (editable) await problem(page, where, `the batch table has ${editable} editable government deduction boxes`);
       else say("Batch: government deduction columns are read-only.");
       await page.waitForTimeout(1500);
