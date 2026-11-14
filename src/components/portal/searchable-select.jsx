@@ -65,9 +65,9 @@ function OptionList({ listId, options, value, active, setActive, onPick, emptyTe
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => { if (!option.disabled) onPick(option); }}
               className={cn(
-                "relative flex min-h-9 cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm select-none",
+                "relative flex min-h-9 cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm select-none",
                 index === active && "bg-accent text-accent-foreground",
-                option.disabled && "pointer-events-none opacity-50",
+                option.disabled && "cursor-not-allowed opacity-50",
               )}
             >
               <span className="min-w-0 flex-1">

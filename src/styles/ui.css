@@ -28,6 +28,17 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Tailwind's own hover (pointer devices only, so no sticky hover on touch),
+   minus disabled controls: a disabled button keeps its look under the mouse.
+   :where() keeps the specificity of plain :hover, so no other style shifts. */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover:where(:not(:disabled, [aria-disabled="true"], [data-disabled]:not([data-disabled="false"]))) {
+      @slot;
+    }
+  }
+}
+
 /* body.sacs-ui-portal: dialogs and toasts render in a portal on <body>,
    outside .sacs-ui; the theme toggle mirrors the classes onto <body>. */
 .sacs-ui,
@@ -345,6 +356,44 @@ body.sacs-ui-portal.dark {
   body.sacs-ui-portal [data-slot="dialog-content"],
   body.sacs-ui-portal [data-slot="alert-dialog-content"] {
     color: var(--foreground);
+  }
+
+  /* Mouse cursors: the hand on what clicks, the I-beam on what types, a
+     no-entry sign on what is disabled, a busy pointer while a button works.
+     :where() keeps these at zero specificity, so a component's own cursor
+     class and the disabled rule below always win. */
+  :where(
+    button, [role="button"], a[href], summary, label[for], select,
+    input:is([type="checkbox"], [type="radio"], [type="file"], [type="submit"], [type="button"], [type="reset"], [type="color"], [type="range"]),
+    [role="tab"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"],
+    [role="option"], [role="switch"], [role="checkbox"], [role="radio"],
+    [data-slot="select-trigger"], [data-slot="dropdown-menu-trigger"], [data-slot="popover-trigger"],
+    [data-slot="dialog-trigger"], [data-slot="sheet-trigger"], [data-slot="tabs-trigger"],
+    [data-slot="sidebar-menu-button"]
+  ) {
+    cursor: pointer;
+  }
+  :where(
+    input:not([type]),
+    input:is([type="text"], [type="email"], [type="password"], [type="number"], [type="search"], [type="tel"], [type="url"], [type="date"], [type="time"], [type="datetime-local"], [type="month"]),
+    textarea, [contenteditable="true"], [data-slot="input-otp-slot"]
+  ) {
+    cursor: text;
+  }
+  :disabled,
+  [aria-disabled="true"],
+  [data-disabled]:not([data-disabled="false"]) {
+    cursor: not-allowed;
+  }
+  /* A saving button is disabled and shows a spinning icon. */
+  :is(button, [role="button"]):is([aria-busy="true"], [data-loading], :has(> .animate-spin)) {
+    cursor: progress;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    :where(a[href]) {
+      transition: color 150ms, background-color 150ms, text-decoration-color 150ms;
+    }
   }
 }
 
