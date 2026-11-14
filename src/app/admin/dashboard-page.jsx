@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UserXIcon, UsersIcon, XCircleIcon } from "lucide-react";
+import { ActivityIcon, CalendarDaysIcon, CheckCircle2Icon, ClockAlertIcon, InboxIcon, UsersIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
@@ -11,6 +11,7 @@ import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { useBranchView } from "./oversight-shared";
 import { AnnouncementsCard } from "@/components/portal/announcements";
+import { portalHref } from "@/lib/portal/navigate";
 
 /*
  * Admin Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
@@ -31,6 +32,9 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
     ]);
   }, [data, onSummary]);
 
+  // Today's rows of Branch Attendance (the server keeps them to this Admin's branch).
+  const todayHref = (status) => portalHref("adm-attendance", { adm_att_from: data?.today || "", adm_att_to: data?.today || "", ...(status ? { adm_att_status: status } : {}) });
+
   if (view.error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={view.error} onRetry={view.load} /></CardContent></Card>;
 
   return (
@@ -38,21 +42,21 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
       {view.error ? <p role="alert" className="text-sm text-destructive">{view.error} Showing the last loaded data.</p> : null}
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />
-      <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} />
-        <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} />
-        <StatCard label="Absent" value={a.absent ?? 0} icon={XCircleIcon} tone="danger" loading={view.first} />
-        <StatCard label="Not tapped in yet" value={a.not_tapped ?? 0} hint={data?.rest_day || ""} icon={UserXIcon} tone="danger" loading={view.first} />
-        <StatCard label="On leave" value={a.on_leave ?? 0} icon={CalendarDaysIcon} loading={view.first} />
+      <section aria-label="Today" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} href={todayHref("Present")} actionLabel="View who is present today" />
+        <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} href={todayHref("Late")} actionLabel="View today's late records" />
+        {/* One card (decision 2026-11-14): the same label, rule and link as HR's "Absent today", this branch only. */}
+        <StatCard label="Absent today" value={a.absent_today ?? 0} hint="Not yet recorded" icon={XCircleIcon} tone="danger" loading={view.first} href={todayHref("Not tapped yet")} actionLabel="View who has not tapped in today" />
+        <StatCard label="On leave" value={a.on_leave ?? 0} icon={CalendarDaysIcon} loading={view.first} href={todayHref("On Leave")} actionLabel="View today's leave records" />
       </section>
       <section aria-label="Branch" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Headcount" value={data?.headcount?.total ?? 0} hint={data ? `${data.headcount.teaching} teaching · ${data.headcount.non_teaching} non-teaching` : ""} icon={UsersIcon} loading={view.first} />
-        <StatCard label="Leave waiting for HR" value={data?.pending_leave_count ?? 0} icon={CalendarDaysIcon} tone="gold" loading={view.first} />
+        <StatCard label="Leave waiting for HR" value={data?.pending_leave_count ?? 0} icon={CalendarDaysIcon} tone="gold" loading={view.first} href={portalHref("adm-leaves")} actionLabel="View leave requests waiting for HR" />
         <StatCard label="Your requests waiting for HR" value={data?.open_requests ?? 0} icon={InboxIcon} tone="gold" loading={view.first} />
       </section>
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
-        <Card className="min-w-0 shadow-xs">
+        <Card id="admin-not-tapped" className="min-w-0 scroll-mt-20 shadow-xs">
           <CardHeader>
             <CardTitle>Not tapped in yet</CardTitle>
             <CardDescription>Employees of your branch with no time-in today (excluding those on approved leave).</CardDescription>

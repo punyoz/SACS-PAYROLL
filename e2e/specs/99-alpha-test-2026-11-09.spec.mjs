@@ -190,11 +190,12 @@ test("B: Branch Management, positions, loans, avatar menu, Help, SA cards", asyn
     await expect(main(page).locator("tbody tr").first()).toBeVisible();
     await shot(page, "b-branches-table");
   });
-  await step(page, "SA > Dashboard: the Total users card opens Admin & HR Accounts", async () => {
+  await step(page, "SA > Dashboard: Total users is not a link (no page lists every account; decision 2026-11-14); Pending actions is", async () => {
     await as(page, "super_admin", "sa-dashboard");
     await settle(page);
-    await main(page).getByRole("button", { name: /Total users: open Admin & HR Accounts/ }).click();
-    await expect(page.locator("h1")).toHaveText("Admin & HR Accounts");
+    await expect(main(page).getByRole("link", { name: /^Total users:/ })).toHaveCount(0);
+    await main(page).getByRole("link", { name: /^Pending actions: .*Open Items Waiting on Fallback$/ }).click();
+    await expect(page.locator("h1")).toHaveText("Items Waiting on Fallback");
   });
   await step(page, "Avatar menu: Profile, Change password, Help, Sign out; Help opens the tour", async () => {
     await page.getByTestId("header-avatar").click();

@@ -90,7 +90,7 @@ describe("Computation summary of a 2nd half after a per-cutoff 1st half (Benjie,
   const group = (key) => lines.groups.find((g) => g.key === key);
 
   it("shows its own half: Basic salary (2nd half) ₱16,000 + overload = ₱17,103.46; net ₱14,156.34", () => {
-    expect(group("additions").lines.find((l) => l.key === "basic")).toMatchObject({ label: "Basic salary (2nd half)", amount: 16000 });
+    expect(group("additions").lines.find((l) => l.key === "basic")).toMatchObject({ label: "Basic pay (2nd half)", amount: 16000 });
     expect(group("additions").subtotal).toBe(17103.46);
     expect(group("attendance").subtotal).toBe(0);           // the 1st half's absences are not shown again
     expect(lines.groups.some((g) => g.key === "settlement")).toBe(false);

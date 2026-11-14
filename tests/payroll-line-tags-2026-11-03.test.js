@@ -123,7 +123,7 @@ describe("the ₱18,500 employee on the screen, October 16-31 (preview)", () => 
     expect(groups.tax).toMatchObject({ index: 0, range: "up to ₱20,833", tax: 0 });
 
     // The 2nd half shows its own half (2026-11-14): no "Paid in 1st half" settlement line.
-    expect(lineIn(groups, "additions", "basic")).toMatchObject({ tag: "fixed", sign: "+", label: "Basic salary (2nd half)", amount: 9250 });
+    expect(lineIn(groups, "additions", "basic")).toMatchObject({ tag: "fixed", sign: "+", label: "Basic pay (2nd half)", amount: 9250 });
     expect(groups.reconciliation).toMatchObject({ first_half_net: 9250, total: summary.monthNet, monthly_net: summary.monthNet });
     // Every line has a known tag and a text; the lines add up to the net shown.
     allLines(groups).forEach((l) => { expect(LINE_TAGS[l.tag]).toBeTruthy(); expect(l.how).toBeTruthy(); });

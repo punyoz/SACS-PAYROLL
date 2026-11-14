@@ -463,7 +463,8 @@ function BatchCard({ onNavigate }) {
           <Table style={{ minWidth: 1500 }}>
             <TableHeader className="bg-muted/60">
               <TableRow className="hover:bg-transparent">
-                {["Employee", "Basic salary", "SSS", "PhilHealth", "Pag-IBIG", "Tax", "Absent", "Late", "Undertime", "Half day", "Early bird / incentive", "Leave w/ pay", "Leave w/o pay", "Net pay", "Payslip"].map((h) => (
+                {/* Label only (2026-11-14): a 1st half shows half the month, a 2nd half the whole month. */}
+                {["Employee", semiHalf(data) === "first" ? "Basic pay (1st half)" : "Basic salary (monthly)", "SSS", "PhilHealth", "Pag-IBIG", "Tax", "Absent", "Late", "Undertime", "Half day", "Early bird / incentive", "Leave w/ pay", "Leave w/o pay", "Net pay", "Payslip"].map((h) => (
                   <TableHead key={h} className="text-xs font-semibold text-muted-foreground">{h}</TableHead>
                 ))}
               </TableRow>
@@ -810,7 +811,10 @@ function SingleEntry({ onNavigate }) {
         max={NUMBER_MAX[key] || PESO_MAX}
         step={step}
         inputMode={step === "1" ? "numeric" : "decimal"}
-        value={key === "tax" ? shownTax : shownForm[key]}
+        // Basic salary (2026-11-14): the contract's fixed monthly pay from the
+        // employee's record, the same in both halves; each half's Basic pay
+        // (computed from it) is in the summary.
+        value={key === "tax" ? shownTax : key === "basic" && employee ? String(toAmount(employee.basic_salary)) : shownForm[key]}
         onChange={key === "tax"
           ? (e) => setForm((c) => ({ ...c, tax: e.target.value, taxEdited: true }))
           // Basic salary keeps to 7 whole digits and the maximum.
@@ -870,7 +874,7 @@ function SingleEntry({ onNavigate }) {
                 </Select>
               </div>
               {/* From the employee's record: HR changes a salary (2026-10-26), never payroll processing. */}
-              {numberField("pc-basic", "Basic salary (₱)", "basic", { disabled: false, readOnly: true, hint: "(from the employee's record; HR changes it)" })}
+              {numberField("pc-basic", "Basic salary (₱, monthly)", "basic", { disabled: false, readOnly: true, hint: "(fixed by contract, from the employee's record; HR changes it)" })}
             </div>
 
             <Separator />

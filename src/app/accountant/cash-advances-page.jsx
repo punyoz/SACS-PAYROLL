@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
 import { StatCard } from "@/components/portal/stat-card";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -60,7 +62,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
   const employees = React.useMemo(() => payroll?.employees || [], [payroll]);
   const starts = React.useMemo(startOptions, []);
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [filter, setFilter] = React.useState("open");
+  const [filter, setFilter] = useUrlParam("ca_status", "open");
   const [form, setForm] = React.useState({ employee: "", principal: "", installment: "", granted: manilaDateKey(), deductOn: "second", start: starts[0].value, description: "" });
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -181,7 +183,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Open advances" value={summary.open_count || 0} hint="Active or on hold, not yet repaid" icon={HandCoinsIcon} tone="info" loading={first} />
+        <StatCard label="Open advances" value={summary.open_count || 0} hint="Active or on hold, not yet repaid" icon={HandCoinsIcon} tone="info" loading={first} href={currentPageHref({ ca_status: "open" })} onClick={() => setFilter("open")} scrollTo="advances-table" actionLabel="Show open advances" />
         <StatCard label="Outstanding balance" value={moneyCompact(summary.outstanding || 0)} hint="Still to be deducted" icon={WalletIcon} tone="danger" loading={first} />
         <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips" icon={CoinsIcon} tone="success" loading={first} />
       </section>
@@ -230,7 +232,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
       </div>
       )}
 
-      <Card className="min-w-0 shadow-xs">
+      <Card id="advances-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>Advances</CardTitle>
           <CardAction className="flex gap-2">

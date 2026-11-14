@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { getAttendancePanels } from "@/app/api/admin/attendance/route";
+import { countAbsentToday } from "@/lib/attendance/not-tapped";
+import { manilaDateKey } from "@/lib/payroll/periods";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
@@ -198,10 +200,13 @@ export async function GET(request) {
     // activity's own query used to be the slowest part once payroll_records
     // grew (see 20260915010000_payroll_records_processed_at_idx.sql), so it's
     // worth overlapping with the rest rather than tacking it on after.
-    const [attendancePanels, recentActivity] = await Promise.all([
+    const [attendancePanels, recentActivity, absentToday] = await Promise.all([
       getAttendancePanels(supabase, activeEmployees, !guard.branchExempt),
       buildRecentActivity(supabase, activeEmployees, guard),
+      // Absent = scheduled today with no record, as on the HR dashboard (decision 2026-11-14).
+      countAbsentToday(supabase, { dateKey: manilaDateKey(), employeeIds: guard.branchExempt ? null : activeEmployees.map((e) => e.id) }).catch(() => 0),
     ]);
+    attendancePanels.absent_today = absentToday;
     const payload = buildDashboardPayload(activeEmployees, attendancePanels, recentActivity);
 
     return NextResponse.json(payload);

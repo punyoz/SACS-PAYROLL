@@ -19,12 +19,14 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/portal/password-input";
 import { PASSWORD_MIN_LENGTH, evaluatePasswordShape, saveAuthContext } from "./auth-context";
 import { EMAIL_MAX } from "@/lib/input-limits";
+import { RESET_EMAIL_INVALID, RESET_EMAIL_REQUIRED, isResetEmail } from "@/lib/auth/reset-email";
 
 /**
  * "Forgot password?" — three steps, all through POST /api/legacy-auth/reset-password,
  * exactly as the legacy dialog (public/legacy/js/app.js, sendResetOtp /
  * verifyResetOtp / completeResetPassword):
- *   1. "send"    Employee ID or email -> a 6-digit code (valid 5 minutes)
+ *   1. "send"    the registered email -> a 6-digit code (valid 5 minutes);
+ *                Employee IDs are no longer accepted (2026-11-14)
  *   2. "verify"  the code; only when it checks out does step 3 appear
  *   3. "reset"   new password + confirmation
  * The server keeps which step this browser is on in a signed cookie.
@@ -100,8 +102,8 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
 
   async function send() {
     const id = identity.trim();
-    if (!id) {
-      setFeedback({ text: "Enter your Employee ID or email address.", ok: false });
+    if (!id || !isResetEmail(id)) {
+      setFeedback({ text: id ? RESET_EMAIL_INVALID : RESET_EMAIL_REQUIRED, ok: false });
       return;
     }
     setBusy(true);
@@ -117,7 +119,7 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
       }
       setStage("otp");
       setCode("");
-      setFeedback({ text: result.message || "If the account exists, a code has been sent.", ok: true });
+      setFeedback({ text: result.message || "If this email is registered, a code has been sent.", ok: true });
       setResendAt(Date.now() + (Number(result.resend_after) || RESEND_SECONDS) * 1000);
     } catch {
       setFeedback({ text: NETWORK_ERROR, ok: false });
@@ -204,8 +206,7 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
         <DialogHeader>
           <DialogTitle>Reset password</DialogTitle>
           <DialogDescription>
-            Enter your Employee ID (e.g. <strong className="text-foreground">SACS-001</strong>) or your registered email.
-            A 6-digit code, valid for 5 minutes, will be sent to your email.
+            Enter your registered email address. A 6-digit code, valid for 5 minutes, will be sent to it.
           </DialogDescription>
         </DialogHeader>
 
@@ -216,14 +217,21 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
           </p>
 
           <div className="space-y-2">
-            <Label htmlFor="reset-identity">Employee ID or email</Label>
+            <Label htmlFor="reset-identity">Email address</Label>
             <Input
               id="reset-identity"
-              autoComplete="off"
-              placeholder="e.g. SACS-001 or your@email.com"
+              type="email"
+              autoComplete="email"
+              inputMode="email"
+              placeholder="name@example.com"
               maxLength={EMAIL_MAX}
               value={identity}
-              onChange={(e) => setIdentity(e.target.value)}
+              onChange={(e) => { setIdentity(e.target.value); if (!feedback.ok) setFeedback({ text: "", ok: false }); }}
+              onBlur={() => { if (stage === "identity" && identity.trim() && !isResetEmail(identity)) setFeedback({ text: RESET_EMAIL_INVALID, ok: false }); }}
+              // "Send code" stays disabled until the format is valid, so Enter says why instead.
+              onKeyDown={(e) => { if (e.key === "Enter" && stage === "identity" && !isResetEmail(identity)) setFeedback({ text: identity.trim() ? RESET_EMAIL_INVALID : RESET_EMAIL_REQUIRED, ok: false }); }}
+              aria-invalid={Boolean(identity.trim()) && !isResetEmail(identity)}
+              aria-describedby="reset-feedback"
               readOnly={stage !== "identity"}
               className="h-10"
               autoFocus
@@ -285,13 +293,13 @@ export function ResetPasswordDialog({ open, onOpenChange }) {
             </div>
           ) : null}
 
-          <p role="alert" aria-live="polite" className={`min-h-5 text-sm ${feedback.ok ? "text-success" : "text-destructive"}`}>
+          <p id="reset-feedback" role="alert" aria-live="polite" className={`min-h-5 text-sm ${feedback.ok ? "text-success" : "text-destructive"}`}>
             {feedback.text}
           </p>
 
           <DialogFooter className="gap-2 sm:gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy || (stage === "identity" && !isResetEmail(identity))}>
               {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />{busyLabel}</> : label}
             </Button>
           </DialogFooter>

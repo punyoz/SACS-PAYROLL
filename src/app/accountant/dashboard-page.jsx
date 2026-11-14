@@ -15,6 +15,7 @@ import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { dateTime, money, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { useAccountant } from "./accountant-data";
 import { AnnouncementsCard } from "@/components/portal/announcements";
+import { portalHref } from "@/lib/portal/navigate";
 
 /* Dashboard (renderDashboard, public/legacy/js/accountant.js). */
 
@@ -79,8 +80,8 @@ export function DashboardPage({ refreshKey, onNavigate }) {
         <StatCard label="Total employees" value={employees.length} hint="Active staff" icon={UsersIcon} loading={first} />
         <StatCard label="Period gross pay" value={moneyCompact(panels.total_gross || 0)} hint={data?.active_period?.label || "Current period"} icon={BanknoteIcon} tone="gold" loading={first} />
         <StatCard label="Period net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" glow loading={first} />
-        <StatCard label="Paid payrolls" value={paid} hint="Approved by HR" icon={CheckCircle2Icon} tone="success" loading={first} />
-        <StatCard label="Draft payrolls" value={drafts.length} hint="Saved drafts" icon={FilePenLineIcon} tone="info" loading={first} />
+        <StatCard label="Paid payrolls" value={paid} hint="Approved by HR" icon={CheckCircle2Icon} tone="success" loading={first} href={portalHref("ac-monitoring", { mon_status: "Paid" })} actionLabel="View paid payrolls in Payroll Monitoring" />
+        <StatCard label="Draft payrolls" value={drafts.length} hint="Saved drafts" icon={FilePenLineIcon} tone="info" loading={first} href={portalHref("ac-monitoring", { mon_status: "Not submitted to HR" })} actionLabel="View drafts in Payroll Monitoring" />
         <StatCard label="Total deductions" value={moneyCompact(panels.total_deductions || 0)} hint="Current period" icon={MinusCircleIcon} tone="danger" loading={first} />
       </section>
 

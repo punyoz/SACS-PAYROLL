@@ -16,18 +16,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/portal/api";
 
-export function FallbackPage({ refreshKey = 0 }) {
+/** onCounts(total): the sidebar badge takes the count from this same reload (2026-11-14). */
+export function FallbackPage({ refreshKey = 0, onCounts }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [reasons, setReasons] = React.useState({});
   const [busy, setBusy] = React.useState(null);
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      setState({ loading: false, error: null, data: await fetchJson("/api/super-admin/fallback") });
+      const data = await fetchJson("/api/super-admin/fallback");
+      setState({ loading: false, error: null, data });
+      onCounts?.(Number(data?.counts?.total || 0));
     } catch (error) {
       setState((s) => ({ ...s, loading: false, error: error?.message || "Could not load the items." }));
     }
-  }, []);
+  }, [onCounts]);
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const decide = async (row, action) => {

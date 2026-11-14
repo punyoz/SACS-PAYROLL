@@ -198,6 +198,17 @@ describe("Today's non-tappers and correcting an absence", () => {
       time_in: "2026-09-28T00:05:00Z", status: "On Time", archived_duplicate: false, branch_id: "branch-a",
     });
     table("leave_requests").push({ employee_id: "SACS-009", status: "approved", start_date: "2026-09-28", end_date: "2026-09-29" });
+    // Who is missing comes from public.attendance_missing_days, the nightly
+    // close's own rule (SQL, 20261114010000); stood in for here with its answer
+    // for this roster: on leave, archived, not hired yet, the Admin, and the
+    // one who tapped are left out; a Sunday is a rest day.
+    rpc.results.attendance_missing_days = ({ p_from }) => ({
+      data: p_from === "2026-09-28" ? [
+        { employee_id: "u-missing", full_name: "Not Yet", employee_type: "Teaching", branch_id: "branch-a", day: p_from },
+        { employee_id: "u-other-branch", full_name: "Elsewhere", employee_type: "Teaching", branch_id: "branch-b", day: p_from },
+      ] : [],
+      error: null,
+    });
   });
 
   afterEach(() => vi.useRealTimers());

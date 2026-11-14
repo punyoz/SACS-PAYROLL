@@ -8,6 +8,8 @@ import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DataTable } from "@/components/portal/data-table";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatCard } from "@/components/portal/stat-card";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -26,7 +28,7 @@ export function MonitoringPage() {
   const { data, loading, error, load, editDraft, openPayslip, entryId, setEntryId } = useAccountant();
   const { notify } = usePortalSession();
   const [confirmDialog, confirm] = useConfirm();
-  const [filter, setFilter] = React.useState("all");
+  const [filter, setFilter] = useUrlParam("mon_status", "all");
   const all = [...(data?.history_records || data?.records || []), ...(data?.draft_entries || [])];
   // The tabs are the payroll status labels (recordStatusMeta), so a tab
   // shows exactly the rows whose badge says its name.
@@ -72,11 +74,11 @@ export function MonitoringPage() {
   return (
     <>
       <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Total records" value={all.length} icon={ListIcon} loading={first} />
-        <StatCard label="Paid" value={paid} icon={CheckCircle2Icon} tone="success" loading={first} />
-        <StatCard label="On hold" value={hold} icon={PauseCircleIcon} tone="danger" loading={first} />
+        <StatCard label="Total records" value={all.length} icon={ListIcon} loading={first} href={currentPageHref({ mon_status: "all" })} onClick={() => setFilter("all")} scrollTo="monitoring-table" actionLabel="Show every record" />
+        <StatCard label="Paid" value={paid} icon={CheckCircle2Icon} tone="success" loading={first} href={currentPageHref({ mon_status: "Paid" })} onClick={() => setFilter("Paid")} scrollTo="monitoring-table" actionLabel="Show paid records" />
+        <StatCard label="On hold" value={hold} icon={PauseCircleIcon} tone="danger" loading={first} href={currentPageHref({ mon_status: "On hold" })} onClick={() => setFilter("On hold")} scrollTo="monitoring-table" actionLabel="Show records on hold" />
       </section>
-      <Card className="min-w-0 shadow-xs">
+      <Card id="monitoring-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>Payroll history</CardTitle>
           <CardAction className="flex flex-wrap gap-2"><HistorySelect /><Button variant="outline" size="sm" onClick={() => load()} disabled={loading}><RefreshCwIcon className={cn(loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>

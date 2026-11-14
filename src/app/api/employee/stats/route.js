@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/rbac/guard";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
-import { attendanceBucket } from "@/lib/attendance/status";
+import { attendanceBucket, isPresentRow } from "@/lib/attendance/status";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { readApprovedLeave } from "@/lib/attendance/leave";
 import { describeDayPart, holidayAppliesTo, readHolidayMap } from "@/lib/attendance/holidays";
@@ -103,8 +103,9 @@ export async function GET(request) {
           // Engine statuses (On Time, Early Bird, Undertime, ...) bucketed
           // into present / late / absent (src/lib/attendance/status.js).
           const status = attendanceBucket(row.status);
-          if (status === "present") present++;
-          else if (status === "late") late++;
+          // Present = the shared group, Late included (decision 2026-11-14).
+          if (isPresentRow(row, todayKey)) present++;
+          if (status === "late") late++;
           else if (status === "absent") absent++;
           else if (status === "leave") onLeave++;
 

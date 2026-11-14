@@ -11,7 +11,7 @@ screenshots. Menu names match the portals. Every role's guide starts with
    seconds; 5 wrong codes ask for a new one).
 3. First sign-in with an issued password: choose a new one (8+ characters,
    upper and lower case, a number and a symbol).
-4. Forgot password: "Forgot password?" on the sign-in page (emailed code).
+4. Forgot password: "Forgot password?" on the sign-in page; enter your registered email address (not the Employee ID) and the emailed code.
 5. Signed out after 60 idle minutes, or when you sign in somewhere else.
 6. Profile: your details, emergency contact, change password.
 

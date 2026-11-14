@@ -63,11 +63,34 @@ export function normalizeAttendanceStatus(value, fallback = "Absent") {
   return BY_LOWER.get(key) || fallback;
 }
 
+/**
+ * "Present" on every dashboard and in the status filters (decision
+ * 2026-11-14): the days the employee came in, Late included.
+ */
+export const PRESENT_STATUSES = Object.freeze(["On Time", "Early Bird", "Late", "Undertime", "Half Day", "Corrected"]);
+/** The status-filter value that stands for the whole PRESENT_STATUSES group. */
+export const PRESENT_FILTER = "Present";
+
 /** Counted as a day the employee came in (for present-day totals). */
 export function isAttendedStatus(status) {
-  const normalized = normalizeAttendanceStatus(status, "");
-  return Boolean(normalized) && normalized !== "Absent" && normalized !== "On Leave"
-    && normalized !== "Holiday" && !UNRESOLVED_STATUSES.includes(normalized);
+  return PRESENT_STATUSES.includes(normalizeAttendanceStatus(status, ""));
+}
+
+/**
+ * Present for counting one attendance row (decision 2026-11-14, round 4): the
+ * Present group, or any time-in TODAY -- someone who tapped in today and has
+ * not tapped out yet (Incomplete once the shift ends) is present today.
+ * Past Incomplete days stay out until resolved.
+ */
+export function isPresentRow(row, todayKey) {
+  return isAttendedStatus(row?.status) || (Boolean(todayKey) && row?.log_date === todayKey && Boolean(row?.time_in));
+}
+
+/** A row matches a status filter: one status, the "Present" group, or "all". */
+export function matchesStatusFilter(status, filter) {
+  if (!filter || filter === "all") return true;
+  if (filter === PRESENT_FILTER) return isAttendedStatus(status);
+  return status === filter;
 }
 
 export function isUnresolvedStatus(status) {

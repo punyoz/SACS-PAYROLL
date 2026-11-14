@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { collapseDailyTaps } from "@/lib/attendance/taps";
-import { attendanceBucket } from "@/lib/attendance/status";
+import { attendanceBucket, isPresentRow } from "@/lib/attendance/status";
+import { countAbsentToday } from "@/lib/attendance/not-tapped";
 import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
@@ -68,18 +69,17 @@ export async function GET(request) {
       const { data: attRows } = await attQuery;
 
       if (Array.isArray(attRows)) {
-        const seenEmployees = new Set();
         // One record per employee: status comes from the day's first tap.
+        // Present = the shared group (Late included, decision 2026-11-14).
         collapseDailyTaps(attRows, { dateKey: () => today }).forEach((row) => {
-          seenEmployees.add(row.employee_id);
-          const s = attendanceBucket(row.status);
-          if (s === "present") presentToday++;
-          else if (s === "late") lateToday++;
+          if (isPresentRow(row, today)) presentToday++;
+          if (attendanceBucket(row.status) === "late") lateToday++;
         });
-        absentToday = Math.max(0, totalEmployees - seenEmployees.size);
       }
+      // Absent = scheduled today with no record (the board's "Not tapped yet").
+      absentToday = await countAbsentToday(supabase, { dateKey: today, employeeIds: guard.branchExempt ? null : employees.map((u) => u.id) });
     } catch {
-      absentToday = totalEmployees;
+      absentToday = 0;
     }
 
     // Pending leave requests

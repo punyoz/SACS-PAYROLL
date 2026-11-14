@@ -12,6 +12,8 @@ import { StatCard } from "@/components/portal/stat-card";
 import { AttendanceBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { fetchJson } from "@/lib/portal/api";
+import { portalHref } from "@/lib/portal/navigate";
+import { manilaDateKey } from "@/lib/payroll/periods";
 import { LicenseAlertsCard } from "./license-alerts-card";
 
 /*
@@ -64,6 +66,9 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
     { label: "Late today", count: Number(d.late_today || 0), fill: "var(--chart-4)" },
   ];
 
+  const today = manilaDateKey();
+  const todayRange = { hr_att_from: today, hr_att_to: today };
+
   if (state.error && !state.data) {
     return <Card className="shadow-xs"><CardContent><ErrorState message={state.error} /></CardContent></Card>;
   }
@@ -71,10 +76,10 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
   return (
     <>
       <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} />
-        <StatCard label="Present today" value={d.present_today ?? 0} hint="Attendance today" icon={CheckCircle2Icon} tone="success" loading={loading} />
-        <StatCard label="Absent today" value={d.absent_today ?? 0} hint="Not yet recorded" icon={XCircleIcon} tone="danger" loading={loading} />
-        <StatCard label="Pending leaves" value={pending} hint="Awaiting your decision" icon={CalendarClockIcon} tone="gold" loading={loading} />
+        <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} href={portalHref("hr-employees")} actionLabel="View active employees" />
+        <StatCard label="Present today" value={d.present_today ?? 0} hint="Late included" icon={CheckCircle2Icon} tone="success" loading={loading} href={portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" })} actionLabel="View who is present today" />
+        <StatCard label="Absent today" value={d.absent_today ?? 0} hint="Not yet recorded" icon={XCircleIcon} tone="danger" loading={loading} href={portalHref("hr-attendance", { ...todayRange, hr_att_status: "Not tapped yet" })} actionLabel="View who has not tapped in today" />
+        <StatCard label="Pending leaves" value={pending} hint="Awaiting your decision" icon={CalendarClockIcon} tone="gold" loading={loading} href={portalHref("hr-leaves")} actionLabel="View pending leave requests" />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

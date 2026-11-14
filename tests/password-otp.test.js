@@ -146,7 +146,7 @@ const RESET = "/api/legacy-auth/reset-password";
 
 describe("The reset email", () => {
   it("carries a 6-digit code, in the HTML and the plain text", async () => {
-    await browser().post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    await browser().post(resetRoute, RESET, { action: "send", identity: "emp@example.com" });
     expect(outbox).toHaveLength(1);
     const [mail] = outbox;
     expect(mail.to).toBe("emp@example.com");
@@ -159,7 +159,7 @@ describe("The reset email", () => {
   it("reports a failed send instead of claiming the code went out", async () => {
     const { failNextSend } = await import("./helpers/fake-email-otp.js");
     failNextSend();
-    const reply = await browser().post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    const reply = await browser().post(resetRoute, RESET, { action: "send", identity: "emp@example.com" });
     expect(reply.body.code).toBe("email_send_failed");
     expect(reply.status).toBe(502);
   });
@@ -168,22 +168,40 @@ describe("The reset email", () => {
 /* ── Reset password (logged out) ────────────────────────────────────────── */
 
 describe("Reset password by OTP", () => {
+  it("takes the registered email only: an Employee ID or a malformed email is refused with 400, nothing sent", async () => {
+    for (const identity of ["SACS-001", "emp@", "emp example.com"]) {
+      const reply = await browser().post(resetRoute, RESET, { action: "send", identity });
+      expect(reply.status).toBe(400);
+      expect(reply.body).toMatchObject({ code: "email_invalid", error: "Enter a valid email address. Employee IDs are no longer accepted here." });
+    }
+    const empty = await browser().post(resetRoute, RESET, { action: "send", identity: "  " });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toBe("Enter your email address.");
+    expect(outbox).toHaveLength(0);
+  });
+
+  it("matches the email trimmed and without regard to letter case", async () => {
+    const reply = await browser().post(resetRoute, RESET, { action: "send", identity: "  EMP@Example.COM " });
+    expect(reply.status).toBe(200);
+    expect(sentTo()).toEqual(["emp@example.com"]);
+  });
+
   it("answers the same way whether or not the account exists or may reset", async () => {
     const replies = [];
-    for (const identity of ["SACS-001", "nobody@example.com", "admin@example.com"]) {
+    for (const identity of ["emp@example.com", "nobody@example.com", "admin@example.com"]) {
       const reply = await browser().post(resetRoute, RESET, { action: "send", identity });
       replies.push({ status: reply.status, message: reply.body.message });
       expect(JSON.stringify(reply.body)).not.toContain("emp@example.com");
     }
     expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
-    expect(replies[0].message).toMatch(/If the account exists/);
+    expect(replies[0].message).toBe("If this email is registered, a code has been sent.");
     // The Employee and the Admin (every role resets by code) were emailed;
     // the unknown address was not, and the reply did not say so.
     expect(sentTo()).toEqual(["emp@example.com", "admin@example.com"]);
   });
 
   it("enforces a 60-second cooldown, identically for unknown identities", async () => {
-    for (const identity of ["SACS-001", "nobody@example.com"]) {
+    for (const identity of ["emp@example.com", "nobody@example.com"]) {
       const b = browser();
       await b.post(resetRoute, RESET, { action: "send", identity });
       const again = await b.post(resetRoute, RESET, { action: "send", identity });
@@ -194,7 +212,7 @@ describe("Reset password by OTP", () => {
 
   it("will not set a password before the OTP is verified", async () => {
     const b = browser();
-    await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    await b.post(resetRoute, RESET, { action: "send", identity: "emp@example.com" });
     const skip = await b.post(resetRoute, RESET, { action: "reset", password: "NewPass9!", confirm_password: "NewPass9!" });
     expect(skip.status).toBe(400);
     expect(db.updates).toHaveLength(0);
@@ -202,7 +220,7 @@ describe("Reset password by OTP", () => {
 
   it("locks after five wrong codes and requires a new OTP", async () => {
     const b = browser();
-    await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    await b.post(resetRoute, RESET, { action: "send", identity: "emp@example.com" });
     for (let i = 1; i <= 4; i += 1) {
       expect((await b.post(resetRoute, RESET, { action: "verify", code: wrongCode() })).status).toBe(400);
     }
@@ -217,7 +235,7 @@ describe("Reset password by OTP", () => {
   it("refuses a code after five minutes", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const b = browser();
-    await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    await b.post(resetRoute, RESET, { action: "send", identity: "emp@example.com" });
     vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1000);
     const late = await b.post(resetRoute, RESET, { action: "verify", code: lastCode() });
     expect(late.body.code).toBe("otp_expired");
@@ -225,7 +243,7 @@ describe("Reset password by OTP", () => {
 
   it("verifies, then sets the password once, then signs in to the portal", async () => {
     const b = browser();
-    await b.post(resetRoute, RESET, { action: "send", identity: "SACS-001" });
+    await b.post(resetRoute, RESET, { action: "send", identity: "emp@example.com" });
     // An 8-digit code (the old Supabase OTP length) is refused by format.
     expect((await b.post(resetRoute, RESET, { action: "verify", code: "12345678" })).body.code).toBe("otp_format");
     const verified = await b.post(resetRoute, RESET, { action: "verify", code: lastCode() });

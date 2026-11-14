@@ -12,6 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
 import { StatCard } from "@/components/portal/stat-card";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { currentPageHref } from "@/lib/portal/navigate";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -47,7 +49,7 @@ const plusDays = (key, n) => {
 export function AwolCasesPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [filter, setFilter] = React.useState("open");
+  const [filter, setFilter] = useUrlParam("awol_filter", "open");
   const [dialog, setDialog] = React.useState(null);   // { action, row } | { action: "open" }
   const [input, setInput] = React.useState({});
   const [error, setError] = React.useState("");
@@ -149,13 +151,13 @@ export function AwolCasesPage({ refreshKey }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Open cases" value={summary.open || 0} hint="Flagged to HR decision" icon={UserXIcon} tone="danger" loading={first} />
+        <StatCard label="Open cases" value={summary.open || 0} hint="Flagged to HR decision" icon={UserXIcon} tone="danger" loading={first} href={currentPageHref({ awol_filter: "open" })} onClick={() => setFilter("open")} scrollTo="awol-table" actionLabel="Show open cases" />
         <StatCard label="To confirm" value={summary.flagged || 0} hint="Flagged by the nightly check" icon={AlertTriangleIcon} tone="gold" loading={first} />
         <StatCard label="For decision" value={summary.for_decision || 0} hint="Both notices sent" icon={HourglassIcon} tone="info" loading={first} />
         <StatCard label="Pay on hold" value={summary.held || 0} hint="AWOL or separated" icon={PauseCircleIcon} tone="danger" loading={first} />
       </section>
 
-      <Card className="min-w-0 shadow-xs">
+      <Card id="awol-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>AWOL cases</CardTitle>
           <CardAction className="flex flex-wrap gap-2">

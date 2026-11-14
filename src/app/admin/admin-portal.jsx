@@ -43,10 +43,12 @@ const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m)
  * decisions or system settings. `module` is the permission each page needs
  * (src/lib/rbac/permissions.js).
  */
+// Collapsible groups as HR's and the Super Admin's (decision 2026-11-14); same items, order and routes.
 const NAV = [
   { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "branch_oversight" }] },
   {
     section: "Attendance",
+    collapsible: true,
     items: [
       { id: "adm-attendance", label: "Branch Attendance", icon: CalendarCheckIcon, module: "branch_oversight" },
       { id: "adm-overtime", label: "Overtime & Substitute", icon: ClockIcon, module: "branch_oversight" },
@@ -54,6 +56,7 @@ const NAV = [
   },
   {
     section: "Recommendations",
+    collapsible: true,
     items: [
       { id: "adm-leaves", label: "Leave Recommendations", icon: CalendarDaysIcon, module: "branch_oversight" },
       { id: "adm-transfers", label: "Transfer Endorsements", icon: ArrowLeftRightIcon, module: "branch_oversight" },
@@ -63,6 +66,7 @@ const NAV = [
   },
   {
     section: "Reports to HR",
+    collapsible: true,
     items: [
       { id: "adm-incidents", label: "Incident & AWOL Reports", icon: SirenIcon, module: "branch_oversight" },
       { id: "adm-rfid-issues", label: "RFID Issues", icon: CreditCardIcon, module: "branch_oversight" },
@@ -70,6 +74,7 @@ const NAV = [
   },
   {
     section: "Branch",
+    collapsible: true,
     items: [
       { id: "adm-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
       { id: "adm-payroll", label: "Payroll Summary", icon: BanknoteIcon, module: "branch_reports" },
@@ -77,8 +82,8 @@ const NAV = [
       { id: "adm-pay-rates", label: "Pay Rates", icon: CoinsIcon, module: "pay_rates" },
     ],
   },
-  { section: "RFID", items: [{ id: "adm-maintenance", label: "RFID Terminal & Cards", icon: RadioTowerIcon, module: "system_maintenance" }] },
-  { section: "Account", items: [{ id: "adm-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  { section: "RFID", collapsible: true, items: [{ id: "adm-maintenance", label: "RFID Terminal & Cards", icon: RadioTowerIcon, module: "system_maintenance" }] },
+  { section: "My Account", collapsible: true, items: [{ id: "adm-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
 ];
 
 const NAV_ITEMS = NAV.flatMap((group) => group.items);

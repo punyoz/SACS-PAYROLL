@@ -6,7 +6,10 @@ import { can, SCOPE_SELF } from "@/lib/rbac/permissions";
 import {
   ATTENDANCE_STATUSES,
   CORRECTABLE_STATUSES,
+  PRESENT_FILTER,
+  PRESENT_STATUSES,
   UNRESOLVED_STATUSES,
+  isPresentRow,
   normalizeAttendanceStatus,
 } from "@/lib/attendance/status";
 import { isDateKey, manilaDateKey, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
@@ -47,7 +50,7 @@ import { loadDemoIds, notDemo } from "@/lib/demo";
  * even if the nightly job has not run.
  */
 
-const LIGHT_COLUMNS = "id,employee_id,employee_name,log_date,status";
+const LIGHT_COLUMNS = "id,employee_id,employee_name,log_date,status,time_in";
 const NOT_TAPPED_YET = "Not tapped yet";
 const LOG_COLUMNS = "id,employee_id,employee_name,employee_type,branch_id,log_date,time_in,time_out,total_hours,status,late_minutes,undertime_minutes,is_half_day,is_early_bird,schedule_id,updated_at";
 const MAX_RANGE_DAYS = 62;
@@ -108,6 +111,7 @@ export async function GET(request) {
       return NextResponse.json({ range, logs: [], counts: {}, statuses: ATTENDANCE_STATUSES, engine_ready: engineReady });
     }
     const statusFilter = normalizeText(url.searchParams.get("status"));
+    const presentDay = manilaDateKey();
     // Search (name or employee ID) and one day, in the query (2026-11-09).
     const q = normalizeText(url.searchParams.get("q")).slice(0, 80).replace(/[%_,()*\\]/g, " ").trim();
     const dayParam = normalizeText(url.searchParams.get("day"));
@@ -136,6 +140,8 @@ export async function GET(request) {
       // Paged reads count every status first; the status is chosen below.
       if (paging) return query;
       if (statusFilter === "unresolved") query = query.in("status", UNRESOLVED_STATUSES);
+      // "Present": the shared group, or any time-in today (decision 2026-11-14), as on the dashboards.
+      else if (statusFilter === PRESENT_FILTER) query = query.or(`status.in.(${PRESENT_STATUSES.map((s) => `"${s}"`).join(",")}),and(log_date.eq.${presentDay},time_in.not.is.null)`);
       else if (statusFilter && statusFilter !== "all") query = query.eq("status", normalizeAttendanceStatus(statusFilter, statusFilter));
       return query;
     };
@@ -143,6 +149,7 @@ export async function GET(request) {
       if (!statusFilter || statusFilter === "all") return true;
       if (statusFilter === "unresolved") return UNRESOLVED_STATUSES.includes(row.status);
       if (statusFilter === NOT_TAPPED_YET) return row.status === NOT_TAPPED_YET;
+      if (statusFilter === PRESENT_FILTER) return isPresentRow(row, presentDay);
       return row.status === normalizeAttendanceStatus(statusFilter, statusFilter);
     };
 

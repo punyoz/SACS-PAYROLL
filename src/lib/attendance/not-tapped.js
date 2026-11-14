@@ -6,95 +6,39 @@
  * only the people who did tap; this fills in everyone else so HR sees today's
  * absentees by name, the way the Admin page always has.
  *
- * Nobody is listed on a rest day or holiday, before their hire date, while
- * archived / inactive, or on a day covered by approved leave. The rows are
- * placeholders (id null, placeholder: true) -- nothing is written.
+ * Who is missing comes from public.attendance_missing_days, the SAME function
+ * the nightly close inserts its Absent records from (20261114010000): role
+ * employee / accountant / hr, not archived or inactive, hired by the day, no
+ * record, no approved leave, and a working day by that person's own schedule
+ * and their branch's holidays. So a card, its list and the records the close
+ * writes later always agree. The rows are placeholders (id null,
+ * placeholder: true) -- nothing is written.
  */
 
 import { normalizeText } from "@/lib/auth/normalize";
-import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { holidayAppliesTo } from "@/lib/attendance/holidays";
-
-function isWeekend(dateKey) {
-  const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
-  return day === 0 || day === 6;
-}
-
-/** The day's whole-day-off row (holiday, special day, suspension), or null. */
-async function dayOffRow(supabase, dateKey) {
-  try {
-    const result = await supabase
-      .from("attendance_holidays")
-      .select("holiday_date,type,day_part,branch_ids")
-      .eq("holiday_date", dateKey)
-      // A morning / afternoon suspension is still a working day.
-      .eq("day_part", "whole")
-      // A special working day is an ordinary day (20261102010000).
-      .neq("type", "special_working")
-      .limit(1);
-    return result.error ? null : (result.data || [])[0] || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * @param {object} supabase     service-role client
  * @param {object} args
  * @param {string} args.dateKey "YYYY-MM-DD"
- * @param {Set<string>} args.loggedIds  employee ids that already have a record that day
+ * @param {Set<string>} [args.loggedIds]  employee ids already shown with a record that day
  * @param {string[]|null} [args.employeeIds]  limit to these (branch scoping); null = everyone
  * @returns {Promise<object[]>} placeholder Absent rows
  */
-export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds = null }) {
-  if (!dateKey || isWeekend(dateKey)) return [];
-  const dayOff = await dayOffRow(supabase, dateKey);
-  // Nationwide: nobody is expected. A branch closure: only its people are not.
-  if (dayOff && holidayAppliesTo(dayOff, null)) return [];
+export async function listNotTapped(supabase, { dateKey, loggedIds = new Set(), employeeIds = null }) {
+  if (!dateKey) return [];
   if (Array.isArray(employeeIds) && !employeeIds.length) return [];
-
-  // Paged (PostgREST answers 1,000 rows at most) and, for a list, in chunks.
-  const build = () => supabase
-    .from("profiles")
-    .select("id,full_name,employee_type,branch_id,role,archived,employee_status,date_hired,created_at,employee_id")
-    .order("id", { ascending: true });
-  const roster = Array.isArray(employeeIds) ? await fetchAllIn(build, "id", employeeIds) : await fetchAllRows(build);
-  if (roster.error) return [];
-
-  const people = (roster.data || []).filter((p) => {
-    const role = String(p.role || "").toLowerCase();
-    if (role !== "employee" && role !== "accountant") return false;
-    if (p.archived === true) return false;
-    if (String(p.employee_status || "").toLowerCase() === "inactive") return false;
-    const hired = String(p.date_hired || p.created_at || "").slice(0, 10);
-    if (hired && hired > dateKey) return false;
-    if (dayOff && holidayAppliesTo(dayOff, p.branch_id)) return false;
-    return !loggedIds.has(String(p.id));
-  });
-  if (!people.length) return [];
-
-  // Approved leave covering the day (either id form -- see buildLeaveContext()
-  // in the accountant payroll route).
-  const onLeave = new Set();
-  try {
-    const leave = await supabase
-      .from("leave_requests")
-      .select("employee_id,start_date,end_date,status")
-      .eq("status", "approved")
-      .lte("start_date", dateKey)
-      .gte("end_date", dateKey);
-    if (!leave.error) (leave.data || []).forEach((row) => onLeave.add(String(row.employee_id)));
-  } catch {
-    // Leave unreadable: list everyone rather than hide an absence.
-  }
-
-  return people
-    .filter((p) => !onLeave.has(String(p.id)) && !onLeave.has(String(p.employee_id || "")))
+  const { data, error } = await supabase.rpc("attendance_missing_days", { p_from: dateKey, p_to: dateKey });
+  // Visible, not an empty list: hiding an absence would look like "everyone tapped in".
+  if (error) throw new Error(`Could not read who has not tapped in: ${error.message}`);
+  const allowed = Array.isArray(employeeIds) ? new Set(employeeIds.map(String)) : null;
+  return (data || [])
+    .filter((p) => (!allowed || allowed.has(String(p.employee_id))) && !loggedIds.has(String(p.employee_id)))
     .map((p) => ({
       id: null,
       placeholder: true,
       not_yet_tapped: true,
-      employee_id: p.id,
+      employee_id: p.employee_id,
       employee_name: normalizeText(p.full_name, "Unknown"),
       employee_type: normalizeText(p.employee_type, "Teaching"),
       branch_id: p.branch_id || null,
@@ -107,4 +51,13 @@ export async function listNotTapped(supabase, { dateKey, loggedIds, employeeIds 
       late_minutes: 0,
       undertime_minutes: 0,
     }));
+}
+
+/**
+ * "Absent today" on the dashboards (decision 2026-11-14): the people the
+ * boards list as "Not tapped yet" -- the nightly close's own rule, for today.
+ * employeeIds: a branch's people, or null for all.
+ */
+export async function countAbsentToday(supabase, { dateKey, employeeIds = null }) {
+  return (await listNotTapped(supabase, { dateKey, employeeIds })).length;
 }

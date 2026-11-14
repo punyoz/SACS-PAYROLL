@@ -60,7 +60,7 @@ import { useUiTheme } from "@/components/theme";
 import { initialsOf } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
 import { vengeanceLineHover, vengeanceLineHoverHost } from "@/components/vengeance/line-hover";
-import { NAVIGATE_EVENT } from "@/lib/portal/navigate";
+import { NAVIGATE_EVENT, isPlainClick, portalHref } from "@/lib/portal/navigate";
 
 /**
  * The frame every React portal shares: the green sidebar (collapsible to
@@ -157,7 +157,7 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
     return (
       <SidebarGroup key={group.section} className="px-1.5 py-1" data-nav-group={group.section} data-state={expanded ? "open" : "closed"}>
         {collapsible ? (
-          <SidebarGroupLabel asChild className="h-7 px-1.5 text-[10px] tracking-wider text-sidebar-foreground/70 uppercase">
+          <SidebarGroupLabel asChild className="h-7 pointer-coarse:h-10 px-1.5 text-[10px] tracking-wider text-sidebar-foreground/70 uppercase">
             <button
               type="button"
               aria-expanded={expanded}
@@ -181,15 +181,13 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
               return (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
+                    asChild
                     isActive={active}
                     tooltip={item.label}
-                    aria-current={active ? "page" : undefined}
-                    onPointerEnter={titleIfCut}
-                    onFocus={titleIfCut}
-                    onClick={() => {
-                      onNavigate(item.id);
-                      if (isMobile) setOpenMobile(false);
-                    }}
+                    // A `wrap` label (2026-11-14) takes two lines instead of "…" and keeps its full name on hover.
+                    title={item.wrap ? item.label : undefined}
+                    onPointerEnter={item.wrap ? undefined : titleIfCut}
+                    onFocus={item.wrap ? undefined : titleIfCut}
                     className={cn(
                       "relative font-medium text-sidebar-foreground hover:bg-white/10 hover:text-white",
                       // 36 px a row (40 px on touch screens), a tighter icon gap for the narrower sidebar.
@@ -197,10 +195,23 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                       "data-[active=true]:bg-sidebar-accent data-[active=true]:text-sidebar-accent-foreground",
                       "data-[active=true]:before:absolute data-[active=true]:before:top-1/2 data-[active=true]:before:left-0 data-[active=true]:before:h-4 data-[active=true]:before:w-[3px] data-[active=true]:before:-translate-y-1/2 data-[active=true]:before:rounded-r data-[active=true]:before:bg-sidebar-primary",
                       vengeanceLineHoverHost,
+                      item.wrap && "h-auto min-h-9 py-1 pointer-coarse:h-auto pointer-coarse:min-h-10",
                     )}
                   >
-                    {Icon ? <Icon aria-hidden="true" /> : null}
-                    <span data-fit className={vengeanceLineHover}>{item.label}</span>
+                    {/* A real link (2026-11-14): middle click and "open in new tab" work; a plain click stays in place. */}
+                    <a
+                      href={portalHref(item.id)}
+                      aria-current={active ? "page" : undefined}
+                      onClick={(event) => {
+                        if (!isPlainClick(event)) return;
+                        event.preventDefault();
+                        onNavigate(item.id);
+                        if (isMobile) setOpenMobile(false);
+                      }}
+                    >
+                      {Icon ? <Icon aria-hidden="true" /> : null}
+                      <span data-fit className={cn(vengeanceLineHover, item.wrap && "line-clamp-2 whitespace-normal! leading-tight")}>{item.label}</span>
+                    </a>
                   </SidebarMenuButton>
                   {badges[item.id] ? (
                     <SidebarMenuBadge className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white peer-data-[active=true]/menu-button:text-white" aria-label={`${badges[item.id]} waiting`}>
@@ -215,6 +226,55 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
       </SidebarGroup>
     );
   });
+}
+
+/**
+ * The seal, system name and role at the top left (2026-11-14): a link to
+ * this role's own dashboard (the first page of its nav) on every page,
+ * collapsed or not; on phones the menu closes. It refreshed the page before;
+ * the Refresh button in the top bar still does.
+ */
+function SidebarHomeLink({ home, onNavigate }) {
+  const { role } = usePortalSession();
+  const systemTitle = useSystemName();
+  const { isMobile, setOpenMobile } = useSidebar();
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          size="lg"
+          tooltip="Go to dashboard"
+          className="gap-1.5 px-1.5 text-white hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+        >
+          <a
+            href={portalHref(home)}
+            aria-label="Go to dashboard"
+            data-testid="sidebar-home"
+            onClick={(event) => {
+              if (!isPlainClick(event)) return;
+              event.preventDefault();
+              onNavigate(home);
+              if (isMobile) setOpenMobile(false);
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/logo-160.png"
+              alt=""
+              width={32}
+              height={32}
+              className="size-8 shrink-0 rounded-full bg-white/95 p-0.5"
+            />
+            <div className="grid flex-1 text-left leading-tight">
+              <span className="truncate text-sm font-semibold">{systemTitle}</span>
+              <span className="truncate text-xs text-sidebar-primary">{ROLE_LABEL[role]}</span>
+            </div>
+          </a>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
 }
 
 function AppearanceItems() {
@@ -497,7 +557,6 @@ export function AppShell({
   children,
 }) {
   const { role } = usePortalSession();
-  const systemTitle = useSystemName();
   const [dialog, setDialog] = React.useState(null);
   const dialogs = React.useMemo(() => ({ open: setDialog }), []);
   // First-time tour per role; Help in the avatar menu reopens it (alpha test B6).
@@ -528,30 +587,7 @@ export function AppShell({
           </a>
           <Sidebar collapsible="icon" className="border-r-2 border-r-brand-gold [&_[data-sidebar=sidebar]]:bg-sidebar">
             <SidebarHeader className="border-b border-sidebar-border px-1.5">
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    size="lg"
-                    tooltip="Refresh this page"
-                    onClick={onRefresh}
-                    onPointerEnter={titleIfCut}
-                    className="gap-1.5 px-1.5 text-white hover:bg-white/10 hover:text-white"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src="/brand/logo-160.png"
-                      alt="Shepherd Angels Christian School seal"
-                      width={32}
-                      height={32}
-                      className="size-8 shrink-0 rounded-full bg-white/95 p-0.5"
-                    />
-                    <div className="grid flex-1 text-left leading-tight">
-                      <span data-fit className="truncate text-sm font-semibold">{systemTitle}</span>
-                      <span data-fit className="truncate text-xs text-sidebar-primary">{ROLE_LABEL[role]}</span>
-                    </div>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
+              <SidebarHomeLink home={nav[0]?.items[0]?.id} onNavigate={onNavigate} />
             </SidebarHeader>
             <SidebarContent>
               <NavLinks nav={nav} page={page} onNavigate={onNavigate} badges={badges} />
