@@ -22,7 +22,7 @@ import { HistorySelect, useAccountant } from "./accountant-data";
  * cancelDraft, accountant.js): processed records and saved drafts together.
  */
 
-const MONITOR_TABS = ["Not submitted to HR", "Pending HR Approval", "Rejected by HR", "Paid", "On hold"];
+const MONITOR_TABS = ["Draft", "Not submitted to HR", "Pending HR Approval", "Rejected by HR", "Paid", "On hold"];
 
 export function MonitoringPage() {
   const { data, loading, error, load, editDraft, openPayslip, entryId, setEntryId } = useAccountant();

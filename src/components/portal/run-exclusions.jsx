@@ -31,6 +31,7 @@ export function ExclusionsAlert({ exclusions, title = "Left out of this run", cl
             <li key={x.employee_id}>
               <span className="font-medium text-foreground">{x.employee_name}</span>
               {x.employee_code ? <span className="text-muted-foreground"> ({x.employee_code})</span> : null}
+              {x.left_out_label ? <span className="text-muted-foreground"> · {x.left_out_label}</span> : null}
               {" — "}{x.reason || <span className="italic text-muted-foreground">no note given</span>}
             </li>
           ))}
@@ -43,12 +44,15 @@ export function ExclusionsAlert({ exclusions, title = "Left out of this run", cl
 
 const FOLLOW_UP = {
   not_processed: ["Not processed yet", "warning"],
+  draft: ["Draft, not finalized", "gold"],
   processed_not_submitted: ["Processed, not submitted", "info"],
+  supplemental_pending: ["In supplemental run, Pending HR Approval", "warning"],
+  supplemental_rejected: ["Left out again: supplemental run rejected by HR", "danger"],
 };
 
 /**
- * The follow-up list: employees left out of a submitted run who are not in
- * any run of that period yet. `endpoint` returns { excluded: [...] }.
+ * The follow-up list: employees left out of a submitted run until a run
+ * holding their payslip is Paid. `endpoint` returns { excluded: [...] }.
  */
 export function OpenExclusionsCard({ endpoint, refreshKey, showBranch = false, description }) {
   const [state, setState] = React.useState({ loading: true, error: null, rows: [] });
@@ -68,15 +72,23 @@ export function OpenExclusionsCard({ endpoint, refreshKey, showBranch = false, d
       cell: (r) => <span>{r.employee_name}{r.employee_code ? <span className="block text-xs text-muted-foreground">{r.employee_code}</span> : null}</span> },
     ...(showBranch ? [{ key: "branch_name", header: "Branch", sortable: true }] : []),
     { key: "period_start", header: "Period", sortable: true, className: "whitespace-nowrap", cell: (r) => r.period_label, searchValue: (r) => r.period_label },
-    { key: "reason", header: "Why left out", cell: (r) => (r.reason ? <p className="max-w-72 text-sm whitespace-normal">{r.reason}</p> : <span className="text-xs text-muted-foreground">No note given</span>) },
-    { key: "follow_up", header: "Now", cell: (r) => { const [label, tone] = FOLLOW_UP[r.follow_up] || [r.follow_up, "muted"]; return <StatusBadge tone={tone}>{label}</StatusBadge>; } },
+    { key: "reason", header: "Why left out", cell: (r) => (
+      <div className="max-w-72 space-y-0.5 text-sm whitespace-normal">
+        {r.left_out_label ? <p className="text-xs text-muted-foreground">{r.left_out_label}</p> : null}
+        {r.reason ? <p>{r.reason}</p> : <span className="text-xs text-muted-foreground">No note given</span>}
+      </div>
+    ) },
+    { key: "follow_up", header: "Now", cell: (r) => {
+      const [label, tone] = FOLLOW_UP[r.follow_up] || [r.follow_up_label || r.follow_up, "muted"];
+      return <span data-testid="left-out-follow-up" data-follow-up={r.follow_up}><StatusBadge tone={tone}>{label}{r.supplemental_run_no ? ` (run ${r.supplemental_run_no})` : ""}</StatusBadge></span>;
+    } },
   ];
 
   return (
     <Card className="min-w-0 shadow-xs">
       <CardHeader>
         <CardTitle>Employees left out of a payroll run</CardTitle>
-        <CardDescription>{description || "Left out of a submitted run and not paid for that period yet. Process them, then submit the supplemental run of that period."}</CardDescription>
+        <CardDescription>{description || "Left out of a submitted run and not paid for that period yet. Process them, then submit the supplemental run of that period; they leave this list once that run is Paid."}</CardDescription>
         <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent>

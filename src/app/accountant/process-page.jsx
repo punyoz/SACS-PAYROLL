@@ -48,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { RunApprovalPanel } from "./run-approval-panel";
+import { ActionNeededPanel } from "./action-needed";
 import { DeferredIncentivesNotice } from "./incentives-page";
 import { CONTRIBUTION_MAX, DAYS_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX } from "@/lib/input-limits";
 import { attendanceOverrideState } from "@/lib/payroll/override-window";
@@ -180,10 +181,12 @@ function EarlyBirdBanner({ earlyBird }) {
 /** "₱1,234.56"; ₱0 is "—" in the batch table (cleanup 2026-11-14). */
 const cellPeso = (value) => (toAmount(value) ? pesoText(value) : "—");
 
+// The statuses say what they mean (2026-11-15): one count and filter each.
 const BATCH_STATUS = {
-  ready: { label: "Ready", tone: "info" },
+  ready: { label: "Ready to process", tone: "info" },
   draft: { label: "Draft", tone: "gold" },
-  final: { label: "Final", tone: "success" },
+  final: { label: "Processed (Final)", tone: "success" },
+  in_run: { label: "In a run", tone: "muted" },
   blocked: { label: "Blocked", tone: "warning" },
   first_half: { label: "1st half not Final", tone: "warning" },
 };
@@ -210,22 +213,34 @@ function batchRowState(data, employee, base) {
   const finalNext = win?.state === "final";
   const firstHalfBlock = base.info.row?.defaults?.first_half_block || null;
   const reasons = [];
+  // Every reason this payslip cannot be processed now, whatever its status.
+  if (!final && base.blocking.length) reasons.push(...base.blocking.map((b) => ({ kind: "attendance", text: `${b.status} record, ${shortDate(b.log_date)}` })));
+  if (!final && firstHalfBlock) reasons.push({ kind: "first_half", text: firstHalfBlock });
+  if (!final && employee.payroll_hold) reasons.push({ kind: "hold", text: "Pay on hold: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay." });
+  if (!final && runLocked) reasons.push({ kind: "run", text: "Run waiting for HR approval: locked" });
+  const recompute = data?.needs_recompute?.[employee.id] || null;
+  if (recompute && !runLocked) reasons.push({ kind: "recompute", text: `Needs recompute: ${recompute}. It cannot be submitted to HR until recomputed.` });
   let status;
-  if (final) status = "final";
-  else if (base.blocking.length) { status = "blocked"; reasons.push(...base.blocking.map((b) => ({ kind: "attendance", text: `${b.status} record, ${shortDate(b.log_date)}` }))); }
-  else if (firstHalfBlock) { status = "first_half"; reasons.push({ kind: "first_half", text: firstHalfBlock }); }
-  else if (employee.payroll_hold) { status = "blocked"; reasons.push({ kind: "hold", text: "Pay on hold: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay." }); }
-  else if (runLocked) { status = "blocked"; reasons.push({ kind: "run", text: "Run waiting for HR approval: locked" }); }
-  else status = slip?.status === "draft" ? "draft" : "ready";
+  // A Draft is a Draft (2026-11-15), even while something blocks finalizing it.
+  if (final) status = runLocked ? "in_run" : "final";
+  // A Draft saved from the form ("form_draft") is a Draft too.
+  else if (slip?.status === "draft" || slip?.status === "form_draft") status = "draft";
+  else if (base.blocking.length) status = "blocked";
+  else if (firstHalfBlock) status = "first_half";
+  else if (employee.payroll_hold || runLocked) status = "blocked";
+  else status = "ready";
   const sub = final
-    ? `${slip.payslip_no || ""} · ${runLocked ? (ownStatus === "pending" ? "waiting for HR" : "approved, locked") : "processed"}`
-    : status === "draft" ? `Up to ${dateLabel(slip.attendance_through)}`
+    ? `${slip.payslip_no || ""} · ${runLocked ? (ownStatus === "pending" ? "Pending HR Approval" : "Paid") : "not submitted to HR"}`
+    : status === "draft" ? (slip.attendance_through ? `Up to ${dateLabel(slip.attendance_through)}` : "Saved from the form")
       : status === "ready" && !canGenerate && win?.state === "not_open" ? `Opens ${dateLabel(win.opens_on)}`
         : status === "ready" && win?.state === "closed" ? "Window closed: marked late for HR" : "";
   const generateTitle = canGenerate
     ? (finalNext ? "Creates the Final payslip (locked once saved)" : `Draft with attendance up to ${dateLabel(win.attendance_through)}`)
     : (win?.message || "");
-  return { status, slip, reasons, sub, canReprocess, canGenerate, finalNext, generateTitle, processable: status === "ready" || status === "draft" };
+  const blocksProcessing = reasons.some((r) => r.kind !== "recompute");
+  // Recompute: a 2nd half not in a run whose 1st half changed (the server checks it again).
+  const canRecompute = Boolean(recompute) && Boolean(slip?.entry_id) && !runLocked;
+  return { status, slip, reasons, sub, canReprocess, canGenerate, finalNext, generateTitle, recompute, canRecompute, processable: status === "ready" || (status === "draft" && !blocksProcessing) };
 }
 
 /** The status pill; a blocked row's pill opens the reason (tap / Enter). */
@@ -233,7 +248,7 @@ function BatchStatus({ row, onResolve }) {
   const meta = BATCH_STATUS[row.state.status];
   const pill = <StatusBadge tone={meta.tone}>{meta.label}</StatusBadge>;
   // A Final payslip made with unresolved days ("Generate anyway") keeps its warning.
-  const warn = row.state.status === "final" && row.base.blocking.length;
+  const warn = (row.state.status === "final" || row.state.status === "in_run") && row.base.blocking.length;
   return (
     <div className="space-y-0.5" data-testid="batch-status" data-status={row.state.status}>
       <div className="flex items-center gap-1">
@@ -270,7 +285,13 @@ function BatchActions({ row, busy, onGenerate, onView, onEdit, onResolve }) {
           {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{generateLabel}
         </Button>
       ) : null}
-      {state.slip?.entry_id && (state.status === "final" || state.status === "draft") ? (
+      {state.canRecompute ? (
+        <Button size="sm" className="h-7" variant="outline" disabled={busy} onClick={() => onGenerate(employee.id, true, true, true)} data-testid="batch-recompute"
+          title={`Recompute with the current 1st half: ${state.recompute}`}>
+          {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <RefreshCwIcon aria-hidden="true" />}Recompute
+        </Button>
+      ) : null}
+      {state.slip?.entry_id && (state.status === "final" || state.status === "draft" || state.status === "in_run") ? (
         <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.slip.entry_id)}>View</Button>
       ) : null}
       {attendanceBlocked ? <Button variant="link" size="sm" className="h-7 px-1 text-warning" onClick={onResolve}>Resolve</Button> : null}
@@ -359,9 +380,15 @@ function BatchCard({ onNavigate, onEdit }) {
   // 2026-11-14). Process still covers every page.
   const [tablePage, setTablePage] = React.useState(1);
   const [tableSize, setTableSize] = React.useState(10);
-  const [filter, setFilter] = React.useState("all");
+  // ?batch=draft | recompute (an Action needed link) opens the table filtered.
+  const [filter, setFilter] = React.useState(() => {
+    if (typeof window === "undefined") return "all";
+    const preset = new URLSearchParams(window.location.search).get("batch");
+    return ["ready", "draft", "final", "in_run", "blocked", "off_list", "recompute"].includes(preset) ? preset : "all";
+  });
   const [query, setQuery] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState("all");
+  const [branchFilter, setBranchFilter] = React.useState("all");
   const [selected, setSelected] = React.useState(() => new Set());
   const [expanded, setExpanded] = React.useState(() => new Set());
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -371,7 +398,7 @@ function BatchCard({ onNavigate, onEdit }) {
   // New data: the selection starts again.
   React.useEffect(() => { setSelected(new Set()); }, [data]);
   // A new period or filter starts on page 1 (the page size stays).
-  React.useEffect(() => { setTablePage(1); }, [period, filter, query, typeFilter]);
+  React.useEffect(() => { setTablePage(1); }, [period, filter, query, typeFilter, branchFilter]);
 
   const employees = data?.employees || [];
   const ready = data?.payroll_ready !== false;
@@ -414,15 +441,30 @@ function BatchCard({ onNavigate, onEdit }) {
       values: { sss, philhealth, pagibig, tax, lwop: base.lwop },
       contributions: toAmount(sss + philhealth + pagibig),
       state: batchRowState(data, employee, base),
+      // On the branch's active list for the period (the run card's definition, run-roster.js).
+      listed: !data?.active_list || (data.active_list[String(employee.branch_id || "")] || []).includes(employee.id),
     };
   });
 
-  const counts = { all: rows.length, ready: 0, draft: 0, final: 0, blocked: 0 };
-  rows.forEach((r) => { counts[r.state.status === "first_half" ? "blocked" : r.state.status] += 1; });
+  // Counted over the branch's active list, as the run card counts (2026-11-15);
+  // anyone else (on pay hold, inactive, hired later) is counted apart.
+  const counts = { all: 0, ready: 0, draft: 0, final: 0, in_run: 0, blocked: 0, off_list: 0, recompute: 0 };
+  rows.forEach((r) => {
+    if (!r.listed) { counts.off_list += 1; return; }
+    counts.all += 1;
+    counts[r.state.status === "first_half" ? "blocked" : r.state.status] += 1;
+    if (r.state.recompute) counts.recompute += 1;
+  });
+  const branchNames = new Map((data?.branches || []).map((b) => [String(b.id), b.name]));
+  const batchBranches = [...new Set(employees.map((e) => String(e.branch_id || "")))];
   const totalNet = toAmount(rows.reduce((sum, r) => sum + r.net, 0));
   const types = [...new Set(employees.map((e) => e.employee_type).filter(Boolean))];
   const q = query.trim().toLowerCase();
-  const shown = rows.filter((r) => (filter === "all" || r.state.status === filter || (filter === "blocked" && r.state.status === "first_half"))
+  const matches = (r) => (filter === "off_list" ? !r.listed
+    : !r.listed ? false
+      : filter === "all" || r.state.status === filter || (filter === "blocked" && r.state.status === "first_half") || (filter === "recompute" && Boolean(r.state.recompute)));
+  const shown = rows.filter((r) => matches(r)
+    && (branchFilter === "all" || String(r.employee.branch_id || "") === branchFilter)
     && (typeFilter === "all" || r.employee.employee_type === typeFilter)
     && (!q || `${r.employee.full_name} ${r.employee.employee_id || ""}`.toLowerCase().includes(q)));
   const pages = Math.max(1, Math.ceil(shown.length / tableSize));
@@ -430,13 +472,25 @@ function BatchCard({ onNavigate, onEdit }) {
   const pageRows = shown.slice((at - 1) * tableSize, at * tableSize);
   const processable = rows.filter((r) => r.state.processable);
   const selectedRows = processable.filter((r) => selected.has(r.employee.id));
-  const blockedBy = (kind) => rows.filter((r) => r.state.status !== "final" && r.state.reasons.some((x) => x.kind === kind)).length;
+  const blockedRows = (kind) => rows.filter((r) => r.state.status !== "final" && r.state.status !== "in_run" && r.state.reasons.some((x) => x.kind === kind));
+  const blockedBy = (kind) => blockedRows(kind).length;
   const attendanceBlocked = blockedBy("attendance");
   const otherBlocked = [
     [blockedBy("first_half"), "waiting for a Final 1st half"],
     [blockedBy("hold"), "on pay hold"],
     [blockedBy("run"), "in a run with HR"],
   ].filter(([n]) => n).map(([n, why]) => `${n} ${why}`).join(", ");
+  // The expanded banner: the names under each reason, each a link to its row.
+  const blockedGroups = [
+    ["attendance", "Unresolved attendance (HR or the branch Administrator resolves it)"],
+    ["first_half", "Waiting for a Final 1st half"],
+    ["hold", "On pay hold (AWOL case or separated: HR)"],
+    ["run", "In a run with HR (locked)"],
+  ].map(([kind, title]) => ({ kind, title, rows: blockedRows(kind) })).filter((g) => g.rows.length);
+  const showRow = (row) => {
+    setFilter(row.listed ? "all" : "off_list"); setBranchFilter("all"); setTypeFilter("all"); setQuery(row.employee.full_name);
+    setExpanded((c) => new Set(c).add(row.employee.id));
+  };
   const canProcess = ready && finalWindow && !allRunsLocked;
   const processTitle = allRunsLocked ? "This period's payroll run is with HR or approved: it cannot be processed again." : finalWindow ? "" : (win?.message || "");
 
@@ -506,9 +560,9 @@ function BatchCard({ onNavigate, onEdit }) {
     }
   }
 
-  async function generate(employeeId, confirmIncomplete = false, reprocess = false) {
+  async function generate(employeeId, confirmIncomplete = false, reprocess = false, recompute = false) {
     const employee = employees.find((e) => e.id === employeeId);
-    if (reprocess) {
+    if (reprocess && !recompute) {
       const ok = await confirm({
         title: `Reprocess ${employee?.full_name || "this"} payslip?`,
         description: "The Final payslip is recomputed from the latest attendance, leave and settings and replaces the current one (the old record is kept, archived). Submit the run for HR approval again afterwards.",
@@ -525,6 +579,7 @@ function BatchCard({ onNavigate, onEdit }) {
         pay_period: data?.active_period?.label || "",
         confirm_incomplete: confirmIncomplete,
         reprocess,
+        recompute,
       }));
       const result = await response.json().catch(() => ({}));
       if (response.status === 422 && result.code === "unresolved_attendance") {
@@ -535,7 +590,7 @@ function BatchCard({ onNavigate, onEdit }) {
           description: `${result.error} They will be listed on the payslip as not counted.`,
           confirmLabel: "Generate anyway",
         });
-        if (proceed) await generate(employeeId, true, reprocess);
+        if (proceed) await generate(employeeId, true, reprocess, recompute);
         return;
       }
       if (!response.ok) throw new Error(result.error || "Unable to generate the payslip.");
@@ -610,12 +665,15 @@ function BatchCard({ onNavigate, onEdit }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Whole period, every page (cleanup 2026-11-14); each count filters the table. */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" data-testid="batch-summary">
-          {statFilter("all", "Employees", counts.all)}
-          {statFilter("ready", "Ready", counts.ready)}
-          {counts.draft ? statFilter("draft", "Draft", counts.draft) : null}
-          {statFilter("final", "Final", counts.final)}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8" data-testid="batch-summary">
+          {statFilter("all", "Employees (active list)", counts.all)}
+          {statFilter("ready", "Ready to process", counts.ready)}
+          {statFilter("draft", "Draft", counts.draft)}
+          {statFilter("final", "Processed (Final)", counts.final)}
+          {statFilter("in_run", "In a run (HR)", counts.in_run)}
           {statFilter("blocked", "Blocked", counts.blocked)}
+          {counts.recompute ? statFilter("recompute", "Needs recompute", counts.recompute) : null}
+          {counts.off_list ? statFilter("off_list", "Not on active list", counts.off_list) : null}
           <div className="col-span-2 flex flex-col items-start rounded-md border border-dashed px-3 py-1.5 sm:col-span-1">
             <span className="text-[11px] text-muted-foreground">Total net pay</span>
             <span className="font-semibold tabular-nums" data-testid="batch-total-net">{pesoText(totalNet)}</span>
@@ -631,6 +689,24 @@ function BatchCard({ onNavigate, onEdit }) {
                   <Button variant="link" className="h-auto p-0 text-warning" onClick={resolve}>Resolve in Attendance →</Button>{" "}</> : null}
                 {otherBlocked ? `${attendanceBlocked ? "Also blocked" : "Blocked"}: ${otherBlocked}. Tap a row's pill for why.` : null}
               </p>
+              <details className="mt-1.5" data-testid="batch-blocked-details">
+                <summary className="cursor-pointer text-xs font-medium underline-offset-2 hover:underline">Show who, by reason</summary>
+                <div className="mt-1.5 space-y-2 text-xs">
+                  {blockedGroups.map((g) => (
+                    <div key={g.kind} data-testid={`blocked-group-${g.kind}`}>
+                      <p className="font-medium">{g.title} ({g.rows.length})</p>
+                      <ul className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
+                        {g.rows.map((r) => (
+                          <li key={r.employee.id}>
+                            <Button variant="link" className="h-auto p-0 text-xs text-warning underline" onClick={() => showRow(r)} data-testid="blocked-name">{r.employee.full_name}</Button>
+                            {g.kind === "attendance" ? <>{" "}<Button variant="link" className="h-auto p-0 text-xs text-warning" onClick={resolve}>(Resolve)</Button></> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </details>
             </AlertDescription>
           </Alert>
         ) : null}
@@ -641,12 +717,23 @@ function BatchCard({ onNavigate, onEdit }) {
             <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name or ID" aria-label="Search employees" className="h-8 pl-8" />
           </div>
           <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger size="sm" className="w-full sm:w-36" aria-label="Status"><SelectValue /></SelectTrigger>
+            <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Status"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              {["ready", "draft", "final", "blocked"].map((k) => <SelectItem key={k} value={k}>{BATCH_STATUS[k].label}</SelectItem>)}
+              {["ready", "draft", "final", "in_run", "blocked"].map((k) => <SelectItem key={k} value={k}>{BATCH_STATUS[k].label}</SelectItem>)}
+              <SelectItem value="recompute">Needs recompute</SelectItem>
+              <SelectItem value="off_list">Not on active list</SelectItem>
             </SelectContent>
           </Select>
+          {batchBranches.length > 1 ? (
+            <Select value={branchFilter} onValueChange={setBranchFilter}>
+              <SelectTrigger size="sm" className="w-full sm:w-44" aria-label="Branch"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All branches</SelectItem>
+                {batchBranches.map((id) => <SelectItem key={id} value={id}>{branchNames.get(id) || "No branch"}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : null}
           {types.length > 1 ? (
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Employee type"><SelectValue /></SelectTrigger>
@@ -1290,6 +1377,8 @@ export function ProcessPage({ onNavigate }) {
   if (error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={error} onRetry={() => load()} /></CardContent></Card>;
   return (
     <>
+      {/* What is still open, per branch, with a link to each (2026-11-15). */}
+      <ActionNeededPanel refreshKey={data} />
       <Banners data={data} />
       {/* Incentives filed after the 15th are paid next month (intended). */}
       <DeferredIncentivesNotice monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />

@@ -14,6 +14,7 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { dateTime, money, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { useAccountant } from "./accountant-data";
+import { ActionNeededPanel } from "./action-needed";
 import { AnnouncementsCard } from "@/components/portal/announcements";
 import { portalHref } from "@/lib/portal/navigate";
 
@@ -23,7 +24,8 @@ const TOTALS_CHART = { amount: { label: "Amount" } };
 // The four payroll statuses (recordStatusMeta): "Paid" only after HR approves.
 const STATUS_CHART = {
   paid: { label: "Paid", color: "var(--chart-1)" },
-  draft: { label: "Not submitted to HR", color: "var(--info)" },
+  draft: { label: "Draft", color: "var(--chart-4)" },
+  unsubmitted: { label: "Not submitted to HR", color: "var(--info)" },
   pending: { label: "Pending HR Approval", color: "var(--chart-2)" },
   on_hold: { label: "Rejected by HR", color: "var(--destructive)" },
 };
@@ -40,7 +42,8 @@ export const RECORD_COLUMNS = [
 function bucket(record) {
   const label = recordStatusMeta(record).label;
   if (label === "Paid") return "paid";
-  if (label === "Not submitted to HR") return "draft";
+  if (label === "Draft") return "draft";
+  if (label === "Not submitted to HR") return "unsubmitted";
   if (label === "Pending HR Approval") return "pending";
   return "on_hold";
 }
@@ -74,6 +77,8 @@ export function DashboardPage({ refreshKey, onNavigate }) {
 
   return (
     <>
+      {/* What is still open, per branch, with a link to each (2026-11-15). */}
+      <ActionNeededPanel refreshKey={refreshKey} />
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />
       <section aria-label="This period at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -81,7 +86,7 @@ export function DashboardPage({ refreshKey, onNavigate }) {
         <StatCard label="Period gross pay" value={moneyCompact(panels.total_gross || 0)} hint={data?.active_period?.label || "Current period"} icon={BanknoteIcon} tone="gold" loading={first} />
         <StatCard label="Period net pay" value={moneyCompact(panels.total_net || 0)} icon={WalletIcon} tone="success" glow loading={first} />
         <StatCard label="Paid payrolls" value={paid} hint="Approved by HR" icon={CheckCircle2Icon} tone="success" loading={first} href={portalHref("ac-monitoring", { mon_status: "Paid" })} actionLabel="View paid payrolls in Payroll Monitoring" />
-        <StatCard label="Draft payrolls" value={drafts.length} hint="Saved drafts" icon={FilePenLineIcon} tone="info" loading={first} href={portalHref("ac-monitoring", { mon_status: "Not submitted to HR" })} actionLabel="View drafts in Payroll Monitoring" />
+        <StatCard label="Draft payrolls" value={drafts.length} hint="Saved drafts" icon={FilePenLineIcon} tone="info" loading={first} href={portalHref("ac-monitoring", { mon_status: "Draft" })} actionLabel="View drafts in Payroll Monitoring" />
         <StatCard label="Total deductions" value={moneyCompact(panels.total_deductions || 0)} hint="Current period" icon={MinusCircleIcon} tone="danger" loading={first} />
       </section>
 

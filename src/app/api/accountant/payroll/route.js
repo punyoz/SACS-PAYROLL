@@ -90,6 +90,8 @@ import { holidayAppliesTo } from "@/lib/attendance/holidays";
 import { loadDutyForPeriod } from "@/lib/attendance/holiday-duty";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { EARLY_BIRD_LABEL, earlyBirdLine, resolveEarlyBirdWinner } from "@/lib/payroll/early-bird";
+import { expectedInRun, firstHalfBasis, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
+import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { governingRunFor, governingRunMessage, isLockedRun, loadRunsFor, lockedForNewPayslip, lockedRunMessage, requiresApproval, shapeRun } from "@/lib/payroll/runs";
 import { payslipFigures } from "@/lib/payroll/bir-2316";
 import { loadYearEndTaxContext } from "@/lib/payroll/bir-forms";
@@ -1246,6 +1248,9 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       byEmployee.set(employee.id, {
         ...base,
         second_half_final: find(employee.id, month.second_half_label)?.status === "paid",
+        // A Final 1st half may still be reprocessed (e.g. HR rejected its run)
+        // after the 2nd half is Final: the 2nd half then needs recompute (2026-11-15).
+        first_half_final: find(employee.id, month.first_half_label)?.status === "paid",
         attendance_window: perCutoff ? firstWindow : null,
       });
     });
@@ -1325,6 +1330,8 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
           status: firstPaid ? "final" : "draft",
           estimate: !firstPaid,
           payslip_no: first.payslip_no || null,
+          // What the 2nd half stores of this 1st half (Needs recompute, 2026-11-15).
+          basis: firstPaid ? firstHalfBasis(first) : null,
           gross_pay: toAmount(totals.gross_pay),
           total_deductions: toAmount(totals.total_deductions),
           total_incentives: toAmount(totals.total_incentives),
@@ -1886,7 +1893,7 @@ function buildFirstHalfPayroll({ employee, context, input = {}, period, actor })
     blocking: [],
     refusal: salaryTyped ? SALARY_LOCKED : hire?.not_hired
       ? notHiredRefusal(hire, period.label)
-      : semi.second_half_final
+      : semi.second_half_final && !semi.first_half_final
         ? `${semi.second_half_label} is already Final and settled the whole month, so the 1st half can no longer be processed.`
         : null,
     refusal_code: salaryTyped ? "salary_locked" : hire?.not_hired ? "not_hired_yet" : "month_settled",
@@ -1949,6 +1956,9 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCuto
     first_half_label: semi.first_half_label,
     first_half_status: first.status || "not_processed",
     first_half_payslip_no: first.payslip_no || null,
+    // The 1st-half figures this payslip was computed with: a later change
+    // marks it "Needs recompute" (src/lib/payroll/run-roster.js).
+    first_half_basis: first.basis || null,
     carry_from: semi.carry_from || null,
     ...settlement,
     absent_deduction: toAmount(month.absence_deduction),
@@ -2609,7 +2619,9 @@ function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOv
       lateRateZero: !(Number(rates.late_days_per_absent) > 0) && !(Number(rates.late_minute_charge_pct) > 0),
     });
   }
-  const monthSettled = firstCutoff && semi.second_half_final;
+  // A 1st half never processed stays refused once the 2nd half is Final; a
+  // Final one may be reprocessed, and the 2nd half is marked Needs recompute.
+  const monthSettled = firstCutoff && semi.second_half_final && !semi.first_half_final;
   // 2nd half: previewed freely, but made Final only after the month's 1st-half
   // payslip is Final (decision 2026-11-13); never assumed ₱0 or half the
   // salary. Someone hired after the 15th has no 1st half to wait for.
@@ -4032,6 +4044,23 @@ export async function GET(request) {
     // the Reports page leaves them out (is_demo, 2026-11-08).
     const demoIds = await loadDemoIds(supabase);
     const markDemo = (record) => (demoIds.has(String(record?.employee_id ?? "")) ? { ...record, is_demo: true } : record);
+    // The branch's active list for the period, the same definition as the
+    // run card (src/lib/payroll/run-roster.js), so the batch counts agree.
+    const staff = await loadPayrollStaff(supabase, guard);
+    const activeList = Object.fromEntries([...new Set(employees.map((e) => String(e.branch_id || "")))].map((branchId) => [
+      branchId, expectedInRun(staff, branchId, activePeriod).map((p) => p.id),
+    ]));
+    // 2nd halves whose 1st half changed after they were computed (Needs recompute).
+    const firstLabel = firstHalfLabelOf(activePeriod.label);
+    const recompute = {};
+    if (firstLabel) {
+      const firsts = await readPayrollEntries(supabase, { employeeIds: employees.map((e) => e.id), labels: [firstLabel] });
+      const firstOf = new Map(firsts.entries.map((e) => [e.employee_id, e]));
+      sortedEntries.filter((e) => e.pay_period === activePeriod.label).forEach((entry) => {
+        const change = firstHalfChange(entry, firstOf.get(entry.employee_id) || null);
+        if (change) recompute[entry.employee_id] = change.reason;
+      });
+    }
 
     return NextResponse.json({
       generated_at: new Date().toISOString(),
@@ -4067,6 +4096,10 @@ export async function GET(request) {
       can_override: guard.scope === SCOPE_ALL,
       // branch id -> its run for the period (no key: not submitted yet, Draft).
       payroll_runs: payrollRuns,
+      // branch id -> the employee ids on its active list for the period.
+      active_list: activeList,
+      // employee id -> why the period's 2nd half needs recompute.
+      needs_recompute: recompute,
       payroll_runs_locked: Object.values(payrollRuns).some((r) => isLockedRun(r)),
       // From Oct 1, 2026: legal contribution tables and BIR withholding tax
       // (src/lib/payroll/statutory.js); the table lets the form preview the
@@ -4697,6 +4730,19 @@ export async function POST(request) {
  * Accountant and Super Admin reach this (process_payroll "update"); the
  * window is enforced here whatever the portal shows.
  */
+/**
+ * A 2nd half whose 1st half changed after it was computed (Needs recompute,
+ * src/lib/payroll/run-roster.js): the change, or null.
+ */
+async function recomputeNeeded(supabase, employeeId, periodLabel) {
+  const firstLabel = firstHalfLabelOf(periodLabel);
+  if (!firstLabel) return null;
+  const { entries } = await readPayrollEntries(supabase, { employeeIds: [employeeId], labels: [periodLabel, firstLabel] });
+  const second = entries.find((e) => e.pay_period === periodLabel) || null;
+  if (!second) return null;
+  return firstHalfChange(second, entries.find((e) => e.pay_period === firstLabel) || null);
+}
+
 async function handleGenerate(supabase, body, guard, { override = false } = {}) {
   const payPeriod = normalizeText(body.pay_period);
   const period = periodFromLabel(payPeriod);
@@ -4765,8 +4811,11 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
         window: genWindow,
       }, { status: 403 });
     }
-    // After the generation window, only a run HR sent back may still be corrected.
-    if (reprocess && genWindow.state === "closed" && run?.status !== "rejected") {
+    // After the generation window, only a run HR sent back may still be
+    // corrected, or a 2nd half whose 1st half changed (Recompute, 2026-11-15).
+    const recompute = reprocess && body.recompute === true && !governing.attached
+      && Boolean(await recomputeNeeded(supabase, employee.id, period.label));
+    if (reprocess && genWindow.state === "closed" && run?.status !== "rejected" && !recompute) {
       return NextResponse.json({ error: genWindow.message, code: "generation_window", window: genWindow }, { status: 403 });
     }
   } else if (!genWindow.can_generate && !(genWindow.state === "closed" && !(governing.attached ? isLockedRun(run) : run?.status === "pending"))) {

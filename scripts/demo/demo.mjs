@@ -112,6 +112,14 @@ async function load(db, bundle) {
   // Run numbers and payslip numbers already taken on the target: the demo's move up.
   const runs = bundle.tables.payroll_runs || [];
   for (const run of runs) {
+    // A branch and period has at most one run that is not approved, and it is
+    // the latest (ensure_payroll_run): never stack a demo run on the target's
+    // open one, or an open demo run on any target run (2026-11-15: Main
+    // Branch, October 16-31, 2026 ended up with two Pending runs).
+    const [open] = await db.rows(`select count(*)::int n, count(*) filter (where status <> 'approved')::int pending from payroll_runs where branch_id = ${lit(run.branch_id)} and period_start = ${lit(run.period_start)} and not (id in (${runs.map((r) => lit(r.id)).join(", ")}))`);
+    if (open.n > 0 && (open.pending > 0 || run.status !== "approved")) {
+      throw new Error(`The target already has a payroll run for branch ${run.branch_id}, ${run.period_label}${open.pending ? " that is not approved" : ""}; a demo run there would make two runs open at once: nothing loaded.`);
+    }
     const [taken] = await db.rows(`select coalesce(max(run_no), 0)::int m from payroll_runs where branch_id = ${lit(run.branch_id)} and period_start = ${lit(run.period_start)} and not (id in (${runs.map((r) => lit(r.id)).join(", ")}))`);
     if (taken.m >= run.run_no) run.run_no = taken.m + run.run_no;
   }

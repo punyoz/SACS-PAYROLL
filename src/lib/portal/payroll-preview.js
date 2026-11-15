@@ -424,7 +424,8 @@ export function statusMeta(status) {
   // the Accountant held back, not an HR decision.
   if (s === "rejected") return { label: "Rejected by HR", tone: "danger" };
   if (s === "on_hold") return { label: "On hold", tone: "danger" };
-  if (s === "draft") return { label: "Not submitted to HR", tone: "info" };
+  // A Draft has its own label (2026-11-15): processed, not Final yet.
+  if (s === "draft") return { label: "Draft", tone: "gold" };
   return { label: "Pending HR Approval", tone: "gold" };
 }
 
@@ -435,8 +436,8 @@ export function statusMeta(status) {
  */
 export function recordStatusMeta(record) {
   const s = String(record?.status || "").toLowerCase();
-  // Exactly four labels (2026-10-20). A Draft has not gone to HR either.
-  if (s === "draft") return { label: "Not submitted to HR", tone: "info" };
+  // Four labels for Final payslips (2026-10-20), and Draft for one not Final yet (2026-11-15).
+  if (s === "draft") return { label: "Draft", tone: "gold" };
   if (s === "on_hold" || s === "rejected" || !requiresApproval(record?.pay_period)) return statusMeta(record?.status);
   if (record.run_status === "approved") return { label: "Paid", tone: "success" };
   if (record.run_status === "pending") return { label: "Pending HR Approval", tone: "gold" };
