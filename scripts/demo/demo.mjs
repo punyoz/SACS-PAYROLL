@@ -104,29 +104,56 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
   const bundle = { ...source, tables: { ...source.tables } };
   const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
   const idsOf = (t) => (goingAway?.[t] || []).map((r) => String(r[meta[t]?.key || "id"]));
-  // A reset / restore wipes first, but the wipe KEEPS a demo run or payslip
-  // record that a non-demo row still points at: then the plan (made before
-  // the wipe) would not match the target the load meets. Refused here,
-  // before any prompt and before anything is deleted.
+  // A reset / restore wipes first, but the wipe KEEPS a demo row that a
+  // non-demo row still needs: one it points at (through any foreign key; a
+  // chain through other demo rows ends at a direct pointer into a demo row),
+  // or a demo person it names in a column that cannot be emptied. The load
+  // would then meet a target the plan did not see, and the restore would
+  // keep the same rows. Refused here, before any prompt and before anything
+  // is deleted.
   if (goingAway) {
     const kept = [];
-    for (const ref of ["payroll_runs", "payroll_records"]) {
-      const ids = idsOf(ref);
-      if (!ids.length) continue;
-      for (const [t, m] of Object.entries(meta)) {
-        for (const { col } of (m.parents || []).filter((x) => x.ref === ref)) {
-          if (!m.key) continue;
-          // Only the (few) rows pointing at these runs / records come back; the demo ones are filtered here.
-          const mine = new Set(idsOf(t));
-          const rows = await db.rows(`select ${col}::text k, ${m.key}::text id from ${t} where ${col}::text in (${listOf(ids)})`);
+    const chunks = (ids) => Array.from({ length: Math.ceil(ids.length / 500) }, (_, i) => ids.slice(i * 500, i * 500 + 500));
+    for (const [t, m] of Object.entries(meta)) {
+      if (!m.key) continue;
+      const mine = new Set(idsOf(t));
+      for (const { col, ref } of m.parents || []) {
+        const ids = idsOf(ref);
+        for (const part of chunks(ids)) {
+          const rows = await db.rows(`select ${col}::text k, ${m.key}::text id from ${t} where ${col}::text in (${listOf(part)})`);
           [...new Set(rows.filter((r) => !mine.has(r.id)).map((r) => r.k))].forEach((k) => kept.push(`${ref} ${k} (a ${t} row that is not demo points at it)`));
         }
       }
     }
-    if (kept.length) throw new Error(`The wipe would keep ${kept.length} demo row(s) that non-demo rows point at, so the load could not be planned safely:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
+    // Mixed rows (a demo person and a non-demo one): the wipe empties the demo
+    // person's column, which a NOT NULL column refuses, so the row and the person stay.
+    const demoPeople = idsOf("profiles");
+    const required = await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'NO'");
+    for (const [t, m] of Object.entries(meta)) {
+      if (!m.key || !demoPeople.length) continue;
+      const mine = new Set(idsOf(t));
+      for (const col of m.person.filter((c) => required.some((r) => r.t === t && r.c === c))) {
+        for (const part of chunks(demoPeople)) {
+          const rows = await db.rows(`select ${m.key}::text id, ${col}::text k from ${t} where ${col}::text in (${listOf(part)})`);
+          rows.filter((r) => !mine.has(r.id)).forEach((r) => kept.push(`profiles ${r.k} (${t} ${r.id}, not demo, names this demo person in ${col}, which cannot be emptied)`));
+        }
+      }
+    }
+    if (kept.length) throw new Error(`The wipe would keep ${kept.length} demo row(s) that non-demo rows still need, so this reset / restore could not finish:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
   }
   const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
   const notTheBundles = listOf([...bundleRunIds, ...idsOf("payroll_runs")]);
+  // A run with a bundle run's id already on the target (not wiped first): the
+  // insert would keep the target's run and attach the bundle's items to it.
+  // Fine only for the demo's own run (a resumed seed); refused when a
+  // non-demo person handled it (reviewed, submitted, processed).
+  if (bundleRunIds.length) {
+    const people = new Set([...(bundle.demoIds || []), ...idsOf("profiles")].map(String));
+    const cols = meta.payroll_runs?.person || [];
+    const same = await db.rows(`select id::text id${cols.map((c) => `, ${c}::text ${c}`).join("")} from payroll_runs where id::text in (${listOf(bundleRunIds.map(String))}) and id::text not in (${listOf(idsOf("payroll_runs"))})`);
+    const handled = same.filter((r) => cols.some((c) => r[c] && !people.has(r[c])));
+    if (handled.length) throw new Error(`${handled.length} run(s) with a demo run's id are already on the target and were handled by a non-demo person (${handled.slice(0, 5).map((r) => r.id).join(", ")}): nothing loaded.`);
+  }
   const fit = fitBundleToTarget(bundle.tables, {
     rateIds: new Set((await db.rows("select id from payroll_rate_configs")).map((r) => r.id)),
     targetRuns: await db.rows(`select branch_id, period_start::text, status from payroll_runs where id not in (${notTheBundles})`),
@@ -198,13 +225,29 @@ function printPlan(plan) {
   plan.notes.forEach((n) => say(`  ${n}`));
 }
 
+/** Wipe and load after a snapshot: any failure says how to put the demo data back. */
+async function afterSnapshot(db, snapFile, run) {
+  try {
+    await run();
+  } catch (error) {
+    const hint = `node scripts/demo/demo.mjs restore --target=${db.target} --file=${snapFile}`;
+    if (!String(error.message).includes(hint)) error.message = `${error.message}\nThe demo data may be partly deleted or partly loaded. Restore it: ${hint}`;
+    throw error;
+  }
+}
+
 /** The demo rows a reset / restore wipes first (`data` from snapshot()). */
 const goingAwayOf = (data) => data.tables || {};
 
 /** Load a planned bundle into `db` (seed / reset / restore). */
 async function load(db, planned) {
   let plan = planned;
-  if (planned.recheck) {
+  if (!planned.recheck) {
+    // No wipe (seed): plan again right before the first insert; the target may
+    // have changed while the prompts waited (a run opened, payslip numbers taken).
+    plan = await planLoad(db, planned.source);
+    if (decisions(plan) !== decisions(planned)) throw new Error(`The target changed since the plan was shown: nothing loaded. Run the command again to see the new plan.\nShown: ${decisions(planned).slice(0, 400)}\nNow:   ${decisions(plan).slice(0, 400)}`);
+  } else {
     // After a wipe, before the first insert. The demo rows are already gone,
     // so any stop here says how to put them back.
     const restore = planned.snapshotFile ? `Restore it: node scripts/demo/demo.mjs restore --target=${db.target} --file=${planned.snapshotFile}` : "Restore the snapshot taken before the wipe.";
@@ -229,7 +272,7 @@ async function load(db, planned) {
     } catch (error) {
       throw stop(`After the wipe the load can no longer be planned: ${error.message}`);
     }
-    if (decisions(plan) !== decisions(planned)) throw stop("After the wipe the target is not what the plan expected (runs, run numbers or payslip numbers differ).");
+    if (decisions(plan) !== decisions(planned)) throw stop(`After the wipe the target is not what the plan expected (runs, run numbers or payslip numbers differ).\nShown: ${decisions(planned).slice(0, 400)}\nNow:   ${decisions(plan).slice(0, 400)}`);
   }
   const { meta, bundle, renumber } = plan;
   const remapText = (row) => {
@@ -435,15 +478,18 @@ const commands = {
     const plan = await planLoad(db, target, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
     printPlan(plan);
     if (!(await confirm("Restore this snapshot? (yes/no)"))) return say("Nothing done.");
-    await wipe(db, data);
-    await load(db, plan);
+    await afterSnapshot(db, snapFile, async () => { await wipe(db, data); await load(db, plan); });
   },
   async plan() {
     // READ-ONLY: what a reset with this bundle would do on the target (nothing is written or deleted).
     const db = await chooseTarget(rest);
     const bundle = readBundle(arg("file") || BUNDLE);
     const data = await collect(db);
+    const D = data.demoIds.map(lit).join(", ") || "null";
+    const [logins] = await db.rows(`select count(*)::int n from auth.users where id::text in (${D})`);
+    const [files] = await db.rows(`select count(*)::int n from storage.objects where bucket_id = '${STORAGE_BUCKET}' and split_part(name, '/', 1) in (${D})`);
     printCounts(`would DELETE on ${db.target}`, data);
+    say(`  and ${logins.n} login account(s), ${files.n} file(s)`);
     printCounts("then LOAD", bundle);
     printPlan(await planLoad(db, bundle, { goingAway: goingAwayOf(data) }));
     say("Nothing was changed (plan only).");
@@ -459,8 +505,7 @@ const commands = {
     printPlan(plan);
     if (!(await confirm("Reset wipes every edit made to the demo data. Continue? (yes/no)"))) return say("Nothing done.");
     if (!(await confirm('Type "reset demo" to confirm a second time:', "reset demo"))) return say("Nothing done.");
-    await wipe(db, data);
-    await load(db, plan);
+    await afterSnapshot(db, snapFile, async () => { await wipe(db, data); await load(db, plan); });
     printCounts(`now on ${db.target}`, await collect(db, { withRows: false }));
   },
   async "roll-forward"() {
