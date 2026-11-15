@@ -132,7 +132,8 @@ const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 /**
  * ZIP writer that hands out byte chunks. entry(name) → { write(text|buffer), end() }.
  */
-function zipWriter(emit) {
+/** A streaming ZIP writer: entry(name).write()/end(), then finish(). Also used by the CSV backup. */
+export function zipWriter(emit) {
   const central = [];
   let offset = 0;
   const out = (buffer) => { offset += buffer.length; emit(buffer); };
@@ -304,7 +305,12 @@ export async function writeXlsx(sheets, push) {
  * The same as a web ReadableStream (for a Next.js Response). Back-pressure:
  * the writer waits whenever the browser is not reading.
  */
-export function xlsxStream(sheets, { onFinish, onError } = {}) {
+export function xlsxStream(sheets, options) {
+  return byteStream((push) => writeXlsx(sheets, push), options);
+}
+
+/** Any writer `(push) => Promise<summary>` as a web ReadableStream, with back-pressure. */
+export function byteStream(write, { onFinish, onError } = {}) {
   let controllerRef;
   let waiting = null;
   let cancelled = false;
@@ -319,7 +325,7 @@ export function xlsxStream(sheets, { onFinish, onError } = {}) {
           await new Promise((resolve) => { waiting = resolve; });
         }
       };
-      writeXlsx(sheets, push)
+      write(push)
         .then(async (summary) => {
           if (onFinish) await onFinish(summary);
           controllerRef.close();

@@ -1,21 +1,24 @@
 /**
- * The Super Admin's full data backup (Backup & Recovery, 2026-11-08).
+ * The Super Admin's data backup (Backup & Recovery; CSV since 2026-11-15).
  *
- *   GET   the groups on offer, the row count of each table (for the progress
- *         bar and the size of the file), and how many downloads are left in
- *         the rate-limit window.
- *   POST  { password, groups: ["all"] | ["employees", ...] }
- *         re-checks the Super Admin's password, then streams an Excel
- *         workbook (.xlsx) built batch by batch on the server: nothing is
- *         stored on the server or in the repository; it goes once to the
- *         browser. Every branch.
+ *   GET   ?from=YYYY-MM-DD&to=YYYY-MM-DD&branch=<uuid>   (all optional)
+ *         the groups on offer with the number of files and rows each will
+ *         hold under those filters, the branches for the filter, and how
+ *         many downloads are left in the rate-limit window.
+ *   POST  { password, groups: ["all"] | ["employees", ...], file?: "<file key>",
+ *           filters?: { from, to, branch } }
+ *         re-checks the Super Admin's password, then streams a ZIP of CSV
+ *         files plus README.txt (or one CSV when only one file is asked
+ *         for), built page by page on the server. Nothing is stored on the
+ *         server; it goes once to the browser. Read-only.
  *
  * Super Admin only: the proxy (backup_recovery), this route (role check) and
  * the database (public.backup_export_page refuses anyone else,
  * 20261108010000). Rate limit: DOWNLOAD_LIMIT downloads per WINDOW_MINUTES,
  * counted from the audit log (so it holds across server instances). Every
- * download is in the audit log: who, when, which groups, rows per sheet;
- * a failed or cancelled one too. The password is never logged.
+ * download is in the audit log: who, when, what, filters, rows per file;
+ * a failed or cancelled one too. The password and the file contents are
+ * never logged.
  */
 
 import { NextResponse } from "next/server";
@@ -25,12 +28,11 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { reverifyPassword } from "@/lib/auth/reverify-password";
 import { deploymentEnvironment } from "@/lib/payroll/window-enforcement";
-import { loadDemoIds } from "@/lib/demo";
-import { xlsxStream } from "@/lib/export/xlsx-stream";
+import { byteStream } from "@/lib/export/xlsx-stream";
 import {
-  BACKUP_EXCLUSIONS, BACKUP_GROUPS, aboutSheet, countTables, countsSheet, employeesSheet, leaveBalancesSheet,
-  loadContext, payRatesSheet, pickGroups, tableSheet, usersSheet,
+  BACKUP_EXCLUSIONS, BACKUP_GROUPS, MAIN_FILE, backupFiles, countFiles, countTables, fileKeysOf, loadContext, pickGroups,
 } from "@/lib/backup/full-backup";
+import { backupFileName, hasFilters, parseFilters, readmeText, writeCsvBackup } from "@/lib/backup/csv-backup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +42,7 @@ export const maxDuration = 300;
 const DOWNLOAD_LIMIT = 5;
 const WINDOW_MINUTES = 15;
 const DOWNLOAD_ACTION = "backup_full_download";
+const ALL_FILES = fileKeysOf(BACKUP_GROUPS);
 
 function superAdminOnly(guard) {
   if (guard.role !== "super_admin") return NextResponse.json({ error: "Only the Super Admin downloads backups." }, { status: 403 });
@@ -55,6 +58,8 @@ async function recentDownloads(supabase, guard) {
 }
 
 const ENV_LABEL = { demo: "DEMO", local: "LOCAL TEST" };
+const appVersion = () => process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || process.env.npm_package_version || "unknown";
+const branchIdsOf = (context) => new Set(context.branches.map((b) => String(b.id)));
 
 export async function GET(request) {
   const guard = await requirePermission(request, "backup_recovery", "read");
@@ -63,20 +68,27 @@ export async function GET(request) {
   if (refused) return refused;
   try {
     const supabase = getAdminClient();
-    const tables = [...new Set(BACKUP_GROUPS.flatMap((g) => g.tables))];
-    const [counts, used, demoIds] = await Promise.all([countTables(supabase, guard.userId, tables), recentDownloads(supabase, guard), loadDemoIds(supabase)]);
+    const context = await loadContext(supabase, guard.userId);
+    const params = Object.fromEntries(new URL(request.url).searchParams);
+    const filters = parseFilters(params, branchIdsOf(context));
+    const [counts, used] = await Promise.all([countFiles(supabase, guard.userId, ALL_FILES, filters, context), recentDownloads(supabase, guard)]);
     const environment = deploymentEnvironment();
     return NextResponse.json({
-      groups: BACKUP_GROUPS.map((g) => ({ ...g, rows: g.tables.reduce((n, t) => n + (counts[t] || 0), 0) })),
+      groups: BACKUP_GROUPS.map((g) => {
+        const files = fileKeysOf([g]);
+        return { ...g, files: files.length, main_file: MAIN_FILE[g.key] || null, rows: files.reduce((n, k) => n + (counts[k] || 0), 0) };
+      }),
       counts,
+      filters,
+      branches: context.branches.map((b) => ({ id: b.id, name: b.name, code: b.code || null })),
       exclusions: BACKUP_EXCLUSIONS,
-      // Demo people (is_demo): the page's CSV exports leave them out too.
-      demo_ids: [...demoIds],
+      demo_accounts_left_out: context.demoIds.size,
       environment,
       environment_label: ENV_LABEL[environment] || null,
       limit: { per_window: DOWNLOAD_LIMIT, window_minutes: WINDOW_MINUTES, used, left: Math.max(0, DOWNLOAD_LIMIT - used) },
     });
   } catch (error) {
+    if (error.status === 400) return NextResponse.json({ error: error.message }, { status: 400 });
     console.error("[backup] GET failed:", error?.message || error);
     return NextResponse.json({ error: sanitizeError(error) }, { status: error.status || 500 });
   }
@@ -90,8 +102,11 @@ export async function POST(request) {
 
   let groups;
   const body = await request.json().catch(() => ({}));
+  const file = body.file ? String(body.file) : null;
   try {
     groups = pickGroups(body.groups);
+    if (file && !ALL_FILES.includes(file)) throw Object.assign(new Error(`Unknown backup file: ${file}.`), { status: 400 });
+    parseFilters(body.filters || {});
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
@@ -105,7 +120,7 @@ export async function POST(request) {
     }
     if (!check.valid) {
       await appendAuditLog({ actor: guard, module: "backup", action: "backup_password_failed", entity_type: "backup", status: "failed", source: "api",
-        description: "Full data backup refused: incorrect password.", metadata: { groups: groupKeys } });
+        description: "Data backup refused: incorrect password.", metadata: { groups: groupKeys, file } });
       // 400, not 401: the portal treats a 401 as a lapsed session and signs out.
       return NextResponse.json({ error: check.error || "Incorrect password.", code: "wrong_password" }, { status: 400 });
     }
@@ -117,90 +132,75 @@ export async function POST(request) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 
+  let context;
+  let filters;
+  try {
+    context = await loadContext(supabase, guard.userId);
+    filters = parseFilters(body.filters || {}, branchIdsOf(context));
+  } catch (error) {
+    return NextResponse.json({ error: error.status === 400 ? error.message : sanitizeError(error) }, { status: error.status || 500 });
+  }
+
   const started = Date.now();
-  const generatedAt = new Date().toISOString();
+  const exportedAt = new Date();
   const environment = deploymentEnvironment();
   const label = ENV_LABEL[environment] || null;
-  const tables = [...new Set(groups.flatMap((g) => g.tables))];
-  const actorName = guard.session?.full_name || guard.session?.email || "Super Admin";
+  const everything = groups.length === BACKUP_GROUPS.length && !file;
+  const keys = file ? [file] : fileKeysOf(groups);
+  const single = keys.length === 1;
+  const branchName = filters.branch ? context.branchName(filters.branch) : "";
+  const me = context.profile(guard.userId);
+  const exportedBy = `${me?.name || guard.session?.full_name || "Super Admin"}${me?.code ? ` (${me.code})` : ""}`;
+  const what = file ? file : everything ? "everything" : groupKeys.join("-");
+  const description = `${file ? `File ${file}` : everything ? "Everything" : groups.map((g) => g.label).join(", ")}; ${filters.branch ? branchName : "every branch"}${filters.from || filters.to ? `; ${filters.from || "start"} to ${filters.to || "today"}` : ""}`;
 
   // The download itself is the audit entry the rate limit counts. Written
-  // before the row counts, so the audit log's count includes it.
+  // before the files, so audit_logs.csv includes it.
   const audit = await appendAuditLog({
     actor: guard, module: "backup", action: DOWNLOAD_ACTION, entity_type: "backup", status: "success", source: "api",
-    description: `Full data backup started (${groups.length === BACKUP_GROUPS.length ? "all groups" : groups.map((g) => g.label).join(", ")}; every branch).`,
-    metadata: { groups: groupKeys, environment },
+    description: `Data backup started (CSV): ${description}.`,
+    metadata: { groups: groupKeys, file, filters, environment, format: single ? "csv" : "zip" },
   });
-  let expected;
-  try {
-    expected = await countTables(supabase, guard.userId, tables);
-  } catch (error) {
-    return NextResponse.json({ error: sanitizeError(error) }, { status: error.status || 500 });
+  let expected = null;
+  if (!hasFilters(filters)) {
+    const tables = keys.filter((k) => !["users", "employees", "leave_balances", "pay_rates"].includes(k));
+    expected = await countTables(supabase, guard.userId, tables).catch(() => null);
   }
 
-  // Rows actually written, per source table / computed sheet.
-  const written = new Map();
-  const counted = (sheet) => {
-    // Every sheet is listed in Row counts, an empty table too (0 rows).
-    if (!written.has(sheet.key)) written.set(sheet.key, 0);
-    return countedRows(sheet);
-  };
-  const countedRows = (sheet) => ({
-    ...sheet,
-    rows: (async function* count() {
-      for await (const row of sheet.rows) {
-        written.set(sheet.key, (written.get(sheet.key) || 0) + 1);
-        yield row;
-      }
-    })(),
-  });
-
-  async function* sheets() {
-    yield aboutSheet({ generatedAt, actorName, environment, groups, label });
-    const needContext = groups.some((g) => g.computed.length);
-    const context = needContext ? await loadContext(supabase, guard.userId) : null;
-    for (const group of groups) {
-      for (const computed of group.computed) {
-        if (computed === "users") yield counted(await usersSheet(supabase, context));
-        if (computed === "employees") yield counted(await employeesSheet(supabase, guard.userId, context));
-        if (computed === "leave_balances") yield counted(await leaveBalancesSheet(supabase, guard.userId, context));
-        if (computed === "pay_rates") yield counted(await payRatesSheet(supabase, context));
-      }
-      for (const table of group.tables) yield counted(await tableSheet(supabase, guard.userId, table));
-    }
-    yield countsSheet([...written].map(([source, rows]) => ({ name: source, source, rows })), expected);
-  }
-
-  const stream = xlsxStream(sheets, {
-    async onFinish(summary) {
-      const rows = Object.fromEntries(written);
-      const mismatches = Object.entries(expected).filter(([t, n]) => rows[t] !== undefined && rows[t] !== n).map(([t]) => t);
+  let summary = null;
+  const stream = byteStream(async (push) => {
+    summary = await writeCsvBackup(() => backupFiles(supabase, guard.userId, keys, filters, context), push, {
+      single,
+      readme: (files) => readmeText(files, { exportedAt, exportedBy, filters, branchName, version: appVersion(), environment, groups: file ? [file] : groups.map((g) => g.label) }),
+    });
+    return summary;
+  }, {
+    async onFinish(result) {
+      const rows = Object.fromEntries(result.files.map((f) => [f.key, f.rows]));
+      const mismatches = expected ? Object.entries(expected).filter(([t, n]) => rows[t] !== undefined && rows[t] !== n && t !== "audit_logs").map(([t]) => t) : [];
       await appendAuditLog({
         actor: guard, module: "backup", action: "backup_full_completed", entity_type: "backup", entity_id: audit?.id || null, status: "success", source: "api",
-        description: `Full data backup downloaded: ${summary.sheets.length} sheets, ${Object.values(rows).reduce((a, b) => a + b, 0)} rows, ${Math.round((Date.now() - started) / 100) / 10} s.`,
-        metadata: { groups: groupKeys, environment, rows_per_sheet: rows, sheets: summary.sheets.length, truncated_cells: summary.truncated_cells, mismatches, seconds: (Date.now() - started) / 1000 },
+        description: `Data backup downloaded (CSV): ${result.files.length} file${result.files.length === 1 ? "" : "s"}, ${Object.values(rows).reduce((a, b) => a + b, 0)} rows, ${Math.round((Date.now() - started) / 100) / 10} s.`,
+        metadata: { groups: groupKeys, file, filters, environment, rows_per_file: rows, sha256: Object.fromEntries(result.files.map((f) => [f.name, f.sha256])), mismatches, seconds: (Date.now() - started) / 1000 },
       });
     },
     async onError(error, { cancelled } = {}) {
       await appendAuditLog({
         actor: guard, module: "backup", action: "backup_full_failed", entity_type: "backup", entity_id: audit?.id || null, status: "failed", source: "api",
-        description: cancelled ? "Full data backup cancelled before it finished." : `Full data backup failed: ${sanitizeError(error)}`,
-        metadata: { groups: groupKeys, environment, rows_written: Object.fromEntries(written) },
+        description: cancelled ? "Data backup cancelled before it finished." : `Data backup failed: ${sanitizeError(error)}`,
+        metadata: { groups: groupKeys, file, filters, environment },
       });
     },
   });
 
-  const stamp = generatedAt.replace(/[-:]/g, "").slice(0, 13);
-  const prefix = label ? `${label.replace(/\s+/g, "-")}-` : "";
-  const fileName = `${prefix}sacs-backup-${groups.length === BACKUP_GROUPS.length ? "full" : groupKeys.join("-")}-${stamp}.xlsx`;
+  const fileName = backupFileName(what, { at: exportedAt, filters, branchName, ext: single ? "csv" : "zip", label: label ? label.replace(/\s+/g, "-") : "" });
   return new Response(stream, {
     status: 200,
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Type": single ? "text/csv; charset=utf-8" : "application/zip",
       "Content-Disposition": `attachment; filename="${fileName}"`,
       "Cache-Control": "no-store, no-cache, must-revalidate, private",
       "X-Content-Type-Options": "nosniff",
-      "X-Backup-Rows": String(Object.values(expected).reduce((a, b) => a + b, 0)),
       "X-Backup-Environment": environment,
     },
   });
