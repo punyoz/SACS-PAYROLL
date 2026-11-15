@@ -42,6 +42,7 @@ import {
 } from "@/lib/payroll/semi-monthly";
 import { loadPayslipSchedule } from "@/lib/payroll/schedule";
 import { basicEarnedFromPayroll } from "@/lib/payroll/thirteenth-month";
+import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { DEFAULT_BENEFITS_CEILING } from "@/lib/payroll/teacher-subsidy";
 import { computeFinalPay, finalPayDailyRate, paidDaysBetween } from "@/lib/payroll/final-pay";
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
@@ -138,7 +139,9 @@ async function gather(supabase, person) {
     const partial = window.end_key >= separatedOn
       ? paidDaysBetween({ from: window.start_key, to: separatedOn, absent, unpaidLeave, holidays })
       : null;
-    return { month_key: key, window, absent_days: absentDays, first_half_paid: firstHalfPaid, ...(partial ? { partial } : {}) };
+    // The 1st half's basic is already in basicEarnedYtd; the 13th month counts it once.
+    const firstHalfBasic = firstHalf ? basicEarnedFromPayroll(firstHalf.payroll) : 0;
+    return { month_key: key, window, absent_days: absentDays, first_half_paid: firstHalfPaid, first_half_basic: firstHalfBasic, ...(partial ? { partial } : {}) };
   }).filter((month) => month.window.start_key <= separatedOn);
 
   const basicEarnedYtd = peso(entries
@@ -331,7 +334,8 @@ export async function GET(request) {
         return {
           id: p.id, full_name: p.full_name, employee_id: p.employee_id, separated_on: p.separated_on,
           deadline, days_left: Math.round((Date.parse(`${deadline}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000),
-          final_pay: entry ? { payslip_no: entry.payslip_no, net_pay: entry.payroll?.totals?.net_pay ?? null, release_on: entry.payroll?.final_pay?.release_on || null } : null,
+          final_pay: entry ? { payslip_no: entry.payslip_no, net_pay: entry.payroll?.totals?.net_pay ?? null, release_on: entry.payroll?.final_pay?.release_on || null,
+            overpayment_to_recover: Number(entry.payroll?.final_pay?.overpayment_to_recover) || 0 } : null,
         };
       }),
       can_edit: guard.role === "accountant" || guard.role === "super_admin",
@@ -373,6 +377,8 @@ export async function POST(request) {
       basic_earned: fp.basic_earned,
       final_pay: {
         separated_on: person.separated_on, release_on: releaseOn, breakdown: fp, computed_by_name: actorName(guard),
+        // Not deducted from anything: HR recovers it by hand (2026-11-15).
+        overpayment_to_recover: fp.overpayment_to_recover || 0,
         separation: { ...(await separationRecord(supabase, person)), ...details.value, recorded_in_final_pay_by: actorName(guard), recorded_in_final_pay_at: new Date().toISOString() },
         // Unused leave conversion (decision 2026-11-09 #1): as set when generated.
         leave_conversion: { enabled: conversion.enabled, max_days: conversion.max_days, days: conversion.days, paid_days: conversion.paid_days, amount: conversion.amount },
@@ -428,12 +434,23 @@ export async function POST(request) {
     await supabase.from("employee_awol_cases").update({ final_pay_computed_at: now, final_pay_released_on: releaseOn, updated_at: now })
       .eq("employee_id", person.id).eq("outcome", "separated");
 
+    if (fp.overpayment_to_recover > 0) {
+      // HR's bell: generic, no amount (decided 2026-11-09). Never fails the save.
+      try {
+        await notify(supabase, await hrAccountIds(supabase), {
+          kind: "final_pay_overpayment",
+          title: "Final pay: overpayment to recover",
+          body: `The final pay for ${person.full_name} shows an overpayment to recover. Open the final pay record to review it.`,
+          link_page: "hr-payroll-records",
+        });
+      } catch { /* the final pay is saved either way */ }
+    }
     await appendAuditLog({
       actor: guard, module: "payroll", action: "final_pay", entity_type: "payroll_entry", entity_id: result.entry_id, status: "success", source: "api",
       description: `Final pay for ${personLabel(person)} (separated ${person.separated_on}): net ${fp.net_pay.toFixed(2)}, released ${releaseOn}${fp.uncovered.length ? `; ${fp.uncovered.length} loan balance(s) referred for collection` : ""}.`,
-      metadata: { payslip_no: result.payslip_no, net_pay: fp.net_pay, release_on: releaseOn },
+      metadata: { payslip_no: result.payslip_no, net_pay: fp.net_pay, release_on: releaseOn, overpayment_to_recover: fp.overpayment_to_recover || 0 },
     });
-    return NextResponse.json({ success: true, payslip_no: result.payslip_no, net_pay: fp.net_pay });
+    return NextResponse.json({ success: true, payslip_no: result.payslip_no, net_pay: fp.net_pay, overpayment_to_recover: fp.overpayment_to_recover || 0 });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

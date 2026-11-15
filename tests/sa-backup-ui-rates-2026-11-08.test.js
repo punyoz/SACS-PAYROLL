@@ -7,7 +7,7 @@
  *   - the rates routes refuse a typed hourly rate and a daily change without
  *     a reason; the read-only pay-rates route scopes the Admin to its branch;
  *   - the streaming Excel writer writes a valid workbook;
- *   - the Super Admin's payroll CSV quoting and the backup groups.
+ *   - the backup groups (the CSV format: tests/csv-backup-2026-11-15.test.js).
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -19,7 +19,6 @@ import {
 import { hourlyRateFor } from "@/lib/payroll/semi-monthly";
 import { computeAttendancePay } from "@/lib/payroll/attendance-pay";
 import { crc32Update, writeXlsx, MAX_CELL_CHARS } from "@/lib/export/xlsx-stream";
-import { csvField, PAYROLL_EXPORT_COLUMNS } from "@/lib/backup/payroll-export";
 import { BACKUP_GROUPS, pickGroups } from "@/lib/backup/full-backup";
 import { can } from "@/lib/rbac/permissions";
 
@@ -268,16 +267,6 @@ describe("Streaming Excel writer", () => {
     expect(sheet).toContain("JSON (part 2)");
     expect((sheet.match(/<row /g) || []).length).toBe(2501);
     expect(files["xl/workbook.xml"]).toContain('name="Payroll (2)"');
-  });
-});
-
-describe("Super Admin payroll export file", () => {
-  it("keeps amounts as stored and neutralises formula-looking text", () => {
-    expect(csvField(1379.31, "money")).toBe("1379.31");
-    expect(csvField(-5, "money")).toBe("-5");
-    expect(csvField("=HYPERLINK(1)")).toBe("'=HYPERLINK(1)");
-    expect(csvField('Cruz, "Ana"')).toBe('"Cruz, ""Ana"""');
-    expect(PAYROLL_EXPORT_COLUMNS.map(([, field]) => field)).toEqual(expect.arrayContaining(["gross_pay", "total_deductions", "net_pay", "branch_name", "pay_period"]));
   });
 });
 

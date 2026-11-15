@@ -42,10 +42,9 @@ const ROUTES = [
   ["/api/payroll/year-end-tax", [SA]],
   // Rates: SA edits, HR and Accountant read, Employee blocked.
   ["/api/payroll/government-rates", [SA, HR, AC]],
-  // 2026-11-08: read-only pay rates; the Super Admin's backup exports.
+  // 2026-11-08: read-only pay rates; the Super Admin's backup (CSV since 2026-11-15).
   ["/api/payroll/pay-rates", [SA, AD, HR, AC]],
   ["/api/admin/backup/full", [SA]],
-  ["/api/admin/backup/payroll", [SA]],
   // HR approves payroll; the Accountant sees its own runs' status.
   ["/api/hr/payroll-runs", [HR, AC]],
   ["/api/hr/payroll-records", [HR, AC]],

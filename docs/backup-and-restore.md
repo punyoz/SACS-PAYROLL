@@ -146,3 +146,7 @@ someone hears when the site is down:
   `https://<payroll-domain>/api/health` every 5 minutes. That endpoint runs
   one tiny database read and answers only up or down, and the monitor emails
   you if the site or the database is unreachable.
+
+## 6. CSV backup from the app
+
+The Super Admin's **Backup** section (Backup & Recovery) downloads every table as CSV files with a README. How to load them back: [restore-from-csv-backup.md](restore-from-csv-backup.md).

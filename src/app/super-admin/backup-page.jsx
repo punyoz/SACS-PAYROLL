@@ -6,13 +6,10 @@ import {
   ClipboardListIcon,
   CloudIcon,
   DatabaseIcon,
-  DownloadIcon,
   InfoIcon,
-  Loader2Icon,
   ReceiptTextIcon,
   RefreshCwIcon,
   SettingsIcon,
-  TableIcon,
   UsersIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -20,12 +17,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatCard } from "@/components/portal/stat-card";
-import { useConfirm } from "@/components/portal/confirm-dialog";
-import { usePortalSession } from "@/components/portal/session";
-import { FullBackupCard, PRIVACY_TEXT, RestoreGuideCard, downloadFile } from "./backup-sections";
+import { BackupCard, RestoreGuideCard } from "./backup-sections";
 import { fetchJson } from "@/lib/portal/api";
-import { downloadCsv } from "@/lib/portal/attendance";
-import { manilaDateKey } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 
@@ -37,25 +30,18 @@ const HealthList = dynamic(() => import("./dashboard-page").then((m) => m.Health
  * Backup & Recovery (loadSABackupStatus / exportSAData,
  * public/legacy/js/super-admin.js). Backups themselves are managed by
  * Supabase and are not visible to the app; this page reports only what it
- * checks (GET /api/admin/system) and offers CSV exports.
+ * checks (GET /api/admin/system) and offers the CSV backup.
  */
-
-const EXPORTS = [
-  { type: "employees", label: "Employees", icon: UsersIcon },
-  { type: "attendance", label: "Attendance", icon: ClipboardListIcon },
-  { type: "payroll", label: "Payroll", icon: ReceiptTextIcon },
-  { type: "audit", label: "Audit logs", icon: TableIcon },
-];
 
 // What the school can really do (Supabase Pro, 2026-11-08): daily backups
 // kept 7 days, restored from the Supabase dashboard. Point-in-time recovery
 // is a paid add-on that is NOT enabled.
 const RECOVERY = [
-  ["Database corruption or a bad bulk change", "Restore the latest daily backup (Supabase Pro keeps 7 days) from Supabase Dashboard → Database → Backups. Changes made after that backup are lost and must be re-entered from the Excel / CSV exports.", "30–60 min (system offline while restoring)", "Super Admin with the Supabase project owner"],
-  ["Accidental deletion of a few records", "Row-level restore: re-enter the rows from the audit history (old values are logged) or from the latest Excel / CSV export on this page.", "10–30 min", "Super Admin"],
+  ["Database corruption or a bad bulk change", "Restore the latest daily backup (Supabase Pro keeps 7 days) from Supabase Dashboard → Database → Backups. Changes made after that backup are lost and must be re-entered from the CSV backup.", "30–60 min (system offline while restoring)", "Super Admin with the Supabase project owner"],
+  ["Accidental deletion of a few records", "Row-level restore: re-enter the rows from the audit history (old values are logged) or from the latest CSV backup on this page.", "10–30 min", "Super Admin"],
   ["Point-in-time recovery (to an exact minute)", "Not enabled. It is a paid Supabase add-on; restores go back to the last daily backup only.", "—", "—"],
   ["Auth service outage", "Check status.supabase.com; escalate to Supabase Support if it is not resolved.", "Varies", "Supabase Support"],
-  ["Full system restore", "Restore the latest daily backup in the Supabase dashboard (or rebuild a project from the code's migrations), redeploy the app, then re-enter later changes from the Excel exports. Sign-in accounts come back only with a database backup.", "1–4 hours", "Development Team"],
+  ["Full system restore", "Restore the latest daily backup in the Supabase dashboard (or rebuild a project from the code's migrations), redeploy the app, then re-enter later changes from the CSV backup. Sign-in accounts come back only with a database backup.", "1–4 hours", "Development Team"],
 ];
 
 // The status check lists every account; on a slow connection it must not spin forever.
@@ -79,11 +65,7 @@ function serviceRows(system, error) {
 }
 
 export function BackupPage({ refreshKey }) {
-  const { notify } = usePortalSession();
-  const [confirmDialog, confirm] = useConfirm();
   const [state, setState] = React.useState({ loading: true, system: null, error: null });
-  const [exporting, setExporting] = React.useState("");
-  const [feedback, setFeedback] = React.useState({ text: "", tone: "" });
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: true, error: null }));
@@ -112,71 +94,11 @@ export function BackupPage({ refreshKey }) {
   const dbStatus = state.error ? "Offline" : !state.system ? "Error" : dbOk ? "Connected" : "Error";
   const integrity = !state.system || !dbOk ? "Unknown" : tablesOk ? "All reachable" : "Missing";
 
-  async function exportData(type) {
-    if (type === "payroll") {
-      // Read-only, every branch, for backup (2026-11-08): the server and the
-      // database check it is the Super Admin; it is recorded in the audit log.
-      const ok = await confirm({
-        title: "Export payroll for every branch?",
-        description: `${PRIVACY_TEXT} The export is read-only and is recorded in the audit log.`,
-        confirmLabel: "Export payroll CSV",
-      });
-      if (!ok) return;
-      setExporting(type);
-      setFeedback({ text: "Preparing payroll export…", tone: "" });
-      try {
-        const result = await downloadFile("/api/admin/backup/payroll?format=csv", {}, { fallbackName: `sacs-payroll-${manilaDateKey()}.csv` });
-        setFeedback({ text: `Payroll export downloaded (${result.name}).`, tone: "success" });
-        notify("Export ready", "The payroll CSV was downloaded. Keep it private.", "success");
-      } catch (error) {
-        setFeedback({ text: error.message || "Payroll export failed.", tone: "error" });
-      } finally {
-        setExporting("");
-      }
-      return;
-    }
-    setExporting(type);
-    setFeedback({ text: `Preparing ${type} export…`, tone: "" });
-    const date = manilaDateKey();
-    try {
-      // Demo people (is_demo, 2026-11-08) are left out of every export.
-      const demo = new Set(type === "audit" ? [] : (await fetchJson("/api/admin/backup/full")).demo_ids || []);
-      if (type === "employees") {
-        const data = await fetchJson("/api/hr/employees?archived=true");
-        downloadCsv(
-          `sacs-employees-${date}.csv`,
-          ["Full Name", "Employee ID", "Role", "Type", "Position", "Status", "Email", "Date of Birth"],
-          (data.employees || []).filter((e) => !demo.has(String(e.id))).map((e) => [e.full_name || "", e.employee_id || "", e.role || "", e.employee_type || "", e.position || "", e.employee_status || "", e.email || "", e.date_of_birth || ""]),
-        );
-      } else if (type === "attendance") {
-        const data = await fetchJson("/api/hr/attendance?view=all");
-        downloadCsv(
-          `sacs-attendance-${date}.csv`,
-          ["Employee", "Type", "Date", "Time In", "Time Out", "Hours", "Status"],
-          (data.logs || []).filter((l) => !demo.has(String(l.employee_id))).map((l) => [l.employee_name || "", l.employee_type || "", l.date || "", l.time_in || "", l.time_out || "", l.total_hours ?? l.hours_worked ?? "", l.status || ""]),
-        );
-      } else {
-        const data = await fetchJson("/api/admin/audit-logs?limit=1000");
-        downloadCsv(
-          `sacs-audit-${date}.csv`,
-          ["Timestamp", "Module", "Action", "Entity Type", "Entity ID", "Description", "Status", "Source"],
-          (data.logs || []).map((l) => [l.timestamp || l.created_at || "", l.module || "", l.action || "", l.entity_type || "", l.entity_id || "", l.description || "", l.status || "", l.source || ""]),
-        );
-      }
-      setFeedback({ text: `${type} export downloaded successfully.`, tone: "success" });
-      notify("Export ready", `The ${type} CSV was downloaded.`, "success");
-    } catch (error) {
-      setFeedback({ text: error.message || "Export failed.", tone: "error" });
-    } finally {
-      setExporting("");
-    }
-  }
-
   return (
     <>
       <Alert className="border-info/30 bg-info/5">
         <InfoIcon className="text-info" aria-hidden="true" />
-        <AlertDescription>Database backups are managed through Supabase. Manual exports below are for emergency use and compliance archiving.</AlertDescription>
+        <AlertDescription>Database backups are managed through Supabase. The CSV backup below is for emergency use and compliance archiving.</AlertDescription>
       </Alert>
 
       <section aria-label="Backup status" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -198,37 +120,7 @@ export function BackupPage({ refreshKey }) {
         </CardContent>
       </Card>
 
-      <Card className="min-w-0 shadow-xs">
-        <CardHeader>
-          <CardTitle>Manual data export</CardTitle>
-          <CardDescription>Download a snapshot of key system data for offline backup, compliance, or disaster recovery. Payroll covers every branch, read-only.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {EXPORTS.map(({ type, label, icon: Icon }) => (
-              <Button key={type} variant="outline" className="justify-start" onClick={() => exportData(type)} disabled={Boolean(exporting)}>
-                {exporting === type ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <Icon aria-hidden="true" />}
-                Export {label} CSV
-                <DownloadIcon className="ml-auto opacity-60" aria-hidden="true" />
-              </Button>
-            ))}
-          </div>
-          <p
-            role="status"
-            aria-live="polite"
-            className={cn("min-h-5 text-sm first-letter:uppercase", {
-              "text-success": feedback.tone === "success",
-              "text-destructive": feedback.tone === "error",
-              "text-warning": feedback.tone === "warning",
-              "text-muted-foreground": !feedback.tone,
-            })}
-          >
-            {feedback.text}
-          </p>
-        </CardContent>
-      </Card>
-
-      <FullBackupCard refreshKey={refreshKey} />
+      <BackupCard refreshKey={refreshKey} />
       <RestoreGuideCard />
 
       <Card className="min-w-0 shadow-xs">
@@ -257,7 +149,6 @@ export function BackupPage({ refreshKey }) {
           </div>
         </CardContent>
       </Card>
-      {confirmDialog}
     </>
   );
 }

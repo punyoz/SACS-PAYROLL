@@ -1,8 +1,7 @@
 // 2026-11-08 batch, desktop (1280x800), local stack only:
-//   1 Super Admin payroll export (every branch, read-only, audited); the
-//     Accountant still sees only its own branch; HR / Admin / Employee refused
-//   2 full data backup (.xlsx): sheets, row counts = database, no secrets,
-//     password re-entry, rate limit, audit; 64 demo employees, timed
+//   1 the Accountant still sees only its own branch; HR / Admin / Employee
+//     refused by the backup (the CSV backup itself: 99-csv-backup-2026-11-15)
+//   2 recovery text, restore guide, service status
 //   3 Super Admin posts / edits / deletes announcements; HR and Admin rules hold
 //   4 toolbar: search first, tabs and dropdowns on the same row
 //   5 Add Branch: searchable Region / Province / City / Barangay
@@ -14,7 +13,6 @@
 //   E2E_SLOWMO=500 npx playwright test e2e/specs/99-sa-backup-ui-rates.spec.mjs --project=desktop
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { inflateRawSync } from "node:zlib";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
@@ -41,53 +39,6 @@ function check(where, ok, text) {
 }
 const count = (sql) => Number(psql(sql)) || 0;
 const STAMP = Date.now().toString(36).slice(-4);
-
-/** One CSV line into cells (quotes and doubled quotes). */
-function csvCells(line) {
-  const cells = [];
-  let cell = "";
-  let quoted = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (quoted) {
-      if (ch === '"' && line[i + 1] === '"') { cell += '"'; i += 1; } else if (ch === '"') quoted = false; else cell += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ",") { cells.push(cell); cell = ""; } else cell += ch;
-  }
-  cells.push(cell);
-  return cells;
-}
-
-/** Every part of an unzipped workbook as one text. */
-const everythingOf = (files) => Object.values(files).join("\n");
-
-/** A tiny ZIP reader: entry name -> text. */
-function unzip(buffer) {
-  const end = buffer.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
-  const entries = buffer.readUInt16LE(end + 10);
-  let at = buffer.readUInt32LE(end + 16);
-  const files = {};
-  for (let i = 0; i < entries; i += 1) {
-    const packed = buffer.readUInt32LE(at + 20);
-    const nameLength = buffer.readUInt16LE(at + 28);
-    const skip = buffer.readUInt16LE(at + 30) + buffer.readUInt16LE(at + 32);
-    const offset = buffer.readUInt32LE(at + 42);
-    const name = buffer.subarray(at + 46, at + 46 + nameLength).toString("utf8");
-    const start = offset + 30 + buffer.readUInt16LE(offset + 26) + buffer.readUInt16LE(offset + 28);
-    files[name] = inflateRawSync(buffer.subarray(start, start + packed)).toString("utf8");
-    at += 46 + nameLength + skip;
-  }
-  return files;
-}
-
-/** Sheets of a workbook: [{ name, rows (data rows), xml }]. */
-function sheetsOf(files) {
-  const names = [...files["xl/workbook.xml"].matchAll(/<sheet name="([^"]+)" sheetId="(\d+)"/g)].map((m) => [m[1].replace(/&amp;/g, "&"), m[2]]);
-  return names.map(([name, id]) => {
-    const xml = files[`xl/worksheets/sheet${id}.xml`] || "";
-    return { name, xml, rows: Math.max(0, (xml.match(/<row /g) || []).length - 1) };
-  });
-}
 
 /** Two boxes on the same row: their vertical centres within 6 px. */
 const sameRow = (a, b) => a && b && Math.abs((a.y + a.height / 2) - (b.y + b.height / 2)) <= 6;
@@ -142,41 +93,8 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
         and not exists (select 1 from payroll_entries e where e.employee_id = p.id and e.pay_period = 'September 16-30, 2026');`);
   });
 
-  /* ── 1. Super Admin payroll export ─────────────────────────────────── */
-  await step(page, "1. Super Admin exports payroll for every branch (read-only, audited)", async () => {
-    monitor.at("Super Admin > Backup & Recovery");
-    await as(page, "super_admin", "sa-backup");
-    await settle(page);
-    await shot(page, "01-backup-page-top");
-    await main(page).getByRole("button", { name: /Export Payroll CSV/ }).click();
-    const dialog = page.getByRole("alertdialog");
-    check("Payroll export", /salary and personal data/i.test(await dialog.innerText()), "confirmation says the file holds salary and personal data");
-    await shot(page, "01-payroll-export-confirm");
-    const downloadPromise = page.waitForEvent("download");
-    await dialog.getByRole("button", { name: "Export payroll CSV" }).click();
-    const download = await downloadPromise;
-    const file = join(SHOTS, "..", "payroll-export.csv");
-    await download.saveAs(file);
-    const lines = readFileSync(file, "utf8").replace(/^﻿/, "").trim().split(/\r\n/);
-    const header = lines.find((l) => l.startsWith("Payslip No."));
-    const data = lines.slice(lines.indexOf(header) + 1);
-    // Demo people's payslips are left out (is_demo, 2026-11-08).
-    const dbRows = count("select count(*) from payroll_entries e where not exists (select 1 from profiles d where d.id = e.employee_id and d.is_demo)");
-    check("Payroll export", !data.some((l) => l.includes("DEMO-DM-")), "no demo payslip in the file");
-    check("Payroll export", data.length === dbRows, `${data.length} rows in the file = ${dbRows} payslips in the database`);
-    check("Payroll export", data.some((l) => l.includes(BRANCH_MAIN)) && data.some((l) => l.includes(BRANCH_NORTH)), "both branches are in the file");
-    // Amounts exactly as stored: three payslips by number.
-    const cols = csvCells(header);
-    const at = (name) => cols.indexOf(name);
-    for (const line of data.slice(0, 3)) {
-      const cells = csvCells(line);
-      const stored = psql(`select gross_pay::text || '|' || net_pay::text from payroll_entries where id = '${cells[at("Payslip ID")]}'`).split("|").map(Number);
-      check("Payroll export", Number(cells[at("Gross pay")]) === stored[0] && Number(cells[at("Net pay")]) === stored[1], `payslip ${cells[at("Payslip No.")]}: gross ${cells[at("Gross pay")]}, net ${cells[at("Net pay")]} = stored`);
-    }
-    const audit = psql("select metadata->>'rows' from audit_logs where action = 'backup_payroll_export' order by created_at desc limit 1");
-    check("Payroll export", Number(audit) === dbRows, `audit log: backup_payroll_export, ${audit} rows`);
-    check("Payroll export", (await api(page, "GET", "/api/accountant/payroll")).status === 403, "the Super Admin still has no Accountant payroll access");
-  });
+  // The Super Admin's CSV backup (downloads, counts, amounts, secrets, rate
+  // limit, audit) is e2e/specs/99-csv-backup-2026-11-15.spec.mjs since 2026-11-15.
 
   await step(page, "1. Accountant: own branch only; nobody but the Super Admin uses the backup exports", async () => {
     await as(page, "accountant", "ac-reports");
@@ -188,110 +106,17 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     check("Accountant", ![...branchesSeen].includes(north.id), "payroll records list holds no North payslip");
     for (const role of ["accountant", "hr", "admin", "employee"]) {
       await as(page, role);
-      const payroll = await api(page, "GET", "/api/admin/backup/payroll");
       const full = await api(page, "GET", "/api/admin/backup/full");
       const post = await api(page, "POST", "/api/admin/backup/full", { password: "x", groups: ["all"] });
-      check(role, payroll.status === 403 && full.status === 403 && post.status === 403, `backup exports refused (${payroll.status}/${full.status}/${post.status})`);
+      check(role, full.status === 403 && post.status === 403, `backup refused (${full.status}/${post.status})`);
     }
     let refused = false;
     try { psql(`select count(*) from public.backup_payroll_export('${accountant.id}')`); } catch { refused = true; }
     check("Database", refused, "backup_payroll_export refuses the Accountant as actor");
   });
 
-  /* ── 2. Full data backup ───────────────────────────────────────────── */
-  await step(page, "2. Full data backup (.xlsx): password, sheets, counts, no secrets, audit, timing", async () => {
-    monitor.at("Super Admin > Backup & Recovery > Full data backup");
+  await step(page, "2. Recovery text, restore guide, service status", async () => {
     await as(page, "super_admin", "sa-backup");
-    await settle(page);
-    const card = main(page).locator('[data-testid="full-backup"]');
-    await card.scrollIntoViewIfNeeded();
-    await expect(card.getByText(/groups ·/)).toBeVisible({ timeout: 60000 });
-    await shot(page, "02-full-backup-card", card);
-    // The refusals below are on purpose (400 wrong / missing password, 429 rate limit).
-    monitor.allow(/400 POST \/api\/admin\/backup\/full/, /429 POST \/api\/admin\/backup\/full/, /status of 400/, /status of 429/);
-    check("Backup", (await api(page, "POST", "/api/admin/backup/full", { groups: ["all"] })).status === 400, "no password: refused");
-
-    await card.getByRole("button", { name: /Download full backup/ }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.locator("#backup-password").fill("wrong-password-1");
-    await dialog.getByRole("checkbox").click();
-    await dialog.getByRole("button", { name: "Download" }).click();
-    await expect(dialog.getByRole("alert")).toContainText(/Incorrect password/i);
-    check("Backup", true, "a wrong password is refused, nothing downloads");
-    await shot(page, "02-password-dialog");
-
-    await dialog.locator("#backup-password").fill(ACCOUNTS.super_admin.password);
-    const started = Date.now();
-    const downloadPromise = page.waitForEvent("download", { timeout: 300000 });
-    await dialog.getByRole("button", { name: "Download" }).click();
-    const download = await downloadPromise;
-    const seconds = (Date.now() - started) / 1000;
-    const file = join(SHOTS, "..", "full-backup.xlsx");
-    await download.saveAs(file);
-    await expect(dialog).toBeHidden({ timeout: 60000 });
-    const buffer = readFileSync(file);
-    const files = unzip(buffer);
-    const sheets = sheetsOf(files);
-    say(`full backup: ${sheets.length} sheets, ${(buffer.length / 1024 / 1024).toFixed(2)} MB, ${seconds.toFixed(1)} s`);
-    writeFileSync(join(SHOTS, "..", "full-backup-timing.json"), JSON.stringify({ seconds, bytes: buffer.length, sheets: sheets.map((s) => [s.name, s.rows]) }, null, 2));
-    const names = sheets.map((s) => s.name);
-    for (const expected of ["About this backup", "Users and accounts", "Employees", "attendance_logs", "Leave balances", "leave_requests", "payroll_entries",
-      "payroll_loans", "payroll_thirteenth_month", "Pay rates (now)", "payroll_rate_configs", "payroll_tax_brackets", "payroll_schedule_settings",
-      "branches", "role_permissions", "branch_announcements", "audit_logs", "Row counts"]) {
-      check("Backup sheets", names.includes(expected), `sheet "${expected}"`);
-    }
-    // Row counts = the database, table by table (the "Row counts" sheet names
-    // each sheet's table; sheet names are cut at Excel's 31 characters).
-    const countsXml = sheets.find((s) => s.name === "Row counts").xml;
-    const countRows = [...countsXml.matchAll(/<row r="(\d+)">([\s\S]*?)<\/row>/g)].slice(1)
-      .map(([, , cells]) => [...cells.matchAll(/<t[^>]*>([^<]*)<\/t>|<v>([^<]*)<\/v>/g)].map((m) => m[1] ?? m[2]));
-    const mismatched = [];
-    let tables = 0;
-    for (const [sheet, table, inFile] of countRows) {
-      if (!/^[a-z_0-9]+$/.test(table) || ["users", "employees", "leave_balances", "pay_rates"].includes(table)) continue;
-      tables += 1;
-      // The database count without demo people's rows (is_demo, 2026-11-08).
-      const db = count(`select count(*) from public.${table} t where ${psql(`select public.backup_demo_filter('${table}')`)}`);
-      const fileRows = Number(inFile);
-      const sheetRows = sheets.find((s) => s.name === sheet)?.rows;
-      // audit_logs grows while the file is made (the backup's own entries).
-      const close = table === "audit_logs" ? Math.abs(db - fileRows) <= 3 : db === fileRows;
-      if (!close || sheetRows !== fileRows) mismatched.push(`${table} file ${fileRows} / sheet ${sheetRows} / db ${db}`);
-    }
-    check("Backup counts", tables >= 60 && !mismatched.length, mismatched.length ? `mismatch: ${mismatched.join(", ")}` : `all ${tables} table sheets: rows in the file = the database`);
-    const employees = sheets.find((s) => s.name === "Employees");
-    const realPeople = count("select count(*) from profiles where role <> 'super_admin' and not is_demo");
-    check("Backup", employees.rows === realPeople && !/DM-0001/.test(employees.xml) && !/demo0\d\d@demo60\.test/.test(everythingOf(files)), `Employees sheet: ${employees.rows} people, the 64 demo employees left out`);
-    check("Backup", /TIN<\/t>/.test(employees.xml) && /Hourly rate \(daily ÷ 8\)/.test(employees.xml), "Employees sheet has the ID-number and hourly-rate columns");
-    const everything = Object.values(files).join("\n");
-    const leaks = [["bcrypt hash", /\$2[aby]\$\d\d\$/], ["encrypted_password", /encrypted_password/], ["JWT", /eyJhbGciOi/], ["code_hash", /code_hash/], ["service role key", /service_role_key|SUPABASE_SERVICE/i], ["encrypted ID column", /_number_enc/]];
-    for (const [label, pattern] of leaks) check("Backup secrets", !pattern.test(everything), `no ${label} in the file`);
-    check("Backup audit", count("select count(*) from audit_logs where action = 'backup_full_download'") >= 1 && count("select count(*) from audit_logs where action = 'backup_full_completed'") >= 1, "audit log: started + completed");
-    check("Backup audit", count("select count(*) from audit_logs where action = 'backup_password_failed'") >= 1, "audit log: the wrong password");
-    check("Backup timing", seconds < 120, `${seconds.toFixed(1)} s for ${employees.rows} employees and ${sheets.find((s) => s.name === "attendance_logs")?.rows} attendance rows`);
-  });
-
-  await step(page, "2. One group at a time, rate limit, recovery text, service status", async () => {
-    const card = main(page).locator('[data-testid="full-backup"]');
-    await card.getByRole("button", { name: "Download Payroll records and payslips (.xlsx)" }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.locator("#backup-password").fill(ACCOUNTS.super_admin.password);
-    await dialog.getByRole("checkbox").click();
-    const downloadPromise = page.waitForEvent("download", { timeout: 120000 });
-    await dialog.getByRole("button", { name: "Download" }).click();
-    const one = await downloadPromise;
-    const path = join(SHOTS, "..", "group-payroll.xlsx");
-    await one.saveAs(path);
-    const groupSheets = sheetsOf(unzip(readFileSync(path))).map((s) => s.name);
-    check("Group download", groupSheets.includes("payroll_entries") && !groupSheets.includes("attendance_logs"), `payroll group only: ${groupSheets.length} sheets`);
-    // Rate limit: 5 downloads in 15 minutes; use what is left, then one more.
-    const left = (await api(page, "GET", "/api/admin/backup/full")).data.limit.left;
-    const statuses = [];
-    for (let i = 0; i <= left; i += 1) {
-      const res = await page.request.post("/api/admin/backup/full", { data: { password: ACCOUNTS.super_admin.password, groups: ["announcements"] } });
-      statuses.push(res.status());
-    }
-    check("Rate limit", statuses.slice(0, left).every((s) => s === 200) && statuses[left] === 429, `${left} left: ${statuses.join(", ")} (then refused)`);
     await page.reload();
     await settle(page);
     const recovery = await main(page).getByText("Recovery procedures").locator("xpath=ancestor::*[@data-slot='card'][1]").innerText();

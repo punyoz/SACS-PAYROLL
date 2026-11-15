@@ -107,7 +107,7 @@ test("2026-11-08 on a phone: toolbars, dropdown sheets, toasts, rates, backup", 
     await shot(page, "rates-pair");
     await as(page, "super_admin", "sa-backup");
     await settle(page);
-    await main(page).locator('[data-testid="full-backup"]').scrollIntoViewIfNeeded();
+    await main(page).locator('[data-testid="backup"]').scrollIntoViewIfNeeded();
     check("Backup", (await pageOverflow(page)) <= 0, "no sideways page scroll");
     await shot(page, "backup-page");
     await as(page, "admin", "adm-pay-rates");
