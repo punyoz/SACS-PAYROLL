@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR, PRODUCTION, readEnvFile } from "./config.mjs";
 import { chooseTarget, confirm, database, lit } from "./db.mjs";
-import { collect, counts, demoFilter, fitBundleToTarget, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
+import { collect, counts, demoFilter, describeFit, fitBundleToTarget, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
 import { buildRoster } from "./roster.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
@@ -91,18 +91,24 @@ async function insertRows(db, table, rows, columns, generated, { triggers = fals
   }
 }
 
-/** Load a bundle into `db` (seed / reset / restore). */
-async function load(db, bundle) {
+/**
+ * Everything a load decides, read-only, BEFORE any prompt (seed / reset /
+ * restore print its notes with the counts): the bundle fitted to the target
+ * (fitBundleToTarget), the checks that stop a load, the run numbers and the
+ * payslip numbers it moves up. `goingAway` = the demo rows a reset / restore
+ * wipes first (their runs and payslip numbers do not count as the target's).
+ */
+async function planLoad(db, source, { goingAway = { runIds: [], recordIds: [] } } = {}) {
   const meta = await schema(db);
-  const D = bundle.demoIds;
-  // Fit the bundle to the target first: rate rows it lacks, runs it already has.
-  const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => lit(r.id)).join(", ") || "null";
-  const fitted = fitBundleToTarget(bundle.tables, {
+  const bundle = { ...source, tables: { ...source.tables } };
+  const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
+  const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
+  const notTheBundles = listOf([...bundleRunIds, ...goingAway.runIds]);
+  const fit = fitBundleToTarget(bundle.tables, {
     rateIds: new Set((await db.rows("select id from payroll_rate_configs")).map((r) => r.id)),
-    targetRuns: await db.rows(`select branch_id, period_start::text, status from payroll_runs where id not in (${bundleRunIds})`),
+    targetRuns: await db.rows(`select branch_id, period_start::text, status from payroll_runs where id not in (${notTheBundles})`),
   });
-  bundle.tables = fitted.tables;
-  fitted.notes.forEach((n) => say(`  ${n}`));
+  bundle.tables = fit.tables;
   // Branches and configuration the rows point at must exist on the target.
   const branchIds = [...new Set(bundle.tables.profiles.map((p) => p.branch_id).filter(Boolean))];
   const haveBranches = await db.rows(`select id from branches where id in (${branchIds.map(lit).join(", ")})`);
@@ -117,31 +123,59 @@ async function load(db, bundle) {
       if (have.length !== ids.length) throw new Error(`${t}.${col} points at ${ids.length - have.length} ${ref} row(s) the target does not have: nothing loaded.`);
     }
   }
-  // Run numbers and payslip numbers already taken on the target: the demo's move up.
-  const runs = bundle.tables.payroll_runs || [];
+  // Leave-proof files only in demo people's folders.
+  const D = new Set(bundle.demoIds || []);
+  const foreign = (bundle.files || []).filter((f) => !D.has(String(f.path).split("/")[0]));
+  if (foreign.length) throw new Error(`${foreign.length} file(s) outside the demo people's folders (${foreign[0].path}): nothing loaded.`);
+  // Run numbers already taken on the target: the demo's move up.
+  const runs = (bundle.tables.payroll_runs || []).map((r) => ({ ...r }));
+  bundle.tables.payroll_runs = runs;
   for (const run of runs) {
     // A branch and period has at most one run that is not approved, and it is
     // the latest (ensure_payroll_run): never stack a demo run on the target's
     // open one, or an open demo run on any target run (2026-11-15: Main
     // Branch, October 16-31, 2026 ended up with two Pending runs).
-    const [open] = await db.rows(`select count(*)::int n, count(*) filter (where status <> 'approved')::int pending from payroll_runs where branch_id = ${lit(run.branch_id)} and period_start = ${lit(run.period_start)} and not (id in (${runs.map((r) => lit(r.id)).join(", ")}))`);
+    const [open] = await db.rows(`select count(*)::int n, count(*) filter (where status <> 'approved')::int pending from payroll_runs where branch_id = ${lit(run.branch_id)} and period_start = ${lit(run.period_start)} and id not in (${notTheBundles})`);
     if (open.n > 0 && (open.pending > 0 || run.status !== "approved")) {
       throw new Error(`The target already has a payroll run for branch ${run.branch_id}, ${run.period_label}${open.pending ? " that is not approved" : ""}; a demo run there would make two runs open at once: nothing loaded.`);
     }
-    const [taken] = await db.rows(`select coalesce(max(run_no), 0)::int m from payroll_runs where branch_id = ${lit(run.branch_id)} and period_start = ${lit(run.period_start)} and not (id in (${runs.map((r) => lit(r.id)).join(", ")}))`);
-    if (taken.m >= run.run_no) run.run_no = taken.m + run.run_no;
+    // Every demo run of the branch and period moves up by the same amount (no two land on one number).
+    const [taken] = await db.rows(`select coalesce(max(run_no), 0)::int m from payroll_runs where branch_id = ${lit(run.branch_id)} and period_start = ${lit(run.period_start)} and id not in (${notTheBundles})`);
+    if (taken.m > 0) run.run_no = taken.m + run.run_no;
   }
+  // Payslip numbers already taken on the target: the demo's move up.
   const payslips = [...new Set(["payroll_records", "payroll_entries", "payroll_run_items"].flatMap((t) => (bundle.tables[t] || []).map((r) => r.payslip_no)).filter(Boolean))];
   const renumber = new Map();
   if (payslips.length) {
     const prefixes = [...new Set(payslips.map((p) => p.replace(/-\d+$/, "")))];
     for (const prefix of prefixes) {
-      const [top] = await db.rows(`select coalesce(max((regexp_replace(payslip_no, '^.*-', ''))::int), 0)::int m from payroll_records where payslip_no like ${lit(`${prefix}-%`)}`);
+      const [top] = await db.rows(`select coalesce(max((regexp_replace(payslip_no, '^.*-', ''))::int), 0)::int m from payroll_records where payslip_no like ${lit(`${prefix}-%`)} and id not in (${listOf(goingAway.recordIds)})`);
       const mine = payslips.filter((p) => p.startsWith(`${prefix}-`)).sort();
       const clash = top.m > 0;
       mine.forEach((p, i) => { if (clash) renumber.set(p, `${prefix}-${String(top.m + i + 1).padStart(4, "0")}`); });
     }
   }
+  const notes = describeFit(fit, renumber);
+  if (renumber.size) notes.push(`${renumber.size} payslip numbers move up past the target's own`);
+  return { meta, bundle, renumber, notes };
+}
+
+/** Print a plan's notes (before the prompts). */
+function printPlan(plan) {
+  if (!plan.notes.length) return say("Fitted to the target: nothing to change.");
+  say("Fitted to the target:");
+  plan.notes.forEach((n) => say(`  ${n}`));
+}
+
+/** The demo rows a reset / restore wipes first (`data` from snapshot()): their runs and payslip numbers are not the target's. */
+const goingAwayOf = (data) => ({
+  runIds: (data.tables?.payroll_runs || []).map((r) => r.id),
+  recordIds: (data.tables?.payroll_records || []).map((r) => r.id),
+});
+
+/** Load a planned bundle into `db` (seed / reset / restore). */
+async function load(db, plan) {
+  const { meta, bundle, renumber } = plan;
   const remapText = (row) => {
     if (!renumber.size) return row;
     // One pass, each number looked up once (a chain of replacements could renumber a number twice).
@@ -312,8 +346,10 @@ const commands = {
     const [have] = await db.rows(`select count(*)::int n from profiles where ${demoFilter()}`);
     if (have.n) { say(`${have.n} demo profiles already on ${db.target}.`); if (process.env.DEMO_RESUME === "1") say("Resuming an interrupted seed (DEMO_RESUME=1): rows already there are skipped."); else if (!(await confirm('Demo data exists. Type "add anyway" to load on top:', "add anyway"))) return say("Nothing done."); }
     printCounts(`will CREATE on ${db.target}`, bundle);
+    const plan = await planLoad(db, bundle);
+    printPlan(plan);
     if (!(await confirm(`Load this on ${db.target}? (yes/no)`))) return say("Nothing done.");
-    await load(db, bundle);
+    await load(db, plan);
     printCounts(`now on ${db.target}`, await collect(db, { withRows: false }));
   },
   async snapshot() {
@@ -340,9 +376,11 @@ const commands = {
     const { data } = await snapshot(db);
     printCounts(`will DELETE on ${db.target}`, data);
     printCounts("then LOAD", target);
+    const plan = await planLoad(db, target, { goingAway: goingAwayOf(data) });
+    printPlan(plan);
     if (!(await confirm("Restore this snapshot? (yes/no)"))) return say("Nothing done.");
     await wipe(db, data);
-    await load(db, target);
+    await load(db, plan);
   },
   async reset() {
     const db = await chooseTarget(rest);
@@ -351,10 +389,12 @@ const commands = {
     const { data } = await snapshot(db);
     printCounts(`will DELETE on ${db.target} (your edits included)`, data);
     printCounts("then LOAD the original seed", bundle);
+    const plan = await planLoad(db, bundle, { goingAway: goingAwayOf(data) });
+    printPlan(plan);
     if (!(await confirm("Reset wipes every edit made to the demo data. Continue? (yes/no)"))) return say("Nothing done.");
     if (!(await confirm('Type "reset demo" to confirm a second time:', "reset demo"))) return say("Nothing done.");
     await wipe(db, data);
-    await load(db, bundle);
+    await load(db, plan);
     printCounts(`now on ${db.target}`, await collect(db, { withRows: false }));
   },
   async "roll-forward"() {
