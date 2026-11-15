@@ -9,7 +9,7 @@ import { inflateRawSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import {
   BOM, PAYSLIP_COLUMNS, backupFileName, csvCell, csvLine, label, manilaDateTime, money, parseFilters, parsePayPeriod,
-  payslipAmounts, preparePayslip, readmeText, round2, rowMatches, tableColumns, writeCsvBackup,
+  payslipAmounts, preparePayslip, readmeText, RESTORE_GUIDE, RESTORE_ORDER, round2, rowMatches, tableColumns, writeCsvBackup,
 } from "@/lib/backup/csv-backup";
 import { BACKUP_GROUPS, fileKeysOf } from "@/lib/backup/full-backup";
 import { TABLE_COLUMNS } from "@/lib/backup/schema";
@@ -186,5 +186,52 @@ describe("Writing", () => {
     const summary = await writeCsvBackup(files, async (c) => { chunks.push(c); }, { single: true });
     expect(summary.files).toHaveLength(1);
     expect(Buffer.concat(chunks).toString("utf8")).toBe(`${BOM}Employee name,Net pay (PHP)\r\n'=1+1,6436.80\r\nPeña,1.00\r\n`);
+  });
+});
+
+describe("Restore-ready files (2026-11-15 decisions)", () => {
+  it("keeps the stored code of every status next to the words, and marks demo rows", () => {
+    const cols = tableColumns("attendance_logs");
+    const status = cols.find((c) => c.header === "Status");
+    const code = cols.find((c) => c.header === "Status (database code)");
+    expect(status.column).toBeUndefined();
+    expect(code.column).toBe("status");
+    expect(code.get({ status: "on_time" })).toBe("on_time");
+    const demo = cols.find((c) => c.header === "Is demo");
+    expect(demo.get({ employee_id: "p1" }, { isDemo: (id) => id === "p1" })).toBe(true);
+    expect(cols.findIndex((c) => c.header === "Is demo")).toBe(3); // after Employee ID, name, Branch
+    expect(tableColumns("profiles").map((c) => c.header).slice(0, 4)).toEqual(["Employee ID", "Full name", "Branch", "Is demo"]);
+    expect(PAYSLIP_COLUMNS.find((c) => c.header === "Gross pay (PHP)").column).toBe("gross_pay");
+    expect(PAYSLIP_COLUMNS.find((c) => c.header === "Monthly salary (PHP)").column).toBe("basic_salary");
+    expect(PAYSLIP_COLUMNS.find((c) => c.header === "Basic pay earned this cutoff (PHP)").column).toBeUndefined();
+  });
+
+  it("README: where each column loads, the restore guide, load order, demo, 0.00 note, known item", () => {
+    const text = readmeText([{ name: "attendance_logs.csv", title: "Attendance logs", rows: 1, sha256: "x", columns: tableColumns("attendance_logs") }],
+      { exportedAt: new Date(), exportedBy: "Demo Super Admin (Super Admin)", filters: { from: null, to: null, branch: null }, version: "t", environment: "local", groups: ["Attendance"] });
+    expect(text).toContain("Exported by: Demo Super Admin (Super Admin)");
+    expect(text).toMatch(/Status \(database code\) - .* \[loads into: status \(text\)\]/);
+    expect(text).toMatch(/Branch - Branch name\. \[shown only\]/);
+    expect(text).toMatch(/^LOAD ORDER: branches, profiles, /m);
+    expect(text).toContain("HOW TO RESTORE");
+    expect(text).toContain("DEMO DATA");
+    expect(text).toContain("PAYSLIPS OF 0.00");
+    expect(text).toContain("KNOWN ITEM (after the defense): payroll_approval_history, payroll_window_enforcement, payroll_window_enforcement_changes");
+  });
+
+  it("loads parents before children and covers every backup table", () => {
+    const tables = BACKUP_GROUPS.flatMap((g) => g.tables);
+    expect([...RESTORE_ORDER].sort()).toEqual([...new Set(tables)].sort());
+    const before = (a, b) => RESTORE_ORDER.indexOf(a) < RESTORE_ORDER.indexOf(b);
+    expect(before("branches", "profiles") && before("profiles", "attendance_logs") && before("payroll_runs", "payroll_entries") && before("payroll_entries", "payroll_run_items")).toBe(true);
+  });
+});
+
+describe("Restore guide document", () => {
+  it("has the same text as the README (docs/restore-from-csv-backup.md)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const doc = readFileSync("docs/restore-from-csv-backup.md", "utf8").replace(/\r\n/g, "\n");
+    for (const line of RESTORE_GUIDE.filter(Boolean)) expect(doc).toContain(line);
+    RESTORE_ORDER.forEach((t, i) => expect(doc).toContain(`${i + 1}. \`${t}\``));
   });
 });

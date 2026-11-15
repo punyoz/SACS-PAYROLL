@@ -32,7 +32,7 @@ import { byteStream } from "@/lib/export/xlsx-stream";
 import {
   BACKUP_EXCLUSIONS, BACKUP_GROUPS, MAIN_FILE, backupFiles, countFiles, countTables, fileKeysOf, loadContext, pickGroups,
 } from "@/lib/backup/full-backup";
-import { backupFileName, hasFilters, parseFilters, readmeText, writeCsvBackup } from "@/lib/backup/csv-backup";
+import { backupFileName, hasFilters, label as wordsOf, parseFilters, readmeText, writeCsvBackup } from "@/lib/backup/csv-backup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,7 +82,8 @@ export async function GET(request) {
       filters,
       branches: context.branches.map((b) => ({ id: b.id, name: b.name, code: b.code || null })),
       exclusions: BACKUP_EXCLUSIONS,
-      demo_accounts_left_out: context.demoIds.size,
+      // Demo people are included (2026-11-15); each file marks them in "Is demo".
+      demo_accounts: context.demoIds.size,
       environment,
       environment_label: ENV_LABEL[environment] || null,
       limit: { per_window: DOWNLOAD_LIMIT, window_minutes: WINDOW_MINUTES, used, left: Math.max(0, DOWNLOAD_LIMIT - used) },
@@ -150,7 +151,8 @@ export async function POST(request) {
   const single = keys.length === 1;
   const branchName = filters.branch ? context.branchName(filters.branch) : "";
   const me = context.profile(guard.userId);
-  const exportedBy = `${me?.name || guard.session?.full_name || "Super Admin"}${me?.code ? ` (${me.code})` : ""}`;
+  // Name and role; the Employee ID only when the account has one (decided 2026-11-15).
+  const exportedBy = `${me?.name || guard.session?.full_name || "Super Admin"} (${wordsOf(me?.role || guard.role)})${me?.code ? `, Employee ID ${me.code}` : ""}`;
   const what = file ? file : everything ? "everything" : groupKeys.join("-");
   const description = `${file ? `File ${file}` : everything ? "Everything" : groups.map((g) => g.label).join(", ")}; ${filters.branch ? branchName : "every branch"}${filters.from || filters.to ? `; ${filters.from || "start"} to ${filters.to || "today"}` : ""}`;
 

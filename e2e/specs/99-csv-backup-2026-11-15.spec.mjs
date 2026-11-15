@@ -93,13 +93,13 @@ function readmeOf(text) {
 const COMPUTED = { users: "users_and_accounts.csv", employees: "employees.csv", leave_balances: "leave_balances.csv", pay_rates: "pay_rates.csv" };
 const fileName = (key) => COMPUTED[key] || `${key}.csv`;
 
-/** Database counts as the backup defines them (demo people's rows left out). */
+/** Database counts as the backup defines them (demo people included since 2026-11-15). */
 function dbCount(key) {
-  if (key === "users") return count("select (select count(*) from auth.users u where not exists (select 1 from profiles d where d.id = u.id and d.is_demo)) + (select count(*) from profiles p where not p.is_demo and not exists (select 1 from auth.users u where u.id = p.id))");
-  if (key === "employees") return count("select count(*) from profiles where not is_demo and lower(role::text) <> 'super_admin'");
+  if (key === "users") return count("select (select count(*) from auth.users) + (select count(*) from profiles p where not exists (select 1 from auth.users u where u.id = p.id))");
+  if (key === "employees") return count("select count(*) from profiles where lower(role::text) <> 'super_admin'");
   if (key === "leave_balances") return 2 * dbCount("employees");
   if (key === "pay_rates") return 1 + count("select count(*) from branches");
-  return count(`select count(*) from public.${key} t where ${psql(`select public.backup_demo_filter('${key}')`)}`);
+  return count(`select count(*) from public.${key}`);
 }
 
 // Employee share: the final-pay lines when the payslip has them, else deductions.<kind>, else the column.
@@ -126,7 +126,7 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
 
   await step(page, "Setup: test values and 3 paid payslips per branch with stale amount columns (local only)", async () => {
     // A name that looks like a formula, ₱ and ñ, a leading zero.
-    psql(`update profiles set full_name = '=1+1', address = 'Brgy. Santo Niño, ₱ test', cp_number = '09170000001' where id = '${employee3.id}'`);
+    psql(`update profiles set full_name = '=1+1', address = 'Brgy. Santo Niño, ₱ test', cp_number = '09170000001', is_demo = true where id = '${employee3.id}'`);
     // Like the October payslips: the record holds the amounts, the columns 0 (written before the 2026-10-29 trigger).
     psql(`set session_replication_role = replica;
       insert into payroll_entries (employee_id, employee_name, employee_code, employee_type, position, pay_period, cutoff, status, basic_salary, gross_pay, sss, philhealth, pagibig, withholding_tax, total_deductions, net_pay, branch_id, payslip_no, payroll, created_at, updated_at, approved_at)
@@ -137,7 +137,7 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
           'employer_contributions', jsonb_build_object('employer', jsonb_build_object('sss', 600, 'sss_ec', 10, 'philhealth', 75.4, 'pagibig', 200, 'total', 885.4))),
         now(), now(), now()
       from (select q.*, row_number() over (partition by q.branch_id order by q.employee_id) rn from profiles q
-            where not q.is_demo and lower(q.role::text) <> 'super_admin' and q.branch_id is not null and q.employee_id is not null) p
+            where lower(q.role::text) <> 'super_admin' and q.branch_id is not null and q.employee_id is not null) p
       where p.rn <= 3 and not exists (select 1 from payroll_entries e where e.payslip_no = 'E2E-CSV-' || p.employee_id);`);
     check("Setup", count("select count(*) from payroll_entries where payslip_no like 'E2E-CSV-%'") >= 3, "test payslips in place");
   });
@@ -232,6 +232,11 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
       check("Counts", !bad.length, bad.length ? bad.join("; ") : "every CSV: rows = database = page = README; checksums match; BOM; every row as wide as its header");
       check("README", /Exported at \(Asia\/Manila\): \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(readme) && /Exported by: .+/.test(readme) && !/@/.test(/Exported by: (.+)/.exec(readme)[1]) && /Filters: branch = every branch; dates = everything/.test(readme) && /App version: /.test(readme), "README: time, who (no email), filters, version");
       check("README", /UUID/.test(readme) && /Columns:/.test(readme), "README has a column guide and explains the UUID links");
+      check("README", /^Exported by: .+ \(Super Admin\)/m.test(readme), `exported by name and role: "${/Exported by: (.+)/.exec(readme)[1]}"`);
+      check("README", /DEMO DATA: demo people .* ARE included/.test(readme) && /PAYSLIPS OF 0\.00/.test(readme) && /KNOWN ITEM \(after the defense\): payroll_approval_history, payroll_window_enforcement, payroll_window_enforcement_changes/.test(readme),
+        "README: demo included, 0.00 payslip note, the 3 UUID-only tables as a known item");
+      check("README", /HOW TO RESTORE/.test(readme) && /^LOAD ORDER: branches, profiles, /m.test(readme) && /\[loads into: gross_pay \(num\)\]/.test(readme) && /\[shown only\]/.test(readme),
+        "README: restore guide, load order (parents first) and where each column loads");
     });
 
     await step(page, "Files: no secrets, no null/undefined/[object Object], formula guard, ₱ ñ, leading zeros, column order", async () => {
@@ -257,6 +262,13 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
       check("Formula", !/(^|,)=/.test(text.split("\n").filter((l) => !l.startsWith('"')).join("\n")), "no unquoted cell starts with =");
       check("Encoding", row?.[employees.at("Address")] === "Brgy. Santo Niño, ₱ test", "₱ and ñ intact");
       check("Leading zeros", row?.[employees.at("Mobile number")] === "09170000001", "mobile number 09170000001 kept as text");
+      check("Is demo", row?.[employees.at("Is demo")] === "Yes" && employees.data.filter((r) => r[employees.at("Is demo")] === "Yes").length === count("select count(*) from profiles where is_demo and lower(role::text) <> 'super_admin'"),
+        `Is demo = Yes on exactly the demo people (${employees.data.filter((r) => r[employees.at("Is demo")] === "Yes").length})`);
+      const demoFiles = ["users_and_accounts.csv", "employees.csv", "profiles.csv", "attendance_logs.csv", "payroll_entries.csv", "leave_requests.csv"];
+      check("Is demo", demoFiles.every((f) => csvOf(zip[f]).header.includes("Is demo")), `"Is demo" column in ${demoFiles.join(", ")}`);
+      const logs = csvOf(zip["attendance_logs.csv"]);
+      check("Database codes", logs.header.includes("Status (database code)") && logs.data.every((r) => r[logs.at("Status (database code)")] === "" || !/ /.test(r[logs.at("Status (database code)")]) || r[logs.at("Status")] === r[logs.at("Status (database code)")]),
+        "statuses in words, and the stored value in the \"(database code)\" column");
       const profiles = csvOf(zip["profiles.csv"]);
       check("Order", profiles.header[0] === "Employee ID" && employees.header.slice(0, 3).join() === "Employee ID,Full name,Branch", `readable first: ${employees.header.slice(0, 3).join(", ")}`);
       const att = csvOf(zip["attendance_logs.csv"]);
@@ -295,7 +307,7 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
       const files = unzip(await res.body());
       const name = /filename="([^"]+)"/.exec(res.headers()["content-disposition"])[1];
       check("Filter name", /_north[^_]*_2026-10-01-to-2026-10-31\.zip$/.test(name) || /_2026-10-01-to-2026-10-31\.zip$/.test(name), name);
-      const dbAtt = count(`select count(*) from attendance_logs t where ${psql("select public.backup_demo_filter('attendance_logs')")} and coalesce(t.branch_id::text, (select p.branch_id::text from profiles p where p.id = t.employee_id), '') = '${north}' and t.log_date between '${from}' and '${to}'`);
+      const dbAtt = count(`select count(*) from attendance_logs t where coalesce(t.branch_id::text, (select p.branch_id::text from profiles p where p.id = t.employee_id), '') = '${north}' and t.log_date between '${from}' and '${to}'`);
       const att = csvOf(files["attendance_logs.csv"]);
       check("Filtered counts", att.data.length === dbAtt && info.counts.attendance_logs === dbAtt, `attendance_logs North, October: file ${att.data.length} = page ${info.counts.attendance_logs} = database ${dbAtt}`);
       check("Filtered rows", att.data.every((r) => r[att.at("Branch")] === BRANCH_NORTH && r[att.at("Log date")] >= from && r[att.at("Log date")] <= to), "every row is North and in October");
@@ -307,11 +319,11 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
 
       const payRes = await post({ groups: ["payroll"], file: "payroll_entries", filters: { branch: north } });
       const pay = csvOf(await payRes.body());
-      const dbPay = count(`select count(*) from payroll_entries e where not exists (select 1 from profiles d where d.id = e.employee_id and d.is_demo) and e.branch_id = '${north}'`);
+      const dbPay = count(`select count(*) from payroll_entries e where e.branch_id = '${north}'`);
       const infoBranch = (await api(page, "GET", `/api/admin/backup/full?branch=${north}`)).data;
       check("Filtered counts", pay.data.length === dbPay && infoBranch.counts.payroll_entries === dbPay && payRes.headers()["content-type"].startsWith("text/csv"), `payroll_entries North (one CSV): file ${pay.data.length} = page ${infoBranch.counts.payroll_entries} = database ${dbPay}`);
       const users = (await api(page, "GET", `/api/admin/backup/full?branch=${north}`)).data.counts.users;
-      check("Filtered counts", users === count(`select count(*) from profiles p where not p.is_demo and p.branch_id = '${north}'`), `Users North: ${users}`);
+      check("Filtered counts", users === count(`select count(*) from profiles p where p.branch_id = '${north}'`), `Users North: ${users}`);
       const bad = await api(page, "GET", "/api/admin/backup/full?from=2026-11-02&to=2026-11-01");
       check("Filter validation", bad.status === 400, `To before From refused (${bad.status})`);
     });
@@ -354,7 +366,7 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
     });
   } finally {
     const [name, address, cp] = original.split("|");
-    psql(`update profiles set full_name = ${name ? `'${name.replace(/'/g, "''")}'` : "null"}, address = ${address ? `'${address.replace(/'/g, "''")}'` : "null"}, cp_number = ${cp ? `'${cp}'` : "null"} where id = '${employee3.id}'`);
+    psql(`update profiles set full_name = ${name ? `'${name.replace(/'/g, "''")}'` : "null"}, address = ${address ? `'${address.replace(/'/g, "''")}'` : "null"}, cp_number = ${cp ? `'${cp}'` : "null"}, is_demo = false where id = '${employee3.id}'`);
     psql("set session_replication_role = replica; delete from payroll_entries where payslip_no like 'E2E-CSV-%';");
     writeFileSync(join(OUT, "csv-backup-results.json"), JSON.stringify(results, null, 2));
   }

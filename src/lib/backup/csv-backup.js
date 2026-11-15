@@ -164,14 +164,16 @@ export function tableColumns(table, firstRow = null) {
   const has = (key) => schema.some((c) => c.key === key);
   const link = schema.find((c) => (c.key === "employee_id" || c.key === "user_id") && c.type === "uuid")?.key;
 
+  // Derived columns (no `column`): shown for reading, not loaded by a restore.
   const derived = [];
   if (link && !has("employee_code")) derived.push({ key: "@employee_code", header: "Employee ID", kind: "text", meaning: "Readable employee number of the linked profile.", get: (r, ctx) => ctx.profile(r[link])?.code || "" });
   if (link && !has("employee_name")) derived.push({ key: "@employee_name", header: "Employee name", kind: "text", meaning: "Name on the linked profile.", get: (r, ctx) => ctx.profile(r[link])?.name || "" });
   if (has("branch_id")) derived.push({ key: "@branch", header: "Branch", kind: "text", meaning: "Branch name.", get: (r, ctx) => ctx.branchName(r.branch_id) });
+  if (link) derived.push({ key: "@is_demo", header: "Is demo", kind: "bool", meaning: IS_DEMO_MEANING, get: (r, ctx) => Boolean(ctx.isDemo?.(r[link])) });
 
   const column = ({ key, type }) => {
     const override = OVERRIDES[`${table}.${key}`];
-    if (override) return { key, header: override[0], kind: override[1], meaning: override[2] || meaningOf(override[1], override[0]), get: (r) => r[key] };
+    if (override) return { key, column: key, type, header: override[0], kind: override[1], meaning: override[2] || meaningOf(override[1], override[0]), get: (r) => r[key] };
     let kind = type;
     if (type === "num" && !NOT_MONEY.test(key)) kind = "money";
     if (type === "text" && LABEL_COLUMN.test(key)) kind = "label";
@@ -182,22 +184,30 @@ export function tableColumns(table, firstRow = null) {
     else if (key === "id") header = `${ENTITY[table] || "Row"} ID`;
     else if (key === "employee_code") header = "Employee ID";
     else header = words(key) + (kind === "money" ? " (PHP)" : kind === "tstz" ? " (Asia/Manila)" : "");
-    return { key, header, kind, meaning: key === "employee_code" ? "Readable employee number." : meaningOf(kind, header), get: (r) => r[key] };
+    if (key === "is_demo") header = "Is demo";
+    // A status in words is not loaded back: its "(database code)" column is.
+    return { key, column: kind === "label" ? undefined : key, type, header, kind, meaning: key === "employee_code" ? "Readable employee number." : key === "is_demo" ? IS_DEMO_MEANING : meaningOf(kind, header), get: (r) => r[key] };
   };
 
   const own = schema.map(column);
+  // The exact stored value of every status / type column, for a restore.
+  const codes = own.filter((c) => c.kind === "label").map((c) => ({ key: `${c.key}#code`, column: c.key, type: c.type, header: `${c.header} (database code)`, kind: "text", meaning: CODE_MEANING, get: (r) => r[c.key] }));
   const isEnd = (c) => c.kind === "uuid" || c.key === "id" || (c.kind === "json" && /_ids$/.test(c.key));
   // A readable code / name the table holds itself (profiles.employee_id is text, SACS-001).
   const code = own.find((c) => c.key === "employee_code" || (c.key === "employee_id" && c.kind !== "uuid"));
   const name = own.find((c) => c.key === "employee_name" || (table === "profiles" && c.key === "full_name"));
   const front = FRONT.map((key) => own.find((c) => c.key === key && c.kind !== "uuid")).filter((c) => c && c !== code && c !== name);
   const pick = (key) => derived.filter((c) => c.key === key);
+  const ownDemo = own.find((c) => c.key === "is_demo");
   const readable = [...front.filter((c) => c.key === "payslip_no"), ...(code ? [code] : pick("@employee_code")), ...(name ? [name] : pick("@employee_name")),
-    ...pick("@branch"), ...front.filter((c) => c.key !== "payslip_no")];
+    ...pick("@branch"), ...(ownDemo ? [ownDemo] : pick("@is_demo")), ...front.filter((c) => c.key !== "payslip_no")];
   const middle = own.filter((c) => !readable.includes(c) && !isEnd(c));
   const end = own.filter(isEnd).sort((a, b) => (a.key === "id" ? -1 : b.key === "id" ? 1 : 0));
-  return [...readable, ...middle, ...end];
+  return [...readable, ...middle, ...codes, ...end];
 }
+
+const IS_DEMO_MEANING = "Yes for a demo person (or a row of one), from the demo seed. Filter on No to leave demo data out.";
+const CODE_MEANING = "The value exactly as stored in the database (the column before shows it in words). A restore loads this one.";
 
 /* ── Payslips (payroll_entries) ───────────────────────────────────────── */
 
@@ -251,14 +261,19 @@ export function payslipAmounts(e) {
   };
 }
 
-const M = (key, header, meaning) => ({ key, header, kind: "money", meaning, get: (r) => r.$amounts[key] });
-const C = (key, header, kind, meaning, get) => ({ key, header, kind, meaning, get: get || ((r) => r[key]) });
+// `column`: the payroll_entries column a restore loads the value into (none = shown only).
+const M = (key, header, meaning, column) => ({ key, header, kind: "money", meaning, column, type: "num", get: (r) => r.$amounts[key] });
+const C = (key, header, kind, meaning, get) => ({ key, header, kind, meaning, get: get || ((r) => r[key]),
+  column: key.startsWith("@") || kind === "label" ? undefined : key, type: KIND_TYPE[kind] || "text" });
+const CODE = (key, header) => ({ key: `${key}#code`, header: `${header} (database code)`, kind: "text", meaning: CODE_MEANING, column: key, type: "text", get: (r) => r[key] });
+const KIND_TYPE = { money: "num", num: "num", int: "int", date: "date", tstz: "tstz", time: "time", bool: "bool", json: "json", uuid: "uuid" };
 
 export const PAYSLIP_COLUMNS = [
   C("payslip_no", "Payslip number", "text", "Readable payslip number (PS-YYYYMM-NNNN)."),
-  C("employee_code", "Employee ID", "text", "Readable employee number, as printed on the payslip.", (r, ctx) => r.employee_code || ctx.profile(r.employee_id)?.code || ""),
+  C("employee_code", "Employee ID", "text", "Readable employee number, as printed on the payslip."),
   C("employee_name", "Employee name", "text", "Name as printed on the payslip."),
   C("@branch", "Branch", "text", "Branch the payslip belongs to.", (r, ctx) => ctx.branchName(r.branch_id)),
+  C("@is_demo", "Is demo", "bool", "Yes for a demo person's payslip (from the demo seed). Filter on No to leave demo data out.", (r, ctx) => Boolean(ctx.isDemo?.(r.employee_id))),
   C("employee_type", "Employee type", "label", "Teaching / non-teaching type at the time of the payslip."),
   C("position", "Position", "text", "Position at the time of the payslip."),
   C("@period", "Pay period", "text", "Readable pay period (for example Oct 16–31, 2026), or the stored label.", (r) => r.$period?.label || r.pay_period || ""),
@@ -267,31 +282,33 @@ export const PAYSLIP_COLUMNS = [
   C("pay_period", "Pay period (as stored)", "text", "The pay period label exactly as stored."),
   C("cutoff", "Cutoff", "label", "1st cutoff (1–15) or 2nd cutoff (16–end of month)."),
   C("status", "Status", "label", "Payslip status (Pending, Approved, Paid, ...)."),
-  M("monthly_salary", "Monthly salary (PHP)", "Monthly salary the payslip was computed from."),
+  M("monthly_salary", "Monthly salary (PHP)", "Monthly salary the payslip was computed from.", "basic_salary"),
   M("basic_pay", "Basic pay earned this cutoff (PHP)", "Basic pay earned in this pay period (empty on payslips made before it was recorded)."),
-  M("overtime_pay", "Overtime pay (PHP)"),
+  M("overtime_pay", "Overtime pay (PHP)", undefined, "overtime_pay"),
   M("holiday_pay", "Holiday pay (PHP)"),
   M("total_incentives", "Incentives total (PHP)"),
-  M("bonus", "Bonus (PHP)"),
-  M("gross_pay", "Gross pay (PHP)", "Gross pay of this pay period."),
-  M("absence_deduction", "Absence deduction (PHP)"),
+  M("bonus", "Bonus (PHP)", undefined, "bonus"),
+  M("gross_pay", "Gross pay (PHP)", "Gross pay of this pay period.", "gross_pay"),
+  M("absence_deduction", "Absence deduction (PHP)", undefined, "absences_deduction"),
   M("late_deduction", "Late deduction (PHP)"),
   M("undertime_deduction", "Undertime deduction (PHP)"),
   M("half_day_deduction", "Half-day deduction (PHP)"),
   M("leave_without_pay_deduction", "Leave without pay deduction (PHP)"),
-  M("sss", "SSS employee share (PHP)", "Deducted from the employee."),
-  M("philhealth", "PhilHealth employee share (PHP)", "Deducted from the employee."),
-  M("pagibig", "Pag-IBIG employee share (PHP)", "Deducted from the employee."),
-  M("withholding_tax", "Withholding tax (PHP)"),
-  M("cash_advance", "Cash advance deduction (PHP)"),
+  M("sss", "SSS employee share (PHP)", "Deducted from the employee.", "sss"),
+  M("philhealth", "PhilHealth employee share (PHP)", "Deducted from the employee.", "philhealth"),
+  M("pagibig", "Pag-IBIG employee share (PHP)", "Deducted from the employee.", "pagibig"),
+  M("withholding_tax", "Withholding tax (PHP)", undefined, "withholding_tax"),
+  M("cash_advance", "Cash advance deduction (PHP)", undefined, "cash_advance"),
   M("loan_deduction", "Loan deduction (PHP)"),
-  M("total_deductions", "Total deductions (PHP)"),
-  M("net_pay", "Net pay (PHP)", "Take-home pay (never below 0)."),
+  M("total_deductions", "Total deductions (PHP)", undefined, "total_deductions"),
+  M("net_pay", "Net pay (PHP)", "Take-home pay (never below 0).", "net_pay"),
   M("er_sss", "SSS employer share (PHP)", "Paid by the school, not deducted (empty on older payslips)."),
   M("er_sss_ec", "SSS EC employer share (PHP)", "Employees' Compensation, paid by the school."),
   M("er_philhealth", "PhilHealth employer share (PHP)", "Paid by the school."),
   M("er_pagibig", "Pag-IBIG employer share (PHP)", "Paid by the school."),
   M("er_total", "Employer share total (PHP)", "Sum of the employer shares."),
+  C("transport_allowance", "Transport allowance (PHP, legacy column)", "money", "Old column, kept for a complete restore."),
+  C("rice_allowance", "Rice allowance (PHP, legacy column)", "money", "Old column, kept for a complete restore."),
   C("submitted_at", "Submitted at (Asia/Manila)", "tstz"),
   C("approved_at", "Approved at (Asia/Manila)", "tstz"),
   C("created_at", "Created at (Asia/Manila)", "tstz"),
@@ -300,6 +317,9 @@ export const PAYSLIP_COLUMNS = [
   C("approval_id", "Approval reference", "text"),
   C("created_in_testing_mode", "Made in testing mode", "bool", "Yes when made while the payroll window was switched off for testing."),
   C("payroll", "Payslip details (JSON, as stored)", "json", "The full stored payslip record; a restore needs it."),
+  CODE("employee_type", "Employee type"),
+  CODE("cutoff", "Cutoff"),
+  CODE("status", "Status"),
   C("id", "Payslip UUID", "uuid", "Internal ID of the payslip."),
   C("employee_id", "Employee profile UUID", "uuid", "Links to the Employees and profiles files."),
   C("branch_id", "Branch UUID", "uuid", "Links to the branches file."),
@@ -442,9 +462,60 @@ export async function writeCsvBackup(files, push, { single = false, readme } = {
   return { files: written.map(({ name, title, rows, sha256, key }) => ({ name, title, rows, sha256, key })) };
 }
 
-/** README.txt: what is inside, who made it, the filters, and every file's column guide. */
+/** Parents before children (foreign keys among the backup tables, 2026-11-15). */
+export const RESTORE_ORDER = Object.freeze([
+  "branches", "profiles", "leave_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
+  "attendance_logs_history", "attendance_overtime_approvals", "rfid_terminals", "attendance_taps", "audit_logs", "branch_admin_requests",
+  "branch_announcements", "early_bird_winners", "employee_awol_cases", "employee_branch_assignments", "employee_license_alerts",
+  "employee_license_documents", "employee_license_changes", "employee_salary_changes", "employee_status_changes", "holiday_duty_assignments",
+  "holiday_duty_history", "holiday_work_reviews", "payroll_runs", "payroll_approval_history", "payroll_bir_exports", "payroll_cash_advances",
+  "payroll_contribution_amounts", "payroll_entries", "payroll_subsidy_settings", "payroll_subsidy_balances", "payroll_loans",
+  "payroll_monthly_incentives", "payroll_corrections", "payroll_rate_configs", "payroll_records", "payroll_deductions",
+  "payroll_final_overrides", "payroll_incentives", "payroll_loan_payments", "payroll_review_flags", "payroll_run_exclusions",
+  "payroll_run_items", "payroll_schedule_settings", "payroll_setting_changes", "payroll_sss_msc_brackets", "payroll_subsidy_adjustments",
+  "payroll_subsidy_requests", "payroll_tax_annualizations", "payroll_tax_brackets", "payroll_thirteenth_month", "payroll_window_enforcement",
+  "payroll_window_enforcement_changes", "rfid_cards", "rfid_card_events", "role_permissions", "school_break_periods", "system_config",
+  "tenure_protection_grants", "tenure_protection_applications", "tenure_protection_policies", "transfer_requests",
+  "work_schedule_assignments", "work_schedules",
+]);
+
+/** Tables with only a UUID and no readable identifier of their own (known item, after the defense). */
+export const UUID_ONLY_TABLES = Object.freeze(["payroll_approval_history", "payroll_window_enforcement", "payroll_window_enforcement_changes"]);
+
+/** The restore guide: in every README and in docs/restore-from-csv-backup.md. */
+export const RESTORE_GUIDE = [
+  "There is no import screen in the app. A restore is done by the developer, with the",
+  "local tool scripts/backup/restore-csv-local.mjs as the worked example (local stack only).",
+  "",
+  "1. When the whole database is lost, first restore the latest daily database backup in the",
+  "   Supabase dashboard. Use these CSV files for what changed after that backup, or when no",
+  "   database backup is left: then start from an empty database built from the migrations.",
+  "2. Sign-in accounts first: users_and_accounts.csv gives each account's User UUID and email.",
+  "   Create each account with that same UUID (Supabase Auth admin API), then send password",
+  "   resets. Passwords are never in a backup.",
+  "3. Load the table files in the LOAD ORDER below (parents before children), in one database",
+  "   session with triggers and foreign-key checks off (SET session_replication_role = replica),",
+  "   so stored values are not recomputed. profiles and employee_license_documents point at",
+  "   each other; with the checks off, the order below loads both.",
+  "4. The column guide says where each value goes: [loads into: <column> (<type>)]. Columns",
+  "   marked [shown only] are for reading (names, branch names, statuses in words) and are not",
+  "   loaded; the \"(database code)\" column holds the stored status. Turn the formats back:",
+  "   date-times are Asia/Manila (+08:00), Yes/No are true/false, an empty cell is NULL (or ''",
+  "   for a required text column), a leading ' before = + - @ is removed, JSON stays JSON.",
+  "   Payslip amount columns load the amounts of the stored payslip record.",
+  "5. Not in the files, redo by hand: the encrypted government ID numbers (re-enter them from",
+  "   employees.csv), uploaded files (photos, leave proofs, license scans), bell notifications.",
+  "   employees.csv, users_and_accounts.csv, leave_balances.csv and pay_rates.csv are",
+  "   summaries: never load them as tables.",
+  "6. Check after loading: every table's row count equals \"Rows\" below; the SHA-256 of each",
+  "   file matches; 3 payslips per branch show the same amounts (to the centavo) as in",
+  "   payroll_entries.csv; staff can sign in after their password reset.",
+];
+
+/** README.txt: what is inside, who made it, the filters, every file's column guide, and how to restore. */
 export function readmeText(files, { exportedAt, exportedBy, filters, branchName, version, environment, groups }) {
   const line = "=".repeat(72);
+  const loads = (c) => (c.column ? `[loads into: ${c.column} (${c.type || KIND_TYPE[c.kind] || "text"})]` : "[shown only]");
   const out = [
     "SACS Payroll data backup (CSV)", line,
     `Exported at (Asia/Manila): ${manilaDateTime(exportedAt)}`,
@@ -470,9 +541,22 @@ export function readmeText(files, { exportedAt, exportedBy, filters, branchName,
     "together (for example Employee profile UUID in attendance_logs.csv = Employee profile UUID",
     "in employees.csv) and are needed to rebuild the links in a restore.",
     "",
+    "DEMO DATA: demo people (from the demo seed) and their rows ARE included while the demo data",
+    "is live. Every file with a person in it has an \"Is demo\" column (Yes / No): filter on No",
+    "to leave demo data out.",
+    "",
+    "PAYSLIPS OF 0.00: a payslip with 0.00 gross and net pay can be valid: it means no paid days",
+    "in that cutoff (for example every day absent). Amounts are exactly as stored on the payslip.",
+    "",
     "NOT INCLUDED: passwords, password hashes, sign-in tokens, sign-in/reset codes, API keys;",
     "sign-in throttling; bell notifications; uploaded files (photos, leave proofs, license scans);",
-    "demo people (profiles.is_demo) and their rows.",
+    "the encrypted copies of government ID numbers (employees.csv has them decrypted).",
+    "",
+    `KNOWN ITEM (after the defense): ${UUID_ONLY_TABLES.join(", ")} have only a`,
+    "UUID and no readable identifier of their own; read them by their dates and names.",
+    "",
+    "HOW TO RESTORE", line, ...RESTORE_GUIDE, "",
+    `LOAD ORDER: ${RESTORE_ORDER.join(", ")}`,
     "",
     "FILES", line,
   ];
@@ -480,7 +564,7 @@ export function readmeText(files, { exportedAt, exportedBy, filters, branchName,
     out.push(`${f.name}`, `  What it holds: ${f.title}. ${f.description || ""}`.trimEnd(), `  Rows: ${f.rows}`, `  SHA-256: ${f.sha256}`);
     out.push(`  Date filter on: ${f.dateFilter || "not filtered by date"}`);
     out.push("  Columns:");
-    f.columns.forEach((c) => out.push(`    ${c.header} - ${c.meaning || meaningOf(c.kind, c.header)}`));
+    f.columns.forEach((c) => out.push(`    ${c.header} - ${c.meaning || meaningOf(c.kind, c.header)} ${loads(c)}`));
     out.push("");
   }
   return out.join("\n");

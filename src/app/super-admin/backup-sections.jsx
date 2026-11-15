@@ -202,7 +202,7 @@ export function BackupCard({ refreshKey }) {
                     <p className="text-xs text-muted-foreground">{g.description}</p>
                     <p className="mt-0.5 text-xs tabular-nums text-muted-foreground" data-testid="backup-group-count">
                       {g.files} file{g.files === 1 ? "" : "s"} · {Number(g.rows || 0).toLocaleString("en-PH")} rows
-                      {g.key === "users" && data?.demo_accounts_left_out ? ` · ${data.demo_accounts_left_out} demo account${data.demo_accounts_left_out === 1 ? "" : "s"} left out` : ""}
+                      {g.key === "users" && data?.demo_accounts ? ` · includes ${data.demo_accounts} demo account${data.demo_accounts === 1 ? "" : "s"} (Is demo = Yes)` : ""}
                     </p>
                   </div>
                   <Button variant="outline" size="sm" className="shrink-0" disabled={busy} aria-label={`Download ${g.label} (${single ? ".csv" : ".zip"})`}

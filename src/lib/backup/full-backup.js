@@ -105,7 +105,6 @@ export const BACKUP_EXCLUSIONS = Object.freeze([
   ["Leave proof files (leave_requests.proof_url, leave-proofs bucket)", "Whole files; kept in Supabase Storage, not in the database rows. The proof path is kept."],
   ["Profile photos", "Files in Supabase Storage. The photo path is kept."],
   ["Encrypted ID columns (*_enc)", "Replaced by the decrypted numbers in employees.csv."],
-  ["Demo people (profiles.is_demo) and their rows", "Demo data from the demo seed; never part of a real backup (decided 2026-11-08)."],
 ]);
 
 /** Validated group keys; empty or "all" = every group. */
@@ -160,14 +159,15 @@ export async function loadContext(supabase, actorId) {
   for await (const row of tableRows(supabase, actorId, "profiles")) profiles.push(row);
   const branches = [];
   for await (const row of tableRows(supabase, actorId, "branches")) branches.push(row);
-  // Demo people (is_demo, 2026-11-08) are already out of the tables; the
-  // Users file reads the sign-in list, so it skips them by id.
+  // Demo people are included while the demo data is live (2026-11-15); every
+  // file with a person in it says which rows are demo ("Is demo").
   const demoIds = await loadDemoIds(supabase);
-  const byId = new Map(profiles.map((p) => [String(p.id), { code: p.employee_id || p.staff_id || "", name: fullName(p), branch_id: p.branch_id ?? null }]));
+  const byId = new Map(profiles.map((p) => [String(p.id), { code: p.employee_id || p.staff_id || "", name: fullName(p), branch_id: p.branch_id ?? null, role: p.role || "" }]));
   const branchNames = new Map(branches.map((b) => [String(b.id), b.name]));
   return {
     profiles, branches, demoIds, branchNames,
     profile: (id) => (id ? byId.get(String(id)) : undefined),
+    isDemo: (id) => Boolean(id) && demoIds.has(String(id)),
     branchName: (id) => (id ? branchNames.get(String(id)) || "Unknown branch" : ""),
   };
 }
@@ -176,12 +176,13 @@ const statusOf = (p) => (p.archived ? "Archived" : p.separated_on ? `Separated $
 const fullName = (p) => p.full_name || [p.first_name, p.middle_name, p.last_name, p.suffix].filter(Boolean).join(" ") || p.email || "";
 const inBranch = (filters, branchId) => !filters?.branch || String(branchId || "") === filters.branch;
 const col = (header, kind = "text", meaning = "") => ({ header, kind, meaning });
+const DEMO = "Yes for a demo person (from the demo seed). Filter on No to leave demo data out.";
 
 /** Everyone the backup lists as a person (not the Super Admin), in the branch filter. */
 export const peopleOf = (context, filters) => context.profiles.filter((p) => String(p.role || "").toLowerCase() !== "super_admin" && inBranch(filters, p.branch_id));
 
 /**
- * Users and accounts: every sign-in account (demo ones left out) plus any
+ * Users and accounts: every sign-in account (demo ones included) plus any
  * profile without one. Only these named fields are taken from each auth user.
  */
 export async function listAccounts(supabase, context, filters) {
@@ -190,7 +191,7 @@ export async function listAccounts(supabase, context, filters) {
     const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
     if (error) throw new Error(`Could not list sign-in accounts: ${error.message}`);
     const list = data?.users || [];
-    list.filter((u) => !context.demoIds?.has(String(u.id))).forEach((u) => users.push({ id: u.id, email: u.email, created_at: u.created_at, last_sign_in_at: u.last_sign_in_at, email_confirmed_at: u.email_confirmed_at, banned_until: u.banned_until || null }));
+    list.forEach((u) => users.push({ id: u.id, email: u.email, created_at: u.created_at, last_sign_in_at: u.last_sign_in_at, email_confirmed_at: u.email_confirmed_at, banned_until: u.banned_until || null }));
     if (list.length < 1000) break;
   }
   const seen = new Set(users.map((u) => u.id));
@@ -202,14 +203,14 @@ export async function listAccounts(supabase, context, filters) {
 export function usersFile(context, accounts) {
   const byId = new Map(context.profiles.map((p) => [p.id, p]));
   const columns = [
-    col("Employee ID", "text", "Readable employee or staff number."), col("Full name"), col("Role", "label"), col("Branch"), col("Status", "text", "Active, Archived or Separated (with the date)."),
+    col("Employee ID", "text", "Readable employee or staff number."), col("Full name"), col("Role", "label"), col("Branch"), col("Is demo", "bool", DEMO), col("Status", "text", "Active, Archived or Separated (with the date)."),
     col("Email"), col("Account created (Asia/Manila)", "tstz"), col("Last sign-in (Asia/Manila)", "tstz"), col("Email confirmed", "bool"),
     col("Sign-in blocked until (Asia/Manila)", "tstz"), col("Note"), col("User UUID", "uuid", "Sign-in account ID = Employee profile UUID in the other files."), col("Branch UUID", "uuid"),
   ];
   function* rows() {
     for (const u of accounts) {
       const p = byId.get(u.id) || {};
-      yield [p.employee_id || p.staff_id || "", fullName(p), p.role || "", context.branchName(p.branch_id), p.id ? statusOf(p) : "No profile",
+      yield [p.employee_id || p.staff_id || "", fullName(p), p.role || "", context.branchName(p.branch_id), context.isDemo(u.id), p.id ? statusOf(p) : "No profile",
         u.email || p.email || "", u.created_at || "", u.last_sign_in_at || "", Boolean(u.email_confirmed_at), u.banned_until || "",
         u.missing_login ? "Profile without a sign-in account" : "", u.id, p.branch_id || ""];
     }
@@ -243,7 +244,7 @@ export async function employeesFile(supabase, actorId, context, filters) {
   grants.forEach((g) => { if (!g.revoked_on) grantOf.set(g.employee_id, g); });
 
   const columns = [
-    col("Employee ID", "text", "Readable employee number (for example SACS-001)."), col("Full name"), col("Branch"), col("First name"), col("Middle name"), col("Last name"), col("Suffix"),
+    col("Employee ID", "text", "Readable employee number (for example SACS-001)."), col("Full name"), col("Branch"), col("Is demo", "bool", DEMO), col("First name"), col("Middle name"), col("Last name"), col("Suffix"),
     col("Role", "label"), col("Employee type", "label"), col("Level", "label"), col("Position"), col("Record status", "text", "Active, Archived or Separated (with the date)."),
     col("Employment status", "label"), col("Date hired", "date"), col("Separated on", "date"), col("Separation reason"),
     col("Monthly salary (PHP, as of export date)", "money", "Salary in force on the export date (salary history applied)."),
@@ -264,7 +265,7 @@ export async function employeesFile(supabase, actorId, context, filters) {
       const card = cardOf.get(p.id);
       const grant = grantOf.get(p.id);
       yield [
-        p.employee_id || p.staff_id || "", fullName(p), context.branchName(p.branch_id), p.first_name || "", p.middle_name || "", p.last_name || "", p.suffix || "",
+        p.employee_id || p.staff_id || "", fullName(p), context.branchName(p.branch_id), context.isDemo(p.id), p.first_name || "", p.middle_name || "", p.last_name || "", p.suffix || "",
         p.role || "", p.employee_type || "", p.employee_level || "", p.position || "", statusOf(p), p.employee_status || "", p.date_hired || "",
         p.separated_on || "", p.separation_reason || "", monthly || 0, Number(rates.daily.value) || 0, Number(rates.hourly.value) || 0,
         rates.daily.source === "salary" ? "Salary × 12 ÷ working days" : `${rates.daily.scope} rate${rates.daily.source === "default" ? " (built-in)" : ""}`,
@@ -289,13 +290,13 @@ export async function leaveBalancesFile(supabase, actorId, context, filters) {
   const year = Number(manilaDateKey().slice(0, 4));
   const setting = await readLeaveWithPayDays(supabase);
   const people = peopleOf(context, filters);
-  const columns = [col("Employee ID"), col("Full name"), col("Branch"), col("Year", "int"), col("Leave with pay allotment (days)", "num"), col("Leave with pay used (days)", "num"),
+  const columns = [col("Employee ID"), col("Full name"), col("Branch"), col("Is demo", "bool", DEMO), col("Year", "int"), col("Leave with pay allotment (days)", "num"), col("Leave with pay used (days)", "num"),
     col("Leave with pay remaining (days)", "num"), col("Leave without pay used (days)", "num"), col("Employee profile UUID", "uuid")];
   function* rows() {
     for (const y of [year, year - 1]) {
       for (const p of people) {
         const b = summarizeLeaveBalance(requests, p.id, y, allotmentForYear(y, setting));
-        yield [p.employee_id || p.staff_id || "", fullName(p), context.branchName(p.branch_id), y,
+        yield [p.employee_id || p.staff_id || "", fullName(p), context.branchName(p.branch_id), context.isDemo(p.id), y,
           b.with_pay_allotment ?? DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, b.with_pay_used, b.with_pay_remaining, b.without_pay_used, p.id];
       }
     }
