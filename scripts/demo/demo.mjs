@@ -6,6 +6,7 @@
 //   node scripts/demo/demo.mjs snapshot --target=production  demo rows -> demo-data/snapshots/<time>.json
 //   node scripts/demo/demo.mjs restore  --target=production --file=<snapshot>   wipe demo rows, load the snapshot
 //   node scripts/demo/demo.mjs reset    --target=production  snapshot, wipe, load the original bundle (2 confirmations)
+//   node scripts/demo/demo.mjs plan     --target=production [--file=<bundle>]  READ-ONLY: what a reset would do
 //   node scripts/demo/demo.mjs remove   --target=production  snapshot, then delete is_demo data only, then check zero
 //   node scripts/demo/demo.mjs roll-forward --target=production --defense=YYYY-MM-DD
 //
@@ -98,12 +99,32 @@ async function insertRows(db, table, rows, columns, generated, { triggers = fals
  * payslip numbers it moves up. `goingAway` = the demo rows a reset / restore
  * wipes first (their runs and payslip numbers do not count as the target's).
  */
-async function planLoad(db, source, { goingAway = { runIds: [], recordIds: [] } } = {}) {
+async function planLoad(db, source, { goingAway = null } = {}) {
   const meta = await schema(db);
   const bundle = { ...source, tables: { ...source.tables } };
   const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
+  const idsOf = (t) => (goingAway?.[t] || []).map((r) => r[meta[t]?.key || "id"]);
+  // A reset / restore wipes first, but the wipe KEEPS a demo run or payslip
+  // record that a non-demo row still points at: then the plan (made before
+  // the wipe) would not match the target the load meets. Refused here,
+  // before any prompt and before anything is deleted.
+  if (goingAway) {
+    const kept = [];
+    for (const ref of ["payroll_runs", "payroll_records"]) {
+      const ids = idsOf(ref);
+      if (!ids.length) continue;
+      for (const [t, m] of Object.entries(meta)) {
+        for (const { col } of (m.parents || []).filter((x) => x.ref === ref)) {
+          if (!m.key) continue;
+          const rows = await db.rows(`select distinct ${col}::text k from ${t} where ${col}::text in (${listOf(ids)}) and ${m.key}::text not in (${listOf(idsOf(t))})`);
+          rows.forEach((r) => kept.push(`${ref} ${r.k} (a ${t} row that is not demo points at it)`));
+        }
+      }
+    }
+    if (kept.length) throw new Error(`The wipe would keep ${kept.length} demo row(s) that non-demo rows point at, so the load could not be planned safely:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
+  }
   const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
-  const notTheBundles = listOf([...bundleRunIds, ...goingAway.runIds]);
+  const notTheBundles = listOf([...bundleRunIds, ...idsOf("payroll_runs")]);
   const fit = fitBundleToTarget(bundle.tables, {
     rateIds: new Set((await db.rows("select id from payroll_rate_configs")).map((r) => r.id)),
     targetRuns: await db.rows(`select branch_id, period_start::text, status from payroll_runs where id not in (${notTheBundles})`),
@@ -119,7 +140,8 @@ async function planLoad(db, source, { goingAway = { runIds: [], recordIds: [] } 
       const ids = [...new Set(rows.map((r) => r[col]).filter(Boolean))];
       if (!ids.length) continue;
       const key = refCol || meta[ref]?.key || "id";
-      const have = await db.rows(`select ${key} as k from ${ref} where ${key} in (${ids.map(lit).join(", ")})`);
+      // Rows the wipe deletes first do not count as the target's.
+      const have = await db.rows(`select ${key} as k from ${ref} where ${key} in (${ids.map(lit).join(", ")}) and ${key}::text not in (${listOf((goingAway?.[ref] || []).map((r) => String(r[key])))})`);
       if (have.length !== ids.length) throw new Error(`${t}.${col} points at ${ids.length - have.length} ${ref} row(s) the target does not have: nothing loaded.`);
     }
   }
@@ -149,7 +171,7 @@ async function planLoad(db, source, { goingAway = { runIds: [], recordIds: [] } 
   if (payslips.length) {
     const prefixes = [...new Set(payslips.map((p) => p.replace(/-\d+$/, "")))];
     for (const prefix of prefixes) {
-      const [top] = await db.rows(`select coalesce(max((regexp_replace(payslip_no, '^.*-', ''))::int), 0)::int m from payroll_records where payslip_no like ${lit(`${prefix}-%`)} and id not in (${listOf(goingAway.recordIds)})`);
+      const [top] = await db.rows(`select coalesce(max((regexp_replace(payslip_no, '^.*-', ''))::int), 0)::int m from payroll_records where payslip_no like ${lit(`${prefix}-%`)} and id::text not in (${listOf(idsOf("payroll_records"))})`);
       const mine = payslips.filter((p) => p.startsWith(`${prefix}-`)).sort();
       const clash = top.m > 0;
       mine.forEach((p, i) => { if (clash) renumber.set(p, `${prefix}-${String(top.m + i + 1).padStart(4, "0")}`); });
@@ -157,8 +179,15 @@ async function planLoad(db, source, { goingAway = { runIds: [], recordIds: [] } 
   }
   const notes = describeFit(fit, renumber);
   if (renumber.size) notes.push(`${renumber.size} payslip numbers move up past the target's own`);
-  return { meta, bundle, renumber, notes };
+  return { meta, bundle, renumber, notes, source, recheck: Boolean(goingAway) };
 }
+
+/** What a plan decided, to compare a plan made before the wipe with one made after it. */
+const decisions = (plan) => JSON.stringify({
+  notes: plan.notes,
+  runs: (plan.bundle.tables.payroll_runs || []).map((r) => [r.id, r.run_no]),
+  renumber: [...plan.renumber],
+});
 
 /** Print a plan's notes (before the prompts). */
 function printPlan(plan) {
@@ -167,14 +196,17 @@ function printPlan(plan) {
   plan.notes.forEach((n) => say(`  ${n}`));
 }
 
-/** The demo rows a reset / restore wipes first (`data` from snapshot()): their runs and payslip numbers are not the target's. */
-const goingAwayOf = (data) => ({
-  runIds: (data.tables?.payroll_runs || []).map((r) => r.id),
-  recordIds: (data.tables?.payroll_records || []).map((r) => r.id),
-});
+/** The demo rows a reset / restore wipes first (`data` from snapshot()). */
+const goingAwayOf = (data) => data.tables || {};
 
 /** Load a planned bundle into `db` (seed / reset / restore). */
-async function load(db, plan) {
+async function load(db, planned) {
+  // After a wipe: plan again against the target as it now is; anything
+  // different stops the load before the first insert.
+  const plan = planned.recheck ? await planLoad(db, planned.source) : planned;
+  if (planned.recheck && decisions(plan) !== decisions(planned)) {
+    throw new Error("After the wipe the target is not what the plan expected (runs, run numbers or payslip numbers differ): nothing loaded. Restore the snapshot taken before the wipe.");
+  }
   const { meta, bundle, renumber } = plan;
   const remapText = (row) => {
     if (!renumber.size) return row;
@@ -381,6 +413,16 @@ const commands = {
     if (!(await confirm("Restore this snapshot? (yes/no)"))) return say("Nothing done.");
     await wipe(db, data);
     await load(db, plan);
+  },
+  async plan() {
+    // READ-ONLY: what a reset with this bundle would do on the target (nothing is written or deleted).
+    const db = await chooseTarget(rest);
+    const bundle = readBundle(arg("file") || BUNDLE);
+    const data = await collect(db);
+    printCounts(`would DELETE on ${db.target}`, data);
+    printCounts("then LOAD", bundle);
+    printPlan(await planLoad(db, bundle, { goingAway: goingAwayOf(data) }));
+    say("Nothing was changed (plan only).");
   },
   async reset() {
     const db = await chooseTarget(rest);
