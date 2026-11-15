@@ -7,6 +7,9 @@ import { test, expect } from "@playwright/test";
 import { plantOtp } from "../support/db.mjs";
 import { TEST_OTP } from "../accounts.mjs";
 import { AUDIT_ROLES, AUTH_DIR, credentials, stateFile } from "./roles.mjs";
+import { fixClock } from "./clock.mjs";
+
+test.beforeEach(async ({ context }) => { await fixClock(context); });
 
 const local = !process.env.DEMO_AUDIT_BASE || /localhost|127\.0\.0\.1/.test(process.env.DEMO_AUDIT_BASE);
 

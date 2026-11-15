@@ -7,6 +7,7 @@ import { test, expect } from "@playwright/test";
 import { plantOtp } from "../support/db.mjs";
 import { TEST_OTP } from "../accounts.mjs";
 import { credentials } from "./roles.mjs";
+import { fixClock } from "./clock.mjs";
 
 const PERIOD = "October 16-31, 2026";
 
@@ -27,19 +28,31 @@ async function signIn(page, tag, portal) {
 test("Accountant processes, HR approves, Employee sees the payslip", async ({ browser }) => {
   test.setTimeout(240000);
   // 1. Accountant (Branch 2): process the cutoff HR sent back, then resubmit it.
-  const acc = await (await browser.newContext()).newPage();
+  const acc = await (await fixClock(await browser.newContext())).newPage();
   await signIn(acc, "acc-b2-1", "/accountant");
   await acc.goto(`/accountant?page=ac-process&period=${encodeURIComponent(PERIOD)}`);
-  await acc.getByTestId("process-all").click();
-  const confirmProcess = acc.getByRole("alertdialog").or(acc.getByRole("dialog")).getByRole("button", { name: /Process|Confirm|Continue/ }).last();
-  if (await confirmProcess.isVisible().catch(() => false)) await confirmProcess.click();
-  await expect(acc.getByTestId("process-all")).toBeEnabled({ timeout: 60000 });
+  // Since 2026-11-14/15 a run HR sent back is corrected payslip by payslip (Reprocess,
+  // in the row's menu: every payslip is already Final, so "Process all ready" has 0),
+  // and whoever is left out (a pay hold) is confirmed before resubmitting.
+  await acc.getByRole("button", { name: "More actions for Imelda Demo Navarro" }).click();
+  await acc.getByRole("menuitem", { name: "Reprocess" }).click();
+  await acc.getByRole("alertdialog").or(acc.getByRole("dialog")).getByRole("button", { name: "Reprocess" }).click();
+  // The recomputed Final payslip opens, issued now (the suite's fixed clock).
+  await expect(acc.getByText("Issued: Nov 03, 2026").first()).toBeVisible({ timeout: 60000 });
+  await expect(acc.getByText("Imelda Demo Navarro").first()).toBeVisible();
+  await acc.goto(`/accountant?page=ac-process&period=${encodeURIComponent(PERIOD)}`);
+  await acc.getByRole("button", { name: "Resubmit for HR Approval" }).waitFor({ timeout: 60000 }); // the run panel has loaded
+  const leftOut = acc.getByRole("checkbox", { name: /I confirm these employees are intentionally excluded/ });
+  if (await leftOut.count()) {
+    if (!(await leftOut.isVisible())) await acc.getByText(/^Left out \(\d+\)$/).first().click();
+    await leftOut.check();
+  }
   await acc.getByRole("button", { name: "Resubmit for HR Approval" }).click();
   await acc.getByRole("alertdialog").or(acc.getByRole("dialog")).getByRole("button", { name: "Resubmit" }).click();
   await expect(acc.getByText(/Locked until HR decides/)).toBeVisible({ timeout: 30000 });
 
   // 2. HR One (no payslip in Branch 2's run): approve it.
-  const hr = await (await browser.newContext()).newPage();
+  const hr = await (await fixClock(await browser.newContext())).newPage();
   await signIn(hr, "hr1", "/hr");
   await hr.goto("/hr?page=hr-payroll-approval");
   const row = hr.locator("#portal-main tr, #portal-main [data-slot=data-table-card]").filter({ hasText: /Spring Valley/ }).filter({ hasText: PERIOD }).first();
@@ -50,7 +63,7 @@ test("Accountant processes, HR approves, Employee sees the payslip", async ({ br
   await expect(hr.getByText(/Approved by Demo HR One/).first()).toBeVisible({ timeout: 30000 });
 
   // 3. An Employee of Branch 2 opens My Payslips: the approved payslip is there.
-  const emp = await (await browser.newContext()).newPage();
+  const emp = await (await fixClock(await browser.newContext())).newPage();
   await signIn(emp, "emp9", "/employee");
   await emp.goto("/employee?page=emp-payslips");
   await expect(emp.locator("#portal-main").getByText(PERIOD).first()).toBeVisible({ timeout: 30000 });

@@ -5,6 +5,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test, expect } from "@playwright/test";
+import { fixClock } from "./clock.mjs";
 import { AUDIT_ROLES, OUT_DIR, stateFile } from "./roles.mjs";
 
 test.describe.configure({ mode: "parallel" });
@@ -18,6 +19,7 @@ const BAD_TEXT = /\bnull\b|\bundefined\b|\bNaN\b|\[object Object\]/;
 const EXPECTED_EMPTY = [
   [/^No payslip selected$|^No report (generated )?yet$|^No records for selected period$/, "needs a click (choose a payslip / generate a report)"],
   [/^Nobody is waiting: every employee left out has been paid$/, "a good result: nobody left out of a run"],
+  [/^Everyone has tapped in$/, "a good result: at 10:00 every scheduled person of the branch has tapped in", { page: /Dashboard/ }],
   [/^No annualization for 2026 yet$|^No 13th month yet$/, "December only (the 13th month and the Super Admin's year-end tax annualization are done from Dec 1)"],
   [/^No paid payslips in 2025$/, "the system starts in 2026: no 2025 payroll exists"],
   [/subsidy|^Nothing (here yet|pending|processed|approved|rejected|applied to payroll)$|^No decisions yet$/i, "subsidy: an approved item is Applied when the next payroll runs; Pending and excess settlements are raised by the system only when an advance exceeds the entitlement"],
@@ -30,8 +32,10 @@ const EXPECTED_EMPTY = [
   [/^No recent payroll activity$/, "this month's cutoff is left open to process live in the defense", { page: /Dashboard/ }],
   [/^No payroll records found$/, "held pay shows once the held person's cutoff is processed (live)", { tab: /On hold/ }],
   [/^No payroll records found$/, "a branch's latest run is either waiting or rejected; the other branches show the other state", { tab: /Pending HR Approval|Rejected by HR/ }],
+  [/^No payroll records found$/, "every cutoff of this Accountant's branch is with HR or rejected (Branch 4's unprocessed cutoff is not their branch)", { tab: /Not submitted to HR/, role: /^accountant/ }],
   [/^No (loans|cash advances|incentives) yet$/, "the only Accountant of a branch cannot file their own requests, and no other Accountant exists there (the payslip is the only self-processed item)", { role: /accountant_single/, page: /My Requests/ }],
   [/^No records found\.$/, "a report not generated yet", { page: /HR Reports/ }],
+  [/^No (active|inactive|replaced) cards$/, "the demo bundle carries no card numbers, only Lost cards (scripts/demo/demo.mjs withoutCards): cards are registered live in the defense", { page: /RFID/ }],
 ];
 /**
  * BIR text outside the Super Admin (decision 2026-11-12): HR, Accountant,
@@ -103,7 +107,7 @@ for (const [role, { portal }] of Object.entries(AUDIT_ROLES)) {
   test(`audit: ${role}`, async ({ browser }) => {
     test.setTimeout(15 * 60 * 1000);
     const results = [];
-    const context = await browser.newContext({ storageState: stateFile(role), viewport: { width: 1366, height: 900 } });
+    const context = await fixClock(await browser.newContext({ storageState: stateFile(role), viewport: { width: 1366, height: 900 } }));
     const page = await context.newPage();
     trackRequests(page);
     await page.route(/\/(monitoring|_vercel)\b/, (route) => route.abort());
@@ -142,7 +146,7 @@ for (const [role, { portal }] of Object.entries(AUDIT_ROLES)) {
     await context.close();
 
     // Phones: every page again at 390 px (opened by its address).
-    const phone = await browser.newContext({ storageState: stateFile(role), viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const phone = await fixClock(await browser.newContext({ storageState: stateFile(role), viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }));
     const mobile = await phone.newPage();
     trackRequests(mobile);
     for (const { id, label } of pages) {

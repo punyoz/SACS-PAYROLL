@@ -11,6 +11,9 @@ import { join } from "node:path";
 import { test, expect } from "@playwright/test";
 import { psql } from "../support/db.mjs";
 import { credentials, stateFile } from "./roles.mjs";
+import { fixClock } from "./clock.mjs";
+
+test.beforeEach(async ({ context }) => { await fixClock(context); });
 
 const SHOTS = join(process.cwd(), "test-results", "defense-prep");
 mkdirSync(SHOTS, { recursive: true });

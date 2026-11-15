@@ -3,6 +3,9 @@
 // auth.setup.mjs; headless, parallel.
 import { test, expect } from "@playwright/test";
 import { stateFile } from "./roles.mjs";
+import { fixClock } from "./clock.mjs";
+
+test.beforeEach(async ({ context }) => { await fixClock(context); });
 
 test.describe.configure({ mode: "parallel" });
 
@@ -17,9 +20,11 @@ test.describe("Employee", () => {
     // Six items (2026-11-12: no "My BIR Form 2316"; the BIR is the Super Admin's only).
     const SIX = ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My Profile"];
     for (const label of SIX) {
-      await expect(group(page, "My Account").getByRole("button", { name: label, exact: true })).toBeVisible();
+      await expect(group(page, "My Account").getByRole("link", { name: label, exact: true })).toBeVisible();
     }
-    await expect(group(page, "My Account").getByRole("button")).toHaveCount(SIX.length + 1); // + the group header
+    // Menu items are real links since 2026-11-14 (middle click / new tab); the group header is the one button.
+    await expect(group(page, "My Account").getByRole("link")).toHaveCount(SIX.length);
+    await expect(group(page, "My Account").getByRole("button")).toHaveCount(1);
     await expect(group(page, "My Account")).not.toContainText(/BIR|2316/);
     await page.goto("/employee?page=emp-loans");
     await expect(page.getByTestId("my-requests")).toBeVisible();
@@ -43,7 +48,7 @@ for (const [role, portal, first] of [["hr", "/hr", "Employees"], ["accountant", 
       await expect(header(page, first)).toHaveAttribute("aria-expanded", "true"); // remembered
       await page.goto(`${portal}?page=${role === "hr" ? "hr-my-payslips" : "ac-my-payslips"}`);
       await expect(header(page, "My Account")).toHaveAttribute("aria-expanded", "true"); // the current page's group
-      await expect(group(page, "My Account").getByRole("button", { name: "My Payslips", exact: true })).toHaveAttribute("data-active", "true");
+      await expect(group(page, "My Account").getByRole("link", { name: "My Payslips", exact: true })).toHaveAttribute("data-active", "true");
       // Keyboard: the header is a button (Enter toggles), with a visible focus ring.
       await header(page, "My Account").focus();
       await page.keyboard.press("Enter");
@@ -55,10 +60,14 @@ for (const [role, portal, first] of [["hr", "/hr", "Employees"], ["accountant", 
 for (const [role, portal] of [["admin", "/admin"], ["super_admin", "/super-admin"]]) {
   test.describe(role, () => {
     test.use({ storageState: stateFile(role) });
-    test(`${role}: no My Account group; the My APIs refuse`, async ({ page, request }) => {
+    test(`${role}: My Account holds only Profile (no payslips, not on payroll); the My APIs refuse`, async ({ page, request }) => {
       await page.goto(portal);
       await page.locator("#portal-main").waitFor();
-      await expect(group(page, "My Account")).toHaveCount(0);
+      // Since 2026-11-14 the Admin and Super Admin keep their Profile in a "My Account" group: nothing else.
+      if ((await header(page, "My Account").getAttribute("aria-expanded")) !== "true") await header(page, "My Account").click();
+      await expect(group(page, "My Account").getByRole("link")).toHaveCount(1);
+      await expect(group(page, "My Account").getByRole("link", { name: "Profile", exact: true })).toBeVisible();
+      await expect(page.locator("[data-nav-group]").filter({ hasText: /My (Payslips|Attendance|Timesheet|Leave|Requests)/ })).toHaveCount(0);
       for (const path of ["/api/me/payslips", "/api/me/requests", "/api/me/attendance/logs?from=2026-11-01&to=2026-11-09"]) {
         expect((await request.get(path)).status(), path).toBe(403);
       }
