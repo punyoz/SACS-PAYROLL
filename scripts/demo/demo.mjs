@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR, PRODUCTION, readEnvFile } from "./config.mjs";
 import { chooseTarget, confirm, database, lit } from "./db.mjs";
-import { collect, counts, demoFilter, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
+import { collect, counts, demoFilter, fitBundleToTarget, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
 import { buildRoster } from "./roster.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
@@ -95,6 +95,14 @@ async function insertRows(db, table, rows, columns, generated, { triggers = fals
 async function load(db, bundle) {
   const meta = await schema(db);
   const D = bundle.demoIds;
+  // Fit the bundle to the target first: rate rows it lacks, runs it already has.
+  const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => lit(r.id)).join(", ") || "null";
+  const fitted = fitBundleToTarget(bundle.tables, {
+    rateIds: new Set((await db.rows("select id from payroll_rate_configs")).map((r) => r.id)),
+    targetRuns: await db.rows(`select branch_id, period_start::text, status from payroll_runs where id not in (${bundleRunIds})`),
+  });
+  bundle.tables = fitted.tables;
+  fitted.notes.forEach((n) => say(`  ${n}`));
   // Branches and configuration the rows point at must exist on the target.
   const branchIds = [...new Set(bundle.tables.profiles.map((p) => p.branch_id).filter(Boolean))];
   const haveBranches = await db.rows(`select id from branches where id in (${branchIds.map(lit).join(", ")})`);

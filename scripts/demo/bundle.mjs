@@ -137,3 +137,50 @@ export function counts(bundle) {
 export function withoutSeedExclusions(tables) {
   return { ...tables, payroll_run_exclusions: (tables.payroll_run_exclusions || []).filter((r) => r.employee_id !== SEED_ACTOR.id) };
 }
+
+/** Tables whose rows belong to one payroll run and go with it (run_id NOT NULL). */
+const RUN_CHILDREN = ["payroll_run_items", "payroll_approval_history", "payroll_run_exclusions"];
+/** Tables that only point at a run (run_id nullable): the pointer is cleared. */
+const RUN_POINTERS = ["payroll_entries", "notifications", "payroll_final_overrides"];
+
+/**
+ * The bundle fitted to the target before loading (the live reset of
+ * 2026-11-15 needed both by hand). Returns { tables, notes }; the input is
+ * not changed.
+ *  - A deduction / incentive line pointing at a rate row the target does not
+ *    have (the demo build's local-only "Demo history" rates) loses that link;
+ *    the line keeps its own rate and the payslip its stored rates.
+ *  - A demo run where the target already has a run of the same branch and
+ *    period, and either is not approved, would make two runs open at once: it
+ *    is not loaded. Its payslips load Final outside any run (Action needed:
+ *    the Accountant puts them in a supplemental run once the target's run is
+ *    decided).
+ * @param {object} tables  bundle.tables
+ * @param {{ rateIds: Set<string>, targetRuns: Array<{ branch_id: string, period_start: string, status: string }> }} target
+ */
+export function fitBundleToTarget(tables, { rateIds, targetRuns }) {
+  const out = { ...tables };
+  const notes = [];
+  let unlinked = 0;
+  for (const t of ["payroll_deductions", "payroll_incentives"]) {
+    out[t] = (tables[t] || []).map((r) => (r.rate_config_id && !rateIds.has(r.rate_config_id) ? (unlinked += 1, { ...r, rate_config_id: null }) : r));
+  }
+  if (unlinked) notes.push(`${unlinked} payslip line(s) unlinked from rate rows the target does not have (each keeps its own rate)`);
+  const day = (v) => String(v || "").slice(0, 10);
+  const dropped = (tables.payroll_runs || []).filter((run) => {
+    const there = targetRuns.filter((r) => r.branch_id === run.branch_id && day(r.period_start) === day(run.period_start));
+    return there.length && (there.some((r) => r.status !== "approved") || run.status !== "approved");
+  });
+  if (dropped.length) {
+    const ids = new Set(dropped.map((r) => r.id));
+    out.payroll_runs = tables.payroll_runs.filter((r) => !ids.has(r.id));
+    for (const t of RUN_CHILDREN) out[t] = (tables[t] || []).filter((r) => !ids.has(r.run_id));
+    let loose = 0;
+    for (const t of RUN_POINTERS) {
+      out[t] = (tables[t] || []).map((r) => (ids.has(r.run_id) ? (t === "payroll_entries" ? (loose += 1) : 0, { ...r, run_id: null }) : r));
+    }
+    dropped.forEach((r) => notes.push(`demo run ${r.period_label} (${r.status}) not loaded: the target already has a run there`));
+    notes.push(`${loose} payslip(s) of those runs load Final outside any run (Action needed: supplemental run)`);
+  }
+  return { tables: out, notes };
+}
