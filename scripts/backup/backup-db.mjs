@@ -26,7 +26,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 
@@ -50,13 +50,22 @@ if (/@(127\.0\.0\.1|localhost)[:/]/.test(dbUrl) && process.env.BACKUP_ALLOW_LOCA
 const isWindows = process.platform === "win32";
 const npx = isWindows ? "npx.cmd" : "npx";
 
+let dir = null;
+/** A failed run's folder is renamed <stamp>_FAILED, so it is never taken for a backup. */
+function fail(message) {
+  console.error(message);
+  if (dir && existsSync(dir)) {
+    try { renameSync(dir, `${dir}_FAILED`); console.error(`Incomplete files kept in ${dir}_FAILED (not a backup).`); } catch { /* the message is enough */ }
+  }
+  process.exit(1);
+}
+
 function run(command, args, label) {
   const result = spawnSync(command, args, { stdio: ["ignore", "inherit", "pipe"], shell: isWindows, encoding: "utf8" });
   if (result.status !== 0) {
     // The CLI's stderr can echo the connection string: hide the password.
     const stderr = String(result.stderr || "").replace(/(postgres(?:ql)?:\/\/[^:\s]+:)[^@\s]+@/g, "$1***@");
-    console.error(`${label} failed.\n${stderr}`);
-    process.exit(1);
+    fail(`${label} failed.\n${stderr}`);
   }
 }
 
@@ -69,7 +78,7 @@ if (docker.status !== 0) {
 const stamp = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
 }).format(new Date()).replace(", ", "_").replace(":", "");
-const dir = path.join("backups", stamp);
+dir = path.join("backups", stamp);
 mkdirSync(dir, { recursive: true });
 
 // On Windows the URL goes through cmd.exe: quote it so & and % survive.
@@ -95,15 +104,23 @@ const files = ["roles.sql", "schema.sql", "data.sql", "history_schema.sql", "his
   };
 });
 const empty = files.filter((f) => f.bytes === 0 && f.name !== "roles.sql");
-if (empty.length) {
-  console.error(`Backup incomplete: ${empty.map((f) => f.name).join(", ")} is empty.`);
-  process.exit(1);
+if (empty.length) fail(`Backup incomplete: ${empty.map((f) => f.name).join(", ")} is empty.`);
+
+// Rows per table as dumped (each COPY block up to its "\."), to check a restore against.
+const rows = {};
+let table = null;
+for (const line of readFileSync(path.join(dir, "data.sql"), "utf8").split("\n")) {
+  const copy = /^COPY ("?\w+"?\."?\w+"?) /.exec(line);
+  if (copy) { table = copy[1].replace(/"/g, ""); rows[table] = 0; continue; }
+  if (table && line.replace(/\r$/, "") === "\\.") { table = null; continue; }
+  if (table) rows[table] += 1;
 }
 
 writeFileSync(path.join(dir, "manifest.json"), `${JSON.stringify({
   created_at: new Date().toISOString(),
   project_host: dbUrl.replace(/^.*@/, "").replace(/\/.*$/, ""),
   files,
+  rows,
   reminder: "The ID-number encryption key (pii_encryption_key) is not in this backup; it is in the school's password manager.",
 }, null, 2)}\n`);
 

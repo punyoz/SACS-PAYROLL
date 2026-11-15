@@ -53,19 +53,44 @@ try {
 
   Set-Location $RepoPath
   $env:SUPABASE_DB_URL = $dbUrl
-  # Windows PowerShell turns a native program's stderr (e.g. Node warnings)
-  # into errors; judge the run by its exit code only.
-  $ErrorActionPreference = "Continue"
-  $output = & node --no-deprecation scripts/backup/backup-db.mjs 2>&1 | Out-String
-  $code = $LASTEXITCODE
-  $ErrorActionPreference = "Stop"
+  # A network blip (2026-11-14: the host name did not resolve) is retried:
+  # 3 attempts, 2 then 5 minutes apart. A failed attempt's folder is renamed
+  # <stamp>_FAILED by backup-db.mjs.
+  $code = 1
+  foreach ($wait in @(0, 120, 300)) {
+    if ($wait) { Write-Log "RETRY in $wait s"; Start-Sleep -Seconds $wait }
+    # Windows PowerShell turns a native program's stderr (e.g. Node warnings)
+    # into errors; judge the run by its exit code only.
+    $ErrorActionPreference = "Continue"
+    $output = & node --no-deprecation scripts/backup/backup-db.mjs 2>&1 | Out-String
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    # backup-db.mjs already hides the password in its errors; mask again anyway.
+    $output = $output -replace '(postgres(ql)?://[^:\s]+:)[^@\s]+@', '$1***@'
+    if ($code -eq 0) { break }
+    Write-Log "ATTEMPT FAILED (exit $code)"
+  }
   Remove-Item Env:SUPABASE_DB_URL
-  # backup-db.mjs already hides the password in its errors; mask again anyway.
-  $output = $output -replace '(postgres(ql)?://[^:\s]+:)[^@\s]+@', '$1***@'
-  if ($code -ne 0) { throw "backup-db.mjs failed (exit $code): $output" }
+  if ($code -ne 0) { throw "backup-db.mjs failed 3 times (exit $code): $output" }
   $done = ($output -split "`n" | Where-Object { $_ -match '^Done:' } | Select-Object -First 1)
   Write-Log "OK  $($done.Trim())  (copy it to the encrypted off-site location)"
 } catch {
-  Write-Log "FAILED  $($_.Exception.Message)"
+  $reason = $_.Exception.Message
+  Write-Log "FAILED  $reason"
+  # Never silent: an e-mail (scripts/backup/alert.mjs) and a desktop notification.
+  try {
+    Set-Location $RepoPath
+    $ErrorActionPreference = "Continue"
+    $short = if ($reason.Length -gt 1500) { $reason.Substring($reason.Length - 1500) } else { $reason }
+    & node --no-deprecation scripts/backup/alert.mjs "The scheduled backup of $(Get-Date -Format 'yyyy-MM-dd HH:mm') failed: $short" 2>&1 | ForEach-Object { Write-Log "ALERT  $_" }
+  } catch { Write-Log "ALERT e-mail could not run: $($_.Exception.Message)" }
+  try {
+    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    $xml = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+    $texts = $xml.GetElementsByTagName("text")
+    $texts.Item(0).AppendChild($xml.CreateTextNode("SACS Payroll backup FAILED")) | Out-Null
+    $texts.Item(1).AppendChild($xml.CreateTextNode("Run npm run db:backup. Log: %LOCALAPPDATA%\SACS-Payroll\backup.log")) | Out-Null
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("SACS Payroll").Show([Windows.UI.Notifications.ToastNotification]::new($xml))
+  } catch { Write-Log "ALERT notification could not show: $($_.Exception.Message)" }
   exit 1
 }
