@@ -29,7 +29,7 @@ import { PESO_MAX } from "@/lib/input-limits";
 const EMPTY = { kind: "underpayment", amount: "", payrolls: "1", reason: "" };
 
 /** File a correction (record) or fix and resubmit a rejected one (correction). */
-export function CorrectionDialog({ record = null, correction = null, onClose, onSaved }) {
+export function CorrectionDialog({ record = null, correction = null, prefill = null, onClose, onSaved }) {
   const { notify } = usePortalSession();
   const open = Boolean(record || correction);
   const [input, setInput] = React.useState(EMPTY);
@@ -38,9 +38,11 @@ export function CorrectionDialog({ record = null, correction = null, onClose, on
 
   React.useEffect(() => {
     if (correction) setInput({ kind: correction.kind, amount: String(correction.amount), payrolls: String(correction.payrolls || 1), reason: correction.reason });
+    // Suggested from Action needed (a Paid 2nd half computed with an old 1st half); the Accountant reviews it.
+    else if (record && prefill) setInput({ ...EMPTY, ...prefill, amount: prefill.amount ? String(prefill.amount) : "" });
     else setInput(EMPTY);
     setError("");
-  }, [record, correction]);
+  }, [record, correction, prefill]);
 
   async function save() {
     const amount = Number(input.amount);

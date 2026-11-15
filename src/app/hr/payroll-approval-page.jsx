@@ -374,6 +374,15 @@ function RunDetail({ runId, onBack, onChanged }) {
             <Alert className="border-success/40 bg-success/5"><CheckCircle2Icon className="text-success" aria-hidden="true" /><AlertDescription>Approved by {run.reviewed_by_name} on {dateTime(run.reviewed_at)}{run.remarks ? ` — ${run.remarks}` : ""}. Locked; payslips are visible to employees.</AlertDescription></Alert>
           ) : null}
           <ExclusionsAlert exclusions={data?.exclusions} title="Left out of this run by the Accountant" />
+          {items.some((item) => item.first_half_changed) ? (
+            <Alert className="border-warning/40 bg-warning/10" data-testid="hr-first-half-changed">
+              <AlertTriangleIcon className="text-warning" aria-hidden="true" />
+              <AlertDescription>
+                <strong className="text-foreground">1st half changed after this was computed:</strong>{" "}
+                {items.filter((item) => item.first_half_changed).map((item) => item.employee_name).join(", ")}. Their 2nd-half figures still use the old 1st half. Reject the run so the Accountant can recompute them; nothing is changed until then.
+              </AlertDescription>
+            </Alert>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total employees" value={run?.totals.employees} icon={UsersIcon} loading={state.loading && !data} />
             <StatCard label="Total gross" value={run ? money(run.totals.gross) : null} icon={WalletIcon} tone="info" loading={state.loading && !data} />
@@ -428,6 +437,7 @@ function RunDetail({ runId, onBack, onChanged }) {
                       <TableCell className="min-w-44">
                         <span className="font-medium">{item.employee_name}</span>
                         <span className="block text-xs text-muted-foreground">{item.employee_code || ""}{item.payslip_no ? ` · ${item.payslip_no}` : ""}</span>
+                        {item.first_half_changed ? <span className="mt-0.5 block text-xs text-warning" data-testid="hr-item-first-half-changed">{item.first_half_changed}</span> : null}
                         {flagged ? (
                           <span className="mt-0.5 flex flex-wrap gap-1">
                             {item.flags.map((f) => <StatusBadge key={f} tone={f === "negative_net" ? "danger" : "warning"}>{FLAG_LABELS[f] || f}</StatusBadge>)}

@@ -79,7 +79,7 @@ async function processingWindows(supabase) {
   };
 }
 import { listOpenExclusions } from "@/lib/payroll/run-service";
-import { notify } from "@/lib/branch-requests-server";
+import { LEFT_OUT_LABELS, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
 import { textLimitError } from "@/lib/input-limits";
 import { loadDemoIds, notDemo } from "@/lib/demo";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
@@ -205,11 +205,28 @@ async function loadRunDetail(supabase, guard, runId) {
     supabase.from("payroll_approval_history").select("*").eq("run_id", run.id).order("created_at", { ascending: true }),
     supabase.from("early_bird_winners").select("*").eq("period_label", run.period_label).maybeSingle(),
     // Who the Accountant left out of this snapshot, and why (20261029080000).
-    supabase.from("payroll_run_exclusions").select("employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at")
+    supabase.from("payroll_run_exclusions").select("employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at,left_out_as")
       .eq("run_id", run.id).eq("submission_no", run.submission_no).order("employee_name", { ascending: true }),
   ]);
   if (items.error) throw new Error(items.error.message);
   const rows = (items.data || []).map(shapeItem);
+  // A 2nd half whose 1st half changed after it was computed (2026-11-15):
+  // HR is warned, never shown changed figures; HR rejects it to have it recomputed.
+  const firstLabel = firstHalfLabelOf(run.period_label);
+  if (firstLabel && rows.length) {
+    const ids = rows.map((row) => row.employee_id);
+    const [seconds, firsts] = await Promise.all([
+      fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,payroll").eq("pay_period", run.period_label).order("id", { ascending: true }), "employee_id", ids),
+      fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,status,payroll,payslip_no,updated_at").eq("pay_period", firstLabel).order("id", { ascending: true }), "employee_id", ids),
+    ]);
+    const secondOf = new Map((seconds.data || []).map((e) => [e.employee_id, e]));
+    const firstOf = new Map((firsts.data || []).map((e) => [e.employee_id, e]));
+    rows.forEach((row) => {
+      const second = secondOf.get(row.employee_id);
+      const change = second ? firstHalfChange(second, firstOf.get(row.employee_id) || null) : null;
+      row.first_half_changed = change ? `1st half changed after this was computed. ${change.reason}.` : null;
+    });
+  }
   // Snapshots submitted before 2026-11-03 carry no grouped, tagged lines:
   // they are read from the payslip itself while it still pays the snapshot's
   // net (src/lib/payroll/line-tags.js; nothing is recomputed).
@@ -238,6 +255,7 @@ async function loadRunDetail(supabase, guard, runId) {
     exclusions: (excluded.data || []).map((x) => ({
       employee_id: x.employee_id, employee_name: x.employee_name, employee_code: x.employee_code || null,
       reason: x.reason || null, acknowledged_by_name: x.acknowledged_by_name || null, at: x.created_at,
+      left_out_as: x.left_out_as || null, left_out_label: LEFT_OUT_LABELS[x.left_out_as] || null,
     })),
     early_bird: visibleWinner,
     can_review: guard.role === "hr" && run.status === "pending",
@@ -448,21 +466,6 @@ export async function GET(request) {
   }
 }
 
-/** "Your payslip is ready" to every employee on the run's approved submission. */
-async function notifyPayslipsReleased(supabase, runId) {
-  const run = await supabase.from("payroll_runs").select("period_label,submission_no").eq("id", runId).maybeSingle();
-  if (run.error || !run.data) return;
-  const items = await supabase.from("payroll_run_items").select("employee_id")
-    .eq("run_id", runId).eq("submission_no", run.data.submission_no);
-  if (items.error) return;
-  await notify(supabase, (items.data || []).map((i) => i.employee_id), {
-    kind: "payslip_released",
-    title: "Your payslip is ready",
-    body: `Your payslip for ${run.data.period_label} was approved by HR.`,
-    link_page: "emp-payslips",
-  });
-}
-
 export async function PATCH(request) {
   try {
     const guard = await requirePermission(request, "payroll_run_approval", "update");
@@ -509,13 +512,8 @@ export async function PATCH(request) {
         else results.push({ run_id: id, ok: true, run: shapeRun(Array.isArray(result.data) ? result.data[0] : result.data) });
       }
       const approved = results.filter((r) => r.ok).length;
-      // The bell (2026-10-20 audit): each employee on an approved run is told
-      // the payslip is ready. Never fails the approval itself.
-      for (const done of results.filter((r) => r.ok)) {
-        try {
-          await notifyPayslipsReleased(supabase, done.run_id);
-        } catch { /* the approval stands; the payslip is visible either way */ }
-      }
+      // Each employee on an approved run is told the payslip is ready by
+      // approve_payroll_run itself (20261115010000), for every approver path.
       const status = approved ? 200 : results[0]?.status || 409;
       return NextResponse.json({ success: approved > 0, approved, results }, { status });
     }

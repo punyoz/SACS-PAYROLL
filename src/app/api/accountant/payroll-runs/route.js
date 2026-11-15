@@ -5,10 +5,14 @@
  *         each visible branch's run: status, HR's remarks, history, and how
  *         many payslips are Final / Draft / missing.
  *   GET   ?view=excluded
- *         employees left out of a submitted run of the branch and not in any
- *         run of that period since (follow-up).
- *   PATCH { action: "submit", branch_id, period, acknowledge_exclusions?, exclusion_notes? }
- *         Submit (or, after a rejection, resubmit) for HR approval. From then
+ *         employees left out of a submitted run of the branch, until a run
+ *         holding their payslip is Paid (follow-up).
+ *   GET   ?view=action_needed
+ *         the Action needed list per branch (src/lib/payroll/run-service.js).
+ *   PATCH { action: "submit", branch_id, period, acknowledge_exclusions?, exclusion_notes?, include_outside? }
+ *         Submit (or, after a rejection, resubmit) for HR approval. Drafts are
+ *         left out (never in the run); include_outside lists the Final payslips
+ *         outside the branch's active list to include. From then
  *         on the branch's payroll for that period cannot change until HR
  *         rejects it. Employees with no Final payslip may be left out only
  *         with acknowledge_exclusions: true (the Accountant saw the list);
@@ -24,7 +28,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { describeBranchRuns, listOpenExclusions, submitRun } from "@/lib/payroll/run-service";
+import { actionNeeded, describeBranchRuns, listOpenExclusions, submitRun } from "@/lib/payroll/run-service";
 
 async function visibleBranches(supabase, guard) {
   let query = supabase.from("branches").select("id,name,status").order("name", { ascending: true });
@@ -42,6 +46,9 @@ export async function GET(request) {
     const supabase = getAdminClient();
     if (normalizeText(url.searchParams.get("view")) === "excluded") {
       return NextResponse.json({ excluded: await listOpenExclusions(supabase, guard) });
+    }
+    if (normalizeText(url.searchParams.get("view")) === "action_needed") {
+      return NextResponse.json({ items: await actionNeeded(supabase, guard, { branches: await visibleBranches(supabase, guard) }) });
     }
     const period = normalizeText(url.searchParams.get("period"));
     const runs = await describeBranchRuns(supabase, guard, period, { branches: await visibleBranches(supabase, guard) });
@@ -64,6 +71,8 @@ export async function PATCH(request) {
       periodLabel: normalizeText(body.period),
       acknowledgeExclusions: body.acknowledge_exclusions === true,
       exclusionNotes: body.exclusion_notes && typeof body.exclusion_notes === "object" ? body.exclusion_notes : {},
+      // Final payslips outside the branch's active list the Accountant ticked (2026-11-15).
+      includeOutside: Array.isArray(body.include_outside) ? body.include_outside.map(normalizeText).filter(Boolean).slice(0, 500) : [],
     });
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {

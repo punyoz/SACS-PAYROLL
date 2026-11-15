@@ -138,6 +138,16 @@ export function AccountantDataProvider({ children, navigate }) {
 
   React.useEffect(() => { load(); }, [load]);
 
+  // A link inside the portal (Action needed) names a period: follow it.
+  React.useEffect(() => {
+    const onPopState = () => {
+      const next = periodFromUrl();
+      if (next && next !== periodRef.current) { periodRef.current = next; setPeriodState(next); load({ period: next }); }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [load]);
+
   const value = React.useMemo(() => ({
     ...state,
     period,

@@ -20,12 +20,27 @@ export function RecordsPage() {
   const { data, loading, error, load, openPayslip, history } = useAccountant();
   const [correcting, setCorrecting] = React.useState(null);
   const [correctionsKey, setCorrectionsKey] = React.useState(0);
+  const [prefill, setPrefill] = React.useState(null);
   // Every period's processed entries (history_records), not just the
   // current period's: the page must not empty out when a later load (e.g.
   // opening a payslip) is scoped to one period.
-  const records = data?.history_records || data?.records || [];
+  const finals = React.useMemo(() => data?.history_records || data?.records || [], [data]);
+  // Drafts are listed too, labelled "Draft" (2026-11-15); the totals above stay Final-only.
+  const records = [...finals, ...(data?.draft_entries || [])];
   const panels = data?.history_panels || data?.panels || {};
   const first = loading && !data;
+
+  // Action needed → "Correct in Payroll Records" (?correct=<entry id>) opens that payslip's correction.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !finals.length) return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("correct");
+    const target = id ? finals.find((r) => String(r.id) === id && r.run_status === "approved") : null;
+    if (!target) return;
+    const amount = Math.abs(Number(params.get("amount")) || 0);
+    setPrefill(amount ? { kind: params.get("kind") === "underpayment" ? "underpayment" : "overpayment", amount, reason: params.get("why") || "" } : null);
+    setCorrecting((c) => c || target);
+  }, [finals]);
 
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => r.employee_name },
@@ -67,8 +82,8 @@ export function RecordsPage() {
               <>
                 <HistorySelect />
                 {/* Excel / PDF of the records shown; Print prints that PDF, not the page (alpha test B4). */}
-                <ExportButtons href={`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}`} label="payroll records" disabled={!records.length} />
-                <Button variant="outline" size="sm" disabled={!records.length}
+                <ExportButtons href={`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}`} label="payroll records" disabled={!finals.length} />
+                <Button variant="outline" size="sm" disabled={!finals.length} title={finals.length ? undefined : "No processed payroll records to print yet."}
                   onClick={() => printPdf(`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}&format=pdf`).catch(() => {})}>
                   <PrinterIcon aria-hidden="true" />Print
                 </Button>
@@ -86,7 +101,7 @@ export function RecordsPage() {
         </CardContent>
       </Card>
       <CorrectionsCard refreshKey={correctionsKey} />
-      <CorrectionDialog record={correcting} onClose={() => setCorrecting(null)} onSaved={() => setCorrectionsKey((k) => k + 1)} />
+      <CorrectionDialog record={correcting} prefill={prefill} onClose={() => { setCorrecting(null); setPrefill(null); }} onSaved={() => setCorrectionsKey((k) => k + 1)} />
     </>
   );
 }

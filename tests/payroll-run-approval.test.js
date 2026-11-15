@@ -124,16 +124,21 @@ function fakeRunRpcs() {
     table("payroll_approval_history").push({ id: `h-${table("payroll_approval_history").length}`, run_id: run.id, action, from_status: from, to_status: run.status, actor_id: who.id, actor_role: who.role, actor_name: who.full_name, remarks: remarks || null, created_at: new Date().toISOString() });
     table("audit_logs").push({ module: "payroll_approval", action: `payroll_run_${action}`, entity_id: run.id, actor_id: who.id, actor_role: who.role, metadata: { remarks } });
   };
-  const notify = (ids, kind, title, runId) => [...new Set(ids.filter(Boolean))].forEach((id) => table("notifications").push({ id: `n-${table("notifications").length}-${Math.random().toString(16).slice(2, 6)}`, recipient_id: id, kind, title, run_id: runId, read_at: null, created_at: new Date().toISOString() }));
-  const summaries = () => runs().map((r) => ({ ...r, branch_name: table("branches").find((b) => b.id === r.branch_id)?.name, flagged_employees: 0 }));
+  const notify = (ids, kind, title, runId, body = null) => [...new Set(ids.filter(Boolean))].forEach((id) => table("notifications").push({ id: `n-${table("notifications").length}-${Math.random().toString(16).slice(2, 6)}`, recipient_id: id, kind, title, body, run_id: runId, read_at: null, created_at: new Date().toISOString() }));
+  const summaries = () => runs().map((r) => ({
+    ...r, branch_name: table("branches").find((b) => b.id === r.branch_id)?.name, flagged_employees: 0,
+    excluded_employees: table("payroll_run_exclusions").filter((x) => x.run_id === r.id && x.submission_no === r.submission_no).length,
+  }));
 
   rpc.results.ensure_payroll_run = ({ p_branch, p_period_label, p_actor }) => {
     const who = actor(p_actor);
     if (!who || !["accountant", "super_admin"].includes(who.role)) return fail("forbidden: only an Accountant or a Super Admin starts a payroll run.");
-    let run = runs().find((r) => r.branch_id === p_branch && r.period_label === p_period_label);
-    if (!run) {
+    // The latest run of the period; a new (supplemental) one after an approved run with payslips processed since.
+    let run = runs().filter((r) => r.branch_id === p_branch && r.period_label === p_period_label).sort((a, b) => (b.run_no || 1) - (a.run_no || 1))[0];
+    const waiting = table("payroll_entries").some((e) => e.branch_id === p_branch && e.pay_period === p_period_label && e.status === "paid" && !e.run_id);
+    if (!run || (run.status === "approved" && waiting)) {
       const first = p_period_label.includes(" 1-15,");
-      run = { id: `bbbbbbbb-2222-4222-8222-${String(runs().length + 1).padStart(12, "0")}`, branch_id: p_branch, period_label: p_period_label, period_start: first ? "2026-10-01" : "2026-10-16", period_end: first ? "2026-10-15" : "2026-10-31", cutoff_type: first ? "first" : "second", status: "draft", submission_no: 0, processed_by: who.id, processed_by_name: who.full_name };
+      run = { id: `bbbbbbbb-2222-4222-8222-${String(runs().length + 1).padStart(12, "0")}`, branch_id: p_branch, period_label: p_period_label, period_start: first ? "2026-10-01" : "2026-10-16", period_end: first ? "2026-10-15" : "2026-10-31", cutoff_type: first ? "first" : "second", status: "draft", submission_no: 0, run_no: (run?.run_no || 0) + 1, processed_by: who.id, processed_by_name: who.full_name };
       runs().push(run);
     }
     table("payroll_run_summaries").splice(0, Infinity, ...summaries());
@@ -145,8 +150,14 @@ function fakeRunRpcs() {
     if (!who || !["accountant", "super_admin"].includes(who.role)) return fail("forbidden: only an Accountant or a Super Admin submits payroll.");
     if (!["draft", "rejected"].includes(run.status)) return fail(`invalid_transition: this run is ${run.status} and cannot be submitted.`);
     // The run's payslips: the Final ones not already in another run (20261029080000).
-    const finals = table("payroll_entries").filter((e) => e.branch_id === run.branch_id && e.pay_period === run.period_label && e.status === "paid" && (!e.run_id || e.run_id === run.id));
-    if (finals.map((e) => e.id).sort().join() !== p_items.map((i) => i.entry_id).sort().join()) return fail("snapshot_mismatch: the snapshot must cover exactly the run's Final payslips.");
+    // Drafts never block (20261115010000); a Final left out must be listed as left out.
+    const eligible = table("payroll_entries").filter((e) => e.branch_id === run.branch_id && e.pay_period === run.period_label && e.status === "paid" && (!e.run_id || e.run_id === run.id));
+    const given = new Set(p_items.map((i) => i.entry_id));
+    if (!given.size) return fail("nothing_processed: choose at least one Final payslip for this run.");
+    if ([...given].some((id) => !eligible.some((e) => e.id === id))) return fail("snapshot_mismatch: the snapshot holds a payslip that is not one of this run's Final payslips.");
+    const dropped = eligible.find((e) => !given.has(e.id) && !(p_exclusions || []).some((x) => x.employee_id === e.employee_id));
+    if (dropped) return fail(`snapshot_mismatch: ${dropped.employee_name} has a Final payslip that is neither in the run nor listed as left out.`);
+    const finals = eligible.filter((e) => given.has(e.id));
     const bad = p_items.find((i) => {
       const t = finals.find((e) => e.id === i.entry_id).payroll.totals;
       return Math.round(i.net_pay * 100) !== Math.round(Math.max(0, t.net_pay) * 100)
@@ -156,12 +167,15 @@ function fakeRunRpcs() {
     const from = run.status;
     run.submission_no += 1;
     p_items.forEach((i) => table("payroll_run_items").push({ id: `item-${table("payroll_run_items").length}`, run_id: run.id, submission_no: run.submission_no, ...i }));
+    eligible.filter((e) => e.run_id === run.id && !given.has(e.id)).forEach((e) => { e.run_id = null; });
     finals.forEach((e) => { e.run_id = run.id; });
-    (p_exclusions || []).forEach((x) => table("payroll_run_exclusions").push({ id: `x-${table("payroll_run_exclusions").length}`, run_id: run.id, submission_no: run.submission_no, employee_id: x.employee_id, employee_name: x.employee_name, employee_code: x.employee_code || null, reason: x.reason || null, acknowledged_by: who.id, acknowledged_by_name: who.full_name, created_at: new Date().toISOString() }));
+    (p_exclusions || []).forEach((x) => table("payroll_run_exclusions").push({ id: `x-${table("payroll_run_exclusions").length}`, run_id: run.id, submission_no: run.submission_no, employee_id: x.employee_id, employee_name: x.employee_name, employee_code: x.employee_code || null, reason: x.reason || null, left_out_as: x.left_out_as || null, acknowledged_by: who.id, acknowledged_by_name: who.full_name, created_at: new Date().toISOString() }));
     const totals = runTotals(p_items);
     Object.assign(run, { status: "pending", submitted_by: who.id, submitted_by_name: who.full_name, submitted_at: new Date().toISOString(), remarks: null, total_employees: totals.employees, total_gross: totals.gross, total_deductions: totals.deductions, total_net: totals.net });
     record(run, from === "rejected" ? "resubmitted" : "submitted", from, who, null);
-    notify(table("profiles").filter((p) => p.role === "hr").map((p) => p.id), "payroll_run_submitted", "Payroll waiting for approval", run.id);
+    const left = table("payroll_run_exclusions").filter((x) => x.run_id === run.id && x.submission_no === run.submission_no).map((x) => x.employee_name).sort();
+    notify(table("profiles").filter((p) => p.role === "hr").map((p) => p.id), "payroll_run_submitted", "Payroll waiting for approval", run.id,
+      `${run.period_label} · ${totals.employees} employee${totals.employees === 1 ? "" : "s"} · net ₱${totals.net.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · submitted by ${who.full_name}${left.length ? ` · ${left.length} left out: ${left.join(", ")}` : " · nobody left out"}`);
     table("payroll_run_summaries").splice(0, Infinity, ...summaries());
     return { data: run, error: null };
   };
@@ -179,6 +193,11 @@ function fakeRunRpcs() {
     }
     record(run, status, "pending", who, p_remarks);
     notify([run.processed_by, run.submitted_by], `payroll_run_${status}`, `Payroll ${status}`, run.id);
+    // approve_payroll_run tells each employee of the snapshot (20261115010000).
+    if (status === "approved") {
+      notify(table("payroll_run_items").filter((i) => i.run_id === run.id && i.submission_no === run.submission_no).map((i) => i.employee_id),
+        "payslip_released", "Your payslip is ready", run.id, `Your payslip for ${run.period_label} was approved by HR.`);
+    }
     table("payroll_run_summaries").splice(0, Infinity, ...summaries());
     return { data: run, error: null };
   };
@@ -513,5 +532,249 @@ describe("Payroll Approval workflow", () => {
     expect(ids.map((id) => table("payroll_runs").find((r) => r.id === id).status)).toEqual(["approved", "approved"]);
     expect(table("payroll_approval_history").filter((h) => h.action === "approved")).toHaveLength(2);
     expect(rpc.calls.filter((c) => c.fn === "approve_payroll_run")).toHaveLength(2);
+  });
+
+  /* ── Approval flow decisions 2026-11-15 ─────────────────────────────── */
+
+  const latestRun = (branchId, period = FIRST) => table("payroll_runs").filter((r) => r.branch_id === branchId && r.period_label === period)
+    .sort((a, b) => (b.run_no || 1) - (a.run_no || 1))[0];
+  const cards = async (period = FIRST) => (await json(runsRoute.GET(req(ACCT, `/api/accountant/payroll-runs?period=${encodeURIComponent(period)}`)))).body.runs;
+  const openCard = async (period = FIRST) => (await cards(period)).find((c) => !c.locked);
+  const actionItems = async () => (await json(runsRoute.GET(req(ACCT, "/api/accountant/payroll-runs?view=action_needed")))).body.items;
+  const leftOutList = async () => (await json(runsRoute.GET(req(ACCT, "/api/accountant/payroll-runs?view=excluded")))).body.excluded;
+  const approveRun = (run) => json(hrRoute.PATCH(req(HR, "/api/hr/payroll-runs", "PATCH", { action: "approve", run_ids: [run.id] })));
+  const rejectRun = (run, remarks = "Please recheck the attendance first") => json(hrRoute.PATCH(req(HR, "/api/hr/payroll-runs", "PATCH", { action: "reject", run_id: run.id, remarks })));
+  const submit = (period = FIRST, extra = {}) => json(runsRoute.PATCH(req(ACCT, "/api/accountant/payroll-runs", "PATCH", { action: "submit", branch_id: BRANCH_A, period, ...extra })));
+  const processOne = (employeeId, period = FIRST, extra = {}) => json(payroll.PATCH(req(ACCT, "/api/accountant/payroll", "PATCH", { action: "generate", employee_id: employeeId, pay_period: period, confirm_incomplete: true, ...extra })));
+  const entryOf = (employeeId, period) => table("payroll_entries").find((e) => e.employee_id === employeeId && e.pay_period === period);
+  const net = (entry) => Math.max(0, Number(entry.payroll.totals.net_pay) || 0);
+  // Ana is absent on Oct 7: her 1st half changes when it is reprocessed.
+  const absentOct7 = () => table("attendance_logs").push(log("a7", ANA, "2026-10-07", { time_in: null, time_out: null, status: "Absent", arrival_offset_minutes: null }));
+
+  it("Drafts never block: a Draft is left out and listed, never in the run", async () => {
+    await processOne(ANA);
+    const draft = await json(payroll.POST(req(ACCT, "/api/accountant/payroll", "POST", { action: "save_draft", employee_id: BEN, pay_period: FIRST })));
+    expect(draft.status).toBeLessThan(300);
+    expect(entryOf(BEN, FIRST).status).toBe("draft");
+
+    const card = await openCard();
+    expect(card.drafts.map((d) => d.employee_name)).toEqual(["Ben Senior High"]);
+    expect(card.missing).toEqual([expect.objectContaining({ name: "Ben Senior High", left_out_as: "draft" })]);
+    expect(card.included.map((r) => r.employee_name)).toEqual(["Ana Preschool"]);
+    // The header's net is the Included total.
+    expect(card.totals_preview.net).toBe(card.included.reduce((sum, r) => sum + r.net_pay, 0));
+    expect(card).toMatchObject({ expected_count: 2, processed_count: 1, draft_count: 1, can_submit: true, blockers: [] });
+
+    const unconfirmed = await submit();
+    expect(unconfirmed.body).toMatchObject({ code: "exclusions_unacknowledged", missing: [expect.objectContaining({ name: "Ben Senior High", left_out_as: "draft" })] });
+    const result = await submit(FIRST, { acknowledge_exclusions: true });
+    expect(result.status).toBe(200);
+    const call = rpc.calls.find((c) => c.fn === "submit_payroll_run");
+    expect(call.args.p_items.map((i) => i.employee_name)).toEqual(["Ana Preschool"]);
+    expect(call.args.p_exclusions).toEqual([expect.objectContaining({ employee_name: "Ben Senior High", left_out_as: "draft" })]);
+    expect(entryOf(BEN, FIRST)).toMatchObject({ status: "draft" });
+    expect(entryOf(BEN, FIRST).run_id).toBeFalsy();
+    // HR's notice names who was left out, and the net.
+    const notice = table("notifications").find((n) => n.kind === "payroll_run_submitted");
+    expect(notice.body).toMatch(/1 left out: Ben Senior High/);
+    expect(notice.body).toMatch(/net ₱[\d,]+\.\d{2}/);
+    // After submission the card still shows exactly what HR received.
+    const locked = (await cards()).find((c) => c.locked);
+    expect(locked).toMatchObject({ status: "pending", final_count: 1 });
+    expect(locked.included.map((r) => r.employee_name)).toEqual(["Ana Preschool"]);
+  });
+
+  it("two Pending runs of a branch and period are both shown", async () => {
+    await processBranchA();
+    expect((await submit()).status).toBe(200);
+    const first = latestRun(BRANCH_A);
+    // A second Pending run (as an older demo import made them).
+    const second = { ...first, id: "bbbbbbbb-2222-4222-8222-999999999999", run_no: 2, submission_no: 1 };
+    table("payroll_runs").push(second);
+    table("payroll_run_summaries").push({ ...second, branch_name: "Main", excluded_employees: 0, flagged_employees: 0 });
+    const ben = entryOf(BEN, FIRST);
+    ben.run_id = second.id;
+    table("payroll_run_items").push({ id: "item-x", run_id: second.id, submission_no: 1, entry_id: ben.id, employee_id: BEN, employee_name: "Ben Senior High", gross_pay: 1, total_deductions: 0, net_pay: 1 });
+    const shown = (await cards()).filter((c) => c.status === "pending");
+    expect(shown.map((c) => c.run_no).sort()).toEqual([1, 2]);
+    expect(shown.find((c) => c.run_no === 2).included.map((r) => r.employee_name)).toEqual(["Ben Senior High"]);
+  });
+
+  it("an archived employee's Final payslip is listed apart and goes in only when ticked", async () => {
+    await processBranchA();
+    // Ben is archived after his payslip was processed (like Lemuel).
+    table("profiles").find((p) => p.id === BEN).archived = true;
+    const card = await openCard();
+    expect(card.expected_count).toBe(1);
+    expect(card.included.map((r) => r.employee_name)).toEqual(["Ana Preschool"]);
+    expect(card.outside.map((r) => r.employee_name)).toEqual(["Ben Senior High"]);
+    expect(card.missing).toEqual([]);
+
+    // Not ticked: listed as left out ("Not in this branch's active list"), not in the run.
+    expect((await submit()).body.code).toBe("exclusions_unacknowledged");
+    expect((await submit(FIRST, { acknowledge_exclusions: true })).status).toBe(200);
+    let call = rpc.calls.filter((c) => c.fn === "submit_payroll_run").at(-1);
+    expect(call.args.p_items.map((i) => i.employee_name)).toEqual(["Ana Preschool"]);
+    expect(call.args.p_exclusions).toEqual([expect.objectContaining({ employee_name: "Ben Senior High", left_out_as: "outside_list" })]);
+    expect(entryOf(BEN, FIRST).run_id).toBeFalsy();
+
+    // Ticked on the resubmission: in the run.
+    await rejectRun(latestRun(BRANCH_A));
+    expect((await submit(FIRST, { include_outside: [entryOf(BEN, FIRST).id] })).status).toBe(200);
+    call = rpc.calls.filter((c) => c.fn === "submit_payroll_run").at(-1);
+    expect(call.args.p_items.map((i) => i.employee_name).sort()).toEqual(["Ana Preschool", "Ben Senior High"]);
+    expect(entryOf(BEN, FIRST).run_id).toBe(latestRun(BRANCH_A).id);
+  });
+
+  it("the batch table and the run card count the same active list", async () => {
+    await processOne(ANA);
+    table("profiles").find((p) => p.id === BEN).payroll_hold = true;
+    const data = (await json(payroll.GET(req(ACCT, `/api/accountant/payroll?period=${encodeURIComponent(FIRST)}`)))).body;
+    const card = await openCard();
+    expect(data.active_list[BRANCH_A]).toEqual([ANA]);
+    expect(card.expected_count).toBe(data.active_list[BRANCH_A].length);
+    // Ben (on hold) is in the batch list but not on the active list: counted apart on both screens.
+    expect(data.employees.map((e) => e.id)).toContain(BEN);
+    expect(card.missing).toEqual([]);
+  });
+
+  it("a 2nd half may be finalized once the 1st half is Final, before HR approves it", async () => {
+    await processBranchA();
+    expect(latestRun(BRANCH_A)).toBeUndefined();
+    vi.setSystemTime(new Date("2026-11-02T10:00:00+08:00"));
+    await processBranchA(SECOND);
+    expect(entryOf(ANA, SECOND).status).toBe("paid");
+    // It stores the 1st half it was computed with.
+    expect(entryOf(ANA, SECOND).payroll.monthly.first_half_basis).toMatchObject({ entry_id: entryOf(ANA, FIRST).id, net_pay: net(entryOf(ANA, FIRST)) });
+    const month = entryOf(ANA, SECOND).payroll.monthly;
+    expect(Math.round((month.first_half_paid + net(entryOf(ANA, SECOND))) * 100)).toBe(Math.round(month.monthly_net * 100));
+  });
+
+  it("1st half rejected and reprocessed: the 2nd half needs recompute, cannot be submitted, and adds up again after Recompute", async () => {
+    await processBranchA();
+    await submit();
+    await rejectRun(latestRun(BRANCH_A));
+    vi.setSystemTime(new Date("2026-11-02T10:00:00+08:00"));
+    await processBranchA(SECOND);
+    const firstBefore = net(entryOf(ANA, FIRST));
+
+    absentOct7();
+    expect((await processOne(ANA, FIRST, { reprocess: true })).status).toBe(200);
+    const firstAfter = net(entryOf(ANA, FIRST));
+    expect(firstAfter).toBeLessThan(firstBefore);
+
+    const card = await openCard(SECOND);
+    const ana = card.included.find((r) => r.employee_id === ANA);
+    expect(ana.needs_recompute).toMatch(/^1st half changed: net ₱[\d,.]+ → ₱[\d,.]+/);
+    expect(card.can_submit).toBe(false);
+    expect(card.blockers.join(" ")).toMatch(/need.* recompute/);
+    expect((await submit(SECOND)).body).toMatchObject({ code: "needs_recompute" });
+    expect((await actionItems()).some((i) => i.kind === "recompute" && i.state === "open" && i.period_label === SECOND)).toBe(true);
+    const data = (await json(payroll.GET(req(ACCT, `/api/accountant/payroll?period=${encodeURIComponent(SECOND)}`)))).body;
+    expect(data.needs_recompute[ANA]).toMatch(/1st half changed/);
+
+    expect((await processOne(ANA, SECOND, { reprocess: true, recompute: true })).status).toBe(200);
+    const second = entryOf(ANA, SECOND);
+    expect(second.payroll.monthly.first_half_basis.net_pay).toBe(firstAfter);
+    expect((await openCard(SECOND)).included.every((r) => !r.needs_recompute)).toBe(true);
+    // The month adds up again: 1st half paid + this payslip = the month's net.
+    expect(Math.round((second.payroll.monthly.first_half_paid + net(second)) * 100)).toBe(Math.round(second.payroll.monthly.monthly_net * 100));
+    expect(second.payroll.monthly.first_half_paid).toBe(firstAfter);
+    expect((await actionItems()).some((i) => i.kind === "recompute")).toBe(false);
+    expect((await submit(SECOND)).status).toBe(200);
+  });
+
+  it("1st half changed while the 2nd half is Pending: warned on the card and to HR, nothing changed silently", async () => {
+    await processBranchA();
+    await submit();
+    vi.setSystemTime(new Date("2026-11-02T10:00:00+08:00"));
+    await processBranchA(SECOND);
+    expect((await submit(SECOND)).status).toBe(200);
+    const secondNet = net(entryOf(ANA, SECOND));
+    await rejectRun(latestRun(BRANCH_A));
+    absentOct7();
+    expect((await processOne(ANA, FIRST, { reprocess: true })).status).toBe(200);
+
+    const pending = (await cards(SECOND)).find((c) => c.status === "pending");
+    expect(pending.recompute_count).toBe(1);
+    expect(pending.included.find((r) => r.employee_id === ANA).needs_recompute).toMatch(/1st half changed/);
+    const detail = (await json(hrRoute.GET(req(HR, `/api/hr/payroll-runs?run_id=${latestRun(BRANCH_A, SECOND).id}`)))).body;
+    expect(detail.items.find((i) => i.employee_name === "Ana Preschool").first_half_changed).toMatch(/^1st half changed after this was computed/);
+    expect(detail.items.find((i) => i.employee_name === "Ben Senior High").first_half_changed).toBeNull();
+    expect(net(entryOf(ANA, SECOND))).toBe(secondNet);
+    expect((await actionItems()).find((i) => i.kind === "recompute")).toMatchObject({ state: "pending", count: 1 });
+  });
+
+  it("1st half changed after the 2nd half is Paid: a correction is listed, the Paid payslip is not changed", async () => {
+    await processBranchA();
+    await submit();
+    vi.setSystemTime(new Date("2026-11-02T10:00:00+08:00"));
+    await processBranchA(SECOND);
+    await submit(SECOND);
+    await approveRun(latestRun(BRANCH_A, SECOND));
+    const paid = JSON.stringify(entryOf(ANA, SECOND).payroll);
+    await rejectRun(latestRun(BRANCH_A));
+    absentOct7();
+    expect((await processOne(ANA, FIRST, { reprocess: true })).status).toBe(200);
+
+    const item = (await actionItems()).find((i) => i.kind === "recompute");
+    expect(item).toMatchObject({ state: "paid", count: 1, page: "ac-records", params: expect.objectContaining({ correct: entryOf(ANA, SECOND).id, kind: "underpayment" }) });
+    expect(Number(item.params.amount)).toBeGreaterThan(0);
+    expect(JSON.stringify(entryOf(ANA, SECOND).payroll)).toBe(paid);
+    // Once a correction is filed for that payslip the item is gone.
+    table("payroll_corrections").push({ id: "c1", entry_id: entryOf(ANA, SECOND).id, status: "pending" });
+    expect((await actionItems()).some((i) => i.kind === "recompute")).toBe(false);
+  });
+
+  it("left out until Paid: In supplemental run while Pending, back on the list if rejected, gone once Paid", async () => {
+    await processOne(ANA);
+    await submit(FIRST, { acknowledge_exclusions: true, exclusion_notes: { [BEN]: "Pending documents" } });
+    await approveRun(latestRun(BRANCH_A));
+    expect(await leftOutList()).toEqual([expect.objectContaining({ employee_name: "Ben Senior High", follow_up: "not_processed", reason: "Pending documents", left_out_as: "not_processed" })]);
+
+    expect((await processOne(BEN)).status).toBe(200);
+    expect((await leftOutList())[0].follow_up).toBe("processed_not_submitted");
+    expect((await openCard()).supplemental).toBe(true);
+    expect((await submit()).status).toBe(200);
+    const supplemental = latestRun(BRANCH_A);
+    expect(supplemental.run_no).toBe(2);
+    expect((await leftOutList())[0]).toMatchObject({ follow_up: "supplemental_pending", follow_up_label: "In supplemental run, Pending HR Approval" });
+
+    await rejectRun(supplemental);
+    expect((await leftOutList())[0].follow_up).toBe("supplemental_rejected");
+    expect((await actionItems()).some((i) => i.kind === "left_out")).toBe(true);
+    expect((await submit()).status).toBe(200);
+    await approveRun(supplemental);
+    expect(await leftOutList()).toEqual([]);
+    // The first run's payslips were never sent again.
+    const items = table("payroll_run_items").filter((i) => i.run_id === supplemental.id);
+    expect([...new Set(items.map((i) => i.employee_name))]).toEqual(["Ben Senior High"]);
+    expect(table("notifications").filter((n) => n.kind === "payslip_released").map((n) => n.recipient_id).sort()).toEqual([ANA, BEN].sort());
+  });
+
+  it("Action needed: each item appears, links to its screen, and clears when done", async () => {
+    let items = await actionItems();
+    expect(items.find((i) => i.kind === "not_processed" && i.period_label === FIRST)).toMatchObject({ count: 2, page: "ac-process", params: { period: FIRST } });
+
+    await json(payroll.POST(req(ACCT, "/api/accountant/payroll", "POST", { action: "save_draft", employee_id: BEN, pay_period: FIRST })));
+    await processOne(ANA);
+    items = await actionItems();
+    expect(items.some((i) => i.kind === "not_processed" && i.period_label === FIRST)).toBe(false);
+    expect(items.find((i) => i.kind === "drafts")).toMatchObject({ count: 1, names: ["Ben Senior High"], params: { period: FIRST, batch: "draft" } });
+    expect(items.find((i) => i.kind === "unsubmitted")).toMatchObject({ count: 1, params: { period: FIRST, focus: "runs" } });
+
+    await submit(FIRST, { acknowledge_exclusions: true });
+    items = await actionItems();
+    expect(items.some((i) => i.kind === "unsubmitted")).toBe(false);
+    expect(items.find((i) => i.kind === "left_out")).toMatchObject({ count: 1, params: { period: FIRST, focus: "left-out" } });
+
+    await rejectRun(latestRun(BRANCH_A), "Ben's leave is not filed yet");
+    items = await actionItems();
+    expect(items.find((i) => i.kind === "rejected")).toMatchObject({ text: expect.stringContaining("Ben's leave is not filed yet"), params: { period: FIRST, focus: "runs" } });
+
+    await submit(FIRST, { acknowledge_exclusions: true });
+    expect((await actionItems()).some((i) => i.kind === "rejected" || i.kind === "pending_long")).toBe(false);
+    vi.setSystemTime(new Date("2026-10-21T10:00:00+08:00"));
+    expect((await actionItems()).find((i) => i.kind === "pending_long")).toMatchObject({ info: true, count: 1 });
   });
 });

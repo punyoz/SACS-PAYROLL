@@ -15,7 +15,8 @@ describe('recordStatusMeta (Accountant Payroll Records / Monitoring)', () => {
 
   it('keeps the old labels before approval existed, and for drafts', () => {
     expect(recordStatusMeta(rec(null, 'September 16-30, 2026')).label).toBe('Paid');
-    expect(recordStatusMeta(rec(null, 'October 1-15, 2026', 'draft')).label).toBe('Not submitted to HR');
+    // A Draft has its own label (decision 2026-11-15 #5).
+    expect(recordStatusMeta(rec(null, 'October 1-15, 2026', 'draft')).label).toBe('Draft');
   });
 });
 

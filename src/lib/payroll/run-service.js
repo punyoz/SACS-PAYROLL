@@ -1,16 +1,20 @@
 /**
  * Server side of payroll runs (src/lib/payroll/runs.js): what each branch's
  * run looks like to the Accountant, and submitting one for HR approval.
- * The database functions (20261014010000_payroll_run_approval.sql) make the
- * final checks; these build what they need and turn their refusals into
- * messages.
+ * The database functions (20261014010000_payroll_run_approval.sql,
+ * 20261115010000_approval_flow_fixes.sql) make the final checks; these build
+ * what they need and turn their refusals into messages.
+ *
+ * Who a run is about comes from src/lib/payroll/run-roster.js, the one
+ * definition the batch table, the run card and the Action needed panel share.
  */
 
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { periodFromLabel } from "@/lib/payroll/periods";
+import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { getEmployeeAttendancePolicy, levelLabel } from "@/lib/attendance/work-schedules";
 import {
+  APPROVAL_EFFECTIVE,
   RUN_STATUS_LABELS,
   describeRunError,
   isEditableRun,
@@ -18,33 +22,112 @@ import {
   shapeRun,
   shapeRunItem,
 } from "@/lib/payroll/runs";
+import { LEFT_OUT_AS, LEFT_OUT_LABELS, branchRoster, expectedInRun, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
+
+export { expectedInRun };
 
 /** Longest note the Accountant may give for leaving an employee out (payroll_run_exclusions.reason). */
 export const EXCLUSION_REASON_MAX = 500;
 
-/** Employees a branch's run must contain: paid staff, active, not held, hired by the period's end. */
-export function expectedInRun(staff, branchId, period) {
-  return (staff || []).filter((person) => String(person.branch_id || "") === String(branchId || "")
-    && !person.archived
-    && String(person.employee_status || "active").toLowerCase() !== "inactive"
-    && !person.payroll_hold
-    && (!person.date_hired || String(person.date_hired).slice(0, 10) <= period.end_key));
-}
+/** A run Pending HR Approval longer than this shows in Action needed (info only). */
+export const PENDING_DAYS_INFO = 3;
 
-async function readEntries(supabase, branchIds, periodLabel) {
+const ENTRY_COLUMNS = "id,employee_id,employee_name,employee_code,employee_type,branch_id,pay_period,status,payroll,payslip_no,run_id,updated_at";
+const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+const peso = (value) => Math.round(num(value) * 100) / 100;
+const startOf = (label) => periodFromLabel(label)?.start_key || "";
+
+async function readEntries(supabase, branchIds, labels) {
   const result = await fetchAllRows(() => supabase.from("payroll_entries")
-    .select("id,employee_id,employee_name,employee_code,branch_id,pay_period,status,payroll,payslip_no,run_id")
+    .select(ENTRY_COLUMNS)
     .in("branch_id", branchIds)
-    .eq("pay_period", periodLabel)
+    .in("pay_period", labels)
     .order("id", { ascending: true }));
   if (result.error) throw new Error(result.error.message);
   return result.data || [];
 }
 
+/** The 1st halves of these employees for a 2nd-half period: Map employee_id -> entry (or nothing for a 1st half). */
+async function firstHalvesFor(supabase, periodLabel, employeeIds) {
+  const firstLabel = firstHalfLabelOf(periodLabel);
+  const ids = [...new Set((employeeIds || []).filter(Boolean))];
+  if (!firstLabel || !ids.length) return { firstLabel, byEmployee: new Map() };
+  const result = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS)
+    .eq("pay_period", firstLabel).order("id", { ascending: true }), "employee_id", ids);
+  if (result.error) throw new Error(result.error.message);
+  return { firstLabel, byEmployee: new Map((result.data || []).map((e) => [e.employee_id, e])) };
+}
+
+/** A 2nd half whose 1st half changed since it was computed, or null. */
+function recomputeOf(entry, firsts) {
+  if (!firsts.firstLabel) return null;
+  return firstHalfChange(entry, firsts.byEmployee.get(entry.employee_id) || null);
+}
+
+/** One payslip row of the run card. */
+function entryRow(entry, change = null) {
+  const t = entry.payroll?.totals || {};
+  return {
+    entry_id: entry.id,
+    employee_id: entry.employee_id,
+    employee_name: entry.employee_name || "Employee",
+    employee_code: entry.employee_code || null,
+    employee_type: entry.employee_type || null,
+    period_label: entry.pay_period,
+    payslip_no: entry.payslip_no || null,
+    status: entry.status === "paid" ? "final" : "draft",
+    gross_pay: peso(num(t.gross_pay) + num(t.total_incentives)),
+    total_deductions: peso(t.total_deductions),
+    net_pay: peso(Math.max(0, num(t.net_pay))),
+    needs_recompute: change ? change.reason : null,
+  };
+}
+
+/** One row of a submitted run, from its snapshot (what HR received). */
+function itemRow(item, entry, change = null) {
+  return {
+    entry_id: item.entry_id,
+    employee_id: item.employee_id,
+    employee_name: item.employee_name || "Employee",
+    employee_code: item.employee_code || null,
+    employee_type: entry?.employee_type || null,
+    period_label: entry?.pay_period || null,
+    payslip_no: item.payslip_no || null,
+    status: "final",
+    gross_pay: peso(item.gross_pay),
+    total_deductions: peso(item.total_deductions),
+    net_pay: peso(item.net_pay),
+    needs_recompute: change ? change.reason : null,
+  };
+}
+
+const sumRows = (rows) => rows.reduce((acc, row) => ({
+  gross: peso(acc.gross + row.gross_pay),
+  deductions: peso(acc.deductions + row.total_deductions),
+  net: peso(acc.net + row.net_pay),
+}), { gross: 0, deductions: 0, net: 0 });
+
+/** Left out of a run: active employees with no Final payslip (a Draft is left out too). */
+function leftOutOf(roster) {
+  const draftFor = new Set(roster.drafts.map((e) => String(e.employee_id)));
+  return roster.missing.map((person) => ({
+    id: person.id,
+    name: person.full_name,
+    code: person.employee_id,
+    left_out_as: draftFor.has(String(person.id)) ? LEFT_OUT_AS.draft : LEFT_OUT_AS.not_processed,
+  }));
+}
+
 /**
- * The run of each branch for a period, as the Accountant sees it: its status
- * (Draft when not started), HR's remarks, and how many payslips are Final,
- * still Draft, or missing.
+ * The runs of each branch for a period, as cards for the Accountant:
+ *
+ *   - the open card (Draft / Rejected run, a new supplemental run, or no run
+ *     yet): its Included payslips, Drafts, Left out and, apart, Final
+ *     payslips outside the branch's active list (in the run only if ticked);
+ *   - every submitted run of the period (Pending HR Approval, Paid), read
+ *     only, with exactly the payslips HR received.
+ *
+ * Each card says on the server why it cannot be submitted (blockers).
  */
 export async function describeBranchRuns(supabase, guard, periodLabel, { branches = [], staff = null } = {}) {
   const period = periodFromLabel(periodLabel);
@@ -55,72 +138,119 @@ export async function describeBranchRuns(supabase, guard, periodLabel, { branche
 
   const [runsResult, entries] = await Promise.all([
     supabase.from("payroll_run_summaries").select("*").in("branch_id", branchIds).eq("period_label", period.label),
-    readEntries(supabase, branchIds, period.label),
+    readEntries(supabase, branchIds, [period.label]),
   ]);
   const available = !runsResult.error;
-  // The period's latest run per branch (a supplemental run comes after the first).
-  const runs = new Map([...(runsResult.data || [])].sort((a, b) => (Number(a.run_no) || 1) - (Number(b.run_no) || 1))
-    .map((row) => [String(row.branch_id), shapeRun(row)]));
-  const exclusionsResult = available && runs.size
-    ? await supabase.from("payroll_run_exclusions").select("run_id,submission_no,employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at")
-      .in("run_id", [...runs.values()].map((r) => r.id))
-    : { data: [] };
-  const historyResult = available && runs.size
-    ? await supabase.from("payroll_approval_history").select("*").in("run_id", [...runs.values()].map((r) => r.id)).order("created_at", { ascending: true })
-    : { data: [] };
+  const allRuns = [...(runsResult.data || [])].sort((a, b) => (Number(a.run_no) || 1) - (Number(b.run_no) || 1)).map(shapeRun);
+  const runIds = allRuns.map((r) => r.id);
+  const [exclusionsResult, historyResult, itemsResult, firsts] = await Promise.all([
+    available && runIds.length
+      ? fetchAllIn(() => supabase.from("payroll_run_exclusions").select("id,run_id,submission_no,employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at,left_out_as").order("id", { ascending: true }), "run_id", runIds)
+      : { data: [] },
+    available && runIds.length
+      ? fetchAllIn(() => supabase.from("payroll_approval_history").select("*").order("created_at", { ascending: true }).order("id", { ascending: true }), "run_id", runIds)
+      : { data: [] },
+    available && runIds.length
+      ? fetchAllIn(() => supabase.from("payroll_run_items").select("run_id,submission_no,entry_id,employee_id,employee_name,employee_code,payslip_no,gross_pay,total_deductions,net_pay").order("employee_name", { ascending: true }).order("id", { ascending: true }), "run_id", runIds)
+      : { data: [] },
+    firstHalvesFor(supabase, period.label, entries.map((e) => e.employee_id)),
+  ]);
+  const entryById = new Map(entries.map((e) => [String(e.id), e]));
+  const cutoffType = period.start_key.endsWith("-01") ? "first" : "second";
 
-  return branches.map((branch) => {
+  const cards = [];
+  for (const branch of branches) {
     const id = String(branch.id);
-    const latest = runs.get(id) || null;
-    const mine = entries.filter((entry) => String(entry.branch_id) === id);
-    const allFinals = mine.filter((entry) => entry.status === "paid");
-    const drafts = mine.filter((entry) => entry.status === "draft");
-    // Processed after the latest run was approved: they go in a supplemental run.
-    const waiting = allFinals.filter((entry) => !entry.run_id);
-    const supplemental = latest?.status === "approved" && waiting.length > 0;
-    const run = supplemental ? null : latest;
-    // This run's payslips: the Final ones not in another run of the period.
-    const finals = supplemental ? waiting : allFinals.filter((entry) => !entry.run_id || entry.run_id === latest?.id);
-    const expected = expectedInRun(people, id, period);
-    // Left out: an expected employee with no Final payslip in any run of the period.
-    const missing = expected.filter((person) => !allFinals.some((entry) => entry.employee_id === person.id));
-    const status = run?.status || "draft";
-    const submittedExclusions = latest
-      ? (exclusionsResult.data || []).filter((x) => x.run_id === latest.id && Number(x.submission_no) === Number(latest.submission_no))
-      : [];
-    return {
+    const branchRuns = allRuns.filter((r) => String(r.branch_id) === id);
+    const latest = branchRuns[branchRuns.length - 1] || null;
+    const roster = branchRoster({ staff: people, branchId: id, period, entries });
+    const waiting = roster.finals.filter((e) => !e.run_id);
+    const supplemental = latest?.status === "approved" && (waiting.length > 0 || roster.drafts.length > 0);
+    const exclusionsOf = (run) => (exclusionsResult.data || []).filter((x) => x.run_id === run.id && Number(x.submission_no) === Number(run.submission_no)).map(shapeExclusion);
+    const historyOf = (run) => (historyResult.data || []).filter((h) => h.run_id === run.id);
+    const base = {
       available,
       branch_id: id,
       branch_name: branch.name,
       period_label: period.label,
-      cutoff_type: period.start_key.endsWith("-01") ? "first" : "second",
-      run: run ? { ...run } : null,
-      status,
-      status_label: RUN_STATUS_LABELS[status],
-      editable: isEditableRun(run),
-      // A new supplemental run (employees processed after the period's run was approved).
-      supplemental,
-      run_no: supplemental ? (Number(latest.run_no) || 1) + 1 : Number(run?.run_no) || 1,
-      approved_run: supplemental ? { ...latest } : null,
-      final_count: finals.length,
-      draft_count: drafts.length,
-      expected_count: expected.length,
-      missing: missing.map((person) => ({ id: person.id, name: person.full_name, code: person.employee_id })),
-      // Who the latest submitted snapshot left out, with the Accountant's note.
-      exclusions: submittedExclusions.map(shapeExclusion),
-      totals_preview: finals.reduce((acc, entry) => {
-        const t = entry.payroll?.totals || {};
-        return {
-          gross: acc.gross + (Number(t.gross_pay) || 0) + (Number(t.total_incentives) || 0),
-          deductions: acc.deductions + (Number(t.total_deductions) || 0),
-          net: acc.net + Math.max(0, Number(t.net_pay) || 0),
-        };
-      }, { gross: 0, deductions: 0, net: 0 }),
-      // Employees may be left out, once the Accountant confirms who and why (submitRun).
-      can_submit: available && isEditableRun(run) && finals.length > 0 && !drafts.length,
-      history: (historyResult.data || []).filter((h) => run && h.run_id === run.id),
+      cutoff_type: cutoffType,
+      expected_count: roster.active.length,
+      // Active employees with a Final payslip in any run of the period.
+      processed_count: roster.processed.length,
+      draft_count: roster.drafts.length,
     };
-  });
+
+    // The open card: what the Accountant can still submit.
+    const openRun = latest && isEditableRun(latest) ? latest : null;
+    if (!latest || openRun || supplemental) {
+      const eligible = roster.finals.filter((e) => !e.run_id || e.run_id === openRun?.id);
+      const activeIds = new Set(roster.active.map((p) => String(p.id)));
+      const included = eligible.filter((e) => activeIds.has(String(e.employee_id))).map((e) => entryRow(e, recomputeOf(e, firsts)));
+      const outside = eligible.filter((e) => !activeIds.has(String(e.employee_id))).map((e) => entryRow(e, recomputeOf(e, firsts)));
+      const drafts = roster.drafts.map((e) => entryRow(e, recomputeOf(e, firsts)));
+      const recompute = [...included, ...outside].filter((r) => r.needs_recompute);
+      const blockers = [];
+      if (!available) blockers.push("Payroll approval is not set up yet: apply supabase/migrations/20261014010000_payroll_run_approval.sql.");
+      if (!included.length && !outside.length) blockers.push("No Final payslip in this run yet: process at least one employee as Final.");
+      if (recompute.length) blockers.push(`${recompute.length} 2nd-half payslip${recompute.length === 1 ? " needs" : "s need"} recompute (the 1st half changed): ${recompute.map((r) => r.employee_name).join(", ")}. Recompute ${recompute.length === 1 ? "it" : "them"} first.`);
+      cards.push({
+        ...base,
+        key: openRun ? openRun.id : `open-${id}${supplemental ? `-${(Number(latest.run_no) || 1) + 1}` : ""}`,
+        run: openRun ? { ...openRun } : null,
+        status: openRun?.status || "draft",
+        status_label: RUN_STATUS_LABELS[openRun?.status || "draft"],
+        editable: true,
+        locked: false,
+        supplemental,
+        run_no: supplemental ? (Number(latest.run_no) || 1) + 1 : Number(openRun?.run_no) || 1,
+        approved_run: supplemental ? { ...latest } : null,
+        final_count: included.length,
+        included,
+        drafts,
+        outside,
+        missing: leftOutOf(roster),
+        exclusions: openRun ? exclusionsOf(openRun) : [],
+        totals_preview: sumRows(included),
+        recompute_count: recompute.length,
+        blockers,
+        can_submit: blockers.length === 0,
+        history: openRun ? historyOf(openRun) : [],
+      });
+    }
+
+    // Every submitted run of the period, newest first, read only.
+    [...branchRuns].reverse().filter((run) => run.status === "pending" || run.status === "approved").forEach((run) => {
+      const items = (itemsResult.data || []).filter((i) => i.run_id === run.id && Number(i.submission_no) === Number(run.submission_no));
+      const rows = items.map((item) => {
+        const entry = entryById.get(String(item.entry_id)) || null;
+        return itemRow(item, entry, entry ? recomputeOf(entry, firsts) : null);
+      });
+      cards.push({
+        ...base,
+        key: run.id,
+        run: { ...run },
+        status: run.status,
+        status_label: RUN_STATUS_LABELS[run.status],
+        editable: false,
+        locked: true,
+        supplemental: false,
+        run_no: Number(run.run_no) || 1,
+        approved_run: null,
+        final_count: rows.length,
+        included: rows,
+        drafts: [],
+        outside: [],
+        missing: [],
+        exclusions: exclusionsOf(run),
+        totals_preview: sumRows(rows),
+        recompute_count: rows.filter((r) => r.needs_recompute).length,
+        blockers: [run.status === "pending" ? "Submitted: waiting for HR. HR can reject it to reopen it." : "Paid: approved by HR and locked."],
+        can_submit: false,
+        history: historyOf(run),
+      });
+    });
+  }
+  return cards;
 }
 
 function shapeExclusion(row) {
@@ -129,20 +259,24 @@ function shapeExclusion(row) {
     employee_name: row.employee_name,
     employee_code: row.employee_code || null,
     reason: row.reason || null,
+    left_out_as: row.left_out_as || null,
+    left_out_label: LEFT_OUT_LABELS[row.left_out_as] || null,
     acknowledged_by_name: row.acknowledged_by_name || null,
     at: row.created_at || null,
   };
 }
 
 /**
- * Submit (or resubmit) a branch's run. Employees with no Final payslip may be
- * left out, but only when the Accountant confirms it (acknowledgeExclusions)
- * after seeing who; the list (with any note per employee) is stored with the
- * snapshot and shown to HR. The snapshot is built here and checked by the database.
- * @param {{ branchId: string, periodLabel: string, acknowledgeExclusions?: boolean, exclusionNotes?: Record<string,string> }} input
+ * Submit (or resubmit) a branch's run. Drafts never block: an employee with
+ * only a Draft is left out like one not processed (2026-11-15). Anyone left
+ * out must be confirmed (acknowledgeExclusions) after the Accountant saw the
+ * list; the list, with any note per employee, is stored with the snapshot and
+ * shown to HR. A Final payslip outside the branch's active list goes in only
+ * when ticked (includeOutside: entry ids); otherwise it is listed as left out.
+ * @param {{ branchId: string, periodLabel: string, acknowledgeExclusions?: boolean, exclusionNotes?: Record<string,string>, includeOutside?: string[] }} input
  * @returns {Promise<{ ok: boolean, status: number, body: object }>}
  */
-export async function submitRun(supabase, guard, { branchId, periodLabel, acknowledgeExclusions = false, exclusionNotes = {} }) {
+export async function submitRun(supabase, guard, { branchId, periodLabel, acknowledgeExclusions = false, exclusionNotes = {}, includeOutside = [] }) {
   const period = periodFromLabel(periodLabel);
   if (!period) return { ok: false, status: 400, body: { error: "Choose a valid pay period." } };
   if (!guard.branchExempt && String(guard.branchId || "") !== String(branchId || "")) {
@@ -150,28 +284,31 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
   }
 
   const staff = await loadPayrollStaff(supabase, guard);
-  const entries = await readEntries(supabase, [branchId], period.label);
-  const allFinals = entries.filter((entry) => entry.status === "paid");
-  if (entries.some((entry) => entry.status === "draft")) {
-    return { ok: false, status: 409, body: { code: "drafts_open", error: "Some payslips of this run are still Drafts: generate their Final payslips or cancel them first." } };
+  const entries = await readEntries(supabase, [branchId], [period.label]);
+  const roster = branchRoster({ staff, branchId, period, entries });
+  const ticked = new Set((Array.isArray(includeOutside) ? includeOutside : []).map(String));
+  const activeIds = new Set(roster.active.map((p) => String(p.id)));
+  const leftOut = leftOutOf(roster);
+  // Unticked Final payslips outside the active list (counted once the run is known).
+  const outsideLeft = (runId) => roster.outside.filter((e) => (!e.run_id || e.run_id === runId) && !ticked.has(String(e.id)));
+
+  const notes = exclusionNotes && typeof exclusionNotes === "object" ? exclusionNotes : {};
+  if (Object.values(notes).some((note) => String(note || "").trim().length > EXCLUSION_REASON_MAX)) {
+    return { ok: false, status: 400, body: { code: "invalid_exclusion_note", error: `A note can be at most ${EXCLUSION_REASON_MAX} characters.` } };
   }
-  const expected = expectedInRun(staff, branchId, period);
-  const missing = expected.filter((person) => !allFinals.some((entry) => entry.employee_id === person.id));
   // Leaving employees out is allowed, never silently: the Accountant must
   // have seen this list and confirmed it (2026-10-29).
-  if (missing.length && acknowledgeExclusions !== true) {
+  const unconfirmed = [...leftOut.map((p) => ({ id: p.id, name: p.name, code: p.code, left_out_as: p.left_out_as })),
+    ...outsideLeft(null).map((e) => ({ id: e.employee_id, name: e.employee_name, code: e.employee_code, left_out_as: LEFT_OUT_AS.outside_list }))];
+  if (unconfirmed.length && acknowledgeExclusions !== true) {
     return {
       ok: false, status: 409,
       body: {
         code: "exclusions_unacknowledged",
-        error: `${missing.length} employee${missing.length === 1 ? " has" : "s have"} no Final payslip: ${missing.map((p) => p.full_name).join(", ")}. Confirm they are intentionally left out of this run, or process them first.`,
-        missing: missing.map((p) => ({ id: p.id, name: p.full_name, code: p.employee_id })),
+        error: `${unconfirmed.length} employee${unconfirmed.length === 1 ? " is" : "s are"} not in this run: ${unconfirmed.map((p) => p.name).join(", ")}. Confirm they are intentionally left out, or process them first.`,
+        missing: unconfirmed,
       },
     };
-  }
-  const notes = exclusionNotes && typeof exclusionNotes === "object" ? exclusionNotes : {};
-  if (missing.some((p) => String(notes[p.id] || "").trim().length > EXCLUSION_REASON_MAX)) {
-    return { ok: false, status: 400, body: { code: "invalid_exclusion_note", error: `A note can be at most ${EXCLUSION_REASON_MAX} characters.` } };
   }
 
   // The run to submit: the latest of the period, or a new supplemental run
@@ -183,9 +320,24 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
   }
   const run = Array.isArray(ensured.data) ? ensured.data[0] : ensured.data;
   if (!run?.id) return { ok: false, status: 503, body: { code: "not_ready", error: "Payroll approval is not set up yet: apply 20261014010000_payroll_run_approval.sql." } };
-  // This run's payslips: the Final ones not already in another run of the period.
-  const finals = allFinals.filter((entry) => !entry.run_id || entry.run_id === run.id);
+  // This run's payslips: the active list's Final ones not in another run, and any ticked from outside it.
+  const eligible = roster.finals.filter((entry) => !entry.run_id || entry.run_id === run.id);
+  const finals = eligible.filter((entry) => activeIds.has(String(entry.employee_id)) || ticked.has(String(entry.id)));
   if (!finals.length) return { ok: false, status: 409, body: { code: "nothing_processed", error: "No Final payslip in this run yet." } };
+
+  // A 2nd half whose 1st half changed since is recomputed first (2026-11-15).
+  const firsts = await firstHalvesFor(supabase, period.label, finals.map((e) => e.employee_id));
+  const stale = finals.map((entry) => ({ entry, change: recomputeOf(entry, firsts) })).filter((x) => x.change);
+  if (stale.length) {
+    return {
+      ok: false, status: 409,
+      body: {
+        code: "needs_recompute",
+        error: `Recompute first: ${stale.map((x) => `${x.entry.employee_name} (${x.change.reason})`).join("; ")}.`,
+        needs_recompute: stale.map((x) => ({ entry_id: x.entry.id, employee_name: x.entry.employee_name, reason: x.change.reason })),
+      },
+    };
+  }
 
   // The previous same cutoff (for the "large change" highlight), each
   // employee's level, and the schedule they followed on the period's last day.
@@ -210,10 +362,11 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
     previousNet: previousNet.has(entry.employee_id) ? previousNet.get(entry.employee_id) : null,
   }));
 
-  const exclusions = missing.map((p) => ({
-    employee_id: p.id, employee_name: p.full_name, employee_code: p.employee_id || null,
-    reason: String(notes[p.id] || "").trim() || null,
-  }));
+  const note = (id) => String(notes[id] || "").trim() || null;
+  const exclusions = [
+    ...leftOut.map((p) => ({ employee_id: p.id, employee_name: p.name, employee_code: p.code || null, reason: note(p.id), left_out_as: p.left_out_as })),
+    ...outsideLeft(run.id).map((e) => ({ employee_id: e.employee_id, employee_name: e.employee_name, employee_code: e.employee_code || null, reason: note(e.employee_id), left_out_as: LEFT_OUT_AS.outside_list })),
+  ];
   const submitted = await supabase.rpc("submit_payroll_run", { p_run_id: run.id, p_actor: guard.userId, p_items: items, p_exclusions: exclusions });
   if (submitted.error) {
     const failure = describeRunError(submitted.error);
@@ -223,11 +376,21 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
   return { ok: true, status: 200, body: { success: true, run: shapeRun(saved || run), items: items.length, excluded: exclusions.length } };
 }
 
+/** follow_up values of the left-out list, as the screens say them. */
+export const FOLLOW_UP_LABELS = Object.freeze({
+  not_processed: "Not processed yet",
+  draft: "Draft, not finalized",
+  processed_not_submitted: "Processed, not submitted",
+  supplemental_pending: "In supplemental run, Pending HR Approval",
+  supplemental_rejected: "Left out again: supplemental run rejected by HR",
+});
+
 /**
- * Employees left out of a submitted run who are still not in any run of
- * that period: the follow-up list (Accountant: own branch; HR: every
- * branch). An employee processed since then but not yet submitted shows as
- * "processed, not submitted".
+ * Employees left out of a submitted run who are not paid for that period
+ * yet: the follow-up list (Accountant: own branch; HR: every branch). They
+ * stay until a run holding their payslip is Paid (2026-11-15); while that
+ * run is Pending they show "In supplemental run, Pending HR Approval", and
+ * if HR rejects it they show as left out again.
  * @returns {Promise<Array<object>>}
  */
 export async function listOpenExclusions(supabase, guard) {
@@ -237,30 +400,193 @@ export async function listOpenExclusions(supabase, guard) {
   const runsResult = await runsQuery.order("period_start", { ascending: false }).limit(200);
   if (runsResult.error || !(runsResult.data || []).length) return [];
   const runs = new Map(runsResult.data.map((r) => [r.id, r]));
-  const excl = await fetchAllIn(() => supabase.from("payroll_run_exclusions").select("run_id,submission_no,employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at").order("created_at", { ascending: true }), "run_id", [...runs.keys()]);
+  const excl = await fetchAllIn(() => supabase.from("payroll_run_exclusions").select("run_id,submission_no,employee_id,employee_name,employee_code,reason,acknowledged_by_name,created_at,left_out_as").order("created_at", { ascending: true }), "run_id", [...runs.keys()]);
   if (excl.error) throw new Error(excl.error.message);
   // Only the current snapshot of each run (a resubmission replaces the list).
   const current = (excl.data || []).filter((x) => Number(x.submission_no) === Number(runs.get(x.run_id)?.submission_no));
   if (!current.length) return [];
   const labels = [...new Set(current.map((x) => runs.get(x.run_id).period_label))];
   const ids = [...new Set(current.map((x) => x.employee_id))];
-  const paid = await fetchAllIn(() => supabase.from("payroll_entries").select("employee_id,pay_period,run_id,status").in("pay_period", labels).eq("status", "paid").order("id", { ascending: true }), "employee_id", ids);
-  if (paid.error) throw new Error(paid.error.message);
+  const found = await fetchAllIn(() => supabase.from("payroll_entries").select("employee_id,pay_period,run_id,status").in("pay_period", labels).order("id", { ascending: true }), "employee_id", ids);
+  if (found.error) throw new Error(found.error.message);
+  const runIds = [...new Set((found.data || []).map((e) => e.run_id).filter(Boolean))];
+  const runStatus = new Map();
+  if (runIds.length) {
+    const statuses = await fetchAllIn(() => supabase.from("payroll_runs").select("id,status,run_no").order("id", { ascending: true }), "id", runIds);
+    (statuses.data || []).forEach((r) => runStatus.set(r.id, r));
+  }
   const out = [];
   const seen = new Set();
   for (const x of current) {
     const r = runs.get(x.run_id);
     const key = `${x.employee_id}|${r.period_label}`;
     if (seen.has(key)) continue;
-    const entry = (paid.data || []).find((e) => e.employee_id === x.employee_id && e.pay_period === r.period_label);
-    if (entry?.run_id) continue; // included in a run since: followed up
+    const entry = (found.data || []).find((e) => e.employee_id === x.employee_id && e.pay_period === r.period_label) || null;
+    const inRun = entry?.run_id ? runStatus.get(entry.run_id) || null : null;
+    if (inRun?.status === "approved") continue; // paid: followed up
+    // Still listed by this very run's current snapshot: the payslip is not in it.
+    const follow = !entry ? "not_processed"
+      : entry.status === "draft" ? "draft"
+        : inRun?.status === "pending" ? "supplemental_pending"
+          : inRun?.status === "rejected" ? "supplemental_rejected"
+            : "processed_not_submitted";
     seen.add(key);
     out.push({
       ...shapeExclusion(x),
       run_id: r.id, run_no: Number(r.run_no) || 1, run_status: r.status,
       branch_id: r.branch_id, branch_name: r.branch_name, period_label: r.period_label, period_start: String(r.period_start).slice(0, 10),
-      follow_up: entry ? "processed_not_submitted" : "not_processed",
+      follow_up: follow,
+      follow_up_label: FOLLOW_UP_LABELS[follow],
+      supplemental_run_no: inRun && entry.run_id !== x.run_id ? Number(inRun.run_no) || null : null,
     });
   }
   return out.sort((a, b) => b.period_start.localeCompare(a.period_start) || a.employee_name.localeCompare(b.employee_name));
+}
+
+/** Every pay period from APPROVAL_EFFECTIVE up to the last one that has ended (today's included when it ends today). */
+export function periodsToCheck(today = manilaDateKey()) {
+  const out = [];
+  let period = periodForDateKey(APPROVAL_EFFECTIVE);
+  while (period.end_key <= today && out.length < 200) {
+    out.push(period);
+    period = nextPeriod(period.start_key);
+  }
+  return out;
+}
+
+/**
+ * The Accountant's "Action needed" list, per branch (2026-11-15). Each item
+ * has a count, what to do and where (page + address parameters); an item
+ * goes away once it is done, since everything here is read fresh.
+ *
+ *   rejected          runs HR sent back, with the reason
+ *   drafts            Draft payslips not finalized, per period
+ *   left_out          employees left out of a run, per period, not yet paid
+ *   unsubmitted       Final payslips not in any run, per period
+ *   not_processed     ended periods with no payslip at all
+ *   recompute         2nd halves whose 1st half changed: not in a run (recompute),
+ *                     Pending (ask HR to reject), Paid (file a correction)
+ *   pending_long      runs Pending HR Approval longer than 3 days (info)
+ * @returns {Promise<Array<object>>}
+ */
+export async function actionNeeded(supabase, guard, { branches = [], today = manilaDateKey(), now = new Date() } = {}) {
+  const branchIds = [...new Set(branches.map((b) => String(b.id)))].filter(Boolean);
+  if (!branchIds.length) return [];
+  const periods = periodsToCheck(today);
+  // Drafts and unsubmitted Final payslips of the current (not yet ended) period count too.
+  const current = periodForDateKey(today);
+  const labels = [...new Set([...periods.map((p) => p.label), current.label])];
+  const nameOf = new Map(branches.map((b) => [String(b.id), b.name]));
+  const [staff, runsResult, entries, leftOut] = await Promise.all([
+    loadPayrollStaff(supabase, guard),
+    supabase.from("payroll_runs").select("id,branch_id,period_label,period_start,run_no,status,remarks,reviewed_by_name,reviewed_at,submitted_at").in("branch_id", branchIds).gte("period_start", APPROVAL_EFFECTIVE),
+    readEntries(supabase, branchIds, labels),
+    listOpenExclusions(supabase, guard),
+  ]);
+  const runs = runsResult.error ? [] : runsResult.data || [];
+  const runById = new Map(runs.map((r) => [r.id, r]));
+  const items = [];
+  const add = (item) => items.push({ ...item, branch_name: nameOf.get(String(item.branch_id)) || null });
+  const latestOf = (branchId, label) => runs.filter((r) => String(r.branch_id) === branchId && r.period_label === label)
+    .sort((a, b) => (Number(b.run_no) || 1) - (Number(a.run_no) || 1))[0] || null;
+  const groupBy = (rows, keyOf) => rows.reduce((map, row) => map.set(keyOf(row), [...(map.get(keyOf(row)) || []), row]), new Map());
+
+  for (const branchId of branchIds) {
+    // 1. Runs HR rejected (the latest of the period still rejected).
+    [...new Set(runs.filter((r) => String(r.branch_id) === branchId).map((r) => r.period_label))].forEach((label) => {
+      const latest = latestOf(branchId, label);
+      if (latest?.status === "rejected") {
+        add({ kind: "rejected", branch_id: branchId, period_label: label, count: 1, run_id: latest.id,
+          text: `Rejected by ${latest.reviewed_by_name || "HR"}: ${latest.remarks || "no reason given"}`,
+          action: "Fix and resubmit", page: "ac-process", params: { period: label, focus: "runs" } });
+      }
+    });
+    const mine = entries.filter((e) => String(e.branch_id) === branchId);
+    // 2. Drafts not finalized.
+    groupBy(mine.filter((e) => e.status === "draft"), (e) => e.pay_period).forEach((rows, label) => {
+      add({ kind: "drafts", branch_id: branchId, period_label: label, count: rows.length, names: rows.map((e) => e.employee_name),
+        text: `${rows.length} Draft payslip${rows.length === 1 ? "" : "s"} not finalized`, action: "Finalize or cancel",
+        page: "ac-process", params: { period: label, batch: "draft" } });
+    });
+    // 4. Final payslips not in any run.
+    groupBy(mine.filter((e) => e.status === "paid" && !e.run_id), (e) => e.pay_period).forEach((rows, label) => {
+      const latest = latestOf(branchId, label);
+      add({ kind: "unsubmitted", branch_id: branchId, period_label: label, count: rows.length, names: rows.map((e) => e.employee_name),
+        text: `${rows.length} Final payslip${rows.length === 1 ? "" : "s"} not in any run${latest?.status === "approved" ? " (submit a supplemental run)" : ""}`,
+        action: latest?.status === "approved" ? "Submit supplemental run" : "Submit for HR Approval", page: "ac-process", params: { period: label, focus: "runs" } });
+    });
+    // 5. Ended periods with nothing processed for an active list.
+    periods.forEach((period) => {
+      if (mine.some((e) => e.pay_period === period.label) || latestOf(branchId, period.label)) return;
+      const active = expectedInRun(staff, branchId, period);
+      if (!active.length) return;
+      add({ kind: "not_processed", branch_id: branchId, period_label: period.label, count: active.length,
+        text: `No payroll processed yet for ${active.length} employee${active.length === 1 ? "" : "s"}`, action: "Process payroll",
+        page: "ac-process", params: { period: period.label } });
+    });
+  }
+
+  // 3. Left out of a run, not paid yet (per branch and period); Pending ones wait on HR.
+  groupBy(leftOut.filter((x) => branchIds.includes(String(x.branch_id)) && x.follow_up !== "supplemental_pending"), (x) => `${x.branch_id}|${x.period_label}`).forEach((rows) => {
+    add({ kind: "left_out", branch_id: String(rows[0].branch_id), period_label: rows[0].period_label, count: rows.length, names: rows.map((x) => x.employee_name),
+      text: `${rows.length} employee${rows.length === 1 ? "" : "s"} left out of a run`, action: "Process and submit a supplemental run",
+      page: "ac-process", params: { period: rows[0].period_label, focus: "left-out" } });
+  });
+
+  // 6. 2nd halves whose 1st half changed after they were computed.
+  const seconds = entries.filter((e) => firstHalfLabelOf(e.pay_period));
+  const firstLabels = [...new Set(seconds.map((e) => firstHalfLabelOf(e.pay_period)))];
+  if (seconds.length) {
+    const firstsResult = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS).in("pay_period", firstLabels).order("id", { ascending: true }), "employee_id", [...new Set(seconds.map((e) => e.employee_id))]);
+    const firstOf = new Map((firstsResult.data || []).map((e) => [`${e.employee_id}|${e.pay_period}`, e]));
+    const changed = seconds.map((e) => ({ entry: e, change: firstHalfChange(e, firstOf.get(`${e.employee_id}|${firstHalfLabelOf(e.pay_period)}`) || null) })).filter((x) => x.change);
+    const paidIds = changed.filter((x) => runById.get(x.entry.run_id)?.status === "approved").map((x) => x.entry.id);
+    const filed = new Set();
+    if (paidIds.length) {
+      const corrections = await fetchAllIn(() => supabase.from("payroll_corrections").select("entry_id,status").in("status", ["pending", "approved"]).order("id", { ascending: true }), "entry_id", paidIds);
+      (corrections.data || []).forEach((c) => filed.add(String(c.entry_id)));
+    }
+    const stateOf = (x) => {
+      const status = runById.get(x.entry.run_id)?.status;
+      return status === "approved" ? "paid" : status === "pending" ? "pending" : "open";
+    };
+    groupBy(changed.filter((x) => !(stateOf(x) === "paid" && filed.has(String(x.entry.id)))), (x) => `${x.entry.branch_id}|${x.entry.pay_period}|${stateOf(x)}${stateOf(x) === "paid" ? `|${x.entry.id}` : ""}`).forEach((rows) => {
+      const state = stateOf(rows[0]);
+      const label = rows[0].entry.pay_period;
+      const plural = rows.length === 1 ? "" : "s";
+      add({
+        kind: "recompute", state, branch_id: String(rows[0].entry.branch_id), period_label: label, count: rows.length,
+        names: rows.map((x) => x.entry.employee_name),
+        details: rows.map((x) => ({ entry_id: x.entry.id, employee_name: x.entry.employee_name, reason: x.change.reason, difference: x.change.difference })),
+        text: state === "paid" ? `${rows.length} Paid 2nd half${plural} computed with an old 1st half: file a correction on the next payslip`
+          : state === "pending" ? `${rows.length} 2nd half${plural} Pending HR Approval computed with an old 1st half: HR should reject the run so you can recompute`
+            : `${rows.length} 2nd half${plural} need${rows.length === 1 ? "s" : ""} recompute (the 1st half changed)`,
+        action: state === "paid" ? "Correct in Payroll Records" : state === "pending" ? "Waiting on HR" : "Recompute",
+        page: state === "paid" ? "ac-records" : "ac-process",
+        params: state === "paid"
+          ? {
+            correct: rows[0].entry.id,
+            // The month settles against the 1st half: a larger 1st half means this 2nd half paid too much.
+            kind: rows[0].change.difference > 0 ? "overpayment" : "underpayment",
+            amount: String(Math.abs(rows[0].change.difference)),
+            why: `${rows[0].change.reason} after the ${label} payslip was paid.`,
+          }
+          : { period: label, batch: "recompute" },
+      });
+    });
+  }
+
+  // 7. Pending HR Approval longer than 3 days (info only).
+  const limit = now.getTime() - PENDING_DAYS_INFO * 24 * 3600 * 1000;
+  runs.filter((r) => r.status === "pending" && r.submitted_at && new Date(r.submitted_at).getTime() < limit).forEach((r) => {
+    const days = Math.floor((now.getTime() - new Date(r.submitted_at).getTime()) / (24 * 3600 * 1000));
+    add({ kind: "pending_long", info: true, branch_id: String(r.branch_id), period_label: r.period_label, count: 1, run_id: r.id, submitted_at: r.submitted_at,
+      text: `Run ${Number(r.run_no) > 1 ? `${r.run_no} ` : ""}Pending HR Approval for ${days} days (submitted ${String(r.submitted_at).slice(0, 10)})`,
+      action: "View run", page: "ac-process", params: { period: r.period_label, focus: "runs" } });
+  });
+
+  const order = ["rejected", "recompute", "drafts", "left_out", "unsubmitted", "not_processed", "pending_long"];
+  return items.sort((a, b) => String(a.branch_name).localeCompare(String(b.branch_name))
+    || order.indexOf(a.kind) - order.indexOf(b.kind)
+    || startOf(b.period_label).localeCompare(startOf(a.period_label)));
 }

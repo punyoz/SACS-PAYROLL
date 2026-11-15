@@ -86,6 +86,8 @@ function query(name) {
           ? rows.findIndex((r) => conflict.every((column) => r[column] === row[column]))
           : rows.findIndex((r) => r.id === row.id || (r.employee_id === row.employee_id && r.pay_period === row.pay_period));
         if (i >= 0) rows[i] = { ...rows[i], ...row };
+        // payroll_entries_stamp_branch: a new payslip takes its employee's branch.
+        else if (name === "payroll_entries" && !row.branch_id) rows.push({ ...row, branch_id: table("profiles").find((p) => p.id === row.employee_id)?.branch_id ?? null });
         else rows.push({ ...row });
       });
       return { data: list, error: null };
@@ -158,6 +160,8 @@ function query(name) {
     gte(column, value) { filters.push((row) => String(row[column]) >= String(value)); return builder; },
     lte(column, value) { filters.push((row) => String(row[column]) <= String(value)); return builder; },
     lt(column, value) { filters.push((row) => String(row[column]) < String(value)); return builder; },
+    // Numbers compare as numbers (e.g. .gt("excluded_employees", 0)).
+    gt(column, value) { filters.push((row) => (typeof value === "number" ? Number(row[column]) > value : String(row[column]) > String(value))); return builder; },
     // Case-insensitive, % at either end.
     ilike(column, pattern) {
       const needle = String(pattern).replace(/^%|%$/g, "").toLowerCase();
