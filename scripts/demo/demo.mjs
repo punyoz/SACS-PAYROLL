@@ -99,11 +99,11 @@ async function insertRows(db, table, rows, columns, generated, { triggers = fals
  * payslip numbers it moves up. `goingAway` = the demo rows a reset / restore
  * wipes first (their runs and payslip numbers do not count as the target's).
  */
-async function planLoad(db, source, { goingAway = null } = {}) {
+async function planLoad(db, source, { goingAway = null, snapshotFile = null } = {}) {
   const meta = await schema(db);
   const bundle = { ...source, tables: { ...source.tables } };
   const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
-  const idsOf = (t) => (goingAway?.[t] || []).map((r) => r[meta[t]?.key || "id"]);
+  const idsOf = (t) => (goingAway?.[t] || []).map((r) => String(r[meta[t]?.key || "id"]));
   // A reset / restore wipes first, but the wipe KEEPS a demo run or payslip
   // record that a non-demo row still points at: then the plan (made before
   // the wipe) would not match the target the load meets. Refused here,
@@ -116,8 +116,10 @@ async function planLoad(db, source, { goingAway = null } = {}) {
       for (const [t, m] of Object.entries(meta)) {
         for (const { col } of (m.parents || []).filter((x) => x.ref === ref)) {
           if (!m.key) continue;
-          const rows = await db.rows(`select distinct ${col}::text k from ${t} where ${col}::text in (${listOf(ids)}) and ${m.key}::text not in (${listOf(idsOf(t))})`);
-          rows.forEach((r) => kept.push(`${ref} ${r.k} (a ${t} row that is not demo points at it)`));
+          // Only the (few) rows pointing at these runs / records come back; the demo ones are filtered here.
+          const mine = new Set(idsOf(t));
+          const rows = await db.rows(`select ${col}::text k, ${m.key}::text id from ${t} where ${col}::text in (${listOf(ids)})`);
+          [...new Set(rows.filter((r) => !mine.has(r.id)).map((r) => r.k))].forEach((k) => kept.push(`${ref} ${k} (a ${t} row that is not demo points at it)`));
         }
       }
     }
@@ -179,7 +181,7 @@ async function planLoad(db, source, { goingAway = null } = {}) {
   }
   const notes = describeFit(fit, renumber);
   if (renumber.size) notes.push(`${renumber.size} payslip numbers move up past the target's own`);
-  return { meta, bundle, renumber, notes, source, recheck: Boolean(goingAway) };
+  return { meta, bundle, renumber, notes, source, recheck: Boolean(goingAway), goingAway, snapshotFile };
 }
 
 /** What a plan decided, to compare a plan made before the wipe with one made after it. */
@@ -201,11 +203,33 @@ const goingAwayOf = (data) => data.tables || {};
 
 /** Load a planned bundle into `db` (seed / reset / restore). */
 async function load(db, planned) {
-  // After a wipe: plan again against the target as it now is; anything
-  // different stops the load before the first insert.
-  const plan = planned.recheck ? await planLoad(db, planned.source) : planned;
-  if (planned.recheck && decisions(plan) !== decisions(planned)) {
-    throw new Error("After the wipe the target is not what the plan expected (runs, run numbers or payslip numbers differ): nothing loaded. Restore the snapshot taken before the wipe.");
+  let plan = planned;
+  if (planned.recheck) {
+    // After a wipe, before the first insert. The demo rows are already gone,
+    // so any stop here says how to put them back.
+    const restore = planned.snapshotFile ? `Restore it: node scripts/demo/demo.mjs restore --target=${db.target} --file=${planned.snapshotFile}` : "Restore the snapshot taken before the wipe.";
+    const stop = (why) => new Error(`${why}\nNothing loaded; the demo rows were already deleted. ${restore}`);
+    // 1. The wipe must have deleted every demo row it was meant to (it keeps
+    //    one that a non-demo row still points at, directly or through another row).
+    const meta = await schema(db);
+    const left = [];
+    for (const [t, rows] of Object.entries(planned.goingAway || {})) {
+      const key = meta[t]?.key;
+      if (!key || !rows.length) continue;
+      const ids = rows.map((r) => String(r[key]));
+      for (let i = 0; i < ids.length; i += 500) {
+        const found = await db.rows(`select ${key}::text k from ${t} where ${key}::text in (${ids.slice(i, i + 500).map(lit).join(", ")})`);
+        found.forEach((r) => left.push(`${t} ${r.k}`));
+      }
+    }
+    if (left.length) throw stop(`The wipe kept ${left.length} demo row(s), which non-demo rows still point at:\n  ${left.slice(0, 20).join("\n  ")}`);
+    // 2. Plan again against the target as it now is; any difference stops the load.
+    try {
+      plan = await planLoad(db, planned.source);
+    } catch (error) {
+      throw stop(`After the wipe the load can no longer be planned: ${error.message}`);
+    }
+    if (decisions(plan) !== decisions(planned)) throw stop("After the wipe the target is not what the plan expected (runs, run numbers or payslip numbers differ).");
   }
   const { meta, bundle, renumber } = plan;
   const remapText = (row) => {
@@ -375,11 +399,11 @@ const commands = {
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     if (!existsSync(BUNDLE)) throw new Error("No bundle: run export first.");
     const bundle = readBundle(BUNDLE);
-    const [have] = await db.rows(`select count(*)::int n from profiles where ${demoFilter()}`);
-    if (have.n) { say(`${have.n} demo profiles already on ${db.target}.`); if (process.env.DEMO_RESUME === "1") say("Resuming an interrupted seed (DEMO_RESUME=1): rows already there are skipped."); else if (!(await confirm('Demo data exists. Type "add anyway" to load on top:', "add anyway"))) return say("Nothing done."); }
     printCounts(`will CREATE on ${db.target}`, bundle);
     const plan = await planLoad(db, bundle);
     printPlan(plan);
+    const [have] = await db.rows(`select count(*)::int n from profiles where ${demoFilter()}`);
+    if (have.n) { say(`${have.n} demo profiles already on ${db.target}.`); if (process.env.DEMO_RESUME === "1") say("Resuming an interrupted seed (DEMO_RESUME=1): rows already there are skipped."); else if (!(await confirm('Demo data exists. Type "add anyway" to load on top:', "add anyway"))) return say("Nothing done."); }
     if (!(await confirm(`Load this on ${db.target}? (yes/no)`))) return say("Nothing done.");
     await load(db, plan);
     printCounts(`now on ${db.target}`, await collect(db, { withRows: false }));
@@ -405,10 +429,10 @@ const commands = {
     const file = arg("file");
     if (!file || !existsSync(file)) throw new Error("--file=<snapshot> is required.");
     const target = readBundle(file);
-    const { data } = await snapshot(db);
+    const { data, file: snapFile } = await snapshot(db);
     printCounts(`will DELETE on ${db.target}`, data);
     printCounts("then LOAD", target);
-    const plan = await planLoad(db, target, { goingAway: goingAwayOf(data) });
+    const plan = await planLoad(db, target, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
     printPlan(plan);
     if (!(await confirm("Restore this snapshot? (yes/no)"))) return say("Nothing done.");
     await wipe(db, data);
@@ -428,10 +452,10 @@ const commands = {
     const db = await chooseTarget(rest);
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     const bundle = readBundle(BUNDLE);
-    const { data } = await snapshot(db);
+    const { data, file: snapFile } = await snapshot(db);
     printCounts(`will DELETE on ${db.target} (your edits included)`, data);
     printCounts("then LOAD the original seed", bundle);
-    const plan = await planLoad(db, bundle, { goingAway: goingAwayOf(data) });
+    const plan = await planLoad(db, bundle, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
     printPlan(plan);
     if (!(await confirm("Reset wipes every edit made to the demo data. Continue? (yes/no)"))) return say("Nothing done.");
     if (!(await confirm('Type "reset demo" to confirm a second time:', "reset demo"))) return say("Nothing done.");
