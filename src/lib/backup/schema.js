@@ -22,6 +22,7 @@ export const TABLE_COLUMNS = Object.freeze({
   employee_branch_assignments: "user_id:uuid,branch_id:uuid,assigned_by:text,assigned_at:tstz",
   employee_license_alerts: "id:uuid,employee_id:uuid,branch_id:uuid,kind:text,license_expires_on:date,created_at:tstz,acknowledged_by:uuid,acknowledged_by_name:text,acknowledged_at:tstz",
   employee_license_changes: "id:uuid,employee_id:uuid,action:text,prc_license_no:text,is_licensed:bool,prc_license_no_last4:text,license_expires_on:date,prc_id_document_id:uuid,verified:bool,eligible:bool,effective_on:date,reason:text,changed_by:uuid,changed_by_name:text,changed_by_role:text,changed_at:tstz",
+  employee_positions: "id:uuid,name:text,created_by:uuid,created_by_name:text,created_at:tstz",
   employee_license_documents: "id:uuid,employee_id:uuid,file_name:text,uploaded_by:uuid,uploaded_by_name:text,uploaded_at:tstz",
   employee_salary_changes: "id:uuid,employee_id:uuid,old_salary:num,new_salary:num,effective_date:date,reason:text,note:text,created_by:uuid,created_by_name:text,created_by_role:text,created_at:tstz,applied_at:tstz",
   employee_status_changes: "id:uuid,employee_id:uuid,old_status:text,new_status:text,effective_on:date,reason:text,awol_case_id:uuid,changed_by:uuid,changed_by_name:text,changed_at:tstz",

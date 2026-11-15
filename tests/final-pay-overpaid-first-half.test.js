@@ -1,23 +1,20 @@
 /**
- * Anjo Saraga's final pay (PS-202610-0012, separated 2026-10-21), investigated
- * 2026-11-15: every day 2026-10-01 – 10-21 absent, yet the October 1-15
- * payslip paid 603.45. The final pay then shows gross -553.16, net 0:
+ * Final pay after a 1st half already paid (decided 2026-11-15, FUTURE final
+ * pays only; stored final pays such as Anjo Saraga's PS-202610-0012 are not
+ * changed).
  *
- *   salary            0 paid days × 689.65 − 1st half paid 603.45 = -603.45
- *   13th month        (603.45 + 0.00) ÷ 12                         =  +50.29
- *   gross                                                          = -553.16
- *   net               max(0, gross)                                =    0.00
+ * Anjo (separated 2026-10-21) was absent every day from Oct 1 to Oct 21, yet
+ * the October 1-15 payslip had paid 603.45 (its window ended Oct 14 and paid
+ * the 15th in advance; the 2nd half would have deducted it). The stored final
+ * pay showed gross -553.16 and net 0:
+ *   salary       0 paid days × 689.65 − 1st half paid 603.45   = -603.45
+ *   13th month   (603.45 + 0.00) ÷ 12                          =  +50.29  ← the 1st half counted again
  *
- * Two problems in computeFinalPay (src/lib/payroll/final-pay.js):
- *   1. The 13th month counts the 1st half twice: basicEarnedYtd already holds
- *      the 1st half's basic, and the month's full `earned` is added again.
- *      Here the 1st half was taken back, yet 50.29 of 13th month is paid on it.
- *   2. An overpaid 1st half (negative salary line) is floored away in net pay:
- *      the 553.16 is neither recovered nor reported anywhere.
- *
- * The first block pins today's behaviour. The skipped block is the PROPOSED
- * fix for future final pays (open decision, not applied): Anjo's stored final
- * pay is not changed either way.
+ * Fixes:
+ *   a. the 13th month counts the 1st half once: the final pay adds only the
+ *      basic it earns on top of what the 1st half already paid;
+ *   b. a shortfall stays floored at 0 in net pay but is reported as
+ *      overpayment_to_recover (never deducted automatically).
  */
 
 import { describe, it, expect } from "vitest";
@@ -29,7 +26,7 @@ const anjo = {
   separatedOn: "2026-10-21",
   months: [{
     month_key: "2026-10", window: { start_key: "2026-10-01", end_key: "2026-10-29" }, absent_days: 15,
-    first_half_paid: 603.45, partial: { paid: 0, unpaid_holidays: [] },
+    first_half_paid: 603.45, first_half_basic: 603.45, partial: { paid: 0, unpaid_holidays: [] },
   }],
   basicEarnedYtd: 603.45, // the October 1-15 payslip's basic
   thirteenthPaid: false,
@@ -38,37 +35,48 @@ const anjo = {
   loans: [],
 };
 
-describe("Final pay after an overpaid 1st half (Anjo, today's behaviour)", () => {
-  it("reproduces the stored -553.16 gross and 0 net", () => {
+describe("Final pay after an overpaid 1st half (Anjo's case, hand-checked)", () => {
+  it("a. no 13th month on a 1st half taken back; b. the 603.45 is reported to recover", () => {
     const r = computeFinalPay(anjo);
+    // salary: 0 × 689.65 − 603.45 = −603.45
     expect(r.earnings.find((e) => e.kind === "salary").amount).toBe(-603.45);
-    expect(r.thirteenth_month).toBe(50.29);
-    expect(r.gross).toBe(-553.16);
+    // 13th month: (603.45 YTD + (0 − 603.45) added) ÷ 12 = 0 → no line
+    expect(r.thirteenth_month).toBe(0);
+    expect(r.earnings.some((e) => e.kind === "thirteenth_month")).toBe(false);
+    // gross −603.45, nothing deducted, net floored at 0, the shortfall reported
+    expect(r.gross).toBe(-603.45);
     expect(r.net_pay).toBe(0);
+    expect(r.overpayment_to_recover).toBe(603.45);
   });
 
-  it("double-counts the 1st half in the 13th month of an ordinary separation too", () => {
-    // 10 paid days to the 21st (6,896.50 earned in October), 1st half paid 5,000.
-    const r = computeFinalPay({ ...anjo, months: [{ ...anjo.months[0], first_half_paid: 5000, partial: { paid: 10, unpaid_holidays: [] } }], basicEarnedYtd: 5000 });
-    expect(r.basic_earned).toBe(6896.5);
-    expect(r.thirteenth_month).toBe(991.38); // (5,000 + 6,896.50) ÷ 12: the 5,000 counted twice
+  it("nothing is deducted automatically: a loan with authority is not touched by the shortfall", () => {
+    const r = computeFinalPay({ ...anjo, loans: [{ id: "loan", loan_type: "salary", remaining_balance: 1000, final_pay_authorized: true, date_granted: "2026-09-01" }] });
+    expect(r.loan_payments).toEqual([]);
+    expect(r.uncovered).toEqual([{ loan_id: "loan", amount: 1000, reason: "Final pay too low" }]);
+    expect(r.overpayment_to_recover).toBe(603.45);
   });
 });
 
-describe.skip("PROPOSED for future final pays (open decision; not applied)", () => {
-  it("13th month counts only what the final pay adds on top of the 1st half", () => {
-    const r = computeFinalPay(anjo);
-    expect(r.thirteenth_month).toBe(0); // (603.45 + (0 − 603.45)) ÷ 12
+describe("Final pay 13th month counts the 1st half once (ordinary separation, hand-checked)", () => {
+  // Separated Oct 21 after 10 paid days in October: earned 10 × 689.65 = 6,896.50.
+  // The October 1-15 payslip paid 5,000.00 basic, already in the year to date.
+  const ordinary = { ...anjo, months: [{ ...anjo.months[0], first_half_paid: 5000, first_half_basic: 5000, partial: { paid: 10, unpaid_holidays: [] } }], basicEarnedYtd: 5000 };
+
+  it("adds only the 1,896.50 earned on top of the 1st half", () => {
+    const r = computeFinalPay(ordinary);
+    // salary: 6,896.50 − 5,000.00 = 1,896.50
+    expect(r.earnings.find((e) => e.kind === "salary").amount).toBe(1896.5);
+    expect(r.basic_earned).toBe(1896.5);
+    // 13th month: (5,000.00 + 1,896.50) ÷ 12 = 574.708… → 574.71 (it was 991.38: the 5,000 twice)
+    expect(r.thirteenth_month).toBe(574.71);
+    expect(r.gross).toBe(2471.21);
+    expect(r.net_pay).toBe(2471.21);
+    expect(r.overpayment_to_recover).toBe(0);
   });
 
-  it("an overpaid 1st half is reported for HR to recover, not floored away", () => {
-    const r = computeFinalPay(anjo);
-    expect(r.net_pay).toBe(0);
-    expect(r.overpayment).toBe(603.45);
-  });
-
-  it("an ordinary separation's 13th month counts the 1st half once", () => {
-    const r = computeFinalPay({ ...anjo, months: [{ ...anjo.months[0], first_half_paid: 5000, partial: { paid: 10, unpaid_holidays: [] } }], basicEarnedYtd: 5000 });
-    expect(r.thirteenth_month).toBe(574.71); // (5,000 + 1,896.50) ÷ 12
+  it("without a 1st half paid, nothing changes: the month's whole basic counts", () => {
+    const r = computeFinalPay({ ...ordinary, months: [{ ...ordinary.months[0], first_half_paid: 0, first_half_basic: 0 }], basicEarnedYtd: 0 });
+    expect(r.basic_earned).toBe(6896.5);
+    expect(r.thirteenth_month).toBe(574.71); // 6,896.50 ÷ 12
   });
 });

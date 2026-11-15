@@ -104,7 +104,7 @@ export function FinalPayPage({ refreshKey }) {
     { key: "full_name", header: "Employee", sortable: true, cell: (p) => <div><p className="font-medium">{p.full_name}</p><p className="text-xs text-muted-foreground">{p.employee_id}</p></div>, searchValue: (p) => p.full_name },
     { key: "separated_on", header: "Separated", cell: (p) => dateLabel(p.separated_on) },
     { key: "deadline", header: "Release by", cell: (p) => (p.final_pay ? "—" : <span className={cn(p.days_left < 0 && "text-destructive", p.days_left >= 0 && p.days_left <= 7 && "text-warning")}>{dateLabel(p.deadline)} ({p.days_left < 0 ? `${-p.days_left} days late` : `${p.days_left} days left`})</span>) },
-    { key: "status", header: "Final pay", cell: (p) => (p.final_pay ? <div><StatusBadge tone="success">Saved</StatusBadge><p className="text-xs text-muted-foreground">{p.final_pay.payslip_no} · net {money(p.final_pay.net_pay)}</p></div> : <StatusBadge tone="gold">Not yet</StatusBadge>) },
+    { key: "status", header: "Final pay", cell: (p) => (p.final_pay ? <div><StatusBadge tone="success">Saved</StatusBadge><p className="text-xs text-muted-foreground">{p.final_pay.payslip_no} · net {money(p.final_pay.net_pay)}</p>{p.final_pay.overpayment_to_recover > 0 ? <p className="text-xs text-warning" data-testid="saved-overpayment">Overpayment to recover: {money(p.final_pay.overpayment_to_recover)}</p> : null}</div> : <StatusBadge tone="gold">Not yet</StatusBadge>) },
     { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (p) => (p.final_pay ? null : <Button size="sm" onClick={() => open(p)}>Generate final pay</Button>) },
   ];
 
@@ -172,6 +172,12 @@ export function FinalPayPage({ refreshKey }) {
                     </TableBody>
                     <TableFooter>
                       <TableRow><TableCell colSpan={2}>Final pay</TableCell><TableCell className="text-right font-semibold tabular-nums">{money(b.net_pay)}</TableCell></TableRow>
+                      {b.overpayment_to_recover > 0 ? (
+                        <TableRow data-testid="overpayment-to-recover" className="text-warning">
+                          <TableCell colSpan={2}>Overpayment to recover <span className="block text-xs font-normal text-muted-foreground">Not deducted from anything. HR recovers it by hand.</span></TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums">{money(b.overpayment_to_recover)}</TableCell>
+                        </TableRow>
+                      ) : null}
                     </TableFooter>
                   </Table>
                 </div>

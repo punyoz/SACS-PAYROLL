@@ -464,7 +464,7 @@ export async function writeCsvBackup(files, push, { single = false, readme } = {
 
 /** Parents before children (foreign keys among the backup tables, 2026-11-15). */
 export const RESTORE_ORDER = Object.freeze([
-  "branches", "profiles", "leave_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
+  "branches", "profiles", "employee_positions", "leave_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
   "attendance_logs_history", "attendance_overtime_approvals", "rfid_terminals", "attendance_taps", "audit_logs", "branch_admin_requests",
   "branch_announcements", "early_bird_winners", "employee_awol_cases", "employee_branch_assignments", "employee_license_alerts",
   "employee_license_documents", "employee_license_changes", "employee_salary_changes", "employee_status_changes", "holiday_duty_assignments",
@@ -551,6 +551,8 @@ export function readmeText(files, { exportedAt, exportedBy, filters, branchName,
     "NOT INCLUDED: passwords, password hashes, sign-in tokens, sign-in/reset codes, API keys;",
     "sign-in throttling; bell notifications; uploaded files (photos, leave proofs, license scans);",
     "the encrypted copies of government ID numbers (employees.csv has them decrypted).",
+    "Not backed up: temporary or rebuildable: hr_queue_claims (HR's short-lived queue claims),",
+    "notification_channels (realtime topics the app recreates).",
     "",
     `KNOWN ITEM (after the defense): ${UUID_ONLY_TABLES.join(", ")} have only a`,
     "UUID and no readable identifier of their own; read them by their dates and names.",

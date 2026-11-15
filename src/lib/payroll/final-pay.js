@@ -11,7 +11,10 @@
  *          pay; a holiday is paid only if the working day before was not an
  *          absence — the Labor Code holiday-pay rule)
  *   + pro-rated 13th month   (basic earned this year ÷ 12; owed whatever the
- *                             reason for separation; skipped when already paid)
+ *                             reason for separation; skipped when already paid).
+ *                             A 1st half already paid is in the year to date, so
+ *                             the final pay adds only what it earns on top of it
+ *                             (fixed 2026-11-15: it used to count it twice)
  *   + licensed-teacher subsidy earned and not yet paid (prorate rule)
  *   − contributions (months with earnings) − withholding tax (monthly table;
  *     13th month + subsidy above the exempt ceiling are taxable)
@@ -19,7 +22,9 @@
  *   − loans (only with the signed final-pay authority), oldest first, and
  *     subsidy advances above what was earned
  *   = final pay, never below zero; what it cannot cover stays on the loan
- *     ("Separated – for collection").
+ *     ("Separated – for collection"). A shortfall (for example a 1st half paid
+ *     for days later absent) is reported as overpayment_to_recover for HR,
+ *     never deducted from anything automatically (2026-11-15).
  */
 
 import { roundPeso } from "@/lib/payroll/money";
@@ -114,8 +119,9 @@ export function computeFinalPay(input) {
       earned = peso(salary - absence);
       note = `${salary.toFixed(2)} − ${month.absent_days} absence${month.absent_days === 1 ? "" : "s"} × ${daily.toFixed(2)} (${month.window.start_key} – ${month.window.end_key})`;
     }
-    basicEarned = peso(basicEarned + earned);
     const firstHalf = peso(month.first_half_paid || 0);
+    // The basic this final pay adds: the 1st half paid is already in basicEarnedYtd.
+    basicEarned = peso(basicEarned + earned - peso(month.first_half_basic ?? month.first_half_paid ?? 0));
     earnings.push({ kind: "salary", month_key: month.month_key, amount: peso(earned - firstHalf), gross: earned, note: firstHalf ? `${note}; less 1st half paid ${firstHalf.toFixed(2)}` : note });
 
     if (earned > 0) {
@@ -135,7 +141,7 @@ export function computeFinalPay(input) {
   // Pro-rated 13th month.
   let thirteenth = 0;
   if (!input.thirteenthPaid) {
-    thirteenth = peso((Number(input.basicEarnedYtd || 0) + basicEarned) / 12);
+    thirteenth = Math.max(0, peso((Number(input.basicEarnedYtd || 0) + basicEarned) / 12));
     if (thirteenth > 0) earnings.push({ kind: "thirteenth_month", amount: thirteenth, note: `(${peso(input.basicEarnedYtd || 0).toFixed(2)} + ${basicEarned.toFixed(2)}) ÷ 12` });
   }
 
@@ -198,6 +204,8 @@ export function computeFinalPay(input) {
   const totalDeductions = peso(deductions.reduce((sum, d) => sum + d.amount, 0));
   const net = Math.max(0, peso(gross - totalDeductions));
   return {
+    // What net pay, floored at 0, does not cover: HR recovers it by hand.
+    overpayment_to_recover: Math.max(0, peso(totalDeductions - gross)),
     earnings,
     deductions,
     gross,
