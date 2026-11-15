@@ -42,6 +42,14 @@ export const FAKE = {
 /** The first payroll month seeded (the Super Admin's Form 2316 / Alphalist coverage). */
 export const HISTORY_FROM = "2026-01-01";
 
+/**
+ * The demo history is computed by today's payroll: the local app runs with
+ * PAYROLL_RULES_FROM=HISTORY_FROM (1st half attendance only; contributions and
+ * tax on the 2nd half), and the global rates in force on this day (the first
+ * 2nd half settled by today's rules) are copied, locally only, to HISTORY_FROM.
+ */
+export const HISTORY_RATES_AS_OF = "2026-10-16";
+
 /** The "Demo seed" actor (decision 6): flagged demo, no login, no branch. */
 export const SEED_ACTOR = { id: "de000000-0000-4000-8000-00000000d0d0", name: "Demo seed" };
 

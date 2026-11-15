@@ -141,6 +141,41 @@ const KIND_CLASS = {
   carry: "text-warning",
 };
 
+/**
+ * The full payslip (employeePayslipView in src/lib/payroll/line-tags.js, the
+ * same lines the PDF prints), from the payslip's stored figures; never the
+ * school's own shares, never an Accountant's flags or override reasons.
+ */
+function EmployeePayslipLines({ view }) {
+  const box = view.tax_box;
+  const sign = (s) => (s === "-" ? "− " : s === "+" ? "+ " : "");
+  return (
+    <div className="space-y-3" data-testid="payslip-full" data-half={view.half}>
+      <PayrollLineGroups result={view} showTaxHow={false} taxTable={false} />
+      {view.first_half_note ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="first-half-note">{view.first_half_note}</p> : null}
+      {view.hire_note ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="hire-note">{view.hire_note}</p> : null}
+      {box ? (
+        <section className="space-y-1 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-xs" data-testid="tax-box">
+          <p className="font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation</p>
+          {box.rows.map((r) => (
+            <div key={r.label} className="flex items-baseline justify-between gap-3"><span className="min-w-0">{r.label}</span><span className="shrink-0 tabular-nums">{sign(r.sign)}{formatPeso(r.amount)}</span></div>
+          ))}
+          <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 font-semibold"><span>Taxable income</span><span className="tabular-nums">{formatPeso(box.taxable)}</span></div>
+          {box.bracket ? <p className="text-muted-foreground">Bracket: {box.bracket}{box.formula ? <span className="block font-mono text-[11px] break-words">{box.formula}</span> : null}</p> : null}
+          <div className="flex items-baseline justify-between gap-3 font-semibold"><span>Withholding tax</span><span className="tabular-nums">{formatPeso(box.tax)}</span></div>
+          {box.reason ? <p className="text-muted-foreground">{box.reason}</p> : null}
+        </section>
+      ) : null}
+      {view.leave_with_pay ? <div className="flex items-baseline justify-between gap-3 text-sm"><span>{view.leave_with_pay.label}</span><span className="text-muted-foreground">{view.leave_with_pay.value}</span></div> : null}
+      {view.carry_over_out ? <div className="flex items-baseline justify-between gap-3 text-sm text-warning"><span>{view.carry_over_out.label}</span><span className="tabular-nums">{formatPeso(view.carry_over_out.amount)}</span></div> : null}
+      <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{formatPeso(view.gross)}</span></div>
+      <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">- {formatPeso(view.total_deductions)}</span></div>
+      <WhyTaxNote />
+      <LineTagLegend />
+    </div>
+  );
+}
+
 function PayslipCard({ payslip }) {
   if (!payslip) {
     return (
@@ -172,16 +207,7 @@ function PayslipCard({ payslip }) {
             <span className="font-semibold">Early Bird winner</span> for {payslip.early_bird_winner.period_label || payslip.period_label}: {payslip.early_bird_winner.early_count} early time-in{payslip.early_bird_winner.early_count === 1 ? "" : "s"}, the most of any employee.
           </p>
         ) : null}
-        {payslip.line_groups ? (
-          // Grouped and tagged (2026-11-03): never the school's own shares.
-          <div className="space-y-3">
-            <PayrollLineGroups result={payslip.line_groups} taxTable={false} />
-            <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{formatPeso(payslip.line_groups.gross)}</span></div>
-            <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">- {formatPeso(payslip.line_groups.total_deductions)}</span></div>
-            <WhyTaxNote />
-            <LineTagLegend />
-          </div>
-        ) : (
+        {payslip.line_groups ? <EmployeePayslipLines view={payslip.line_groups} /> : (
           <dl className="space-y-2.5 text-sm">
             {payslipRows(payslip).map((row, index) => (
               <div key={`${row.label}-${index}`} className={cn("flex items-start justify-between gap-4", KIND_CLASS[row.kind])}>
@@ -196,6 +222,7 @@ function PayslipCard({ payslip }) {
       <div className="flex flex-wrap items-center justify-between gap-2 bg-primary/8 px-5 py-4">
         <span className="text-sm font-medium">{netName} — {payslip.period_label}</span>
         <span className="text-2xl font-semibold text-primary tabular-nums">{formatPeso(payslip.net_pay)}</span>
+        {payslip.line_groups?.month_total ? <p className="w-full text-xs font-medium text-muted-foreground" data-testid="month-total">{payslip.line_groups.month_total.label}</p> : null}
       </div>
     </Card>
   );
@@ -243,9 +270,9 @@ export function PayslipsPage({ payslips }) {
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-      <section aria-label={selected === 0 ? "Latest payslip" : "Selected payslip"} className="min-w-0 space-y-2">
+      <section aria-label="Selected payslip" className="min-w-0 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{selected === 0 ? "My latest payslip" : "Selected payslip"}</p>
+          <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Selected payslip</p>
           {current?.id ? (
             <Button variant="outline" size="sm" disabled={busy === current.id}
               onClick={() => download(current.id, `/api/me/payslips?format=pdf&entry_id=${encodeURIComponent(current.id)}`, `payslip-${current.period_label || "payslip"}.pdf`)}>

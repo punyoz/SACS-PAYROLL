@@ -32,7 +32,7 @@ export function textWidth(text, size) {
 /** Latin-1 only, PDF string escapes applied. */
 export function pdfText(value) {
   return String(value ?? "")
-    .replace(/[–—]/g, "-")
+    .replace(/[–—−]/g, "-")
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, "\"")
     .replace(/₱/g, "PHP ")
@@ -216,9 +216,34 @@ class SectionCollector {
     this.sections.push({ title: label, rows: [] });
   }
 
-  row(label, amount, { bold = false, note = "" } = {}) {
+  row(label, amount, { bold = false, note = "", signed } = {}) {
     if (!this.sections.length) this.heading("Earnings");
-    this.sections[this.sections.length - 1].rows.push({ label: String(label ?? "").trim(), amount, bold, note });
+    this.sections[this.sections.length - 1].rows.push({ label: String(label ?? "").trim(), amount, bold, note, signed });
+  }
+}
+
+/** My Payslips' own lines (employeePayslipView in line-tags.js): exactly what the screen shows. */
+function employeeViewRows(p, v) {
+  const signed = (sign, amount) => (sign === "-" ? -Math.abs(Number(amount) || 0) : Math.abs(Number(amount) || 0));
+  v.groups.forEach((group) => {
+    p.heading(group.title);
+    group.lines.forEach((l) => p.row(l.label, l.amount, { note: l.how || "", signed: signed(l.sign, l.amount) }));
+    p.row(group.subtotal_label, group.subtotal, { bold: true, signed: signed(group.sign, group.subtotal) });
+  });
+  if (v.first_half_note || v.hire_note || v.leave_with_pay || v.carry_over_out) {
+    p.heading("Notes");
+    if (v.first_half_note) p.row(v.first_half_note, null);
+    if (v.hire_note) p.row(v.hire_note, null);
+    if (v.leave_with_pay) p.row(`${v.leave_with_pay.label}: ${v.leave_with_pay.value}`, null);
+    if (v.carry_over_out) p.row(v.carry_over_out.label, v.carry_over_out.amount, { signed: v.carry_over_out.amount });
+  }
+  const box = v.tax_box;
+  if (box) {
+    p.heading("Monthly tax computation");
+    box.rows.forEach((r) => p.row(r.label, r.amount, { signed: signed(r.sign, r.amount) }));
+    p.row("Taxable income", box.taxable, { bold: true, signed: box.taxable });
+    if (box.bracket) p.row(`Bracket: ${box.bracket}`, null, { note: box.formula || "" });
+    p.row("Withholding tax", box.tax, { bold: true, signed: box.tax, note: box.reason || "" });
   }
 }
 
@@ -228,6 +253,7 @@ const isDeductionSection = (title) => /deduction|contribution|tax/i.test(title);
 /** The sign an amount is shown with: deductions negative (a credit then shows positive). */
 function shownAmount(section, row) {
   if (row.amount === null || row.amount === undefined) return null;
+  if (row.signed !== undefined) return row.signed;
   const n = Number(row.amount) || 0;
   if (/^less:/i.test(row.label)) return -Math.abs(n);
   if (/^add:/i.test(row.label)) return Math.abs(n);
@@ -405,7 +431,9 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   const collected = new SectionCollector();
   const monthly = details?.monthly || null;
   const earnings = details?.earnings || {};
-  if (monthly) semiMonthlyRows(collected, monthly, details?.holiday_lines);
+  const view = details?.employee_view || null;
+  if (view) employeeViewRows(collected, view);
+  else if (monthly) semiMonthlyRows(collected, monthly, details?.holiday_lines);
   else {
     collected.heading("Earnings");
     collected.row("Basic pay", earnings.basic_salary || 0);
@@ -438,8 +466,8 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
 
   // Gross, total deductions (negative), net pay.
   doc.ensure(70);
-  const gross = Number(details?.gross_pay ?? monthly?.cutoff?.gross_pay ?? earnings.gross_pay ?? 0);
-  const totalDeductions = Number(details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
+  const gross = Number(view ? view.gross : details?.gross_pay ?? monthly?.cutoff?.gross_pay ?? earnings.gross_pay ?? 0);
+  const totalDeductions = Number(view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
   doc.fill(MARGIN, doc.y - 46, TABLE_W, 58, 0.95);
   doc.text(MARGIN + 8, doc.y, "Gross pay", { size: 10 });
   doc.peso(MARGIN + TABLE_W - 8, doc.y, gross, { size: 10 });
@@ -447,9 +475,10 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   doc.text(MARGIN + 8, doc.y, "Total deductions", { size: 10 });
   doc.peso(MARGIN + TABLE_W - 8, doc.y, -Math.abs(totalDeductions), { size: 10 });
   doc.y -= 18;
-  doc.text(MARGIN + 8, doc.y, monthly ? `${monthly.half === "first" ? "1ST" : "2ND"} HALF NET PAY` : "NET PAY", { size: 12, bold: true });
+  doc.text(MARGIN + 8, doc.y, view ? view.net_label.toUpperCase() : monthly ? `${monthly.half === "first" ? "1ST" : "2ND"} HALF NET PAY` : "NET PAY", { size: 12, bold: true });
   doc.peso(MARGIN + TABLE_W - 8, doc.y, details?.net_pay || 0, { size: 14, bold: true });
   doc.y -= 26;
+  if (view?.month_total) { doc.ensure(14); doc.text(MARGIN, doc.y, view.month_total.label, { size: 9, bold: true }); doc.y -= 14; }
   const by = generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : "";
   if (by) { doc.ensure(14); doc.text(MARGIN, doc.y, by, { size: 8, gray: 0.45 }); doc.y -= 12; }
   doc.ensure(12);

@@ -538,7 +538,10 @@ function BatchCard({ onNavigate, onEdit }) {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "Failed to process batch payroll.");
       const processed = result.processed || [];
-      const skipped = result.skipped || [];
+      // Rows "Process payroll for all" did not send (blocked): named with why, never silent.
+      const notSent = onlySelected ? [] : rows.filter((r) => !r.state.processable && r.state.status !== "final" && r.state.status !== "in_run")
+        .map((r) => ({ employee_name: r.employee.full_name, reason: r.state.reasons.map((x) => x.text).join("; ") || "Not ready to process" }));
+      const skipped = [...(result.skipped || []), ...notSent];
       let message = `Processed ${processed.length} payslip${processed.length === 1 ? "" : "s"}.`;
       if (skipped.length) message += ` ${skipped.length} skipped — ${skipped.map((s) => `${s.employee_name || s.employee_id || "Unknown"}: ${s.reason || "skipped"}`).join(" · ")}`;
       setFeedback({ text: message, ok: true });
