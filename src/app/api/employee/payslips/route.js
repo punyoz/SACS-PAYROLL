@@ -5,13 +5,15 @@ import { requirePermission, resolveTargetEmail, denyForeignBranch } from "@/lib/
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
-import { payslipVisible, requiresApproval } from "@/lib/payroll/runs";
+import { requiresApproval } from "@/lib/payroll/runs";
+import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
-import { payrollLineGroups } from "@/lib/payroll/line-tags";
+import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
 import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
+import { formatIssued } from "@/lib/portal/format";
 
 function toAmount(value) {
   const n = Number(value || 0);
@@ -31,6 +33,12 @@ function payPeriodToLabel(payPeriod) {
 
 function colMissing(error, colName) {
   return String(error?.message || "").toLowerCase().includes(colName);
+}
+
+/** The tax table version in force on the payslip's period (the one the engine used). */
+function taxTableFor(taxRows, payroll) {
+  const start = payroll?.audit?.period?.start_key;
+  return start && taxRows.length ? taxTableFromRows(resolveTaxTableRows(taxRows, start)) : [];
 }
 
 // Map a payroll_entries row — has full JSONB payroll.
@@ -58,7 +66,8 @@ function mapEntryToPayslip(row, taxRows = []) {
     id: row.id,
     payslip_no: row.payslip_no || null,
     period_label: periodLabel,
-    processed_at: row.submitted_at || row.created_at,
+    // Issued = the day HR approved the run (the payslip became Paid).
+    processed_at: row.approved_at || row.submitted_at || row.created_at,
     gross_pay: grossPay,
     total_deductions: totalDeductions,
     net_pay: netPay,
@@ -96,11 +105,10 @@ function mapEntryToPayslip(row, taxRows = []) {
     monthly: payroll.monthly && typeof payroll.monthly === "object" ? payroll.monthly : null,
     // Each holiday worked: name, day, hours and premium.
     holiday_lines: holidayPayLines(payroll),
-    // Every line grouped and tagged (src/lib/payroll/line-tags.js), from the
-    // payslip's stored figures; never the employer's shares.
-    line_groups: payrollLineGroups(payroll, {
-      taxTable: payroll.audit?.period?.start_key && taxRows.length ? taxTableFromRows(resolveTaxTableRows(taxRows, payroll.audit.period.start_key)) : [],
-    }),
+    // Every line grouped and tagged, as the employee sees it (screen and PDF:
+    // src/lib/payroll/line-tags.js employeePayslipView), from the payslip's
+    // stored figures; never the employer's shares.
+    line_groups: employeePayslipView(payroll, { taxTable: taxTableFor(taxRows, payroll) }),
   };
 }
 
@@ -119,9 +127,9 @@ function mapRecordToPayslip(rec) {
 }
 
 /**
- * Payroll Approval (20261014010000): from October 1, 2026 a payslip reaches
- * the employee only once HR has approved its branch's payroll run. Before
- * then (Draft, Pending HR Approval, Rejected) it is not listed at all.
+ * Payroll Approval (20261014010000): a payslip reaches the employee only once
+ * HR has approved its branch's payroll run (Paid), whatever its period.
+ * Draft, Pending HR Approval and Rejected are not listed.
  */
 async function approvedRunIds(supabase, rows) {
   const ids = [...new Set((rows || []).map((row) => row.run_id).filter(Boolean))];
@@ -133,7 +141,9 @@ async function approvedRunIds(supabase, rows) {
 
 async function onlyReleased(supabase, rows) {
   const approved = await approvedRunIds(supabase, rows);
-  return (rows || []).filter((row) => payslipVisible(row.pay_period, row.run_id && approved.has(row.run_id) ? "approved" : null));
+  // Every pay period, older ones included (the demo history), only once Paid;
+  // an entry that is not a pay period (Final pay) has its own approval.
+  return (rows || []).filter((row) => !periodFromLabel(row.pay_period) || (row.run_id && approved.has(row.run_id)));
 }
 
 async function approvedRunLabels(supabase, records) {
@@ -149,7 +159,7 @@ async function fetchPayslipsForUser(supabase, userId) {
   try {
     let { data, error } = await supabase
       .from("payroll_entries")
-      .select("id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,created_at,run_id")
+      .select("id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,approved_at,created_at,run_id")
       .eq("employee_id", userId)
       .not("status", "eq", "draft")
       .order("created_at", { ascending: false })
@@ -273,7 +283,10 @@ export async function GET(request) {
         status: String(released.status || "").toLowerCase(),
         payroll: { ...payroll, totals: payroll.totals || {}, deductions: payroll.deductions || {}, incentives: payroll.incentives || {} },
       };
-      const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase) });
+      const taxRows = await loadTaxBracketRows(supabase);
+      // The same lines, net and Issued date as My Payslips shows (mapEntryToPayslip).
+      const shown = mapEntryToPayslip(entry, taxRows);
+      const details = { ...buildPayslipDetails(entry, { taxRows }), employee_view: shown.line_groups, pay_date_label: formatIssued(shown.processed_at), net_pay: shown.net_pay };
       const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = `payslip-${String(entry.payslip_no || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
       return new NextResponse(pdf, {

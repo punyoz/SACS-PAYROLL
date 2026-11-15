@@ -30,9 +30,10 @@
  */
 
 import { roundPeso } from "@/lib/payroll/money";
+import { rulesEffectiveFrom } from "@/lib/payroll/statutory";
 
 /** Pay periods starting on or after this date use the rules above. */
-export const SEMI_MONTHLY_RULES_EFFECTIVE = "2026-10-01";
+export const SEMI_MONTHLY_RULES_EFFECTIVE = rulesEffectiveFrom("2026-10-01");
 export const SEMI_MONTHLY_RULE = "semi_monthly";
 export const HOURS_PER_DAY = 8;
 
@@ -133,7 +134,7 @@ export function monthlyWindow(monthKey, lockDayFor, { carryOver = true } = {}) {
  *   Nov 1-15 (generated Nov 16)   attendance Oct 30 – Nov 15
  */
 export const PER_CUTOFF_RULE = "per_cutoff";
-export const CUTOFF_ATTENDANCE_EFFECTIVE = "2026-10-01";
+export const CUTOFF_ATTENDANCE_EFFECTIVE = rulesEffectiveFrom("2026-10-01");
 
 export function usesCutoffAttendance(periodStart) {
   return String(periodStart || "") >= CUTOFF_ATTENDANCE_EFFECTIVE;

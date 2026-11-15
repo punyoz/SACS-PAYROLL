@@ -4371,6 +4371,17 @@ async function handleBatchSubmit(supabase, body, guard) {
     });
   }
 
+  // Never a silent skip: every requested employee is processed or listed with a reason.
+  skipped.forEach((s) => { if (!normalizeText(s.reason)) s.reason = "Not processed (no reason was recorded)."; });
+  const answered = new Set([...processed, ...skipped].map((r) => String(r.employee_id || "")));
+  for (const item of requestedEntries) {
+    const id = normalizeText(item.employee_id);
+    if (answered.has(id)) continue;
+    answered.add(id);
+    const employee = employees.find((row) => row.id === id);
+    skipped.push({ employee_id: id, employee_name: employee?.full_name || null, reason: "Not processed: no result was recorded for this employee. Process them again.", code: "not_processed" });
+  }
+
   await appendAuditLog({
     actor: guard,
     module: "payroll",

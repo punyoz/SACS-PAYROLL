@@ -77,7 +77,7 @@ export const MY_DESCRIPTIONS = {
   attendance: "Your own attendance, recorded by RFID tap. Only your records.",
   timesheet: "Your own daily hours, tardiness and undertime for any date range.",
   leave: "File your own leave and follow its approval.",
-  payslips: "Your own payslips and earlier ones: your deductions only.",
+  payslips: "Your payslips. Choose View to see the full details.",
   requests: "Your own loans, cash advances, incentives, subsidy and 13th month pay.",
   profile: "Your personal, contact and government details on file.",
 };

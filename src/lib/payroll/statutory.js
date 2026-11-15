@@ -34,8 +34,19 @@
  */
 import { roundPeso } from "@/lib/payroll/money";
 
+/**
+ * The demo build only (scripts/demo/build-local.mjs): its local server may set
+ * PAYROLL_RULES_FROM to an earlier date so the demo history is computed by
+ * today's rules. Ignored on Vercel, when invalid, or when not earlier.
+ */
+export function rulesEffectiveFrom(fallback) {
+  const env = typeof process === "undefined" ? {} : process.env || {};
+  const from = String(env.PAYROLL_RULES_FROM || "");
+  return !env.VERCEL && /^\d{4}-\d{2}-\d{2}$/.test(from) && from < fallback ? from : fallback;
+}
+
 /** Pay periods starting on or after this date use the rules above. */
-export const LEGAL_RULES_EFFECTIVE = "2026-10-01";
+export const LEGAL_RULES_EFFECTIVE = rulesEffectiveFrom("2026-10-01");
 
 /** True when the period (by its first day, "YYYY-MM-DD") uses the legal rules. */
 export function usesLegalRules(periodStart) {

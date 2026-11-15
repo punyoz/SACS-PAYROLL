@@ -5,11 +5,12 @@
 //   node scripts/demo/build-local.mjs [--no-reset] [--stage=base|attendance|flows|payroll|all]
 //
 // Needs: Docker + the local stack, the local app on :3101
-// (node e2e/attendance/prod-server.mjs), SUPABASE_ACCESS_TOKEN (read-only
+// (PAYROLL_RULES_FROM=2026-01-01 node e2e/attendance/prod-server.mjs: the
+// history is computed by today's rules), SUPABASE_ACCESS_TOKEN (read-only
 // reads of production's configuration so local computes like production).
 import { execSync } from "node:child_process";
 import crypto from "node:crypto";
-import { BRANCHES, HISTORY_FROM, SEED_ACTOR } from "./config.mjs";
+import { BRANCHES, HISTORY_FROM, HISTORY_RATES_AS_OF, SEED_ACTOR } from "./config.mjs";
 import { database, lit } from "./db.mjs";
 import { as, localAuthAdmin, ok } from "./local-api.mjs";
 import { buildRoster, saveCredentials, saveRosterCsv, stableId } from "./roster.mjs";
@@ -83,6 +84,11 @@ async function stageMirror() {
     if (rows.length) sql.push(`insert into ${table} select * from jsonb_populate_recordset(null::${table}, ${lit(rows)});`);
     log(`  ${table}: ${rows.length}`);
   }
+  // Today's global rates for the whole history (local only: rates are never in the bundle).
+  sql.push(`insert into payroll_rate_configs (rate_type, scope, scope_ref, value, effective_date, note, created_by_name)
+    select distinct on (rate_type) rate_type, scope, scope_ref, value, ${lit(HISTORY_FROM)}::date, 'Demo history: rates as of ${HISTORY_RATES_AS_OF}', 'Demo seed'
+    from payroll_rate_configs where scope = 'global' and effective_date <= ${lit(HISTORY_RATES_AS_OF)}
+    order by rate_type, effective_date desc, created_at desc;`);
   // Build on any date: the processing window switch OFF locally (production's own switch is not touched).
   sql.push("update payroll_window_enforcement set enforced = false, expires_on = null, reason = 'Local demo build', changed_by = null, changed_by_name = 'Demo seed';");
   sql.push("commit;");
@@ -244,12 +250,21 @@ function submitBody(branch, label, accountants) {
 
 async function processCutoff({ branch, label, accountants, people, approver, mode = "approve", rejectFirst = false }) {
   const entries = people.map((p) => ({ employee_id: p.id }));
+  // Expected skips: the other Accountant processes this one, or it is already done.
+  const EXPECTED = new Set(["self_processing_blocked"]);
+  const reasons = new Map();
   for (const acc of accountants) {
     const res = await as(acc).post("/api/accountant/payroll", { action: "batch_submit", pay_period: label, entries });
     ok(`${branch.code} ${label} batch by ${acc.tag}`, res);
+    const answered = new Set([...(res.data.processed || []), ...(res.data.skipped || [])].map((r) => r.employee_id));
+    const silent = people.filter((p) => !answered.has(p.id));
+    if (silent.length) throw new Error(`${branch.code} ${label}: the batch by ${acc.tag} returned no result for ${silent.map((p) => p.full).join(", ")}`);
+    for (const sk of res.data.skipped || []) if (!EXPECTED.has(sk.code) && !/already been processed/.test(sk.reason || "")) reasons.set(sk.employee_id, sk.reason);
   }
-  const done = await local.rows(`select count(*)::int n from payroll_entries where pay_period = ${lit(label)} and branch_id = ${lit(branch.id)} and status <> 'draft'`);
-  if (done[0].n < people.length) throw new Error(`${branch.code} ${label}: ${done[0].n} of ${people.length} payslips processed`);
+  // Every active person has a payslip for the cutoff; a missing one stops the build, with its reason.
+  const have = new Set((await local.rows(`select employee_id from payroll_entries where pay_period = ${lit(label)} and status <> 'draft'`)).map((r) => r.employee_id));
+  const missing = people.filter((p) => !have.has(p.id));
+  if (missing.length) throw new Error(`${branch.code} ${label}: no payslip for ${missing.map((p) => `${p.full} (${reasons.get(p.id) || "no reason recorded"})`).join("; ")}`);
   if (mode === "process") return;
   ok(`${branch.code} ${label} submit`, await as(accountants[0]).patch("/api/accountant/payroll-runs", submitBody(branch, label, accountants)));
   if (mode === "submit") return;
@@ -279,6 +294,9 @@ async function stagePayroll({ history = false } = {}) {
   // The "payroll" stage alone: the history before October (loans and incentives are filed after it);
   // "close" processes the rest.
   const to = args.find((a) => a.startsWith("--to="))?.split("=")[1] || (history ? addDays(beforeLast.start_key, -1) : today);
+  // The history must be computed by today's rules (PAYROLL_RULES_FROM on the local app).
+  const probe = ok("rules probe", await as(by("acc-b1-1")).get(`/api/accountant/payroll?period=${encodeURIComponent(list[0].label)}`));
+  if (probe.legal_rules !== true) throw new Error(`The local app computes ${list[0].label} by the old rules: start it with PAYROLL_RULES_FROM=${HISTORY_FROM}.`);
   const seed = await ensureSeedActor(branchCodes, { assignTo: BRANCHES.at(-1).code });
   try {
     for (const [bi, branch] of BRANCHES.entries()) {
@@ -290,8 +308,10 @@ async function stagePayroll({ history = false } = {}) {
       const approver = branch.hrHome === 1 ? by("hr2") : by("hr1");
       for (const period of list) {
         if (period.start_key < from || period.start_key > to) continue;
-        // A separated person is paid through Final Pay from the cutoff holding the separation date.
-        const staff = people.filter((p) => (p.date_hired || "") <= period.end_key && (!p.separated_on || p.separated_on > period.end_key));
+        // Whoever is still active when the cutoff is processed, as an Accountant would: a separation
+        // filed before it (Final Pay settles that month) leaves the person out, and the run agrees.
+        const separated = new Set((await local.rows("select id from profiles where employee_status = 'Separated'")).map((r) => r.id));
+        const staff = people.filter((p) => (p.date_hired || "") <= period.end_key && !separated.has(p.id));
         if (!staff.length) continue;
         const isLast = period.label === last.label;
         const isBeforeLast = period.label === beforeLast.label;
@@ -357,7 +377,9 @@ async function stageFlows() {
   const start = weekday(addDays(today, 9));
   const filed = {};
   const filers = [["emp1", 0, true], ["emp2", 1, false], ["emp9", 2, true], ["emp10", 3, false], ["emp11", 4, false], ["emp12", 5, true], ["emp20", 6, false], ["emp23", 7, true],
-    ["acc-b1-2", 8, false], ["acc-b3-1", 9, false], ["hr1", 10, false], ["hr2", 11, true], ["emp4", 12, false], ["emp13", 13, false]];
+    ["acc-b1-2", 8, false], ["acc-b3-1", 9, false], ["hr1", 10, false], ["hr2", 11, true], ["emp4", 12, false], ["emp13", 13, false],
+    // Demo Accountant One Main (the audit's Accountant): My Leave was empty (2026-11-15).
+    ["acc-b1-1", 14, false]];
   for (const [tag, offset, proof] of filers) {
     const day = weekday(addDays(start, offset));
     filed[tag] = await step(`leave filed by ${tag}`, async () => ok(`leave ${tag}`, await as(by(tag)).post("/api/me/leave-requests", {
@@ -768,7 +790,41 @@ async function stageClose() {
   log(failures.length ? `close: ${failures.length} step(s) failed` : "close: all steps passed");
 }
 
-const stages = { mirror: async () => { await stageMirror(); }, base: stageBase, cards: stageCards, attendance: stageAttendance, payroll: () => stagePayroll({ history: true }), flows: stageFlows, close: stageClose, extras: stageExtras, extras2: stageExtras2, extras3: stageExtras3, subsidy13th: stageSubsidy13th };
+/**
+ * Last: every decided demo run (and its payslips) dated on its period's payslip
+ * day instead of the build day, so "Issued" (the day HR approved) reads like a
+ * real year; a resubmitted run one day later. Then the check that every demo
+ * pay-period payslip carries today's full breakdown.
+ */
+async function stageDates() {
+  const { createPayslipSchedule } = await import("../../src/lib/payroll/schedule.js");
+  const { periodFromLabel } = await import("../../src/lib/payroll/periods.js");
+  const schedule = createPayslipSchedule({
+    settings: await local.rows("select * from payroll_schedule_settings"),
+    holidays: await local.rows("select holiday_date::text, day_part, type, branch_ids from attendance_holidays"),
+  });
+  const runs = await local.rows(`select r.id, r.period_label, r.run_no, r.status from payroll_runs r where r.status in ('approved', 'rejected')
+    and exists (select 1 from payroll_entries e join profiles p on p.id = e.employee_id where e.run_id = r.id and p.is_demo)`);
+  const sql = ["begin;", "set local session_replication_role = replica;"];
+  for (const run of runs) {
+    const day = schedule.forPeriod(periodFromLabel(run.period_label).start_key).generation_date;
+    const at = (time) => `((${lit(day)}::date + ${Number(run.run_no) - 1})::timestamp + time '${time}') at time zone 'Asia/Manila'`;
+    sql.push(`update payroll_runs set submitted_at = ${at("09:00")}, reviewed_at = ${at("15:00")} where id = ${lit(run.id)};`);
+    if (run.status === "approved") sql.push(`update payroll_entries set submitted_at = ${at("09:00")}, approved_at = ${at("15:00")} where run_id = ${lit(run.id)};`);
+  }
+  sql.push("commit;");
+  await local.exec(sql.join("\n"));
+  log(`  ${runs.length} decided runs dated on their payslip day`);
+  const [bad] = await local.rows(`select count(*)::int n, string_agg(distinct e.pay_period, ', ') periods from payroll_entries e join profiles p on p.id = e.employee_id
+    where p.is_demo and e.status <> 'draft' and e.pay_period ~ '^[A-Z][a-z]+ [0-9]+-[0-9]+, [0-9]{4}$' and e.payroll->'monthly' is null`);
+  if (bad.n) throw new Error(`${bad.n} demo payslips have no full breakdown (${bad.periods}): was the local app started with PAYROLL_RULES_FROM=${HISTORY_FROM}?`);
+  // A hire on the 16th: the engine settles that first month on its 2nd half alone (no per-cutoff lines).
+  const [settled] = await local.rows(`select count(*)::int n from payroll_entries e join profiles p on p.id = e.employee_id
+    where p.is_demo and e.status <> 'draft' and e.payroll ? 'monthly' and e.payroll->'monthly'->'cutoff' is null`);
+  if (settled.n) log(`  ${settled.n} payslip(s) settled as a whole month (a hire on the 16th)`);
+}
+
+const stages = { mirror: async () => { await stageMirror(); }, base: stageBase, cards: stageCards, attendance: stageAttendance, payroll: () => stagePayroll({ history: true }), flows: stageFlows, close: stageClose, extras: stageExtras, extras2: stageExtras2, extras3: stageExtras3, subsidy13th: stageSubsidy13th, dates: stageDates };
 
 if (String(process.argv[1] || "").split("\\").join("/").endsWith("scripts/demo/build-local.mjs")) {
   const order = stage === "all" ? Object.keys(stages) : stage.split(",");

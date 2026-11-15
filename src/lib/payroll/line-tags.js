@@ -438,3 +438,95 @@ export function payrollLineGroups(payroll, options = {}) {
     leave_with_pay_days: num(cutoff.leave_with_pay_days),
   };
 }
+
+/* ── My Payslips: the employee's view (screen and PDF alike) ────────────── */
+
+/** "2026-06-16" -> "Jun 16, 2026". */
+const shortDate = (key) => new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${key}T00:00:00Z`));
+
+/**
+ * A hire on the 16th: the engine settles that first month on the 2nd half
+ * alone (payroll.monthly without per-cutoff lines). Its stored figures as the
+ * one cutoff the line groups read; null for any other payslip.
+ */
+function wholeMonthHire(payroll) {
+  const m = payroll?.monthly;
+  if (!m || m.cutoff || m.half !== "second" || !m.new_hire?.hired_on) return null;
+  const t = payroll.totals || {};
+  const cutoff = {
+    half: "second",
+    earnings: [{ label: "Basic pay (from the hire date)", amount: peso(m.new_hire.amount ?? m.monthly_salary), note: m.new_hire.text || null }],
+    deductions: [],
+    gross_pay: peso(t.gross_pay),
+    total_deductions: peso(t.total_deductions),
+    net_pay: peso(t.net_pay),
+    leave_with_pay_days: num(m.leave_with_pay_days),
+    carry_over_out: peso(m.carry_over_out),
+  };
+  const date = shortDate(m.new_hire.hired_on);
+  return { payroll: { ...payroll, monthly: { ...m, cutoff } }, date, text: `hired ${date}` };
+}
+
+export const FIRST_HALF_NOTE = "Government contributions and withholding tax are deducted on the 2nd-half payslip";
+
+/**
+ * A stored payslip as the employee sees it on My Payslips and in its PDF:
+ * payrollLineGroups() without ₱0 lines or override marks (Accountant-only),
+ * one note on a 1st half, and on a 2nd half the month's tax computation and
+ * the month total. From the stored figures only; null without a breakdown.
+ */
+export function employeePayslipView(payroll, options = {}) {
+  const hire = wholeMonthHire(payroll);
+  const result = payrollLineGroups(hire ? hire.payroll : payroll, options);
+  if (!result) return null;
+  const m = payroll.monthly;
+  const second = result.half === "second";
+  const groups = result.groups
+    .map(({ note, ...group }) => ({
+      ...group,
+      lines: group.lines.filter((l) => num(l.amount) > 0).map(({ overridden, ...l }) => l),
+      subtotal_label: group.key === "additions" ? "Total additions" : `Subtotal: ${group.title.replace(/ \(.*\)$/, "").toLowerCase()}`,
+    }))
+    .filter((group) => group.lines.length);
+  let taxBox = null;
+  if (second && m.taxable_income !== undefined && m.taxable_income !== null) {
+    const attendance = peso(m.attendance_deductions);
+    const earnings = peso(num(m.monthly_gross) - num(m.monthly_salary) + attendance);
+    // What the engine left out of (or added to) the taxable income: the exempt subsidy, a taxable advance.
+    const other = peso(num(m.monthly_gross) - num(m.contributions) - num(m.taxable_income));
+    const rows = [
+      // A hire on the 16th is taxed on what was earned, not the full monthly basic.
+      { label: hire ? `Basic pay earned (${hire.text})` : "Monthly basic salary", amount: peso(m.monthly_salary), sign: "" },
+      earnings > 0 ? { label: "Other earnings (overload, incentives, overtime, holiday pay)", amount: earnings, sign: "+" } : null,
+      attendance > 0 ? { label: "Attendance deductions (whole month)", amount: attendance, sign: "-" } : null,
+      other > 0 ? { label: "Non-taxable items left out", amount: other, sign: "-" } : null,
+      other < 0 ? { label: "Taxable amount already paid in cash", amount: -other, sign: "+" } : null,
+      num(m.contributions) > 0 ? { label: "SSS, PhilHealth and Pag-IBIG", amount: peso(m.contributions), sign: "-" } : null,
+    ].filter(Boolean);
+    taxBox = {
+      rows,
+      taxable: peso(m.taxable_income),
+      bracket: result.tax?.range || null,
+      formula: result.tax?.formula_text || null,
+      reason: result.tax?.reason || null,
+      tax: peso(m.withholding_tax),
+    };
+  }
+  const net = result.net;
+  const first = peso(m.first_half_paid);
+  const leave = num(result.leave_with_pay_days);
+  return {
+    half: result.half,
+    groups,
+    first_half_note: result.half === "first" ? FIRST_HALF_NOTE : null,
+    hire_note: hire ? `No 1st-half payslip: hired ${hire.date}` : null,
+    tax_box: taxBox,
+    leave_with_pay: leave > 0 ? { label: `Leave with pay (${plural(leave, "day")})`, value: "No deduction" } : null,
+    carry_over_out: result.carry_over_out > 0 ? { label: "Carried to next month (deductions above this payslip's pay)", amount: result.carry_over_out } : null,
+    gross: result.gross,
+    total_deductions: result.total_deductions,
+    net,
+    net_label: result.half === "first" ? "1st Half Net Pay" : "2nd Half Net Pay",
+    month_total: second ? { first, second: net, total: peso(first + net), label: `Month total: 1st half ${pesoText(first)} + 2nd half ${pesoText(net)} = ${pesoText(peso(first + net))}` } : null,
+  };
+}
