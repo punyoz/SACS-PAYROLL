@@ -121,7 +121,7 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
         const ids = idsOf(ref);
         for (const part of chunks(ids)) {
           const rows = await db.rows(`select ${col}::text k, ${m.key}::text id from ${t} where ${col}::text in (${listOf(part)})`);
-          [...new Set(rows.filter((r) => !mine.has(r.id)).map((r) => r.k))].forEach((k) => kept.push(`${ref} ${k} (a ${t} row that is not demo points at it)`));
+          [...new Set(rows.filter((r) => !mine.has(r.id)).map((r) => r.k))].forEach((k) => kept.push(`${ref} ${k} (a ${t} row that is not demo points at it: the wipe would fail, or delete or change that row)`));
         }
       }
     }
@@ -135,11 +135,11 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
       for (const col of m.person.filter((c) => required.some((r) => r.t === t && r.c === c))) {
         for (const part of chunks(demoPeople)) {
           const rows = await db.rows(`select ${m.key}::text id, ${col}::text k from ${t} where ${col}::text in (${listOf(part)})`);
-          rows.filter((r) => !mine.has(r.id)).forEach((r) => kept.push(`profiles ${r.k} (${t} ${r.id}, not demo, names this demo person in ${col}, which cannot be emptied)`));
+          rows.filter((r) => !mine.has(r.id)).forEach((r) => kept.push(`profiles ${r.k} (${t} ${r.id}, not demo, names this demo person in ${col} (NOT NULL): the wipe would fail, or delete that row with the person)`));
         }
       }
     }
-    if (kept.length) throw new Error(`The wipe would keep ${kept.length} demo row(s) that non-demo rows still need, so this reset / restore could not finish:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
+    if (kept.length) throw new Error(`The wipe would keep ${kept.length} demo row(s) that non-demo rows still need, so this reset / restore is refused:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
   }
   const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
   const notTheBundles = listOf([...bundleRunIds, ...idsOf("payroll_runs")]);
@@ -151,8 +151,8 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
     const people = new Set([...(bundle.demoIds || []), ...idsOf("profiles")].map(String));
     const cols = meta.payroll_runs?.person || [];
     const same = await db.rows(`select id::text id${cols.map((c) => `, ${c}::text ${c}`).join("")} from payroll_runs where id::text in (${listOf(bundleRunIds.map(String))}) and id::text not in (${listOf(idsOf("payroll_runs"))})`);
-    const handled = same.filter((r) => cols.some((c) => r[c] && !people.has(r[c])));
-    if (handled.length) throw new Error(`${handled.length} run(s) with a demo run's id are already on the target and were handled by a non-demo person (${handled.slice(0, 5).map((r) => r.id).join(", ")}): nothing loaded.`);
+    const handled = goingAway ? same : same.filter((r) => cols.some((c) => r[c] && !people.has(r[c])));
+    if (handled.length) throw new Error(`${handled.length} run(s) with a demo run's id are already on the target and ${goingAway ? "are not demo rows the wipe deletes" : "were handled by a non-demo person"} (${handled.slice(0, 5).map((r) => r.id).join(", ")}): nothing loaded.`);
   }
   const fit = fitBundleToTarget(bundle.tables, {
     rateIds: new Set((await db.rows("select id from payroll_rate_configs")).map((r) => r.id)),
@@ -341,55 +341,73 @@ async function load(db, planned) {
   return { renumbered: renumber.size };
 }
 
-/** Delete the demo rows on `db` (children first, triggers off), clear mixed references, drop logins and files. */
-async function wipe(db, data) {
-  if (!data.demoIds?.length) { say("  nothing demo to delete"); return; }
+/**
+ * The wipe as ONE SQL transaction body (no begin / commit): drop the
+ * profiles' PRC loops and the transient rows, clear the demo person on mixed
+ * rows (nullable columns only), delete the demo rows children first, then
+ * the logins. Nothing is kept on purpose: if any row cannot be deleted or
+ * changed (a non-demo row still needs it, a CHECK, a NOT NULL column), the
+ * whole transaction fails and nothing is deleted.
+ */
+async function wipeSql(db, data) {
   const meta = await schema(db);
   const D = data.demoIds.map(lit).join(", ");
   const names = Object.keys(data.tables).filter((t) => data.tables[t].length);
-  // Profiles last (other rows point at them); first drop the loops: a profile's
-  // PRC ID document and verifier, and the transient rows the bundle skips.
   const order = [...insertOrder(meta, names.filter((t) => t !== "profiles")).reverse(), "profiles"];
-  await db.exec(`begin; alter table profiles disable trigger user;
+  const nullable = new Set((await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'YES'")).map((r) => `${r.t}.${r.c}`));
+  const sql = [`alter table profiles disable trigger user;
     update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D}) or license_verified_by in (${D});
     alter table profiles enable trigger user;
     delete from hr_queue_claims where claimed_by in (${D});
-    delete from notification_channels where user_id in (${D});
-    commit;`);
-  // Mixed rows keep themselves; only their pointer to a demo person is cleared.
+    delete from notification_channels where user_id in (${D});`];
+  // Mixed rows keep themselves; only their pointer to a demo person is cleared (a NOT NULL one makes the wipe fail).
   for (const t of Object.keys(data.mixed || {})) {
     const m = meta[t];
-    for (const col of m.person) {
-      const nullable = await db.rows(`select is_nullable = 'YES' n from information_schema.columns where table_schema = 'public' and table_name = ${lit(t)} and column_name = ${lit(col)}`);
-      if (!nullable[0]?.n) { say(`  ${t}.${col}: mixed rows cannot drop their demo reference (not nullable); left as they are`); continue; }
+    for (const col of m.person.filter((c) => nullable.has(`${t}.${c}`))) {
       const notDemoRow = m.person.filter((c) => c !== col).map((c) => `(${c} is not null and ${c} not in (${D}))`).join(" or ") || "false";
-      await db.exec(`begin; alter table ${t} disable trigger user; update ${t} set ${col} = null where ${col} in (${D}) and (${notDemoRow}); alter table ${t} enable trigger user; commit;`);
-      say(`  cleared ${t}.${col} on mixed rows`);
+      sql.push(`alter table ${t} disable trigger user; update ${t} set ${col} = null where ${col} in (${D}) and (${notDemoRow}); alter table ${t} enable trigger user;`);
     }
   }
   for (const t of order) {
     const rows = data.tables[t] || [];
     if (!rows.length) continue;
     const key = meta[t]?.key || "id";
-    let kept = 0;
-    for (let i = 0; i < rows.length; i += 1000) {
-      const ids = rows.slice(i, i + 1000).map((r) => lit(r[key])).join(", ");
-      try {
-        await db.exec(`begin; alter table ${t} disable trigger user; delete from ${t} where ${key} in (${ids}); alter table ${t} enable trigger user; commit;`);
-      } catch (error) {
-        // A non-demo row still points at one of these (e.g. a real account's payslip in a run a demo
-        // Accountant processed live): those stay, the rest go one by one.
-        await db.exec("rollback;").catch(() => null);
-        for (const id of rows.slice(i, i + 1000).map((r) => lit(r[key]))) {
-          try { await db.exec(`begin; alter table ${t} disable trigger user; delete from ${t} where ${key} = ${id}; alter table ${t} enable trigger user; commit;`); }
-          catch { kept += 1; await db.exec("rollback;").catch(() => null); }
-        }
-      }
-    }
-    say(`  deleted ${t}: ${rows.length - kept}${kept ? ` (${kept} kept: a non-demo row still points at them; listed for you)` : ""}`);
+    const parts = [];
+    for (let i = 0; i < rows.length; i += 1000) parts.push(`delete from ${t} where ${key} in (${rows.slice(i, i + 1000).map((r) => lit(r[key])).join(", ")});`);
+    sql.push(`alter table ${t} disable trigger user; ${parts.join(" ")} alter table ${t} enable trigger user;`);
   }
+  sql.push(`delete from auth.identities where user_id in (${D}); delete from auth.users where id in (${D});`);
+  return sql.join("\n");
+}
+
+/**
+ * The wipe run and rolled back (before any prompt): whether it can finish,
+ * exactly, with the reason when it cannot. Nothing stays changed.
+ */
+async function dryRunWipe(db, data) {
+  if (!data.demoIds?.length) return;
+  const sql = await wipeSql(db, data);
+  try {
+    await db.exec(`begin;\n${sql}\nrollback;`);
+  } catch (error) {
+    await db.exec("rollback;").catch(() => null);
+    throw new Error(`The wipe could not finish, so this reset / restore is refused (tried and rolled back; nothing changed):\n  ${String(error.message).slice(0, 600)}`);
+  }
+}
+
+/** Delete the demo rows on `db` in one transaction (all or nothing), then their leave-proof files. */
+async function wipe(db, data) {
+  if (!data.demoIds?.length) { say("  nothing demo to delete"); return; }
+  const sql = await wipeSql(db, data);
+  try {
+    await db.exec(`begin;\n${sql}\ncommit;`);
+  } catch (error) {
+    await db.exec("rollback;").catch(() => null);
+    throw new Error(`The wipe failed and was rolled back: nothing was deleted.\n  ${String(error.message).slice(0, 600)}`);
+  }
+  for (const t of Object.keys(data.tables).filter((x) => data.tables[x].length)) say(`  deleted ${t}: ${data.tables[t].length}`);
+  // Files after the commit: a failure here leaves files of people already removed (the next load replaces them).
   await storageFor(db.target).remove((data.files || []).map((f) => f.path));
-  await db.exec(`delete from auth.identities where user_id in (${D}); delete from auth.users where id in (${D});`);
 }
 
 async function checkZero(db) {
@@ -461,6 +479,7 @@ const commands = {
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     const { data } = await snapshot(db);
     printCounts(`will DELETE on ${db.target} (is_demo data only)`, data);
+    await dryRunWipe(db, data);
     if (!(await confirm(`Delete all of it on ${db.target}? (yes/no)`))) return say("Nothing deleted (the snapshot is kept).");
     await wipe(db, data);
     await checkZero(db);
@@ -476,6 +495,7 @@ const commands = {
     printCounts(`will DELETE on ${db.target}`, data);
     printCounts("then LOAD", target);
     const plan = await planLoad(db, target, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
+    await dryRunWipe(db, data);
     printPlan(plan);
     if (!(await confirm("Restore this snapshot? (yes/no)"))) return say("Nothing done.");
     await afterSnapshot(db, snapFile, async () => { await wipe(db, data); await load(db, plan); });
@@ -488,10 +508,12 @@ const commands = {
     const D = data.demoIds.map(lit).join(", ") || "null";
     const [logins] = await db.rows(`select count(*)::int n from auth.users where id::text in (${D})`);
     const [files] = await db.rows(`select count(*)::int n from storage.objects where bucket_id = '${STORAGE_BUCKET}' and split_part(name, '/', 1) in (${D})`);
-    printCounts(`would DELETE on ${db.target}`, data);
-    say(`  and ${logins.n} login account(s), ${files.n} file(s)`);
+    printCounts(`would DELETE on ${db.target}`, { ...data, auth: { users: Array(logins.n).fill(0), identities: [] }, files: Array(files.n).fill(0) });
     printCounts("then LOAD", bundle);
     printPlan(await planLoad(db, bundle, { goingAway: goingAwayOf(data) }));
+    // The wipe is tried and rolled back: whether a reset could finish, exactly.
+    await dryRunWipe(db, { ...data, files: [] });
+    say("The wipe was tried and rolled back: it can finish.");
     say("Nothing was changed (plan only).");
   },
   async reset() {
@@ -502,6 +524,7 @@ const commands = {
     printCounts(`will DELETE on ${db.target} (your edits included)`, data);
     printCounts("then LOAD the original seed", bundle);
     const plan = await planLoad(db, bundle, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
+    await dryRunWipe(db, data);
     printPlan(plan);
     if (!(await confirm("Reset wipes every edit made to the demo data. Continue? (yes/no)"))) return say("Nothing done.");
     if (!(await confirm('Type "reset demo" to confirm a second time:', "reset demo"))) return say("Nothing done.");
