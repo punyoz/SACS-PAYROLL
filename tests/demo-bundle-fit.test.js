@@ -25,7 +25,7 @@ const tables = () => ({
   payroll_approval_history: [{ id: "h1", run_id: "run-main-oct2" }],
   payroll_run_exclusions: [],
   payroll_entries: [
-    { id: "e1", run_id: "run-main-oct2", status: "paid" },
+    { id: "e1", run_id: "run-main-oct2", status: "paid", employee_name: "Andrea Demo Ilagan", payslip_no: "PS-202611-0585" },
     { id: "e2", run_id: "run-main-oct2", status: "paid" },
     { id: "e3", run_id: "run-main-oct1", status: "paid" },
   ],
@@ -55,7 +55,10 @@ describe("fitBundleToTarget", () => {
     expect(t.payroll_approval_history).toEqual([]);
     expect(t.payroll_entries.map((e) => [e.id, e.run_id, e.status])).toEqual([["e1", null, "paid"], ["e2", null, "paid"], ["e3", "run-main-oct1", "paid"]]);
     expect(t.notifications.map((n) => n.run_id)).toEqual([null, null]);
-    expect(notes.join(" | ")).toMatch(/October 16-31, 2026 \(pending\) not loaded.*2 payslip\(s\)/);
+    const text = notes.join(" | ");
+    expect(text).toMatch(/October 16-31, 2026, branch branch-main \(pending\) not loaded.*2 payslip\(s\)/);
+    expect(text).toContain("Andrea Demo Ilagan PS-202611-0585");
+    expect(text).toMatch(/2 payslip line\(s\) unlinked from 1 rate row\(s\).*rate row rate-local-only: 2 line\(s\)/);
   });
 
   it("keeps an approved demo run beside an approved target run, and changes nothing when nothing collides", () => {

@@ -161,11 +161,19 @@ const RUN_POINTERS = ["payroll_entries", "notifications", "payroll_final_overrid
 export function fitBundleToTarget(tables, { rateIds, targetRuns }) {
   const out = { ...tables };
   const notes = [];
-  let unlinked = 0;
+  const unlinked = new Map(); // rate row id -> lines
   for (const t of ["payroll_deductions", "payroll_incentives"]) {
-    out[t] = (tables[t] || []).map((r) => (r.rate_config_id && !rateIds.has(r.rate_config_id) ? (unlinked += 1, { ...r, rate_config_id: null }) : r));
+    out[t] = (tables[t] || []).map((r) => {
+      if (!r.rate_config_id || rateIds.has(r.rate_config_id)) return r;
+      unlinked.set(r.rate_config_id, (unlinked.get(r.rate_config_id) || 0) + 1);
+      return { ...r, rate_config_id: null };
+    });
   }
-  if (unlinked) notes.push(`${unlinked} payslip line(s) unlinked from rate rows the target does not have (each keeps its own rate)`);
+  if (unlinked.size) {
+    const total = [...unlinked.values()].reduce((a, b) => a + b, 0);
+    notes.push(`${total} payslip line(s) unlinked from ${unlinked.size} rate row(s) the target does not have (each line keeps its own rate):`);
+    unlinked.forEach((n, id) => notes.push(`  rate row ${id}: ${n} line(s)`));
+  }
   const day = (v) => String(v || "").slice(0, 10);
   const dropped = (tables.payroll_runs || []).filter((run) => {
     const there = targetRuns.filter((r) => r.branch_id === run.branch_id && day(r.period_start) === day(run.period_start));
@@ -175,12 +183,12 @@ export function fitBundleToTarget(tables, { rateIds, targetRuns }) {
     const ids = new Set(dropped.map((r) => r.id));
     out.payroll_runs = tables.payroll_runs.filter((r) => !ids.has(r.id));
     for (const t of RUN_CHILDREN) out[t] = (tables[t] || []).filter((r) => !ids.has(r.run_id));
-    let loose = 0;
-    for (const t of RUN_POINTERS) {
-      out[t] = (tables[t] || []).map((r) => (ids.has(r.run_id) ? (t === "payroll_entries" ? (loose += 1) : 0, { ...r, run_id: null }) : r));
+    for (const t of RUN_POINTERS) out[t] = (tables[t] || []).map((r) => (ids.has(r.run_id) ? { ...r, run_id: null } : r));
+    for (const run of dropped) {
+      const loose = (tables.payroll_entries || []).filter((e) => e.run_id === run.id);
+      notes.push(`demo run ${run.period_label}, branch ${run.branch_id} (${run.status}) not loaded: the target already has a run there. ${loose.length} payslip(s) load Final outside any run (Action needed: supplemental run):`);
+      loose.forEach((e) => notes.push(`  ${e.employee_name || e.employee_id} ${e.payslip_no || ""}`.trimEnd()));
     }
-    dropped.forEach((r) => notes.push(`demo run ${r.period_label} (${r.status}) not loaded: the target already has a run there`));
-    notes.push(`${loose} payslip(s) of those runs load Final outside any run (Action needed: supplemental run)`);
   }
   return { tables: out, notes };
 }
