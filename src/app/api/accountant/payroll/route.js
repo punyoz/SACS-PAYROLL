@@ -4,7 +4,7 @@ import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
-import { correctionsDue } from "@/lib/payroll/run-service";
+import { correctionsDue, loadFlagTaxRows } from "@/lib/payroll/run-service";
 import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
@@ -4061,8 +4061,9 @@ export async function GET(request) {
     if (firstLabel) {
       const firsts = await readPayrollEntries(supabase, { employeeIds: employees.map((e) => e.id), labels: [firstLabel] });
       const firstOf = new Map(firsts.entries.map((e) => [e.employee_id, e]));
+      const taxRows = await loadFlagTaxRows(supabase);
       sortedEntries.filter((e) => e.pay_period === activePeriod.label).forEach((entry) => {
-        const change = firstHalfChange(entry, firstOf.get(entry.employee_id) || null);
+        const change = firstHalfChange(entry, firstOf.get(entry.employee_id) || null, { taxRows });
         if (change) recompute[entry.employee_id] = change.reason;
       });
     }

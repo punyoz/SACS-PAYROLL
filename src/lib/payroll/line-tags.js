@@ -44,6 +44,12 @@ export const GROUP_TITLES = Object.freeze({
 
 export const DEFERRED_NOTE = "Deducted on the 2nd half of the month";
 
+/**
+ * The one note every 1st-half payslip shows, for every role and on every
+ * screen, print and PDF (buildLineGroups puts it on the result).
+ */
+export const FIRST_HALF_NOTE = "Government contributions and withholding tax are deducted on the 2nd-half payslip";
+
 const peso = (value) => roundPeso(Number(value) || 0);
 const num = (value) => Number(value) || 0;
 
@@ -248,7 +254,9 @@ export function buildLineGroups(input) {
     const unit = at.absent.unit || (num(at.absent.days) ? at.absent.amount / at.absent.days : 0);
     attendance.push(line("absent", "Absences", at.absent.amount, "-", "rate_units", `${plural(at.absent.days, "day")} × ${pesoText(unit)}/day = ${pesoText(at.absent.amount)}`, mark("absent")));
   } else if (overrides.absent) attendance.push(line("absent", "Absences", 0, "0", "rate_units", `${plural(at.absent?.days || 0, "day")} = ${pesoText(0)}`, mark("absent")));
-  if (at.late && (num(at.late.amount) > 0 || num(at.late.days) > 0 || num(at.late.minutes) > 0 || overrides.late)) {
+  // A late that costs nothing (₱0 under the policy) is not listed (audit 2026-11-16);
+  // an Accountant's override of it still is, with its mark.
+  if (at.late && (num(at.late.amount) > 0 || overrides.late)) {
     const charged = num(at.late.amount) > 0;
     const rule = at.late.per_absent > 0 ? `every ${at.late.per_absent} late days = 1 absence` : "";
     const minuteRule = at.late.minute_pct > 0 ? `${pct(at.late.minute_pct)} of the hourly rate per minute` : "";
@@ -299,7 +307,7 @@ export function buildLineGroups(input) {
     }
     : null;
 
-  return { half, groups, taxable, tax: taxInfo };
+  return { half, groups, taxable, tax: taxInfo, first_half_note: deferred ? FIRST_HALF_NOTE : null };
 }
 
 /** Additions less every deduction group: what the lines add up to. */
@@ -467,8 +475,6 @@ function wholeMonthHire(payroll) {
   return { payroll: { ...payroll, monthly: { ...m, cutoff } }, date, text: `hired ${date}` };
 }
 
-export const FIRST_HALF_NOTE = "Government contributions and withholding tax are deducted on the 2nd-half payslip";
-
 /**
  * A stored payslip as the employee sees it on My Payslips and in its PDF:
  * payrollLineGroups() without ₱0 lines or override marks (Accountant-only),
@@ -484,8 +490,8 @@ export function employeePayslipView(payroll, options = {}) {
   const groups = result.groups
     .map(({ note, ...group }) => ({
       ...group,
-      // A recorded-but-not-charged line (late at 0%) stays: the employee sees it was recorded.
-      lines: group.lines.filter((l) => num(l.amount) > 0 || l.tag === "not_charged").map(({ overridden, ...l }) => l),
+      // Only lines with an amount (a ₱0 "not charged" late is not shown, audit 2026-11-16).
+      lines: group.lines.filter((l) => num(l.amount) > 0).map(({ overridden, ...l }) => l),
       subtotal_label: group.key === "additions" ? "Total additions" : `Subtotal: ${group.title.replace(/ \(.*\)$/, "").toLowerCase()}`,
     }))
     .filter((group) => group.lines.length);
@@ -519,7 +525,9 @@ export function employeePayslipView(payroll, options = {}) {
   return {
     half: result.half,
     groups,
-    first_half_note: result.half === "first" ? FIRST_HALF_NOTE : null,
+    first_half_note: result.first_half_note || null,
+    // The withholding tax this payslip deducts: the "Why is there a withholding tax?" note shows only above ₱0.
+    tax_deducted: peso((result.groups.find((g) => g.key === "tax")?.subtotal) || 0),
     hire_note: hire ? `No 1st-half payslip: hired ${hire.date}` : null,
     tax_box: taxBox,
     leave_with_pay: leave > 0 ? { label: `Leave with pay (${plural(leave, "day")})`, value: "No deduction" } : null,

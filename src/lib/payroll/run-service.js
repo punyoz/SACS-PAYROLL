@@ -42,6 +42,20 @@ async function readEntries(supabase, branchIds, labels) {
   return result.data || [];
 }
 
+/**
+ * The tax table rows the "1st half changed" flag uses to say what the month
+ * changes if the 2nd half is recomputed (display only). [] on any error: the
+ * flag then shows the 1st half's own change only.
+ */
+export async function loadFlagTaxRows(supabase) {
+  try {
+    const { data, error } = await supabase.from("payroll_tax_brackets").select("version_id,effective_date,bracket_over,base_tax,rate_pct,created_at");
+    return error ? [] : data || [];
+  } catch {
+    return [];
+  }
+}
+
 /** The 1st halves of these employees for a 2nd-half period: Map employee_id -> entry (or nothing for a 1st half). */
 async function firstHalvesFor(supabase, periodLabel, employeeIds) {
   const firstLabel = firstHalfLabelOf(periodLabel);
@@ -50,13 +64,13 @@ async function firstHalvesFor(supabase, periodLabel, employeeIds) {
   const result = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS)
     .eq("pay_period", firstLabel).order("id", { ascending: true }), "employee_id", ids);
   if (result.error) throw new Error(result.error.message);
-  return { firstLabel, byEmployee: new Map((result.data || []).map((e) => [e.employee_id, e])) };
+  return { firstLabel, byEmployee: new Map((result.data || []).map((e) => [e.employee_id, e])), taxRows: await loadFlagTaxRows(supabase) };
 }
 
 /** A 2nd half whose 1st half changed since it was computed, or null. */
 function recomputeOf(entry, firsts) {
   if (!firsts.firstLabel) return null;
-  return firstHalfChange(entry, firsts.byEmployee.get(entry.employee_id) || null);
+  return firstHalfChange(entry, firsts.byEmployee.get(entry.employee_id) || null, { taxRows: firsts.taxRows });
 }
 
 /** One payslip row of the run card. */
@@ -401,8 +415,9 @@ export async function correctionsDue(supabase, rows) {
     "employee_id", [...new Set((seconds.data || []).map((e) => e.employee_id))]);
   if (firsts.error) throw new Error(firsts.error.message);
   const firstOf = new Map((firsts.data || []).map((e) => [`${e.employee_id}|${e.pay_period}`, e]));
+  const taxRows = await loadFlagTaxRows(supabase);
   const changed = (seconds.data || [])
-    .map((entry) => ({ entry, change: firstHalfChange(entry, firstOf.get(`${entry.employee_id}|${firstHalfLabelOf(entry.pay_period)}`) || null) }))
+    .map((entry) => ({ entry, change: firstHalfChange(entry, firstOf.get(`${entry.employee_id}|${firstHalfLabelOf(entry.pay_period)}`) || null, { taxRows }) }))
     .filter((x) => x.change);
   if (!changed.length) return out;
   const filed = await fetchAllIn(() => supabase.from("payroll_corrections").select("entry_id,status").in("status", ["pending", "approved"]).order("id", { ascending: true }),

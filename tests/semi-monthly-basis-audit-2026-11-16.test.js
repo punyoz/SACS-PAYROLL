@@ -332,3 +332,42 @@ describe("Case 4e: separated Sun Nov 22, 2026 (Final Pay, ₱30,000; 1st half �
     expect(Object.values(diff).every((v) => v === 0), JSON.stringify(month)).toBe(true);
   });
 });
+
+describe("Payslip display after the audit fixes (one fake ₱30,000 employee, every role's source)", () => {
+  const NOTE = "Government contributions and withholding tax are deducted on the 2nd-half payslip";
+  const pdfText = (buffer) => Buffer.from(buffer).toString("latin1");
+  it("1st half: the one note everywhere, no tax explainer, no ₱0 late line; 2nd half: no note, explainer when tax > 0; numbers unchanged", async () => {
+    const id = "display-30000";
+    person(id, 30000);
+    // Two late days at 0% in the 1st half: recorded, ₱0 (the hidden line).
+    ["2026-11-03", "2026-11-04"].forEach((key) => table("attendance_logs").push({ id: `late-${key}`, employee_id: id, branch_id: BRANCH, log_date: key, time_in: `${key}T00:20:00Z`, time_out: `${key}T09:00:00Z`, created_at: `${key}T00:00:00Z`, status: "Late", late_minutes: 20, undertime_minutes: 0, is_half_day: false, is_early_bird: false, archived_duplicate: false, arrival_offset_minutes: 20 }));
+    const { l1, l2 } = await processMonth("2026-11", [id]);
+    const { payrollLineGroups, employeePayslipView } = await import("@/lib/payroll/line-tags");
+    const { buildPayslipDetails } = await import("@/lib/payroll/payslip-details");
+    const { buildPayslipPdf } = await import("@/lib/payroll/payslip-pdf");
+    const first = entry(id, l1);
+    const second = entry(id, l2);
+
+    // Accountant Pay Record / Payroll Records and HR Payroll Approval (payrollLineGroups → PayrollLineGroups).
+    const g1 = payrollLineGroups(first.payroll);
+    expect(g1.first_half_note).toBe(NOTE);
+    expect(g1.groups.flatMap((g) => g.lines).some((l) => l.key === "late")).toBe(false);
+    expect(payrollLineGroups(second.payroll).first_half_note).toBeNull();
+    // Employee / HR / Accountant My Payslips (employeePayslipView), screen and PDF.
+    const v1 = employeePayslipView(first.payroll);
+    const v2 = employeePayslipView(second.payroll);
+    expect([v1.first_half_note, v1.tax_deducted]).toEqual([NOTE, 0]);
+    expect([v2.first_half_note, v2.tax_deducted]).toEqual([null, 1007.55]);
+    // Numbers unchanged: the payslips' own figures.
+    expect([v1.gross, v1.total_deductions, v1.net]).toEqual([15000, 0, 15000]);
+    expect([v2.net, v2.month_total.total]).toEqual([11542.45, 26542.45]);
+
+    // Accountant / HR PDF (stored cutoff lines) and the employee PDF (employee_view).
+    const accountantPdf = pdfText(buildPayslipPdf(buildPayslipDetails(first)));
+    const employeePdf = pdfText(buildPayslipPdf({ ...buildPayslipDetails(first), employee_view: v1 }));
+    for (const text of [accountantPdf, employeePdf]) {
+      expect(text).toContain("Government contributions"); // the PDF wraps the note onto two lines
+      expect(text).not.toMatch(/Late deduction|Tax, SSS, PhilHealth, Pag-IBIG and loans/);
+    }
+  });
+});

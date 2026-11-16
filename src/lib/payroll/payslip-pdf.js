@@ -14,6 +14,7 @@
 import { money } from "@/lib/payroll/payslip-summary";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
+import { FIRST_HALF_NOTE } from "@/lib/payroll/line-tags";
 import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 
 const PAGE_W = 595;
@@ -138,11 +139,14 @@ function cutoffRows(p, c, holidayLines = []) {
   p.row("Gross pay", c.gross_pay || 0, { bold: true });
   p.heading("Deductions");
   if (Number(c.leave_with_pay_days) > 0) p.row(`Leave with pay (${c.leave_with_pay_days} days) - no deduction`, null);
-  if (!c.deductions.length) p.row("No deductions", 0);
+  // A ₱0 line (a late not charged at 0%) is not printed (audit 2026-11-16).
+  const shown = c.deductions.filter((line) => line.credit || Number(line.amount) > 0);
+  if (!shown.length) p.row("No deductions", 0);
   // A credit (the year-end tax refund) is added to the pay: shown negative here.
-  c.deductions.forEach((line) => p.row(line.credit ? `${line.label} - added to pay` : line.label, line.credit ? -line.amount : line.amount, { note: line.note || "" }));
+  shown.forEach((line) => p.row(line.credit ? `${line.label} - added to pay` : line.label, line.credit ? -line.amount : line.amount, { note: line.note || "" }));
   p.row("Total deductions", c.total_deductions || 0, { bold: true });
-  if (c.half === "first") p.row("Tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.", null);
+  // The same 1st-half note as every screen (line-tags.js FIRST_HALF_NOTE).
+  if (c.half === "first") p.row(`${FIRST_HALF_NOTE}.`, null);
   if (Number(c.carry_over_out) > 0) p.row("Balance carried to next month", c.carry_over_out);
 }
 

@@ -213,16 +213,15 @@ describe("the stored payslip (payslip and HR view): same groups, from its own fi
     expect(payrollLineGroups(broken)).toBeNull();
   });
 
-  it("My Payslips keeps a late day recorded at ₱0 (Not charged); other ₱0 lines stay hidden (2026-11-16)", () => {
+  it("My Payslips hides a late day at ₱0 (Not charged) and every other ₱0 line (audit 2026-11-16)", () => {
     const payroll = JSON.parse(JSON.stringify(entry("u-mid", SECOND).payroll));
     payroll.deductions = { ...payroll.deductions, late_days: 2, late_minutes: 25 };
     payroll.totals = { ...payroll.totals, late_deduction: 0 };
     const view = employeePayslipView(payroll);
     expect(view).not.toBeNull();
     const attendance = view.groups.find((g) => g.key === "attendance");
-    expect(attendance.lines.find((l) => l.key === "late")).toMatchObject({ label: "Late (2 days, 25 min)", amount: 0, sign: "0", tag: "not_charged" });
-    // ₱0 lines that record nothing (no absence, no undertime) are still left out.
-    expect(attendance.lines.map((l) => l.key)).toEqual(["late"]);
+    // A late at ₱0 is no longer listed (audit 2026-11-16), nor any other ₱0 line.
+    expect(attendance?.lines.find((l) => l.key === "late")).toBeUndefined();
     // Nothing else changes: the payslip's own net.
     expect(view.net).toBe(employeePayslipView(entry("u-mid", SECOND).payroll).net);
   });
@@ -244,7 +243,8 @@ describe("rate × units, fixed and not charged lines; overrides marked", () => {
     });
     expect(lineIn(result, "attendance", "absent")).toMatchObject({ tag: "rate_units", how: "1 day × ₱850.57/day = ₱850.57", overridden: { reason: "RFID reader down" } });
     expect(lineIn(result, "attendance", "undertime")).toMatchObject({ tag: "rate_units", how: "30 minutes × ₱106.32/hour ÷ 60 = ₱53.16" });
-    expect(lineIn(result, "attendance", "late")).toMatchObject({ tag: "not_charged", amount: 0, sign: "0" });
+    // A late at ₱0 (not charged, no override) is not listed (audit 2026-11-16).
+    expect(lineIn(result, "attendance", "late")).toBeUndefined();
     expect(lineIn(result, "loans", "cash_advance-0")).toMatchObject({ tag: "fixed", sign: "-" });
   });
 
@@ -288,6 +288,8 @@ describe("compact Process Payroll summary (cleanup 2026-11-14)", () => {
     expect(compact.groups.find((g) => g.key === "tax").note).toBeNull();
     expect(lineIn(compact, "additions", "basic").how).toBe("₱32,000 ÷ 2");
     expect(lineIn(compact, "attendance", "absent")).toMatchObject({ how: null, overridden: { reason: "RFID down" } });
-    expect(lineIn(compact, "attendance", "late")).toMatchObject({ how: null, tag: "not_charged", tip: "Late charge 0% under the current policy: recorded, not deducted" });
+    // A late at ₱0 is not listed (audit 2026-11-16); the 1st half carries the one shared note.
+    expect(lineIn(compact, "attendance", "late")).toBeUndefined();
+    expect(compact.first_half_note).toBe("Government contributions and withholding tax are deducted on the 2nd-half payslip");
   });
 });
