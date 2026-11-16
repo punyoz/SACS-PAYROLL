@@ -279,6 +279,10 @@ function BatchActions({ row, busy, onGenerate, onView, onEdit, onResolve }) {
   const attendanceBlocked = state.reasons.some((r) => r.kind === "attendance");
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
+      {/* View first, so "Generate final" lines up beside the ⋯ menu on every row. */}
+      {state.slip?.entry_id && (state.status === "final" || state.status === "draft" || state.status === "in_run") ? (
+        <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.slip.entry_id)}>View</Button>
+      ) : null}
       {state.processable ? (
         <Button size="sm" className="h-7" variant={state.finalNext && state.canGenerate ? "default" : "outline"} title={state.generateTitle} disabled={!state.canGenerate || busy} onClick={() => onGenerate(employee.id)}>
           {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{generateLabel}
@@ -289,9 +293,6 @@ function BatchActions({ row, busy, onGenerate, onView, onEdit, onResolve }) {
           title={`Recompute with the current 1st half: ${state.recompute}`}>
           {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <RefreshCwIcon aria-hidden="true" />}Recompute
         </Button>
-      ) : null}
-      {state.slip?.entry_id && (state.status === "final" || state.status === "draft" || state.status === "in_run") ? (
-        <Button variant="outline" size="sm" className="h-7" onClick={() => onView(state.slip.entry_id)}>View</Button>
       ) : null}
       {attendanceBlocked ? <Button variant="link" size="sm" className="h-7 px-1 text-warning" onClick={onResolve}>Resolve</Button> : null}
       <DropdownMenu>
