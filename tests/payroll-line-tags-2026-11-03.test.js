@@ -16,7 +16,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, table, users } from "./helpers/fake-supabase.js";
 import { computeSummary, defaultForm } from "@/lib/portal/payroll-preview";
 import { compactLineGroups, previewLineGroups } from "@/lib/portal/payroll-line-preview";
-import { DEFERRED_NOTE, LINE_TAGS, buildLineGroups, linesNet, payrollLineGroups, taxExplanation } from "@/lib/payroll/line-tags";
+import { DEFERRED_NOTE, LINE_TAGS, buildLineGroups, employeePayslipView, linesNet, payrollLineGroups, taxExplanation } from "@/lib/payroll/line-tags";
 import { buildPayslipDetails } from "@/lib/payroll/payslip-details";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
@@ -211,6 +211,20 @@ describe("the stored payslip (payslip and HR view): same groups, from its own fi
     const broken = JSON.parse(JSON.stringify(entry("u-mid", SECOND).payroll));
     broken.monthly.cutoff.total_deductions += 100;
     expect(payrollLineGroups(broken)).toBeNull();
+  });
+
+  it("My Payslips keeps a late day recorded at ₱0 (Not charged); other ₱0 lines stay hidden (2026-11-16)", () => {
+    const payroll = JSON.parse(JSON.stringify(entry("u-mid", SECOND).payroll));
+    payroll.deductions = { ...payroll.deductions, late_days: 2, late_minutes: 25 };
+    payroll.totals = { ...payroll.totals, late_deduction: 0 };
+    const view = employeePayslipView(payroll);
+    expect(view).not.toBeNull();
+    const attendance = view.groups.find((g) => g.key === "attendance");
+    expect(attendance.lines.find((l) => l.key === "late")).toMatchObject({ label: "Late (2 days, 25 min)", amount: 0, sign: "0", tag: "not_charged" });
+    // ₱0 lines that record nothing (no absence, no undertime) are still left out.
+    expect(attendance.lines.map((l) => l.key)).toEqual(["late"]);
+    // Nothing else changes: the payslip's own net.
+    expect(view.net).toBe(employeePayslipView(entry("u-mid", SECOND).payroll).net);
   });
 });
 
