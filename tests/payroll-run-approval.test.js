@@ -716,6 +716,53 @@ describe("Payroll Approval workflow", () => {
     expect(JSON.stringify(entryOf(ANA, SECOND).payroll)).toBe(paid);
   });
 
+  it("Needs correction (2026-11-16): only when the Paid 2nd half used an old 1st half, gone once a correction is filed, branch-scoped, amounts unchanged", async () => {
+    const hrRecords = await import("@/app/api/hr/payroll-records/route");
+    const acctRows = async (who = ACCT) => (await json(payroll.GET(req(who, `/api/accountant/payroll?period=${encodeURIComponent(SECOND)}`)))).body.history_records || [];
+    const hrRows = async () => (await json(hrRecords.GET(req(HR, "/api/hr/payroll-records?page_size=100")))).body.records || [];
+    const flag = (rows, employeeId = ANA) => rows.find((r) => r.employee_id === employeeId && r.pay_period === SECOND)?.needs_correction || null;
+
+    await processBranchA();
+    await submit();
+    vi.setSystemTime(new Date("2026-11-02T10:00:00+08:00"));
+    await processBranchA(SECOND);
+    await submit(SECOND);
+    await approveRun(latestRun(BRANCH_A, SECOND));
+    // Paid, 1st half unchanged: no warning anywhere.
+    expect(flag(await acctRows())).toBeNull();
+    expect(flag(await hrRows())).toBeNull();
+
+    const paid = JSON.stringify(entryOf(ANA, SECOND).payroll);
+    await rejectRun(latestRun(BRANCH_A));
+    absentOct7();
+    expect((await processOne(ANA, FIRST, { reprocess: true })).status).toBe(200);
+
+    // Now true: the Accountant of the branch and HR see it, on Ana's row only.
+    const shown = flag(await acctRows());
+    expect(shown).toMatchObject({ kind: "underpayment", period_label: SECOND });
+    expect(shown.amount).toBeGreaterThan(0);
+    expect(shown.reason).toMatch(/^1st half changed/);
+    expect(flag(await acctRows(), BEN)).toBeNull();
+    expect(flag(await hrRows())).toMatchObject({ kind: "underpayment" });
+    // HR's payslip view carries it too.
+    const one = await json(hrRecords.GET(req(HR, `/api/hr/payroll-records?entry_id=${entryOf(ANA, SECOND).id}`)));
+    expect(one.body.needs_correction).toMatchObject({ kind: "underpayment" });
+    // The other branch's Accountant never receives Main's payslips, so never the warning.
+    expect((await acctRows(ACCT_B)).some((r) => r.employee_id === ANA)).toBe(false);
+    // The warning changes nothing: the Paid payslip's figures are the same.
+    expect(JSON.stringify(entryOf(ANA, SECOND).payroll)).toBe(paid);
+
+    // A correction filed: gone. Rejected: back. Approved: gone for good.
+    table("payroll_corrections").push({ id: "c1", entry_id: entryOf(ANA, SECOND).id, status: "pending" });
+    expect(flag(await acctRows())).toBeNull();
+    expect(flag(await hrRows())).toBeNull();
+    table("payroll_corrections").find((c) => c.id === "c1").status = "rejected";
+    expect(flag(await acctRows())).not.toBeNull();
+    table("payroll_corrections").find((c) => c.id === "c1").status = "approved";
+    expect(flag(await acctRows())).toBeNull();
+    expect(JSON.stringify(entryOf(ANA, SECOND).payroll)).toBe(paid);
+  });
+
   it("left out until Paid: In supplemental run while Pending, back on the list if rejected, gone once Paid", async () => {
     await processOne(ANA);
     await submit(FIRST, { acknowledge_exclusions: true, exclusion_notes: { [BEN]: "Pending documents" } });

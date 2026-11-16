@@ -541,3 +541,110 @@ test.describe("Parts 5-6 Process Payroll (Accountant, Main Branch)", () => {
     expect(still.status).toBe("draft");
   });
 });
+
+// ---------------------------------------------------------------- Needs correction (2026-11-16)
+// A Paid 2nd half computed with an old 1st half: planted LOCALLY by changing
+// only that payslip's stored 1st-half basis (restored afterwards). The badge
+// shows on its row and payslip for the branch's Accountant and HR, nowhere
+// else, and goes once a correction is filed.
+test.describe("Needs correction warning", () => {
+  test("only when true; on the row and the payslip; Accountant of the branch + HR; gone once corrected; amounts unchanged", async ({ browser }) => {
+    test.skip(!AFTER, "after only");
+    test.setTimeout(5 * 60 * 1000);
+    const PERIOD = "September 16-30, 2026";
+    const [target] = await rows(`select e.id, e.employee_name, e.payroll->'monthly'->'first_half_basis' as basis,
+      e.payroll->'totals' as totals, e.payslip_no from payroll_entries e join branches b on b.id = e.branch_id
+      join payroll_runs r on r.id = e.run_id where b.name = 'Main Branch' and e.pay_period = '${PERIOD}' and e.status = 'paid'
+      and r.status = 'approved' and e.payroll->'monthly'->'first_half_basis' is not null order by e.employee_name limit 1`);
+    expect(target, "a Paid Main Branch 2nd half with a 1st-half basis").toBeTruthy();
+    const open = async (role, path) => {
+      const context = await browser.newContext({ storageState: stateFile(role), viewport: DESKTOP });
+      await fixClock(context);
+      const page = await context.newPage();
+      await page.goto(path);
+      await main(page).waitFor();
+      await page.waitForFunction(() => !document.querySelector("#portal-main [data-slot=skeleton]"), null, { timeout: 30000 }).catch(() => {});
+      return { page, context };
+    };
+    const acctRecords = `/accountant?page=ac-records`;
+    const hrRecords = `/hr?page=hr-payroll-records&pr_period=${encodeURIComponent(PERIOD)}`;
+    const search = async (page, text) => { await main(page).getByRole("searchbox").first().fill(text); await page.waitForTimeout(400); };
+
+    // 1. Not true yet: no warning on either screen.
+    for (const [role, path] of [["accountant", acctRecords], ["hr", hrRecords]]) {
+      const { page, context } = await open(role, path);
+      await expect(main(page).getByTestId("needs-correction")).toHaveCount(0);
+      await context.close();
+    }
+
+    // 2. Plant: the 1st half this payslip was computed with differs by ₱100 (only the stored basis).
+    // Local fixture only: the Final-payslip lock is bypassed for this one planted edit (and its restore).
+    psql(`set session_replication_role = replica; update payroll_entries set payroll = jsonb_set(payroll, '{monthly,first_half_basis,net_pay}', to_jsonb((payroll->'monthly'->'first_half_basis'->>'net_pay')::numeric - 100)) where id = '${target.id}'`);
+    try {
+      // Accountant of Main: the row badge, Correct opens the dialog with the suggested values; nothing filed.
+      {
+        const { page, context } = await open("accountant", acctRecords);
+        await search(page, target.employee_name);
+        const row = main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: target.employee_name });
+        await expect(row.getByTestId("needs-correction")).toContainText("Needs correction: computed with an old 1st half");
+        await expect(main(page).getByTestId("needs-correction")).toHaveCount(1);
+        await shot(row, "needs-correction-row-accountant");
+        await row.getByTestId("needs-correction").getByRole("button", { name: "Correct" }).click();
+        const dialog = page.getByRole("dialog");
+        await expect(dialog).toBeVisible();
+        await expect(dialog.locator("input[type=number]").first()).toHaveValue(/^100(\.00?)?$/);
+        await shot(dialog, "needs-correction-dialog");
+        await page.keyboard.press("Escape");
+        // The payslip view (the row's Payslip button): the same warning, with the way to the correction.
+        await row.getByRole("button", { name: "Payslip" }).click();
+        const note = main(page).getByTestId("needs-correction-note");
+        await expect(note).toBeVisible({ timeout: 30000 });
+        await shot(page, "needs-correction-payslip-accountant");
+        await note.getByRole("link", { name: "Correct in Payroll Records" }).click();
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await context.close();
+      }
+      // HR: the row badge (no filing), the payslip note linking to Payroll Approval.
+      {
+        const { page, context } = await open("hr", hrRecords);
+        await search(page, target.employee_name);
+        const row = main(page).locator("tr").filter({ hasText: target.employee_name });
+        await expect(row.getByTestId("needs-correction")).toBeVisible();
+        await expect(row.getByTestId("needs-correction").getByRole("button")).toHaveCount(0);
+        await row.getByRole("button", { name: "View" }).click();
+        const note = main(page).getByTestId("needs-correction-note");
+        await expect(note).toBeVisible();
+        await expect(note.getByRole("link", { name: "Corrections in Payroll Approval" })).toBeVisible();
+        await shot(page, "needs-correction-payslip-hr");
+        await context.close();
+      }
+      // Another branch's Accountant: never sees it (their records hold no Main payslip).
+      {
+        const { page, context } = await open("accountant_single", acctRecords);
+        await expect(main(page).getByTestId("needs-correction")).toHaveCount(0);
+        const api = await (await page.request.get(`/api/accountant/payroll?period=${encodeURIComponent(PERIOD)}`)).json();
+        expect((api.history_records || []).some((r) => r.id === target.id)).toBe(false);
+        await context.close();
+      }
+      // 3. A correction filed (Pending): the warning is gone.
+      psql(`insert into payroll_corrections (entry_id, employee_id, branch_id, period_label, kind, amount, reason, status, requested_by_name)
+        select e.id, e.employee_id, e.branch_id, e.pay_period, 'underpayment', 100, 'E2E planted check', 'pending', 'E2E' from payroll_entries e where e.id = '${target.id}'`);
+      {
+        const { page, context } = await open("accountant", acctRecords);
+        await search(page, target.employee_name);
+        await expect(main(page).getByTestId("needs-correction")).toHaveCount(0);
+        await context.close();
+      }
+    } finally {
+      // Restore first, then remove the planted correction (hard deletes are refused outside replica mode).
+      psql(`set session_replication_role = replica; update payroll_entries set payroll = jsonb_set(payroll, '{monthly,first_half_basis}', '${JSON.stringify(target.basis)}'::jsonb) where id = '${target.id}'`);
+      psql(`set session_replication_role = replica; delete from payroll_corrections where entry_id = '${target.id}' and reason = 'E2E planted check'`);
+    }
+    // 4. Amounts and payslip number unchanged.
+    const [after] = await rows(`select e.payroll->'totals' as totals, e.payslip_no, e.payroll->'monthly'->'first_half_basis' as basis from payroll_entries e where e.id = '${target.id}'`);
+    expect(after.totals).toEqual(target.totals);
+    expect(after.payslip_no).toBe(target.payslip_no);
+    expect(after.basis).toEqual(target.basis);
+  });
+});
+

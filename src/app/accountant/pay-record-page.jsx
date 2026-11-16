@@ -19,6 +19,7 @@ import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory"
 import { useAccountant } from "./accountant-data";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { printPdf } from "@/lib/portal/print-pdf";
+import { NeedsCorrectionNote } from "@/components/portal/payroll-corrections";
 
 /*
  * Pay Record (renderPayslipDetails / renderPayslipGeneration /
@@ -345,6 +346,8 @@ export function PayRecordPage() {
           </div>
         </CardContent>
       </Card>
+      {payslip ? <NeedsCorrectionNote role="accountant" entryId={payslip.entry_id}
+        info={(data?.history_records || data?.records || []).find((r) => String(r.id) === String(payslip.entry_id))?.needs_correction} /> : null}
       {loading && !payslip ? <Skeleton className="h-[480px] w-full rounded-xl" /> : payslip ? <PayslipDocument payslip={payslip} /> : (
         <Card className="shadow-xs"><CardContent><EmptyState icon={ReceiptTextIcon} title="No payslip selected" description="Process payroll or pick a payslip above." /></CardContent></Card>
       )}

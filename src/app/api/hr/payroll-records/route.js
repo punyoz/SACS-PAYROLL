@@ -12,6 +12,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { correctionsDue } from "@/lib/payroll/run-service";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -94,6 +95,9 @@ export async function GET(request) {
       }
       if (!entry) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase) });
+      // A Paid 2nd half computed with an old 1st half (2026-11-16): the same warning as the list row.
+      const run = entry.run_id ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data : null;
+      const needsCorrection = (await correctionsDue(supabase, [{ ...entry, run_status: run?.status || null }])).get(String(entry.id)) || null;
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
         const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
         const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
@@ -102,7 +106,7 @@ export async function GET(request) {
           headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileName}"`, "Cache-Control": "no-store" },
         });
       }
-      return NextResponse.json({ payslip: details });
+      return NextResponse.json({ payslip: details, needs_correction: needsCorrection });
     }
 
     // The list: one page, filtered, with the filters' totals.
@@ -159,6 +163,8 @@ export async function GET(request) {
         run_label: run ? RUN_LABELS[run] || run : null,
       };
     });
+    const due = await correctionsDue(supabase, records);
+    records.forEach((record) => { if (due.has(String(record.id))) record.needs_correction = due.get(String(record.id)); });
     const sums = Array.isArray(totals.data) ? totals.data[0] : totals.data;
 
     return NextResponse.json({

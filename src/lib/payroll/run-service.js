@@ -381,6 +381,47 @@ export const FOLLOW_UP_LABELS = Object.freeze({
 });
 
 /**
+ * Paid 2nd halves that need a correction (2026-11-16): their 1st half changed
+ * after they were computed, and no correction is filed for them yet (Pending
+ * or Approved). A Rejected correction shows the warning again. Payroll
+ * Records and the payslip view show it inline; nothing is listed elsewhere.
+ *
+ * rows: records already scoped to the caller ({ id, employee_id, pay_period,
+ * run_status }). Returns Map(entry id -> { reason, kind, amount, period_label }).
+ * @returns {Promise<Map<string, object>>}
+ */
+export async function correctionsDue(supabase, rows) {
+  const candidates = (rows || []).filter((r) => r?.id && r.run_status === "approved" && firstHalfLabelOf(r.pay_period));
+  const out = new Map();
+  if (!candidates.length) return out;
+  const seconds = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS).order("id", { ascending: true }), "id", candidates.map((r) => r.id));
+  if (seconds.error) throw new Error(seconds.error.message);
+  const firstLabels = [...new Set((seconds.data || []).map((e) => firstHalfLabelOf(e.pay_period)))];
+  const firsts = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS).in("pay_period", firstLabels).order("id", { ascending: true }),
+    "employee_id", [...new Set((seconds.data || []).map((e) => e.employee_id))]);
+  if (firsts.error) throw new Error(firsts.error.message);
+  const firstOf = new Map((firsts.data || []).map((e) => [`${e.employee_id}|${e.pay_period}`, e]));
+  const changed = (seconds.data || [])
+    .map((entry) => ({ entry, change: firstHalfChange(entry, firstOf.get(`${entry.employee_id}|${firstHalfLabelOf(entry.pay_period)}`) || null) }))
+    .filter((x) => x.change);
+  if (!changed.length) return out;
+  const filed = await fetchAllIn(() => supabase.from("payroll_corrections").select("entry_id,status").in("status", ["pending", "approved"]).order("id", { ascending: true }),
+    "entry_id", changed.map((x) => x.entry.id));
+  if (filed.error) throw new Error(filed.error.message);
+  const done = new Set((filed.data || []).map((c) => String(c.entry_id)));
+  changed.filter((x) => !done.has(String(x.entry.id))).forEach(({ entry, change }) => {
+    out.set(String(entry.id), {
+      reason: change.reason,
+      // The month settles against the 1st half: a larger 1st half means this 2nd half paid too much.
+      kind: change.difference > 0 ? "overpayment" : "underpayment",
+      amount: Math.abs(change.difference),
+      period_label: entry.pay_period,
+    });
+  });
+  return out;
+}
+
+/**
  * Employees left out of a submitted run who are not paid for that period
  * yet: the follow-up list (Accountant: own branch; HR: every branch). They
  * stay until a run holding their payslip is Paid (2026-11-15); while that

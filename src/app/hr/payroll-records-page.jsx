@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { PayslipDocument } from "@/app/accountant/pay-record-page";
 import { RemittanceCard } from "@/components/portal/remittance-report";
 import { printPdf } from "@/lib/portal/print-pdf";
+import { NeedsCorrectionBadge, NeedsCorrectionNote } from "@/components/portal/payroll-corrections";
 
 /*
  * HR → Payroll Records (/api/hr/payroll-records). Every branch's processed
@@ -62,7 +63,7 @@ export function PayrollRecordsPage({ refreshKey }) {
     setOpen({ id, loading: true, error: null, payslip: null });
     try {
       const data = await fetchJson(`/api/hr/payroll-records?entry_id=${encodeURIComponent(id)}`);
-      setOpen({ id, loading: false, error: null, payslip: data.payslip });
+      setOpen({ id, loading: false, error: null, payslip: data.payslip, needsCorrection: data.needs_correction || null });
     } catch (err) {
       setOpen({ id, loading: false, error: err.message || "Unable to open the payslip.", payslip: null });
     }
@@ -121,6 +122,7 @@ export function PayrollRecordsPage({ refreshKey }) {
         </Card>
         {open.loading ? <Skeleton className="h-[480px] w-full rounded-xl" /> : null}
         {open.error ? <Card className="shadow-xs"><CardContent><ErrorState message={open.error} onRetry={() => view(open.id)} /></CardContent></Card> : null}
+        {open.payslip ? <NeedsCorrectionNote role="hr" entryId={open.id} info={open.needsCorrection} /> : null}
         {open.payslip ? <PayslipDocument payslip={open.payslip} /> : null}
       </>
     );
@@ -134,7 +136,15 @@ export function PayrollRecordsPage({ refreshKey }) {
     { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.total_deductions || 0), cell: (r) => moneyCompact(r.total_deductions) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
     // The four payroll statuses, as the Accountant sees them (records here are processed payslips).
-    { key: "run_status", header: "Status", cell: (r) => { const s = recordStatusMeta({ status: "paid", pay_period: r.pay_period, run_status: r.run_status }); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
+    {
+      key: "run_status",
+      header: "Status",
+      cell: (r) => {
+        const s = recordStatusMeta({ status: "paid", pay_period: r.pay_period, run_status: r.run_status });
+        // HR does not file corrections: the badge only (the Accountant files, HR decides in Payroll Approval).
+        return <div className="flex flex-wrap items-center gap-1.5"><StatusBadge tone={s.tone}>{s.label}</StatusBadge><NeedsCorrectionBadge info={r.needs_correction} /></div>;
+      },
+    },
     { key: "view", header: <span className="sr-only">Payslip</span>, align: "right", cell: (r) => <Button variant="outline" size="sm" onClick={() => view(r.id)}>View</Button> },
   ];
 

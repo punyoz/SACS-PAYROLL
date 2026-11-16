@@ -17,6 +17,8 @@ import { dateTime, moneyCompact } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
 import { CORRECTION_KIND_LABELS, CORRECTION_STATUS_TONES } from "@/lib/payroll/corrections";
 import { PESO_MAX } from "@/lib/input-limits";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { followPortalLink, portalHref } from "@/lib/portal/navigate";
 
 /*
  * Payroll corrections after HR approval (/api/payroll/corrections,
@@ -237,5 +239,55 @@ export function CorrectionsCard({ refreshKey, className }) {
       <CorrectionDialog correction={resubmit} onClose={() => setResubmit(null)} onSaved={load} />
       <HistoryDialog row={history} onClose={() => setHistory(null)} />
     </Card>
+  );
+}
+
+/*
+ * A Paid 2nd half computed with an old 1st half (2026-11-16): an inline
+ * warning on its Payroll Records row and its payslip, from the server's
+ * needs_correction ({ reason, kind, amount, period_label }). It is gone once
+ * a correction is filed. The reason (with figures) is only in the hover text.
+ */
+export const NEEDS_CORRECTION_LABEL = "Needs correction: computed with an old 1st half";
+
+/** The Correct dialog's suggested values for that payslip; the Accountant reviews them. */
+export function correctionPrefill(info) {
+  if (!info) return null;
+  return { kind: info.kind, amount: info.amount, reason: `${info.reason} after the ${info.period_label} payslip was paid.` };
+}
+
+/** The Accountant's Payroll Records address that opens the Correct dialog for this payslip. */
+export function correctionHref(entryId, info) {
+  const pre = correctionPrefill(info);
+  return portalHref("ac-records", { correct: entryId, ...(pre?.amount ? { kind: pre.kind, amount: String(pre.amount), why: pre.reason } : {}) });
+}
+
+/** The row badge, with the way into the correction flow (`action`). */
+export function NeedsCorrectionBadge({ info, action = null }) {
+  if (!info) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="needs-correction">
+      <StatusBadge tone="warning"><span title={info.reason}>{NEEDS_CORRECTION_LABEL}</span></StatusBadge>
+      {action}
+    </span>
+  );
+}
+
+/** The same warning above a payslip. role: "accountant" files the correction; "hr" decides it in Payroll Approval. */
+export function NeedsCorrectionNote({ info, entryId, role }) {
+  if (!info) return null;
+  const href = role === "accountant" ? correctionHref(entryId, info) : portalHref("hr-payroll-approval");
+  return (
+    <Alert className="border-warning/40 bg-warning/10" data-testid="needs-correction-note">
+      <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <strong className="text-foreground">{NEEDS_CORRECTION_LABEL}.</strong>
+        <span title={info.reason}>{role === "accountant"
+          ? "The 1st half changed after this payslip was paid. File a correction on a later payslip."
+          : "The 1st half changed after this payslip was paid. The branch Accountant files the correction; you decide it in Payroll Approval."}</span>
+        <a href={href} onClick={followPortalLink} className="inline-flex min-h-10 items-center font-medium text-primary underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 md:min-h-0">
+          {role === "accountant" ? "Correct in Payroll Records" : "Corrections in Payroll Approval"}
+        </a>
+      </AlertDescription>
+    </Alert>
   );
 }

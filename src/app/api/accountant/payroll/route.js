@@ -4,6 +4,7 @@ import { floorNetPay } from "@/lib/payroll/net-pay";
 import crypto from "node:crypto";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
+import { correctionsDue } from "@/lib/payroll/run-service";
 import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { readLeaveRequestsWithoutProof } from "@/lib/leave-requests/store";
 import { listUsersCached } from "@/lib/auth/users-cache";
@@ -3999,7 +4000,11 @@ export async function GET(request) {
       ...record,
       run_status: recordRunStatus(runStatusByKey, record),
     });
-    const historyRecords = historyEntries.map(mapEntryToRecord).map(compactHistoryRecord).map(withRunStatus);
+    // A Paid 2nd half computed with an old 1st half, not corrected yet: an inline warning (2026-11-16).
+    const baseHistory = historyEntries.map(mapEntryToRecord).map(compactHistoryRecord).map(withRunStatus);
+    const due = await correctionsDue(supabase, baseHistory);
+    const withCorrection = (record) => (due.has(String(record.id)) ? { ...record, needs_correction: due.get(String(record.id)) } : record);
+    const historyRecords = baseHistory.map(withCorrection);
 
     // Payroll Records as Excel / PDF (alpha test B4): the history shown, demo
     // people left out, deductions below zero, with totals.
@@ -4072,7 +4077,7 @@ export async function GET(request) {
       history_years: years,
       // Compact like the history: the full payroll object stays on the server
       // (the Pay Record view is built there); drafts are sent whole below.
-      records: payrollRecords.map(compactHistoryRecord).map(withRunStatus).map(markDemo),
+      records: payrollRecords.map(compactHistoryRecord).map(withRunStatus).map(withCorrection).map(markDemo),
       panels: buildPayrollPanels(payrollRecords),
       history_records: historyRecords.map(markDemo),
       history_panels: buildPayrollPanels(historyRecords),
