@@ -151,7 +151,7 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
   // would be skipped and the demo rows would attach to that real person.
   const people = (bundle.tables.profiles || []).map((p) => String(p.id));
   if (people.length) {
-    const real = await db.rows(`select id::text id, full_name from profiles where id::text in (${listOf(people)}) and not (${demoFilter()}) and id::text not in (${listOf(idsOf("profiles"))})`);
+    const real = await db.rows(`select id::text id, full_name from profiles where id::text in (${listOf(people)}) and (${demoFilter()}) is not true and id::text not in (${listOf(idsOf("profiles"))})`);
     if (real.length) throw new Error(`${real.length} demo person id(s) belong to non-demo profiles on the target (${real.slice(0, 5).map((r) => r.full_name || r.id).join(", ")}): nothing loaded.`);
   }
   const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
@@ -372,7 +372,7 @@ async function wipeSql(db, data) {
   const nullable = new Set((await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'YES'")).map((r) => `${r.t}.${r.c}`));
   // Bounded: a lock that does not come within 5 s, or a statement over 45 s,
   // fails the whole wipe (rolled back) instead of holding live tables.
-  const sql = [`set local lock_timeout = '5s'; set local statement_timeout = '45s';
+  const sql = [`set local lock_timeout = '5s'; set local statement_timeout = '45s'; set local idle_in_transaction_session_timeout = '15s';
     select pg_advisory_xact_lock(${WIPE_LOCK});
     alter table profiles disable trigger user;
     update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D});
@@ -456,7 +456,11 @@ async function wipe(db, data, sql) {
     // Never resent: after a lost answer the commit may already have happened.
     await db.exec(`begin;\n${sql}\ncommit;`, { retry: false });
   } catch (error) {
-    const outcome = await wipeOutcome(db, data);
+    let outcome = await wipeOutcome(db, data);
+    // Everyone still there proves "nothing deleted" only when the database itself
+    // answered with its error; after a lost or early-failed request the wipe may
+    // not have started yet and could still run.
+    if (outcome === "nothing" && !error.refused) outcome = "unknown";
     if (outcome !== "committed") {
       const failed = new Error(outcome === "nothing"
         ? `The wipe failed and nothing was deleted (checked: every demo person is still there).\n  ${String(error.message).slice(0, 600)}`
