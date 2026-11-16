@@ -623,10 +623,17 @@ const commands = {
     const [auto] = await db.rows(`select count(*)::int n from attendance_logs where employee_id in (${ids}) and log_date >= ${lit(from)}
       and time_in is null and time_out is null and status = 'Absent' and changed_by is null and leave_request_id is null`);
     const to = new Date(Date.parse(`${defense}T00:00:00Z`) - 864e5).toISOString().slice(0, 10);
-    const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    const manilaNow = new Date(Date.now() + 8 * 3600e3);
+    const today = manilaNow.toISOString().slice(0, 10);
     const until = to < today ? to : today;
     if (from > until) return say(`Nothing to add: attendance already reaches ${last.d}.`);
+    // An evening run (from 20:00 Manila, after the last overtime tap-out at 19:29): today is a
+    // finished day like the others (tapped in and out; the few absent are marked by the nightly
+    // job). Earlier in the day, today looks live: some tapped in only, some not yet.
+    const dayOver = until < today || manilaNow.getUTCHours() >= 20;
+    const asOf = dayOver ? new Date(Date.parse(`${until}T00:00:00Z`) + 864e5).toISOString().slice(0, 10) : today;
     say(`Will ADD attendance for ${active.length} demo people from ${from} to ${until} (working days, never a future day; nothing existing is changed:`);
+    say(dayOver ? `${until} is treated as a finished day (taps in and out).` : `It is before 20:00 Manila: ${until} is filled as a day in progress (some tapped in only, some not yet). Run it from 20:00 for a finished day.`);
     say("passwords, rates, approvals and anything edited by hand stay as they are).");
     say(`It first replaces ${auto.n} automatic Absent day(s) the nightly job made since ${from} (no tap, never edited).`);
     if (!(await confirm("Add it? (yes/no)"))) return say("Nothing done.");
@@ -634,7 +641,7 @@ const commands = {
       delete from attendance_logs where employee_id in (${ids}) and log_date >= ${lit(from)}
         and time_in is null and time_out is null and status = 'Absent' and changed_by is null and leave_request_id is null;
       alter table attendance_logs enable trigger user; commit;`);
-    await db.exec(attendanceSql({ people: active, from, to: until, today, nowMinutes: 24 * 60 }));
+    await db.exec(attendanceSql({ people: active, from, to: until, today: asOf, nowMinutes: 24 * 60 }));
     await db.exec(`select public.attendance_close_days(${lit(from)}::date, ${lit(until)}::date);`);
     const [n] = await db.rows(`select count(*)::int n from attendance_logs where log_date between ${lit(from)} and ${lit(until)} and employee_id in (${active.map((p) => lit(p.id)).join(", ")})`);
     say(`added: ${n.n} attendance days. The cutoff holding ${until} is left for the live demo to process.`);
