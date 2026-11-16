@@ -19,6 +19,7 @@ import { CORRECTION_KIND_LABELS, CORRECTION_STATUS_TONES } from "@/lib/payroll/c
 import { PESO_MAX } from "@/lib/input-limits";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { followPortalLink, portalHref } from "@/lib/portal/navigate";
+import { InfoTip } from "@/components/portal/info-tip";
 
 /*
  * Payroll corrections after HR approval (/api/payroll/corrections,
@@ -280,10 +281,13 @@ export function NeedsCorrectionNote({ info, entryId, role }) {
   return (
     <Alert className="border-warning/40 bg-warning/10" data-testid="needs-correction-note">
       <AlertDescription className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <strong className="text-foreground">{NEEDS_CORRECTION_LABEL}.</strong>
-        <span title={info.reason}>{role === "accountant"
-          ? "The 1st half changed after this payslip was paid. File a correction on a later payslip."
-          : "The 1st half changed after this payslip was paid. The branch Accountant files the correction; you decide it in Payroll Approval."}</span>
+        <strong className="text-foreground">{NEEDS_CORRECTION_LABEL}</strong>
+        <InfoTip label="About this correction">
+          {role === "accountant"
+            ? "The 1st half changed after this payslip was paid. File a correction on a later payslip."
+            : "The 1st half changed after this payslip was paid. The branch Accountant files the correction; you decide it in Payroll Approval."}
+          {" "}{info.reason}.
+        </InfoTip>
         <a href={href} onClick={followPortalLink} className="inline-flex min-h-10 items-center font-medium text-primary underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 md:min-h-0">
           {role === "accountant" ? "Correct in Payroll Records" : "Corrections in Payroll Approval"}
         </a>

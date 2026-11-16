@@ -262,7 +262,7 @@ export function PayslipDocument({ payslip }) {
         <Separator />
         {groups ? (
           <div className="space-y-3">
-            <PayrollLineGroups result={groups} />
+            <PayrollLineGroups result={groups} compact />
             <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{money(groups.gross)}</span></div>
             <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">− {money(groups.total_deductions)}</span></div>
             <LineTagLegend className="print:hidden" />

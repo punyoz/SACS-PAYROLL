@@ -599,6 +599,13 @@ test.describe("Needs correction warning", () => {
         await row.getByRole("button", { name: "Payslip" }).click();
         const note = main(page).getByTestId("needs-correction-note");
         await expect(note).toBeVisible({ timeout: 30000 });
+        // Clean payslip (2026-11-16): no explanation lines under the items; each is behind its ⓘ.
+        const lineList = main(page).getByTestId("payroll-line-groups");
+        await expect(lineList.locator("li[data-line] > p")).toHaveCount(0);
+        await expect(lineList.getByTestId("info-tip").first()).toBeVisible();
+        await lineList.getByTestId("info-tip").first().click();
+        await expect(page.locator("[data-slot=popover-content]").first()).toBeVisible();
+        await page.keyboard.press("Escape");
         await shot(page, "needs-correction-payslip-accountant");
         await note.getByRole("link", { name: "Correct in Payroll Records" }).click();
         await expect(page.getByRole("dialog")).toBeVisible();
@@ -615,6 +622,13 @@ test.describe("Needs correction warning", () => {
         const note = main(page).getByTestId("needs-correction-note");
         await expect(note).toBeVisible();
         await expect(note.getByRole("link", { name: "Corrections in Payroll Approval" })).toBeVisible();
+        // Clean payslip (2026-11-16): no explanation lines under the items; each is behind its ⓘ.
+        const lineList = main(page).getByTestId("payroll-line-groups");
+        await expect(lineList.locator("li[data-line] > p")).toHaveCount(0);
+        await expect(lineList.getByTestId("info-tip").first()).toBeVisible();
+        await lineList.getByTestId("info-tip").first().click();
+        await expect(page.locator("[data-slot=popover-content]").first()).toBeVisible();
+        await page.keyboard.press("Escape");
         await shot(page, "needs-correction-payslip-hr");
         await context.close();
       }
