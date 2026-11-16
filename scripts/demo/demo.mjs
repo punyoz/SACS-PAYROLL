@@ -6,7 +6,8 @@
 //   node scripts/demo/demo.mjs snapshot --target=production  demo rows -> demo-data/snapshots/<time>.json
 //   node scripts/demo/demo.mjs restore  --target=production --file=<snapshot>   wipe demo rows, load the snapshot
 //   node scripts/demo/demo.mjs reset    --target=production  snapshot, wipe, load the original bundle (2 confirmations)
-//   node scripts/demo/demo.mjs plan     --target=production [--file=<bundle>]  READ-ONLY: what a reset would do
+//   node scripts/demo/demo.mjs plan     --target=production [--file=<bundle>]  what a reset would do; nothing stays
+//                                     changed (the wipe is tried and rolled back: a few seconds of table locks)
 //   node scripts/demo/demo.mjs remove   --target=production  snapshot, then delete is_demo data only, then check zero
 //   node scripts/demo/demo.mjs roll-forward --target=production --defense=YYYY-MM-DD
 //
@@ -104,13 +105,12 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
   const bundle = { ...source, tables: { ...source.tables } };
   const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
   const idsOf = (t) => (goingAway?.[t] || []).map((r) => String(r[meta[t]?.key || "id"]));
-  // A reset / restore wipes first, but the wipe KEEPS a demo row that a
+  // A reset / restore wipes first, and the wipe cannot delete a demo row that a
   // non-demo row still needs: one it points at (through any foreign key; a
   // chain through other demo rows ends at a direct pointer into a demo row),
   // or a demo person it names in a column that cannot be emptied. The load
-  // would then meet a target the plan did not see, and the restore would
-  // keep the same rows. Refused here, before any prompt and before anything
-  // is deleted.
+  // would fail (the dry run catches it too; this names the rows plainly).
+  // Refused here, before any prompt and before anything is deleted.
   if (goingAway) {
     const kept = [];
     const chunks = (ids) => Array.from({ length: Math.ceil(ids.length / 500) }, (_, i) => ids.slice(i * 500, i * 500 + 500));
@@ -139,7 +139,7 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
         }
       }
     }
-    if (kept.length) throw new Error(`The wipe would keep ${kept.length} demo row(s) that non-demo rows still need, so this reset / restore is refused:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
+    if (kept.length) throw new Error(`${kept.length} demo row(s) are still needed by non-demo rows, so the wipe could not delete them; this reset / restore is refused:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
   }
   const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
   const notTheBundles = listOf([...bundleRunIds, ...idsOf("payroll_runs")]);
@@ -231,7 +231,8 @@ async function afterSnapshot(db, snapFile, run) {
     await run();
   } catch (error) {
     const hint = `node scripts/demo/demo.mjs restore --target=${db.target} --file=${snapFile}`;
-    if (!String(error.message).includes(hint)) error.message = `${error.message}\nThe demo data may be partly deleted or partly loaded. Restore it: ${hint}`;
+    if (error.nothingDeleted) error.message = `${error.message}\nThe demo data is as it was (snapshot kept: ${snapFile}).`;
+    else if (!String(error.message).includes(hint)) error.message = `${error.message}\nThe demo data may be partly deleted or partly loaded. Restore it: ${hint}`;
     throw error;
   }
 }
@@ -355,7 +356,10 @@ async function wipeSql(db, data) {
   const names = Object.keys(data.tables).filter((t) => data.tables[t].length);
   const order = [...insertOrder(meta, names.filter((t) => t !== "profiles")).reverse(), "profiles"];
   const nullable = new Set((await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'YES'")).map((r) => `${r.t}.${r.c}`));
-  const sql = [`alter table profiles disable trigger user;
+  // Bounded: a lock that does not come within 5 s, or a statement over 2 minutes,
+  // fails the whole wipe (rolled back) instead of holding live tables.
+  const sql = [`set local lock_timeout = '5s'; set local statement_timeout = '120s';
+    alter table profiles disable trigger user;
     update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D}) or license_verified_by in (${D});
     alter table profiles enable trigger user;
     delete from hr_queue_claims where claimed_by in (${D});
@@ -372,12 +376,13 @@ async function wipeSql(db, data) {
     const rows = data.tables[t] || [];
     if (!rows.length) continue;
     const key = meta[t]?.key || "id";
-    const parts = [];
-    for (let i = 0; i < rows.length; i += 1000) parts.push(`delete from ${t} where ${key} in (${rows.slice(i, i + 1000).map((r) => lit(r[key])).join(", ")});`);
-    sql.push(`alter table ${t} disable trigger user; ${parts.join(" ")} alter table ${t} enable trigger user;`);
+    sql.push(`alter table ${t} disable trigger user; delete from ${t} where ${key} in (${rows.map((r) => lit(r[key])).join(", ")}); alter table ${t} enable trigger user;`);
   }
   sql.push(`delete from auth.identities where user_id in (${D}); delete from auth.users where id in (${D});`);
-  return sql.join("\n");
+  const body = sql.join("\n");
+  // One request: the same 700 KB the loader's insert batches stay under.
+  if (body.length > 650_000) throw new Error(`The wipe is too large to send in one request (${Math.round(body.length / 1024)} KB; the limit used is 650 KB). Nothing changed; the wipe must be split before it can run.`);
+  return body;
 }
 
 /**
@@ -388,10 +393,11 @@ async function dryRunWipe(db, data) {
   if (!data.demoIds?.length) return;
   const sql = await wipeSql(db, data);
   try {
-    await db.exec(`begin;\n${sql}\nrollback;`);
+    await db.exec(`begin;\n${sql}\nrollback;`, { retry: false });
   } catch (error) {
-    await db.exec("rollback;").catch(() => null);
-    throw new Error(`The wipe could not finish, so this reset / restore is refused (tried and rolled back; nothing changed):\n  ${String(error.message).slice(0, 600)}`);
+    const refusal = new Error(`The wipe could not finish, so this is refused before anything is deleted (it was tried and rolled back):\n  ${String(error.message).slice(0, 600)}`);
+    refusal.nothingDeleted = true;
+    throw refusal;
   }
 }
 
@@ -400,10 +406,14 @@ async function wipe(db, data) {
   if (!data.demoIds?.length) { say("  nothing demo to delete"); return; }
   const sql = await wipeSql(db, data);
   try {
-    await db.exec(`begin;\n${sql}\ncommit;`);
+    // Never resent: after a lost answer the commit may already have happened.
+    await db.exec(`begin;\n${sql}\ncommit;`, { retry: false });
   } catch (error) {
-    await db.exec("rollback;").catch(() => null);
-    throw new Error(`The wipe failed and was rolled back: nothing was deleted.\n  ${String(error.message).slice(0, 600)}`);
+    const failed = error.refused
+      ? new Error(`The wipe failed and was rolled back by the database: nothing was deleted.\n  ${String(error.message).slice(0, 600)}`)
+      : new Error(`The wipe's outcome is unknown (no clear answer from the database: it may or may not have committed). Check with: node scripts/demo/demo.mjs counts --target=${db.target}\n  ${String(error.message).slice(0, 600)}`);
+    failed.nothingDeleted = Boolean(error.refused);
+    throw failed;
   }
   for (const t of Object.keys(data.tables).filter((x) => data.tables[x].length)) say(`  deleted ${t}: ${data.tables[t].length}`);
   // Files after the commit: a failure here leaves files of people already removed (the next load replaces them).
@@ -512,6 +522,8 @@ const commands = {
     printCounts("then LOAD", bundle);
     printPlan(await planLoad(db, bundle, { goingAway: goingAwayOf(data) }));
     // The wipe is tried and rolled back: whether a reset could finish, exactly.
+    // It locks the demo tables for a few seconds (bounded by lock_timeout).
+    say("Trying the wipe and rolling it back (locks the demo tables for a few seconds)...");
     await dryRunWipe(db, { ...data, files: [] });
     say("The wipe was tried and rolled back: it can finish.");
     say("Nothing was changed (plan only).");

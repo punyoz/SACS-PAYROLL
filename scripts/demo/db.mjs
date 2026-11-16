@@ -11,11 +11,22 @@ function localQuery(sql) {
   const run = spawnSync("docker", ["exec", "-i", LOCAL_CONTAINER, "psql", "-U", "postgres", "-v", "ON_ERROR_STOP=1", "-tAq", "-f", "-"], {
     input: sql, encoding: "utf8", maxBuffer: 512 * 1024 * 1024,
   });
-  if (run.status !== 0) throw new Error(`local SQL failed: ${(run.stderr || run.stdout).slice(0, 1500)}`);
+  if (run.status !== 0) {
+    const error = new Error(`local SQL failed: ${(run.stderr || run.stdout).slice(0, 1500)}`);
+    // psql stopped on an SQL error: the database refused it (an open transaction is rolled back).
+    error.refused = /\bERROR:/.test(run.stderr || "");
+    throw error;
+  }
   return run.stdout;
 }
 
-async function productionQuery(sql) {
+/**
+ * `retry: false` for a statement that must not run twice blindly (the wipe):
+ * after a 5xx or a lost answer the outcome is unknown, so it is not resent.
+ * An error with `refused` set means the database itself rejected the SQL
+ * (HTTP 4xx with its error): nothing in that request was committed.
+ */
+async function productionQuery(sql, { retry = true } = {}) {
   const token = process.env.SUPABASE_ACCESS_TOKEN;
   if (!token) throw new Error("SUPABASE_ACCESS_TOKEN is not set.");
   for (let attempt = 1; ; attempt += 1) {
@@ -24,8 +35,10 @@ async function productionQuery(sql) {
     });
     const text = await res.text();
     if (res.ok) return text;
-    if ((res.status === 429 || res.status >= 500) && attempt < 4) { await new Promise((r) => setTimeout(r, 2000 * attempt)); continue; }
-    throw new Error(`production SQL failed: HTTP ${res.status}: ${text.slice(0, 1500)}`);
+    if (retry && (res.status === 429 || res.status >= 500) && attempt < 4) { await new Promise((r) => setTimeout(r, 2000 * attempt)); continue; }
+    const error = new Error(`production SQL failed: HTTP ${res.status}: ${text.slice(0, 1500)}`);
+    error.refused = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
+    throw error;
   }
 }
 
@@ -50,7 +63,7 @@ export function database(target) {
       const out = JSON.parse(await productionQuery(wrap(sql)));
       return out?.[0]?.coalesce ?? out?.[0]?.json_agg ?? Object.values(out?.[0] || {})[0] ?? [];
     },
-    exec: async (sql) => { await productionQuery(sql); },
+    exec: async (sql, options) => { await productionQuery(sql, options); },
   };
 }
 
