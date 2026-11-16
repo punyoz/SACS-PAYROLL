@@ -145,19 +145,21 @@ function TodayLog({ today }) {
   const timeOut = today?.time_out ? formatPhTime(today.time_out) : null;
   const status = !today || !today.time_in ? (today?.status === "On Leave" ? "On Leave" : null) : (today.status || "Absent");
 
+  // Phones: the Status third is a little wider and the side padding smaller, so a long status fits beside the two times.
   return (
-    <div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/40">
-      <div className="p-3">
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)] divide-x rounded-lg border bg-muted/40 sm:grid-cols-3">
+      <div className="px-2 py-3 sm:p-3">
         <p className="text-xs font-medium text-muted-foreground">Time in</p>
         <p className={cn("mt-1 tabular-nums text-sm font-semibold", timeIn ? "text-success" : "text-muted-foreground")}>{timeIn || "— : —"}</p>
       </div>
-      <div className="p-3">
+      <div className="px-2 py-3 sm:p-3">
         <p className="text-xs font-medium text-muted-foreground">Time out</p>
         <p className={cn("mt-1 tabular-nums text-sm font-semibold", timeOut ? "text-gold-text" : "text-muted-foreground")}>{timeOut || "— : —"}</p>
       </div>
-      <div className="p-3">
+      <div className="px-2 py-3 sm:p-3">
         <p className="text-xs font-medium text-muted-foreground">Status</p>
-        <div className="mt-1"><AttendanceBadge status={status} /></div>
+        {/* A long status ("Pending Correction") wraps inside its third of the box on phones (it overflowed by 7 px at 390 px). */}
+        <div className="mt-1"><AttendanceBadge status={status} className="h-auto max-w-full whitespace-normal text-left leading-tight [&>span:first-child]:shrink-0" /></div>
       </div>
     </div>
   );
