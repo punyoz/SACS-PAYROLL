@@ -484,7 +484,8 @@ export function employeePayslipView(payroll, options = {}) {
   const groups = result.groups
     .map(({ note, ...group }) => ({
       ...group,
-      lines: group.lines.filter((l) => num(l.amount) > 0).map(({ overridden, ...l }) => l),
+      // A recorded-but-not-charged line (late at 0%) stays: the employee sees it was recorded.
+      lines: group.lines.filter((l) => num(l.amount) > 0 || l.tag === "not_charged").map(({ overridden, ...l }) => l),
       subtotal_label: group.key === "additions" ? "Total additions" : `Subtotal: ${group.title.replace(/ \(.*\)$/, "").toLowerCase()}`,
     }))
     .filter((group) => group.lines.length);
