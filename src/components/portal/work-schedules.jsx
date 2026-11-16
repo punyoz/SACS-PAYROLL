@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BranchLevelGroups } from "@/components/portal/branch-level-groups";
 import { DatePicker } from "@/components/portal/date-picker";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -45,6 +46,11 @@ const time12 = (hhmm) => {
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 };
 const shift = (s) => `${time12(s.work_start)} – ${time12(s.work_end)}`;
+/** "Nov 22" for the upcoming-change chip; the full date is in its tooltip. */
+const shortDate = (key) => {
+  const d = new Date(`${key}T00:00:00+08:00`);
+  return Number.isNaN(d.getTime()) ? key : new Intl.DateTimeFormat("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" }).format(d);
+};
 
 const EMPTY_PROFILE = { schedule_key: "", name: "", work_start: "08:00", work_end: "17:00", grace_minutes: "15", work_hours: "8", working_days: [1, 2, 3, 4, 5], effective_from: "", note: "" };
 
@@ -124,32 +130,27 @@ export function WorkSchedulesPanel({ refreshKey }) {
     }
   }
 
+  // One compact line per employee from md up (2026-11-16); a small card on phones.
   const employeeColumns = [
-    ...(canEdit ? [{
-      key: "pick",
-      header: <span className="sr-only">Select</span>,
-      cell: (row) => (
-        <Checkbox
-          checked={selected.has(row.id)}
-          onCheckedChange={(v) => setSelected((c) => { const next = new Set(c); if (v === true) next.add(row.id); else next.delete(row.id); return next; })}
-          aria-label={`Select ${row.full_name}`}
-        />
-      ),
-    }] : []),
-    { key: "full_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => `${r.full_name} ${r.employee_code || ""}`, cell: (r) => <span>{r.full_name}<span className="block text-xs text-muted-foreground">{r.employee_code || ""}{r.position ? ` · ${r.position}` : ""}</span></span> },
-    { key: "branch_name", header: "Branch", sortable: true, cell: (r) => r.branch_name || "—" },
-    { key: "level_label", header: "Level", sortable: true, cell: (r) => r.level_label || <span className="text-muted-foreground">Not set</span> },
+    { key: "full_name", header: "Employee", cell: (r) => <span className="block truncate"><span className="font-medium">{r.full_name}</span> <span className="text-xs text-muted-foreground">{r.employee_code || ""}{r.position ? ` · ${r.position}` : ""}</span></span> },
+    { key: "level_label", header: "Level", cell: (r) => r.level_label || <span className="text-muted-foreground">Not set</span> },
     {
       key: "follows",
       header: "Schedule today",
-      sortValue: (r) => r.follows.name,
-      searchValue: (r) => r.follows.name,
       cell: (r) => (
-        <div className="space-y-0.5">
-          <div className="flex flex-wrap items-center gap-1.5"><span>{r.follows.name}</span><StatusBadge tone={SOURCE[r.follows.source]?.tone}>{SOURCE[r.follows.source]?.label}</StatusBadge></div>
-          <p className="text-xs text-muted-foreground tabular-nums">{shift(r.follows)} · grace {r.follows.grace} min · {r.follows.work_hours} h · {r.follows.working_days_label}</p>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+          <span>{r.follows.name}</span>
+          <StatusBadge tone={SOURCE[r.follows.source]?.tone}>{SOURCE[r.follows.source]?.label}</StatusBadge>
+          <span className="text-xs text-muted-foreground tabular-nums md:whitespace-nowrap">{shift(r.follows).replace(" – ", "–")} · grace {r.follows.grace} min · {r.follows.work_hours} h · {r.follows.working_days_label}</span>
           {r.own_upcoming?.length ? (
-            <p className="text-xs text-info">From {dateLabel(r.own_upcoming[0].effective_from)}: {r.own_upcoming[0].schedule_name || "level / branch schedule"}</p>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0} className="max-w-full truncate rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-xs text-info outline-none focus-visible:ring-2 focus-visible:ring-ring/50" data-testid="ws-upcoming">
+                  From {shortDate(r.own_upcoming[0].effective_from)}: {r.own_upcoming[0].schedule_name || "level / branch schedule"}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>From {dateLabel(r.own_upcoming[0].effective_from)}: {r.own_upcoming[0].schedule_name || "level / branch schedule"}</TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
       ),
@@ -157,9 +158,35 @@ export function WorkSchedulesPanel({ refreshKey }) {
     ...(canEdit ? [{
       key: "actions",
       header: <span className="sr-only">Actions</span>,
-      align: "right",
-      cell: (r) => <Button variant="outline" size="sm" onClick={() => open("employees", { employee_ids: [r.id], names: r.full_name, schedule_key: r.own?.schedule_key || FALLBACK })}>Assign</Button>,
+      className: "md:text-right",
+      cell: (r) => <Button variant="outline" size="sm" className="h-10 md:h-8" onClick={() => open("employees", { employee_ids: [r.id], names: r.full_name, schedule_key: r.own?.schedule_key || FALLBACK })}>Assign</Button>,
     }] : []),
+  ];
+  const employees = data?.employees || [];
+  const branchSummary = (list) => {
+    const n = (source) => list.filter((r) => r.follows?.source === source).length;
+    const upcoming = list.filter((r) => r.own_upcoming?.length).length;
+    return [
+      `${list.length} employee${list.length === 1 ? "" : "s"}`,
+      n("default") ? `${n("default")} Default` : "",
+      n("employee") ? `${n("employee")} own schedule` : "",
+      n("level") ? `${n("level")} by level` : "",
+      n("branch") ? `${n("branch")} branch schedule` : "",
+      upcoming ? `${upcoming} upcoming change${upcoming === 1 ? "" : "s"}` : "",
+    ].filter(Boolean).join(" · ");
+  };
+  const branchOptions = [...new Map(employees.map((r) => [String(r.branch_id || "none"), r.branch_name || "No branch"])).entries()]
+    .sort(([a, x], [b, y]) => (a === "none") - (b === "none") || x.localeCompare(y)).map(([value, label]) => ({ value, label }));
+  const listFilters = [
+    { id: "branch", label: "Branch", allLabel: "All branches", options: branchOptions, test: (r, v) => String(r.branch_id || "none") === v },
+    { id: "level", label: "Level", allLabel: "All levels", options: [...(data?.levels_list || []), { value: "none", label: "Level not set" }], test: (r, v) => (r.employee_level || "none") === v },
+    {
+      id: "schedule",
+      label: "Schedule",
+      allLabel: "All schedules",
+      options: [{ value: "default", label: "Default" }, { value: "employee", label: "Own schedule" }, { value: "upcoming", label: "Has upcoming change" }],
+      test: (r, v) => (v === "upcoming" ? Boolean(r.own_upcoming?.length) : r.follows?.source === v),
+    },
   ];
 
   if (state.error) {
@@ -262,19 +289,13 @@ export function WorkSchedulesPanel({ refreshKey }) {
             Employees in the same branch can follow different schedules. RFID Late, Undertime and Absent, timesheets and payroll deductions all use the schedule shown here for each day.
             {canEdit ? " Tick a branch or a level to select everyone in it, then Assign schedule or Set level." : ""}
           </CardDescription>
-          {canEdit && selected.size ? (
-            <CardAction className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => open("employees", { employee_ids: [...selected], names: `${selected.size} employees`, schedule_key: FALLBACK })}>Assign schedule ({selected.size})</Button>
-              <Button size="sm" variant="outline" onClick={() => open("set_level", { employee_ids: [...selected], names: `${selected.size} employees`, level: FALLBACK })}>Set level ({selected.size})</Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
-            </CardAction>
-          ) : null}
         </CardHeader>
         <CardContent>
           {/* Grouped by branch, then level, so a whole branch or one level of it is one click. */}
           <BranchLevelGroups
-            columns={employeeColumns.filter((column) => column.key !== "branch_name")}
-            rows={data?.employees || []}
+            columns={employeeColumns}
+            gridClassName={canEdit ? "md:grid-cols-[minmax(0,1.3fr)_7rem_minmax(0,2.6fr)_5rem]" : "md:grid-cols-[minmax(0,1.3fr)_7rem_minmax(0,2.6fr)]"}
+            rows={employees}
             groupOf={(r) => String(r.branch_id || "none")}
             groupLabel={(r) => r.branch_name || "No branch"}
             subgroupOf={(r) => r.employee_level || "none"}
@@ -285,10 +306,20 @@ export function WorkSchedulesPanel({ refreshKey }) {
             onSelectedChange={setSelected}
             search={(r) => `${r.full_name} ${r.employee_code || ""} ${r.follows?.name || ""} ${r.branch_name || ""}`}
             searchPlaceholder="Search employee, ID, branch or schedule…"
+            filters={listFilters}
+            summary={branchSummary}
             loading={state.loading && !data}
-            caption="Employees and their schedules, by branch and level"
-            minWidth={canEdit ? 820 : 680}
           />
+          {/* Stays in view at the bottom while anything is selected. */}
+          {canEdit && selected.size ? (
+            <div data-testid="ws-action-bar" role="region" aria-label="Selected employees"
+              className="sticky bottom-2 z-10 mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-md">
+              <span className="px-1 text-sm font-medium" aria-live="polite">{selected.size} selected</span>
+              <Button size="sm" className="h-10 md:h-8" onClick={() => open("employees", { employee_ids: [...selected], names: `${selected.size} employees`, schedule_key: FALLBACK })}>Assign schedule</Button>
+              <Button size="sm" className="h-10 md:h-8" variant="outline" onClick={() => open("set_level", { employee_ids: [...selected], names: `${selected.size} employees`, level: FALLBACK })}>Set level</Button>
+              <Button size="sm" className="h-10 md:h-8" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 

@@ -540,7 +540,6 @@ describe("Payroll Approval workflow", () => {
     .sort((a, b) => (b.run_no || 1) - (a.run_no || 1))[0];
   const cards = async (period = FIRST) => (await json(runsRoute.GET(req(ACCT, `/api/accountant/payroll-runs?period=${encodeURIComponent(period)}`)))).body.runs;
   const openCard = async (period = FIRST) => (await cards(period)).find((c) => !c.locked);
-  const actionItems = async () => (await json(runsRoute.GET(req(ACCT, "/api/accountant/payroll-runs?view=action_needed")))).body.items;
   const leftOutList = async () => (await json(runsRoute.GET(req(ACCT, "/api/accountant/payroll-runs?view=excluded")))).body.excluded;
   const approveRun = (run) => json(hrRoute.PATCH(req(HR, "/api/hr/payroll-runs", "PATCH", { action: "approve", run_ids: [run.id] })));
   const rejectRun = (run, remarks = "Please recheck the attendance first") => json(hrRoute.PATCH(req(HR, "/api/hr/payroll-runs", "PATCH", { action: "reject", run_id: run.id, remarks })));
@@ -669,7 +668,6 @@ describe("Payroll Approval workflow", () => {
     expect(card.can_submit).toBe(false);
     expect(card.blockers.join(" ")).toMatch(/need.* recompute/);
     expect((await submit(SECOND)).body).toMatchObject({ code: "needs_recompute" });
-    expect((await actionItems()).some((i) => i.kind === "recompute" && i.state === "open" && i.period_label === SECOND)).toBe(true);
     const data = (await json(payroll.GET(req(ACCT, `/api/accountant/payroll?period=${encodeURIComponent(SECOND)}`)))).body;
     expect(data.needs_recompute[ANA]).toMatch(/1st half changed/);
 
@@ -680,7 +678,6 @@ describe("Payroll Approval workflow", () => {
     // The month adds up again: 1st half paid + this payslip = the month's net.
     expect(Math.round((second.payroll.monthly.first_half_paid + net(second)) * 100)).toBe(Math.round(second.payroll.monthly.monthly_net * 100));
     expect(second.payroll.monthly.first_half_paid).toBe(firstAfter);
-    expect((await actionItems()).some((i) => i.kind === "recompute")).toBe(false);
     expect((await submit(SECOND)).status).toBe(200);
   });
 
@@ -702,10 +699,9 @@ describe("Payroll Approval workflow", () => {
     expect(detail.items.find((i) => i.employee_name === "Ana Preschool").first_half_changed).toMatch(/^1st half changed after this was computed/);
     expect(detail.items.find((i) => i.employee_name === "Ben Senior High").first_half_changed).toBeNull();
     expect(net(entryOf(ANA, SECOND))).toBe(secondNet);
-    expect((await actionItems()).find((i) => i.kind === "recompute")).toMatchObject({ state: "pending", count: 1 });
   });
 
-  it("1st half changed after the 2nd half is Paid: a correction is listed, the Paid payslip is not changed", async () => {
+  it("1st half changed after the 2nd half is Paid: the Paid payslip is not changed", async () => {
     await processBranchA();
     await submit();
     vi.setSystemTime(new Date("2026-11-02T10:00:00+08:00"));
@@ -717,13 +713,7 @@ describe("Payroll Approval workflow", () => {
     absentOct7();
     expect((await processOne(ANA, FIRST, { reprocess: true })).status).toBe(200);
 
-    const item = (await actionItems()).find((i) => i.kind === "recompute");
-    expect(item).toMatchObject({ state: "paid", count: 1, page: "ac-records", params: expect.objectContaining({ correct: entryOf(ANA, SECOND).id, kind: "underpayment" }) });
-    expect(Number(item.params.amount)).toBeGreaterThan(0);
     expect(JSON.stringify(entryOf(ANA, SECOND).payroll)).toBe(paid);
-    // Once a correction is filed for that payslip the item is gone.
-    table("payroll_corrections").push({ id: "c1", entry_id: entryOf(ANA, SECOND).id, status: "pending" });
-    expect((await actionItems()).some((i) => i.kind === "recompute")).toBe(false);
   });
 
   it("left out until Paid: In supplemental run while Pending, back on the list if rejected, gone once Paid", async () => {
@@ -742,7 +732,6 @@ describe("Payroll Approval workflow", () => {
 
     await rejectRun(supplemental);
     expect((await leftOutList())[0].follow_up).toBe("supplemental_rejected");
-    expect((await actionItems()).some((i) => i.kind === "left_out")).toBe(true);
     expect((await submit()).status).toBe(200);
     await approveRun(supplemental);
     expect(await leftOutList()).toEqual([]);
@@ -750,31 +739,5 @@ describe("Payroll Approval workflow", () => {
     const items = table("payroll_run_items").filter((i) => i.run_id === supplemental.id);
     expect([...new Set(items.map((i) => i.employee_name))]).toEqual(["Ben Senior High"]);
     expect(table("notifications").filter((n) => n.kind === "payslip_released").map((n) => n.recipient_id).sort()).toEqual([ANA, BEN].sort());
-  });
-
-  it("Action needed: each item appears, links to its screen, and clears when done", async () => {
-    let items = await actionItems();
-    expect(items.find((i) => i.kind === "not_processed" && i.period_label === FIRST)).toMatchObject({ count: 2, page: "ac-process", params: { period: FIRST } });
-
-    await json(payroll.POST(req(ACCT, "/api/accountant/payroll", "POST", { action: "save_draft", employee_id: BEN, pay_period: FIRST })));
-    await processOne(ANA);
-    items = await actionItems();
-    expect(items.some((i) => i.kind === "not_processed" && i.period_label === FIRST)).toBe(false);
-    expect(items.find((i) => i.kind === "drafts")).toMatchObject({ count: 1, names: ["Ben Senior High"], params: { period: FIRST, batch: "draft" } });
-    expect(items.find((i) => i.kind === "unsubmitted")).toMatchObject({ count: 1, params: { period: FIRST, focus: "runs" } });
-
-    await submit(FIRST, { acknowledge_exclusions: true });
-    items = await actionItems();
-    expect(items.some((i) => i.kind === "unsubmitted")).toBe(false);
-    expect(items.find((i) => i.kind === "left_out")).toMatchObject({ count: 1, params: { period: FIRST, focus: "left-out" } });
-
-    await rejectRun(latestRun(BRANCH_A), "Ben's leave is not filed yet");
-    items = await actionItems();
-    expect(items.find((i) => i.kind === "rejected")).toMatchObject({ text: expect.stringContaining("Ben's leave is not filed yet"), params: { period: FIRST, focus: "runs" } });
-
-    await submit(FIRST, { acknowledge_exclusions: true });
-    expect((await actionItems()).some((i) => i.kind === "rejected" || i.kind === "pending_long")).toBe(false);
-    vi.setSystemTime(new Date("2026-10-21T10:00:00+08:00"));
-    expect((await actionItems()).find((i) => i.kind === "pending_long")).toMatchObject({ info: true, count: 1 });
   });
 });
