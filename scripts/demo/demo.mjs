@@ -14,7 +14,7 @@
 // Every PRODUCTION run: the project URL typed back exactly, the counts
 // printed, a yes/no; reset asks twice. Nothing without is_demo (or hanging
 // off a demo row) is ever touched; a row mixing demo and real people is only
-// listed (remove clears its demo reference so the demo account can go).
+// listed (remove, reset and restore clear its demo reference so the demo account can go).
 // Keys come from the environment / gitignored files and are never printed.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -109,7 +109,7 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
   // non-demo row still needs: one it points at (through any foreign key; a
   // chain through other demo rows ends at a direct pointer into a demo row),
   // or a demo person it names in a column that cannot be emptied. The load
-  // would fail (the dry run catches it too; this names the rows plainly).
+  // wipe would fail (the dry run catches it too; this names the rows plainly).
   // Refused here, before any prompt and before anything is deleted.
   if (goingAway) {
     const kept = [];
@@ -232,7 +232,7 @@ async function afterSnapshot(db, snapFile, run) {
   } catch (error) {
     const hint = `node scripts/demo/demo.mjs restore --target=${db.target} --file=${snapFile}`;
     if (error.nothingDeleted) error.message = `${error.message}\nThe demo data is as it was (snapshot kept: ${snapFile}).`;
-    else if (!String(error.message).includes(hint)) error.message = `${error.message}\nThe demo data may be partly deleted or partly loaded. Restore it: ${hint}`;
+    else if (!String(error.message).includes(hint)) error.message = `${error.message}\nThe demo data may be deleted (the wipe is all or nothing) or partly loaded. Restore it: ${hint}`;
     throw error;
   }
 }
@@ -266,7 +266,7 @@ async function load(db, planned) {
         found.forEach((r) => left.push(`${t} ${r.k}`));
       }
     }
-    if (left.length) throw stop(`The wipe kept ${left.length} demo row(s), which non-demo rows still point at:\n  ${left.slice(0, 20).join("\n  ")}`);
+    if (left.length) throw stop(`${left.length} demo row(s) are still there after the wipe (added while the prompts waited?):\n  ${left.slice(0, 20).join("\n  ")}`);
     // 2. Plan again against the target as it now is; any difference stops the load.
     try {
       plan = await planLoad(db, planned.source);
@@ -356,11 +356,12 @@ async function wipeSql(db, data) {
   const names = Object.keys(data.tables).filter((t) => data.tables[t].length);
   const order = [...insertOrder(meta, names.filter((t) => t !== "profiles")).reverse(), "profiles"];
   const nullable = new Set((await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'YES'")).map((r) => `${r.t}.${r.c}`));
-  // Bounded: a lock that does not come within 5 s, or a statement over 2 minutes,
+  // Bounded: a lock that does not come within 5 s, or a statement over 45 s,
   // fails the whole wipe (rolled back) instead of holding live tables.
-  const sql = [`set local lock_timeout = '5s'; set local statement_timeout = '120s';
+  const sql = [`set local lock_timeout = '5s'; set local statement_timeout = '45s';
     alter table profiles disable trigger user;
-    update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D}) or license_verified_by in (${D});
+    update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D});
+    update profiles set license_verified_by = null where license_verified_by in (${D}) and id not in (${D});
     alter table profiles enable trigger user;
     delete from hr_queue_claims where claimed_by in (${D});
     delete from notification_channels where user_id in (${D});`];
@@ -380,44 +381,79 @@ async function wipeSql(db, data) {
   }
   sql.push(`delete from auth.identities where user_id in (${D}); delete from auth.users where id in (${D});`);
   const body = sql.join("\n");
-  // One request: the same 700 KB the loader's insert batches stay under.
-  if (body.length > 650_000) throw new Error(`The wipe is too large to send in one request (${Math.round(body.length / 1024)} KB; the limit used is 650 KB). Nothing changed; the wipe must be split before it can run.`);
+  // One request. Measured 2026-11-16: the Management API takes 3,000 KB and refuses 5,000 KB.
+  if (body.length > 2_500_000) throw new Error(`The wipe is too large to send in one request (${Math.round(body.length / 1024)} KB; the limit used is 2,500 KB). Nothing changed; the wipe must be split before it can run.`);
   return body;
 }
 
 /**
+ * After a failed request: wait until the wipe's own query has left the
+ * database (its marker), then count the demo people. The wipe is one
+ * transaction, so all of them still there = nothing deleted, none left =
+ * the wipe committed; anything else, or no answer, is reported as unknown.
+ */
+async function wipeOutcome(db, data, marker) {
+  try {
+    for (let i = 0; i < 36; i += 1) {
+      const [running] = await db.rows(`select count(*)::int n from pg_stat_activity where query like ${lit(`%${marker}%`)} and pid <> pg_backend_pid()`);
+      if (!running.n) break;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    const [left] = await db.rows(`select count(*)::int n from profiles where id in (${data.demoIds.map(lit).join(", ")})`);
+    if (left.n === data.demoIds.length) return "nothing";
+    if (left.n === 0) return "committed";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
  * The wipe run and rolled back (before any prompt): whether it can finish,
- * exactly, with the reason when it cannot. Nothing stays changed.
+ * exactly, with the database's reason when it cannot. Returns the SQL, which
+ * the real wipe then runs unchanged. Nothing stays changed (it ends in
+ * rollback); it locks the demo tables for a few seconds.
  */
 async function dryRunWipe(db, data) {
-  if (!data.demoIds?.length) return;
+  if (!data.demoIds?.length) return null;
   const sql = await wipeSql(db, data);
   try {
     await db.exec(`begin;\n${sql}\nrollback;`, { retry: false });
   } catch (error) {
-    const refusal = new Error(`The wipe could not finish, so this is refused before anything is deleted (it was tried and rolled back):\n  ${String(error.message).slice(0, 600)}`);
+    const refusal = new Error(error.refused
+      ? `The wipe could not finish, so this is refused before anything is deleted (tried and rolled back; the database said):\n  ${String(error.message).slice(0, 600)}`
+      : `The wipe could not be tried (no clear answer from the database), so this is refused; nothing was deleted (the trial ends in rollback):\n  ${String(error.message).slice(0, 600)}`);
     refusal.nothingDeleted = true;
     throw refusal;
   }
+  return sql;
 }
 
-/** Delete the demo rows on `db` in one transaction (all or nothing), then their leave-proof files. */
-async function wipe(db, data) {
+/** Delete the demo rows in one transaction (all or nothing) with the SQL the dry run tried, then their leave-proof files. */
+async function wipe(db, data, sql) {
   if (!data.demoIds?.length) { say("  nothing demo to delete"); return; }
-  const sql = await wipeSql(db, data);
+  const marker = `demo-wipe ${new Date().toISOString()}`;
   try {
     // Never resent: after a lost answer the commit may already have happened.
-    await db.exec(`begin;\n${sql}\ncommit;`, { retry: false });
+    await db.exec(`/* ${marker} */ begin;\n${sql}\ncommit;`, { retry: false });
   } catch (error) {
-    const failed = error.refused
-      ? new Error(`The wipe failed and was rolled back by the database: nothing was deleted.\n  ${String(error.message).slice(0, 600)}`)
-      : new Error(`The wipe's outcome is unknown (no clear answer from the database: it may or may not have committed). Check with: node scripts/demo/demo.mjs counts --target=${db.target}\n  ${String(error.message).slice(0, 600)}`);
-    failed.nothingDeleted = Boolean(error.refused);
-    throw failed;
+    const outcome = await wipeOutcome(db, data, marker);
+    if (outcome !== "committed") {
+      const failed = new Error(outcome === "nothing"
+        ? `The wipe failed and nothing was deleted (checked: every demo person is still there).\n  ${String(error.message).slice(0, 600)}`
+        : `The wipe's outcome is unknown (no clear answer, and the check could not settle it). Check with: node scripts/demo/demo.mjs counts --target=${db.target}\n  ${String(error.message).slice(0, 600)}`);
+      failed.nothingDeleted = outcome === "nothing";
+      throw failed;
+    }
+    say("  the answer was lost, but the wipe committed (checked: no demo person left)");
   }
   for (const t of Object.keys(data.tables).filter((x) => data.tables[x].length)) say(`  deleted ${t}: ${data.tables[t].length}`);
   // Files after the commit: a failure here leaves files of people already removed (the next load replaces them).
-  await storageFor(db.target).remove((data.files || []).map((f) => f.path));
+  try {
+    await storageFor(db.target).remove((data.files || []).map((f) => f.path));
+  } catch (error) {
+    throw new Error(`The demo rows were deleted, but their leave-proof files were not removed: ${error.message}`);
+  }
 }
 
 async function checkZero(db) {
@@ -487,11 +523,11 @@ const commands = {
   async remove() {
     const db = await chooseTarget(rest);
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
-    const { data } = await snapshot(db);
+    const { data, file: snapFile } = await snapshot(db);
     printCounts(`will DELETE on ${db.target} (is_demo data only)`, data);
-    await dryRunWipe(db, data);
+    const wipeBody = await dryRunWipe(db, data);
     if (!(await confirm(`Delete all of it on ${db.target}? (yes/no)`))) return say("Nothing deleted (the snapshot is kept).");
-    await wipe(db, data);
+    await afterSnapshot(db, snapFile, () => wipe(db, data, wipeBody));
     await checkZero(db);
     say("Deleted rows stay in the Supabase Pro daily backups for about 7 days.");
   },
@@ -505,10 +541,10 @@ const commands = {
     printCounts(`will DELETE on ${db.target}`, data);
     printCounts("then LOAD", target);
     const plan = await planLoad(db, target, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
-    await dryRunWipe(db, data);
+    const wipeBody = await dryRunWipe(db, data);
     printPlan(plan);
     if (!(await confirm("Restore this snapshot? (yes/no)"))) return say("Nothing done.");
-    await afterSnapshot(db, snapFile, async () => { await wipe(db, data); await load(db, plan); });
+    await afterSnapshot(db, snapFile, async () => { await wipe(db, data, wipeBody); await load(db, plan); });
   },
   async plan() {
     // READ-ONLY: what a reset with this bundle would do on the target (nothing is written or deleted).
@@ -523,9 +559,11 @@ const commands = {
     printPlan(await planLoad(db, bundle, { goingAway: goingAwayOf(data) }));
     // The wipe is tried and rolled back: whether a reset could finish, exactly.
     // It locks the demo tables for a few seconds (bounded by lock_timeout).
-    say("Trying the wipe and rolling it back (locks the demo tables for a few seconds)...");
-    await dryRunWipe(db, { ...data, files: [] });
-    say("The wipe was tried and rolled back: it can finish.");
+    if (data.demoIds.length) {
+      say("Trying the wipe and rolling it back (locks the demo tables for a few seconds)...");
+      const body = await dryRunWipe(db, { ...data, files: [] });
+      say(`The wipe (${Math.round(body.length / 1024)} KB in one request) was tried and rolled back: it can finish.`);
+    } else say("No demo data on the target: nothing to wipe.");
     say("Nothing was changed (plan only).");
   },
   async reset() {
@@ -536,11 +574,11 @@ const commands = {
     printCounts(`will DELETE on ${db.target} (your edits included)`, data);
     printCounts("then LOAD the original seed", bundle);
     const plan = await planLoad(db, bundle, { goingAway: goingAwayOf(data), snapshotFile: snapFile });
-    await dryRunWipe(db, data);
+    const wipeBody = await dryRunWipe(db, data);
     printPlan(plan);
     if (!(await confirm("Reset wipes every edit made to the demo data. Continue? (yes/no)"))) return say("Nothing done.");
     if (!(await confirm('Type "reset demo" to confirm a second time:', "reset demo"))) return say("Nothing done.");
-    await afterSnapshot(db, snapFile, async () => { await wipe(db, data); await load(db, plan); });
+    await afterSnapshot(db, snapFile, async () => { await wipe(db, data, wipeBody); await load(db, plan); });
     printCounts(`now on ${db.target}`, await collect(db, { withRows: false }));
   },
   async "roll-forward"() {

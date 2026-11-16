@@ -37,7 +37,8 @@ async function productionQuery(sql, { retry = true } = {}) {
     if (res.ok) return text;
     if (retry && (res.status === 429 || res.status >= 500) && attempt < 4) { await new Promise((r) => setTimeout(r, 2000 * attempt)); continue; }
     const error = new Error(`production SQL failed: HTTP ${res.status}: ${text.slice(0, 1500)}`);
-    error.refused = res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429;
+    // A database error carries its SQLSTATE ("ERROR:  42703: ..."); a read timeout or a dropped connection does not.
+    error.refused = res.status >= 400 && res.status < 500 && /ERROR:\s+[0-9A-Z]{5}:/.test(text) && !/timeout|terminated/i.test(text.replace(/canceling statement due to (statement|lock) timeout/i, ""));
     throw error;
   }
 }
