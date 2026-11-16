@@ -5,7 +5,6 @@
 
 import { describe, it, expect } from "vitest";
 import { branchRoster, expectedInRun, firstHalfBasis, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
-import { periodsToCheck } from "@/lib/payroll/run-service";
 
 const period = { start_key: "2026-11-01", end_key: "2026-11-15", label: "November 1-15, 2026" };
 const person = (id, extra = {}) => ({ id, full_name: id, branch_id: "main", archived: false, employee_status: "Active", payroll_hold: false, date_hired: "2020-01-01", ...extra });
@@ -62,12 +61,5 @@ describe("Needs recompute", () => {
     expect(firstHalfLabelOf("November 16-30, 2026")).toBe("November 1-15, 2026");
     expect(firstHalfLabelOf("February 16-28, 2027")).toBe("February 1-15, 2027");
     expect(firstHalfLabelOf("November 1-15, 2026")).toBeNull();
-  });
-});
-
-describe("Action needed periods", () => {
-  it("every ended period from Oct 1, 2026, today's included when it ends today", () => {
-    expect(periodsToCheck("2026-11-15").map((p) => p.label)).toEqual(["October 1-15, 2026", "October 16-31, 2026", "November 1-15, 2026"]);
-    expect(periodsToCheck("2026-11-14").map((p) => p.label)).toEqual(["October 1-15, 2026", "October 16-31, 2026"]);
   });
 });

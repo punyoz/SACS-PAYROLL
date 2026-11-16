@@ -33,6 +33,27 @@ function periodFromUrl() {
   }
 }
 
+/** ?draft=<entry id>: the Draft opened in the single-entry form ("Review and finalize"). */
+function draftFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get("draft") || "";
+  } catch {
+    return "";
+  }
+}
+
+function keepDraftInUrl(id) {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (id) params.set("draft", id);
+    else if (params.has("draft")) params.delete("draft");
+    else return;
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+  } catch {
+    // history unavailable: the draft still opens for this visit
+  }
+}
+
 function keepPeriodInUrl(next) {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -91,16 +112,20 @@ export function historyLabel(history) {
 export function AccountantDataProvider({ children, navigate }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [period, setPeriodState] = React.useState("");
-  const [entryId, setEntryId] = React.useState("");
+  const [entryId, setEntryId] = React.useState(() => (typeof window === "undefined" ? "" : draftFromUrl()));
+  // The Draft named in the address that is no longer open: { id, finalized }.
+  const [draftGone, setDraftGone] = React.useState(null);
   const seq = React.useRef(0);
   // The latest choices, read by load() without re-creating it.
   const periodRef = React.useRef(typeof window === "undefined" ? "" : periodFromUrl());
   const historyRef = React.useRef(typeof window === "undefined" ? "recent" : historyFromUrl());
   const [history, setHistoryState] = React.useState(historyRef.current);
-  const entryRef = React.useRef("");
+  const entryRef = React.useRef(typeof window === "undefined" ? "" : draftFromUrl());
   const chooseEntry = React.useCallback((id) => {
     entryRef.current = String(id || "");
     setEntryId(String(id || ""));
+    // Another entry chosen in the form: the address no longer names the old Draft.
+    if (draftFromUrl() && draftFromUrl() !== entryRef.current) keepDraftInUrl("");
   }, []);
 
   const load = React.useCallback(async (options = {}) => {
@@ -123,6 +148,14 @@ export function AccountantDataProvider({ children, navigate }) {
       // draft_entries holds every period's drafts: a draft of another period
       // never stays open (its 1st-half basic showed as the 2nd half's salary).
       const drafts = data.draft_entries || [];
+      // A Draft named in the address (a "Review and finalize" link) that was finalized or cancelled since.
+      const named = draftFromUrl();
+      if (named && !drafts.some((draft) => String(draft.id) === named)) {
+        const record = (data.records || []).find((row) => String(row.id) === named);
+        setDraftGone({ id: named, finalized: Boolean(record) });
+        if (entryRef.current === named) chooseEntry("");
+        keepDraftInUrl("");
+      }
       const open = drafts.find((draft) => String(draft.id) === entryRef.current);
       if (open && open.pay_period !== shown) chooseEntry("");
       // With no entry chosen, the period's first saved draft opens in the form.
@@ -142,16 +175,22 @@ export function AccountantDataProvider({ children, navigate }) {
   React.useEffect(() => {
     const onPopState = () => {
       const next = periodFromUrl();
+      const draft = draftFromUrl();
+      if (draft && draft !== entryRef.current) { setDraftGone(null); chooseEntry(draft); }
       if (next && next !== periodRef.current) { periodRef.current = next; setPeriodState(next); load({ period: next }); }
+      else if (draft) load();
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [load]);
+  }, [load, chooseEntry]);
 
   const value = React.useMemo(() => ({
     ...state,
     period,
     entryId,
+    draftGone,
+    /** The Draft was just finalized here: no "already finalized" notice for it. */
+    clearDraftLink: () => { keepDraftInUrl(""); setDraftGone(null); },
     history,
     /** Another history window: the last 12 months or a year. */
     setHistory: (next) => { historyRef.current = next || "recent"; setHistoryState(historyRef.current); keepHistoryInUrl(historyRef.current); load(); },
@@ -166,9 +205,12 @@ export function AccountantDataProvider({ children, navigate }) {
       // Opens in its own period, so the form never mixes two periods.
       const draftPeriod = (state.data?.draft_entries || []).find((draft) => String(draft.id) === String(id))?.pay_period;
       if (draftPeriod) { periodRef.current = draftPeriod; setPeriodState(draftPeriod); keepPeriodInUrl(draftPeriod); }
-      chooseEntry(id); navigate("ac-process"); load({ entryId: id, period: draftPeriod });
+      setDraftGone(null);
+      chooseEntry(id); keepDraftInUrl(id); navigate("ac-process");
+      // The single-entry form, filled with the Draft, scrolls into view.
+      load({ entryId: id, period: draftPeriod }).then(() => requestAnimationFrame(() => document.getElementById("pc-entry")?.scrollIntoView({ behavior: "smooth", block: "start" })));
     },
-  }), [state, period, entryId, history, load, navigate, chooseEntry]);
+  }), [state, period, entryId, draftGone, history, load, navigate, chooseEntry]);
 
   return <AccountantContext.Provider value={value}>{children}</AccountantContext.Provider>;
 }

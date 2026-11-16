@@ -6,15 +6,14 @@
  * what they need and turn their refusals into messages.
  *
  * Who a run is about comes from src/lib/payroll/run-roster.js, the one
- * definition the batch table, the run card and the Action needed panel share.
+ * definition the batch table and the run card share.
  */
 
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { manilaDateKey, nextPeriod, periodForDateKey, periodFromLabel } from "@/lib/payroll/periods";
+import { periodFromLabel } from "@/lib/payroll/periods";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { getEmployeeAttendancePolicy, levelLabel } from "@/lib/attendance/work-schedules";
 import {
-  APPROVAL_EFFECTIVE,
   RUN_STATUS_LABELS,
   describeRunError,
   isEditableRun,
@@ -29,13 +28,9 @@ export { expectedInRun };
 /** Longest note the Accountant may give for leaving an employee out (payroll_run_exclusions.reason). */
 export const EXCLUSION_REASON_MAX = 500;
 
-/** A run Pending HR Approval longer than this shows in Action needed (info only). */
-export const PENDING_DAYS_INFO = 3;
-
 const ENTRY_COLUMNS = "id,employee_id,employee_name,employee_code,employee_type,branch_id,pay_period,status,payroll,payslip_no,run_id,updated_at";
 const num = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
 const peso = (value) => Math.round(num(value) * 100) / 100;
-const startOf = (label) => periodFromLabel(label)?.start_key || "";
 
 async function readEntries(supabase, branchIds, labels) {
   const result = await fetchAllRows(() => supabase.from("payroll_entries")
@@ -386,6 +381,47 @@ export const FOLLOW_UP_LABELS = Object.freeze({
 });
 
 /**
+ * Paid 2nd halves that need a correction (2026-11-16): their 1st half changed
+ * after they were computed, and no correction is filed for them yet (Pending
+ * or Approved). A Rejected correction shows the warning again. Payroll
+ * Records and the payslip view show it inline; nothing is listed elsewhere.
+ *
+ * rows: records already scoped to the caller ({ id, employee_id, pay_period,
+ * run_status }). Returns Map(entry id -> { reason, kind, amount, period_label }).
+ * @returns {Promise<Map<string, object>>}
+ */
+export async function correctionsDue(supabase, rows) {
+  const candidates = (rows || []).filter((r) => r?.id && r.run_status === "approved" && firstHalfLabelOf(r.pay_period));
+  const out = new Map();
+  if (!candidates.length) return out;
+  const seconds = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS).order("id", { ascending: true }), "id", candidates.map((r) => r.id));
+  if (seconds.error) throw new Error(seconds.error.message);
+  const firstLabels = [...new Set((seconds.data || []).map((e) => firstHalfLabelOf(e.pay_period)))];
+  const firsts = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS).in("pay_period", firstLabels).order("id", { ascending: true }),
+    "employee_id", [...new Set((seconds.data || []).map((e) => e.employee_id))]);
+  if (firsts.error) throw new Error(firsts.error.message);
+  const firstOf = new Map((firsts.data || []).map((e) => [`${e.employee_id}|${e.pay_period}`, e]));
+  const changed = (seconds.data || [])
+    .map((entry) => ({ entry, change: firstHalfChange(entry, firstOf.get(`${entry.employee_id}|${firstHalfLabelOf(entry.pay_period)}`) || null) }))
+    .filter((x) => x.change);
+  if (!changed.length) return out;
+  const filed = await fetchAllIn(() => supabase.from("payroll_corrections").select("entry_id,status").in("status", ["pending", "approved"]).order("id", { ascending: true }),
+    "entry_id", changed.map((x) => x.entry.id));
+  if (filed.error) throw new Error(filed.error.message);
+  const done = new Set((filed.data || []).map((c) => String(c.entry_id)));
+  changed.filter((x) => !done.has(String(x.entry.id))).forEach(({ entry, change }) => {
+    out.set(String(entry.id), {
+      reason: change.reason,
+      // The month settles against the 1st half: a larger 1st half means this 2nd half paid too much.
+      kind: change.difference > 0 ? "overpayment" : "underpayment",
+      amount: Math.abs(change.difference),
+      period_label: entry.pay_period,
+    });
+  });
+  return out;
+}
+
+/**
  * Employees left out of a submitted run who are not paid for that period
  * yet: the follow-up list (Accountant: own branch; HR: every branch). They
  * stay until a run holding their payslip is Paid (2026-11-15); while that
@@ -441,152 +477,4 @@ export async function listOpenExclusions(supabase, guard) {
     });
   }
   return out.sort((a, b) => b.period_start.localeCompare(a.period_start) || a.employee_name.localeCompare(b.employee_name));
-}
-
-/** Every pay period from APPROVAL_EFFECTIVE up to the last one that has ended (today's included when it ends today). */
-export function periodsToCheck(today = manilaDateKey()) {
-  const out = [];
-  let period = periodForDateKey(APPROVAL_EFFECTIVE);
-  while (period.end_key <= today && out.length < 200) {
-    out.push(period);
-    period = nextPeriod(period.start_key);
-  }
-  return out;
-}
-
-/**
- * The Accountant's "Action needed" list, per branch (2026-11-15). Each item
- * has a count, what to do and where (page + address parameters); an item
- * goes away once it is done, since everything here is read fresh.
- *
- *   rejected          runs HR sent back, with the reason
- *   drafts            Draft payslips not finalized, per period
- *   left_out          employees left out of a run, per period, not yet paid
- *   unsubmitted       Final payslips not in any run, per period
- *   not_processed     ended periods with no payslip at all
- *   recompute         2nd halves whose 1st half changed: not in a run (recompute),
- *                     Pending (ask HR to reject), Paid (file a correction)
- *   pending_long      runs Pending HR Approval longer than 3 days (info)
- * @returns {Promise<Array<object>>}
- */
-export async function actionNeeded(supabase, guard, { branches = [], today = manilaDateKey(), now = new Date() } = {}) {
-  const branchIds = [...new Set(branches.map((b) => String(b.id)))].filter(Boolean);
-  if (!branchIds.length) return [];
-  const periods = periodsToCheck(today);
-  // Drafts and unsubmitted Final payslips of the current (not yet ended) period count too.
-  const current = periodForDateKey(today);
-  const labels = [...new Set([...periods.map((p) => p.label), current.label])];
-  const nameOf = new Map(branches.map((b) => [String(b.id), b.name]));
-  const [staff, runsResult, entries, leftOut] = await Promise.all([
-    loadPayrollStaff(supabase, guard),
-    supabase.from("payroll_runs").select("id,branch_id,period_label,period_start,run_no,status,remarks,reviewed_by_name,reviewed_at,submitted_at").in("branch_id", branchIds).gte("period_start", APPROVAL_EFFECTIVE),
-    readEntries(supabase, branchIds, labels),
-    listOpenExclusions(supabase, guard),
-  ]);
-  const runs = runsResult.error ? [] : runsResult.data || [];
-  const runById = new Map(runs.map((r) => [r.id, r]));
-  const items = [];
-  const add = (item) => items.push({ ...item, branch_name: nameOf.get(String(item.branch_id)) || null });
-  const latestOf = (branchId, label) => runs.filter((r) => String(r.branch_id) === branchId && r.period_label === label)
-    .sort((a, b) => (Number(b.run_no) || 1) - (Number(a.run_no) || 1))[0] || null;
-  const groupBy = (rows, keyOf) => rows.reduce((map, row) => map.set(keyOf(row), [...(map.get(keyOf(row)) || []), row]), new Map());
-
-  for (const branchId of branchIds) {
-    // 1. Runs HR rejected (the latest of the period still rejected).
-    [...new Set(runs.filter((r) => String(r.branch_id) === branchId).map((r) => r.period_label))].forEach((label) => {
-      const latest = latestOf(branchId, label);
-      if (latest?.status === "rejected") {
-        add({ kind: "rejected", branch_id: branchId, period_label: label, count: 1, run_id: latest.id,
-          text: `Rejected by ${latest.reviewed_by_name || "HR"}: ${latest.remarks || "no reason given"}`,
-          action: "Fix and resubmit", page: "ac-process", params: { period: label, focus: "runs" } });
-      }
-    });
-    const mine = entries.filter((e) => String(e.branch_id) === branchId);
-    // 2. Drafts not finalized.
-    groupBy(mine.filter((e) => e.status === "draft"), (e) => e.pay_period).forEach((rows, label) => {
-      add({ kind: "drafts", branch_id: branchId, period_label: label, count: rows.length, names: rows.map((e) => e.employee_name),
-        text: `${rows.length} Draft payslip${rows.length === 1 ? "" : "s"} not finalized`, action: "Finalize or cancel",
-        page: "ac-process", params: { period: label, batch: "draft" } });
-    });
-    // 4. Final payslips not in any run.
-    groupBy(mine.filter((e) => e.status === "paid" && !e.run_id), (e) => e.pay_period).forEach((rows, label) => {
-      const latest = latestOf(branchId, label);
-      add({ kind: "unsubmitted", branch_id: branchId, period_label: label, count: rows.length, names: rows.map((e) => e.employee_name),
-        text: `${rows.length} Final payslip${rows.length === 1 ? "" : "s"} not in any run${latest?.status === "approved" ? " (submit a supplemental run)" : ""}`,
-        action: latest?.status === "approved" ? "Submit supplemental run" : "Submit for HR Approval", page: "ac-process", params: { period: label, focus: "runs" } });
-    });
-    // 5. Ended periods with nothing processed for an active list.
-    periods.forEach((period) => {
-      if (mine.some((e) => e.pay_period === period.label) || latestOf(branchId, period.label)) return;
-      const active = expectedInRun(staff, branchId, period);
-      if (!active.length) return;
-      add({ kind: "not_processed", branch_id: branchId, period_label: period.label, count: active.length,
-        text: `No payroll processed yet for ${active.length} employee${active.length === 1 ? "" : "s"}`, action: "Process payroll",
-        page: "ac-process", params: { period: period.label } });
-    });
-  }
-
-  // 3. Left out of a run, not paid yet (per branch and period); Pending ones wait on HR.
-  groupBy(leftOut.filter((x) => branchIds.includes(String(x.branch_id)) && x.follow_up !== "supplemental_pending"), (x) => `${x.branch_id}|${x.period_label}`).forEach((rows) => {
-    add({ kind: "left_out", branch_id: String(rows[0].branch_id), period_label: rows[0].period_label, count: rows.length, names: rows.map((x) => x.employee_name),
-      text: `${rows.length} employee${rows.length === 1 ? "" : "s"} left out of a run`, action: "Process and submit a supplemental run",
-      page: "ac-process", params: { period: rows[0].period_label, focus: "left-out" } });
-  });
-
-  // 6. 2nd halves whose 1st half changed after they were computed.
-  const seconds = entries.filter((e) => firstHalfLabelOf(e.pay_period));
-  const firstLabels = [...new Set(seconds.map((e) => firstHalfLabelOf(e.pay_period)))];
-  if (seconds.length) {
-    const firstsResult = await fetchAllIn(() => supabase.from("payroll_entries").select(ENTRY_COLUMNS).in("pay_period", firstLabels).order("id", { ascending: true }), "employee_id", [...new Set(seconds.map((e) => e.employee_id))]);
-    const firstOf = new Map((firstsResult.data || []).map((e) => [`${e.employee_id}|${e.pay_period}`, e]));
-    const changed = seconds.map((e) => ({ entry: e, change: firstHalfChange(e, firstOf.get(`${e.employee_id}|${firstHalfLabelOf(e.pay_period)}`) || null) })).filter((x) => x.change);
-    const paidIds = changed.filter((x) => runById.get(x.entry.run_id)?.status === "approved").map((x) => x.entry.id);
-    const filed = new Set();
-    if (paidIds.length) {
-      const corrections = await fetchAllIn(() => supabase.from("payroll_corrections").select("entry_id,status").in("status", ["pending", "approved"]).order("id", { ascending: true }), "entry_id", paidIds);
-      (corrections.data || []).forEach((c) => filed.add(String(c.entry_id)));
-    }
-    const stateOf = (x) => {
-      const status = runById.get(x.entry.run_id)?.status;
-      return status === "approved" ? "paid" : status === "pending" ? "pending" : "open";
-    };
-    groupBy(changed.filter((x) => !(stateOf(x) === "paid" && filed.has(String(x.entry.id)))), (x) => `${x.entry.branch_id}|${x.entry.pay_period}|${stateOf(x)}${stateOf(x) === "paid" ? `|${x.entry.id}` : ""}`).forEach((rows) => {
-      const state = stateOf(rows[0]);
-      const label = rows[0].entry.pay_period;
-      const plural = rows.length === 1 ? "" : "s";
-      add({
-        kind: "recompute", state, branch_id: String(rows[0].entry.branch_id), period_label: label, count: rows.length,
-        names: rows.map((x) => x.entry.employee_name),
-        details: rows.map((x) => ({ entry_id: x.entry.id, employee_name: x.entry.employee_name, reason: x.change.reason, difference: x.change.difference })),
-        text: state === "paid" ? `${rows.length} Paid 2nd half${plural} computed with an old 1st half: file a correction on the next payslip`
-          : state === "pending" ? `${rows.length} 2nd half${plural} Pending HR Approval computed with an old 1st half: HR should reject the run so you can recompute`
-            : `${rows.length} 2nd half${plural} need${rows.length === 1 ? "s" : ""} recompute (the 1st half changed)`,
-        action: state === "paid" ? "Correct in Payroll Records" : state === "pending" ? "Waiting on HR" : "Recompute",
-        page: state === "paid" ? "ac-records" : "ac-process",
-        params: state === "paid"
-          ? {
-            correct: rows[0].entry.id,
-            // The month settles against the 1st half: a larger 1st half means this 2nd half paid too much.
-            kind: rows[0].change.difference > 0 ? "overpayment" : "underpayment",
-            amount: String(Math.abs(rows[0].change.difference)),
-            why: `${rows[0].change.reason} after the ${label} payslip was paid.`,
-          }
-          : { period: label, batch: "recompute" },
-      });
-    });
-  }
-
-  // 7. Pending HR Approval longer than 3 days (info only).
-  const limit = now.getTime() - PENDING_DAYS_INFO * 24 * 3600 * 1000;
-  runs.filter((r) => r.status === "pending" && r.submitted_at && new Date(r.submitted_at).getTime() < limit).forEach((r) => {
-    const days = Math.floor((now.getTime() - new Date(r.submitted_at).getTime()) / (24 * 3600 * 1000));
-    add({ kind: "pending_long", info: true, branch_id: String(r.branch_id), period_label: r.period_label, count: 1, run_id: r.id, submitted_at: r.submitted_at,
-      text: `Run ${Number(r.run_no) > 1 ? `${r.run_no} ` : ""}Pending HR Approval for ${days} days (submitted ${String(r.submitted_at).slice(0, 10)})`,
-      action: "View run", page: "ac-process", params: { period: r.period_label, focus: "runs" } });
-  });
-
-  const order = ["rejected", "recompute", "drafts", "left_out", "unsubmitted", "not_processed", "pending_long"];
-  return items.sort((a, b) => String(a.branch_name).localeCompare(String(b.branch_name))
-    || order.indexOf(a.kind) - order.indexOf(b.kind)
-    || startOf(b.period_label).localeCompare(startOf(a.period_label)));
 }

@@ -14,7 +14,6 @@ import { StatusBadge } from "@/components/portal/status-badge";
 import { UpcomingHolidaysCard } from "@/components/portal/upcoming-holidays";
 import { dateTime, money, moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { useAccountant } from "./accountant-data";
-import { ActionNeededPanel } from "./action-needed";
 import { AnnouncementsCard } from "@/components/portal/announcements";
 import { portalHref } from "@/lib/portal/navigate";
 
@@ -78,7 +77,6 @@ export function DashboardPage({ refreshKey, onNavigate }) {
   return (
     <>
       {/* What is still open, per branch, with a link to each (2026-11-15). */}
-      <ActionNeededPanel refreshKey={refreshKey} />
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />
       <section aria-label="This period at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3">

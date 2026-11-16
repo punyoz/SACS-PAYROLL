@@ -1,7 +1,7 @@
 // Payroll approval flow (decisions 2026-11-15), local stack only: the run
 // card's Included / Drafts / Left out groups and the payslips outside the
-// branch's active list, every reason a disabled Submit gives, Action needed
-// with links, the left-out list, the batch table's statuses, filters and
+// branch's active list, every reason a disabled Submit gives (the Action needed panel was removed
+// 2026-11-16), the left-out list, the batch table's statuses, filters and
 // counts (the same as the run card's), and the expanded blocked banner.
 // Seeds its own November 1-15 case in Main Campus with its own five people
 // (flow-*@e2e.test), so it runs alone or after any other spec, and removes
@@ -83,30 +83,14 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
       insert into attendance_logs (employee_id, employee_name, log_date, time_in, status, late_minutes, undertime_minutes, created_at)
       values ('${people.waiting.id}', '${people.waiting.name}', '2026-11-10', '2026-11-10T00:00:00Z', 'Incomplete', 0, 0, now());`);
 
-    // ── Action needed (dashboard) ──
-    await as(page, "accountant", "ac-dashboard");
+    // ── The Draft filter by address (?batch=draft): the batch table opens filtered ──
+    await as(page, "accountant", `ac-process&period=${encodeURIComponent(PERIOD)}&batch=draft`);
     await settle(page);
-    if (BEFORE) {
-      await page.screenshot({ path: join(OUT, "dashboard-top.png") });
-    } else {
-      const panel = main(page).getByTestId("action-needed");
-      await expect(panel).toBeVisible();
-      await expect(panel.locator("[data-kind=drafts]", { hasText: PERIOD })).toContainText("Dan Draft");
-      await expect(panel.locator("[data-kind=drafts]", { hasText: PERIOD }).getByTestId("action-count")).toHaveText("1");
-      await expect(panel.locator("[data-kind=unsubmitted]", { hasText: PERIOD })).toContainText("2 Final payslips not in any run");
-      // October has no payslip at all when this spec runs on its own: those periods are listed too.
-      const october = await rows(db().from("payroll_entries").select("id").eq("branch_id", branch.id).in("pay_period", ["October 1-15, 2026", "October 16-31, 2026"]).limit(1));
-      if (!october.length) await expect(panel.locator("[data-kind=not_processed]").first()).toBeVisible();
-      await shot(panel, "action-needed");
-      // A link opens the right screen: Drafts → Process Payroll, the period, the Draft filter.
-      await panel.locator("[data-kind=drafts]", { hasText: PERIOD }).getByTestId("action-link").click();
-      await expect(page).toHaveURL(/page=ac-process/);
-      await expect(page).toHaveURL(/batch=draft/);
-      await settle(page);
-      const batch = main(page).getByTestId("batch-card");
-      await expect(batch.getByTestId("batch-count-draft")).toHaveAttribute("aria-pressed", "true");
-      await expect(batch.getByTestId("batch-row")).toHaveCount(1);
-      await expect(batch.getByTestId("batch-row").first()).toContainText("Dan Draft");
+    if (!BEFORE) {
+      const filtered = main(page).getByTestId("batch-card");
+      await expect(filtered.getByTestId("batch-count-draft")).toHaveAttribute("aria-pressed", "true");
+      await expect(filtered.getByTestId("batch-row")).toHaveCount(1);
+      await expect(filtered.getByTestId("batch-row").first()).toContainText("Dan Draft");
     }
 
     // ── Batch table: the same counts as the run card ──
@@ -323,17 +307,12 @@ test("approval hand-off: Accountant submits, HR rejects and approves, employee i
     await hrDecide(page, 1, "Reject", REASON);
     expect(await runOf(1)).toMatchObject({ status: "rejected", remarks: REASON });
 
-    // 5. Accountant: the bell, Action needed and the run card all carry HR's reason; resubmit.
-    await as(page, "accountant", "ac-dashboard");
+    // 5. Accountant: the bell and the run card carry HR's reason; resubmit.
+    await as(page, "accountant", processUrl);
     await settle(page);
     menu = await bell(page);
     await expect(menu.getByRole("menuitem").filter({ hasText: `Payroll rejected: ${BRANCH_MAIN}, ${PERIOD}` }).first()).toContainText(REASON);
     await closeBell(page);
-    const rejected = main(page).getByTestId("action-needed").locator("[data-kind=rejected]", { hasText: PERIOD });
-    await expect(rejected).toContainText(REASON);
-    await rejected.getByTestId("action-link").click();
-    await expect(page).toHaveURL(/page=ac-process/);
-    await settle(page);
     const card = main(page).locator("[data-testid=run-card][data-status=rejected]", { hasText: BRANCH_MAIN }).first();
     await expect(card).toContainText(REASON);
     await expect(card.getByTestId("group-included").getByTestId("run-row").filter({ hasText: "Fay Final" })).toHaveCount(1);
@@ -345,16 +324,13 @@ test("approval hand-off: Accountant submits, HR rejects and approves, employee i
     await hrDecide(page, 1, "Approve", "E2E hand-off approved");
     expect((await runOf(1)).status).toBe("approved");
 
-    // 7. Accountant: told, the card is Paid, the period's open items are gone, the left-out list stays.
+    // 7. Accountant: told, the card is Paid, the left-out list stays.
     await as(page, "accountant", processUrl);
     await settle(page);
     menu = await bell(page);
     await expect(menu.getByRole("menuitem").filter({ hasText: `Payroll approved: ${BRANCH_MAIN}, ${PERIOD}` }).first()).toBeVisible();
     await closeBell(page);
     await expect(main(page).locator("[data-testid=run-card][data-status=approved]", { hasText: BRANCH_MAIN }).first()).toBeVisible();
-    const actions = main(page).getByTestId("action-needed");
-    await expect(actions.locator("[data-kind=rejected]", { hasText: PERIOD })).toHaveCount(0);
-    await expect(actions.locator("[data-kind=unsubmitted]", { hasText: PERIOD })).toHaveCount(0);
     expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Dan Draft")).toBe("Draft, not finalized");
     expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Eli Waiting")).toBeTruthy();
 

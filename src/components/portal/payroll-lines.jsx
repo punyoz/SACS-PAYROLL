@@ -4,6 +4,7 @@ import * as React from "react";
 import { CalculatorIcon, InfoIcon, PencilLineIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { InfoTip } from "@/components/portal/info-tip";
 import { LINE_TAGS, bracketRangeText, pesoText } from "@/lib/payroll/line-tags";
 import { cn } from "@/lib/utils";
 
@@ -124,7 +125,8 @@ export function TaxHowDetails({ explanation, showTable = true, className }) {
   );
 }
 
-function LineRow({ line }) {
+// compact (the payslip, 2026-11-16): label, tag and amount only; how it was computed is behind ⓘ.
+function LineRow({ line, compact = false }) {
   return (
     <li className="space-y-0.5" data-line={line.key} data-tag={line.tag}>
       <div className="flex items-baseline justify-between gap-3">
@@ -132,10 +134,11 @@ function LineRow({ line }) {
           <span className="min-w-0 break-words">{line.label}</span>
           <LineTag tag={line.tag} note={line.tip} />
           <OverriddenMarker overridden={line.overridden} />
+          {compact && line.how ? <InfoTip label={`How ${line.label} was computed`}>{line.how}</InfoTip> : null}
         </span>
         <SignedAmount line={line} />
       </div>
-      {line.how ? <p className="text-xs break-words text-muted-foreground">{line.how}</p> : null}
+      {!compact && line.how ? <p className="text-xs break-words text-muted-foreground">{line.how}</p> : null}
     </li>
   );
 }
@@ -144,7 +147,7 @@ function LineRow({ line }) {
  * @param {{ result: object, netLabel?: string, net?: number, gross?: number, showTaxHow?: boolean, children?: React.ReactNode }} props
  *   result: buildLineGroups() / payrollLineGroups(); children render before the net (settlement notes).
  */
-export function PayrollLineGroups({ result, netLabel, net, showTaxHow = true, taxTable = true, hideEmpty = true, children, className }) {
+export function PayrollLineGroups({ result, netLabel, net, showTaxHow = true, taxTable = true, hideEmpty = true, compact = false, children, className }) {
   if (!result) return null;
   return (
     <div className={cn("space-y-3 text-sm", className)} data-testid="payroll-line-groups">
@@ -155,14 +158,16 @@ export function PayrollLineGroups({ result, netLabel, net, showTaxHow = true, ta
           <React.Fragment key={group.key}>
             {showTaxable ? (
               <div className="flex items-baseline justify-between gap-3 rounded-md border border-dashed border-primary/30 bg-primary/5 px-2.5 py-1.5" data-testid="taxable-income">
-                <span className="min-w-0"><span className="font-medium">Taxable income</span><span className="block text-xs text-muted-foreground">{result.taxable.how}</span></span>
+                <span className="flex min-w-0 items-center gap-1.5"><span className="font-medium">Taxable income</span>
+                  {compact ? <InfoTip label="How taxable income was computed">{result.taxable.how}</InfoTip> : <span className="block text-xs text-muted-foreground">{result.taxable.how}</span>}
+                </span>
                 <span className="shrink-0 font-medium tabular-nums">{pesoText(result.taxable.amount)}</span>
               </div>
             ) : null}
             <section className="space-y-1.5" data-group={group.key}>
               <p className="text-xs font-semibold tracking-wide text-gold-text uppercase">{group.title}</p>
               {group.note && !group.lines.length ? <p className="text-xs text-muted-foreground">{group.note}</p> : null}
-              {group.lines.length ? <ul className="space-y-1.5">{group.lines.map((l) => <LineRow key={l.key} line={l} />)}</ul> : null}
+              {group.lines.length ? <ul className="space-y-1.5">{group.lines.map((l) => <LineRow key={l.key} line={l} compact={compact} />)}</ul> : null}
               {group.key === "tax" && showTaxHow && !group.note ? <TaxHowDetails explanation={result.tax} showTable={taxTable} /> : null}
               {group.lines.length ? (
                 <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 text-xs font-semibold">

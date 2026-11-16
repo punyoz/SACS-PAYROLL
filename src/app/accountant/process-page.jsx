@@ -48,7 +48,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { RunApprovalPanel } from "./run-approval-panel";
-import { ActionNeededPanel } from "./action-needed";
 import { DeferredIncentivesNotice } from "./incentives-page";
 import { CONTRIBUTION_MAX, DAYS_MAX, PERIOD_MINUTES_MAX, PESO_MAX, REASON_MAX } from "@/lib/input-limits";
 import { attendanceOverrideState } from "@/lib/payroll/override-window";
@@ -926,7 +925,7 @@ function SummaryRow({ label, value, tone, strong }) {
 }
 
 function SingleEntry({ onNavigate, editRequest }) {
-  const { data, period, setPeriod, entryId, setEntryId, load, openPayslip } = useAccountant();
+  const { data, period, setPeriod, entryId, setEntryId, load, openPayslip, draftGone, clearDraftLink } = useAccountant();
   const { notify } = usePortalSession();
   const employees = data?.employees || [];
   const [employeeId, setEmployeeId] = React.useState("");
@@ -966,6 +965,7 @@ function SingleEntry({ onNavigate, editRequest }) {
   }, [editRequest]);
 
   const employee = employees.find((e) => e.id === employeeId) || null;
+  const isDraft = Boolean(entryId) && (data?.draft_entries || []).some((row) => String(row.id) === String(entryId));
   const win = data?.generation_window || null;
   // Attendance overrides (Absent, Late, Undertime, Half day, Perfect
   // attendance): only inside the processing window on a payroll still open,
@@ -1048,6 +1048,8 @@ function SingleEntry({ onNavigate, editRequest }) {
     setFeedback({ text: action === "submit" ? "Processing payroll…" : "Saving payroll draft…", ok: true });
     try {
       const payload = submissionPayload(action, { entryId, employee, period, form: shownForm, tax: summary.tax, data });
+      // Finalizing an open Draft: the same request as processing; only where the page goes next differs.
+      const finalizingDraft = action === "submit" && isDraft;
       // HR rejected the run: its Final payslip is reprocessed, with any
       // attendance override (reopened for that run only).
       const reopenedFinal = action === "submit" && slipFinal && overrideGate.reopened;
@@ -1073,7 +1075,13 @@ function SingleEntry({ onNavigate, editRequest }) {
         reopenedFinal ? "The Final payslip was recomputed: submit the run for HR approval again." : "",
         result.db_synced === false ? "Database sync pending: contact your administrator if this keeps occurring." : "",
       ].filter(Boolean).join(" ");
-      if (action === "submit") {
+      if (finalizingDraft) {
+        // Back to the list on this page: the Draft has left "Drafts, not finalized".
+        clearDraftLink();
+        setFeedback({ text: "Draft finalized. The payslip is Final.", ok: true });
+        notify("Draft Finalized", extra || "The payslip is Final and is listed with the branch's run for HR approval.", result.db_synced === false ? "warning" : "success");
+        document.querySelector("[data-testid='run-panel']")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (action === "submit") {
         setFeedback({ text: "Payroll processed successfully. Payslip generated.", ok: true });
         notify(reopenedFinal ? "Payslip Reprocessed" : "Payroll Processed", extra || "Payroll has been processed and payslip generated.", result.db_synced === false ? "warning" : "success");
         setProcessedBanner(true);
@@ -1137,6 +1145,16 @@ function SingleEntry({ onNavigate, editRequest }) {
         <Alert className="border-success/40 bg-success/8 text-success">
           <CheckCircle2Icon aria-hidden="true" />
           <AlertDescription className="text-success"><span><strong>Payroll processed:</strong> Payslip has been generated and recorded in Payroll Records.</span></AlertDescription>
+        </Alert>
+      ) : null}
+      {draftGone ? (
+        <Alert className="border-info/40 bg-info/8" data-testid="draft-gone">
+          <InfoIcon aria-hidden="true" />
+          <AlertDescription>
+            {draftGone.finalized
+              ? "This draft was already finalized. Its payslip is in Payroll Records."
+              : "This draft is no longer open: it was finalized or cancelled."}
+          </AlertDescription>
         </Alert>
       ) : null}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
@@ -1360,7 +1378,7 @@ function SingleEntry({ onNavigate, editRequest }) {
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">Review the computation before processing. The payslip is saved to Payroll Records.</p>
               <Button className="w-full" size="lg" onClick={() => submit("submit")} disabled={busy || Boolean(blocking.length) || !ready || !finalWindow || Boolean(summary.info.row?.defaults?.first_half_block)} title={finalWindow ? "" : (win?.message || "")}>
-                {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Process payroll →
+                {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{isDraft ? "Finalize draft →" : "Process payroll →"}
               </Button>
               <Button className="w-full" variant="outline" onClick={() => submit("save_draft")} disabled={busy}>Save as draft</Button>
               {feedback.text ? <p role="status" className={cn("text-sm", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
@@ -1380,8 +1398,6 @@ export function ProcessPage({ onNavigate }) {
   if (error && !data) return <Card className="shadow-xs"><CardContent><ErrorState message={error} onRetry={() => load()} /></CardContent></Card>;
   return (
     <>
-      {/* What is still open, per branch, with a link to each (2026-11-15). */}
-      <ActionNeededPanel refreshKey={data} />
       <Banners data={data} />
       {/* Incentives filed after the 15th are paid next month (intended). */}
       <DeferredIncentivesNotice monthKey={String(data?.active_period?.start_key || "").slice(0, 7)} />

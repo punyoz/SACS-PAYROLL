@@ -10,7 +10,7 @@ import { StatCard } from "@/components/portal/stat-card";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { moneyCompact, recordStatusMeta } from "@/lib/portal/payroll-preview";
 import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
-import { CorrectionDialog, CorrectionsCard } from "@/components/portal/payroll-corrections";
+import { CorrectionDialog, CorrectionsCard, NeedsCorrectionBadge, correctionPrefill } from "@/components/portal/payroll-corrections";
 import { printPdf } from "@/lib/portal/print-pdf";
 import { ExportButtons } from "@/components/portal/export-buttons";
 
@@ -30,7 +30,7 @@ export function RecordsPage() {
   const panels = data?.history_panels || data?.panels || {};
   const first = loading && !data;
 
-  // Action needed → "Correct in Payroll Records" (?correct=<entry id>) opens that payslip's correction.
+  // ?correct=<entry id> (the payslip's "Needs correction" note) opens that payslip's correction.
   React.useEffect(() => {
     if (typeof window === "undefined" || !finals.length) return;
     const params = new URLSearchParams(window.location.search);
@@ -48,7 +48,21 @@ export function RecordsPage() {
     { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
     { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.total_deductions || 0), cell: (r) => moneyCompact(r.total_deductions) },
     { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
-    { key: "status", header: "Status", sortValue: (r) => recordStatusMeta(r).label, cell: (r) => { const s = recordStatusMeta(r); return <StatusBadge tone={s.tone}>{s.label}</StatusBadge>; } },
+    {
+      key: "status",
+      header: "Status",
+      sortValue: (r) => recordStatusMeta(r).label,
+      cell: (r) => {
+        const s = recordStatusMeta(r);
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge tone={s.tone}>{s.label}</StatusBadge>
+            <NeedsCorrectionBadge info={r.needs_correction}
+              action={<Button variant="link" size="sm" className="h-auto p-0" onClick={() => { setPrefill(correctionPrefill(r.needs_correction)); setCorrecting(r); }}>Correct</Button>} />
+          </div>
+        );
+      },
+    },
     {
       key: "payslip",
       header: <span className="sr-only">Payslip</span>,
@@ -57,7 +71,7 @@ export function RecordsPage() {
         <div className="flex justify-end gap-1">
           <Button variant="outline" size="sm" disabled={String(r.status || "").toLowerCase() === "draft"} onClick={() => openPayslip(r.id)}>Payslip</Button>
           {/* A payslip HR approved is corrected on a later payslip, never changed. */}
-          {r.run_status === "approved" ? <Button variant="outline" size="sm" onClick={() => setCorrecting(r)}>Correct</Button> : null}
+          {r.run_status === "approved" ? <Button variant="outline" size="sm" onClick={() => { setPrefill(correctionPrefill(r.needs_correction)); setCorrecting(r); }}>Correct</Button> : null}
         </div>
       ),
     },

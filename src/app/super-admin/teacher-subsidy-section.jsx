@@ -39,6 +39,7 @@ export function TeacherSubsidySection({ refreshKey }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [form, setForm] = React.useState(null);
   const [warning, setWarning] = React.useState("60");
+  const [warningBusy, setWarningBusy] = React.useState(false);
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
 
@@ -96,11 +97,14 @@ export function TeacherSubsidySection({ refreshKey }) {
   }
 
   async function saveWarning() {
+    setWarningBusy(true);
     try {
       await fetchJson("/api/admin/teacher-subsidy", jsonBody("POST", { action: "set_warning_days", days: Number(warning) }));
       notify("Saved", `HR is warned ${warning} days before a license expires.`, "success");
     } catch (error) {
       notify("Not Saved", error.message, "error");
+    } finally {
+      setWarningBusy(false);
     }
   }
 
@@ -158,10 +162,19 @@ export function TeacherSubsidySection({ refreshKey }) {
               <Input id="sub-note" maxLength={500} placeholder="Required" value={form.note} onChange={(e) => set("note", e.target.value)} /></div>
           </div>
 
-          <div className="flex flex-wrap items-end gap-2 rounded-md border p-3">
-            <div className="space-y-1.5"><Label htmlFor="sub-warn">Warn HR before a license expires (days)</Label>
-              <Input id="sub-warn" type="number" min="1" max="365" className="w-32" value={warning} onChange={(e) => setWarning(e.target.value)} /></div>
-            <Button type="button" variant="outline" onClick={saveWarning}>Save warning</Button>
+          <div className="space-y-1.5 rounded-md border p-3">
+            <Label htmlFor="sub-warn">Warn HR before a license expires (days)</Label>
+            {/* Input and button share one row; the label sits above so it cannot push the button away. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Input id="sub-warn" type="number" min="1" max="365" className="h-10 w-28 pr-11 tabular-nums" aria-describedby="sub-warn-help" value={warning} onChange={(e) => setWarning(e.target.value)} />
+                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground" aria-hidden="true">days</span>
+              </div>
+              <Button type="button" variant="outline" className="h-10 max-[400px]:w-full" onClick={saveWarning} disabled={warningBusy}>
+                {warningBusy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Saving…</> : "Save warning"}
+              </Button>
+            </div>
+            <p id="sub-warn-help" className="text-xs text-muted-foreground">HR gets a reminder this many days before a teacher&apos;s license expires (1 to 365). Saved separately from the settings above.</p>
           </div>
 
           {(data.history || []).length ? (

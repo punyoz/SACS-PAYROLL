@@ -33,6 +33,8 @@ export default defineConfig({
     // (one session per account), and it changes data.
     { name: "live", testMatch: /live-flow\.spec\.mjs/, dependencies: ["audit", "screens", "defense"] },
     { name: "defense", testMatch: /defense-prep\.spec\.mjs/, dependencies: ["setup"] },
+    // UI six parts (2026-11-16): UI_PHASE=before | after.
+    { name: "uisix", testMatch: /ui-six-parts\.spec\.mjs/, dependencies: ["setup"] },
   ],
   ...(local ? { webServer: {
     command: "node e2e/attendance/prod-server.mjs", url: `${BASE}/api/health`, reuseExistingServer: true, timeout: 300000,
