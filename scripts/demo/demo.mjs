@@ -94,6 +94,47 @@ async function insertRows(db, table, rows, columns, generated, { triggers = fals
 }
 
 /**
+ * The wipe (reset / restore / remove) cannot delete a demo row that a
+ * non-demo row still needs: one it points at through any foreign key (a chain
+ * through other demo rows ends at a direct pointer into a demo row), or a demo
+ * person it names in a NOT NULL column (the wipe would fail, or delete that
+ * row with the person). Refused before any prompt; the dry run is the exact
+ * backstop, this names the rows plainly.
+ */
+async function refuseNeededRows(db, meta, goingAway) {
+  const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
+  const idsOf = (t) => (goingAway?.[t] || []).map((r) => String(r[meta[t]?.key || "id"]));
+  const kept = [];
+  const chunks = (ids) => Array.from({ length: Math.ceil(ids.length / 500) }, (_, i) => ids.slice(i * 500, i * 500 + 500));
+  for (const [t, m] of Object.entries(meta)) {
+    if (!m.key) continue;
+    const mine = new Set(idsOf(t));
+    for (const { col, ref } of m.parents || []) {
+      const ids = idsOf(ref);
+      for (const part of chunks(ids)) {
+        const rows = await db.rows(`select ${col}::text k, ${m.key}::text id from ${t} where ${col}::text in (${listOf(part)})`);
+        [...new Set(rows.filter((r) => !mine.has(r.id)).map((r) => r.k))].forEach((k) => kept.push(`${ref} ${k} (a ${t} row that is not demo points at it: the wipe would fail, or delete or change that row)`));
+      }
+    }
+  }
+  // Mixed rows (a demo person and a non-demo one): the wipe empties the demo
+  // person's column, which a NOT NULL column refuses, so the row and the person stay.
+  const demoPeople = idsOf("profiles");
+  const required = await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'NO'");
+  for (const [t, m] of Object.entries(meta)) {
+    if (!m.key || !demoPeople.length) continue;
+    const mine = new Set(idsOf(t));
+    for (const col of m.person.filter((c) => required.some((r) => r.t === t && r.c === c))) {
+      for (const part of chunks(demoPeople)) {
+        const rows = await db.rows(`select ${m.key}::text id, ${col}::text k from ${t} where ${col}::text in (${listOf(part)})`);
+        rows.filter((r) => !mine.has(r.id)).forEach((r) => kept.push(`profiles ${r.k} (${t} ${r.id}, not demo, names this demo person in ${col} (NOT NULL): the wipe would fail, or delete that row with the person)`));
+      }
+    }
+  }
+  if (kept.length) throw new Error(`${kept.length} demo row(s) are still needed by non-demo rows, so the wipe could not delete them; this is refused:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
+}
+
+/**
  * Everything a load decides, read-only, BEFORE any prompt (seed / reset /
  * restore print its notes with the counts): the bundle fitted to the target
  * (fitBundleToTarget), the checks that stop a load, the run numbers and the
@@ -105,41 +146,13 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
   const bundle = { ...source, tables: { ...source.tables } };
   const listOf = (ids) => (ids.length ? ids.map(lit).join(", ") : lit("00000000-0000-0000-0000-000000000000"));
   const idsOf = (t) => (goingAway?.[t] || []).map((r) => String(r[meta[t]?.key || "id"]));
-  // A reset / restore wipes first, and the wipe cannot delete a demo row that a
-  // non-demo row still needs: one it points at (through any foreign key; a
-  // chain through other demo rows ends at a direct pointer into a demo row),
-  // or a demo person it names in a column that cannot be emptied. The load
-  // wipe would fail (the dry run catches it too; this names the rows plainly).
-  // Refused here, before any prompt and before anything is deleted.
-  if (goingAway) {
-    const kept = [];
-    const chunks = (ids) => Array.from({ length: Math.ceil(ids.length / 500) }, (_, i) => ids.slice(i * 500, i * 500 + 500));
-    for (const [t, m] of Object.entries(meta)) {
-      if (!m.key) continue;
-      const mine = new Set(idsOf(t));
-      for (const { col, ref } of m.parents || []) {
-        const ids = idsOf(ref);
-        for (const part of chunks(ids)) {
-          const rows = await db.rows(`select ${col}::text k, ${m.key}::text id from ${t} where ${col}::text in (${listOf(part)})`);
-          [...new Set(rows.filter((r) => !mine.has(r.id)).map((r) => r.k))].forEach((k) => kept.push(`${ref} ${k} (a ${t} row that is not demo points at it: the wipe would fail, or delete or change that row)`));
-        }
-      }
-    }
-    // Mixed rows (a demo person and a non-demo one): the wipe empties the demo
-    // person's column, which a NOT NULL column refuses, so the row and the person stay.
-    const demoPeople = idsOf("profiles");
-    const required = await db.rows("select table_name t, column_name c from information_schema.columns where table_schema = 'public' and is_nullable = 'NO'");
-    for (const [t, m] of Object.entries(meta)) {
-      if (!m.key || !demoPeople.length) continue;
-      const mine = new Set(idsOf(t));
-      for (const col of m.person.filter((c) => required.some((r) => r.t === t && r.c === c))) {
-        for (const part of chunks(demoPeople)) {
-          const rows = await db.rows(`select ${m.key}::text id, ${col}::text k from ${t} where ${col}::text in (${listOf(part)})`);
-          rows.filter((r) => !mine.has(r.id)).forEach((r) => kept.push(`profiles ${r.k} (${t} ${r.id}, not demo, names this demo person in ${col} (NOT NULL): the wipe would fail, or delete that row with the person)`));
-        }
-      }
-    }
-    if (kept.length) throw new Error(`${kept.length} demo row(s) are still needed by non-demo rows, so the wipe could not delete them; this reset / restore is refused:\n  ${kept.slice(0, 20).join("\n  ")}\nNothing changed.`);
+  if (goingAway) await refuseNeededRows(db, meta, goingAway);
+  // A bundle person whose id is a NON-demo profile on the target: the insert
+  // would be skipped and the demo rows would attach to that real person.
+  const people = (bundle.tables.profiles || []).map((p) => String(p.id));
+  if (people.length) {
+    const real = await db.rows(`select id::text id, full_name from profiles where id::text in (${listOf(people)}) and not (${demoFilter()}) and id::text not in (${listOf(idsOf("profiles"))})`);
+    if (real.length) throw new Error(`${real.length} demo person id(s) belong to non-demo profiles on the target (${real.slice(0, 5).map((r) => r.full_name || r.id).join(", ")}): nothing loaded.`);
   }
   const bundleRunIds = (bundle.tables.payroll_runs || []).map((r) => r.id);
   const notTheBundles = listOf([...bundleRunIds, ...idsOf("payroll_runs")]);
@@ -165,10 +178,11 @@ async function planLoad(db, source, { goingAway = null, snapshotFile = null } = 
   if (haveBranches.length !== branchIds.length) throw new Error("The target is missing a demo branch: nothing loaded.");
   for (const [t, rows] of Object.entries(bundle.tables)) {
     for (const { col, ref, refCol } of meta[t]?.parents || []) {
-      if (bundle.tables[ref]?.length) continue;
-      const ids = [...new Set(rows.map((r) => r[col]).filter(Boolean))];
-      if (!ids.length) continue;
       const key = refCol || meta[ref]?.key || "id";
+      // Parents the bundle carries are loaded with it; the others must be on the target.
+      const carried = new Set((bundle.tables[ref] || []).map((r) => String(r[key])));
+      const ids = [...new Set(rows.map((r) => r[col]).filter((v) => v !== null && v !== undefined && !carried.has(String(v))))];
+      if (!ids.length) continue;
       // Rows the wipe deletes first do not count as the target's.
       const have = await db.rows(`select ${key} as k from ${ref} where ${key} in (${ids.map(lit).join(", ")}) and ${key}::text not in (${listOf((goingAway?.[ref] || []).map((r) => String(r[key])))})`);
       if (have.length !== ids.length) throw new Error(`${t}.${col} points at ${ids.length - have.length} ${ref} row(s) the target does not have: nothing loaded.`);
@@ -359,6 +373,7 @@ async function wipeSql(db, data) {
   // Bounded: a lock that does not come within 5 s, or a statement over 45 s,
   // fails the whole wipe (rolled back) instead of holding live tables.
   const sql = [`set local lock_timeout = '5s'; set local statement_timeout = '45s';
+    select pg_advisory_xact_lock(${WIPE_LOCK});
     alter table profiles disable trigger user;
     update profiles set prc_id_document_id = null, license_verified_by = null where id in (${D});
     update profiles set license_verified_by = null where license_verified_by in (${D}) and id not in (${D});
@@ -386,19 +401,24 @@ async function wipeSql(db, data) {
   return body;
 }
 
+/** Held by the wipe transaction until it commits or rolls back (pg_advisory_xact_lock). */
+const WIPE_LOCK = 734211907;
+
 /**
- * After a failed request: wait until the wipe's own query has left the
- * database (its marker), then count the demo people. The wipe is one
- * transaction, so all of them still there = nothing deleted, none left =
- * the wipe committed; anything else, or no answer, is reported as unknown.
+ * After a failed request: wait until the wipe transaction has ended (its lock
+ * is free again), then count the demo people. The wipe is one transaction, so
+ * all of them still there = nothing deleted, none left = committed. A lock
+ * still held after about 3 minutes, a partial count, or no answer = unknown.
  */
-async function wipeOutcome(db, data, marker) {
+async function wipeOutcome(db, data) {
   try {
-    for (let i = 0; i < 36; i += 1) {
-      const [running] = await db.rows(`select count(*)::int n from pg_stat_activity where query like ${lit(`%${marker}%`)} and pid <> pg_backend_pid()`);
-      if (!running.n) break;
-      await new Promise((r) => setTimeout(r, 5000));
+    let ended = false;
+    for (let i = 0; i < 36 && !ended; i += 1) {
+      const [lock] = await db.rows(`select case when pg_try_advisory_lock(${WIPE_LOCK}) then pg_advisory_unlock(${WIPE_LOCK}) else false end as free`);
+      ended = lock.free === true;
+      if (!ended) await new Promise((r) => setTimeout(r, 5000));
     }
+    if (!ended) return "unknown";
     const [left] = await db.rows(`select count(*)::int n from profiles where id in (${data.demoIds.map(lit).join(", ")})`);
     if (left.n === data.demoIds.length) return "nothing";
     if (left.n === 0) return "committed";
@@ -432,12 +452,11 @@ async function dryRunWipe(db, data) {
 /** Delete the demo rows in one transaction (all or nothing) with the SQL the dry run tried, then their leave-proof files. */
 async function wipe(db, data, sql) {
   if (!data.demoIds?.length) { say("  nothing demo to delete"); return; }
-  const marker = `demo-wipe ${new Date().toISOString()}`;
   try {
     // Never resent: after a lost answer the commit may already have happened.
-    await db.exec(`/* ${marker} */ begin;\n${sql}\ncommit;`, { retry: false });
+    await db.exec(`begin;\n${sql}\ncommit;`, { retry: false });
   } catch (error) {
-    const outcome = await wipeOutcome(db, data, marker);
+    const outcome = await wipeOutcome(db, data);
     if (outcome !== "committed") {
       const failed = new Error(outcome === "nothing"
         ? `The wipe failed and nothing was deleted (checked: every demo person is still there).\n  ${String(error.message).slice(0, 600)}`
@@ -525,6 +544,7 @@ const commands = {
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     const { data, file: snapFile } = await snapshot(db);
     printCounts(`will DELETE on ${db.target} (is_demo data only)`, data);
+    if (data.demoIds.length) await refuseNeededRows(db, await schema(db), goingAwayOf(data));
     const wipeBody = await dryRunWipe(db, data);
     if (!(await confirm(`Delete all of it on ${db.target}? (yes/no)`))) return say("Nothing deleted (the snapshot is kept).");
     await afterSnapshot(db, snapFile, () => wipe(db, data, wipeBody));
