@@ -67,11 +67,8 @@ function Group({ title, count, open = false, testId, children, tone }) {
   );
 }
 
-/**
- * draftLink(row): a Draft's "Review and finalize" is a real link to the
- * single-entry draft (?draft=<entry id>), so it also opens in a new tab.
- */
-function PayslipRows({ rows, onView, draftLink, onRecompute, recomputing, extra, footer }) {
+/** A Draft row has no action here (its "Review and finalize" link was removed 2026-11-16): it is finalized from Process Payroll. */
+function PayslipRows({ rows, onView, onRecompute, recomputing, extra, footer }) {
   if (!rows.length) return <p className="text-sm text-muted-foreground">None.</p>;
   return (
     // relative: the sr-only header labels stay inside the scroll box (as the house Table does), so a phone page never widens.
@@ -113,13 +110,7 @@ function PayslipRows({ rows, onView, draftLink, onRecompute, recomputing, extra,
               <td className="py-1.5 text-right tabular-nums">{money(r.total_deductions)}</td>
               <td className="py-1.5 text-right font-medium tabular-nums">{money(r.net_pay)}</td>
               <td className="py-1.5 text-right">
-                {r.status === "draft" && draftLink ? (
-                  <a href={draftLink(r)} onClick={(event) => { if (!isPlainClick(event)) return; event.preventDefault(); onView(r); }}
-                    className="inline-flex min-h-10 items-center rounded-md px-1 font-medium whitespace-nowrap text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 md:min-h-0"
-                    data-testid="review-draft">
-                    Review and finalize<span className="sr-only">: {r.employee_name}, {r.period_label}</span>
-                  </a>
-                ) : <Button variant="link" size="sm" className="h-auto p-0" onClick={() => onView(r)}>{r.status === "draft" ? "Finalize" : "View payslip"}</Button>}
+                {r.status === "draft" ? null : <Button variant="link" size="sm" className="h-auto p-0" onClick={() => onView(r)}>View payslip</Button>}
               </td>
             </tr>
           ))}
@@ -332,8 +323,7 @@ export function RunApprovalPanel() {
               {!card.locked ? (
                 <Group title="Drafts, not finalized" count={card.drafts.length} testId="group-drafts" tone={card.drafts.length ? "warning" : undefined}>
                   <p className="pb-1 text-xs text-muted-foreground">A Draft is never sent to HR: these employees are left out unless you finalize them first.</p>
-                  <PayslipRows rows={card.drafts} onView={(r) => editDraft(r.entry_id)}
-                    draftLink={(r) => portalHref("ac-process", { period: r.period_label, draft: r.entry_id })} />
+                  <PayslipRows rows={card.drafts} onView={(r) => editDraft(r.entry_id)} />
                 </Group>
               ) : null}
 

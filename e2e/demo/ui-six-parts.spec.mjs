@@ -474,14 +474,14 @@ test.describe("Parts 5-6 Process Payroll (Accountant, Main Branch)", () => {
     // The view is gone from the API too.
     const res = await page.request.get("/api/accountant/payroll-runs?view=action_needed");
     expect((await res.json()).items).toBeUndefined();
-    // Finalize a draft: the Drafts group link.
+    // The Drafts group lists drafts with no "Review and finalize" link (removed 2026-11-16): they are finalized from the batch table.
     await openPage(page, "/accountant", "ac-process&period=November%201-15%2C%202026");
-    await expect(main(page).getByTestId("group-drafts").getByTestId("review-draft").first()).toBeAttached();
+    await expect(main(page).getByTestId("group-drafts").getByTestId("review-draft")).toHaveCount(0);
     // Submit for HR approval: the run card's button.
     await expect(main(page).getByTestId("submit-run").first()).toBeAttached();
   });
 
-  test("Review and finalize opens the single-entry draft; finalizing works once; another branch is refused", async ({ page, context }) => {
+  test("the Drafts group has no Review and finalize link; a ?draft= address still opens the draft; finalizing works once", async ({ page, context }) => {
     test.skip(!AFTER, "after only");
     test.setTimeout(5 * 60 * 1000);
     const [draft] = await rows("select e.id, e.employee_id, e.employee_name, e.pay_period, (e.payroll->'totals'->>'net_pay') as net from payroll_entries e join branches b on b.id=e.branch_id where e.status='draft' and b.name='Main Branch' order by e.employee_name limit 1");
@@ -489,10 +489,12 @@ test.describe("Parts 5-6 Process Payroll (Accountant, Main Branch)", () => {
     await openPage(page, "/accountant", `ac-process&period=${encodeURIComponent(draft.pay_period)}`);
     const drafts = main(page).getByTestId("group-drafts");
     await drafts.locator("summary").click().catch(() => {});
-    const link = drafts.locator(`[data-testid=run-row][data-employee="${draft.employee_name}"]`).getByRole("link", { name: /Review and finalize/ });
-    const href = await link.getAttribute("href");
-    expect(href).toContain(`draft=${draft.id}`);
+    // No link or button on a Draft row in the Drafts group (removed 2026-11-16).
+    const row = drafts.locator(`[data-testid=run-row][data-employee="${draft.employee_name}"]`);
+    await expect(row.getByRole("link")).toHaveCount(0);
+    await expect(row.getByRole("button")).toHaveCount(0);
     await shot(drafts, "drafts-list-1366");
+    const href = `?page=ac-process&period=${encodeURIComponent(draft.pay_period)}&draft=${draft.id}`;
     // A new tab opens the same draft.
     const tab = await context.newPage();
     await tab.setViewportSize(DESKTOP);
@@ -500,8 +502,8 @@ test.describe("Parts 5-6 Process Payroll (Accountant, Main Branch)", () => {
     await expect(tab.locator("#pc-entry")).toContainText("Editing saved entry");
     await expect(tab.locator("#pc-employee")).toContainText(draft.employee_name);
     await tab.close();
-    // In place: the form fills and scrolls into view.
-    await link.click();
+    // The same address in this tab: the form fills and scrolls into view.
+    await page.goto(`/accountant${href}`);
     await expect(page).toHaveURL(new RegExp(`draft=${draft.id}`));
     await expect(main(page).locator("#pc-employee")).toContainText(draft.employee_name);
     await expect(main(page).locator("#pc-entry")).toBeInViewport();
