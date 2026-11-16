@@ -30,7 +30,7 @@ checked by hand in the Supabase Dashboard.
 | Postgres | 17.6 |
 | Compute | **Micro**: 2 shared CPU cores, 1 GB RAM, 60 direct connections, 200 pooler connections |
 | Disk | 2 GB provisioned (gp3, 3,000 IOPS); grows automatically |
-| Web host | Vercel, `https://sacs-payroll.vercel.app` |
+| Web host | Vercel, `https://sacs-payroll.vercel.app`; server code runs in **Mumbai (`bom1`)**, next to the database (`vercel.json`, 2026-11-16; before that Vercel used its default, Washington D.C. `iad1`, and every database call crossed the world) |
 
 What the Pro fee includes, per month, for the whole organization:
 
