@@ -30,6 +30,7 @@ import { CorrectionsCard } from "@/components/portal/payroll-corrections";
 import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exclusions";
 import { cn } from "@/lib/utils";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
+import { FIRST_HALF_NOTE } from "@/lib/payroll/line-tags";
 import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { TableToolbar } from "@/components/portal/table-toolbar";
@@ -231,7 +232,9 @@ function Breakdown({ item, firstCutoff }) {
     { label: "Basic pay", amount: item.basic_pay },
     ...(lines.incentives || []).map((l) => ({ label: l.type.replaceAll("_", " "), amount: Number(l.amount) || 0, note: lineHow(l) })),
   ];
-  const deductions = b.cutoff?.deductions || (lines.deductions || []).map((l) => ({ label: l.type.replaceAll("_", " "), amount: Number(l.amount) || 0 }));
+  // A ₱0 line (a late not charged at 0%) is not listed (audit 2026-11-16).
+  const deductions = (b.cutoff?.deductions || (lines.deductions || []).map((l) => ({ label: l.type.replaceAll("_", " "), amount: Number(l.amount) || 0 })))
+    .filter((line) => line.credit || Number(line.amount) > 0);
   const attendanceLines = (lines.deductions || []).filter((l) => ["absent", "late", "undertime", "half_day", "leave_without_pay", "unpaid_holiday"].includes(l.type));
   return (
     <div className="grid gap-4 p-3 md:grid-cols-2">
@@ -276,6 +279,7 @@ function Breakdown({ item, firstCutoff }) {
             ))}
           </ul>
         ) : <p className="text-sm text-muted-foreground">No deductions.</p>}
+        {!groups && firstCutoff ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="first-half-note">{FIRST_HALF_NOTE}</p> : null}
         {attendanceLines.length ? (
           <details className="rounded-md border bg-muted/30 px-2 py-1 text-xs">
             <summary className="cursor-pointer select-none text-muted-foreground">How the attendance deductions were computed ({attendanceLines.length} lines)</summary>

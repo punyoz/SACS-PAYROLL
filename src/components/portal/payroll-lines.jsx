@@ -179,6 +179,8 @@ export function PayrollLineGroups({ result, netLabel, net, showTaxHow = true, ta
           </React.Fragment>
         );
       })}
+      {/* One note on every 1st-half payslip, for every role (line-tags.js FIRST_HALF_NOTE). */}
+      {result.first_half_note ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="first-half-note">{result.first_half_note}</p> : null}
       {result.leave_with_pay_days > 0 ? (
         <div className="flex items-baseline justify-between gap-3 text-sm"><span>Leave with pay ({result.leave_with_pay_days} day{result.leave_with_pay_days === 1 ? "" : "s"})</span><span className="text-muted-foreground">No deduction</span></div>
       ) : null}

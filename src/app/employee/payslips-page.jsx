@@ -151,8 +151,8 @@ function EmployeePayslipLines({ view }) {
   const sign = (s) => (s === "-" ? "− " : s === "+" ? "+ " : "");
   return (
     <div className="space-y-3" data-testid="payslip-full" data-half={view.half}>
+      {/* PayrollLineGroups shows the 1st-half note (the same for every role). */}
       <PayrollLineGroups result={view} showTaxHow={false} taxTable={false} />
-      {view.first_half_note ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="first-half-note">{view.first_half_note}</p> : null}
       {view.hire_note ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="hire-note">{view.hire_note}</p> : null}
       {box ? (
         <section className="space-y-1 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-xs" data-testid="tax-box">
@@ -170,7 +170,8 @@ function EmployeePayslipLines({ view }) {
       {view.carry_over_out ? <div className="flex items-baseline justify-between gap-3 text-sm text-warning"><span>{view.carry_over_out.label}</span><span className="tabular-nums">{formatPeso(view.carry_over_out.amount)}</span></div> : null}
       <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{formatPeso(view.gross)}</span></div>
       <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">- {formatPeso(view.total_deductions)}</span></div>
-      <WhyTaxNote />
+      {/* Only on a payslip that deducts withholding tax (audit 2026-11-16). */}
+      {view.tax_deducted > 0 ? <WhyTaxNote /> : null}
       <LineTagLegend />
     </div>
   );

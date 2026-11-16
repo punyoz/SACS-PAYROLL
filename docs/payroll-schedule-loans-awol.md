@@ -82,14 +82,26 @@ subsidy starts under the approved month rule, and the change is logged.
 
 | Already live | Where |
 |---|---|
-| 1st half = Rate (monthly ÷ 2), no deductions; 2nd half settles the month | `src/lib/payroll/semi-monthly.js` |
+| 1st half = Rate (monthly ÷ 2) less its own attendance, no contributions, tax or loans; 2nd half settles the month: contributions on the monthly basic salary (SSS bracket too) and the month's tax, once (audit 2026-11-16) | `src/lib/payroll/semi-monthly.js` |
 | Negative 2nd half → paid ₱0, the rest carries to next month | `semi-monthly.js` (`carry_over_out`) |
-| SSS ₱400, Pag-IBIG ₱200, PhilHealth ₱0, late not deducted | `payroll_rate_configs` (school sheet) |
+| Contributions from the legal tables since Oct 16, 2026 (the fixed SSS ₱400 / Pag-IBIG ₱200 / PhilHealth ₱0 applied Oct 1–15 only); late not deducted | `payroll_rate_configs` (`contribution_method` 0) |
 | Divisor setting "Working days per year" (school row: 24) | Super Admin → Payroll Rates, `src/lib/payroll/rates.js` |
 | Cash advances, partial deduction, never below ₱0 net | `src/lib/payroll/cash-advance.js` (**replaced by Loans, §4**) |
 | Holiday calendar, rest days (Sat/Sun + whole-day holidays) | `attendance_is_rest_day()` |
 | Generation opened 3 days before period end (old rule; the fallback now opens on the last day) | `src/lib/payroll/generation-window.js` (**replaced by §1**) |
 | `profiles.date_hired` | used for subsidy proration (§6) |
+
+### Contributions and tax in a semi-monthly month (checked 2026-11-16)
+
+The school's method, kept by decision of 2026-11-16:
+
+- **1st half (1–15):** half the monthly salary, less the 1st half's own attendance, plus its own approved overtime. No SSS, PhilHealth, Pag-IBIG, withholding tax or loans. Every 1st-half payslip (all roles, screen, print, PDF) says "Government contributions and withholding tax are deducted on the 2nd-half payslip".
+- **2nd half (16–end):** settles the whole month: the month's gross (both halves), then the month's SSS, PhilHealth and Pag-IBIG once, then the withholding tax once from the MONTHLY table on the month's taxable income, less what the 1st half paid.
+- **Bases:** the legal tables since Oct 16, 2026. The SSS salary-credit bracket comes from the monthly BASIC salary (not overtime or incentives); PhilHealth 2.5% of the basic within ₱10,000–₱100,000; Pag-IBIG 2% of the basic up to ₱10,000.
+- **Employer shares** (SSS 10% + EC, PhilHealth 2.5%, Pag-IBIG 2%) are on the same base and saved on the 2nd-half record only; never on a payslip.
+- **Hire and separation months** take the full month's contributions on the full monthly salary (pay itself is by the day).
+- **A month with almost no pay** (for example absent every working day at 261 days a year) still takes the full month's contributions while its gross is above ₱0; what the payslip cannot cover carries over to next month. Only a month with ₱0 gross takes none.
+- **A 1st half reprocessed** after the 2nd half was computed never changes the 2nd half by itself: it is flagged "1st half changed" with the 1st half's own change and what the month's tax and the 2nd half would change if recomputed.
 
 ---
 

@@ -104,6 +104,7 @@ export function computeFinalPay(input) {
   const earnings = [];
   const deductions = [];
   let taxableTotal = 0;
+  let lastTaxable = 0;
   let taxTotal = 0;
   let basicEarned = 0;
 
@@ -132,6 +133,8 @@ export function computeFinalPay(input) {
       });
       const taxable = Math.max(0, peso(earned - contrib));
       taxableTotal = peso(taxableTotal + taxable);
+      // The latest month with earnings (the separation month): the 13th month's excess is taxed on top of it.
+      lastTaxable = taxable;
       const tax = monthlyWithholdingTax(taxable, input.taxTable || []);
       if (tax > 0) deductions.push({ kind: "withholding_tax", month_key: month.month_key, amount: tax });
       taxTotal = peso(taxTotal + tax);
@@ -167,8 +170,14 @@ export function computeFinalPay(input) {
   const excess = Math.max(0, peso(Number(input.benefitsYtd || 0) + benefits - Number(input.ceiling || 90000)));
   const subsidyTaxable = s?.tax_treatment === "taxable" ? subsidyPayout : 0;
   if (excess + subsidyTaxable > 0) {
-    const before = monthlyWithholdingTax(0, input.taxTable || []);
-    const extra = peso(monthlyWithholdingTax(excess + subsidyTaxable, input.taxTable || []) - before);
+    const table = input.taxTable || [];
+    // The 13th month above the ceiling is taxed ON TOP of the separation
+    // month's pay (audit 2026-11-16): tax(month + excess) − tax(month), not
+    // from zero. A taxable subsidy keeps its treatment as before (taxed from
+    // the excess up), so with no excess nothing changes.
+    const onMonth = peso(monthlyWithholdingTax(lastTaxable + excess, table) - monthlyWithholdingTax(lastTaxable, table));
+    const subsidyPart = peso(monthlyWithholdingTax(excess + subsidyTaxable, table) - monthlyWithholdingTax(excess, table));
+    const extra = peso(onMonth + subsidyPart);
     if (extra > 0) { deductions.push({ kind: "withholding_tax", note: "On 13th month / subsidy above the exempt ceiling", amount: extra }); taxTotal = peso(taxTotal + extra); }
   }
 

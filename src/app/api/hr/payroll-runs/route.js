@@ -78,7 +78,7 @@ async function processingWindows(supabase) {
     }),
   };
 }
-import { listOpenExclusions } from "@/lib/payroll/run-service";
+import { listOpenExclusions, loadFlagTaxRows } from "@/lib/payroll/run-service";
 import { LEFT_OUT_LABELS, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
 import { textLimitError } from "@/lib/input-limits";
 import { loadDemoIds, notDemo } from "@/lib/demo";
@@ -221,9 +221,10 @@ async function loadRunDetail(supabase, guard, runId) {
     ]);
     const secondOf = new Map((seconds.data || []).map((e) => [e.employee_id, e]));
     const firstOf = new Map((firsts.data || []).map((e) => [e.employee_id, e]));
+    const taxRows = await loadFlagTaxRows(supabase);
     rows.forEach((row) => {
       const second = secondOf.get(row.employee_id);
-      const change = second ? firstHalfChange(second, firstOf.get(row.employee_id) || null) : null;
+      const change = second ? firstHalfChange(second, firstOf.get(row.employee_id) || null, { taxRows }) : null;
       row.first_half_changed = change ? `1st half changed after this was computed. ${change.reason}.` : null;
     });
   }

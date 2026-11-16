@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { useAccountant } from "./accountant-data";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
+import { FIRST_HALF_NOTE } from "@/lib/payroll/line-tags";
 import { printPdf } from "@/lib/portal/print-pdf";
 import { NeedsCorrectionNote } from "@/components/portal/payroll-corrections";
 
@@ -94,7 +95,8 @@ function Cutoff({ payslip }) {
       </Section>
       <Section title="Deductions">
         {Number(c.leave_with_pay_days) > 0 ? <Row label={`Leave with pay (${plural(c.leave_with_pay_days, "day")})`} value="No deduction" /> : null}
-        {c.deductions.length ? c.deductions.map((line) => (
+        {/* A ₱0 line (a late not charged at 0%) is not listed (audit 2026-11-16). */}
+        {c.deductions.some((line) => line.credit || Number(line.amount) > 0) ? c.deductions.filter((line) => line.credit || Number(line.amount) > 0).map((line) => (
           <React.Fragment key={line.label}>
             {/* A credit (the year-end tax refund) is added to the pay. */}
             <Row label={line.label} value={`${line.credit ? "+" : "-"} ${money(line.amount)}`} tone={line.credit ? "plus" : "minus"} />
@@ -102,7 +104,7 @@ function Cutoff({ payslip }) {
           </React.Fragment>
         )) : <Row label="None" value={money(0)} />}
         <Row label="Total deductions" value={`- ${money(c.total_deductions)}`} strong />
-        {c.half === "first" ? <p className="pt-1 text-xs text-muted-foreground">Withholding tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.</p> : null}
+        {c.half === "first" ? <p className="pt-1 text-xs text-muted-foreground" data-testid="first-half-note">{FIRST_HALF_NOTE}</p> : null}
         {Number(c.carry_over_out) > 0 ? <Row label="Carried to next month" value={money(c.carry_over_out)} tone="warn" /> : null}
       </Section>
     </div>

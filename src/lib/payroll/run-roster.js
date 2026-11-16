@@ -15,7 +15,7 @@
  */
 
 import { floorNetPay } from "@/lib/payroll/net-pay";
-import { PER_CUTOFF_RULE } from "@/lib/payroll/semi-monthly";
+import { PER_CUTOFF_RULE, monthlyWithholdingTax, resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
 
 /** Why an employee is not in a run (payroll_run_exclusions.left_out_as). */
 export const LEFT_OUT_AS = Object.freeze({ not_processed: "not_processed", draft: "draft", outside_list: "outside_list" });
@@ -27,6 +27,7 @@ export const LEFT_OUT_LABELS = Object.freeze({
 
 const amount = (value) => Math.round((Number(value) || 0) * 100) / 100;
 const pesoText = (value) => `₱${amount(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signedPeso = (value) => `${amount(value) < 0 ? "−" : "+"}${pesoText(Math.abs(amount(value)))}`;
 
 /** Employees a branch's run must contain: paid staff, active, not held, hired by the period's end. */
 export function expectedInRun(staff, branchId, period) {
@@ -78,11 +79,54 @@ export function firstHalfBasis(firstEntry) {
 }
 
 /**
+ * What recomputing the 2nd half would change in the month (audit 2026-11-16).
+ * Display only, from the stored figures; nothing is recomputed. The 1st half
+ * deducts nothing but attendance, so its change moves the month's gross and
+ * taxable income by the same amount; the month's withholding tax follows the
+ * tax table in force for the 2nd half. Contributions do not move (they are on
+ * the monthly basic salary). Null without the tax table, or when the stored
+ * tax is not the table's (an override).
+ * @returns {null | { tax_before, tax_after, second_half_change, month_net_change }}
+ *   second_half_change > 0: the recomputed 2nd half pays that much more.
+ */
+export function monthChangeIfRecomputed(secondEntry, difference, taxRows) {
+  if (!Array.isArray(taxRows) || !taxRows.length) return null;
+  const payroll = parsePayroll(secondEntry?.payroll);
+  const m = payroll.monthly || {};
+  const start = payroll.audit?.period?.start_key;
+  if (!start || m.taxable_income === undefined || m.taxable_income === null || m.withholding_tax === undefined || m.withholding_tax === null) return null;
+  if (m.table_withholding_tax !== undefined && m.table_withholding_tax !== null && amount(m.table_withholding_tax) !== amount(m.withholding_tax)) return null;
+  const table = taxTableFromRows(resolveTaxTableRows(taxRows, start));
+  if (!table.length) return null;
+  const taxBefore = amount(m.withholding_tax);
+  const taxAfter = monthlyWithholdingTax(Math.max(0, amount(Number(m.taxable_income) + amount(difference))), table);
+  return {
+    tax_before: taxBefore,
+    tax_after: taxAfter,
+    second_half_change: amount(taxBefore - taxAfter),
+    month_net_change: amount(amount(difference) - (taxAfter - taxBefore)),
+  };
+}
+
+/** The month's effect in plain words, for the reason text. */
+function monthChangeText(change, month) {
+  const first = `1st half alone: ${signedPeso(change.difference)}`;
+  if (!month) return first;
+  const tax = month.tax_after === month.tax_before
+    ? `the month's withholding tax stays ${pesoText(month.tax_before)}, so the 2nd half pays the same`
+    : `the month's withholding tax ${pesoText(month.tax_before)} → ${pesoText(month.tax_after)}, so the 2nd half pays ${pesoText(Math.abs(month.second_half_change))} ${month.second_half_change > 0 ? "more" : "less"}`;
+  return `${first}; if the 2nd half is recomputed, ${tax} (whole month: ${signedPeso(month.month_net_change)})`;
+}
+
+/**
  * Has the 1st half changed since this 2nd half was computed?
- * @returns {null | { reason: string, old_net: number, new_net: number|null, difference: number }}
+ * @param {object} [options]
+ * @param {Array}  [options.taxRows]  payroll_tax_brackets rows: with them the
+ *   reason also says what the month changes if the 2nd half is recomputed.
+ * @returns {null | { reason: string, old_net: number, new_net: number|null, difference: number, month: object|null }}
  *   difference: what the 2nd half now over- (> 0) or under- (< 0) pays.
  */
-export function firstHalfChange(secondEntry, firstEntry) {
+export function firstHalfChange(secondEntry, firstEntry, { taxRows = null } = {}) {
   const basis = parsePayroll(secondEntry?.payroll).monthly?.first_half_basis;
   if (!basis) return null; // computed before 2026-11-15, or with no Final 1st half
   const now = firstHalfBasis(firstEntry);
@@ -96,12 +140,15 @@ export function firstHalfChange(secondEntry, firstEntry) {
   }
   if (!parts.length && basis.entry_id && now.entry_id && String(basis.entry_id) !== String(now.entry_id)) parts.push("its payslip was replaced");
   if (!parts.length) return null;
+  // The month settles against the 1st half paid: a larger 1st half means the 2nd half paid too much.
+  const difference = amount(now.net_pay - basis.net_pay);
+  const month = difference ? monthChangeIfRecomputed(secondEntry, difference, taxRows) : null;
   return {
-    reason: `1st half changed: ${parts.join(", ")}`,
+    reason: `1st half changed: ${parts.join(", ")}${difference ? `; ${monthChangeText({ difference }, month)}` : ""}`,
     old_net: amount(basis.net_pay),
     new_net: amount(now.net_pay),
-    // The month settles against the 1st half paid: a larger 1st half means the 2nd half paid too much.
-    difference: amount(now.net_pay - basis.net_pay),
+    difference,
+    month,
   };
 }
 

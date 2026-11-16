@@ -47,8 +47,8 @@ Add a new version with "Takes effect from"; never edit history.
 | Rate | Live value (from Oct 1, 2026) | Meaning |
 |---|---|---|
 | Working days per year (the divisor) | **261** | Daily = monthly × 12 ÷ 261. 313 if Saturdays are school days. 31 or less = days per month. Attendance deductions never exceed the monthly salary. |
-| Contributions as fixed amounts | On | use the fixed amounts below, not the legal tables |
-| SSS / PhilHealth / Pag-IBIG fixed | ₱400 / ₱0 / ₱200 | per month, on the 2nd half |
+| Contributions as fixed amounts | Off since Oct 16, 2026 (On Oct 1–15) | Off = the legal tables: SSS 5% of the salary credit for the monthly BASIC salary, PhilHealth 2.5% within ₱10,000–₱100,000, Pag-IBIG 2% up to ₱10,000 |
+| SSS / PhilHealth / Pag-IBIG fixed | ₱400 / ₱0 / ₱200 | used only while "fixed amounts" is On (Oct 1–15, 2026); per month, on the 2nd half |
 | Overtime premium | 0% | school decision |
 | Late minute charge / late days per absence | 0 | lates not charged |
 | Regular / special holiday premium | 100% / 30% | for holidays worked |

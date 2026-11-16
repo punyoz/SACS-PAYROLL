@@ -18,12 +18,17 @@
  *               pagibig_max_salary (₱10,000), i.e. at most ₱200 a month;
  *               1% when the salary is ₱1,500 or less.
  *
- * Each figure is monthly; each semi-monthly payslip carries half of it.
+ * Each figure is monthly. Semi-monthly payroll (from Oct 1, 2026,
+ * src/lib/payroll/semi-monthly.js) deducts none of them on the 1st half and
+ * the whole month's share once on the 2nd half; periodContributions() (half
+ * per payslip) is not used for those payslips.
  *
- * Withholding tax uses the BIR semi-monthly table in force since
- * 1 January 2023 (TRAIN law), on the period's taxable compensation: gross pay
- * less attendance and Leave Without Pay deductions, less the employee's
- * SSS, PhilHealth and Pag-IBIG.
+ * Withholding tax for a semi-monthly month is computed once, on the 2nd half,
+ * from the BIR MONTHLY table (payroll_tax_brackets, monthlyWithholdingTax in
+ * semi-monthly.js) on the month's taxable income: the month's gross less
+ * attendance and Leave Without Pay deductions, less non-taxable items, less
+ * the employee's SSS, PhilHealth and Pag-IBIG. The semi-monthly table below
+ * (withholdingTax) is not used for those payslips.
  *
  * Every percentage and limit above is an effective-dated rate the Super Admin
  * can change (src/lib/payroll/rates.js), because these are revised every few
