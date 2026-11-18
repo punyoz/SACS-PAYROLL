@@ -17,8 +17,8 @@ import { dateLabel, dateTime, money, shortDate, toAmount } from "@/lib/portal/pa
 import { cn } from "@/lib/utils";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { useAccountant } from "./accountant-data";
-import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
-import { FIRST_HALF_NOTE } from "@/lib/payroll/line-tags";
+import { PayslipTables } from "@/components/portal/payslip-tables";
+import { payslipTables } from "@/lib/payroll/payslip-tables";
 import { printPdf } from "@/lib/portal/print-pdf";
 import { NeedsCorrectionNote } from "@/components/portal/payroll-corrections";
 
@@ -69,51 +69,13 @@ function Section({ title, children }) {
 }
 
 const plural = (n, word) => `${n} ${word}${Number(n) === 1 ? "" : "s"}`;
-/** A deduction amount: "-₱ 1,000.00" (₱ 0.00 when none). */
-const neg = (amount) => (Number(amount) ? `-${money(Math.abs(Number(amount)))}` : money(0));
 
 function HolidayLines({ lines }) {
   return (lines || []).map((line, i) => <Row key={`${line.date}-${i}`} indent muted label={holidayLineLabel(line)} value={`+ ${money(line.amount)}`} />);
 }
 
-/** A per-cutoff payslip (monthly.cutoff): every earning and deduction on its own line. */
-function Cutoff({ payslip }) {
-  const c = payslip.monthly.cutoff;
-  const range = c.window ? `${shortDate(c.window.start_key)} – ${dateLabel(c.window.end_key)}` : null;
-  return (
-    <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
-      <Section title={`Earnings — ${c.half === "first" ? "1st" : "2nd"} cutoff`}>
-        {range ? <Row muted label={`Attendance ${range}`} value="" /> : null}
-        {c.earnings.map((line) => (
-          <React.Fragment key={line.label}>
-            <Row label={line.label} value={`+ ${money(line.amount)}`} tone="plus" />
-            {line.note ? <Row indent muted label={line.note} value="" /> : null}
-            {line.label === "Holiday pay" ? <HolidayLines lines={payslip.holiday_lines} /> : null}
-          </React.Fragment>
-        ))}
-        <Row label="Gross pay" value={money(c.gross_pay)} strong tone="gold" />
-      </Section>
-      <Section title="Deductions">
-        {Number(c.leave_with_pay_days) > 0 ? <Row label={`Leave with pay (${plural(c.leave_with_pay_days, "day")})`} value="No deduction" /> : null}
-        {/* A ₱0 line (a late not charged at 0%) is not listed (audit 2026-11-16). */}
-        {c.deductions.some((line) => line.credit || Number(line.amount) > 0) ? c.deductions.filter((line) => line.credit || Number(line.amount) > 0).map((line) => (
-          <React.Fragment key={line.label}>
-            {/* A credit (the year-end tax refund) is added to the pay. */}
-            <Row label={line.label} value={`${line.credit ? "+" : "-"} ${money(line.amount)}`} tone={line.credit ? "plus" : "minus"} />
-            {line.note ? <Row indent muted label={line.note} value="" /> : null}
-          </React.Fragment>
-        )) : <Row label="None" value={money(0)} />}
-        <Row label="Total deductions" value={`- ${money(c.total_deductions)}`} strong />
-        {c.half === "first" ? <p className="pt-1 text-xs text-muted-foreground" data-testid="first-half-note">{FIRST_HALF_NOTE}</p> : null}
-        {Number(c.carry_over_out) > 0 ? <Row label="Carried to next month" value={money(c.carry_over_out)} tone="warn" /> : null}
-      </Section>
-    </div>
-  );
-}
-
 function SemiMonthly({ payslip }) {
   const m = payslip.monthly;
-  if (m.cutoff) return <Cutoff payslip={payslip} />;
   if (m.half === "first") {
     return (
       <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
@@ -160,52 +122,11 @@ function SemiMonthly({ payslip }) {
   );
 }
 
-function Classic({ payslip }) {
-  const e = payslip.earnings || {};
-  const d = payslip.deductions || {};
-  const inc = payslip.incentives || {};
-  const late = d.late_days || 0;
-  const under = d.undertime_minutes || 0;
-  const half = d.half_days || 0;
-  const eb = inc.early_bird_days || 0;
-  const lwp = d.leave_with_pay_days || 0;
-  return (
-    <div className="grid gap-6 md:grid-cols-2 print:grid-cols-2 print:gap-6">
-      <div className="space-y-4 print:space-y-2">
-        <Section title="Earnings">
-          <Row label="Basic salary" value={money(e.basic_salary)} />
-          <Row label="Overtime" value={money(e.overtime)} />
-          <Row label="Holiday pay" value={money(e.holiday_pay)} />
-          <HolidayLines lines={payslip.holiday_lines} />
-          <Row label="Gross pay" value={money(e.gross_pay)} strong tone="gold" />
-        </Section>
-        <Section title="Incentives">
-          {/* The retired per-day bonus: shown only on old payslips that paid it. */}
-          {Number(inc.early_bird_incentive) > 0 ? <Row label={eb ? `Early bird bonus (${plural(eb, "day")})` : "Early bird bonus"} value={money(inc.early_bird_incentive)} tone="plus" /> : null}
-          <Row label="Perfect attendance" value={money(inc.perfect_attendance_incentive)} tone="plus" />
-          {Number(inc.early_bird_winner_incentive) > 0 ? <Row label="Early Bird Incentive" value={money(inc.early_bird_winner_incentive)} tone="plus" /> : null}
-        </Section>
-      </div>
-      <Section title="Deductions">
-        <Row label="SSS" value={neg(d.sss)} />
-        <Row label="PhilHealth" value={neg(d.philhealth)} />
-        <Row label="Pag-IBIG" value={neg(d.pagibig)} />
-        <Row label="Withholding tax" value={neg(d.withholding_tax)} />
-        <Row label="Absences" value={neg(d.absence_deduction)} />
-        <Row label={late ? `Late (${plural(late, "day")})` : "Late"} value={neg(d.late_deduction)} />
-        <Row label={under ? `Undertime (${under} min)` : "Undertime"} value={neg(d.undertime_deduction)} />
-        <Row label={half ? `Half day (${plural(half, "day")})` : "Half day"} value={neg(d.half_day_deduction)} />
-        <Row label="Leave with pay" value={plural(lwp, "day")} />
-        <Row label="Leave without pay" value={neg(d.leave_without_pay_deduction)} />
-        <Row label="Cash advance" value={neg(d.cash_advance)} />
-        <Row label="Total deductions" value={neg(d.total_deductions)} strong tone="minus" />
-      </Section>
-    </div>
-  );
-}
-
-/** The payslip itself; also shown read-only on HR → Payroll Records. */
-export function PayslipDocument({ payslip }) {
+/**
+ * The payslip itself; also shown read-only on HR → Payroll Records and, with
+ * the employee's own notes as children, on My Payslips (2026-11-18).
+ */
+export function PayslipDocument({ payslip, children, netLabel }) {
   // Grouped and tagged lines (2026-11-03) when the stored payslip supports them.
   const groups = payslip.line_groups || null;
   const systemTitle = useSystemName();
@@ -218,6 +139,7 @@ export function PayslipDocument({ payslip }) {
   const summary = payslip.attendance_summary;
   const basis = Array.isArray(payslip.deduction_basis) ? payslip.deduction_basis : [];
   const m = payslip.monthly || null;
+  const tables = payslipTables(payslip);
 
   return (
     <Card data-print-area className="gap-0 overflow-hidden border-brand-gold/60 py-0 shadow-sm print:break-inside-avoid">
@@ -262,21 +184,16 @@ export function PayslipDocument({ payslip }) {
           </Section>
         ) : null}
         <Separator />
-        {groups ? (
-          <div className="space-y-3">
-            <PayrollLineGroups result={groups} compact />
-            <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{money(groups.gross)}</span></div>
-            <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">− {money(groups.total_deductions)}</span></div>
-            <LineTagLegend className="print:hidden" />
-          </div>
-        ) : m ? <SemiMonthly payslip={payslip} /> : <Classic payslip={payslip} />}
-        {basis.length && !groups ? (
+        {/* One layout for every payslip (2026-11-18); an older semi-monthly one keeps its own. */}
+        {tables ? <PayslipTables tables={tables} /> : <SemiMonthly payslip={payslip} />}
+        {children}
+        {basis.length && !groups && !payslip.final_pay ? (
           <Section title="How deductions were computed">
             <ul className="space-y-1 text-sm text-muted-foreground">{basis.map((line, i) => <li key={i}>{line.basis}</li>)}</ul>
           </Section>
         ) : null}
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-primary/8 px-4 py-4 print:break-inside-avoid print:py-2">
-          <span className="font-semibold">{m ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay"}</span>
+          <span className="font-semibold">{netLabel || (m && !payslip.final_pay ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay")}</span>
           <span className="text-2xl font-semibold text-primary tabular-nums">{money(payslip.net_pay)}</span>
         </div>
         {g?.generated_by_name ? (

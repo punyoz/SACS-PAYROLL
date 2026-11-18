@@ -10,7 +10,7 @@ import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { formatIssued } from "@/lib/portal/format";
@@ -108,6 +108,19 @@ function mapEntryToPayslip(row, taxRows = []) {
     // Every line grouped and tagged, as the employee sees it (screen and PDF:
     // src/lib/payroll/line-tags.js employeePayslipView), from the payslip's
     // stored figures; never the employer's shares.
+    // The same header block as every role's payslip (buildPayslipDetails): never an override reason.
+    pay_period: row.pay_period,
+    employee: {
+      name: row.employee_name || null,
+      id: row.employee_code || null,
+      type: row.employee_type || null,
+      position: payroll.generation?.position_title || payroll.payslip_meta?.position_title || row.position || null,
+      branch: payroll.generation?.branch_name || payroll.payslip_meta?.branch_name || null,
+      branch_days: payroll.generation?.branch_days || payroll.payslip_meta?.branch_days || null,
+    },
+    attendance_summary: payroll.generation?.attendance_summary || null,
+    // A final pay's stored breakdown (src/lib/payroll/payslip-tables.js).
+    final_pay: payroll.final_pay?.breakdown || null,
     line_groups: employeePayslipView(payroll, { taxTable: taxTableFor(taxRows, payroll) }),
   };
 }
@@ -159,7 +172,7 @@ async function fetchPayslipsForUser(supabase, userId) {
   try {
     let { data, error } = await supabase
       .from("payroll_entries")
-      .select("id,employee_id,pay_period,status,payroll,payslip_no,submitted_at,approved_at,created_at,run_id")
+      .select("id,employee_id,employee_name,employee_code,employee_type,position,pay_period,status,payroll,payslip_no,submitted_at,approved_at,created_at,run_id")
       .eq("employee_id", userId)
       .not("status", "eq", "draft")
       .order("created_at", { ascending: false })
@@ -179,7 +192,10 @@ async function fetchPayslipsForUser(supabase, userId) {
 
     if (!error && Array.isArray(data) && data.length > 0) {
       const taxRows = await loadTaxBracketRows(supabase);
-      return (await onlyReleased(supabase, data)).map((row) => mapEntryToPayslip(row, taxRows));
+      const released = await onlyReleased(supabase, data);
+      // A final pay did not record its branch: the employee's branch now.
+      const withBranch = await Promise.all(released.map((row) => withBranchName(supabase, { ...row, payroll: typeof row.payroll === "string" ? JSON.parse(row.payroll) : row.payroll })));
+      return withBranch.map((row) => mapEntryToPayslip(row, taxRows));
     }
   } catch {
     // payroll_entries table may not exist — fall through
@@ -286,7 +302,7 @@ export async function GET(request) {
       const taxRows = await loadTaxBracketRows(supabase);
       // The same lines, net and Issued date as My Payslips shows (mapEntryToPayslip).
       const shown = mapEntryToPayslip(entry, taxRows);
-      const details = { ...buildPayslipDetails(entry, { taxRows }), employee_view: shown.line_groups, pay_date_label: formatIssued(shown.processed_at), net_pay: shown.net_pay };
+      const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, pay_date_label: formatIssued(shown.processed_at), net_pay: shown.net_pay };
       const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = `payslip-${String(entry.payslip_no || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
       return new NextResponse(pdf, {

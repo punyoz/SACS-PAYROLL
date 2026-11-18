@@ -196,16 +196,21 @@ describe("My Payslips: full layout from the stored snapshot, for every role on p
     const { status, text } = await pdfText(PEOPLE[0], shown.id);
     expect(status).toBe(200);
     const v = shown.line_groups;
+    // One layout for every role (2026-11-18): the screen's tables (payslipTables).
+    const { payslipTables } = await import("@/lib/payroll/payslip-tables");
+    const t = payslipTables(shown);
     const expected = [
-      ...v.groups.flatMap((g) => [g.title, g.subtotal_label, ...g.lines.flatMap((l) => [l.label, money(l.amount)])]),
-      ...(v.first_half_note ? [v.first_half_note] : []),
+      "Earnings", "Deductions",
+      ...[...t.earnings, ...t.incentives, ...t.deductions].flatMap((r) => [r.label, r.text || money(r.amount)]),
+      ...t.notes,
       ...(v.tax_box ? [...v.tax_box.rows.flatMap((r) => [r.label, money(r.amount)]), "Taxable income", money(v.tax_box.taxable), v.tax_box.formula, money(v.tax_box.tax)] : []),
       ...(v.month_total ? [v.month_total.label] : []),
       v.net_label.toUpperCase(), money(v.gross), money(v.total_deductions), money(shown.net_pay),
     ];
     expected.forEach((piece) => expect(text, piece).toContain(inPdf(piece)));
     expect(text).not.toContain("?");
-    if (label === FIRST) expect(text).not.toMatch(/SSS|PhilHealth|Pag-IBIG|Withholding tax/);
+    // A 1st half lists the contributions and tax as "2nd half", no amount.
+    if (label === FIRST) expect(t.deductions.filter((r) => ["sss", "philhealth", "pagibig", "withholding_tax"].includes(r.key)).every((r) => r.text === "2nd half")).toBe(true);
   });
 });
 

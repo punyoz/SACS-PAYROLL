@@ -4,178 +4,13 @@ import * as React from "react";
 import { DownloadIcon, EyeIcon, Loader2Icon, ReceiptTextIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DataTable } from "@/components/portal/data-table";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
-import { formatIssued, formatPeso, formatPesoShort, holidayLineLabel } from "@/lib/portal/format";
-import { cn } from "@/lib/utils";
-import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
+import { formatIssued, formatPeso, formatPesoShort } from "@/lib/portal/format";
 import { useDownloader } from "@/components/portal/bir-forms";
-import { LineTagLegend, PayrollLineGroups, WhyTaxNote } from "@/components/portal/payroll-lines";
-
-/*
- * The payslip breakdown, row for row as public/legacy/js/employee.js
- * renderPayslipCard() / semiMonthlyPayslipRows() builds it. Each row is
- * { label, value, kind } where kind is plus | minus | total | note | sub.
- */
-
-function holidayRows(lines) {
-  return (lines || []).map((line) => ({ label: holidayLineLabel(line), value: `+ ${formatPeso(line.amount)}`, kind: "sub" }));
-}
-
-function semiMonthlyRows(m, holidayLines = []) {
-  const rows = [];
-  const row = (label, value, kind) => rows.push({ label, value, kind });
-  const minus = (label, amount) => { if (Number(amount) > 0) row(label, `- ${formatPeso(amount)}`, "minus"); };
-  const plus = (label, amount) => { if (Number(amount) > 0) row(label, `+ ${formatPeso(amount)}`, "plus"); };
-  const days = (n) => `${n}d`;
-
-  if (m.half === "first") {
-    row("Monthly Salary", formatPeso(m.monthly_salary));
-    row(m.new_hire ? `Paid from Hire Date (${days(m.new_hire.days)} × ${formatPeso(m.new_hire.daily_rate)})` : "1st Half Pay (÷ 2)", formatPeso(m.semi_monthly_pay), "total");
-    row("Deductions", "None this half", "note");
-    row(`Absences, leave, incentives, contributions and tax for ${m.month_label || "the month"} are settled on the ${m.second_half_label || "2nd half"} payslip.`, "", "note");
-    return rows;
-  }
-
-  row(m.new_hire ? `Paid from Hire Date (${days(m.new_hire.days)} × ${formatPeso(m.new_hire.daily_rate)})` : `Monthly Salary — ${m.month_label || ""}`, formatPeso(m.monthly_salary));
-  minus(`Absences without pay (${days(m.absent_days || 0)})`, m.absent_deduction);
-  minus(`Leave Without Pay (${days(m.leave_without_pay_days || 0)})`, m.leave_without_pay_deduction);
-  minus("Late", m.late_deduction);
-  minus("Undertime", m.undertime_deduction);
-  minus("Half Day", m.half_day_deduction);
-  if (Number(m.leave_with_pay_days) > 0) row(`Leave With Pay (${days(m.leave_with_pay_days)})`, "No deduction");
-  plus("Incentives", Number(m.other_incentive || 0) + Number(m.attendance_incentives || 0));
-  plus(`Overload Pay (${m.overload_hours} h)`, m.overload_pay);
-  plus("Overtime", m.overtime_pay);
-  plus("Holiday Pay", m.holiday_pay);
-  if (Number(m.holiday_pay) > 0) rows.push(...holidayRows(holidayLines));
-  plus("Licensed Teacher Subsidy", m.subsidy_pay);
-  row("Monthly Gross", formatPeso(m.monthly_gross), "total");
-  minus(contributionLabel("SSS", m.contribution_basis?.sss), m.sss);
-  minus(contributionLabel("PhilHealth", m.contribution_basis?.philhealth), m.philhealth);
-  minus(contributionLabel("Pag-IBIG", m.contribution_basis?.pagibig), m.pagibig);
-  minus(withholdingTaxLabel("Withholding Tax (monthly)", m.tax_bracket), m.withholding_tax);
-  minus("Loans and Cash Advances", m.cash_advance);
-  (m.subsidy_memos || []).forEach((memo) => row(memo, "", "note"));
-  row("Monthly Net", formatPeso(m.monthly_net), "total");
-  row("Paid in 1st Half", `- ${formatPeso(m.first_half_paid)}`);
-  minus(`Balance carried from ${m.carry_from || "last month"}`, m.carry_in);
-  // Year-end tax annualization (src/lib/payroll/year-end-tax.js).
-  if (m.year_end_tax?.kind === "refund") plus(m.year_end_tax.label, m.year_end_tax.amount);
-  else if (m.year_end_tax) minus(m.year_end_tax.label, m.year_end_tax.amount);
-  if (Number(m.carry_over_out) > 0) row("Carried to next month", formatPeso(m.carry_over_out), "carry");
-  return rows;
-}
-
-/** A per-cutoff payslip (monthly.cutoff): each earning and each deduction on its own line. */
-function cutoffRows(c, holidayLines = []) {
-  const rows = [];
-  const range = c.window ? ` (attendance ${c.window.start_key} to ${c.window.end_key})` : "";
-  rows.push({ label: `${c.half === "first" ? "1st" : "2nd"} cutoff${range}`, value: "", kind: "note" });
-  c.earnings.forEach((line) => {
-    rows.push({ label: line.label, value: `+ ${formatPeso(line.amount)}`, kind: "plus" });
-    if (line.label === "Holiday pay") rows.push(...holidayRows(holidayLines));
-  });
-  rows.push({ label: "Gross Pay", value: formatPeso(c.gross_pay), kind: "total" });
-  if (Number(c.leave_with_pay_days) > 0) rows.push({ label: `Leave With Pay (${c.leave_with_pay_days}d)`, value: "No deduction" });
-  if (!c.deductions.length) rows.push({ label: "Deductions", value: "None", kind: "note" });
-  c.deductions.forEach((line) => {
-    // A credit (the year-end tax refund) is added to the pay.
-    rows.push(line.credit
-      ? { label: line.label, value: `+ ${formatPeso(line.amount)}`, kind: "plus" }
-      : { label: line.label, value: `- ${formatPeso(line.amount)}`, kind: "minus" });
-    if (line.note) rows.push({ label: line.note, value: "", kind: "sub" });
-  });
-  rows.push({ label: "Total Deductions", value: `- ${formatPeso(c.total_deductions)}`, kind: "total" });
-  if (c.half === "first") rows.push({ label: "Withholding tax, SSS, PhilHealth, Pag-IBIG and loans are deducted on the 2nd cutoff payslip.", value: "", kind: "note" });
-  if (Number(c.carry_over_out) > 0) rows.push({ label: "Carried to next month", value: formatPeso(c.carry_over_out), kind: "carry" });
-  return rows;
-}
-
-function payslipRows(p) {
-  if (p.monthly?.cutoff) return cutoffRows(p.monthly.cutoff, p.holiday_lines);
-  if (p.monthly) return semiMonthlyRows(p.monthly, p.holiday_lines);
-  const rows = [];
-  const add = (cond, label, value, kind) => { if (cond) rows.push({ label, value, kind }); };
-  if (p.has_breakdown) {
-    add(true, "Basic Salary", formatPeso(p.basic_salary));
-    add(p.transportation, "Transportation", formatPeso(p.transportation));
-    add(p.rice, "Rice Allowance", formatPeso(p.rice));
-    add(p.overtime, "Overtime", formatPeso(p.overtime));
-    if (p.holiday_pay) {
-      rows.push({ label: "Holiday Pay", value: formatPeso(p.holiday_pay) });
-      rows.push(...holidayRows(p.holiday_lines));
-    }
-    add(p.bonus, "Bonus", formatPeso(p.bonus));
-    add(true, "Gross Pay", formatPeso(p.gross_pay), "total");
-    add(p.sss, "SSS", `- ${formatPeso(p.sss)}`, "minus");
-    add(p.philhealth, "PhilHealth", `- ${formatPeso(p.philhealth)}`, "minus");
-    add(p.pagibig, "Pag-IBIG", `- ${formatPeso(p.pagibig)}`, "minus");
-    add(p.withholding_tax, "Withholding Tax", `- ${formatPeso(p.withholding_tax)}`, "minus");
-    add(p.absence_deduction, `Absences (${p.absences_days}d)`, `- ${formatPeso(p.absence_deduction)}`, "minus");
-    add(p.late_deduction, `Late (${p.late_days}d)`, `- ${formatPeso(p.late_deduction)}`, "minus");
-    add(p.undertime_deduction, `Undertime (${p.undertime_minutes} min)`, `- ${formatPeso(p.undertime_deduction)}`, "minus");
-    add(p.half_day_deduction, `Half Day (${p.half_days}d)`, `- ${formatPeso(p.half_day_deduction)}`, "minus");
-    // The retired per-day bonus: only an old payslip that paid it has an amount.
-    add(p.early_bird_incentive, `Early Bird bonus (${p.early_bird_days}d)`, `+ ${formatPeso(p.early_bird_incentive)}`, "plus");
-    add(p.early_bird_winner_incentive, "Early Bird Incentive", `+ ${formatPeso(p.early_bird_winner_incentive)}`, "plus");
-    add(p.perfect_attendance_incentive, "Perfect Attendance", `+ ${formatPeso(p.perfect_attendance_incentive)}`, "plus");
-    add(p.leave_with_pay_days, `Leave With Pay (${p.leave_with_pay_days}d)`, "—");
-    add(p.leave_without_pay_deduction, `Leave Without Pay (${p.leave_without_pay_days}d)`, `- ${formatPeso(p.leave_without_pay_deduction)}`, "minus");
-    add(p.cash_advance, "Cash Advance", `- ${formatPeso(p.cash_advance)}`, "minus");
-    return rows;
-  }
-  rows.push({ label: "Gross Pay", value: formatPeso(p.gross_pay), kind: "total" });
-  rows.push({ label: "Total Deductions", value: `- ${formatPeso(p.total_deductions)}`, kind: "minus" });
-  return rows;
-}
-
-const KIND_CLASS = {
-  plus: "text-success",
-  minus: "text-destructive",
-  total: "border-t border-dashed pt-2.5 font-semibold",
-  note: "text-muted-foreground text-xs",
-  sub: "pl-4 text-xs text-muted-foreground",
-  carry: "text-warning",
-};
-
-/**
- * The full payslip (employeePayslipView in src/lib/payroll/line-tags.js, the
- * same lines the PDF prints), from the payslip's stored figures; never the
- * school's own shares, never an Accountant's flags or override reasons.
- */
-function EmployeePayslipLines({ view }) {
-  const box = view.tax_box;
-  const sign = (s) => (s === "-" ? "− " : s === "+" ? "+ " : "");
-  return (
-    <div className="space-y-3" data-testid="payslip-full" data-half={view.half}>
-      {/* PayrollLineGroups shows the 1st-half note (the same for every role). */}
-      <PayrollLineGroups result={view} showTaxHow={false} taxTable={false} />
-      {view.hire_note ? <p className="rounded-md border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground" data-testid="hire-note">{view.hire_note}</p> : null}
-      {box ? (
-        <section className="space-y-1 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-xs" data-testid="tax-box">
-          <p className="font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation</p>
-          {box.rows.map((r) => (
-            <div key={r.label} className="flex items-baseline justify-between gap-3"><span className="min-w-0">{r.label}</span><span className="shrink-0 tabular-nums">{sign(r.sign)}{formatPeso(r.amount)}</span></div>
-          ))}
-          <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 font-semibold"><span>Taxable income</span><span className="tabular-nums">{formatPeso(box.taxable)}</span></div>
-          {box.bracket ? <p className="text-muted-foreground">Bracket: {box.bracket}{box.formula ? <span className="block font-mono text-[11px] break-words">{box.formula}</span> : null}</p> : null}
-          <div className="flex items-baseline justify-between gap-3 font-semibold"><span>Withholding tax</span><span className="tabular-nums">{formatPeso(box.tax)}</span></div>
-          {box.reason ? <p className="text-muted-foreground">{box.reason}</p> : null}
-        </section>
-      ) : null}
-      {view.leave_with_pay ? <div className="flex items-baseline justify-between gap-3 text-sm"><span>{view.leave_with_pay.label}</span><span className="text-muted-foreground">{view.leave_with_pay.value}</span></div> : null}
-      {view.carry_over_out ? <div className="flex items-baseline justify-between gap-3 text-sm text-warning"><span>{view.carry_over_out.label}</span><span className="tabular-nums">{formatPeso(view.carry_over_out.amount)}</span></div> : null}
-      <div className="flex items-baseline justify-between gap-3 border-t pt-2 text-sm font-semibold"><span>Gross pay</span><span className="tabular-nums">{formatPeso(view.gross)}</span></div>
-      <div className="flex items-baseline justify-between gap-3 text-sm font-semibold"><span>Total deductions</span><span className="tabular-nums text-destructive">- {formatPeso(view.total_deductions)}</span></div>
-      {/* Only on a payslip that deducts withholding tax (audit 2026-11-16). */}
-      {view.tax_deducted > 0 ? <WhyTaxNote /> : null}
-      <LineTagLegend />
-    </div>
-  );
-}
+import { WhyTaxNote } from "@/components/portal/payroll-lines";
+import { PayslipDocument } from "@/app/accountant/pay-record-page";
 
 function PayslipCard({ payslip }) {
   if (!payslip) {
@@ -187,45 +22,37 @@ function PayslipCard({ payslip }) {
       </Card>
     );
   }
-  const issued = formatIssued(payslip.processed_at);
   const m = payslip.monthly || null;
-  const netName = m ? (m.half === "first" ? "1st Half Net Pay" : "2nd Half Net Pay") : "Net Pay";
-
+  const view = payslip.line_groups || null;
+  const box = view?.tax_box;
+  const sign = (s) => (s === "-" ? "− " : s === "+" ? "+ " : "");
+  // The same payslip every role sees (PayslipDocument), with the employee's own notes.
+  const doc = { ...payslip, pay_period: payslip.period_label, issued_at: payslip.processed_at, status: "final" };
   return (
-    <Card className="gap-0 overflow-hidden py-0 shadow-xs">
-      <div className="flex items-center gap-3 border-b-2 border-brand-gold bg-gradient-to-br from-brand-green to-brand-green-dark px-5 py-4 text-white">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/logo-160.png" alt="" width={40} height={40} className="size-10 shrink-0 rounded-full bg-white/95 p-0.5" />
-        <div className="min-w-0">
-          <h3 className="truncate font-semibold">Shepherd Angels Christian School</h3>
-          <p className="truncate text-sm text-white/80">{issued ? `${payslip.period_label} · Issued ${issued}` : payslip.period_label}</p>
-        </div>
-        {payslip.payslip_no ? <span className="ml-auto hidden shrink-0 font-mono text-xs text-brand-gold-light sm:block">{payslip.payslip_no}</span> : null}
-      </div>
-      <CardContent className="px-5 py-4">
+    <PayslipDocument payslip={doc} netLabel={m && !payslip.final_pay ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay"}>
+      <div className="space-y-3" data-testid="payslip-full" data-half={view?.half}>
         {payslip.early_bird_winner ? (
-          <p className="mb-3 rounded-lg border border-success/40 bg-success/8 px-3 py-2 text-sm text-success">
+          <p className="rounded-lg border border-success/40 bg-success/8 px-3 py-2 text-sm text-success">
             <span className="font-semibold">Early Bird winner</span> for {payslip.early_bird_winner.period_label || payslip.period_label}: {payslip.early_bird_winner.early_count} early time-in{payslip.early_bird_winner.early_count === 1 ? "" : "s"}, the most of any employee.
           </p>
         ) : null}
-        {payslip.line_groups ? <EmployeePayslipLines view={payslip.line_groups} /> : (
-          <dl className="space-y-2.5 text-sm">
-            {payslipRows(payslip).map((row, index) => (
-              <div key={`${row.label}-${index}`} className={cn("flex items-start justify-between gap-4", KIND_CLASS[row.kind])}>
-                <dt className="min-w-0">{row.label}</dt>
-                {row.value ? <dd className="shrink-0 tabular-nums">{row.value}</dd> : null}
-              </div>
+        {box ? (
+          <section className="space-y-1 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-xs" data-testid="tax-box">
+            <p className="font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation</p>
+            {box.rows.map((r) => (
+              <div key={r.label} className="flex items-baseline justify-between gap-3"><span className="min-w-0">{r.label}</span><span className="shrink-0 tabular-nums">{sign(r.sign)}{formatPeso(r.amount)}</span></div>
             ))}
-          </dl>
-        )}
-      </CardContent>
-      <Separator />
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-primary/8 px-5 py-4">
-        <span className="text-sm font-medium">{netName} — {payslip.period_label}</span>
-        <span className="text-2xl font-semibold text-primary tabular-nums">{formatPeso(payslip.net_pay)}</span>
-        {payslip.line_groups?.month_total ? <p className="w-full text-xs font-medium text-muted-foreground" data-testid="month-total">{payslip.line_groups.month_total.label}</p> : null}
+            <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 font-semibold"><span>Taxable income</span><span className="tabular-nums">{formatPeso(box.taxable)}</span></div>
+            {box.bracket ? <p className="text-muted-foreground">Bracket: {box.bracket}{box.formula ? <span className="block font-mono text-[11px] break-words">{box.formula}</span> : null}</p> : null}
+            <div className="flex items-baseline justify-between gap-3 font-semibold"><span>Withholding tax</span><span className="tabular-nums">{formatPeso(box.tax)}</span></div>
+            {box.reason ? <p className="text-muted-foreground">{box.reason}</p> : null}
+          </section>
+        ) : null}
+        {/* Only on a payslip that deducts withholding tax (audit 2026-11-16). */}
+        {view?.tax_deducted > 0 ? <WhyTaxNote /> : null}
+        {view?.month_total ? <p className="text-xs font-medium text-muted-foreground" data-testid="month-total">{view.month_total.label}</p> : null}
       </div>
-    </Card>
+    </PayslipDocument>
   );
 }
 
@@ -259,9 +86,9 @@ export function PayslipsPage({ payslips }) {
 
   if (payslips.loading) {
     return (
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4">
         <Skeleton className="h-96 w-full rounded-xl" />
-        <Skeleton className="h-96 w-full rounded-xl" />
+        <Skeleton className="h-64 w-full rounded-xl" />
       </div>
     );
   }
@@ -270,7 +97,7 @@ export function PayslipsPage({ payslips }) {
   }
 
   return (
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+    <div className="grid items-start gap-4">
       <section aria-label="Selected payslip" className="min-w-0 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Selected payslip</p>

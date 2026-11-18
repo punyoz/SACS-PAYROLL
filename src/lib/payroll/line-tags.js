@@ -530,6 +530,7 @@ export function employeePayslipView(payroll, options = {}) {
     tax_deducted: peso((result.groups.find((g) => g.key === "tax")?.subtotal) || 0),
     hire_note: hire ? `No 1st-half payslip: hired ${hire.date}` : null,
     tax_box: taxBox,
+    leave_with_pay_days: leave,
     leave_with_pay: leave > 0 ? { label: `Leave with pay (${plural(leave, "day")})`, value: "No deduction" } : null,
     carry_over_out: result.carry_over_out > 0 ? { label: "Carried to next month (deductions above this payslip's pay)", amount: result.carry_over_out } : null,
     gross: result.gross,

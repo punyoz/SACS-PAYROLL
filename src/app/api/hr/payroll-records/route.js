@@ -22,7 +22,7 @@ import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
-import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 
 const RUN_LABELS = { pending: "Pending HR approval", approved: "Approved", rejected: "Rejected" };
 
@@ -94,6 +94,7 @@ export async function GET(request) {
         if (!staff.some((person) => person.id === entry.employee_id)) entry = null;
       }
       if (!entry) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
+      entry = await withBranchName(supabase, entry);
       const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase) });
       // A Paid 2nd half computed with an old 1st half (2026-11-16): the same warning as the list row.
       const run = entry.run_id ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data : null;
