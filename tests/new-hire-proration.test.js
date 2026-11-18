@@ -180,7 +180,8 @@ describe("Worked example 7.6: new hires in October 2026", () => {
     }));
     expect(pdf.status).toBe(200);
     const text = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
-    expect(text).toContain("Paid from hire date \\(9 days\\)"); // PDF string escapes
+    // One payslip layout for every role (2026-11-18): the basic line names the hire date, its detail the days.
+    expect(text).toContain("Basic pay \\(from the hire date\\)"); // PDF string escapes
     expect(text).toContain("Hired Oct 20, 2026: 9 days");
   });
 });

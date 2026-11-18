@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
-import { payrollLineGroups } from "@/lib/payroll/line-tags";
+import { employeePayslipView, payrollLineGroups } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
 
 /**
@@ -47,6 +47,23 @@ export function payslipSeal() {
     }
   }
   return sealCache;
+}
+
+/**
+ * A payslip that did not record its branch (a final pay): the employee's
+ * branch now, so the payslip's Branch is not "—". The entry otherwise as is.
+ */
+export async function withBranchName(supabase, entry) {
+  if (!entry?.payroll || entry.payroll.generation?.branch_name || entry.payroll.payslip_meta?.branch_name) return entry;
+  try {
+    const profile = await supabase.from("profiles").select("branch_id").eq("id", entry.employee_id).maybeSingle();
+    const branchId = profile.data?.branch_id;
+    const branch = branchId ? await supabase.from("branches").select("name").eq("id", branchId).maybeSingle() : null;
+    if (!branch?.data?.name) return entry;
+    return { ...entry, payroll: { ...entry.payroll, payslip_meta: { ...(entry.payroll.payslip_meta || {}), branch_name: branch.data.name } } };
+  } catch {
+    return entry;
+  }
 }
 
 /** "Oct 12, 2026, 09:30 AM" (Manila). */
@@ -139,6 +156,11 @@ export function buildPayslipDetails(entry, { taxRows = [] } = {}) {
     monthly: entry.payroll.monthly || null,
     // Every line grouped and tagged (2026-11-03, src/lib/payroll/line-tags.js),
     // from the payslip's own stored figures; null when they do not support it.
-    line_groups: payrollLineGroups(entry.payroll, { taxTable: taxTableForPayroll(taxRows, entry.payroll) }),
+    // A final pay's stored breakdown (13th month, subsidy, leave conversion, loans): src/lib/payroll/payslip-tables.js.
+    final_pay: entry.payroll.final_pay?.breakdown || null,
+    final_pay_overpayment: entry.payroll.final_pay?.overpayment_to_recover || 0,
+    // A hire on the 16th (one whole-month 2nd half) has no grouped lines: the employee's view of it.
+    line_groups: payrollLineGroups(entry.payroll, { taxTable: taxTableForPayroll(taxRows, entry.payroll) })
+      || employeePayslipView(entry.payroll, { taxTable: taxTableForPayroll(taxRows, entry.payroll) }),
   };
 }

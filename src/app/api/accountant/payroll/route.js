@@ -18,7 +18,7 @@ import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from 
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
-import { buildPayslipDetails, loadTaxBracketRows, payslipSeal } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 import {
   SEMI_MONTHLY_RULE,
   SEMI_MONTHLY_RULES_EFFECTIVE,
@@ -3909,7 +3909,7 @@ export async function GET(request) {
       if (!entry || (!guard.branchExempt && !visible.has(entry.employee_id))) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
-      const details = buildPayslipDetails(entry);
+      const details = buildPayslipDetails(await withBranchName(supabase, entry));
       const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "draft").replace(/[^\w-]/g, "")}-${entry.pay_period.replace(/[^\w-]+/g, "-")}${details.status === "draft" ? "-DRAFT" : ""}.pdf`;
       return new NextResponse(pdf, {
@@ -4096,7 +4096,7 @@ export async function GET(request) {
         historyRecords.filter((record) => record.pay_period === (selectedPeriod || activeLabel) || record.id === requestedEntryId),
         generatedDrafts,
       ),
-      payslip: buildPayslipDetails(payslipSource, { taxRows: payslipSource ? await loadTaxBracketRows(supabase) : [] }),
+      payslip: buildPayslipDetails(await withBranchName(supabase, payslipSource), { taxRows: payslipSource ? await loadTaxBracketRows(supabase) : [] }),
       generation_window: genWindow,
       // Super Admin only: change a Final payslip, with a reason.
       can_override: guard.scope === SCOPE_ALL,

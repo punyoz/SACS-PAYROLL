@@ -14,7 +14,7 @@
 import { money } from "@/lib/payroll/payslip-summary";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
-import { FIRST_HALF_NOTE } from "@/lib/payroll/line-tags";
+import { payslipTables } from "@/lib/payroll/payslip-tables";
 import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 
 const PAGE_W = 595;
@@ -128,33 +128,7 @@ function holidayRows(p, lines) {
   (lines || []).forEach((line) => p.row(`   ${describeHolidayLine(line)}`, line.amount));
 }
 
-/** A per-cutoff payslip (monthly.cutoff): every earning and deduction on its own line. */
-function cutoffRows(p, c, holidayLines = []) {
-  const range = c.window ? ` (attendance ${c.window.start_key} to ${c.window.end_key})` : "";
-  p.heading(`Earnings - ${c.half === "first" ? "1st" : "2nd"} cutoff${range}`);
-  c.earnings.forEach((line) => {
-    p.row(line.label, line.amount, { note: line.note || "" });
-    if (line.label === "Holiday pay") holidayRows(p, holidayLines);
-  });
-  p.row("Gross pay", c.gross_pay || 0, { bold: true });
-  p.heading("Deductions");
-  if (Number(c.leave_with_pay_days) > 0) p.row(`Leave with pay (${c.leave_with_pay_days} days) - no deduction`, null);
-  // A ₱0 line (a late not charged at 0%) is not printed (audit 2026-11-16).
-  const shown = c.deductions.filter((line) => line.credit || Number(line.amount) > 0);
-  if (!shown.length) p.row("No deductions", 0);
-  // A credit (the year-end tax refund) is added to the pay: shown negative here.
-  shown.forEach((line) => p.row(line.credit ? `${line.label} - added to pay` : line.label, line.credit ? -line.amount : line.amount, { note: line.note || "" }));
-  p.row("Total deductions", c.total_deductions || 0, { bold: true });
-  // The same 1st-half note as every screen (line-tags.js FIRST_HALF_NOTE).
-  if (c.half === "first") p.row(`${FIRST_HALF_NOTE}.`, null);
-  if (Number(c.carry_over_out) > 0) p.row("Balance carried to next month", c.carry_over_out);
-}
-
 function semiMonthlyRows(p, m, holidayLines = []) {
-  if (m.cutoff) {
-    cutoffRows(p, m.cutoff, holidayLines);
-    return;
-  }
   if (m.half === "first") {
     p.heading("Earnings - 1st half");
     p.row("Monthly salary", m.monthly_salary || 0);
@@ -207,7 +181,7 @@ const SEAL_SIZE = 40;
 const FOOT = 40; // space kept for the footer
 
 /**
- * Collects what the section builders (cutoffRows, semiMonthlyRows,
+ * Collects what the section builders (tablesRows, semiMonthlyRows,
  * holidayRows) write -- headings and rows -- so they can be drawn as tables
  * that run onto a second page. Same calls as the old single-page writer.
  */
@@ -226,29 +200,37 @@ class SectionCollector {
   }
 }
 
-/** My Payslips' own lines (employeePayslipView in line-tags.js): exactly what the screen shows. */
-function employeeViewRows(p, v) {
-  const signed = (sign, amount) => (sign === "-" ? -Math.abs(Number(amount) || 0) : Math.abs(Number(amount) || 0));
-  v.groups.forEach((group) => {
-    p.heading(group.title);
-    group.lines.forEach((l) => p.row(l.label, l.amount, { note: l.how || "", signed: signed(l.sign, l.amount) }));
-    p.row(group.subtotal_label, group.subtotal, { bold: true, signed: signed(group.sign, group.subtotal) });
+/** The one payslip layout (payslipTables, the same tables every screen shows). */
+function tablesRows(p, t) {
+  const shown = (r) => (r.text ? { amount: null, note: r.text } : { amount: r.amount, note: r.note || "" });
+  p.heading("Earnings");
+  t.earnings.forEach((r) => {
+    p.row(r.label, shown(r).amount, { note: shown(r).note });
+    if (r.key === "holiday" && Number(r.amount) > 0) holidayRows(p, t.holiday_lines);
   });
-  if (v.first_half_note || v.hire_note || v.leave_with_pay || v.carry_over_out) {
+  p.row("Gross pay", t.gross, { bold: true });
+  if (t.incentives.length) {
+    p.heading("Incentives");
+    t.incentives.forEach((r) => p.row(r.label, r.amount, { note: r.note || "" }));
+  }
+  p.heading("Deductions");
+  // Deductions below zero; a credit (the year-end tax refund) is added to pay.
+  t.deductions.forEach((r) => p.row(r.label, shown(r).amount, { note: shown(r).note, ...(r.text ? {} : { signed: r.credit ? Math.abs(r.amount) : -Math.abs(r.amount) }) }));
+  p.row("Total deductions", t.total_deductions, { bold: true });
+  if (t.notes.length) {
     p.heading("Notes");
-    if (v.first_half_note) p.row(v.first_half_note, null);
-    if (v.hire_note) p.row(v.hire_note, null);
-    if (v.leave_with_pay) p.row(`${v.leave_with_pay.label}: ${v.leave_with_pay.value}`, null);
-    if (v.carry_over_out) p.row(v.carry_over_out.label, v.carry_over_out.amount, { signed: v.carry_over_out.amount });
+    t.notes.forEach((n) => p.row(n, null));
   }
-  const box = v.tax_box;
-  if (box) {
-    p.heading("Monthly tax computation");
-    box.rows.forEach((r) => p.row(r.label, r.amount, { signed: signed(r.sign, r.amount) }));
-    p.row("Taxable income", box.taxable, { bold: true, signed: box.taxable });
-    if (box.bracket) p.row(`Bracket: ${box.bracket}`, null, { note: box.formula || "" });
-    p.row("Withholding tax", box.tax, { bold: true, signed: box.tax, note: box.reason || "" });
-  }
+}
+
+/** My Payslips' monthly tax computation (employeePayslipView tax_box). */
+function taxBoxRows(p, box) {
+  const signed = (sign, amount) => (sign === "-" ? -Math.abs(Number(amount) || 0) : Math.abs(Number(amount) || 0));
+  p.heading("Monthly tax computation");
+  box.rows.forEach((r) => p.row(r.label, r.amount, { signed: signed(r.sign, r.amount) }));
+  p.row("Taxable income", box.taxable, { bold: true, signed: box.taxable });
+  if (box.bracket) p.row(`Bracket: ${box.bracket}`, null, { note: box.formula || "" });
+  p.row("Withholding tax", box.tax, { bold: true, signed: box.tax, note: box.reason || "" });
 }
 
 /** A section of deductions: its amounts are shown below zero. */
@@ -436,22 +418,10 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   const monthly = details?.monthly || null;
   const earnings = details?.earnings || {};
   const view = details?.employee_view || null;
-  if (view) employeeViewRows(collected, view);
-  else if (monthly) semiMonthlyRows(collected, monthly, details?.holiday_lines);
-  else {
-    collected.heading("Earnings");
-    collected.row("Basic pay", earnings.basic_salary || 0);
-    if (Number(earnings.overtime) > 0) collected.row("Overtime", earnings.overtime);
-    if (Number(earnings.holiday_pay) > 0) collected.row("Holiday pay", earnings.holiday_pay);
-    holidayRows(collected, details?.holiday_lines);
-    if (Number(details?.incentives?.total_incentives) > 0) collected.row("Allowances / incentives", details.incentives.total_incentives);
-    collected.row("Gross pay", earnings.gross_pay || 0, { bold: true });
-    collected.heading("Deductions");
-    const basis = Array.isArray(details?.deduction_basis) ? details.deduction_basis : [];
-    if (basis.length) basis.forEach((line) => collected.row(line.label, line.amount, { note: line.basis }));
-    else collected.row("No deductions", 0);
-    collected.row("Total deductions", details?.deductions?.total_deductions || 0, { bold: true });
-  }
+  const tables = payslipTables(view ? { ...details, line_groups: view } : details);
+  if (tables) tablesRows(collected, tables);
+  else semiMonthlyRows(collected, monthly, details?.holiday_lines);
+  if (view?.tax_box) taxBoxRows(collected, view.tax_box);
   collected.sections.filter((s) => s.rows.length).forEach((section) => drawSection(doc, section));
 
   if (summary) {
@@ -470,8 +440,8 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
 
   // Gross, total deductions (negative), net pay.
   doc.ensure(70);
-  const gross = Number(view ? view.gross : details?.gross_pay ?? monthly?.cutoff?.gross_pay ?? earnings.gross_pay ?? 0);
-  const totalDeductions = Number(view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
+  const gross = Number(tables ? tables.gross : view ? view.gross : details?.gross_pay ?? monthly?.cutoff?.gross_pay ?? earnings.gross_pay ?? 0);
+  const totalDeductions = Number(tables ? tables.total_deductions : view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
   doc.fill(MARGIN, doc.y - 46, TABLE_W, 58, 0.95);
   doc.text(MARGIN + 8, doc.y, "Gross pay", { size: 10 });
   doc.peso(MARGIN + TABLE_W - 8, doc.y, gross, { size: 10 });
@@ -479,7 +449,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   doc.text(MARGIN + 8, doc.y, "Total deductions", { size: 10 });
   doc.peso(MARGIN + TABLE_W - 8, doc.y, -Math.abs(totalDeductions), { size: 10 });
   doc.y -= 18;
-  doc.text(MARGIN + 8, doc.y, view ? view.net_label.toUpperCase() : monthly ? `${monthly.half === "first" ? "1ST" : "2ND"} HALF NET PAY` : "NET PAY", { size: 12, bold: true });
+  doc.text(MARGIN + 8, doc.y, view ? view.net_label.toUpperCase() : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1ST" : "2ND"} HALF NET PAY` : "NET PAY", { size: 12, bold: true });
   doc.peso(MARGIN + TABLE_W - 8, doc.y, details?.net_pay || 0, { size: 14, bold: true });
   doc.y -= 26;
   if (view?.month_total) { doc.ensure(14); doc.text(MARGIN, doc.y, view.month_total.label, { size: 9, bold: true }); doc.y -= 14; }
