@@ -121,7 +121,7 @@ const TITLES = {
 const DESCRIPTIONS = {
   "hr-dashboard": "Attendance summaries, leave notifications, and quick HR access.",
   "hr-announcements": "Announcements for the whole school or for one branch.",
-  "hr-employees": "Create and maintain Employee and Accountant accounts and their 201 records for every branch.",
+  "hr-employees": "Create and maintain HR, Accountant and Employee accounts and their 201 records for every branch.",
   "hr-transfers": "See where every employee is assigned and move employees between branches. Each transfer applies immediately and is kept in Transfer History.",
   "hr-attendance": "Review employee attendance records, track absences and tardiness.",
   "hr-tenure": "Set who is not deducted for absence, lateness, holidays, suspensions and school breaks under a tenure contract clause, and grant or revoke it per employee. Every change is logged.",

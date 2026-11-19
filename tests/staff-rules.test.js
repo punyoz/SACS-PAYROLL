@@ -74,3 +74,15 @@ describe("live filtering", () => {
     expect(cleanStaffField("last_name", "Cruz")).toEqual({ value: "Cruz", note: "" });
   });
 });
+
+describe("HR basic salary on the Add staff form (2026-11-19)", () => {
+  const salaryError = (role, basic_salary) => checkStaffFields(["basic_salary"], { role, basic_salary }).basic_salary;
+  it("is required for HR only", () => {
+    expect(salaryError("hr", "")).toMatch(/basic salary/i);
+    expect(salaryError("hr", "0")).toMatch(/basic salary/i);
+    expect(salaryError("hr", "1000001")).toMatch(/basic salary/i);
+    expect(salaryError("hr", "25000")).toBe("");
+    expect(salaryError("admin", "")).toBe("");
+    expect(salaryError("super_admin", "")).toBe("");
+  });
+});

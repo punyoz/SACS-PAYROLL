@@ -73,7 +73,7 @@ describe("Super Admin can create Super Admin, Admin and HR accounts", () => {
   it("all three pass record validation", () => {
     for (const role of STAFF_ROLES) {
       // Only Admin carries a branch.
-      const body = validBody({ role, branch_id: role === "admin" ? validBody().branch_id : "" });
+      const body = validBody({ role, branch_id: role === "admin" ? validBody().branch_id : "", ...(role === "hr" ? { basic_salary: 25000 } : {}) });
       expect(validateStaffRecord(normalizeStaffFields(body))).toBeNull();
     }
   });
@@ -121,8 +121,9 @@ describe("Admin and HR cannot create a Super Admin account", () => {
 /* ══ Excluded fields ═══════════════════════════════════════════════════════ */
 
 describe("Staff accounts carry no payroll or statutory fields", () => {
+  // basic_salary left this list 2026-11-19: HR is on payroll (see the HR salary tests below).
   const forbidden = [
-    "basic_salary", "sss_number", "philhealth_number",
+    "sss_number", "philhealth_number",
     "pagibig_number", "tin_number",
   ];
 
@@ -169,6 +170,26 @@ describe("Staff accounts carry no payroll or statutory fields", () => {
   });
 });
 
+describe("An HR account is created with its salary (HR is on payroll, 2026-11-19)", () => {
+  it("HR needs a salary above 0 and at most the cap", () => {
+    for (const basic_salary of [undefined, "", 0, -1, 1_000_001, "abc"]) {
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary })))).toMatch(/basic salary/i);
+    }
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000 })))).toBeNull();
+  });
+
+  it("Super Admin and Admin carry no salary, even when one is sent", () => {
+    for (const role of ["super_admin", "admin"]) {
+      expect(normalizeStaffFields(validBody({ role, basic_salary: 50000 }))).not.toHaveProperty("basic_salary");
+    }
+  });
+
+  it("the form asks for it and the route saves it to the account and profile", () => {
+    expect(dialogFields("ADD_FIELDS")).toContain("basic_salary");
+    expect(staffRoute.match(/basic_salary: basicSalary/g)).toHaveLength(2);
+  });
+});
+
 /* ══ Issued default password + forced change ═══════════════════════════════ */
 
 describe("A new staff account is issued a default password it must replace", () => {
@@ -211,7 +232,7 @@ describe("Staff record validation", () => {
     const admin = validateStaffRecord(normalizeStaffFields(validBody({ role: "admin", branch_id: "" })));
     expect(admin).toMatch(/branch/i);
     for (const role of ["hr", "super_admin"]) {
-      expect(validateStaffRecord(normalizeStaffFields(validBody({ role, branch_id: "" })))).toBeNull();
+      expect(validateStaffRecord(normalizeStaffFields(validBody({ role, branch_id: "", basic_salary: 25000 })))).toBeNull();
     }
   });
 

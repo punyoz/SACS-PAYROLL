@@ -135,7 +135,7 @@ export function EmployeesPage({ refreshKey }) {
       cell: (e) => (
         <div className="flex justify-end gap-1.5">
           {/* A raise (or any salary change) has its own flow: the month it starts and a reason. */}
-          {!e.archived && ["employee", "accountant"].includes(String(e.role || "employee").toLowerCase())
+          {!e.archived && ["employee", "accountant", "hr"].includes(String(e.role || "employee").toLowerCase())
             ? <Button variant="outline" size="sm" onClick={() => setSalaryFor(e)}>Salary</Button> : null}
           <Button variant="outline" size="sm" onClick={() => setDialog({ mode: "edit", employee: e })}>Edit</Button>
         </div>
@@ -157,7 +157,7 @@ export function EmployeesPage({ refreshKey }) {
       <Card className="min-w-0 shadow-xs">
         <CardHeader>
           <CardTitle>Staff list</CardTitle>
-          <CardDescription>Employee and Accountant accounts in every branch.</CardDescription>
+          <CardDescription>HR, Accountant and Employee accounts in every branch.</CardDescription>
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={exportList} disabled={!rows.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
             <Button variant="outline" onClick={() => setImporting(true)}><FileUpIcon aria-hidden="true" />Import CSV</Button>
