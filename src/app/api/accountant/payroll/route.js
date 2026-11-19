@@ -3168,6 +3168,7 @@ function getPeriodOptions(entries, shownLabel = "") {
 async function handleThirteenthMonthView(supabase, employees, entries, url) {
   const today = manilaDateKey();
   const year = Number(url.searchParams.get("year")) || Number(today.slice(0, 4));
+  const open = today >= `${year}-12-01` || await thirteenthMonthTestingOpen(supabase);
   const processed = await supabase
     .from("payroll_thirteenth_month")
     .select("employee_id,year,basic_earned,amount,processed_at,processed_by_name,breakdown")
@@ -3208,7 +3209,7 @@ async function handleThirteenthMonthView(supabase, employees, entries, url) {
     state: row.processed
       ? (row.processed.breakdown?.final_pay ? "final_pay" : row.processed.breakdown?.demo ? "processed_demo" : "processed")
       : row.separated_on ? "final_pay_pending"
-        : row.amount > 0 ? (today >= `${year}-12-01` ? "ready" : "projected") : "not_available",
+        : row.amount > 0 ? (open ? "ready" : "projected") : "not_available",
   }))
     // A past year lists who has a record or earned basic pay in it.
     .filter((row) => year >= Number(today.slice(0, 4)) || row.processed || row.amount > 0);
@@ -3220,17 +3221,22 @@ async function handleThirteenthMonthView(supabase, employees, entries, url) {
     covers: { from: `${year}-01-01`, to: `${year}-12-31`, label: `January 1 – December 31, ${year} (paid Final payslips)` },
     formula: "Total basic salary earned in the calendar year ÷ 12",
     process_opens: `${year}-12-01`,
-    can_process: available && today >= `${year}-12-01`,
+    can_process: available && open,
     rows,
     total_amount: toAmount(rows.reduce((sum, row) => sum + (row.processed ? Number(row.processed.amount) : row.amount), 0)),
   });
+}
+
+/** The Super Admin's testing switch OFF (window-enforcement.js) also opens the 13th month before December 1 (defense demo, 2026-11-19). */
+async function thirteenthMonthTestingOpen(supabase) {
+  return (await loadWindowEnforcement(supabase)).enforced === false;
 }
 
 /** PATCH { action: "process_13th_month", year, employee_ids? }: record the December payout. */
 async function handleProcessThirteenthMonth(supabase, body, guard) {
   const today = manilaDateKey();
   const year = Number(body.year) || Number(today.slice(0, 4));
-  if (today < `${year}-12-01`) {
+  if (today < `${year}-12-01` && !(await thirteenthMonthTestingOpen(supabase))) {
     return NextResponse.json({ error: `The ${year} 13th month pay is processed in December, from ${formatDateKey(`${year}-12-01`)}.`, code: "thirteenth_month_window" }, { status: 403 });
   }
 
