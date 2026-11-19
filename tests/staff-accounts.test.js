@@ -188,6 +188,11 @@ describe("An HR account is created with its salary (HR is on payroll, 2026-11-19
     expect(dialogFields("ADD_FIELDS")).toContain("basic_salary");
     expect(staffRoute.match(/basic_salary: basicSalary/g)).toHaveLength(2);
   });
+
+  it("an HR is stored as HR Officer, Non-Teaching, on the account and the profile", () => {
+    expect(staffRoute).toMatch(/HR_JOB = \{ employee_type: "Non-Teaching", position: "HR Officer" \}/);
+    expect(staffRoute.match(/record\.role === "hr" \? HR_JOB : \{\}/g)).toHaveLength(2);
+  });
 });
 
 /* ══ Issued default password + forced change ═══════════════════════════════ */

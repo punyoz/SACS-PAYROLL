@@ -123,9 +123,10 @@ export async function GET(request) {
       }));
     } catch { /* ignore */ }
 
-    // Employee type breakdown
+    // Employee type breakdown. No type on record reads as Teaching, the same
+    // default as User Management, so the two add up to the total.
     const teaching = employees.filter((u) =>
-      String(u.user_metadata?.employee_type || "").toLowerCase() === "teaching"
+      String(u.user_metadata?.employee_type || "Teaching").toLowerCase() === "teaching"
     ).length;
     const nonTeaching = employees.filter((u) =>
       String(u.user_metadata?.employee_type || "").toLowerCase() === "non-teaching"
