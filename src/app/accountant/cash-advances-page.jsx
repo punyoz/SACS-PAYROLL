@@ -23,11 +23,14 @@ import { cn } from "@/lib/utils";
 import { useAccountant } from "./accountant-data";
 import { EmployeeSelect, HowItWorks } from "./incentives-page";
 import { CASH_ADVANCE_MAX } from "@/lib/input-limits";
+import { loanCanResume, loanCanSuspend, loanDecisionText } from "@/lib/payroll/loan-status";
 
 /*
  * Cash Advances (loadCashAdvances / submitCashAdvance / setCashAdvanceStatus,
  * accountant.js): GET ?view=cash_advances, POST add_cash_advance, PATCH
- * set_cash_advance_status. Repayments are read from Final payslips.
+ * set_cash_advance_status. Repayments are read from Final payslips. Since
+ * 2026-11-20 the table also lists the Loans of type "Cash advance"
+ * (/api/accountant/loans), with the Loans actions.
  */
 
 const DEDUCT_ON = { both: "Every payslip", first: "1–15 only", second: "16–end only" };
@@ -45,11 +48,47 @@ function startOptions() {
   });
 }
 
-function statusBadge(a) {
-  if (a.status === "cancelled") return <StatusBadge tone="danger">Cancelled</StatusBadge>;
-  if (a.fully_paid) return <StatusBadge tone="success">Repaid</StatusBadge>;
-  if (a.status === "on_hold") return <StatusBadge tone="gold">On hold</StatusBadge>;
-  return <StatusBadge tone="info">Active</StatusBadge>;
+/*
+ * Every cash advance in one table (2026-11-20): the ones recorded before Loans
+ * (payroll_cash_advances) and the Loans of type "Cash advance". Each stays in
+ * its own table with its own actions; nothing is copied, so no balance or
+ * payslip deduction is counted twice. Display only: no rule changes.
+ */
+const STATUSES = {
+  pending: ["Pending HR approval", "warning"], active: ["Active", "info"], on_hold: ["On hold", "gold"],
+  paid: ["Paid", "success"], rejected: ["Rejected by HR", "danger"], cancelled: ["Cancelled", "danger"],
+};
+const FILTERS = [["all", "All"], ["open", "Active + On hold"], ["pending", "Pending HR approval"], ["active", "Active"], ["on_hold", "On hold"], ["paid", "Paid"], ["rejected", "Rejected"], ["cancelled", "Cancelled"]];
+
+/** An advance recorded before Loans, as a row. */
+function fromOld(a) {
+  const status = a.status === "cancelled" ? "cancelled" : a.fully_paid ? "paid" : a.status === "on_hold" ? "on_hold" : "active";
+  return { key: `old-${a.id}`, source: "old", record: a, status, employee_name: a.employee_name, employee_code: a.employee_code, description: a.description,
+    date_granted: a.date_granted, principal: Number(a.principal) || 0, per: a.installment_amount, deduct: DEDUCT_ON[a.deduct_on] || a.deduct_on, from: a.start_date,
+    repaid: Number(a.repaid) || 0, balance: Number(a.balance) || 0, reason: a.status_reason, payments: (a.payments || []).map((p) => `${p.pay_period}: ${money(p.amount)}`) };
+}
+
+/** A Loans record of type "Cash advance", as a row (Loans' own status rules, loan-status.js). */
+function fromLoan(l) {
+  const status = l.approval_status === "pending" ? "pending" : l.approval_status === "rejected" ? "rejected" : l.status === "paid" ? "paid" : l.status === "suspended" ? "on_hold" : "active";
+  return { key: `loan-${l.id}`, source: "loan", record: l, status, employee_name: l.employee_name, employee_code: l.employee_code, description: l.description,
+    date_granted: l.date_granted, principal: Number(l.principal) || 0, per: l.amortization, deduct: DEDUCT_ON.second, from: l.start_period,
+    repaid: Number(l.repaid) || 0, balance: status === "rejected" ? 0 : Number(l.remaining_balance) || 0,
+    reason: status === "rejected" ? loanDecisionText(l) : l.status_reason, payments: (l.payments || []).filter((p) => !p.reversed).map((p) => `${p.pay_period || p.kind}: ${money(p.amount)}`) };
+}
+
+const isOpen = (row) => row.status === "active" || row.status === "on_hold";
+
+/** The cards, from the same rows the table shows (open = Active or On hold). */
+export function cashAdvanceSummary(rows) {
+  const open = rows.filter(isOpen);
+  const round = (n) => Math.round(n * 100) / 100;
+  return { open_count: open.length, outstanding: round(open.reduce((s, r) => s + r.balance, 0)), repaid: round(rows.reduce((s, r) => s + r.repaid, 0)) };
+}
+
+function statusBadge(row) {
+  const [label, tone] = STATUSES[row.status] || [row.status, "muted"];
+  return <StatusBadge tone={tone}>{label}</StatusBadge>;
 }
 
 // One loan system (docs/payroll-schedule-loans-awol.md decision 5): new cash
@@ -62,7 +101,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
   const employees = React.useMemo(() => payroll?.employees || [], [payroll]);
   const starts = React.useMemo(startOptions, []);
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [filter, setFilter] = useUrlParam("ca_status", "open");
+  const [filter, setFilter] = useUrlParam("ca_status", "all");
   const [form, setForm] = React.useState({ employee: "", principal: "", installment: "", granted: manilaDateKey(), deductOn: "second", start: starts[0].value, description: "" });
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -70,6 +109,7 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
   const [cancelling, setCancelling] = React.useState(null);
   const [cancelReason, setCancelReason] = React.useState("");
   const [cancelError, setCancelError] = React.useState("");
+  const [suspending, setSuspending] = React.useState(null);
 
   React.useEffect(() => {
     if (!form.employee && employees[0]) setForm((c) => ({ ...c, employee: employees[0].id }));
@@ -78,9 +118,11 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
   const load = React.useCallback(async () => {
     setState((c) => ({ ...c, loading: true, error: null }));
     try {
-      const data = await fetchJson("/api/accountant/payroll?view=cash_advances");
+      // Both sources, each read where it lives.
+      const [data, loans] = await Promise.all([fetchJson("/api/accountant/payroll?view=cash_advances"), fetchJson("/api/accountant/loans")]);
       if (!data.available) throw new Error(data.error || "Cash advances are not set up yet.");
-      setState({ loading: false, error: null, data });
+      if (!loans.available) throw new Error(loans.error || "Loans are not set up yet.");
+      setState({ loading: false, error: null, data: { ...data, loans: (loans.loans || []).filter((l) => l.loan_type === "cash_advance") } });
     } catch (error) {
       setState((c) => ({ loading: false, error: error.message || "Unable to load cash advances.", data: c.data }));
     }
@@ -138,37 +180,71 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
 
   async function confirmCancel() {
     if (cancelReason.trim().length < 5) { setCancelError("Give a reason (at least 5 characters)."); return; }
+    if (suspending) return confirmSuspend();
     await setStatus(cancelling, "cancelled", cancelReason.trim());
   }
 
-  const summary = state.data?.summary || {};
-  const rows = (state.data?.advances || []).filter((a) => {
-    if (filter === "all") return true;
-    if (filter === "cancelled") return a.status === "cancelled";
-    if (filter === "repaid") return a.status !== "cancelled" && a.fully_paid;
-    return a.status !== "cancelled" && !a.fully_paid;
-  });
+  // A Loans-type advance: the Loans actions and rules (only Active is suspended; only Suspended resumed).
+  async function setLoanStatus(loan, status, reason = "") {
+    try {
+      await fetchJson("/api/accountant/loans", jsonBody("PATCH", { action: "set_status", loan_id: loan.id, status, reason }));
+      notify(status === "suspended" ? "Cash Advance Suspended" : "Cash Advance Resumed", status === "suspended" ? "Payroll skips it until resumed." : "Deducted again from the next 16–end payslip.", "info");
+      setCancelling(null);
+      setSuspending(null);
+      await load();
+      reloadPayroll();
+    } catch (error) {
+      setCancelError(error.message);
+      notify("Not Updated", error.message, "error");
+    }
+  }
+  async function confirmSuspend() {
+    await setLoanStatus(suspending, "suspended", cancelReason.trim());
+  }
+
+  function newCashAdvance() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      params.set("ln_type", "cash_advance");
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+    } catch { /* the Loans form still opens */ }
+    onNavigate?.("ac-loans");
+    setTimeout(() => document.getElementById("loan-form")?.scrollIntoView({ block: "start" }), 400);
+  }
+
+  const allRows = React.useMemo(() => [...(state.data?.advances || []).map(fromOld), ...(state.data?.loans || []).map(fromLoan)], [state.data]);
+  const summary = cashAdvanceSummary(allRows);
+  const rows = allRows.filter((r) => filter === "all" || (filter === "open" ? isOpen(r) : r.status === filter));
   const first = state.loading && !state.data;
 
   const columns = [
-    { key: "employee_name", header: "Employee", sortable: true, cell: (a) => <div><p className="font-medium">{a.employee_name}</p><p className="text-xs text-muted-foreground">{a.employee_code || ""}{a.description ? ` · ${a.description}` : ""}</p></div>, searchValue: (a) => `${a.employee_name} ${a.employee_code || ""} ${a.description || ""}` },
-    { key: "date_granted", header: "Date given", sortable: true, className: "whitespace-nowrap", cell: (a) => dateLabel(a.date_granted) },
-    { key: "principal", header: "Amount", align: "right", className: "tabular-nums", sortValue: (a) => Number(a.principal || 0), cell: (a) => money(a.principal) },
-    { key: "installment", header: "Per payslip", align: "right", className: "tabular-nums", cell: (a) => money(a.installment_amount) },
-    { key: "deduct", header: "Deduct from", cell: (a) => <div><p>{DEDUCT_ON[a.deduct_on] || a.deduct_on}</p><p className="text-xs text-muted-foreground">from {dateLabel(a.start_date)}</p></div> },
-    { key: "repaid", header: "Repaid", align: "right", className: "tabular-nums", cell: (a) => <span title={(a.payments || []).map((p) => `${p.pay_period}: ${money(p.amount)}`).join("\n")}>{money(a.repaid)}</span> },
-    { key: "balance", header: "Balance", align: "right", className: "tabular-nums font-semibold", sortValue: (a) => Number(a.balance || 0), cell: (a) => money(a.balance) },
-    { key: "status", header: "Status", cell: (a) => <div className="space-y-1">{statusBadge(a)}{a.status_reason ? <p className="max-w-48 text-xs whitespace-normal text-muted-foreground">{a.status_reason}</p> : null}</div> },
+    { key: "employee_name", header: "Employee", sortable: true,
+      cell: (r) => <div><p className="font-medium">{r.employee_name}</p><p className="text-xs text-muted-foreground">{r.employee_code || ""}{r.description ? ` · ${r.description}` : ""}</p><p className="text-xs text-muted-foreground" data-testid="ca-source">Recorded in: {r.source === "loan" ? "Loans" : "Before Loans"}</p></div>,
+      searchValue: (r) => `${r.employee_name} ${r.employee_code || ""} ${r.description || ""} ${r.source === "loan" ? "Loans" : "Before Loans"} ${STATUSES[r.status]?.[0] || ""}` },
+    { key: "date_granted", header: "Date given", sortable: true, className: "whitespace-nowrap", cell: (r) => dateLabel(r.date_granted) },
+    { key: "principal", header: "Amount", align: "right", className: "tabular-nums", sortValue: (r) => r.principal, cell: (r) => money(r.principal) },
+    { key: "installment", header: "Per payslip", align: "right", className: "tabular-nums", cell: (r) => money(r.per) },
+    { key: "deduct", header: "Deduct from", cell: (r) => <div><p>{r.deduct}</p>{r.from ? <p className="text-xs text-muted-foreground">from {dateLabel(r.from)}</p> : null}</div> },
+    { key: "repaid", header: "Repaid", align: "right", className: "tabular-nums", sortValue: (r) => r.repaid, cell: (r) => <span title={r.payments.join("\n")}>{money(r.repaid)}</span> },
+    { key: "balance", header: "Balance", align: "right", className: "tabular-nums font-semibold", sortValue: (r) => r.balance, cell: (r) => (r.status === "rejected" ? <span className="font-normal text-muted-foreground">—</span> : money(r.balance)) },
+    { key: "status", header: "Status", cell: (r) => <div className="space-y-1">{statusBadge(r)}{r.reason ? <p className="max-w-48 text-xs whitespace-normal text-muted-foreground">{r.reason}</p> : null}</div> },
     {
       key: "actions",
       header: <span className="sr-only">Actions</span>,
       align: "right",
-      cell: (a) => (a.status !== "cancelled" && !a.fully_paid ? (
-        <div className="flex justify-end gap-1.5">
-          <Button variant="outline" size="sm" onClick={() => setStatus(a, a.status === "on_hold" ? "active" : "on_hold")}>{a.status === "on_hold" ? "Resume" : "Hold"}</Button>
-          <Button variant="outline" size="sm" className="text-destructive" onClick={() => { setCancelling(a); setCancelReason(""); setCancelError(""); }}>Cancel</Button>
-        </div>
-      ) : null),
+      cell: (r) => {
+        if (r.source === "loan") {
+          if (loanCanResume(r.record)) return <Button variant="outline" size="sm" onClick={() => setLoanStatus(r.record, "active")}>Resume</Button>;
+          return loanCanSuspend(r.record) ? <Button variant="outline" size="sm" onClick={() => { setSuspending(r.record); setCancelling(r.record); setCancelReason(""); setCancelError(""); }}>Suspend</Button> : null;
+        }
+        const a = r.record;
+        return a.status !== "cancelled" && !a.fully_paid ? (
+          <div className="flex justify-end gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => setStatus(a, a.status === "on_hold" ? "active" : "on_hold")}>{a.status === "on_hold" ? "Resume" : "Hold"}</Button>
+            <Button variant="outline" size="sm" className="text-destructive" onClick={() => { setSuspending(null); setCancelling(a); setCancelReason(""); setCancelError(""); }}>Cancel</Button>
+          </div>
+        ) : null;
+      },
     },
   ];
 
@@ -183,16 +259,16 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
   return (
     <>
       <section aria-label="Summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Open advances" value={summary.open_count || 0} hint="Active or on hold, not yet repaid" icon={HandCoinsIcon} tone="info" loading={first} href={currentPageHref({ ca_status: "open" })} onClick={() => setFilter("open")} scrollTo="advances-table" actionLabel="Show open advances" />
+        <StatCard label="Open advances" value={summary.open_count || 0} hint="Active or on hold, not yet repaid" icon={HandCoinsIcon} tone="info" loading={first} href={currentPageHref({ ca_status: "open" })} onClick={() => setFilter("open")} scrollTo="advances-table" actionLabel="Show active and on-hold advances" />
         <StatCard label="Outstanding balance" value={moneyCompact(summary.outstanding || 0)} hint="Still to be deducted" icon={WalletIcon} tone="danger" loading={first} />
-        <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips" icon={CoinsIcon} tone="success" loading={first} />
+        <StatCard label="Repaid" value={moneyCompact(summary.repaid || 0)} hint="From Final payslips and final pay" icon={CoinsIcon} tone="success" loading={first} />
       </section>
 
       {NEW_ADVANCES_IN_LOANS ? (
         <Alert className="border-info/40 bg-info/8">
           <InfoIcon aria-hidden="true" />
           <AlertDescription>
-            <p><strong className="text-foreground">New cash advances are recorded under Loans</strong> (one loan system). This page keeps the cash advances recorded before, with their repayments.</p>
+            <p>Cash advances are saved in Loans (one loan system) and listed here too.</p>
             {onNavigate ? <Button variant="outline" size="sm" className="mt-2" onClick={() => onNavigate("ac-loans")}>Open Loans →</Button> : null}
           </AlertDescription>
         </Alert>
@@ -235,10 +311,11 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
       <Card id="advances-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>
           <CardTitle>Advances</CardTitle>
-          <CardAction className="flex gap-2">
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger size="sm" className="w-32" aria-label="Show"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="open">Open</SelectItem><SelectItem value="all">All</SelectItem><SelectItem value="repaid">Repaid</SelectItem><SelectItem value="cancelled">Cancelled</SelectItem></SelectContent>
+          <CardAction className="flex flex-wrap justify-end gap-2">
+            {onNavigate ? <Button size="sm" onClick={newCashAdvance} data-testid="new-cash-advance">New cash advance</Button> : null}
+            <Select value={FILTERS.some(([v]) => v === filter) ? filter : "all"} onValueChange={setFilter}>
+              <SelectTrigger size="sm" className="w-48" aria-label="Status" id="ca-status"><SelectValue /></SelectTrigger>
+              <SelectContent>{FILTERS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
             </Select>
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
@@ -250,8 +327,9 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
             loading={first}
             error={state.error}
             onRetry={load}
-            pageSize={15}
-            searchPlaceholder="Search employee or description…"
+            pageSize={10}
+            rowKey={(r) => r.key}
+            searchPlaceholder="Search employee, description or status…"
             empty={{ title: "No cash advances here", icon: BanknoteIcon }}
             caption="Cash advances"
             minWidth={1100}
@@ -259,20 +337,20 @@ export function CashAdvancesPage({ refreshKey, onNavigate }) {
         </CardContent>
       </Card>
 
-      <Dialog open={Boolean(cancelling)} onOpenChange={(open) => { if (!open) setCancelling(null); }}>
+      <Dialog open={Boolean(cancelling)} onOpenChange={(open) => { if (!open) { setCancelling(null); setSuspending(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Cancel this cash advance?</DialogTitle>
-            <DialogDescription>Nothing more will be deducted. What was already repaid stays on the payslips.</DialogDescription>
+            <DialogTitle>{suspending ? "Suspend this cash advance?" : "Cancel this cash advance?"}</DialogTitle>
+            <DialogDescription>{suspending ? "Payroll skips it until it is resumed (Loans rules)." : "Nothing more will be deducted. What was already repaid stays on the payslips."}</DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="ac-ca-cancel-reason">Reason for cancelling</Label>
+            <Label htmlFor="ac-ca-cancel-reason">{suspending ? "Reason for suspending" : "Reason for cancelling"}</Label>
             <Input id="ac-ca-cancel-reason" maxLength={300} placeholder="Required, at least 5 characters" value={cancelReason} onChange={(e) => { setCancelReason(e.target.value); setCancelError(""); }} aria-invalid={Boolean(cancelError) || undefined} autoFocus />
             {cancelError ? <p className="text-sm text-destructive">{cancelError}</p> : null}
           </div>
           <DialogFooter className="gap-2 sm:gap-2">
-            <Button variant="outline" onClick={() => setCancelling(null)}>Keep advance</Button>
-            <Button variant="destructive" onClick={confirmCancel}>Cancel advance</Button>
+            <Button variant="outline" onClick={() => { setCancelling(null); setSuspending(null); }}>Keep advance</Button>
+            <Button variant="destructive" onClick={confirmCancel}>{suspending ? "Suspend" : "Cancel advance"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -112,7 +112,7 @@ const DESCRIPTIONS = {
   "ac-payslips": "Generate and print pay records for employees.",
   "ac-incentives": "Added to the 2nd half payroll of the month they are counted in.",
   "ac-loans": "Salary loans, cash advances and licensed-teacher subsidy advances. Deducted on the 16–end payslip until repaid.",
-  "ac-cash-advances": "Cash advances recorded before Loans. New cash advances are added under Loans.",
+  "ac-cash-advances": "All cash advances, including those recorded under Loans.",
   "ac-final-pay": "Final pay for separated employees: unpaid salary, pro-rated 13th month, subsidy, less contributions, tax and loan balances. Release within 30 days.",
   "ac-approvals": "Process licensed-teacher subsidies (missed-month adjustments, advances, excess-advance settlements). HR approves or rejects; rejected ones come back here to fix and resubmit.",
   "ac-13th": "Total basic salary earned in the year ÷ 12 — a separate payout in December.",

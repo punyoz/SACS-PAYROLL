@@ -85,7 +85,18 @@ export function LoansPage({ refreshKey }) {
   const starts = React.useMemo(startOptions, []);
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [filter, setFilter] = useUrlParam("loan_status", "open");
-  const [form, setForm] = React.useState({ employee: "", type: "salary_loan", principal: "", interest: "0", payrolls: "6", amortization: "", granted: manilaDateKey(), start: starts[0].value, description: "", authority: true });
+  // ?ln_type=cash_advance (Cash Advances → New cash advance) presets the Type, once.
+  const [presetType] = React.useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const type = params.get("ln_type");
+      if (!type) return null;
+      params.delete("ln_type");
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+      return TYPES.some(([v]) => v === type) ? type : null;
+    } catch { return null; }
+  });
+  const [form, setForm] = React.useState({ employee: "", type: presetType || "salary_loan", principal: "", interest: "0", payrolls: "6", amortization: "", granted: manilaDateKey(), start: starts[0].value, description: "", authority: true });
   const [advance, setAdvance] = React.useState({ balance: "", amount: "", granted: manilaDateKey(), description: "" });
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
@@ -278,7 +289,7 @@ export function LoansPage({ refreshKey }) {
 
       {canEdit ? (
         <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <Card className="shadow-xs">
+          <Card className="shadow-xs" id="loan-form">
             <CardHeader><CardTitle>Record</CardTitle></CardHeader>
             <CardContent>
               <Tabs defaultValue="loan" onValueChange={() => { setErrors({}); setFeedback({ text: "", ok: false }); }}>
