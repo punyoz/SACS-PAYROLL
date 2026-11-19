@@ -27,6 +27,7 @@ import {
   latestBirthDate,
 } from "@/lib/portal/staff-rules";
 import { cn } from "@/lib/utils";
+import { SALARY_MAX } from "@/lib/input-limits";
 
 /*
  * Add Staff Account (openSAStaffAccountModal / submitSAStaffAccount) and Edit
@@ -45,6 +46,7 @@ const LABELS = {
   first_name: "First name", middle_name: "Middle name", last_name: "Last name", suffix: "Suffix", email: "Email",
   role: "Role", employee_status: "Account status", branch_id: "Branch", date_of_birth: "Date of birth",
   date_hired: "Date hired", sex: "Sex", civil_status: "Civil status", cp_number: "Contact number", address: "Home address",
+  basic_salary: "Basic salary",
   emergency_contact_name: "Contact person", emergency_contact_relationship: "Relationship",
   emergency_contact_number: "Emergency contact number", emergency_contact_address: "Emergency contact address",
   password: "Reset password (optional)",
@@ -53,7 +55,7 @@ const LABELS = {
 const EC_FIELDS = ["emergency_contact_name", "emergency_contact_relationship", "emergency_contact_number", "emergency_contact_address"];
 const EDIT_FIELDS = ["first_name", "middle_name", "last_name", "suffix", "email", "role", "branch_id", ...EC_FIELDS, "password"];
 const ADD_FIELDS = [
-  "first_name", "middle_name", "last_name", "suffix", "email", "role", "employee_status", "branch_id",
+  "first_name", "middle_name", "last_name", "suffix", "email", "role", "employee_status", "branch_id", "basic_salary",
   "date_of_birth", "date_hired", "sex", "civil_status", "cp_number", "address", ...EC_FIELDS,
 ];
 const REQUIRED = new Set([
@@ -400,7 +402,7 @@ export function EditStaffDialog({ user, branches, open, onOpenChange, onSaved })
 
 const EMPTY_ADD = {
   first_name: "", middle_name: "", last_name: "", suffix: "", email: "", role: "super_admin", employee_status: "Active",
-  branch_id: "", date_of_birth: "", date_hired: "", sex: "", civil_status: "", cp_number: "", address: "",
+  branch_id: "", basic_salary: "", date_of_birth: "", date_hired: "", sex: "", civil_status: "", cp_number: "", address: "",
   emergency_contact_name: "", emergency_contact_relationship: "", emergency_contact_address: "", emergency_contact_number: "",
 };
 
@@ -469,6 +471,7 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
       role,
       // Admin: its branch; HR: its optional home branch for payroll (2026-11-10).
       branch_id: role === "admin" || role === "hr" ? v("branch_id") : "",
+      ...(role === "hr" ? { basic_salary: Number(v("basic_salary")) } : {}),
       employee_status: v("employee_status"),
       date_of_birth: v("date_of_birth"),
       date_hired: v("date_hired"),
@@ -531,6 +534,9 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
           {field("role", select("role", roleOptions(), "Select role"))}
           {field("employee_status", select("employee_status", ["Active", "Pending"], "Select status"))}
           {kit.branch(activeBranches)}
+          {form.values.role === "hr"
+            ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: String(SALARY_MAX), step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
+            : null}
 
           <SectionTitle>Personal information</SectionTitle>
           {field("date_of_birth", dateField("date_of_birth", { min: "1900-01-01", max: latestBirthDate() }), { hint: "Must be at least 18 years old. Used with the last name to build the first-time password." })}

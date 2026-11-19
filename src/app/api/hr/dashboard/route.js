@@ -32,7 +32,8 @@ export async function GET(request) {
     const allUsers = usersResult.data.users || [];
     const candidateEmployees = allUsers.filter((u) => {
       const role = String(u.user_metadata?.role || "employee").toLowerCase();
-      return (role === "employee" || role === "accountant") && !u.user_metadata?.archived;
+      // Same staff as User Management: Employees, Accountants and the other HRs (HR is on payroll, 2026-11-09).
+      return (role === "employee" || role === "accountant" || (role === "hr" && u.id !== guard.userId)) && !u.user_metadata?.archived;
     });
 
     let employees = candidateEmployees;

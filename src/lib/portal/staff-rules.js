@@ -8,6 +8,7 @@
 
 import { digitsOnly } from "./format";
 import { PERSON_NAME_PATTERN } from "@/lib/person-name";
+import { SALARY_MAX, pesoLimit } from "@/lib/input-limits";
 
 export const STAFF_ROLES = ["super_admin", "admin", "hr"];
 export const STAFF_ROLE_LABELS = { super_admin: "Super Admin", admin: "Admin", hr: "HR" };
@@ -106,6 +107,14 @@ export const STAFF_RULES = {
   employee_status: { check: (v) => (v ? "" : "Select an account status.") },
   // Only Admin carries a branch; HR and Super Admin serve every branch.
   branch_id: { check: (v, values) => (values.role !== "admin" || v ? "" : "Select the branch this account belongs to.") },
+  // HR is on payroll (2026-11-09): its salary is entered when the account is created, like an employee's.
+  basic_salary: {
+    check: (v, values) => {
+      if (values.role !== "hr") return "";
+      const amount = Number(v);
+      return v && amount > 0 && amount <= SALARY_MAX ? "" : `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.`;
+    },
+  },
   date_of_birth: {
     check: (v) => {
       if (!v) return "Date of birth is required.";

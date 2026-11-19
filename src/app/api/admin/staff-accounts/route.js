@@ -14,7 +14,7 @@
  * and are stored with none (shown as "—" and "All Branches").
  *
  * WHAT IT DELIBERATELY DOES NOT COLLECT
- * basic_salary, SSS, PhilHealth, Pag-IBIG, TIN, and position. See src/lib/employees/staff-record.js — these are operator logins,
+ * basic_salary (except HR, which is on payroll), SSS, PhilHealth, Pag-IBIG, TIN, and position. See src/lib/employees/staff-record.js — these are operator logins,
  * not payroll records.
  *
  * ACCESS
@@ -119,6 +119,9 @@ export async function POST(request) {
       );
     }
 
+    // HR is on payroll: its salary is set here, like an employee's on creation (2026-11-19).
+    const basicSalary = record.role === "hr" ? record.basic_salary : undefined;
+
     const metadata = {
       role: record.role,
       full_name: record.full_name,
@@ -130,6 +133,7 @@ export async function POST(request) {
       employee_status: record.employee_status,
       address: record.address,
       cp_number: record.cp_number,
+      ...(basicSalary ? { basic_salary: basicSalary } : {}),
       archived: false,
     };
 
@@ -164,6 +168,7 @@ export async function POST(request) {
         suffix: record.suffix || null,
         full_name: record.full_name,
         branch_id: branchId,
+        ...(basicSalary ? { basic_salary: basicSalary } : {}),
         ...emergencyContactColumns(emergencyContact),
       },
       { onConflict: "id" },

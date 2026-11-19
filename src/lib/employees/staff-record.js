@@ -10,6 +10,9 @@
  *   excluded: basic_salary, sss_number, philhealth_number, pagibig_number,
  *             tin_number, position
  *
+ *   EXCEPT HR: HR is on payroll (decision 2026-11-09), so an HR account
+ *   carries a required basic_salary, entered on creation like an employee's.
+ *
  * Position is left out for a different reason than the rest. The role IS the
  * job for these accounts, and normalizePositionForRole() derives the title
  * that gets displayed from the role no matter what was typed -- so the box
@@ -48,7 +51,7 @@
 
 import { normalizeText } from "@/lib/auth/normalize";
 import { PERSON_NAME_PATTERN } from "@/lib/person-name";
-import { digitsOrNull } from "@/lib/input-limits";
+import { SALARY_MAX, digitsOrNull, pesoLimit } from "@/lib/input-limits";
 
 /** Roles this flow can mint. Super Admin only -- enforced in the route. */
 export const STAFF_ROLES = ["super_admin", "admin", "hr"];
@@ -213,6 +216,7 @@ export function validateStaffEmail(email) {
 
 /** Normalised copies of every field a staff account carries. */
 export function normalizeStaffFields(body = {}) {
+  const role = normalizeText(body.role).toLowerCase();
   return {
     ...normalizeNameParts(body),
     suffix_input: normalizeText(body.suffix),
@@ -227,6 +231,8 @@ export function normalizeStaffFields(body = {}) {
     address: collapseSpaces(body.address),
     // Letters are kept, so the number check refuses them instead of dropping them.
     cp_number: digitsOrNull(body.cp_number) ?? normalizeText(body.cp_number),
+    // Only HR is on payroll; a salary sent for any other role is dropped.
+    ...(role === "hr" ? { basic_salary: Number(body.basic_salary) } : {}),
   };
 }
 
@@ -293,6 +299,10 @@ export function validateStaffRecord(record) {
   // and HR serve every branch, so a branch on either would be meaningless.
   if (STAFF_BRANCH_REQUIRED_ROLES.includes(record.role) && !record.branch_id) {
     return "Select the branch this account belongs to.";
+  }
+
+  if (record.role === "hr" && !(record.basic_salary > 0 && record.basic_salary <= SALARY_MAX)) {
+    return `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.`;
   }
 
   const emailError = validateStaffEmail(record.email);
