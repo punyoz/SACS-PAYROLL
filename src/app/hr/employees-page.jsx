@@ -98,10 +98,13 @@ export function EmployeesPage({ refreshKey }) {
     "non-teaching": active.filter((e) => e.employee_type?.toLowerCase() === "non-teaching").length,
     archived: inBranch.filter((e) => e.archived).length,
   };
-  const rows = filter === "archived" ? inBranch.filter((e) => e.archived)
-    : filter === "teaching" ? active.filter((e) => e.employee_type?.toLowerCase() === "teaching")
-      : filter === "non-teaching" ? active.filter((e) => e.employee_type?.toLowerCase() === "non-teaching")
-        : active;
+  // Memoized: DataTable reports its rows back through onRowsShown (setShownRows), so a new array every render loops forever.
+  const rows = React.useMemo(() => {
+    const list = state.employees.filter((e) => (branch === "all" ? true : branch === "unassigned" ? !e.branch_id : String(e.branch_id || "") === branch));
+    if (filter === "archived") return list.filter((e) => e.archived);
+    const live = list.filter((e) => !e.archived);
+    return filter === "all" ? live : live.filter((e) => e.employee_type?.toLowerCase() === filter);
+  }, [state.employees, branch, filter]);
 
   const columns = React.useMemo(() => [
     {
