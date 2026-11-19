@@ -8,14 +8,15 @@ import { downloadFile } from "@/lib/portal/download";
 
 /**
  * Excel and PDF buttons for a report (alpha test B6). `href` is the report's
- * API URL; the button adds format=xlsx or format=pdf. The server builds the
+ * API URL; the button adds format=xlsx or format=pdf, and `params` (e.g. the
+ * table's search text and sort) so the file lists what the screen shows. The server builds the
  * file (src/lib/export/report-file.js) and checks who may have it.
  *
  * A finished download is said next to the buttons ("Downloaded"), not in a
  * toast: the top-right toast sat over header buttons and stayed while the
  * pointer rested on it. A failure is still a red toast.
  */
-export function ExportButtons({ href, label = "report", disabled = false, className }) {
+export function ExportButtons({ href, params = null, label = "report", disabled = false, className }) {
   const { notify } = usePortalSession();
   const [busy, setBusy] = React.useState("");
   const [done, setDone] = React.useState("");
@@ -27,7 +28,9 @@ export function ExportButtons({ href, label = "report", disabled = false, classN
   const go = async (format) => {
     setBusy(format);
     try {
-      const url = `${href}${href.includes("?") ? "&" : "?"}format=${format}`;
+      // params: what the table shows besides href's own filters (the search text, the sort), so the file matches the screen.
+      const extra = Object.entries(params || {}).filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => `&${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("");
+      const url = `${href}${href.includes("?") ? "&" : "?"}format=${format}${extra}`;
       const result = await downloadFile(url, {}, { fallbackName: `${label}.${format}` });
       setDone(result.name);
     } catch (error) {

@@ -20,8 +20,7 @@ import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { pageParams } from "@/lib/portal/date-range";
-import { reportResponse, wantsFile } from "@/lib/export/report-file";
-import { loadDemoIds, notDemo } from "@/lib/demo";
+import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file";
 
 /**
  * GET /api/attendance/logs — the attendance status board.
@@ -275,17 +274,17 @@ export async function GET(request) {
     // Excel / PDF of the range (reviewers only; alpha test B1 / B6).
     const fileFormat = selfOnly ? null : wantsFile(url);
     if (fileFormat) {
-      // Demo people never reach an export (is_demo, 2026-11-08).
-      const demoIds = await loadDemoIds(supabase);
+      // The rows the board lists, demo people included (2026-11-19; they were left out since 2026-11-08).
       const clock = (v) => (v ? new Date(v).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : "");
       return await reportResponse({
         format: fileFormat, fileName: `attendance-${range.from}-to-${range.to}`, title: "Attendance",
         branch: guard.branchExempt && !normalizeText(url.searchParams.get("branch_id")) ? "All branches" : (labelled[0]?.branch_name || "Branch"),
-        period: `${range.from} to ${range.to}`,
-        filters: [["Status", statusFilter === "unresolved" ? "Incomplete queue" : statusFilter || "All"], ["Search", q], ["Day", day]],
-        columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Branch" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
+        period: `${reportDate(range.from)} to ${reportDate(range.to)}`,
+        filters: [["Status", statusFilter === "unresolved" ? "Incomplete queue" : statusFilter || "All"], ["Day", day || "All days"], ["Search", q || "none"]],
+        empty: "No attendance matches these filters.",
+        columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Branch" }, { header: "Date", kind: "date" }, { header: "Time in" }, { header: "Time out" },
           { header: "Hours", kind: "number" }, { header: "Status" }, { header: "Late (min)", kind: "number" }, { header: "Undertime (min)", kind: "number" }],
-        rows: labelled.filter(notDemo(demoIds)).map((r) => [r.employee_name || "", r.employee_code || "", r.branch_name || "", r.log_date, clock(r.time_in), clock(r.time_out),
+        rows: labelled.map((r) => [r.employee_name || "", r.employee_code || "", r.branch_name || "", r.log_date, clock(r.time_in), clock(r.time_out),
           Number(r.total_hours) || 0, r.status || "", Number(r.late_minutes) || 0, Number(r.undertime_minutes) || 0]),
       });
     }

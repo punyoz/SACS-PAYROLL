@@ -26,7 +26,7 @@ import { EmployeeSelect, HowItWorks } from "./incentives-page";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { CASH_ADVANCE_MAX, LOAN_MAX } from "@/lib/input-limits";
 import { ExportButtons } from "@/components/portal/export-buttons";
-import { LOAN_STATUS_LABELS, loanMatchesStatus } from "@/lib/payroll/loan-status";
+import { LOAN_SORTS, LOAN_STATUS_LABELS, loanCanResume, loanCanSuspend, loanDecisionText, loanMatchesStatus, loanSearchText } from "@/lib/payroll/loan-status";
 
 /*
  * Loans (/api/accountant/loans; docs/payroll-schedule-loans-awol.md §4, §6):
@@ -139,7 +139,8 @@ export function LoansPage({ refreshKey }) {
         final_pay_authorized: form.authority,
       }));
       const startLabel = starts.find((s) => s.value === form.start)?.label || form.start;
-      setFeedback({ text: `Added — ${money(amort)} deducted from the ${startLabel} payslip on.`, ok: true });
+      // Nothing is deducted before HR approves it (payroll reads approved loans only, src/lib/payroll/loans.js).
+      setFeedback({ text: `Loan added. Waiting for HR approval. Once approved, ${money(amort)} is deducted from each 16–end payslip starting ${startLabel}.`, ok: true });
       notify("Sent for HR Approval", `Deducted on 16–end payslips from ${startLabel} once HR approves it.`, "success");
       setForm((c) => ({ ...c, principal: "", amortization: "", description: "" }));
       await load();
@@ -227,14 +228,14 @@ export function LoansPage({ refreshKey }) {
   const first = state.loading && !state.data;
 
   const columns = [
-    { key: "employee_name", header: "Employee", sortable: true, cell: (l) => <div><p className="font-medium">{l.employee_name}</p><p className="text-xs text-muted-foreground">{l.employee_code}{l.description ? ` · ${l.description}` : ""}</p></div>, searchValue: (l) => `${l.employee_name} ${l.employee_code} ${l.description || ""} ${l.type_label}` },
+    { key: "employee_name", header: "Employee", sortable: true, cell: (l) => <div><p className="font-medium">{l.employee_name}</p><p className="text-xs text-muted-foreground">{l.employee_code}{l.description ? ` · ${l.description}` : ""}</p></div>, searchValue: loanSearchText, sortValue: LOAN_SORTS.employee_name.value },
     { key: "type", header: "Type", cell: (l) => l.type_label },
-    { key: "date_granted", header: "Given", sortable: true, className: "whitespace-nowrap", cell: (l) => dateLabel(l.date_granted) },
-    { key: "total", header: "Total payable", align: "right", className: "tabular-nums", sortValue: (l) => Number(l.total_payable || 0), cell: (l) => <span title={Number(l.interest_pct) ? `${money(l.principal)} + ${l.interest_pct}% interest` : ""}>{money(l.total_payable)}</span> },
+    { key: "date_granted", header: "Given", sortValue: LOAN_SORTS.date_granted.value, className: "whitespace-nowrap", cell: (l) => dateLabel(l.date_granted) },
+    { key: "total", header: "Total payable", align: "right", className: "tabular-nums", sortValue: LOAN_SORTS.total.value, cell: (l) => <span title={Number(l.interest_pct) ? `${money(l.principal)} + ${l.interest_pct}% interest` : ""}>{money(l.total_payable)}</span> },
     { key: "per", header: "Per 16–end payslip", align: "right", className: "tabular-nums", cell: (l) => (l.loan_type === "subsidy_advance" ? <span className="text-muted-foreground">Not from salary</span> : <div><p>{money(l.amortization)}</p><p className="text-xs text-muted-foreground">from {dateLabel(l.start_period)}</p></div>) },
     { key: "repaid", header: "Repaid", align: "right", className: "tabular-nums", cell: (l) => <button type="button" className="underline-offset-2 hover:underline" onClick={() => openDialog("history", l)}>{money(l.repaid)}</button> },
-    { key: "balance", header: "Balance", align: "right", className: "tabular-nums font-semibold", sortValue: (l) => Number(l.remaining_balance || 0), cell: (l) => money(l.remaining_balance) },
-    { key: "status", header: "Status", cell: (l) => <div className="space-y-1">{statusBadge(l)}{l.status_reason ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{l.status_reason}</p> : null}{l.decided_by_name && l.approval_status !== "pending" && l.loan_type !== "subsidy_advance" ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{l.approval_status === "rejected" ? "Rejected" : "Approved"} by {l.decided_by_name}{l.decision_note ? `: ${l.decision_note}` : ""}</p> : null}</div> },
+    { key: "balance", header: "Balance", align: "right", className: "tabular-nums font-semibold", sortValue: LOAN_SORTS.balance.value, cell: (l) => money(l.remaining_balance) },
+    { key: "status", header: "Status", cell: (l) => <div className="space-y-1">{statusBadge(l)}{l.status_reason ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{l.status_reason}</p> : null}{loanDecisionText(l) ? <p className="max-w-52 text-xs whitespace-normal text-muted-foreground">{loanDecisionText(l)}</p> : null}</div> },
     {
       key: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -249,9 +250,9 @@ export function LoansPage({ refreshKey }) {
             </div>
           );
         }
-        return l.status === "suspended"
-          ? <Button variant="outline" size="sm" onClick={() => resume(l)}>Resume</Button>
-          : <Button variant="outline" size="sm" onClick={() => openDialog("suspend", l)}>Suspend</Button>;
+        // Only an approved, active loan is suspended; a pending, rejected or paid one has no action (the server refuses it too).
+        if (loanCanResume(l)) return <Button variant="outline" size="sm" onClick={() => resume(l)}>Resume</Button>;
+        return loanCanSuspend(l) ? <Button variant="outline" size="sm" onClick={() => openDialog("suspend", l)}>Suspend</Button> : null;
       },
     },
   ];
@@ -348,14 +349,15 @@ export function LoansPage({ refreshKey }) {
         <CardContent>
           {/* The status filter sits with the search (shared toolbar); Export
               gives exactly that status as Excel or PDF (alpha test B4). */}
-          <DataTable columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
-            toolbar={(
+          <DataTable columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={10}
+            toolbar={(shown, { query, sort }) => (
               <>
                 <Select value={filter} onValueChange={setFilter}>
                   <SelectTrigger size="sm" className="w-44" aria-label="Status" data-testid="loan-status-filter"><SelectValue /></SelectTrigger>
                   <SelectContent>{Object.entries(LOAN_STATUS_LABELS).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                 </Select>
-                <ExportButtons href={`/api/accountant/loans?status=${filter}`} label={`loans (${LOAN_STATUS_LABELS[filter] || "All"})`} disabled={!rows.length} />
+                {/* The file lists what the table shows: this status, the search text and the sort (2026-11-19). */}
+                <ExportButtons href={`/api/accountant/loans?status=${filter}`} params={{ q: query, sort: sort ? `${sort.key}:${sort.dir}` : "" }} label={`loans (${LOAN_STATUS_LABELS[filter] || "All"})`} disabled={!shown.length} />
               </>
             )}
             searchPlaceholder="Search employee, type or description…" empty={{ title: "No loans here", icon: HandCoinsIcon }} caption="Loans" minWidth={1150} />

@@ -87,6 +87,7 @@ const S = StyleSheet.create({
   trow: { flexDirection: "row", paddingVertical: 3, borderBottomWidth: 0.5, borderBottomColor: RULE },
   ttotal: { borderTopWidth: 0.75, borderTopColor: "#8a9096" },
   cell: { paddingHorizontal: 4 },
+  emptyRow: { paddingVertical: 6, paddingHorizontal: 4, color: MUTED, borderBottomWidth: 0.5, borderBottomColor: RULE },
 });
 
 /**
@@ -175,6 +176,8 @@ export function renderTableDocument(model) {
         h(Text, { style: S.gridLabel }, label), h(Text, { style: S.gridValue }, value)))),
     h(View, { style: S.thead, fixed: true },
       ...model.columns.map((column, i) => h(Text, { key: i, style: [...cellStyle(column, true), { fontSize: model.fontSize - 0.5, color: "#33373a" }] }, column.header))),
+    // No rows: one full-width line saying why (never squeezed into the first column).
+    model.emptyText ? h(Text, { style: S.emptyRow }, model.emptyText) : null,
     ...model.rows.map((row, r) => h(View, { key: r, style: [S.trow, row.bold ? S.ttotal : null], wrap: false },
       ...row.cells.map((value, i) => h(Text, { key: i, style: [...cellStyle(model.columns[i], row.bold), row.muted ? S.muted : null] }, String(value ?? "")))))),
     ...footer([model.footer]));

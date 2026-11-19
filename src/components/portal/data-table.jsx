@@ -24,8 +24,9 @@ import { cn } from "@/lib/utils";
  *   className?, headClassName?, align?: "right" | "center"
  * }]
  *
- * toolbar: a node, or (rows) => node given the searched and sorted rows (for
- * Copy / Export buttons that act on what the search shows).
+ * toolbar: a node, or (rows, { query, sort }) => node given the searched and
+ * sorted rows and the search text and sort in force (for Copy / Export
+ * buttons that act on what the table shows).
  *
  * Phones (below 768px, alpha test B): each row is a card instead of a wide
  * table row: the first column (or the one marked mobilePrimary) is the
@@ -88,6 +89,8 @@ export function DataTable({
   stickyHeader = false,
   striped = false,
   pageSizes = null,
+  // Told the searched and sorted rows whenever they change (an export outside the toolbar acts on them).
+  onRowsShown = null,
 }) {
   const isMobile = useIsMobile();
   const asCards = mobileCards && isMobile;
@@ -116,6 +119,8 @@ export function DataTable({
     const factor = sort.dir === "desc" ? -1 : 1;
     return [...filtered].sort((a, b) => factor * compare(sortValueOf(column, a), sortValueOf(column, b)));
   }, [filtered, sort, columns]);
+
+  React.useEffect(() => { onRowsShown?.(sorted); }, [sorted, onRowsShown]);
 
   const total = server ? Number(server.total || 0) : sorted.length;
   const sizeNow = server ? Number(server.pageSize || initialPageSize) : pageSize;
@@ -155,7 +160,7 @@ export function DataTable({
       {/* Search first, then the filters and buttons on the same row (TableToolbar, 2026-11-08). */}
       {searchable || toolbar ? (
         <TableToolbar search={searchable ? { value: query, onChange: setQuery, placeholder: searchPlaceholder, disabled: loading && !server } : null}>
-          {toolbar ? (typeof toolbar === "function" ? toolbar(sorted) : toolbar) : null}
+          {toolbar ? (typeof toolbar === "function" ? toolbar(sorted, { query: query.trim(), sort }) : toolbar) : null}
         </TableToolbar>
       ) : null}
 

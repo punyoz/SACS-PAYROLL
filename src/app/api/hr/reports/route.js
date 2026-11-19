@@ -9,7 +9,9 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { loadDemoIds, notDemo } from "@/lib/demo";
-import { reportResponse, wantsFile } from "@/lib/export/report-file";
+import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file";
+import { tableQuery } from "@/lib/export/table-query";
+import { hrReportSearchFields, sortByBranch } from "@/lib/hr/report-table";
 
 export async function GET(request) {
   try {
@@ -79,12 +81,16 @@ export async function GET(request) {
       const attendanceRecords = Array.from(byEmployee.values());
       // Excel / PDF (alpha test B3): the branch chosen on the page, if any.
       if (wantsFile(url)) {
+        // The table's rows (2026-11-19): the branch chosen, the search, the same order.
         const branchFilter = url.searchParams.get("branch_id");
-        const shown = attendanceRecords.filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        const inBranch = sortByBranch(attendanceRecords, "employee_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        const { rows: shown, q } = tableQuery(url, inBranch, { fields: hrReportSearchFields });
         return await reportResponse({
           format: wantsFile(url), fileName: `attendance-report-${from || "start"}-to-${to}`, title: "Attendance report",
-          branch: branchFilter && branchFilter !== "all" ? shown[0]?.branch_name || "Branch" : "All branches",
-          period: `${from || "Start of records"} to ${to}`, totals: true,
+          branch: branchFilter && branchFilter !== "all" ? inBranch[0]?.branch_name || "Branch" : "All branches",
+          period: `${from ? reportDate(from) : "Start of records"} to ${reportDate(to)}`, totals: shown.length > 0,
+          filters: [["Search", q || "none"], ["Sorted by", "Branch, then employee"]],
+          empty: `No attendance matches${q ? `: Search = "${q}"` : " this branch and period"}.`,
           columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Type" }, { header: "Present", kind: "number", integer: true },
             { header: "Late", kind: "number", integer: true }, { header: "Absent", kind: "number", integer: true }, { header: "On leave", kind: "number", integer: true },
             { header: "Total hours", kind: "number" }],
@@ -144,11 +150,14 @@ export async function GET(request) {
 
       if (wantsFile(url)) {
         const branchFilter = url.searchParams.get("branch_id");
-        const shown = employees.filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        const inBranch = sortByBranch(employees, "full_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        const { rows: shown, q } = tableQuery(url, inBranch, { fields: hrReportSearchFields });
         return await reportResponse({
-          format: wantsFile(url), fileName: "employee-records", title: "Employee records",
-          branch: branchFilter && branchFilter !== "all" ? shown[0]?.branch_name || "Branch" : "All branches",
-          period: `As of ${to}`,
+          format: wantsFile(url), fileName: `employee-records-${to}`, title: "Employee records",
+          branch: branchFilter && branchFilter !== "all" ? inBranch[0]?.branch_name || "Branch" : "All branches",
+          period: `As of ${reportDate(to)}`,
+          filters: [["Search", q || "none"], ["Sorted by", "Branch, then employee"]],
+          empty: `No employees match${q ? `: Search = "${q}"` : " this branch"}.`,
           columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Type" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
           rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "", r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
         });

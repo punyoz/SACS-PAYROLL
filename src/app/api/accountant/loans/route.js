@@ -41,9 +41,8 @@ import {
 import { actorName, loadPayrollStaff, personLabel } from "@/lib/payroll/staff";
 import { describeSubsidyError } from "@/lib/payroll/subsidy-requests";
 import { textLimitError } from "@/lib/input-limits";
-import { reportResponse, wantsFile } from "@/lib/export/report-file";
-import { loadDemoIds, notDemo } from "@/lib/demo";
-import { LOAN_STATUS_LABELS, loanMatchesStatus, loanStatusLabel } from "@/lib/payroll/loan-status";
+import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file";
+import { LOAN_STATUS_LABELS, loanCanResume, loanCanSuspend, loanDecisionText, loanMatchesQuery, loanMatchesStatus, loanSortLabel, loanStatusLabel, parseLoanSort, sortLoans } from "@/lib/payroll/loan-status";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { description: [200, "The description"], reason: [300, "The reason"] };
@@ -149,35 +148,54 @@ export async function GET(request) {
       }
     }
 
-    // Excel / PDF of one status (alpha test B4): pending, active, paid, ...
+    // Excel / PDF (2026-11-19): exactly what the table shows -- the same branch scope, status, search and
+    // sort (src/lib/payroll/loan-status.js), every matching row, the same columns. Demo people are listed,
+    // as on the screen.
     const url = new URL(request.url);
     if (wantsFile(url)) {
-      const status = normalizeText(url.searchParams.get("status"), "all");
-      const demo = await loadDemoIds(supabase);
-      const chosen = loans.filter(notDemo(demo)).filter((loan) => loanMatchesStatus(loan, status));
+      const status = LOAN_STATUS_LABELS[url.searchParams.get("status")] ? url.searchParams.get("status") : "all";
+      const q = normalizeText(url.searchParams.get("q")).slice(0, 100);
+      const sort = parseLoanSort(url.searchParams.get("sort"));
+      const chosen = sortLoans(loans.filter((loan) => loanMatchesStatus(loan, status) && loanMatchesQuery(loan, q)), sort);
+      // The branches listed (or, with none, the branches in reach).
+      const branchIds = [...new Set((chosen.length ? chosen.map((loan) => byId.get(loan.employee_id)?.branch_id) : staff.map((p) => p.branch_id)).filter(Boolean))];
+      const branchRows = branchIds.length ? (await supabase.from("branches").select("id,name").in("id", branchIds)).data || [] : [];
+      const branchNames = branchRows.map((b) => b.name).sort();
+      const statusLabel = LOAN_STATUS_LABELS[status];
       return await reportResponse({
         format: url.searchParams.get("format"),
-        fileName: `loans-${status}`,
-        title: `Loans: ${LOAN_STATUS_LABELS[status] || "All"}`,
-        branch: guard.branchExempt ? "All branches" : "Own branch",
-        period: `As of ${manilaDateKey()}`,
-        filters: [`Status: ${LOAN_STATUS_LABELS[status] || "All"}`],
+        fileName: `loans-${status}-${manilaDateKey()}`,
+        title: `Loans: ${statusLabel}`,
+        branch: branchNames.length ? branchNames.join(", ") : guard.branchExempt ? "All branches" : "Own branch",
+        period: `As of ${reportDate(manilaDateKey())}`,
+        filters: [["Status", statusLabel], ["Search", q || "none"], ["Sorted by", loanSortLabel(sort)]],
+        empty: `No loans match: Status = ${statusLabel}${q ? `, Search = "${q}"` : ""}.`,
+        note: "Totals add every loan listed (rejected and paid ones too).",
         columns: [
-          { header: "Employee", kind: "text", width: 28 },
-          { header: "Employee ID", kind: "text", width: 14 },
-          { header: "Type", kind: "text", width: 18 },
-          { header: "Given", kind: "text", width: 12 },
-          { header: "Principal", kind: "money" },
-          { header: "Per payslip", kind: "money" },
+          { header: "Employee", width: 28 },
+          { header: "Employee ID", width: 13 },
+          { header: "Type", width: 16 },
+          { header: "Description", width: 26 },
+          { header: "Given", kind: "date" },
+          { header: "Total payable", kind: "money" },
+          { header: "Per 16–end payslip", kind: "money", total: false },
+          { header: "Deducted from", kind: "date" },
           { header: "Repaid", kind: "money" },
           { header: "Balance", kind: "money" },
-          { header: "Status", kind: "text", width: 20 },
+          { header: "Status", width: 20 },
+          { header: "HR decision", width: 36 },
         ],
-        rows: chosen.map((loan) => [
-          loan.employee_name, loan.employee_code, loan.type_label, loan.date_granted || "",
-          loan.principal, loan.amortization ?? 0, loan.repaid, loan.remaining_balance, loanStatusLabel(loan),
-        ]),
-        totals: ["Total", "", "", "", peso(chosen.reduce((s, l) => s + l.principal, 0)), "", peso(chosen.reduce((s, l) => s + l.repaid, 0)), peso(chosen.reduce((s, l) => s + l.remaining_balance, 0)), `${chosen.length} loan(s)`],
+        rows: chosen.map((loan) => {
+          const fromSalary = loan.loan_type !== "subsidy_advance";
+          return [
+            loan.employee_name, loan.employee_code, loan.type_label, loan.description || "", loan.date_granted || "",
+            loan.total_payable, fromSalary ? loan.amortization ?? "" : "", fromSalary ? loan.start_period || "" : "",
+            loan.repaid, loan.remaining_balance,
+            [loanStatusLabel(loan), loan.status_reason || ""].filter(Boolean).join(": "),
+            fromSalary ? loanDecisionText(loan) : "Not from salary",
+          ];
+        }),
+        totals: chosen.length > 0,
       });
     }
 
@@ -352,6 +370,10 @@ export async function PATCH(request) {
       if (!["active", "suspended"].includes(status)) return NextResponse.json({ error: "Status must be active or suspended." }, { status: 400 });
       if (loan.status === "paid") return NextResponse.json({ error: "A paid loan cannot be changed." }, { status: 409 });
       if (loan.awaiting_decision) return NextResponse.json({ error: "This advance waits for HR's decision (Subsidies)." }, { status: 409 });
+      // Only an approved, active loan is suspended and only a suspended one resumed (2026-11-19): a pending or
+      // rejected loan was never deducted, so there is nothing to pause.
+      if (status === "suspended" && !loanCanSuspend(loan)) return NextResponse.json({ error: "Only an active loan HR approved can be suspended." }, { status: 409 });
+      if (status === "active" && !loanCanResume(loan)) return NextResponse.json({ error: "Only a suspended loan can be resumed." }, { status: 409 });
       if (status === "suspended" && reason.length < 5) return NextResponse.json({ error: "Give a reason for suspending (at least 5 characters)." }, { status: 400 });
       const result = await supabase.from("payroll_loans").update({
         status, status_reason: reason || null, status_changed_by: guard.userId || null,
