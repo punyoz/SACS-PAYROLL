@@ -349,6 +349,7 @@ export const DATE_FILTER = {
   payroll_entries: "@period_start", payroll_records: "period_start", payroll_runs: "period_start", payroll_run_items: "created_at",
   payroll_run_exclusions: "created_at", payroll_approval_history: "created_at", payroll_corrections: "requested_at",
   payroll_final_overrides: "created_at", payroll_review_flags: "created_at", payroll_tax_annualizations: "created_at", payroll_bir_exports: "generated_at",
+  payroll_final_pay_submissions: "submitted_at",
   audit_logs: "created_at",
 };
 
@@ -471,7 +472,7 @@ export const RESTORE_ORDER = Object.freeze([
   "holiday_duty_history", "holiday_work_reviews", "payroll_runs", "payroll_approval_history", "payroll_bir_exports", "payroll_cash_advances",
   "payroll_contribution_amounts", "payroll_entries", "payroll_subsidy_settings", "payroll_subsidy_balances", "payroll_loans",
   "payroll_monthly_incentives", "payroll_corrections", "payroll_rate_configs", "payroll_records", "payroll_deductions",
-  "payroll_final_overrides", "payroll_incentives", "payroll_loan_payments", "payroll_review_flags", "payroll_run_exclusions",
+  "payroll_final_overrides", "payroll_final_pay_submissions", "payroll_incentives", "payroll_loan_payments", "payroll_review_flags", "payroll_run_exclusions",
   "payroll_run_items", "payroll_schedule_settings", "payroll_setting_changes", "payroll_sss_msc_brackets", "payroll_subsidy_adjustments",
   "payroll_subsidy_requests", "payroll_tax_annualizations", "payroll_tax_brackets", "payroll_thirteenth_month", "payroll_window_enforcement",
   "payroll_window_enforcement_changes", "rfid_cards", "rfid_card_events", "role_permissions", "school_break_periods", "system_config",

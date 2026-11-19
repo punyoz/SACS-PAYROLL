@@ -116,6 +116,11 @@ export async function GET(request) {
       paymentsByLoan.set(row.loan_id, list);
     });
 
+    // Final pay waiting for HR approval holds these loans (20261120010000).
+    const held = new Map();
+    const pendingFinalPay = await fetchAllIn(() => supabase.from("payroll_final_pay_submissions").select("id,employee_id,item").eq("status", "pending").order("id", { ascending: true }), "employee_id", ids);
+    (pendingFinalPay.data || []).forEach((row) => (row.item?.loan_payments || []).forEach((p) => held.set(p.loan_id, peso((held.get(p.loan_id) || 0) + Number(p.amount || 0)))));
+
     const loans = loanRows.map((loan) => {
       const person = byId.get(loan.employee_id);
       const payments = paymentsByLoan.get(loan.id) || [];
@@ -131,6 +136,7 @@ export async function GET(request) {
         employee_name: person?.full_name || "—",
         employee_code: person?.employee_id || "",
         payments,
+        pending_final_pay: held.get(loan.id) || 0,
       };
     });
 

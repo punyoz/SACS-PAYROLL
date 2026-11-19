@@ -26,6 +26,8 @@ import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 import { usePendingRunCount } from "@/components/portal/use-live-payroll-runs";
 import { PayrollApprovalPage } from "./payroll-approval-page";
 import { PayrollRecordsPage } from "./payroll-records-page";
+import { FinalPayApprovalsPage } from "./final-pay-approvals-page";
+import { fetchJson } from "@/lib/portal/api";
 import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
 import { RfidCardsPanel } from "@/components/portal/rfid/rfid-cards-panel";
@@ -77,6 +79,8 @@ const NAV = [
     collapsible: true,
     items: [
       { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
+      // Final pay the Accountant submitted (20261120010000).
+      { id: "hr-final-pay-approvals", label: "Final Pay Approvals", icon: BadgeCheckIcon, module: "payroll_run_approval" },
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
       // Moved from Leave (2026-10-20): subsidy decisions are payroll, not leave.
       { id: "hr-subsidy-approvals", label: "Subsidy Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
@@ -106,6 +110,7 @@ const TITLES = {
   "hr-rfid-cards": "RFID Cards",
   "hr-rfid-terminals": "RFID Terminal",
   "hr-payroll-approval": "Payroll Approval",
+  "hr-final-pay-approvals": "Final Pay Approvals",
   "hr-payroll-records": "Payroll Records",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
@@ -138,6 +143,7 @@ const DESCRIPTIONS = {
   "hr-adjustment-approvals": "Approve or reject the incentives, overload, loans and cash advances the Accountant filed. Payroll pays or deducts only approved ones; a rejection needs a reason and the Accountant is notified.",
   "hr-gov-rates": "Change the daily rate and the SSS, PhilHealth and Pag-IBIG rates for future pay periods (with a reason; the Super Admin is notified). The hourly rate is the daily rate ÷ 8, automatic; the withholding tax table is fixed by law.",
   "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
+  "hr-final-pay-approvals": "Review each separated employee's final pay the Accountant computed: approve to release it, or send it back with a reason. Release within 30 days of separation.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
   "hr-profile": null,
   ...Object.fromEntries(Object.entries(MY_PAGE_IDS.hr).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, MY_DESCRIPTIONS[kind]])),
@@ -151,6 +157,13 @@ function HrScreens() {
   const [summary, setSummary] = React.useState([]);
   // Pending payroll runs, live (the sidebar badge).
   const [pendingRuns, reloadPending] = usePendingRunCount(can("payroll_run_approval"));
+  // Final pay waiting for HR (the sidebar badge).
+  const [pendingFinalPay, setPendingFinalPay] = React.useState(0);
+  const reloadFinalPay = React.useCallback(() => {
+    if (!can("payroll_run_approval")) return;
+    fetchJson("/api/hr/final-pay-approvals?count=1").then((d) => setPendingFinalPay(Number(d?.pending) || 0)).catch(() => null);
+  }, [can]);
+  React.useEffect(() => { reloadFinalPay(); }, [reloadFinalPay, refreshKey]);
 
   const allowed = (id) => {
     if (id === EMPLOYEE_PAGE) return can("attendance");
@@ -179,7 +192,7 @@ function HrScreens() {
         onRefresh={refresh}
         refreshing={refreshing}
         notificationSummary={summary}
-        badges={{ "hr-payroll-approval": pendingRuns }}
+        badges={{ "hr-payroll-approval": pendingRuns, "hr-final-pay-approvals": pendingFinalPay }}
         profilePage="hr-profile"
         accountOptions={{ payrollReadOnly: false }}
       >
@@ -191,6 +204,7 @@ function HrScreens() {
         {current === "hr-rfid-cards" ? <RfidCardsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-rfid-terminals" ? <RfidTerminalLauncher text="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your HR password." /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
+        {current === "hr-final-pay-approvals" ? <FinalPayApprovalsPage refreshKey={refreshKey} onChanged={reloadFinalPay} /> : null}
         {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
         {current === "hr-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
         {current === "hr-schedules" ? (

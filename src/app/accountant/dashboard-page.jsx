@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { FinalPayActionNeededCard } from "./final-pay-page";
 import { Bar, BarChart, CartesianGrid, Cell, Label, Pie, PieChart, XAxis, YAxis } from "recharts";
 import { ArrowRightIcon, BanknoteIcon, CheckCircle2Icon, FilePenLineIcon, MinusCircleIcon, ReceiptTextIcon, UsersIcon, WalletIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -76,6 +77,8 @@ export function DashboardPage({ refreshKey, onNavigate }) {
 
   return (
     <>
+      {/* Final pay: rejected by HR, not yet computed, overdue (20261120010000). */}
+      <FinalPayActionNeededCard refreshKey={refreshKey} onOpen={() => onNavigate?.("ac-final-pay")} />
       {/* What is still open, per branch, with a link to each (2026-11-15). */}
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />

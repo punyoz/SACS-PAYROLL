@@ -26,7 +26,7 @@ function PayslipCard({ payslip }) {
   const view = payslip.line_groups || null;
   // The same payslip every role sees (PayslipDocument), with the employee's own notes.
   // Only Paid payslips reach My Payslips; the tax box and month total are drawn by PayslipDocument.
-  const doc = { ...payslip, pay_period: payslip.period_label, issued_at: payslip.processed_at, status: "final", status_label: "Paid" };
+  const doc = { ...payslip, pay_period: payslip.period_label, issued_at: payslip.processed_at, status: "final", status_label: payslip.status_label || "Paid" };
   return (
     <PayslipDocument payslip={doc} netLabel={m && !payslip.final_pay ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay"}>
       <div className="space-y-3" data-testid="payslip-full" data-half={view?.half}>

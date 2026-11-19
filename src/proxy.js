@@ -161,6 +161,8 @@ const API_MODULES = [
   // Payroll Approval: HR reviews / approves (and its live stream); the
   // Accountant submits through process_payroll.
   ["/api/hr/payroll-runs", "payroll_run_approval"],
+  // Final pay approvals (20261120010000): HR decides, Super Admin stand-in.
+  ["/api/hr/final-pay-approvals", "payroll_run_approval"],
   ["/api/accountant/payroll-runs", "process_payroll"],
   // Payroll corrections after approval (20261022020000): the Accountant files
   // (process_payroll), HR decides (payroll_run_approval). The route checks the

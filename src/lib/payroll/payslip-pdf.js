@@ -305,11 +305,13 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
     subtitle: `${employee.branch || "Branch"} - Payslip - ${systemName(orgName)} Management System`,
     grid: [
       [["Employee", employee.name], ["Employee ID", employee.id], ["Position / Branch", [employee.position, employee.branch].filter(Boolean).join(" · ")]],
-      [["Pay period", details?.pay_period], ["Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")], ["Status", status]],
+      [["Pay period", details?.pay_period], [details?.final_pay ? "Release date" : "Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")], ["Status", status]],
     ],
     lines: [
       Array.isArray(employee.branch_days) && employee.branch_days.length ? `Days by branch: ${employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(", ")}` : null,
       !final && generation.attendance_through_label ? `Includes attendance up to ${generation.attendance_through_label}.` : null,
+      // A final pay: who approved it and when (20261120010000).
+      details?.approval_line || null,
     ].filter(Boolean),
     stats: summary ? [["Days present", summary.days_present], ["Days absent", summary.days_absent], ["Half days", summary.half_days],
       ["Late minutes", summary.late_minutes], ["Undertime minutes", summary.undertime_minutes], ["Leave days", summary.leave_days]] : null,
