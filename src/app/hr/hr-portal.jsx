@@ -26,7 +26,6 @@ import { EarlyBirdCard } from "@/components/portal/early-bird-card";
 import { usePendingRunCount } from "@/components/portal/use-live-payroll-runs";
 import { PayrollApprovalPage } from "./payroll-approval-page";
 import { PayrollRecordsPage } from "./payroll-records-page";
-import { FinalPayApprovalsPage } from "./final-pay-approvals-page";
 import { fetchJson } from "@/lib/portal/api";
 import { TenureProtectionPanel } from "@/components/portal/tenure-protection";
 import { BranchRequestsReview } from "@/components/portal/branch-requests-review";
@@ -79,8 +78,6 @@ const NAV = [
     collapsible: true,
     items: [
       { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
-      // Final pay the Accountant submitted (20261120010000).
-      { id: "hr-final-pay-approvals", label: "Final Pay Approvals", icon: BadgeCheckIcon, module: "payroll_run_approval" },
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
       // Moved from Leave (2026-10-20): subsidy decisions are payroll, not leave.
       { id: "hr-subsidy-approvals", label: "Subsidy Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
@@ -110,7 +107,6 @@ const TITLES = {
   "hr-rfid-cards": "RFID Cards",
   "hr-rfid-terminals": "RFID Terminal",
   "hr-payroll-approval": "Payroll Approval",
-  "hr-final-pay-approvals": "Final Pay Approvals",
   "hr-payroll-records": "Payroll Records",
   [EMPLOYEE_PAGE]: "Employee Attendance Record",
   "hr-leaves": "Leave Approval",
@@ -142,14 +138,28 @@ const DESCRIPTIONS = {
   "hr-reports": "Generate attendance reports and employee record summaries for documentation.",
   "hr-adjustment-approvals": "Approve or reject the incentives, overload, loans and cash advances the Accountant filed. Payroll pays or deducts only approved ones; a rejection needs a reason and the Accountant is notified.",
   "hr-gov-rates": "Change the daily rate and the SSS, PhilHealth and Pag-IBIG rates for future pay periods (with a reason; the Super Admin is notified). The hourly rate is the daily rate ÷ 8, automatic; the withholding tax table is fixed by law.",
-  "hr-payroll-approval": "Review each branch's payroll for a cutoff, then approve it or send it back to the Accountant with a reason.",
-  "hr-final-pay-approvals": "Review each separated employee's final pay the Accountant computed: approve to release it, or send it back with a reason. Release within 30 days of separation.",
+  "hr-payroll-approval": "Approve each branch's payroll and each final pay, or send it back to the Accountant with a reason.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
   "hr-profile": null,
   ...Object.fromEntries(Object.entries(MY_PAGE_IDS.hr).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, MY_DESCRIPTIONS[kind]])),
 };
 
+/** Retired page ids and where they open now (2026-11-20: Final Pay Approvals moved into Payroll Approval). */
+const MOVED_PAGES = { "hr-final-pay-approvals": { page: "hr-payroll-approval", params: { pa_section: "final-pay" } } };
+
+/** An old address (?page=hr-final-pay-approvals): rewritten before the page is read. */
+function redirectMovedPage() {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const moved = MOVED_PAGES[params.get("page")];
+  if (!moved) return;
+  params.set("page", moved.page);
+  Object.entries(moved.params).forEach(([k, v]) => params.set(k, v));
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+}
+
 function HrScreens() {
+  redirectMovedPage();
   const { can } = usePortalSession();
   const [page, setPage] = usePersistedPage("hr", PAGE_IDS, "hr-dashboard");
   const [refreshKey, setRefreshKey] = React.useState(0);
@@ -173,7 +183,18 @@ function HrScreens() {
   // An old link to a retired page (My BIR Form 2316) shows "Page not found".
   const current = page === NOT_FOUND_PAGE ? NOT_FOUND_PAGE : allowed(page) ? page : "hr-dashboard";
   const myKind = myPageKind("hr", current);
-  const { employeeId, openEmployee, navigate } = useEmployeeRecordPage(current, setPage, EMPLOYEE_PAGE, "hr-attendance");
+  const { employeeId, openEmployee, navigate: navigatePage } = useEmployeeRecordPage(current, setPage, EMPLOYEE_PAGE, "hr-attendance");
+  // A moved page (a notification or dashboard link): its new page, with its tab set (remounts the page).
+  const [sectionKey, setSectionKey] = React.useState(0);
+  const navigate = React.useCallback((id) => {
+    const moved = MOVED_PAGES[id];
+    if (!moved) return navigatePage(id);
+    const params = new URLSearchParams(window.location.search);
+    Object.entries(moved.params).forEach(([k, v]) => params.set(k, v));
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+    setSectionKey((n) => n + 1);
+    return navigatePage(moved.page);
+  }, [navigatePage]);
 
   const refresh = React.useCallback(() => {
     setRefreshing(true);
@@ -192,7 +213,7 @@ function HrScreens() {
         onRefresh={refresh}
         refreshing={refreshing}
         notificationSummary={summary}
-        badges={{ "hr-payroll-approval": pendingRuns, "hr-final-pay-approvals": pendingFinalPay }}
+        badges={{ "hr-payroll-approval": (Number(pendingRuns) || 0) + pendingFinalPay }}
         profilePage="hr-profile"
         accountOptions={{ payrollReadOnly: false }}
       >
@@ -203,8 +224,7 @@ function HrScreens() {
         {current === "hr-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
         {current === "hr-rfid-cards" ? <RfidCardsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-rfid-terminals" ? <RfidTerminalLauncher text="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your HR password." /> : null}
-        {current === "hr-payroll-approval" ? <PayrollApprovalPage refreshKey={refreshKey} onChanged={reloadPending} /> : null}
-        {current === "hr-final-pay-approvals" ? <FinalPayApprovalsPage refreshKey={refreshKey} onChanged={reloadFinalPay} /> : null}
+        {current === "hr-payroll-approval" ? <PayrollApprovalPage key={sectionKey} refreshKey={refreshKey} onChanged={() => { reloadPending(); reloadFinalPay(); }} counts={{ runs: pendingRuns, finalPay: pendingFinalPay }} /> : null}
         {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
         {current === "hr-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
         {current === "hr-schedules" ? (

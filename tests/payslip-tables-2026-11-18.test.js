@@ -45,8 +45,8 @@ describe("one payslip layout for every role (2026-11-18)", () => {
       gross: 13591.67, total_deductions: 1500,
     };
     const t = payslipTables({ final_pay: fp, monthly: null });
-    expect(t.earnings.map((r) => r.label)).toEqual(["Salary (2026-09)", "13th month pay (pro-rated)", "Licensed teacher subsidy", "Unused leave conversion"]);
-    expect(t.deductions.map((r) => r.label)).toEqual(["SSS (2026-09)", "Salary loan"]);
+    expect(t.earnings.map((r) => r.label)).toEqual(["Salary (September 2026)", "13th month pay (pro-rated)", "Licensed teacher subsidy", "Unused leave conversion"]);
+    expect(t.deductions.map((r) => r.label)).toEqual(["SSS (September 2026)", "Salary loan"]);
     expect(sum(t.earnings)).toBeCloseTo(t.gross, 2);
     expect(sum(t.deductions)).toBe(t.total_deductions);
     const { text: pdf } = await readPdf(await buildPayslipPdf({ status: "final", final_pay: fp, earnings: {}, deductions: {}, net_pay: 12091.67 }));

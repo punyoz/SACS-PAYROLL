@@ -14,6 +14,7 @@
  * own layout).
  */
 
+import { monthText } from "@/lib/payroll/final-pay-text";
 import { FIRST_HALF_NOTE, pesoText } from "@/lib/payroll/line-tags";
 
 const num = (value) => Number(value) || 0;
@@ -77,13 +78,13 @@ const FINAL_DEDUCTION = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IB
 
 /** A final pay (payroll.final_pay.breakdown, final-pay.js): every month, the 13th month, subsidy, leave and loans. */
 function fromFinalPay(fp, overpayment) {
-  const month = (l) => (l.month_key ? ` (${l.month_key})` : "");
+  const month = (l) => (l.month_key ? ` (${monthText(l.month_key)})` : "");
   const earnings = (fp.earnings || []).map((l) => ({
     key: l.kind, label: l.kind === "salary" ? `Salary${month(l)}` : l.label || FINAL_EARNING[l.kind] || l.kind, amount: num(l.amount), note: l.note || null,
   }));
   const deductions = (fp.deductions || []).map((l) => ({
     key: l.kind,
-    label: l.kind === "loan" ? (l.note || "Loan").split(" — ")[0] : `${l.label || FINAL_DEDUCTION[l.kind] || l.kind}${month(l)}`,
+    label: l.kind === "loan" ? l.label || (l.note || "Loan").split(" — ")[0] : `${l.label || FINAL_DEDUCTION[l.kind] || l.kind}${month(l)}`,
     amount: num(l.amount), note: l.kind === "loan" ? l.note : l.note || null, ...(l.credit ? { credit: true } : {}),
   }));
   const hasLoan = deductions.some((l) => l.key === "loan");

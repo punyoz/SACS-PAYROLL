@@ -25,3 +25,35 @@ describe("final pay approval helpers", () => {
     expect(describeDecideError({ message: "connection reset" })).toEqual({ status: 500, error: "The final pay could not be decided. Try again." });
   });
 });
+
+describe("final pay text (2026-11-20): pesos, dates and months in words", async () => {
+  const { dateTimeText, lineLabel, monthText, pesoText, rangeText } = await import("@/lib/payroll/final-pay-text");
+  const { computeFinalPay } = await import("@/lib/payroll/final-pay");
+
+  it("formats pesos, months, ranges and times", () => {
+    expect(pesoText(14069.03)).toBe("₱14,069.03");
+    expect(pesoText(-600)).toBe("-₱600.00");
+    expect(monthText("2026-10")).toBe("October 2026");
+    expect(lineLabel("SSS", "2026-10")).toBe("SSS (October 2026)");
+    expect(rangeText("2026-10-01", "2026-10-25")).toBe("Oct 1–25, 2026");
+    expect(rangeText("2026-10-30", "2026-11-10")).toBe("Oct 30 – Nov 10, 2026");
+    expect(dateTimeText("2026-11-19T13:45:00Z")).toBe("Nov 19, 2026, 9:45 PM");
+  });
+
+  it("writes readable formulas on the final pay lines (amounts unchanged)", () => {
+    const r = computeFinalPay({
+      monthlySalary: 18000, dailyRate: 827.59, separatedOn: "2026-10-25",
+      months: [{ month_key: "2026-10", window: { start_key: "2026-10-01", end_key: "2026-10-29" }, absent_days: 0, first_half_paid: 0, partial: { paid: 17, unpaid_holidays: [] } }],
+      contributions: { sss: 900, philhealth: 450, pagibig: 200 }, taxTable: [{ over: 0, base: 0, rate: 0 }],
+      basicEarnedYtd: 0, thirteenthPaid: false, subsidy: null, benefitsYtd: 0, ceiling: 90000, carryIn: 0,
+      loans: [{ id: "l1", loan_type: "salary_loan", description: "Salary loan, granted Sep 1, 2026", remaining_balance: 3000, final_pay_authorized: true, date_granted: "2026-09-01" }],
+    });
+    const salary = r.earnings.find((e) => e.kind === "salary");
+    expect(salary.amount).toBe(14069.03);
+    expect(salary.note).toBe("17 paid days × ₱827.59 (Oct 1–25, 2026)");
+    expect(r.earnings.find((e) => e.kind === "thirteenth_month").note).toBe("₱14,069.03 ÷ 12");
+    const loan = r.deductions.find((d) => d.kind === "loan");
+    expect(loan).toMatchObject({ label: "Salary loan balance", note: "Salary loan, granted Sep 1, 2026 · balance ₱3,000.00", amount: 3000 });
+    expect(JSON.stringify(r.earnings.map((e) => e.note))).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+});
