@@ -49,6 +49,8 @@ import {
 import { assignStaffId } from "@/lib/employees/staff-id";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 
+const HR_JOB = { employee_type: "Non-Teaching", position: "HR Officer" };
+
 export async function POST(request) {
   const guard = await requirePermission(request, "user_management", "create");
   if (guard.denied) return guard.denied;
@@ -134,6 +136,9 @@ export async function POST(request) {
       address: record.address,
       cp_number: record.cp_number,
       ...(basicSalary ? { basic_salary: basicSalary } : {}),
+      // An HR is always "HR Officer", Non-Teaching (src/lib/hr/positions.js); without
+      // these HR's staff list showed the "Teaching" / "Employee" defaults.
+      ...(record.role === "hr" ? HR_JOB : {}),
       archived: false,
     };
 
@@ -169,6 +174,7 @@ export async function POST(request) {
         full_name: record.full_name,
         branch_id: branchId,
         ...(basicSalary ? { basic_salary: basicSalary } : {}),
+        ...(record.role === "hr" ? HR_JOB : {}),
         ...emergencyContactColumns(emergencyContact),
       },
       { onConflict: "id" },
