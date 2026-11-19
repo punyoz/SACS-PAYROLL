@@ -363,7 +363,7 @@ function UserMenu({ onProfile }) {
             >
               <UserAvatar userId="me" name={name} className="size-8" fallbackClassName="bg-sidebar-primary text-xs text-sidebar-primary-foreground" />
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span data-fit className="truncate font-semibold text-white">{name}</span>
+                <span data-fit className="truncate font-semibold text-white" title={name}>{name}</span>
                 <span data-fit className="truncate text-xs">{ROLE_LABEL[role]}</span>
               </div>
               <ChevronsUpDownIcon className="ml-auto size-4" aria-hidden="true" />

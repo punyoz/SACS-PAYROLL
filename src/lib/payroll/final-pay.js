@@ -29,6 +29,8 @@
 
 import { roundPeso } from "@/lib/payroll/money";
 import { monthlyWithholdingTax } from "@/lib/payroll/semi-monthly";
+import { LOAN_TYPE_LABELS } from "@/lib/payroll/loans";
+import { dateText, pesoText, rangeText } from "@/lib/payroll/final-pay-text";
 
 const peso = (value) => roundPeso(value);
 
@@ -113,17 +115,21 @@ export function computeFinalPay(input) {
     let note;
     if (month.partial) {
       earned = Math.min(salary, peso(month.partial.paid * daily));
-      note = `${month.partial.paid} paid day${month.partial.paid === 1 ? "" : "s"} × ${daily.toFixed(2)} (${month.window.start_key} – ${input.separatedOn})`
-        + (month.partial.unpaid_holidays.length ? `; holiday${month.partial.unpaid_holidays.length > 1 ? "s" : ""} ${month.partial.unpaid_holidays.join(", ")} unpaid (absent the working day before)` : "");
+      // Words only (2026-11-20): "17 paid days × ₱827.59 (Oct 1–25, 2026)".
+      note = `${month.partial.paid} paid day${month.partial.paid === 1 ? "" : "s"} × ${pesoText(daily)} (${rangeText(month.window.start_key, input.separatedOn)})`
+        + (month.partial.unpaid_holidays.length ? `; holiday${month.partial.unpaid_holidays.length > 1 ? "s" : ""} ${month.partial.unpaid_holidays.map(dateText).join(", ")} unpaid (absent the working day before)` : "");
     } else {
       const absence = Math.min(salary, peso(month.absent_days * daily));
       earned = peso(salary - absence);
-      note = `${salary.toFixed(2)} − ${month.absent_days} absence${month.absent_days === 1 ? "" : "s"} × ${daily.toFixed(2)} (${month.window.start_key} – ${month.window.end_key})`;
+      const span = rangeText(month.window.start_key, month.window.end_key);
+      note = month.absent_days
+        ? `${pesoText(salary)} − ${month.absent_days} absence${month.absent_days === 1 ? "" : "s"} × ${pesoText(daily)} (${span})`
+        : `Full month, no absences (${span})`;
     }
     const firstHalf = peso(month.first_half_paid || 0);
     // The basic this final pay adds: the 1st half paid is already in basicEarnedYtd.
     basicEarned = peso(basicEarned + earned - peso(month.first_half_basic ?? month.first_half_paid ?? 0));
-    earnings.push({ kind: "salary", month_key: month.month_key, amount: peso(earned - firstHalf), gross: earned, note: firstHalf ? `${note}; less 1st half paid ${firstHalf.toFixed(2)}` : note });
+    earnings.push({ kind: "salary", month_key: month.month_key, amount: peso(earned - firstHalf), gross: earned, note: firstHalf ? `${note}; less 1st half paid ${pesoText(firstHalf)}` : note });
 
     if (earned > 0) {
       const c = input.contributions || {};
@@ -145,7 +151,7 @@ export function computeFinalPay(input) {
   let thirteenth = 0;
   if (!input.thirteenthPaid) {
     thirteenth = Math.max(0, peso((Number(input.basicEarnedYtd || 0) + basicEarned) / 12));
-    if (thirteenth > 0) earnings.push({ kind: "thirteenth_month", amount: thirteenth, note: `(${peso(input.basicEarnedYtd || 0).toFixed(2)} + ${basicEarned.toFixed(2)}) ÷ 12` });
+    if (thirteenth > 0) earnings.push({ kind: "thirteenth_month", amount: thirteenth, note: Number(input.basicEarnedYtd) > 0 ? `(${pesoText(input.basicEarnedYtd)} + ${pesoText(basicEarned)}) ÷ 12` : `${pesoText(basicEarned)} ÷ 12` });
   }
 
   // Licensed-teacher subsidy, by the separation rule.
@@ -162,7 +168,7 @@ export function computeFinalPay(input) {
       subsidyForfeited = Math.max(0, peso(earnedSubsidy - taken));
     }
     subsidyExcess = Math.max(0, peso(taken - earnedSubsidy));
-    if (subsidyPayout > 0) earnings.push({ kind: "subsidy", amount: subsidyPayout, note: `Earned ${earnedSubsidy.toFixed(2)} (${s.months_earned} month${s.months_earned === 1 ? "" : "s"}) − advances ${taken.toFixed(2)}` });
+    if (subsidyPayout > 0) earnings.push({ kind: "subsidy", amount: subsidyPayout, note: `Earned ${pesoText(earnedSubsidy)} (${s.months_earned} month${s.months_earned === 1 ? "" : "s"})${taken > 0 ? ` − advances ${pesoText(taken)}` : ""}` });
   }
 
   // 13th month + other-benefit subsidy above the exempt ceiling are taxable.
@@ -205,7 +211,9 @@ export function computeFinalPay(input) {
       room = peso(room - amount);
       if (amount > 0) {
         loanPayments.push({ loan_id: loan.id, kind: "final_pay", amount, amount_due: due });
-        deductions.push({ kind: "loan", loan_id: loan.id, amount, note: `${loan.description || (isAdvance ? "Subsidy advance above what was earned" : "Loan")} — balance ${peso(loan.remaining_balance).toFixed(2)}` });
+        // "Salary loan balance": the loan's own type and description (2026-11-20).
+        deductions.push({ kind: "loan", loan_id: loan.id, amount, label: `${LOAN_TYPE_LABELS[loan.loan_type] || "Loan"} balance`,
+          note: `${loan.description || (isAdvance ? "Subsidy advance above what was earned" : "Loan")} · balance ${pesoText(loan.remaining_balance)}` });
       }
       if (amount < due) uncovered.push({ loan_id: loan.id, amount: peso(due - amount), reason: "Final pay too low" });
     });

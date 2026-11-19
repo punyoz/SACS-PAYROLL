@@ -16,6 +16,7 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
 import { cn } from "@/lib/utils";
+import { lineLabel } from "@/lib/payroll/final-pay-text";
 import { DotLoader } from "@/components/galaxy/dot-loader";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,10 +55,10 @@ export function FinalPayBreakdown({ b, leaveConversion = null }) {
           <TableHeader><TableRow><TableHead>Item</TableHead><TableHead>How</TableHead><TableHead className="text-right">Amount</TableHead></TableRow></TableHeader>
           <TableBody>
             {b.earnings.filter((e) => e.kind !== "leave_conversion").map((e, i) => (
-              <TableRow key={`e${i}`}><TableCell>+ {LABELS[e.kind] || e.kind}{e.month_key ? ` (${e.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{e.note}</TableCell><TableCell className="text-right tabular-nums">{money(e.amount)}</TableCell></TableRow>
+              <TableRow key={`e${i}`}><TableCell>+ {lineLabel(LABELS[e.kind] || e.kind, e.month_key)}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{e.note}</TableCell><TableCell className="text-right tabular-nums">{money(e.amount)}</TableCell></TableRow>
             ))}
             {b.deductions.map((d, i) => (
-              <TableRow key={`d${i}`}><TableCell>{d.credit ? "+" : "−"} {d.label || LABELS[d.kind] || d.kind}{d.month_key ? ` (${d.month_key})` : ""}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{d.note || ""}</TableCell><TableCell className="text-right tabular-nums">{d.credit ? money(d.amount) : negative(d.amount)}</TableCell></TableRow>
+              <TableRow key={`d${i}`}><TableCell>{d.credit ? "+" : "−"} {lineLabel(d.label || LABELS[d.kind] || d.kind, d.month_key)}</TableCell><TableCell className="max-w-md text-xs whitespace-normal text-muted-foreground">{d.note || ""}</TableCell><TableCell className="text-right tabular-nums">{d.credit ? money(d.amount) : negative(d.amount)}</TableCell></TableRow>
             ))}
             {/* Its own line, never mixed in: off until the school confirms its rule. */}
             {leaveConversion ? (

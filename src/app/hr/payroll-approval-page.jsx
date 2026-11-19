@@ -28,12 +28,12 @@ import { dateLabel, dateTime, money, shortDate } from "@/lib/portal/payroll-prev
 import { FLAG_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES, runNoLabel } from "@/lib/payroll/runs";
 import { CorrectionsCard } from "@/components/portal/payroll-corrections";
 import { FinalPayApprovalsPage } from "./final-pay-approvals-page";
+import { FilterTabs } from "@/components/portal/filter-tabs";
 import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exclusions";
 import { cn } from "@/lib/utils";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { FIRST_HALF_NOTE } from "@/lib/payroll/line-tags";
 import { TestingModeBanner } from "@/components/portal/testing-mode-banner";
-import { FilterTabs } from "@/components/portal/filter-tabs";
 import { TableToolbar } from "@/components/portal/table-toolbar";
 import { ExportButtons } from "@/components/portal/export-buttons";
 import { printPdf } from "@/lib/portal/print-pdf";
@@ -501,7 +501,27 @@ function RunDetail({ runId, onBack, onChanged }) {
 
 /* ── The list ───────────────────────────────────────────────────────────── */
 
-export function PayrollApprovalPage({ refreshKey, onChanged }) {
+/**
+ * HR's one approvals page (2026-11-20): "Payroll runs" (everything that was
+ * here before, unchanged) and "Final pay", each with the count waiting. The
+ * open tab stays in the address (pa_section), so the old Final Pay Approvals
+ * link and the dashboard open the Final pay tab.
+ */
+export function PayrollApprovalPage({ refreshKey, onChanged, counts = {} }) {
+  const [section, setSection] = useUrlParam("pa_section", "runs");
+  const current = section === "final-pay" ? "final-pay" : "runs";
+  return (
+    <div className="flex flex-col gap-4">
+      <FilterTabs value={current} onValueChange={setSection} label="What to approve"
+        options={[{ value: "runs", label: "Payroll runs", count: counts.runs ?? 0 }, { value: "final-pay", label: "Final pay", count: counts.finalPay ?? 0 }]} />
+      {current === "final-pay"
+        ? <FinalPayApprovalsPage refreshKey={refreshKey} onChanged={onChanged} />
+        : <div className="flex flex-col gap-4"><PayrollRunsApproval refreshKey={refreshKey} onChanged={onChanged} /></div>}
+    </div>
+  );
+}
+
+function PayrollRunsApproval({ refreshKey, onChanged }) {
   // The tab and the open run stay in the address: a refresh mid-review
   // reopens the same run (useUrlParam).
   const [tabParam, setTab] = useUrlParam("pa_tab", "pending");
@@ -681,8 +701,6 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
         description="Left out of a submitted run by the Accountant and not paid for that period yet. The Accountant processes them and submits a supplemental run for you to approve." />
       {/* Corrections to approved payslips: HR approves or rejects them. */}
       <CorrectionsCard refreshKey={refreshKey} />
-      {/* Final pay waiting for HR (20261120010000); the history is on Final Pay Approvals. */}
-      <FinalPayApprovalsPage refreshKey={refreshKey} compact />
     </>
   );
 }
