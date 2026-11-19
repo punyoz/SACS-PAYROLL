@@ -439,7 +439,7 @@ export function BirExportsCard({ refreshKey = 0 }) {
       <CardHeader>
         <CardTitle>Generated BIR files</CardTitle>
         <CardDescription>
-          Every BIR Form 2316 and 1604-C alphalist generated, in every branch, kept exactly as generated.
+          The school&apos;s BIR filing records: the 1604-C alphalist and each employee&apos;s Form 2316, from every branch, kept exactly as generated.
         </CardDescription>
         <CardAction className="flex flex-wrap gap-2">
           <Select value={year} onValueChange={setYear}>
