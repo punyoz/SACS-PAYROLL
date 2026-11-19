@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { SEPARATION_REASONS, validateSeparation } from "@/lib/employees/separation-rules";
 import { describeCorrectionError, shapeCorrection } from "@/lib/payroll/corrections";
+import { readPdf } from "./helpers/pdf-read";
 
 describe("EM-08 / HR-03: separation", () => {
   it("needs the last day, a known reason, and grounds for a termination", () => {
@@ -95,9 +96,9 @@ describe("EM-07: a transfer mid-period lists the days per branch on the one pays
     expect(buildPayslipDetails(entry({})).employee.branch_days).toBeNull();
   });
 
-  it("prints them on the PDF", () => {
-    const pdf = Buffer.from(buildPayslipPdf(buildPayslipDetails(entry({ payslip_meta: { branch_name: "North", branch_days: days } })))).toString("latin1");
-    expect(pdf).toContain("Days by branch: Main Campus 6, North 4");
+  it("prints them on the PDF", async () => {
+    const { text } = await readPdf(await buildPayslipPdf(buildPayslipDetails(entry({ payslip_meta: { branch_name: "North", branch_days: days } }))));
+    expect(text).toContain("Days by branch: Main Campus 6, North 4");
   });
 
   it("processing counts each tapped day at the branch it was recorded at, only when more than one", () => {

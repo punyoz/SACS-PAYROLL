@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { writeFileSync } from "node:fs";
 import { resetDb, table, users } from "./helpers/fake-supabase.js";
+import { readPdf } from "./helpers/pdf-read";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -335,7 +336,7 @@ describe("Case 4e: separated Sun Nov 22, 2026 (Final Pay, ₱30,000; 1st half �
 
 describe("Payslip display after the audit fixes (one fake ₱30,000 employee, every role's source)", () => {
   const NOTE = "Government contributions and withholding tax are deducted on the 2nd-half payslip";
-  const pdfText = (buffer) => Buffer.from(buffer).toString("latin1");
+  const pdfText = async (buffer) => (await readPdf(await buffer)).text;
   it("1st half: the one note everywhere, no tax explainer, no ₱0 late line; 2nd half: no note, explainer when tax > 0; numbers unchanged", async () => {
     const id = "display-30000";
     person(id, 30000);
@@ -363,8 +364,8 @@ describe("Payslip display after the audit fixes (one fake ₱30,000 employee, ev
     expect([v2.net, v2.month_total.total]).toEqual([11542.45, 26542.45]);
 
     // Accountant / HR PDF (stored cutoff lines) and the employee PDF (employee_view).
-    const accountantPdf = pdfText(buildPayslipPdf(buildPayslipDetails(first)));
-    const employeePdf = pdfText(buildPayslipPdf({ ...buildPayslipDetails(first), employee_view: v1 }));
+    const accountantPdf = await pdfText(buildPayslipPdf(buildPayslipDetails(first)));
+    const employeePdf = await pdfText(buildPayslipPdf({ ...buildPayslipDetails(first), employee_view: v1 }));
     for (const text of [accountantPdf, employeePdf]) {
       expect(text).toContain("Government contributions"); // the PDF wraps the note onto two lines
       expect(text).not.toMatch(/Late deduction|Tax, SSS, PhilHealth, Pag-IBIG and loans/);

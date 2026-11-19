@@ -24,10 +24,9 @@ function PayslipCard({ payslip }) {
   }
   const m = payslip.monthly || null;
   const view = payslip.line_groups || null;
-  const box = view?.tax_box;
-  const sign = (s) => (s === "-" ? "− " : s === "+" ? "+ " : "");
   // The same payslip every role sees (PayslipDocument), with the employee's own notes.
-  const doc = { ...payslip, pay_period: payslip.period_label, issued_at: payslip.processed_at, status: "final" };
+  // Only Paid payslips reach My Payslips; the tax box and month total are drawn by PayslipDocument.
+  const doc = { ...payslip, pay_period: payslip.period_label, issued_at: payslip.processed_at, status: "final", status_label: "Paid" };
   return (
     <PayslipDocument payslip={doc} netLabel={m && !payslip.final_pay ? (m.half === "first" ? "1st half net pay" : "2nd half net pay") : "Net pay"}>
       <div className="space-y-3" data-testid="payslip-full" data-half={view?.half}>
@@ -36,21 +35,8 @@ function PayslipCard({ payslip }) {
             <span className="font-semibold">Early Bird winner</span> for {payslip.early_bird_winner.period_label || payslip.period_label}: {payslip.early_bird_winner.early_count} early time-in{payslip.early_bird_winner.early_count === 1 ? "" : "s"}, the most of any employee.
           </p>
         ) : null}
-        {box ? (
-          <section className="space-y-1 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2 text-xs" data-testid="tax-box">
-            <p className="font-semibold tracking-wide text-gold-text uppercase">Monthly tax computation</p>
-            {box.rows.map((r) => (
-              <div key={r.label} className="flex items-baseline justify-between gap-3"><span className="min-w-0">{r.label}</span><span className="shrink-0 tabular-nums">{sign(r.sign)}{formatPeso(r.amount)}</span></div>
-            ))}
-            <div className="flex items-baseline justify-between gap-3 border-t border-dashed pt-1 font-semibold"><span>Taxable income</span><span className="tabular-nums">{formatPeso(box.taxable)}</span></div>
-            {box.bracket ? <p className="text-muted-foreground">Bracket: {box.bracket}{box.formula ? <span className="block font-mono text-[11px] break-words">{box.formula}</span> : null}</p> : null}
-            <div className="flex items-baseline justify-between gap-3 font-semibold"><span>Withholding tax</span><span className="tabular-nums">{formatPeso(box.tax)}</span></div>
-            {box.reason ? <p className="text-muted-foreground">{box.reason}</p> : null}
-          </section>
-        ) : null}
         {/* Only on a payslip that deducts withholding tax (audit 2026-11-16). */}
         {view?.tax_deducted > 0 ? <WhyTaxNote /> : null}
-        {view?.month_total ? <p className="text-xs font-medium text-muted-foreground" data-testid="month-total">{view.month_total.label}</p> : null}
       </div>
     </PayslipDocument>
   );

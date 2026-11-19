@@ -22,8 +22,9 @@ const DEFERRED = "2nd half";
 
 const EARNINGS = [["basic", "Basic salary"], ["overtime", "Overtime"], ["holiday", "Holiday pay"]];
 const INCENTIVES = [["perfect", "Perfect attendance"]];
-const DEDUCTIONS = [["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"], ["withholding_tax", "Withholding tax"],
-  ["absent", "Absences"], ["late", "Late"], ["undertime", "Undertime"], ["half_day", "Half day"], ["lwop", "Leave without pay"]];
+// Attendance first, then the government contributions, then the tax (loans follow).
+const DEDUCTIONS = [["absent", "Absences"], ["late", "Late"], ["undertime", "Undertime"], ["half_day", "Half day"], ["lwop", "Leave without pay"],
+  ["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"], ["withholding_tax", "Withholding tax"]];
 
 /** The fixed rows in order (each line with that key in its place, else ₱0), then `after`, then every other line. */
 function withFixed(fixed, lines, { deferred = [], after = [] } = {}) {
@@ -43,7 +44,7 @@ const SHORT_LABEL = { basic: null, overtime: "Overtime", holiday: "Holiday pay",
 /** line_groups: payrollLineGroups() (Accountant / HR) or employeePayslipView() (My Payslips). */
 function fromGroups(g, holidayLines) {
   const lines = (g.groups || []).flatMap((group) => group.lines.map((l) => ({
-    key: l.key, label: SHORT_LABEL[l.key] || l.label, amount: num(l.amount), note: l.how || null, sign: l.sign,
+    key: l.key, label: SHORT_LABEL[l.key] || l.label, amount: num(l.amount), note: l.how || null, formula: l.formula || shortHow(l.how), sign: l.sign,
   })));
   const additions = lines.filter((l) => l.sign === "+" && l.key !== "year_end_refund");
   const refund = lines.filter((l) => l.key === "year_end_refund").map((l) => ({ ...l, credit: true }));
@@ -151,12 +152,34 @@ function fromClassic(p) {
   };
 }
 
-/** @param {object} p a payslip as buildPayslipDetails() or My Payslips returns it (final_pay: the stored breakdown). */
-export function payslipTables(p) {
-  if (!p) return null;
+/**
+ * A line's "how" as the formula alone, for the PDF's Details column: no
+ * "SSS: " name in front, no "= ₱amount" (the Amount column says it).
+ */
+export function shortHow(how) {
+  if (!how) return null;
+  return String(how).replace(/^[A-Za-z-]+:\s+/, "").replace(/\s*=\s*[−-]?₱[\d,.]+\s*$/, "").trim() || null;
+}
+
+/** Shown: a row with an amount, or words that say something (not "0 days" or a deferred "2nd half"). */
+const shown = (r) => (r.text ? r.text !== DEFERRED && !/^0 days?$/.test(r.text) : num(r.amount) !== 0);
+
+function tablesFor(p) {
   if (p.final_pay?.earnings) return fromFinalPay(p.final_pay, p.final_pay_overpayment);
   if (p.line_groups?.groups) return fromGroups(p.line_groups, p.holiday_lines);
   if (p.monthly?.cutoff && Array.isArray(p.monthly.cutoff.earnings)) return fromCutoff(p.monthly.cutoff, p.holiday_lines);
   if (p.monthly) return null;
   return fromClassic(p);
+}
+
+/**
+ * @param {object} p a payslip as buildPayslipDetails() or My Payslips returns it (final_pay: the stored breakdown).
+ * ₱0 rows are left out (2026-11-19): Gross, Total deductions and Net always show.
+ */
+export function payslipTables(p) {
+  if (!p) return null;
+  const t = tablesFor(p);
+  if (!t) return null;
+  const withFormula = (r) => ({ ...r, formula: r.formula ?? shortHow(r.note) });
+  return { ...t, earnings: t.earnings.filter(shown).map(withFormula), incentives: t.incentives.filter(shown).map(withFormula), deductions: t.deductions.filter(shown).map(withFormula) };
 }

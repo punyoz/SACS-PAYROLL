@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, table, users } from "./helpers/fake-supabase.js";
 import { rulesEffectiveFrom } from "@/lib/payroll/statutory";
+import { readPdf } from "./helpers/pdf-read";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -63,13 +64,12 @@ const myPayslips = async (person) => (await (await ME_GET(request(`/api/me/paysl
 const pdfText = async (person, id) => {
   const response = await ME_GET(request(`/api/me/payslips?format=pdf&entry_id=${id}`, asPerson(person)));
   if (response.status !== 200) return { status: response.status, text: "" };
-  // Every text run in order, joined: a label wrapped onto two lines reads as one again.
-  const raw = Buffer.from(await response.arrayBuffer()).toString("latin1");
-  const runs = [...raw.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, "$1"));
-  return { status: response.status, text: runs.join(" ").replace(/\s+/g, " ") };
+  // Every text run in order, joined (tests/helpers/pdf-read.js): a label wrapped onto two lines reads as one again.
+  const { text } = await readPdf(Buffer.from(await response.arrayBuffer()));
+  return { status: response.status, text };
 };
-/** How pdfText() writes a string into the PDF (₱ → "PHP "). */
-const inPdf = (value) => String(value).replace(/[–—−]/g, "-").replace(/₱/g, "PHP ").replace(/\s+/g, " ");
+/** The PDF holds the text as it is (embedded Noto Sans: real ₱ and −); only spacing is normalised. */
+const inPdf = (value) => String(value).replace(/\s+/g, " ");
 const money = (n) => Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 beforeEach(async () => {
@@ -209,8 +209,11 @@ describe("My Payslips: full layout from the stored snapshot, for every role on p
     ];
     expected.forEach((piece) => expect(text, piece).toContain(inPdf(piece)));
     expect(text).not.toContain("?");
-    // A 1st half lists the contributions and tax as "2nd half", no amount.
-    if (label === FIRST) expect(t.deductions.filter((r) => ["sss", "philhealth", "pagibig", "withholding_tax"].includes(r.key)).every((r) => r.text === "2nd half")).toBe(true);
+    // A 1st half has no contribution or tax rows (2026-11-19): the note says it once.
+    if (label === FIRST) {
+      expect(t.deductions.filter((r) => ["sss", "philhealth", "pagibig", "withholding_tax"].includes(r.key))).toEqual([]);
+      expect(t.notes.filter((n) => /2nd-half payslip/.test(n))).toHaveLength(1);
+    }
   });
 });
 

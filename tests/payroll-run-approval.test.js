@@ -16,6 +16,7 @@ import {
 } from "@/lib/payroll/runs";
 import { buildXlsx, crc32 } from "@/lib/export/xlsx";
 import { buildTablePdf } from "@/lib/export/table-pdf";
+import { readPdf } from "./helpers/pdf-read";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -72,23 +73,22 @@ describe("exports", () => {
     expect(parts["xl/worksheets/sheet1.xml"]).toContain("<v>1234.5</v>");
   });
 
-  it("writes a multi-page PDF for a long run", () => {
-    const pdf = buildTablePdf({ title: "Payroll", columns: [{ header: "Employee", width: 200 }, { header: "Net", width: 80, align: "right" }], rows: Array.from({ length: 120 }, (_, i) => [`Employee ${i}`, "1,000.00"]) });
-    const text = pdf.toString("latin1");
-    expect(text.startsWith("%PDF-1.4")).toBe(true);
-    expect((text.match(/\/Type \/Page /g) || []).length).toBeGreaterThan(2);
+  it("writes a multi-page PDF for a long run", async () => {
+    const pdf = Buffer.from(await buildTablePdf({ title: "Payroll", columns: [{ header: "Employee", width: 200 }, { header: "Net", width: 80, align: "right" }], rows: Array.from({ length: 120 }, (_, i) => [`Employee ${i}`, "1,000.00"]) }));
+    expect(pdf.toString("latin1").startsWith("%PDF-")).toBe(true);
+    expect((await readPdf(pdf)).pages.length).toBeGreaterThan(2);
   });
 
-  it("lays a narrow table out portrait and a wide one landscape, without cutting text short", () => {
-    const narrow = buildTablePdf({ title: "Report", columns: [{ header: "Employee" }, { header: "Rate", align: "right" }], rows: [["Jane Marinel Dela Pena Benitez", "96%"]] }).toString("latin1");
-    expect(narrow).toContain("/MediaBox [0 0 595 842]");
+  it("lays a narrow table out portrait and a wide one landscape, without cutting text short", async () => {
+    const narrow = await readPdf(await buildTablePdf({ title: "Report", columns: [{ header: "Employee" }, { header: "Rate", align: "right" }], rows: [["Jane Marinel Dela Pena Benitez", "96%"]] }));
+    expect([narrow.pages[0].width, narrow.pages[0].height].map(Math.round)).toEqual([595, 842]);
     const headers = ["Employee", "ID", "Level", "Schedule", "Days worked", "Gross pay", "Attendance ded.", "W/tax", "SSS", "PhilHealth", "Pag-IBIG", "Loans", "Other ded.", "Early Bird", "Net pay", "Attention"];
     const row = ["Jane Marinel Dela Pena Benitez", "SACS-ACCT-001", "Senior High School", "Default schedule", "0", ...Array(10).fill("10,000.00"), "Net pay below zero (paid PHP 0); No days worked"];
-    const wide = buildTablePdf({ title: "Payroll", columns: headers.map((header, i) => ({ header, align: i >= 4 && i <= 14 ? "right" : undefined })), rows: [row, { bold: true, cells: ["TOTAL", "", "", "", "", ...Array(10).fill("1,234,567.89"), ""] }] }).toString("latin1");
-    expect(wide).toContain("/MediaBox [0 0 842 595]");
-    expect(wide).not.toContain("...");
-    expect(wide).toContain("(SACS-ACCT-001)");
-    expect(wide).toContain("(1,234,567.89)");
+    const wide = await readPdf(await buildTablePdf({ title: "Payroll", columns: headers.map((header, i) => ({ header, align: i >= 4 && i <= 14 ? "right" : undefined })), rows: [row, { bold: true, cells: ["TOTAL", "", "", "", "", ...Array(10).fill("1,234,567.89"), ""] }] }));
+    expect([wide.pages[0].width, wide.pages[0].height].map(Math.round)).toEqual([842, 595]);
+    expect(wide.text).not.toContain("...");
+    expect(wide.text).toContain("SACS-ACCT-001");
+    expect(wide.text).toContain("1,234,567.89");
   });
 });
 

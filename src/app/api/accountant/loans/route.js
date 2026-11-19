@@ -155,7 +155,7 @@ export async function GET(request) {
       const status = normalizeText(url.searchParams.get("status"), "all");
       const demo = await loadDemoIds(supabase);
       const chosen = loans.filter(notDemo(demo)).filter((loan) => loanMatchesStatus(loan, status));
-      return reportResponse({
+      return await reportResponse({
         format: url.searchParams.get("format"),
         fileName: `loans-${status}`,
         title: `Loans: ${LOAN_STATUS_LABELS[status] || "All"}`,

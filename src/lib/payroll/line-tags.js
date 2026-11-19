@@ -165,6 +165,13 @@ function taxHow(explain) {
   return `${base}${pct(b.rate_pct)} of the excess over ${pesoShort(b.over)} (bracket ${explain.range}) = ${pesoText(explain.tax)}; ${pct(explain.effective_pct)} of taxable income`;
 }
 
+/** The tax line's formula only, for the payslip PDF: "15% of excess over ₱20,833" (the rest is in the tax box). */
+function taxFormula(explain) {
+  const b = explain.bracket;
+  if (explain.deferred || explain.reason || !b) return null;
+  return `${b.base > 0 ? `${pesoShort(b.base)} + ` : ""}${pct(b.rate_pct)} of excess over ${pesoShort(b.over)}`;
+}
+
 /* ── Contributions ───────────────────────────────────────────────────────── */
 
 function contributionHow(name, amount, basis, source) {
@@ -179,12 +186,16 @@ function contributionHow(name, amount, basis, source) {
     basic: "monthly basic salary",
     "fund salary cap": `capped at the ${base} fund salary`,
   }[basis.base_label] || basis.base_label || "base";
-  if (name === "SSS" && basis.at_ceiling) return { tag: "percentage", how: `SSS: ${pct(basis.pct)} of ${base} (monthly salary credit, the SSS ceiling) = ${pesoText(amount)}` };
-  if (name === "SSS" && basis.at_floor) return { tag: "percentage", how: `SSS: ${pct(basis.pct)} of ${base} (monthly salary credit, the SSS minimum) = ${pesoText(amount)}` };
+  // The payslip PDF's Details column: the formula only ("5% × ₱29,500").
+  const short = `${pct(basis.pct)} × ${pesoShort(basis.base)}`;
+  const mark = { floor: " (floor)", ceiling: " (ceiling)", "fund salary cap": " (cap)" }[basis.base_label] || (basis.at_ceiling ? " (ceiling)" : basis.at_floor ? " (minimum)" : "");
+  const formula = `${short}${mark}`;
+  if (name === "SSS" && basis.at_ceiling) return { tag: "percentage", formula, how: `SSS: ${pct(basis.pct)} of ${base} (monthly salary credit, the SSS ceiling) = ${pesoText(amount)}` };
+  if (name === "SSS" && basis.at_floor) return { tag: "percentage", formula, how: `SSS: ${pct(basis.pct)} of ${base} (monthly salary credit, the SSS minimum) = ${pesoText(amount)}` };
   if (name === "Pag-IBIG" && basis.base_label === "fund salary cap") {
-    return { tag: "percentage", how: `Pag-IBIG: ${pct(basis.pct)} of ${base}, capped at ${pesoText(peso(basis.base * basis.pct / 100))} = ${pesoText(amount)}` };
+    return { tag: "percentage", formula, how: `Pag-IBIG: ${pct(basis.pct)} of ${base}, capped at ${pesoText(peso(basis.base * basis.pct / 100))} = ${pesoText(amount)}` };
   }
-  return { tag: "percentage", how: `${name}: ${pct(basis.pct)} of ${base} (${words}) = ${pesoText(amount)}` };
+  return { tag: "percentage", formula, how: `${name}: ${pct(basis.pct)} of ${base} (${words}) = ${pesoText(amount)}` };
 }
 
 /* ── The builder ─────────────────────────────────────────────────────────── */
@@ -205,7 +216,7 @@ export function buildLineGroups(input) {
 
   const additions = [];
   if (a.basic && num(a.basic.amount) > 0) {
-    additions.push(line("basic", a.basic.label || "Basic pay", a.basic.amount, "+", "fixed", a.basic.how || `${pesoText(a.basic.amount)}`));
+    additions.push(line("basic", a.basic.label || "Basic pay", a.basic.amount, "+", "fixed", a.basic.how || `${pesoText(a.basic.amount)}`, a.basic.formula ? { formula: a.basic.formula } : {}));
   }
   if (num(a.overtime?.amount) > 0) {
     const o = a.overtime;
@@ -237,15 +248,15 @@ export function buildLineGroups(input) {
     [["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"]].forEach(([key, name]) => {
       const amount = num(c[key]);
       if (!(amount > 0)) return;
-      const { tag, how } = contributionHow(name, amount, c.basis?.[key], c.source?.[key]);
-      contributions.push(line(key, name, amount, "-", tag, how));
+      const { tag, how, formula } = contributionHow(name, amount, c.basis?.[key], c.source?.[key]);
+      contributions.push(line(key, name, amount, "-", tag, how, formula ? { formula } : {}));
     });
   }
 
   const taxInfo = taxExplanation({ taxable: input.taxable?.amount, tax: input.tax?.amount, bracket: input.tax?.bracket, table: input.tax?.table, deferred, period: input.tax?.period || "monthly" });
   const taxLines = [];
   if (!deferred && input.tax) {
-    taxLines.push(line("withholding_tax", "Withholding tax", input.tax.amount, num(input.tax.amount) > 0 ? "-" : "0", "bracket", taxHow(taxInfo), { explanation: taxInfo }));
+    taxLines.push(line("withholding_tax", "Withholding tax", input.tax.amount, num(input.tax.amount) > 0 ? "-" : "0", "bracket", taxHow(taxInfo), { explanation: taxInfo, ...(taxFormula(taxInfo) ? { formula: taxFormula(taxInfo) } : {}) }));
   }
   if (num(input.year_end_tax) > 0) taxLines.push(line("year_end_tax", "Year-end tax adjustment (under-withheld)", input.year_end_tax, "-", "fixed", "Annual tax due less the tax already withheld this year"));
 
@@ -378,6 +389,7 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
         how: m.monthly_salary && /÷ 2/.test(basicLine.note || "")
           ? `Monthly salary ${pesoText(m.monthly_salary)} ÷ 2 = ${pesoText(basicLine.amount)}`
           : `${basicLine.note || "Basic pay"} = ${pesoText(basicLine.amount)}`,
+        ...(m.monthly_salary && /÷ 2/.test(basicLine.note || "") ? { formula: `${pesoShort(m.monthly_salary)} ÷ 2` } : {}),
       } : null,
       overtime: {
         amount: t.overtime_pay,

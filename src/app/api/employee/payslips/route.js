@@ -10,8 +10,8 @@ import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
-import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
+import { buildPayslipDetails, formatManilaDate, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { formatIssued } from "@/lib/portal/format";
 
@@ -68,6 +68,8 @@ function mapEntryToPayslip(row, taxRows = []) {
     period_label: periodLabel,
     // Issued = the day HR approved the run (the payslip became Paid).
     processed_at: row.approved_at || row.submitted_at || row.created_at,
+    // The same date, as the payslip prints it ("Nov 19, 2026").
+    pay_date_label: formatManilaDate(row.approved_at || row.submitted_at || row.created_at),
     gross_pay: grossPay,
     total_deductions: totalDeductions,
     net_pay: netPay,
@@ -302,9 +304,10 @@ export async function GET(request) {
       const taxRows = await loadTaxBracketRows(supabase);
       // The same lines, net and Issued date as My Payslips shows (mapEntryToPayslip).
       const shown = mapEntryToPayslip(entry, taxRows);
-      const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, pay_date_label: formatIssued(shown.processed_at), net_pay: shown.net_pay };
-      const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
-      const fileName = `payslip-${String(entry.payslip_no || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
+      // Only released (Paid) payslips reach here: paid on the day HR approved the run.
+      const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, status_label: "Paid", pay_date_label: formatManilaDate(shown.processed_at), net_pay: shown.net_pay };
+      const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
+      const fileName = payslipFileName(entry);
       return new NextResponse(pdf, {
         status: 200,
         headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileName}"`, "Cache-Control": "no-store" },

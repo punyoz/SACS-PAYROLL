@@ -79,7 +79,8 @@ export async function GET(request) {
         ...report.rows.map((row) => [row.employee_name, row.employee_code, row.branch_name, row.status, ...REMITTANCE_COLUMNS.map(([key]) => row[key].toFixed(2)), row.employer_recorded ? "Yes" : "No — check by hand"]),
         ["TOTAL", "", "", "", ...REMITTANCE_COLUMNS.map(([key]) => report.totals[key].toFixed(2)), ""],
       ];
-      return new NextResponse(`${lines.map((line) => line.map(csvCell).join(",")).join("\n")}\n`, {
+      // UTF-8 with a BOM, so Excel opens ñ as it is.
+      return new NextResponse(`﻿${lines.map((line) => line.map(csvCell).join(",")).join("\n")}\n`, {
         status: 200,
         headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="remittance-${month}.csv"`, "Cache-Control": "no-store" },
       });
