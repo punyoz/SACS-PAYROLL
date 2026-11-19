@@ -13,6 +13,8 @@ import { HistorySelect, historyLabel, useAccountant } from "./accountant-data";
 import { CorrectionDialog, CorrectionsCard, NeedsCorrectionBadge, correctionPrefill } from "@/components/portal/payroll-corrections";
 import { printPdf } from "@/lib/portal/print-pdf";
 import { ExportButtons } from "@/components/portal/export-buttons";
+import { tableParams } from "@/lib/export/table-query";
+import { RECORD_SORTS } from "@/lib/payroll/records-table";
 
 /* Payroll Records (renderRecordsPanels / renderPayrollRecordsTable, accountant.js). */
 
@@ -43,15 +45,16 @@ export function RecordsPage() {
   }, [finals]);
 
   const columns = [
-    { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => r.employee_name },
-    { key: "pay_period", header: "Period", sortable: true, searchValue: (r) => r.pay_period },
-    { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.gross_pay || 0), cell: (r) => moneyCompact(r.gross_pay) },
-    { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: (r) => Number(r.total_deductions || 0), cell: (r) => moneyCompact(r.total_deductions) },
-    { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: (r) => Number(r.net_pay || 0), cell: (r) => moneyCompact(r.net_pay) },
+    // Search and sort shared with the export (src/lib/payroll/records-table.js).
+    { key: "employee_name", header: "Employee", sortValue: RECORD_SORTS.employee_name.value, className: "font-medium", searchValue: (r) => r.employee_name },
+    { key: "pay_period", header: "Period", sortValue: RECORD_SORTS.pay_period.value, searchValue: (r) => r.pay_period },
+    { key: "gross_pay", header: "Gross pay", align: "right", className: "tabular-nums", sortValue: RECORD_SORTS.gross_pay.value, cell: (r) => moneyCompact(r.gross_pay) },
+    { key: "total_deductions", header: "Deductions", align: "right", className: "tabular-nums", sortValue: RECORD_SORTS.total_deductions.value, cell: (r) => moneyCompact(r.total_deductions) },
+    { key: "net_pay", header: "Net pay", align: "right", className: "tabular-nums font-medium", sortValue: RECORD_SORTS.net_pay.value, cell: (r) => moneyCompact(r.net_pay) },
     {
       key: "status",
       header: "Status",
-      sortValue: (r) => recordStatusMeta(r).label,
+      sortValue: RECORD_SORTS.status.value,
       cell: (r) => {
         const s = recordStatusMeta(r);
         return (
@@ -92,13 +95,13 @@ export function RecordsPage() {
       <Card className="min-w-0 shadow-xs">
         <CardContent>
           <DataTable
-            toolbar={(
+            toolbar={(shown, table) => (
               <>
                 <HistorySelect />
                 {/* Excel / PDF of the records shown; Print prints that PDF, not the page (alpha test B4). */}
-                <ExportButtons href={`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}`} label="payroll records" disabled={!finals.length} />
-                <Button variant="outline" size="sm" disabled={!finals.length} title={finals.length ? undefined : "No processed payroll records to print yet."}
-                  onClick={() => printPdf(`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}&format=pdf`).catch(() => {})}>
+                <ExportButtons href={`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}`} params={tableParams(table)} label="payroll records" disabled={!shown.length} />
+                <Button variant="outline" size="sm" disabled={!shown.length} title={shown.length ? undefined : "No payroll records to print."}
+                  onClick={() => printPdf(`/api/accountant/payroll?view=records&history=${encodeURIComponent(history)}&format=pdf&${new URLSearchParams(tableParams(table))}`).catch(() => {})}>
                   <PrinterIcon aria-hidden="true" />Print
                 </Button>
               </>

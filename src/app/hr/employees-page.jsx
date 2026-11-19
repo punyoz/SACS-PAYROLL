@@ -143,12 +143,13 @@ export function EmployeesPage({ refreshKey }) {
     },
   ], [branchName, licenses]);
 
-  // The list as shown (tab and branch filter), for a master list or a
+  // The list as shown (tab, branch filter and the search box, 2026-11-19), for a master list or a
   // report (scenario SC-13). Government IDs are left out (data privacy).
+  const [shownRows, setShownRows] = React.useState(null);
   function exportList() {
     downloadCsv(`sacs-employees-${new Date().toISOString().slice(0, 10)}.csv`,
       ["Employee ID", "Name", "Email", "Branch", "Type", "Position", "Status", "Date hired", "Contact number"],
-      rows.map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "", e.position || "",
+      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "", e.position || "",
         e.archived ? "Archived" : e.employee_status || "Active", e.date_hired || "", e.cp_number || ""]));
   }
 
@@ -159,7 +160,7 @@ export function EmployeesPage({ refreshKey }) {
           <CardTitle>Staff list</CardTitle>
           <CardDescription>HR, Accountant and Employee accounts in every branch.</CardDescription>
           <CardAction className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={exportList} disabled={!rows.length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
+            <Button variant="outline" onClick={exportList} disabled={!(shownRows || rows).length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
             <Button variant="outline" onClick={() => setImporting(true)}><FileUpIcon aria-hidden="true" />Import CSV</Button>
             <Button variant="outline" onClick={() => setOffboarding(true)}><UserMinusIcon aria-hidden="true" />Offboard many</Button>
             <Button onClick={() => setDialog({ mode: "add" })}><PlusIcon aria-hidden="true" />Add employee</Button>
@@ -187,6 +188,7 @@ export function EmployeesPage({ refreshKey }) {
             )}
             columns={columns}
             rows={rows}
+            onRowsShown={setShownRows}
             loading={state.loading}
             error={state.error}
             onRetry={load}

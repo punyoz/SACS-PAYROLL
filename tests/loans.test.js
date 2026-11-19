@@ -307,3 +307,122 @@ describe("Loans API", () => {
     expect(table("payroll_loan_payments")).toHaveLength(0);
   });
 });
+
+/* ── 2026-11-19: the export is the table; pending loans; who can be suspended ── */
+
+/** The worksheets of an .xlsx (a ZIP of XML parts). */
+async function sheetOf(response) {
+  const { inflateRawSync } = await import("node:zlib");
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const files = {};
+  let at = 0;
+  while (buffer.readUInt32LE(at) === 0x04034b50) {
+    const size = buffer.readUInt32LE(at + 18);
+    const nameLength = buffer.readUInt16LE(at + 26);
+    const extra = buffer.readUInt16LE(at + 28);
+    const name = buffer.slice(at + 30, at + 30 + nameLength).toString("utf8");
+    const start = at + 30 + nameLength + extra;
+    files[name] = inflateRawSync(buffer.slice(start, start + size)).toString("utf8");
+    at = start + size;
+  }
+  const xml = files["xl/worksheets/sheet1.xml"];
+  // Each cell in its column (Excel leaves empty cells out); rowNo: the sheet row of each.
+  const parsed = [...xml.matchAll(/<row r="(\d+)">(.*?)<\/row>/g)].map((m) => {
+    const cells = [];
+    for (const c of m[2].matchAll(/<c r="([A-Z]+)\d+"[^>]*>(?:<is><t[^>]*>(.*?)<\/t><\/is>|<f>(.*?)<\/f>(?:<v>(.*?)<\/v>)?|<v>(.*?)<\/v>)<\/c>/g)) {
+      cells[c[1].charCodeAt(0) - 65] = c[2] ?? (c[3] ? `=${c[3]}` : c[5]);
+    }
+    return { rowNo: Number(m[1]), cells };
+  });
+  return { xml, rows: parsed.map((r) => r.cells), rowNos: parsed.map((r) => r.rowNo) };
+}
+
+describe("Loans export = the Loans table (2026-11-19)", () => {
+  const exportLoans = (query) => loansApi.GET(request("/api/accountant/loans", "GET", null, who.accountant, `?format=xlsx&${query}`));
+  const screen = async () => (await (await loansApi.GET(request("/api/accountant/loans", "GET", null, who.accountant))).json()).loans;
+  const seedThree = () => {
+    seedLoan({ approval_status: "approved", decided_by_name: "Demo HR One", decided_at: "2026-11-15T02:00:00Z", decision_note: "Approved." });
+    table("payroll_loans").push(
+      { id: "loan-pend", employee_id: NATE, branch_id: BRANCH, loan_type: "salary_loan", description: "Tuition", date_granted: "2026-11-19", principal: 1000, interest_pct: 0, total_payable: 1000, amortization: 166.67, number_of_payrolls: 6, start_period: "2026-11-16", remaining_balance: 1000, status: "active", approval_status: "pending", created_at: "2026-11-19T00:00:00Z" },
+      { id: "loan-rej", employee_id: NATE, branch_id: BRANCH, loan_type: "emergency_loan", description: "Emergency", date_granted: "2026-11-15", principal: 4000, interest_pct: 0, total_payable: 4000, amortization: 2000, number_of_payrolls: 2, start_period: "2026-11-16", remaining_balance: 4000, status: "active", approval_status: "rejected", decided_by_name: "Demo HR One", decision_note: "Not within this year's limit.", created_at: "2026-11-15T00:00:00Z" },
+    );
+  };
+
+  it("Status All, no search: every row the table lists, the table's columns, readable filters, totals", async () => {
+    seedThree();
+    const { rows, rowNos, xml } = await sheetOf(await exportLoans("status=all"));
+    expect(xml).toContain("Branch: Main · As of Nov 2, 2026");
+    expect(xml).toContain("Filters: Status: All · Search: none · Sorted by: Given (newest first)");
+    expect(xml).toContain("3 records");
+    expect(xml).not.toMatch(/S: t|Own branch/);
+    const header = rows.find((r) => r[0] === "Employee");
+    expect(header).toEqual(["Employee", "Employee ID", "Type", "Description", "Given", "Total payable", "Per 16–end payslip", "Deducted from", "Repaid", "Balance", "Status", "HR decision"]);
+    const body = rows.slice(rows.indexOf(header) + 1);
+    const listed = await screen();
+    expect(body).toHaveLength(listed.length + 1); // + the totals row
+    // The list's own order (newest given first), the same loans.
+    expect(body.slice(0, 3).map((r) => r[3])).toEqual(["Tuition", "Emergency", "Salary loan"]);
+    expect(body[2][11]).toBe("Approved by Demo HR One · Nov 15, 2026"); // "Approved." is not repeated
+    expect(body[1][11]).toBe("Rejected by Demo HR One: Not within this year's limit.");
+    // Totals: Total payable, Repaid, Balance as formulas; never the per-payslip amount.
+    const totals = body.at(-1);
+    const first = rowNos[rows.indexOf(header) + 1];
+    expect(totals[0]).toBe("TOTAL");
+    expect(totals[5]).toBe(`=SUM(F${first}:F${first + 2})`);
+    expect(totals[6]).toBeUndefined();
+    expect(totals[9]).toBe(`=SUM(J${first}:J${first + 2})`);
+    // Money is a number with the ₱ format; Given is a real date.
+    expect(xml).toContain(`<c r="F${first}" s="4"><v>1000</v></c>`);
+    expect(xml).toContain(`<c r="E${first}" s="5"><v>46345</v></c>`); // Nov 19, 2026
+  });
+
+  it("a search and a status: the same rows as the filtered table, in its sort, said in words", async () => {
+    seedThree();
+    users.push({ id: "u-bea", email: "bea@sacs.test", user_metadata: { role: "employee", full_name: "Bea Cruz", employee_id: "SACS-002", branch_id: BRANCH } });
+    table("profiles").push({ id: "u-bea", full_name: "Bea Cruz", email: "bea@sacs.test", branch_id: BRANCH, role: "employee", employee_type: "Teaching" });
+    table("payroll_loans").push({ id: "loan-bea", employee_id: "u-bea", branch_id: BRANCH, loan_type: "salary_loan", description: "Books", date_granted: "2026-10-01", principal: 3000, interest_pct: 0, total_payable: 3000, amortization: 500, number_of_payrolls: 6, start_period: "2026-10-16", remaining_balance: 2500, status: "active", approval_status: "approved", created_at: "2026-10-01T00:00:00Z" });
+    const { rows, xml } = await sheetOf(await exportLoans("status=open&q=nate&sort=balance:desc"));
+    expect(xml).toContain("Filters: Status: Open · Search: nate · Sorted by: Balance (highest first)");
+    const header = rows.find((r) => r[0] === "Employee");
+    const body = rows.slice(rows.indexOf(header) + 1, -1);
+    expect(body.map((r) => r[0])).toEqual(["Angelica Nate", "Angelica Nate"]); // Bea is not "nate"; the rejected loan is not Open
+    expect(body.map((r) => Number(r[9]))).toEqual([12600, 1000]);
+  });
+
+  it("more rows than one page: every matching loan is in the file", async () => {
+    for (let i = 0; i < 27; i += 1) {
+      table("payroll_loans").push({ id: `loan-${i}`, employee_id: NATE, branch_id: BRANCH, loan_type: "salary_loan", description: `Loan ${i}`, date_granted: "2026-10-01", principal: 100, interest_pct: 0, total_payable: 100, amortization: 50, number_of_payrolls: 2, start_period: "2026-10-16", remaining_balance: 100, status: "active", approval_status: "approved", created_at: "2026-10-01T00:00:00Z" });
+    }
+    const { xml } = await sheetOf(await exportLoans("status=all"));
+    expect(xml).toContain("27 records");
+    for (let i = 0; i < 27; i += 1) expect(xml).toContain(`>Loan ${i}<`);
+  });
+
+  it("an empty export says why", async () => {
+    seedThree();
+    const { xml } = await sheetOf(await exportLoans("status=paid"));
+    expect(xml).toContain("No loans match: Status = Paid.");
+    expect(xml).toContain("0 records");
+  });
+
+  it("a pending loan is never deducted until HR approves it", async () => {
+    seedLoan({ approval_status: "pending" });
+    expect((await process2nd()).status).toBe(200);
+    expect(table("payroll_loan_payments")).toHaveLength(0);
+    expect(table("payroll_deductions").some((l) => l.employee_id === NATE && l.type === "loan")).toBe(false);
+    expect(table("payroll_loans")[0].remaining_balance).toBe(12600);
+  });
+
+  it("only an approved, active loan can be suspended; rejected, pending and paid ones are refused", async () => {
+    const { loanCanSuspend, loanCanResume } = await import("@/lib/payroll/loan-status");
+    const patch = (id) => loansApi.PATCH(request("/api/accountant/loans", "PATCH", { loan_id: id, action: "set_status", status: "suspended", reason: "Teacher on approved leave" }));
+    seedThree();
+    expect((await patch("loan-rej")).status).toBe(409);
+    expect((await patch("loan-pend")).status).toBe(409);
+    expect(table("payroll_loans").find((l) => l.id === "loan-rej").status).toBe("active");
+    expect(loanCanSuspend(table("payroll_loans").find((l) => l.id === "loan-rej"))).toBe(false);
+    expect(loanCanSuspend({ status: "paid", approval_status: "approved", loan_type: "salary_loan" })).toBe(false);
+    expect((await patch("loan-nate")).status).toBe(200);
+    expect(loanCanResume(table("payroll_loans").find((l) => l.id === "loan-nate"))).toBe(true);
+  });
+});

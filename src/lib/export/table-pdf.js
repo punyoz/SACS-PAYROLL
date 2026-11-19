@@ -49,7 +49,7 @@ function fitColumns(columns, rows, room, size) {
   return plans.map((p) => p.need - (p.need - p.min) * (short / slack));
 }
 
-export function buildTablePdf({ title, subtitle = "", summary = [], columns = [], rows = [], footer = "", orientation }) {
+export function buildTablePdf({ title, subtitle = "", summary = [], columns = [], rows = [], footer = "", orientation, emptyText = "" }) {
   const body = rows.map((row) => (Array.isArray(row) ? { cells: row } : row)).map((row) => ({ ...row, cells: row.cells.map((v) => String(v ?? "")) }));
   const tries = (orientation ? [orientation] : ["portrait", "landscape"]).flatMap((o) => SIZES.map((size) => ({ o, size })));
   let plan = null;
@@ -73,6 +73,7 @@ export function buildTablePdf({ title, subtitle = "", summary = [], columns = []
     summary,
     columns: columns.map((column, i) => ({ header: column.header, align: column.align, width: plan.widths[i] })),
     rows: body,
+    emptyText: body.length ? "" : emptyText,
     footer,
   });
 }

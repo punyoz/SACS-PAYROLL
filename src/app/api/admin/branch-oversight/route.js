@@ -51,7 +51,8 @@ import { hrAccountIds, loadBranchStaff, notify, superAdminIds } from "@/lib/bran
 import { INCENTIVE_MAX, pesoLimit } from "@/lib/input-limits";
 import { textLimitError } from "@/lib/input-limits";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
-import { loadDemoIds, notDemo } from "@/lib/demo";
+import { tableQuery } from "@/lib/export/table-query";
+import { REQUEST_SORTS, requestEmployee, requestSearchFields } from "@/lib/admin/request-table";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The remark for HR"] };
@@ -445,17 +446,18 @@ export async function GET(request) {
     // Exports (alpha test B2): Excel or PDF, the Admin's own branch only.
     const fileFormat = wantsFile(url);
     const branchLabel = async () => (await supabase.from("branches").select("name").eq("id", branchId).maybeSingle()).data?.name || "Branch";
-    // Demo people never reach an export (is_demo, 2026-11-08).
-    const demoIds = fileFormat ? await loadDemoIds(supabase) : null;
+    // An export lists what the screen lists, demo people included (2026-11-19; they were left out since 2026-11-08).
     if (view === "attendance") {
       const data = await attendanceView(supabase, branchId, staff, url);
       if (!fileFormat) return NextResponse.json(data);
       return await reportResponse({
         format: fileFormat, fileName: `branch-attendance-${data.from}-to-${data.to}`,
         title: "Branch attendance", branch: await branchLabel(), period: `${formatDateKey(data.from)} to ${formatDateKey(data.to)}`,
-        columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
+        filters: [["Status", normalizeText(url.searchParams.get("status")) || "All"], ["Day", normalizeText(url.searchParams.get("day")) || "All days"], ["Search", normalizeText(url.searchParams.get("q")) || "none"]],
+        empty: "No attendance matches these filters.",
+        columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Date", kind: "date" }, { header: "Time in" }, { header: "Time out" },
           { header: "Status" }, { header: "Late (min)", kind: "number" }, { header: "Flag" }],
-        rows: data.logs.filter(notDemo(demoIds)).map((l) => [l.employee_name, l.employee_code, l.log_date, manilaClock(l.time_in), manilaClock(l.time_out),
+        rows: data.logs.map((l) => [l.employee_name, l.employee_code, l.log_date, manilaClock(l.time_in), manilaClock(l.time_out),
           l.status || "", Number(l.late_minutes) || 0, l.flag?.status_label || ""]),
       });
     }
@@ -469,7 +471,8 @@ export async function GET(request) {
         format: fileFormat, fileName: "branch-payroll-summary", title: "Payroll summary", branch: await branchLabel(),
         period: "Approved payroll periods", totals: true,
         columns: [{ header: "Period" }, { header: "Cutoff" }, { header: "Employees", kind: "number", integer: true }, { header: "Total gross", kind: "money" },
-          { header: "Total deductions", kind: "deduction" }, { header: "Total net pay", kind: "money" }, { header: "Approved" }, { header: "Approved by" }],
+          { header: "Total deductions", kind: "deduction" }, { header: "Total net pay", kind: "money" }, { header: "Approved", kind: "date" }, { header: "Approved by" }],
+        empty: "No approved payroll periods yet.",
         rows: (data.periods || []).map((r) => [r.period_label, r.cutoff, r.employees, r.total_gross, r.total_deductions, r.total_net,
           r.approved_at ? String(r.approved_at).slice(0, 10) : "", r.approved_by || ""]),
       });
@@ -492,16 +495,18 @@ export async function GET(request) {
       const { rows, error } = await branchRequests(supabase, branchId, kinds.length ? kinds : null);
       if (error) return NextResponse.json({ available: false, error, requests: [] });
       if (fileFormat && kinds.length === 1 && kinds[0] === "incentive_endorsement") {
-        const shaped = rows.filter(notDemo(demoIds)).map((r) => shapeRequest(r));
+        // The table's rows: its search and sort (src/lib/admin/request-table.js), demo people as on the screen.
+        const { rows: shaped, filters, q } = tableQuery(url, rows.map((r) => shapeRequest(r)), { fields: requestSearchFields, sorts: REQUEST_SORTS, defaultSort: "Sent (newest first)" });
         return await reportResponse({
           format: fileFormat, fileName: "branch-incentive-recommendations", title: "Incentive recommendations", branch: await branchLabel(),
-          period: "All recommendations",
-          columns: [{ header: "Employee" }, { header: "Kind" }, { header: "Amount", kind: "money" }, { header: "Hours", kind: "number" },
-            { header: "Description" }, { header: "Date" }, { header: "Status" }, { header: "Sent" }],
+          period: "All recommendations", filters,
+          empty: `No recommendations match${q ? `: Search = "${q}"` : ""}.`,
+          columns: [{ header: "Employee" }, { header: "Kind" }, { header: "Amount", kind: "money", total: false }, { header: "Hours", kind: "number", total: false },
+            { header: "Description" }, { header: "Date", kind: "date" }, { header: "Status" }, { header: "Sent", kind: "date" }],
           rows: shaped.map((r) => {
             const d = r.details || {};
-            return [d.employee_name || r.employee_name || "", d.kind === "overload" ? "Overload" : "Incentive", d.kind === "overload" ? 0 : Number(d.amount) || 0,
-              d.kind === "overload" ? Number(d.hours) || 0 : 0, d.description || "", d.item_date || "", r.status_label || r.status || "", String(r.created_at || "").slice(0, 10)];
+            return [requestEmployee(r), d.kind === "overload" ? "Overload" : "Incentive", d.kind === "overload" ? "" : Number(d.amount) || 0,
+              d.kind === "overload" ? Number(d.hours) || 0 : "", d.description || "", d.item_date || "", r.status_label || r.status || "", String(r.created_at || "").slice(0, 10)];
           }),
         });
       }

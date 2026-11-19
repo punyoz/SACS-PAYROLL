@@ -101,6 +101,8 @@ import { CONTRIBUTION_MAX, DAYS_MAX, INCENTIVE_MAX, PERIOD_MINUTES_MAX, PESO_MAX
 import { attendanceOverrideState, attendanceOverrides } from "@/lib/payroll/override-window";
 import { applyWindowEnforcement, loadWindowEnforcement } from "@/lib/payroll/window-enforcement";
 import { loadDemoIds, notDemo } from "@/lib/demo";
+import { tableQuery } from "@/lib/export/table-query";
+import { RECORD_SORTS, recordSearchFields, recordStatusLabel } from "@/lib/payroll/records-table";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
 import { activeAccountantIds } from "@/lib/rbac/routing";
 
@@ -4018,22 +4020,24 @@ export async function GET(request) {
     const withCorrection = (record) => (due.has(String(record.id)) ? { ...record, needs_correction: due.get(String(record.id)) } : record);
     const historyRecords = baseHistory.map(withCorrection);
 
-    // Payroll Records as Excel / PDF (alpha test B4): the history shown, demo
-    // people left out, deductions below zero, with totals.
+    // Payroll Records as Excel / PDF (2026-11-19): exactly the table -- the Final records and the drafts it
+    // lists (demo people too, as on the screen), its search and sort, its status words, with totals.
     if (view === "records" && wantsFile(url)) {
-      const demo = await loadDemoIds(supabase);
-      const rows = historyRecords.filter(notDemo(demo));
-      const q = normalizeText(url.searchParams.get("q")).toLowerCase();
-      const shown = q ? rows.filter((r) => `${r.employee_name} ${r.pay_period}`.toLowerCase().includes(q)) : rows;
+      const listed = [...historyRecords, ...sortedEntries.filter((entry) => entry.status === "draft").map(mapEntryToRecord)];
+      const { rows: shown, filters, q } = tableQuery(url, listed, { fields: recordSearchFields, sorts: RECORD_SORTS });
+      const branchIds = [...new Set(shown.map((r) => r.branch_id).filter(Boolean))];
+      const branchNames = branchIds.length ? ((await supabase.from("branches").select("name").in("id", branchIds)).data || []).map((b) => b.name).sort() : [];
+      const period = historyParam === "recent" ? "Last 12 months" : historyParam === "all" ? "All periods" : historyParam;
       return await reportResponse({
-        format: wantsFile(url), fileName: `payroll-records-${historyParam}`, title: "Payroll records",
-        branch: guard.branchExempt ? "All branches" : "Own branch",
-        period: historyParam === "recent" ? "Last 12 months" : historyParam, totals: true,
-        filters: q ? [["Search", q]] : [],
+        format: wantsFile(url), fileName: `payroll-records-${historyParam}-${manilaToday()}`, title: "Payroll records",
+        branch: branchNames.length ? branchNames.join(", ") : guard.branchExempt ? "All branches" : "Own branch",
+        period, totals: shown.length > 0,
+        filters: [["History", period], ...filters],
+        empty: `No payroll records match: History = ${period}${q ? `, Search = "${q}"` : ""}.`,
         columns: [{ header: "Employee" }, { header: "Period" }, { header: "Gross pay", kind: "money" }, { header: "Deductions", kind: "deduction" },
           { header: "Net pay", kind: "money" }, { header: "Status" }],
         rows: shown.map((r) => [r.employee_name || "", r.pay_period || "", Number(r.gross_pay) || 0, Number(r.total_deductions) || 0,
-          Number(r.net_pay) || 0, r.run_status === "approved" ? "Approved" : String(r.status || "")]),
+          Number(r.net_pay) || 0, recordStatusLabel(r)]),
       });
     }
 

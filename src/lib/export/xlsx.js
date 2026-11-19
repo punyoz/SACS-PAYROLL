@@ -8,7 +8,8 @@
  *   → Buffer
  *
  * A cell that is a finite number is written as a number (formatted
- * "#,##0.00", "₱#,##0.00" for a `money` column, whole for `integer`); a
+ * "#,##0.00", "₱#,##0.00" for a `money` column, whole for `integer`, a real
+ * date "mmm d, yyyy" for a `date` column given Excel day numbers); a
  * { f, v } cell as a formula; anything else as text. A sheet's `title`
  * lines sit above its frozen header row.
  */
@@ -110,7 +111,7 @@ const formulaText = (value) => escapeXml(String(value).replace(/^=/, ""));
  */
 function sheetXml({ columns = [], rows = [], title = [] }) {
   const cols = columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width || 14}" customWidth="1"/>`).join("");
-  const style = (column) => (column?.money ? 4 : column?.integer ? 3 : 2);
+  const style = (column) => (column?.date ? 5 : column?.money ? 4 : column?.integer ? 3 : 2);
   const cell = (value, ref, header, column) => {
     if (header) return `<c r="${ref}" t="inlineStr" s="1"><is><t>${escapeXml(value)}</t></is></c>`;
     if (value && typeof value === "object" && value.f) {
@@ -159,7 +160,7 @@ export function buildXlsx(sheets) {
     {
       name: "xl/styles.xml",
       data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="&quot;₱&quot;#,##0.00;-&quot;₱&quot;#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="5"><xf/><xf fontId="1" applyFont="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="1" applyNumberFormat="1"/><xf numFmtId="165" applyNumberFormat="1"/></cellXfs></styleSheet>`,
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="&quot;₱&quot;#,##0.00;-&quot;₱&quot;#,##0.00"/><numFmt numFmtId="166" formatCode="mmm d, yyyy"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="6"><xf/><xf fontId="1" applyFont="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="1" applyNumberFormat="1"/><xf numFmtId="165" applyNumberFormat="1"/><xf numFmtId="166" applyNumberFormat="1"/></cellXfs></styleSheet>`,
     },
     ...list.map((sheet, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(sheet) })),
   ];

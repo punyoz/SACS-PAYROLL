@@ -16,6 +16,7 @@ import { usePortalSession } from "@/components/portal/session";
 import { fetchJson } from "@/lib/portal/api";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { ExportButtons } from "@/components/portal/export-buttons";
+import { hrReportSearchFields, sortByBranch } from "@/lib/hr/report-table";
 
 /*
  * HR Reports (loadHRReports / exportHRReportCsv, public/legacy/js/hr.js):
@@ -25,12 +26,6 @@ import { ExportButtons } from "@/components/portal/export-buttons";
 
 function localDateKey(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-/** Branch name A–Z with Unassigned last, then employee (hrReportSortByBranch). */
-function sortByBranch(records, nameKey) {
-  const branchKey = (r) => (r.branch_id ? r.branch_name || "Unknown branch" : "￿");
-  return [...records].sort((a, b) => branchKey(a).localeCompare(branchKey(b)) || String(a[nameKey] || "").localeCompare(String(b[nameKey] || "")));
 }
 
 const ATT_CHART = {
@@ -84,16 +79,17 @@ export function ReportsPage() {
   const shownRows = React.useMemo(() => (branch === "all" ? state.rows : state.rows.filter((r) => String(r.branch_id || "none") === branch)), [state.rows, branch]);
   const exportHref = `/api/hr/reports?type=${state.type || type}${(state.type || type) === "attendance" ? `${state.from ? `&from=${state.from}` : ""}&to=${state.to || to}` : ""}&branch_id=${encodeURIComponent(branch)}`;
 
-  function exportCsv() {
-    if (!state.rows.length) { notify("Nothing to export", "No report data to export. Generate a report first.", "info"); return; }
+  // The CSV lists what the table shows: the branch chosen and the search (2026-11-19).
+  function exportCsv(rows) {
+    if (!rows.length) { notify("Nothing to export", "No rows match the branch and search shown.", "info"); return; }
     if (state.type === "attendance") {
       downloadCsv(`sacs-hr-attendance-report-${localDateKey()}.csv`,
         ["Branch", "Employee", "Type", "Present", "Late", "Absent", "On Leave", "Total Hours"],
-        state.rows.map((r) => [r.branch_name || "", r.employee_name || "", r.employee_type || "", r.present ?? 0, r.late ?? 0, r.absent ?? 0, r.on_leave ?? 0, Number(r.total_hours || 0).toFixed(2)]));
+        rows.map((r) => [r.branch_name || "", r.employee_name || "", r.employee_type || "", r.present ?? 0, r.late ?? 0, r.absent ?? 0, r.on_leave ?? 0, Number(r.total_hours || 0).toFixed(2)]));
     } else {
       downloadCsv(`sacs-hr-employees-report-${localDateKey()}.csv`,
         ["Branch", "Employee", "ID", "Type", "Position", "Status", "Email"],
-        state.rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", r.employee_type || "", r.position || "", r.employee_status || "", r.email || ""]));
+        rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", r.employee_type || "", r.position || "", r.employee_status || "", r.email || ""]));
     }
   }
 
@@ -225,15 +221,15 @@ export function ReportsPage() {
               rows={shownRows}
               groupOf={(r) => r.branch_name || ""}
               groupLabel={(key) => key || "Unassigned"}
-              search={(r) => [r.employee_name, r.full_name, r.employee_id, r.branch_name, r.employee_type, r.position, r.email].join(" ")}
+              search={(r) => hrReportSearchFields(r)[0]}
               searchPlaceholder="Search name, ID, branch, type, position or email…"
               loading={state.loading}
               error={state.error}
               onRetry={generate}
-              toolbar={(
+              toolbar={(shown, { query }) => (
                 <>
-                  <ExportButtons href={exportHref} label={isAttendance ? "attendance report" : "employee records"} disabled={!shownRows.length} />
-                  <Button variant="outline" size="sm" onClick={exportCsv} disabled={!state.rows.length}><DownloadIcon aria-hidden="true" />CSV</Button>
+                  <ExportButtons href={exportHref} params={{ q: query }} label={isAttendance ? "attendance report" : "employee records"} disabled={!shown.length} />
+                  <Button variant="outline" size="sm" onClick={() => exportCsv(shown)} disabled={!shown.length}><DownloadIcon aria-hidden="true" />CSV</Button>
                 </>
               )}
               caption="Report results"

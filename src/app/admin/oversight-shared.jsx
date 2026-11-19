@@ -19,6 +19,8 @@ import { STATUS_LABELS, STATUS_TONES } from "@/lib/branch-requests";
 import { cn } from "@/lib/utils";
 import { SearchableSelect } from "@/components/portal/searchable-select";
 import { ExportButtons } from "@/components/portal/export-buttons";
+import { tableParams } from "@/lib/export/table-query";
+import { REQUEST_SORTS, requestEmployee } from "@/lib/admin/request-table";
 
 /*
  * Shared pieces of the branch Admin's oversight pages
@@ -209,11 +211,12 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
   const [open, setOpen] = React.useState(false);
   const data = view.data;
   const allColumns = [
-    { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", cell: (r) => r.employee_name || r.details?.employee_name || "—", searchValue: (r) => r.employee_name || r.details?.employee_name },
+    // Search and sort shared with the export (src/lib/admin/request-table.js).
+    { key: "employee_name", header: "Employee", sortValue: REQUEST_SORTS.employee_name.value, className: "font-medium", cell: (r) => requestEmployee(r) || "—", searchValue: requestEmployee },
     ...columns,
     { key: "admin_note", header: "Your remark", cell: (r) => <p className="max-w-64 text-xs whitespace-normal">{r.admin_note}</p>, searchValue: (r) => r.admin_note },
-    { key: "filed", header: "Sent", sortValue: (r) => r.created_at, cell: (r) => <FiledCell request={r} /> },
-    { key: "status", header: "Status", sortValue: (r) => r.status_label, cell: (r) => <RequestStatus status={r.status} label={r.status_label} />, searchValue: (r) => r.status_label },
+    { key: "filed", header: "Sent", sortValue: REQUEST_SORTS.filed.value, cell: (r) => <FiledCell request={r} /> },
+    { key: "status", header: "Status", sortValue: REQUEST_SORTS.status.value, cell: (r) => <RequestStatus status={r.status} label={r.status_label} />, searchValue: (r) => r.status_label },
     { key: "decision", header: "HR decision", cell: (r) => <DecisionCell request={r} /> },
     { key: "history", header: <span className="sr-only">History</span>, align: "right", cell: (r) => <HistoryButton request={r} /> },
   ];
@@ -226,13 +229,13 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
           {description ? <CardDescription>{description}</CardDescription> : null}
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
-            {/* Report export, own branch only (alpha test B2). */}
-            {exportable ? <ExportButtons href={`/api/admin/branch-oversight?view=requests&kind=${kind}`} label={title.toLowerCase()} disabled={!(data?.requests || []).length} /> : null}
             <Button size="sm" onClick={() => setOpen(true)} disabled={!data}><PlusIcon aria-hidden="true" />{buttonLabel}</Button>
           </CardAction>
         </CardHeader>
         <CardContent>
+          {/* Report export, own branch only (alpha test B2): what the table shows, its search and sort (2026-11-19). */}
           <DataTable columns={allColumns} rows={data?.requests || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
+            toolbar={exportable ? (shown, table) => <ExportButtons href={`/api/admin/branch-oversight?view=requests&kind=${kind}`} params={tableParams(table)} label={title.toLowerCase()} disabled={!shown.length} /> : null}
             searchPlaceholder="Search employee, remark or status…" empty={empty || { title: "Nothing sent yet", icon: Icon }} caption={title} minWidth={1100} />
         </CardContent>
       </Card>

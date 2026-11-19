@@ -84,7 +84,10 @@ export function BranchGroupedTable({
   return (
     <div className="flex flex-col gap-3">
       {search || toolbar ? (
-        <TableToolbar search={search ? { value: query, onChange: setQuery, placeholder: searchPlaceholder } : null}>{toolbar}</TableToolbar>
+        <TableToolbar search={search ? { value: query, onChange: setQuery, placeholder: searchPlaceholder } : null}>
+          {/* A function toolbar gets the searched rows and the search text (exports act on what is shown). */}
+          {typeof toolbar === "function" ? toolbar(filtered, { query: query.trim() }) : toolbar}
+        </TableToolbar>
       ) : null}
       <div className="overflow-hidden rounded-lg border bg-card">
         <Table style={{ minWidth }}>
