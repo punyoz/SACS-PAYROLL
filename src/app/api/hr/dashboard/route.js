@@ -11,6 +11,9 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
+// Statuses attendance_missing_days leaves out (20261110020000 private.is_active_staff).
+const GONE = ["Inactive", "Archived", "Separated"];
+
 export async function GET(request) {
   try {
     const guard = await requirePermission(request, "dashboard", "read");
@@ -32,8 +35,12 @@ export async function GET(request) {
     const allUsers = usersResult.data.users || [];
     const candidateEmployees = allUsers.filter((u) => {
       const role = String(u.user_metadata?.role || "employee").toLowerCase();
-      // Same staff as User Management: Employees, Accountants and the other HRs (HR is on payroll, 2026-11-09).
-      return (role === "employee" || role === "accountant" || (role === "hr" && u.id !== guard.userId)) && !u.user_metadata?.archived;
+      // The people who work: the same set "Absent today" counts from
+      // (public.attendance_missing_days): Employee, Accountant and HR -- the
+      // viewer too, HR is on payroll -- not archived, Inactive or Separated.
+      // So Present + Absent (+ on leave / day off) adds up to this total.
+      const status = String(u.user_metadata?.employee_status || "Active");
+      return ["employee", "accountant", "hr"].includes(role) && !u.user_metadata?.archived && !GONE.includes(status);
     });
 
     let employees = candidateEmployees;
