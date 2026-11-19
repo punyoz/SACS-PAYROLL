@@ -5,12 +5,17 @@
  *   GET                       separated employees, with final pay status and
  *                             the 30-day deadline (DOLE Labor Advisory 06-2020)
  *   GET ?employee_id=…        the computed breakdown (nothing saved)
- *   POST { employee_id, release_on }
- *                             saves the final pay as a Final payslip through
- *                             payroll_commit_entries (loan repayments in the
- *                             same transaction), records the pro-rated 13th
- *                             month, settles the subsidy balance and stamps
- *                             the AWOL case
+ *   POST { employee_id, release_on, correction? }
+ *                             Accountant only: submits the final pay for HR
+ *                             approval (20261120010000). Saved "Pending HR
+ *                             Approval" with the full computed payslip and its
+ *                             side effects; the loans, 13th month and subsidy
+ *                             it uses are held. HR's approval
+ *                             (src/app/api/hr/final-pay-approvals) writes the
+ *                             Final payslip, repayments, 13th month, subsidy
+ *                             settlement and AWOL stamp in one transaction.
+ *                             correction: true recomputes an approved final
+ *                             pay as a correction (same approval).
  *
  * Year-end tax (2026-10-29, src/lib/payroll/year-end-tax.js): when the
  * Accountant has run the annualization for the separation year, the final pay
@@ -53,9 +58,9 @@ import { applyYearEndToFinalPay, yearEndAdjustment } from "@/lib/payroll/year-en
 import { holidayAppliesTo, isDayOff, shapeHolidayRow } from "@/lib/attendance/holidays";
 import { readLeaveWithPayDays, summarizeLeaveBalance } from "@/lib/leave-requests/store";
 import { leaveConversionAmount, loadLeaveConversion } from "@/lib/payroll/leave-conversion";
+import { LEGACY_LABEL, SUBMISSIONS, deadlineOf, shapeSubmission } from "@/lib/payroll/final-pay-approval";
 
 const peso = (value) => roundPeso(value);
-const DEADLINE_DAYS = 30;
 const finalPayLabel = (separatedOn) => `Final pay — separated ${separatedOn}`;
 
 function addDays(key, n) {
@@ -73,7 +78,7 @@ function expandDays(from, to) {
 }
 
 /** Everything computeFinalPay needs, read for one separated employee. */
-async function gather(supabase, person) {
+async function gather(supabase, person, correcting = null) {
   const separatedOn = person.separated_on;
   const year = Number(String(separatedOn).slice(0, 4));
   const { configs } = await loadRateConfigs(supabase);
@@ -86,12 +91,26 @@ async function gather(supabase, person) {
     supabase.from("payroll_entries").select("id,pay_period,status,payroll").eq("employee_id", person.id).eq("status", "paid"),
     supabase.from("payroll_tax_brackets").select("version_id,effective_date,bracket_over,base_tax,rate_pct,created_at").lte("effective_date", separatedOn),
     supabase.from("attendance_holidays").select("holiday_date,day_part,type,branch_ids"),
-    supabase.from("payroll_thirteenth_month").select("id").eq("employee_id", person.id).eq("year", year).maybeSingle(),
+    supabase.from("payroll_thirteenth_month").select("id,breakdown").eq("employee_id", person.id).eq("year", year).maybeSingle(),
     supabase.from("payroll_subsidy_balances").select("*").eq("employee_id", person.id).lte("subsidy_year_start", separatedOn).gte("subsidy_year_end", separatedOn).maybeSingle(),
     supabase.from("payroll_loans").select("*").eq("employee_id", person.id),
     supabase.from("payroll_exempt_benefits_paid").select("amount").eq("employee_id", person.id).eq("tax_year", year),
   ]);
   if (entriesResult.error) throw new Error(entriesResult.error.message);
+  // A correction is computed as if the approved final pay had not been applied.
+  if (correcting) {
+    if (thirteenth.data?.breakdown?.final_pay) thirteenth.data = null;
+    const b = balanceResult.data;
+    if (b && b.payout_entry_id === correcting.entry_id) {
+      if (!correcting.subsidy_before) throw Object.assign(new Error("This final pay settled a subsidy before HR approval was required, so it cannot be recomputed here. Ask the Super Admin."), { status: 409 });
+      balanceResult.data = { ...b, ...correcting.subsidy_before };
+    }
+    const paid = await supabase.from("payroll_loan_payments").select("loan_id,amount").eq("payroll_entry_id", correcting.entry_id).in("kind", ["final_pay", "subsidy_offset"]).eq("reversed", false);
+    for (const p of paid.data || []) {
+      const loan = (loansResult.data || []).find((l) => l.id === p.loan_id);
+      if (loan) Object.assign(loan, { remaining_balance: peso(Number(loan.remaining_balance) + Number(p.amount)), status: loan.status === "paid" ? "active" : loan.status });
+    }
+  }
 
   // The salary in force on the last day (HR's salary changes, 2026-10-26).
   const salary = peso(salaryOn((await loadSalaryChanges(supabase, [person.id])).rows, person.id, separatedOn, profile.data?.basic_salary || 0));
@@ -157,6 +176,8 @@ async function gather(supabase, person) {
     const [sy, sm, sd] = String(separatedOn).split("-").map(Number);
     const monthsEarned = Math.max(0, Math.min(balance.eligible_months, (sy * 12 + sm) - (ey * 12 + em) + (sd >= 15 ? 1 : 0)));
     subsidy = {
+      // As it stands before this final pay: put back if HR rejects (nothing is written until then).
+      before: { status: balance.status, paid_out: balance.paid_out, paid_out_on: balance.paid_out_on, forfeited: balance.forfeited, payout_entry_id: balance.payout_entry_id, status_reason: balance.status_reason },
       balance_id: balance.id, rule: dismissed ? balance.on_dismissal : balance.on_resignation,
       annual_amount: Number(balance.annual_amount), months_earned: monthsEarned, proration: balance.proration,
       advances_total: Number(balance.advances_total) + Number(balance.carried_in || 0), paid_out: Number(balance.paid_out || 0),
@@ -312,7 +333,13 @@ export async function GET(request) {
     if (employeeId) {
       const person = people.find((p) => p.id === employeeId);
       if (!person) return NextResponse.json({ error: "Separated employee not found in your branch." }, { status: 404 });
-      const { input, salary, daily, year } = await gather(supabase, person);
+      let correcting = null;
+      if (url.searchParams.get("correction") === "1") {
+        const entry = await supabase.from("payroll_entries").select("id").eq("employee_id", person.id).eq("pay_period", finalPayLabel(person.separated_on)).eq("status", "paid").maybeSingle();
+        const approved = entry.data ? await supabase.from(SUBMISSIONS).select("effects").eq("entry_id", entry.data.id).eq("status", "approved").order("decided_at", { ascending: false }).limit(1).maybeSingle() : { data: null };
+        if (entry.data) correcting = { entry_id: entry.data.id, subsidy_before: approved.data?.effects?.subsidy_before || null };
+      }
+      const { input, salary, daily, year } = await gather(supabase, person, correcting);
       const breakdown = computeFinalPay(input);
       settleYearEndTax(breakdown, await pendingYearEndTax(supabase, person, year), { year, releaseOn: today, input });
       const [separation, leaveConversion] = await Promise.all([separationRecord(supabase, person), unusedLeave(supabase, person, daily)]);
@@ -327,18 +354,26 @@ export async function GET(request) {
     const saved = people.length
       ? await fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,pay_period,payslip_no,payroll,status").like("pay_period", "Final pay%").order("id", { ascending: true }), "employee_id", people.map((p) => p.id))
       : { data: [] };
+    const submissions = people.length
+      ? await fetchAllIn(() => supabase.from(SUBMISSIONS).select("*").order("submitted_at", { ascending: false }).order("id", { ascending: true }), "employee_id", people.map((p) => p.id))
+      : { data: [] };
     return NextResponse.json({
       people: people.map((p) => {
         const entry = (saved.data || []).find((e) => e.employee_id === p.id);
-        const deadline = addDays(p.separated_on, DEADLINE_DAYS);
+        // Newest first: the latest submission is the current state.
+        const mine = (submissions.data || []).filter((row) => row.employee_id === p.id).sort((a, b) => String(b.submitted_at).localeCompare(String(a.submitted_at)));
+        const approved = mine.find((row) => row.status === "approved");
         return {
           id: p.id, full_name: p.full_name, employee_id: p.employee_id, separated_on: p.separated_on,
-          deadline, days_left: Math.round((Date.parse(`${deadline}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86400000),
+          // The deadline runs until HR approves (DOLE Labor Advisory 06-2020).
+          ...deadlineOf(p.separated_on, today), released: Boolean(entry),
           final_pay: entry ? { payslip_no: entry.payslip_no, net_pay: entry.payroll?.totals?.net_pay ?? null, release_on: entry.payroll?.final_pay?.release_on || null,
-            overpayment_to_recover: Number(entry.payroll?.final_pay?.overpayment_to_recover) || 0 } : null,
+            overpayment_to_recover: Number(entry.payroll?.final_pay?.overpayment_to_recover) || 0,
+            approval: entry.payroll?.final_pay?.approval || null, legacy: Boolean(approved?.legacy), status_label: approved?.legacy ? LEGACY_LABEL : "Paid/Released" } : null,
+          submission: shapeSubmission(mine[0]),
         };
       }),
-      can_edit: guard.role === "accountant" || guard.role === "super_admin",
+      can_edit: guard.role === "accountant",
     });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
@@ -349,6 +384,8 @@ export async function POST(request) {
   try {
     const guard = await requirePermission(request, "process_payroll", "create");
     if (guard.denied) return guard.denied;
+    // Only the Accountant computes and submits; HR approves (20261120010000).
+    if (guard.role !== "accountant") return NextResponse.json({ error: "Only the Accountant computes and submits final pay." }, { status: 403 });
     const body = await request.json().catch(() => ({}));
     const supabase = getAdminClient();
     const people = await separatedPeople(supabase, guard);
@@ -362,16 +399,26 @@ export async function POST(request) {
     const details = separationDetails(body);
     if (details.error) return NextResponse.json({ error: details.error }, { status: 400 });
     const label = finalPayLabel(person.separated_on);
-    const existing = await supabase.from("payroll_entries").select("id").eq("employee_id", person.id).eq("pay_period", label).eq("status", "paid").maybeSingle();
-    if (existing.data) return NextResponse.json({ error: "This final pay is already saved." }, { status: 409 });
+    const [existing, pending] = await Promise.all([
+      supabase.from("payroll_entries").select("id").eq("employee_id", person.id).eq("pay_period", label).eq("status", "paid").maybeSingle(),
+      supabase.from(SUBMISSIONS).select("id").eq("employee_id", person.id).eq("status", "pending").maybeSingle(),
+    ]);
+    if (pending.data) return NextResponse.json({ error: "This final pay is waiting for HR approval and is locked until HR decides." }, { status: 409 });
+    const correction = body.correction === true;
+    if (existing.data && !correction) return NextResponse.json({ error: "This final pay is already released. Use Correct to send a correction to HR." }, { status: 409 });
+    if (!existing.data && correction) return NextResponse.json({ error: "There is no released final pay to correct." }, { status: 400 });
+    let correcting = null;
+    if (correction) {
+      const approved = await supabase.from(SUBMISSIONS).select("effects").eq("entry_id", existing.data.id).eq("status", "approved").order("decided_at", { ascending: false }).limit(1).maybeSingle();
+      correcting = { entry_id: existing.data.id, subsidy_before: approved.data?.effects?.subsidy_before || null };
+    }
 
-    const { input, year, daily: dailyRate } = await gather(supabase, person);
+    const { input, year, daily: dailyRate } = await gather(supabase, person, correcting);
     const fp = computeFinalPay(input);
     const yearEndTax = settleYearEndTax(fp, await pendingYearEndTax(supabase, person, year), { year, releaseOn, input });
     const conversion = await unusedLeave(supabase, person, dailyRate);
     addLeaveConversion(fp, conversion);
     const now = new Date().toISOString();
-    const entryId = crypto.randomUUID();
     const payroll = {
       basic_salary: input.monthlySalary,
       basic_earned: fp.basic_earned,
@@ -386,6 +433,7 @@ export async function POST(request) {
       totals: { gross_pay: fp.gross, total_deductions: fp.total_deductions, total_incentives: 0, net_pay: fp.net_pay },
       ...(yearEndTax ? { year_end_tax: yearEndTax } : {}),
     };
+    // What payroll_commit_entries writes when HR approves (payroll_final_pay_decide).
     const item = {
       record: {
         employee_id: person.id, employee_name: person.full_name, employee_type: person.employee_type,
@@ -394,7 +442,7 @@ export async function POST(request) {
         period_start: input.months[0]?.window.start_key || person.separated_on, period_end: person.separated_on,
         processed_by: guard.userId || null, processed_by_name: actorName(guard),
       },
-      entry: { id: entryId, employee_id: person.id, employee_name: person.full_name, employee_code: person.employee_id, employee_type: person.employee_type,
+      entry: { id: existing.data?.id || crypto.randomUUID(), employee_id: person.id, employee_name: person.full_name, employee_code: person.employee_id, employee_type: person.employee_type,
         position: person.position || null, pay_period: label, status: "paid", payroll, submitted_at: now, created_at: now, updated_at: now },
       deductions: fp.deductions.filter((d) => ["sss", "philhealth", "pagibig", "withholding_tax", "carry_over", "loan", "year_end_tax"].includes(d.kind) && !d.credit)
         .map((d) => ({ type: d.kind, quantity: null, unit: null, rate: null, amount: d.amount, is_override: true, note: d.note || `Final pay${d.month_key ? ` (${d.month_key})` : ""}` })),
@@ -406,52 +454,43 @@ export async function POST(request) {
       ],
       loan_payments: fp.loan_payments,
     };
-    const { data, error } = await supabase.rpc("payroll_commit_entries", { p_items: [item] });
-    if (error) throw new Error(error.message);
-    const result = Array.isArray(data) ? data[0] : null;
-    if (!result?.ok) return NextResponse.json({ error: `Final pay was not saved: ${result?.error || "the database refused it."}` }, { status: 400 });
+    // Held while pending (the database refuses any other use), written on approval.
+    const effects = {
+      loan_ids: [...new Set([...fp.loan_payments, ...fp.uncovered].map((l) => l.loan_id))],
+      thirteenth: fp.thirteenth_month > 0 ? { year, basic_earned: peso(input.basicEarnedYtd + fp.basic_earned), amount: fp.thirteenth_month } : null,
+      subsidy: fp.subsidy?.balance_id ? { balance_id: fp.subsidy.balance_id, payout: fp.subsidy.payout, forfeited: fp.subsidy.forfeited } : null,
+      subsidy_before: correcting ? correcting.subsidy_before : input.subsidy?.before || null,
+      uncovered: fp.uncovered,
+    };
+    const { data: saved, error } = await supabase.from(SUBMISSIONS).insert({
+      employee_id: person.id, employee_name: person.full_name, branch_id: person.branch_id || null, separated_on: person.separated_on,
+      status: "pending", release_on: releaseOn, net_pay: fp.net_pay, item, effects, corrects_entry_id: correcting?.entry_id || null,
+      submitted_by: guard.userId || null, submitted_by_name: actorName(guard),
+    }).select("id").single();
+    if (error) {
+      if (String(error.code) === "23505") return NextResponse.json({ error: "This final pay is already waiting for HR approval." }, { status: 409 });
+      throw new Error(error.message);
+    }
 
-    // After the commit: the 13th month is paid, the subsidy year settled, loans
-    // the final pay could not cover referred for collection, the case stamped.
-    if (fp.thirteenth_month > 0) {
-      await supabase.from("payroll_thirteenth_month").insert({
-        employee_id: person.id, employee_name: person.full_name, year, basic_earned: peso(input.basicEarnedYtd + fp.basic_earned),
-        amount: fp.thirteenth_month, breakdown: { final_pay: true }, processed_by: guard.userId || null, processed_by_name: actorName(guard),
+    // HR of the employee's branch (an HR without a home branch reaches every branch); generic, no amount.
+    try {
+      const hr = await supabase.from("profiles").select("id,branch_id").eq("role", "hr").eq("archived", false);
+      const ids = (hr.data || []).filter((h) => !h.branch_id || h.branch_id === person.branch_id).map((h) => h.id);
+      await notify(supabase, ids.length ? ids : await hrAccountIds(supabase), {
+        kind: "final_pay_submitted",
+        title: correction ? "Final pay correction waiting for approval" : "Final pay waiting for approval",
+        body: `The final pay for ${person.full_name} is waiting for your approval.${fp.overpayment_to_recover > 0 ? " It shows an overpayment to recover." : ""}`,
+        link_page: "hr-final-pay-approvals",
       });
-    }
-    if (fp.subsidy?.balance_id) {
-      await supabase.from("payroll_subsidy_balances").update({
-        paid_out: fp.subsidy.payout, paid_out_on: releaseOn, forfeited: fp.subsidy.forfeited, status: "settled_in_final_pay",
-        payout_entry_id: result.entry_id, status_reason: `Final pay ${label}`, updated_at: now,
-      }).eq("id", fp.subsidy.balance_id);
-    }
-    for (const left of fp.uncovered) {
-      await supabase.from("payroll_loans").update({
-        status: "suspended", status_reason: `Separated – for collection (${left.reason})`, status_changed_by: guard.userId || null,
-        status_changed_by_name: actorName(guard), status_changed_at: now,
-      }).eq("id", left.loan_id);
-    }
-    await supabase.from("employee_awol_cases").update({ final_pay_computed_at: now, final_pay_released_on: releaseOn, updated_at: now })
-      .eq("employee_id", person.id).eq("outcome", "separated");
-
-    if (fp.overpayment_to_recover > 0) {
-      // HR's bell: generic, no amount (decided 2026-11-09). Never fails the save.
-      try {
-        await notify(supabase, await hrAccountIds(supabase), {
-          kind: "final_pay_overpayment",
-          title: "Final pay: overpayment to recover",
-          body: `The final pay for ${person.full_name} shows an overpayment to recover. Open the final pay record to review it.`,
-          link_page: "hr-payroll-records",
-        });
-      } catch { /* the final pay is saved either way */ }
-    }
+    } catch { /* the submission is saved either way */ }
     await appendAuditLog({
-      actor: guard, module: "payroll", action: "final_pay", entity_type: "payroll_entry", entity_id: result.entry_id, status: "success", source: "api",
-      description: `Final pay for ${personLabel(person)} (separated ${person.separated_on}): net ${fp.net_pay.toFixed(2)}, released ${releaseOn}${fp.uncovered.length ? `; ${fp.uncovered.length} loan balance(s) referred for collection` : ""}.`,
-      metadata: { payslip_no: result.payslip_no, net_pay: fp.net_pay, release_on: releaseOn, overpayment_to_recover: fp.overpayment_to_recover || 0 },
+      actor: guard, module: "payroll", action: correction ? "final_pay_correction_submitted" : "final_pay_submitted", entity_type: "final_pay_submission", entity_id: saved.id, status: "success", source: "api",
+      description: `${correction ? "Final pay correction" : "Final pay"} for ${personLabel(person)} (separated ${person.separated_on}) submitted for HR approval: net ${fp.net_pay.toFixed(2)}, release ${releaseOn}${fp.uncovered.length ? `; ${fp.uncovered.length} loan balance(s) for collection` : ""}.`,
+      metadata: { net_pay: fp.net_pay, release_on: releaseOn, overpayment_to_recover: fp.overpayment_to_recover || 0, correction },
     });
-    return NextResponse.json({ success: true, payslip_no: result.payslip_no, net_pay: fp.net_pay, overpayment_to_recover: fp.overpayment_to_recover || 0 });
+    return NextResponse.json({ success: true, id: saved.id, status: "pending", net_pay: fp.net_pay, overpayment_to_recover: fp.overpayment_to_recover || 0 });
   } catch (error) {
+    if (error?.status) return NextResponse.json({ error: error.message }, { status: error.status });
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
 }

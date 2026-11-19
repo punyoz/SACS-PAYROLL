@@ -3254,6 +3254,8 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
   const already = new Set((existing.data || []).map((row) => row.employee_id));
   const separatedThisYear = new Set(((await fetchAllIn(() => supabase.from("profiles").select("id,separated_on").order("id", { ascending: true }), "id", employees.map((e) => e.id))).data || [])
     .filter((p) => p.separated_on && String(p.separated_on).slice(0, 4) === String(year)).map((p) => p.id));
+  // A final pay waiting for HR approval holds the employee's 13th month (20261120010000).
+  const heldByFinalPay = new Set(((await supabase.from("payroll_final_pay_submissions").select("employee_id").eq("status", "pending")).data || []).map((row) => row.employee_id));
   const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
   const nowIso = new Date().toISOString();
 
@@ -3266,6 +3268,10 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
     const own = isOwnPayroll(guard, employee.id);
     if (already.has(employee.id)) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Already processed." });
+      return;
+    }
+    if (heldByFinalPay.has(employee.id)) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: "Final pay waiting for HR approval: the 13th month is held for it." });
       return;
     }
     // Separated this year: paid, pro-rated, through Final Pay (never twice).

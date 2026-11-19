@@ -10,7 +10,7 @@ import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { buildPayslipDetails, formatManilaDate, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, formatManilaDate, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { formatIssued } from "@/lib/portal/format";
@@ -123,6 +123,8 @@ function mapEntryToPayslip(row, taxRows = []) {
     attendance_summary: payroll.generation?.attendance_summary || null,
     // A final pay's stored breakdown (src/lib/payroll/payslip-tables.js).
     final_pay: payroll.final_pay?.breakdown || null,
+    // A final pay's status, release date and approver (20261120010000).
+    ...(payroll.final_pay ? (({ label, pay_date_label, approval_line }) => ({ status_label: label, pay_date_label, approval_line }))(payslipStatus({ status: "paid", payroll })) : {}),
     line_groups: employeePayslipView(payroll, { taxTable: taxTableFor(taxRows, payroll) }),
   };
 }
@@ -305,7 +307,7 @@ export async function GET(request) {
       // The same lines, net and Issued date as My Payslips shows (mapEntryToPayslip).
       const shown = mapEntryToPayslip(entry, taxRows);
       // Only released (Paid) payslips reach here: paid on the day HR approved the run.
-      const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, status_label: "Paid", pay_date_label: formatManilaDate(shown.processed_at), net_pay: shown.net_pay };
+      const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, status_label: shown.status_label || "Paid", pay_date_label: shown.pay_date_label || formatManilaDate(shown.processed_at), net_pay: shown.net_pay };
       const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = payslipFileName(entry);
       return new NextResponse(pdf, {

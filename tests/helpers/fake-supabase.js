@@ -206,7 +206,7 @@ function query(name) {
  * payroll_entries row (upserted on employee + period) and the line rows --
  * all or nothing, with "23505" when the employee's period is already paid.
  */
-function commitPayrollEntries({ p_items: items = [] } = {}) {
+export function commitPayrollEntries({ p_items: items = [] } = {}) {
   return items.map((item) => {
     const { record, entry } = item;
     const records = table("payroll_records");

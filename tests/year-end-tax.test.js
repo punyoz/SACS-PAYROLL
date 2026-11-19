@@ -16,7 +16,7 @@
 import crypto from "node:crypto";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
+import { commitPayrollEntries, resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
 import { annualTaxDue, compute2316, payslipFigures } from "@/lib/payroll/bir-2316";
 import {
   annualizationFigures, applyYearEndTax, secondCutoffLabel, yearEndAdjustment, yearEndCutoffLine, yearEndTargetAllowed, yearEndTargetOptions,
@@ -597,6 +597,11 @@ describe("final pay of a separated employee (Fix 2)", () => {
 
     const saved = await finalPay.POST(request("/api/accountant/final-pay", "POST", { employee_id: ANA_UUID, release_on: "2026-12-10" }));
     expect(saved.status, JSON.stringify(await saved.clone().json())).toBe(200);
+    // Submitted for HR approval (20261120010000): nothing is written until HR approves.
+    expect(table("payroll_entries").some((e) => e.employee_id === ANA_UUID && e.pay_period.startsWith("Final pay"))).toBe(false);
+    const submission = table("payroll_final_pay_submissions").find((s) => s.employee_id === ANA_UUID && s.status === "pending");
+    // HR approves: payroll_final_pay_decide commits exactly the submitted payslip.
+    expect(commitPayrollEntries({ p_items: [submission.item] })[0].ok).toBe(true);
     const entry = table("payroll_entries").find((e) => e.employee_id === ANA_UUID && e.pay_period.startsWith("Final pay"));
     expect(entry.payroll.year_end_tax).toMatchObject({ kind: "refund", amount: 2665.46, signed: -2665.46, tax_due: 8417.59, taxable: 306117.24, withheld_before: 11083.05 });
     const fp = entry.payroll.final_pay.breakdown;

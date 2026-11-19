@@ -27,6 +27,7 @@ import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 import { dateLabel, dateTime, money, shortDate } from "@/lib/portal/payroll-preview";
 import { FLAG_LABELS, RUN_STATUS_LABELS, RUN_STATUS_TONES, runNoLabel } from "@/lib/payroll/runs";
 import { CorrectionsCard } from "@/components/portal/payroll-corrections";
+import { FinalPayApprovalsPage } from "./final-pay-approvals-page";
 import { ExclusionsAlert, OpenExclusionsCard } from "@/components/portal/run-exclusions";
 import { cn } from "@/lib/utils";
 import { LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
@@ -680,6 +681,8 @@ export function PayrollApprovalPage({ refreshKey, onChanged }) {
         description="Left out of a submitted run by the Accountant and not paid for that period yet. The Accountant processes them and submits a supplemental run for you to approve." />
       {/* Corrections to approved payslips: HR approves or rejects them. */}
       <CorrectionsCard refreshKey={refreshKey} />
+      {/* Final pay waiting for HR (20261120010000); the history is on Final Pay Approvals. */}
+      <FinalPayApprovalsPage refreshKey={refreshKey} compact />
     </>
   );
 }

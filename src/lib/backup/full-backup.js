@@ -59,7 +59,8 @@ export const BACKUP_GROUPS = Object.freeze([
     description: "Every payslip (amounts exactly as stored), payroll runs, approvals, corrections, overrides, year-end tax and BIR files.",
     computed: [],
     tables: ["payroll_entries", "payroll_records", "payroll_runs", "payroll_run_items", "payroll_run_exclusions", "payroll_approval_history",
-      "payroll_corrections", "payroll_final_overrides", "payroll_review_flags", "payroll_tax_annualizations", "payroll_bir_exports"],
+      "payroll_corrections", "payroll_final_overrides", "payroll_review_flags", "payroll_tax_annualizations", "payroll_bir_exports",
+      "payroll_final_pay_submissions"],
   },
   {
     key: "benefits", label: "Loans, advances, incentives, subsidy, 13th month",

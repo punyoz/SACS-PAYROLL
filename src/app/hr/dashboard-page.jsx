@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { FinalPayWaitingCard } from "./final-pay-approvals-page";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 import { ArrowRightIcon, CalendarClockIcon, CalendarDaysIcon, CheckCircle2Icon, ClockIcon, UsersIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,8 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
 
   return (
     <>
+      {/* Final pay waiting for HR, with days left (20261120010000). */}
+      <FinalPayWaitingCard refreshKey={refreshKey} onOpen={() => onNavigate?.("hr-final-pay-approvals")} />
       <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} href={portalHref("hr-employees")} actionLabel="View active employees" />
         <StatCard label="Present today" value={d.present_today ?? 0} hint="Late included" icon={CheckCircle2Icon} tone="success" loading={loading} href={portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" })} actionLabel="View who is present today" />

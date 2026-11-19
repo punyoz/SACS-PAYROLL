@@ -23,6 +23,8 @@ import { applyBalanceSplit, readLeaveRequestsWithoutProof, updateLeaveRequestSta
 import { PENDING_LEAVE, loadFallbackItems } from "@/lib/rbac/fallback-items";
 import { recordFallback, routingErrorResponse } from "@/lib/rbac/routing";
 import { describeRunError } from "@/lib/payroll/runs";
+import { SUBMISSIONS, describeDecideError, notifyFinalPayDecision } from "@/lib/payroll/final-pay-approval";
+import { notify } from "@/lib/branch-requests-server";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -72,10 +74,15 @@ export async function POST(request) {
         ? await supabase.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason || "Approved by the Super Admin as the fallback (no other HR is active)." })
         : await supabase.rpc("reject_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason });
       if (rpc.error) { const failure = describeRunError(rpc.error); return NextResponse.json(failure, { status: failure.status }); }
+    } else if (type === "final_pay") {
+      const row = (await supabase.from(SUBMISSIONS).select("*").eq("id", id).maybeSingle()).data;
+      const rpc = await supabase.rpc("payroll_final_pay_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_reason: reason || null });
+      if (rpc.error) { const failure = describeDecideError(rpc.error); return NextResponse.json(failure, { status: failure.status }); }
+      if (row) await notifyFinalPayDecision(supabase, notify, row, action, reason);
     } else {
       return NextResponse.json({ error: "Unknown item type." }, { status: 400 });
     }
-    await recordFallback(supabase, { actor: guard, ownerId: item.owner_id, ownerName: item.owner_name, itemType: type, itemId: id, what: type === "leave_request" ? "leave request" : "payroll run", decided });
+    await recordFallback(supabase, { actor: guard, ownerId: item.owner_id, ownerName: item.owner_name, itemType: type, itemId: id, what: { leave_request: "leave request", payroll_run: "payroll run", final_pay: "final pay" }[type], decided });
     return NextResponse.json({ success: true, decided, remaining: (await loadFallbackItems(supabase)).counts });
   } catch (error) {
     const routed = routingErrorResponse(error);

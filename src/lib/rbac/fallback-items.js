@@ -49,8 +49,21 @@ export async function loadFallbackItems(supabase) {
       });
     }
   }
+  // Pending final pay no active HR of the employee's branch may decide (20261120010000).
+  const finalPay = await supabase.from("payroll_final_pay_submissions").select("id,employee_id,employee_name,branch_id,submitted_by,submitted_at,separated_on").eq("status", "pending");
+  if ((finalPay.data || []).length) {
+    const hrRows = hr.length ? (await supabase.from("profiles").select("id,branch_id").in("id", hr)).data || [] : [];
+    for (const row of finalPay.data) {
+      if (hrRows.some((h) => (!h.branch_id || h.branch_id === row.branch_id) && h.id !== row.submitted_by && h.id !== row.employee_id)) continue;
+      items.push({
+        item_type: "final_pay", id: row.id, title: `Final pay · ${row.employee_name}`, detail: `Separated ${row.separated_on}`,
+        owner_name: row.employee_name, owner_id: row.employee_id, submitted_at: row.submitted_at,
+        reason: "No active HR of the employee's branch may decide it.",
+      });
+    }
+  }
   items.sort((a, b) => String(a.submitted_at || "").localeCompare(String(b.submitted_at || "")));
-  const counts = { leave: items.filter((i) => i.item_type === "leave_request").length, payroll_run: items.filter((i) => i.item_type === "payroll_run").length };
+  const counts = { leave: items.filter((i) => i.item_type === "leave_request").length, payroll_run: items.filter((i) => i.item_type === "payroll_run").length, final_pay: items.filter((i) => i.item_type === "final_pay").length };
   return { items, counts: { ...counts, total: items.length } };
 }
 
