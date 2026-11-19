@@ -1,14 +1,13 @@
 /**
- * A payslip as an A4 PDF (one page, more when long), written by hand (no
- * dependency): the portal's Content-Security-Policy allows no third-party
- * scripts, so the PDF is built on the server and downloaded.
+ * A payslip as an A4 PDF, built on the server and downloaded (the portal's
+ * Content-Security-Policy allows no third-party scripts). Since 2026-11-19 it
+ * is laid out by the shared template (src/lib/export/pdf-doc.js,
+ * @react-pdf/renderer) in the embedded Noto Sans, which has ₱ and −:
+ * deductions read −₱1,000.00, one string per amount.
  *
- * Text uses the PDF's built-in Helvetica in WinAnsi encoding, which has no
- * peso sign: amounts are drawn with a real ₱ (a "P" crossed by two strokes,
- * PdfPages.peso), deductions below zero (-₱1,000.00).
- *
- * The school seal, when given, is a JPEG embedded as it is (DCTDecode, no
- * decoding needed): public/brand/seal-payslip.jpg, read by the payroll route.
+ * The school seal, when given, is a JPEG: public/brand/seal-payslip.jpg,
+ * read by the payroll route. pdfText / textWidth below (Helvetica, WinAnsi)
+ * are kept for the BIR 2316 form (src/lib/payroll/bir-2316-pdf.js).
  */
 
 import { money } from "@/lib/payroll/payslip-summary";
@@ -16,6 +15,9 @@ import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory"
 import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
 import { payslipTables } from "@/lib/payroll/payslip-tables";
 import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
+import { pesoPdf } from "@/lib/export/pdf-text";
+import { renderPayslipDocument } from "@/lib/export/pdf-doc";
+import { periodFromLabel } from "@/lib/payroll/periods";
 
 const PAGE_W = 595;
 const PAGE_H = 842;
@@ -174,16 +176,11 @@ function semiMonthlyRows(p, m, holidayLines = []) {
   if (Number(m.carry_over_out) > 0) p.row("Balance carried to next month", m.carry_over_out);
 }
 
-const SEAL_SIZE = 40;
-
-/* ── Alpha test A8 (2026-11-09): tables, negative deductions, ₱, pages ──── */
-
-const FOOT = 40; // space kept for the footer
+/* ── The payslip (2026-11-19): a model for the shared template (src/lib/export/pdf-doc.js) ── */
 
 /**
- * Collects what the section builders (tablesRows, semiMonthlyRows,
- * holidayRows) write -- headings and rows -- so they can be drawn as tables
- * that run onto a second page. Same calls as the old single-page writer.
+ * Collects what the section builders (tablesRows, taxBoxRows, semiMonthlyRows,
+ * holidayRows) write -- headings and rows -- for the template's tables.
  */
 class SectionCollector {
   constructor() {
@@ -200,30 +197,30 @@ class SectionCollector {
   }
 }
 
-/** The one payslip layout (payslipTables, the same tables every screen shows). */
+/** The one payslip layout (payslipTables, the same rows every screen shows); Details is the formula. */
 function tablesRows(p, t) {
-  const shown = (r) => (r.text ? { amount: null, note: r.text } : { amount: r.amount, note: r.note || "" });
+  const cell = (r) => (r.text ? { amount: null, note: r.text } : { amount: r.amount, note: r.formula || r.note || "" });
   p.heading("Earnings");
   t.earnings.forEach((r) => {
-    p.row(r.label, shown(r).amount, { note: shown(r).note });
+    p.row(r.label, cell(r).amount, { note: cell(r).note });
     if (r.key === "holiday" && Number(r.amount) > 0) holidayRows(p, t.holiday_lines);
   });
   p.row("Gross pay", t.gross, { bold: true });
   if (t.incentives.length) {
     p.heading("Incentives");
-    t.incentives.forEach((r) => p.row(r.label, r.amount, { note: r.note || "" }));
+    t.incentives.forEach((r) => p.row(r.label, r.amount, { note: cell(r).note }));
   }
   p.heading("Deductions");
   // Deductions below zero; a credit (the year-end tax refund) is added to pay.
-  t.deductions.forEach((r) => p.row(r.label, shown(r).amount, { note: shown(r).note, ...(r.text ? {} : { signed: r.credit ? Math.abs(r.amount) : -Math.abs(r.amount) }) }));
-  p.row("Total deductions", t.total_deductions, { bold: true });
+  t.deductions.forEach((r) => p.row(r.label, cell(r).amount, { note: cell(r).note, ...(r.text ? {} : { signed: r.credit ? Math.abs(r.amount) : -Math.abs(r.amount) }) }));
+  p.row("Total deductions", t.total_deductions, { bold: true, signed: -Math.abs(Number(t.total_deductions) || 0) });
   if (t.notes.length) {
     p.heading("Notes");
     t.notes.forEach((n) => p.row(n, null));
   }
 }
 
-/** My Payslips' monthly tax computation (employeePayslipView tax_box). */
+/** The monthly tax computation (employeePayslipView tax_box), as on the screen. */
 function taxBoxRows(p, box) {
   const signed = (sign, amount) => (sign === "-" ? -Math.abs(Number(amount) || 0) : Math.abs(Number(amount) || 0));
   p.heading("Monthly tax computation");
@@ -234,7 +231,7 @@ function taxBoxRows(p, box) {
 }
 
 /** A section of deductions: its amounts are shown below zero. */
-const isDeductionSection = (title) => /deduction|contribution|tax/i.test(title);
+const isDeductionSection = (title) => /deduction|contribution/i.test(title);
 
 /** The sign an amount is shown with: deductions negative (a credit then shows positive). */
 function shownAmount(section, row) {
@@ -247,272 +244,82 @@ function shownAmount(section, row) {
   return n;
 }
 
-/** Word-wrap with the approximate Helvetica widths (never wider than `room`). */
-function wrapText(value, room, size) {
-  const words = String(value ?? "").split(/\s+/).filter(Boolean);
-  const lines = [];
-  let current = "";
-  for (const word of words) {
-    const next = current ? `${current} ${word}` : word;
-    if (!current || textWidth(next, size) <= room) current = next;
-    else { lines.push(current); current = word; }
-  }
-  if (current) lines.push(current);
-  return lines.length ? lines : [""];
-}
-
-class PdfPages {
-  constructor() {
-    this.pages = [];
-    this.add();
-  }
-
-  add() {
-    this.ops = [];
-    this.pages.push(this.ops);
-    this.y = PAGE_H - MARGIN;
-  }
-
-  /** Room for `height` more points on this page, or a new page. */
-  ensure(height) {
-    if (this.y - height < MARGIN + FOOT) {
-      this.add();
-      return true;
-    }
-    return false;
-  }
-
-  text(x, y, value, { size = 10, bold = false, gray = 0 } = {}) {
-    this.ops.push(`${gray} g BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(2)} ${y.toFixed(2)} Td (${pdfText(value)}) Tj ET`);
-  }
-
-  right(xRight, y, value, options = {}) {
-    this.text(xRight - textWidth(value, options.size || 10), y, value, options);
-  }
-
-  line(x1, y1, x2, y2, { width = 0.6, gray = 0.75 } = {}) {
-    this.ops.push(`${gray} G ${width} w ${x1.toFixed(2)} ${y1.toFixed(2)} m ${x2.toFixed(2)} ${y2.toFixed(2)} l S`);
-  }
-
-  fill(x, y, w, h, gray) {
-    this.ops.push(`${gray} g ${x.toFixed(2)} ${y.toFixed(2)} ${w.toFixed(2)} ${h.toFixed(2)} re f`);
-  }
-
-  image(x, y, width, height) {
-    this.ops.push(`q ${width} 0 0 ${height} ${x} ${y} cm /Im1 Do Q`);
-  }
-
-  /**
-   * An amount right-aligned at xRight with a real peso sign: Helvetica has
-   * no ₱, so a "P" is drawn and its stem is crossed by two short strokes.
-   * Negative amounts get a minus sign: -₱1,000.00.
-   */
-  peso(xRight, y, amount, { size = 10, bold = false, gray = 0 } = {}) {
-    const n = Number(amount) || 0;
-    const digits = money(Math.abs(n));
-    const sign = n < 0 ? "-" : "";
-    const text = `${sign}P${digits}`;
-    const x = xRight - textWidth(text, size);
-    this.text(x, y, text, { size, bold, gray });
-    const px = x + textWidth(sign, size);
-    const w = textWidth("P", size);
-    const stroke = bold ? 0.9 : 0.7;
-    this.ops.push(`${gray} G ${stroke} w ${(px - size * 0.08).toFixed(2)} ${(y + size * 0.6).toFixed(2)} m ${(px + w * 0.9).toFixed(2)} ${(y + size * 0.6).toFixed(2)} l S`);
-    this.ops.push(`${gray} G ${stroke} w ${(px - size * 0.08).toFixed(2)} ${(y + size * 0.45).toFixed(2)} m ${(px + w * 0.9).toFixed(2)} ${(y + size * 0.45).toFixed(2)} l S`);
-  }
-}
-
-const TABLE_W = PAGE_W - 2 * MARGIN;
-const COL_AMOUNT = 110; // the Amount column, right-aligned
-const COL_LABEL = 210;  // the Description column; the rest is the Details column
-
-/** One section as a table: Description | Details | Amount; the header repeats on a new page. */
-function drawSection(doc, section) {
-  const head = () => {
-    doc.fill(MARGIN, doc.y - 5, TABLE_W, 17, 0.92);
-    doc.text(MARGIN + 6, doc.y, section.title, { size: 9, bold: true });
-    // A long title (an Earnings heading with its dates) takes the Details column's place.
-    if (textWidth(section.title, 9) < COL_LABEL - 12) doc.text(MARGIN + COL_LABEL + 6, doc.y, "Details", { size: 8, gray: 0.35 });
-    doc.right(MARGIN + TABLE_W - 6, doc.y, "Amount", { size: 8, gray: 0.35 });
-    doc.y -= 17;
-  };
-  doc.ensure(40);
-  head();
-  for (const row of section.rows) {
-    const labelLines = wrapText(row.label, COL_LABEL - 12, 9.5);
-    const noteLines = row.note ? wrapText(row.note, TABLE_W - COL_LABEL - COL_AMOUNT - 12, 8) : [];
-    const height = Math.max(labelLines.length * 12, noteLines.length * 10) + 4;
-    if (doc.ensure(height + 4)) {
-      doc.text(MARGIN, doc.y, `${section.title} (continued)`, { size: 8, gray: 0.4 });
-      doc.y -= 14;
-      head();
-    }
-    const top = doc.y;
-    labelLines.forEach((line, i) => doc.text(MARGIN + 6, top - i * 12, line, { size: 9.5, bold: row.bold }));
-    noteLines.forEach((line, i) => doc.text(MARGIN + COL_LABEL + 6, top - i * 10, line, { size: 8, gray: 0.4 }));
-    const shown = shownAmount(section, row);
-    if (shown !== null) doc.peso(MARGIN + TABLE_W - 6, top, shown, { size: 9.5, bold: row.bold });
-    doc.y = top - height;
-    doc.line(MARGIN, doc.y + 6, MARGIN + TABLE_W, doc.y + 6, { width: 0.3, gray: 0.85 });
-  }
-  doc.y -= 8;
+/** "payslip-PS-202611-1255-2026-10-16-to-31.pdf": the payslip number and the period's dates, no spaces. */
+export function payslipFileName(entry, draft = false) {
+  const no = String(entry?.payslip_no || entry?.employee_code || "payslip").replace(/[^\w-]/g, "");
+  const period = periodFromLabel(entry?.pay_period || "");
+  const dates = period?.start_key && period?.end_key
+    ? `${period.start_key}-to-${period.end_key.slice(8)}`
+    : String(entry?.pay_period || "").trim().replace(/[^\w-]+/g, "-").replace(/^-|-$/g, "");
+  return `payslip-${no}${dates ? `-${dates}` : ""}${draft ? "-DRAFT" : ""}.pdf`;
 }
 
 /**
- * The payslip (buildPayslipDetails() in the payroll route) as PDF bytes: A4
- * portrait, header with the seal, school, branch and employee, then tables
- * (Earnings, Deductions -- negative --, contributions with their percentage
- * labels), Gross / Total deductions / Net pay, and on every page the footer
- * "System-generated payslip", the date and the page number. Every line the
- * on-screen payslip shows is here; a long payslip runs onto page 2 without
- * breaking a row. Only the employee's share ever appears (never the
- * employer's).
+ * The payslip (buildPayslipDetails() in the payroll route) as PDF bytes
+ * (async): the header (seal, school, branch, status, payslip number), the
+ * employee in a three-column grid, Earnings / Incentives / Deductions
+ * (attendance, contributions, tax, loans; negative) and on a 2nd half the
+ * monthly tax computation, on one shared Item | Details | Amount grid; the
+ * summary box (gross, total deductions, net, month total); the footer with
+ * page x of y. The rows are payslipTables(), the same the screen shows; only
+ * the employee's share ever appears.
  */
 export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NAME } = {}) {
-  const doc = new PdfPages();
   const final = details?.status === "final";
+  const status = details?.status_label || (final ? "Final" : "Draft");
   const generation = details?.generation || {};
   const summary = details?.attendance_summary || null;
   const sealInfo = jpegInfo(seal);
   const sealUsable = Boolean(sealInfo && sealInfo.width > 0 && sealInfo.height > 0 && [1, 3].includes(sealInfo.components));
   const employee = details?.employee || {};
+  const view = details?.employee_view || null;
+  const extra = view || details || {};
+  const waiting = status === "Pending HR Approval" || status === "Returned by HR";
 
-  // Header: seal, school, branch; FINAL / DRAFT and the payslip number.
-  const titleX = sealUsable ? MARGIN + SEAL_SIZE + 10 : MARGIN;
-  if (sealUsable) doc.image(MARGIN, doc.y - 16 - 12, SEAL_SIZE, SEAL_SIZE);
-  doc.text(titleX, doc.y, "Shepherd Angels Christian School", { size: 15, bold: true });
-  doc.right(PAGE_W - MARGIN, doc.y, final ? "FINAL" : "DRAFT", { size: 13, bold: true, gray: final ? 0 : 0.45 });
-  doc.y -= 16;
-  doc.text(titleX, doc.y, `${employee.branch || "Branch"} - Payslip - ${systemName(orgName)} Management System`, { size: 10, gray: 0.35 });
-  doc.right(PAGE_W - MARGIN, doc.y, `Payslip No. ${details?.payslip_no || "-"}`, { size: 9, gray: 0.35 });
-  doc.y -= 18;
-  doc.line(MARGIN, doc.y, PAGE_W - MARGIN, doc.y);
-  doc.y -= 16;
-
-  // Employee and period, in two rows of three.
-  const col = TABLE_W / 3;
-  const pair = (label, value, x) => {
-    doc.text(x, doc.y, label, { size: 8, gray: 0.45 });
-    doc.text(x, doc.y - 12, clip(value, 40), { size: 10, bold: true });
-  };
-  pair("Employee", employee.name || "-", MARGIN);
-  pair("Employee ID", employee.id || "-", MARGIN + col);
-  pair("Position", employee.position || "-", MARGIN + 2 * col);
-  doc.y -= 30;
-  pair("Pay period", details?.pay_period || "-", MARGIN);
-  pair("Pay date", details?.pay_date_label || generation.pay_date_label || generation.generated_at_label || "-", MARGIN + col);
-  pair("Status", final ? "Final (locked)" : "Draft", MARGIN + 2 * col);
-  doc.y -= 30;
-  if (Array.isArray(employee.branch_days) && employee.branch_days.length) {
-    doc.text(MARGIN, doc.y, `Days by branch: ${employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(", ")}`, { size: 9, gray: 0.35 });
-    doc.y -= 14;
-  }
-  if (!final && generation.attendance_through_label) {
-    doc.text(MARGIN, doc.y, `Includes attendance up to ${generation.attendance_through_label}.`, { size: 9, gray: 0.35 });
-    doc.y -= 14;
-  }
-  doc.y -= 4;
-
-  // The sections, exactly as the on-screen payslip lists them.
   const collected = new SectionCollector();
   const monthly = details?.monthly || null;
   const earnings = details?.earnings || {};
-  const view = details?.employee_view || null;
   const tables = payslipTables(view ? { ...details, line_groups: view } : details);
   if (tables) tablesRows(collected, tables);
   else semiMonthlyRows(collected, monthly, details?.holiday_lines);
-  if (view?.tax_box) taxBoxRows(collected, view.tax_box);
-  collected.sections.filter((s) => s.rows.length).forEach((section) => drawSection(doc, section));
+  if (extra.tax_box) taxBoxRows(collected, extra.tax_box);
+  const sections = collected.sections.filter((s) => s.rows.length).map((s) => (s.title === "Notes"
+    ? { kind: "notes", title: s.title, rows: s.rows }
+    : {
+      title: s.title,
+      rows: s.rows.map((r) => {
+        const shown = shownAmount(s, r);
+        return { label: r.label, details: r.note || "", amount: shown === null ? null : pesoPdf(shown), bold: r.bold };
+      }),
+    }));
 
-  if (summary) {
-    doc.ensure(44);
-    doc.text(MARGIN, doc.y, "ATTENDANCE SUMMARY", { size: 9, bold: true, gray: 0.35 });
-    doc.y -= 14;
-    const items = [["Days present", summary.days_present], ["Days absent", summary.days_absent], ["Half days", summary.half_days],
-      ["Late minutes", summary.late_minutes], ["Undertime minutes", summary.undertime_minutes], ["Leave days", summary.leave_days]];
-    const cell = TABLE_W / 6;
-    items.forEach(([label, value], index) => {
-      doc.text(MARGIN + index * cell, doc.y, label, { size: 8, gray: 0.45 });
-      doc.text(MARGIN + index * cell, doc.y - 13, String(value ?? 0), { size: 11, bold: true });
-    });
-    doc.y -= 34;
-  }
-
-  // Gross, total deductions (negative), net pay.
-  doc.ensure(70);
   const gross = Number(tables ? tables.gross : view ? view.gross : details?.gross_pay ?? monthly?.cutoff?.gross_pay ?? earnings.gross_pay ?? 0);
   const totalDeductions = Number(tables ? tables.total_deductions : view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
-  doc.fill(MARGIN, doc.y - 46, TABLE_W, 58, 0.95);
-  doc.text(MARGIN + 8, doc.y, "Gross pay", { size: 10 });
-  doc.peso(MARGIN + TABLE_W - 8, doc.y, gross, { size: 10 });
-  doc.y -= 14;
-  doc.text(MARGIN + 8, doc.y, "Total deductions", { size: 10 });
-  doc.peso(MARGIN + TABLE_W - 8, doc.y, -Math.abs(totalDeductions), { size: 10 });
-  doc.y -= 18;
-  doc.text(MARGIN + 8, doc.y, view ? view.net_label.toUpperCase() : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1ST" : "2ND"} HALF NET PAY` : "NET PAY", { size: 12, bold: true });
-  doc.peso(MARGIN + TABLE_W - 8, doc.y, details?.net_pay || 0, { size: 14, bold: true });
-  doc.y -= 26;
-  if (view?.month_total) { doc.ensure(14); doc.text(MARGIN, doc.y, view.month_total.label, { size: 9, bold: true }); doc.y -= 14; }
-  const by = generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : "";
-  if (by) { doc.ensure(14); doc.text(MARGIN, doc.y, by, { size: 8, gray: 0.45 }); doc.y -= 12; }
-  doc.ensure(12);
-  doc.text(MARGIN, doc.y, "Computed from attendance records (corrected values where HR / Admin corrected a day). Employee share only.", { size: 7, gray: 0.55 });
+  const netLabel = view ? view.net_label : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1st" : "2nd"} Half Net Pay` : "Net Pay";
+  const stamp = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
 
-  // Footer on every page: system-generated, the date, page n of N.
-  const stamp = new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
-  doc.pages.forEach((ops, i) => {
-    ops.push(`0.8 G 0.5 w ${MARGIN} ${MARGIN + 14} m ${PAGE_W - MARGIN} ${MARGIN + 14} l S`);
-    ops.push(`0.45 g BT /F1 7.5 Tf ${MARGIN} ${MARGIN} Td (${pdfText(`System-generated payslip - Generated ${stamp}`)}) Tj ET`);
-    const pageText = `Page ${i + 1} of ${doc.pages.length}`;
-    ops.push(`0.45 g BT /F1 7.5 Tf ${(PAGE_W - MARGIN - textWidth(pageText, 7.5)).toFixed(2)} ${MARGIN} Td (${pdfText(pageText)}) Tj ET`);
+  return renderPayslipDocument({
+    seal: sealUsable ? seal : null,
+    status,
+    payslipNo: details?.payslip_no,
+    subtitle: `${employee.branch || "Branch"} - Payslip - ${systemName(orgName)} Management System`,
+    grid: [
+      [["Employee", employee.name], ["Employee ID", employee.id], ["Position / Branch", [employee.position, employee.branch].filter(Boolean).join(" · ")]],
+      [["Pay period", details?.pay_period], ["Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")], ["Status", status]],
+    ],
+    lines: [
+      Array.isArray(employee.branch_days) && employee.branch_days.length ? `Days by branch: ${employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(", ")}` : null,
+      !final && generation.attendance_through_label ? `Includes attendance up to ${generation.attendance_through_label}.` : null,
+    ].filter(Boolean),
+    stats: summary ? [["Days present", summary.days_present], ["Days absent", summary.days_absent], ["Half days", summary.half_days],
+      ["Late minutes", summary.late_minutes], ["Undertime minutes", summary.undertime_minutes], ["Leave days", summary.leave_days]] : null,
+    sections,
+    summary: {
+      rows: [["Gross pay", pesoPdf(gross)], ["Total deductions", pesoPdf(-Math.abs(totalDeductions))]],
+      net: [netLabel.toUpperCase(), pesoPdf(details?.net_pay || 0)],
+      monthTotal: extra.month_total?.label || null,
+      by: generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : null,
+    },
+    footer: ["Employee share only. Attendance includes HR-approved corrections.", `Generated ${stamp} by ${systemName(orgName)}`],
   });
-
-  return writePdf(doc.pages, sealUsable ? { seal, sealInfo } : null);
-}
-
-/** The pages as PDF bytes (Helvetica, Helvetica-Bold, an optional JPEG seal on page 1). */
-function writePdf(pages, image) {
-  const pageCount = pages.length;
-  const fontRegular = 3 + pageCount * 2;
-  const fontBold = fontRegular + 1;
-  const imageObj = image ? fontBold + 1 : null;
-  const objects = [];
-  objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
-  objects[2] = `<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + i * 2} 0 R`).join(" ")}] /Count ${pageCount} >>`;
-  const streams = {};
-  pages.forEach((ops, i) => {
-    const pageObj = 3 + i * 2;
-    const contentObj = pageObj + 1;
-    objects[pageObj] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] /Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >>${image && i === 0 ? ` /XObject << /Im1 ${imageObj} 0 R >>` : ""} >> /Contents ${contentObj} 0 R >>`;
-    streams[contentObj] = Buffer.from(ops.join("\n"), "latin1");
-  });
-  objects[fontRegular] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
-  objects[fontBold] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
-
-  const chunks = [Buffer.from("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n", "latin1")];
-  const offsets = [];
-  let length = chunks[0].length;
-  const push = (buffer) => { chunks.push(buffer); length += buffer.length; };
-  const last = imageObj || fontBold;
-  for (let n = 1; n <= last; n += 1) {
-    offsets[n] = length;
-    if (streams[n]) {
-      push(Buffer.concat([Buffer.from(`${n} 0 obj\n<< /Length ${streams[n].length} >>\nstream\n`, "latin1"), streams[n], Buffer.from("\nendstream\nendobj\n", "latin1")]));
-    } else if (n === imageObj) {
-      const colorSpace = image.sealInfo.components === 1 ? "/DeviceGray" : "/DeviceRGB";
-      push(Buffer.concat([
-        Buffer.from(`${n} 0 obj\n<< /Type /XObject /Subtype /Image /Width ${image.sealInfo.width} /Height ${image.sealInfo.height} /ColorSpace ${colorSpace} /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.seal.length} >>\nstream\n`, "latin1"),
-        image.seal,
-        Buffer.from("\nendstream\nendobj\n", "latin1"),
-      ]));
-    } else {
-      push(Buffer.from(`${n} 0 obj\n${objects[n]}\nendobj\n`, "latin1"));
-    }
-  }
-  const xrefAt = length;
-  const xref = ["xref", `0 ${last + 1}`, "0000000000 65535 f "]
-    .concat(offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n `))
-    .join("\n");
-  push(Buffer.from(`${xref}\ntrailer\n<< /Size ${last + 1} /Root 1 0 R >>\nstartxref\n${xrefAt}\n%%EOF\n`, "latin1"));
-  return Buffer.concat(chunks);
 }

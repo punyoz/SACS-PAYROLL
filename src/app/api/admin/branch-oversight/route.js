@@ -388,8 +388,8 @@ async function reportsView(supabase, branchId, staff, url) {
   };
 }
 
-function reportPdf(report, branchName) {
-  const pdf = buildTablePdf({
+async function reportPdf(report, branchName) {
+  const pdf = await buildTablePdf({
     title: `Branch Report — ${branchName}`,
     subtitle: `${formatDateKey(report.from)} to ${formatDateKey(report.to)}`,
     summary: [
@@ -450,7 +450,7 @@ export async function GET(request) {
     if (view === "attendance") {
       const data = await attendanceView(supabase, branchId, staff, url);
       if (!fileFormat) return NextResponse.json(data);
-      return reportResponse({
+      return await reportResponse({
         format: fileFormat, fileName: `branch-attendance-${data.from}-to-${data.to}`,
         title: "Branch attendance", branch: await branchLabel(), period: `${formatDateKey(data.from)} to ${formatDateKey(data.to)}`,
         columns: [{ header: "Employee" }, { header: "Employee ID" }, { header: "Date" }, { header: "Time in" }, { header: "Time out" },
@@ -465,7 +465,7 @@ export async function GET(request) {
       const data = await payrollView(supabase, branchId);
       if (!fileFormat) return NextResponse.json(data);
       // Run totals only, never an employee's figures (the Admin stays read-only).
-      return reportResponse({
+      return await reportResponse({
         format: fileFormat, fileName: "branch-payroll-summary", title: "Payroll summary", branch: await branchLabel(),
         period: "Approved payroll periods", totals: true,
         columns: [{ header: "Period" }, { header: "Cutoff" }, { header: "Employees", kind: "number", integer: true }, { header: "Total gross", kind: "money" },
@@ -483,7 +483,7 @@ export async function GET(request) {
       const report = await reportsView(supabase, branchId, staff, url);
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
         const branch = await supabase.from("branches").select("name").eq("id", branchId).maybeSingle();
-        return reportPdf(report, branch.data?.name || "Branch");
+        return await reportPdf(report, branch.data?.name || "Branch");
       }
       return NextResponse.json(report);
     }
@@ -493,7 +493,7 @@ export async function GET(request) {
       if (error) return NextResponse.json({ available: false, error, requests: [] });
       if (fileFormat && kinds.length === 1 && kinds[0] === "incentive_endorsement") {
         const shaped = rows.filter(notDemo(demoIds)).map((r) => shapeRequest(r));
-        return reportResponse({
+        return await reportResponse({
           format: fileFormat, fileName: "branch-incentive-recommendations", title: "Incentive recommendations", branch: await branchLabel(),
           period: "All recommendations",
           columns: [{ header: "Employee" }, { header: "Kind" }, { header: "Amount", kind: "money" }, { header: "Hours", kind: "number" },

@@ -11,6 +11,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, setMissingTables, table, users } from "./helpers/fake-supabase.js";
 import { hireProration, paidDaysBetween } from "@/lib/payroll/semi-monthly";
+import { readPdf } from "./helpers/pdf-read";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -179,9 +180,9 @@ describe("Worked example 7.6: new hires in October 2026", () => {
       headers: { cookie: `${SESSION_COOKIE}=${token}` },
     }));
     expect(pdf.status).toBe(200);
-    const text = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+    const { text } = await readPdf(Buffer.from(await pdf.arrayBuffer()));
     // One payslip layout for every role (2026-11-18): the basic line names the hire date, its detail the days.
-    expect(text).toContain("Basic pay \\(from the hire date\\)"); // PDF string escapes
+    expect(text).toContain("Basic pay (from the hire date)");
     expect(text).toContain("Hired Oct 20, 2026: 9 days");
   });
 });

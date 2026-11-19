@@ -17,6 +17,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, rpc, table, users } from "./helpers/fake-supabase.js";
+import { readPdf } from "./helpers/pdf-read";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -356,8 +357,8 @@ describe("Draft, regenerate, Final", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("application/pdf");
     const bytes = Buffer.from(await response.arrayBuffer());
-    expect(bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
-    expect(bytes.toString("latin1")).toContain("Emma Employee");
+    expect(bytes.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+    expect((await readPdf(bytes)).text).toContain("Emma Employee");
   });
 });
 

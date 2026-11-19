@@ -81,7 +81,7 @@ export async function GET(request) {
       if (wantsFile(url)) {
         const branchFilter = url.searchParams.get("branch_id");
         const shown = attendanceRecords.filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
-        return reportResponse({
+        return await reportResponse({
           format: wantsFile(url), fileName: `attendance-report-${from || "start"}-to-${to}`, title: "Attendance report",
           branch: branchFilter && branchFilter !== "all" ? shown[0]?.branch_name || "Branch" : "All branches",
           period: `${from || "Start of records"} to ${to}`, totals: true,
@@ -145,7 +145,7 @@ export async function GET(request) {
       if (wantsFile(url)) {
         const branchFilter = url.searchParams.get("branch_id");
         const shown = employees.filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
-        return reportResponse({
+        return await reportResponse({
           format: wantsFile(url), fileName: "employee-records", title: "Employee records",
           branch: branchFilter && branchFilter !== "all" ? shown[0]?.branch_name || "Branch" : "All branches",
           period: `As of ${to}`,

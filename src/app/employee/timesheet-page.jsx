@@ -132,7 +132,8 @@ export function TimesheetPage() {
     const csv = [HEADERS, ...rows.map(rowCells)]
       .map((row) => row.map((v) => `"${csvText(v).replace(/"/g, '""')}"`).join(","))
       .join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    // UTF-8 with a BOM, so Excel opens ñ (e.g. "Garaña") as it is.
+    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = `timesheet_${name}_${start}_${end}.csv`;

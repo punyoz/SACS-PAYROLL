@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { buildPayslipPdf, jpegInfo } from "@/lib/payroll/payslip-pdf";
+import { readPdf } from "./helpers/pdf-read";
 
 /**
  * The school seal on payslip PDFs (approved Oct 10, 2026): the JPEG at
@@ -25,20 +26,24 @@ describe("payslip PDF seal", () => {
     expect(jpegInfo(null)).toBeNull();
   });
 
-  it("embeds the seal as an image beside the school name", () => {
-    const pdf = buildPayslipPdf(details, { seal });
+  it("embeds the seal as an image beside the school name", async () => {
+    const pdf = Buffer.from(await buildPayslipPdf(details, { seal }));
     const text = pdf.toString("latin1");
-    expect(text).toContain("/XObject << /Im1 7 0 R >>");
-    expect(text).toContain("/Subtype /Image /Width 300 /Height 300 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode");
-    expect(text).toMatch(/q 40 0 0 40 48 \d+ cm \/Im1 Do Q/);
+    // The JPEG is embedded as it is (DCTDecode), 300 x 300, drawn once on the page (2026-11-19: by the shared template).
+    expect(text).toMatch(/\/Subtype \/Image/);
+    expect(text).toMatch(/\/Width 300/);
+    expect(text).toMatch(/\/Height 300/);
+    expect(text).toMatch(/\/Filter \/DCTDecode/);
     expect(pdf.includes(seal)).toBe(true);
-    // The cross-reference table lists all 7 objects.
-    expect(text).toMatch(/xref\n0 8\n/);
+    const { pages } = await readPdf(pdf);
+    expect(pages[0].images).toBe(1);
   });
 
-  it("without a seal (or with an unusable file) the PDF is the text-only one", () => {
-    const plain = buildPayslipPdf(details);
-    expect(plain.toString("latin1")).not.toContain("/Im1");
-    expect(buildPayslipPdf(details, { seal: Buffer.from("png?") }).equals(plain)).toBe(true);
+  it("without a seal (or with an unusable file) the PDF is the text-only one", async () => {
+    const plain = await readPdf(await buildPayslipPdf(details));
+    expect(plain.pages[0].images).toBe(0);
+    const unusable = await readPdf(await buildPayslipPdf(details, { seal: Buffer.from("png?") }));
+    expect(unusable.pages[0].images).toBe(0);
+    expect(unusable.text).toBe(plain.text);
   });
 });

@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { resetDb, table, users } from "./helpers/fake-supabase.js";
 import { RUN_STATUS_LABELS } from "@/lib/payroll/runs";
 import { recordStatusMeta, statusMeta } from "@/lib/portal/payroll-preview";
+import { readPdf } from "./helpers/pdf-read";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
@@ -147,8 +148,8 @@ describe("Organization name (System Configuration)", () => {
 
     const { buildPayslipPdf } = await import("@/lib/payroll/payslip-pdf");
     const details = { status: "final", payslip_no: "PS-1", pay_period: "October 1-15, 2026", employee: { name: "Ana", id: "1", branch: "Main", position: "Teacher" }, net_pay: 1 };
-    expect(buildPayslipPdf(details, { orgName: "SAC Antipolo" }).toString("latin1")).toContain("Payslip - SAC Antipolo Payroll Management System");
-    expect(buildPayslipPdf(details).toString("latin1")).toContain("Payslip - SACS Payroll Management System");
+    expect((await readPdf(await buildPayslipPdf(details, { orgName: "SAC Antipolo" }))).text).toContain("Payslip - SAC Antipolo Payroll Management System");
+    expect((await readPdf(await buildPayslipPdf(details))).text).toContain("Payslip - SACS Payroll Management System");
   });
 
   it("reaches every portal's header through /api/rbac/me", async () => {

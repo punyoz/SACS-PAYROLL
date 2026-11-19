@@ -48,7 +48,11 @@ const nextConfig = {
     // The seal on payslip PDFs (src/app/api/accountant/payroll/route.js).
     "/api/accountant/payroll": ["./public/brand/seal-payslip.jpg"],
     "/api/hr/payroll-records": ["./public/brand/seal-payslip.jpg"],
+    // The one font every PDF embeds (src/lib/export/pdf-text.js), read from disk by every route that makes a PDF.
+    "/api/**": ["./public/fonts/*.ttf"],
   },
+  // @react-pdf/renderer (the PDF template, src/lib/export/pdf-doc.js) runs as plain Node on the server, not bundled.
+  serverExternalPackages: ["@react-pdf/renderer"],
   async headers() {
     return [
       {

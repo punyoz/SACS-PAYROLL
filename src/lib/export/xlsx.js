@@ -8,7 +8,9 @@
  *   → Buffer
  *
  * A cell that is a finite number is written as a number (formatted
- * "#,##0.00" unless the column says `integer`); anything else as text.
+ * "#,##0.00", "₱#,##0.00" for a `money` column, whole for `integer`); a
+ * { f, v } cell as a formula; anything else as text. A sheet's `title`
+ * lines sit above its frozen header row.
  */
 
 import { deflateRawSync } from "node:zlib";
@@ -97,21 +99,39 @@ function columnName(index) {
   return name;
 }
 
-function sheetXml({ columns = [], rows = [] }) {
+/** Escaped for an attribute or text node. */
+const formulaText = (value) => escapeXml(String(value).replace(/^=/, ""));
+
+/**
+ * One sheet. `title` (optional) is a few lines above the table (the report,
+ * branch, period, filters), the first in bold; the table's header row is
+ * frozen under them. A column with `money` is shown in pesos (₱#,##0.00); a
+ * cell { f: "SUM(B5:B9)", v: 123 } is a formula with its value cached.
+ */
+function sheetXml({ columns = [], rows = [], title = [] }) {
   const cols = columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width || 14}" customWidth="1"/>`).join("");
+  const style = (column) => (column?.money ? 4 : column?.integer ? 3 : 2);
   const cell = (value, ref, header, column) => {
     if (header) return `<c r="${ref}" t="inlineStr" s="1"><is><t>${escapeXml(value)}</t></is></c>`;
-    if (typeof value === "number" && Number.isFinite(value)) return `<c r="${ref}" s="${column?.integer ? 3 : 2}"><v>${value}</v></c>`;
+    if (value && typeof value === "object" && value.f) {
+      return `<c r="${ref}" s="${style(column)}"><f>${formulaText(value.f)}</f>${Number.isFinite(value.v) ? `<v>${value.v}</v>` : ""}</c>`;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) return `<c r="${ref}" s="${style(column)}"><v>${value}</v></c>`;
     if (value === null || value === undefined || value === "") return "";
     return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
   };
+  const top = title.map((text, r) => `<row r="${r + 1}"><c r="A${r + 1}" t="inlineStr"${r === 0 ? ' s="1"' : ""}><is><t xml:space="preserve">${escapeXml(text)}</t></is></c></row>`).join("");
+  const offset = title.length ? title.length + 1 : 0; // a blank row between the title and the table
   const all = [columns.map((c) => c.header), ...rows];
-  const body = all.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => cell(value, `${columnName(c)}${r + 1}`, r === 0, columns[c])).join("")}</row>`).join("");
+  const body = all.map((row, r) => `<row r="${r + 1 + offset}">${row.map((value, c) => cell(value, `${columnName(c)}${r + 1 + offset}`, r === 0, columns[c])).join("")}</row>`).join("");
+  const frozen = offset + 1;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${body}</sheetData></worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="${frozen}" topLeftCell="A${frozen + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${top}${body}</sheetData></worksheet>`;
 }
 
-/** @param {Array<{ name: string, columns: Array<{ header: string, width?: number, integer?: boolean }>, rows: Array<Array<string|number|null>> }>} sheets */
+/** The Excel column letter(s) for a 0-based index ("A", "AB"). */
+export { columnName };
+
 export function buildXlsx(sheets) {
   const list = sheets.length ? sheets : [{ name: "Sheet1", columns: [], rows: [] }];
   const safeName = (name, i) => escapeXml(String(name || `Sheet${i + 1}`).replace(/[\\/?*[\]:]/g, " ").slice(0, 31));
@@ -139,7 +159,7 @@ export function buildXlsx(sheets) {
     {
       name: "xl/styles.xml",
       data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="4"><xf/><xf fontId="1" applyFont="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="1" applyNumberFormat="1"/></cellXfs></styleSheet>`,
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0.00"/><numFmt numFmtId="165" formatCode="&quot;₱&quot;#,##0.00;-&quot;₱&quot;#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="5"><xf/><xf fontId="1" applyFont="1"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="1" applyNumberFormat="1"/><xf numFmtId="165" applyNumberFormat="1"/></cellXfs></styleSheet>`,
     },
     ...list.map((sheet, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(sheet) })),
   ];

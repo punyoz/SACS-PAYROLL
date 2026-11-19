@@ -16,7 +16,7 @@ import { loadPayslipSchedule } from "@/lib/payroll/schedule";
 import { loadLoanContext, scheduleLoans } from "@/lib/payroll/loans";
 import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from "@/lib/payroll/teacher-subsidy";
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
-import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
+import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 import {
@@ -373,6 +373,8 @@ function normalizePayrollEntry(row) {
     run_id: row.run_id || null,
     payslip_no: normalizeText(row.payslip_no) || null,
     submitted_at: row.submitted_at || null,
+    // When HR approved the run: the payslip's pay date (display only).
+    approved_at: row.approved_at || null,
     created_at: row.created_at || new Date().toISOString(),
     updated_at: row.updated_at || row.created_at || new Date().toISOString(),
     payroll: {
@@ -3915,9 +3917,13 @@ export async function GET(request) {
       if (!entry || (!guard.branchExempt && !visible.has(entry.employee_id))) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
-      const details = buildPayslipDetails(await withBranchName(supabase, entry));
-      const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
-      const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "draft").replace(/[^\w-]/g, "")}-${entry.pay_period.replace(/[^\w-]+/g, "-")}${details.status === "draft" ? "-DRAFT" : ""}.pdf`;
+      // The run's status only tells Pending HR Approval from Returned by HR on the PDF.
+      const runStatus = entry.run_id && !entry.approved_at
+        ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data?.status || null
+        : null;
+      const details = buildPayslipDetails(await withBranchName(supabase, entry), { taxRows: await loadTaxBracketRows(supabase), runStatus });
+      const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
+      const fileName = payslipFileName(entry, details.status === "draft");
       return new NextResponse(pdf, {
         status: 200,
         headers: {
@@ -4019,7 +4025,7 @@ export async function GET(request) {
       const rows = historyRecords.filter(notDemo(demo));
       const q = normalizeText(url.searchParams.get("q")).toLowerCase();
       const shown = q ? rows.filter((r) => `${r.employee_name} ${r.pay_period}`.toLowerCase().includes(q)) : rows;
-      return reportResponse({
+      return await reportResponse({
         format: wantsFile(url), fileName: `payroll-records-${historyParam}`, title: "Payroll records",
         branch: guard.branchExempt ? "All branches" : "Own branch",
         period: historyParam === "recent" ? "Last 12 months" : historyParam, totals: true,

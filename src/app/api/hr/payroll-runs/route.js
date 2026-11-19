@@ -35,7 +35,8 @@ import { claimView, claimsFor, refuseClaimedByOther } from "@/lib/rbac/routing";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { shapeWinner } from "@/lib/payroll/early-bird";
 import { money } from "@/lib/payroll/payslip-summary";
-import { buildXlsx } from "@/lib/export/xlsx";
+import { buildXlsx, columnName } from "@/lib/export/xlsx";
+import { pesoPdf } from "@/lib/export/pdf-text";
 import { buildTablePdf } from "@/lib/export/table-pdf";
 import { FLAG_LABELS, RUN_STATUS_LABELS, describeRunError, runTotals, shapeRun } from "@/lib/payroll/runs";
 import { payrollLineGroups } from "@/lib/payroll/line-tags";
@@ -282,7 +283,7 @@ const COLUMNS = [
   { header: "Attention", key: "flags", width: 90 },
 ];
 
-function exportFile(detail, format) {
+async function exportFile(detail, format) {
   const { run, items } = detail;
   const name = `payroll-${String(run.branch_name || "branch").replace(/[^\w-]+/g, "-")}-${run.period_label.replace(/[^\w-]+/g, "-")}`;
   const flagText = (flags) => flags.map((f) => FLAG_LABELS[f] || f).join("; ");
@@ -297,13 +298,19 @@ function exportFile(detail, format) {
       ...(item.breakdown?.cutoff?.deductions || []).map((line) => [item.employee_name, "Deduction", line.label, line.note || "", line.credit ? -line.amount : line.amount]),
       ...(!item.breakdown?.cutoff ? (item.breakdown?.lines?.deductions || []).map((line) => [item.employee_name, "Deduction", line.type, `${line.quantity ?? ""} ${line.unit ?? ""} × ${line.rate ?? ""}`.trim(), Number(line.amount) || 0]) : []),
     ]);
+    // The run above the table; ₱ money columns; the totals as SUM formulas (2026-11-19).
+    const title = [`Processed payroll — ${run.branch_name || "Branch"}`, `${run.period_label} · ${RUN_STATUS_LABELS[run.status] || run.status}`, `${items.length} employee${items.length === 1 ? "" : "s"}`];
+    const firstRow = title.length + 3;
+    const lastRow = firstRow + rows.length - 1;
+    const totals = totalsRow.map((v, i) => (COLUMNS[i].money && rows.length ? { f: `SUM(${columnName(i)}${firstRow}:${columnName(i)}${lastRow})`, v } : v));
     const file = buildXlsx([
       {
         name: "Payroll",
-        columns: COLUMNS.map((c) => ({ header: c.header, width: Math.round(c.width / 5) + 4, integer: c.key === "days_worked" })),
-        rows: [...rows, totalsRow],
+        title,
+        columns: COLUMNS.map((c) => ({ header: c.header, width: Math.round(c.width / 5) + 4, integer: c.key === "days_worked", money: c.money })),
+        rows: [...rows, totals],
       },
-      { name: "Lines", columns: [{ header: "Employee", width: 28 }, { header: "Kind", width: 11 }, { header: "Line", width: 30 }, { header: "How computed", width: 50 }, { header: "Amount", width: 14 }], rows: detailRows },
+      { name: "Lines", columns: [{ header: "Employee", width: 28 }, { header: "Kind", width: 11 }, { header: "Line", width: 30 }, { header: "How computed", width: 50 }, { header: "Amount", width: 14, money: true }], rows: detailRows },
       {
         name: "Summary",
         columns: [{ header: "Item", width: 24 }, { header: "Value", width: 40 }],
@@ -322,15 +329,16 @@ function exportFile(detail, format) {
       },
     });
   }
-  const pdf = buildTablePdf({
+  const pdf = await buildTablePdf({
     title: `Payroll — ${run.branch_name || "Branch"}, ${run.period_label}`,
     subtitle: `${run.cutoff_type === "first" ? "1st cutoff: attendance deductions only" : "2nd cutoff: all deductions"} · ${RUN_STATUS_LABELS[run.status]} · submitted by ${run.submitted_by_name || "—"}`,
-    summary: [["Employees", String(run.totals.employees)], ["Total gross", `PHP ${money(run.totals.gross)}`],
-      ["Total deductions", `PHP ${money(run.totals.deductions)}`], ["Total net pay", `PHP ${money(run.totals.net)}`]],
+    summary: [["Employees", String(run.totals.employees)], ["Total gross", pesoPdf(run.totals.gross)],
+      ["Total deductions", pesoPdf(run.totals.deductions)], ["Total net pay", pesoPdf(run.totals.net)]],
     columns: COLUMNS.map((c) => ({ header: c.header, width: c.width, align: c.align })),
     rows: [
-      ...items.map((item) => COLUMNS.map((c) => (c.key === "flags" ? flagText(item.flags) : c.money ? money(item[c.key]) : String(item[c.key] ?? "")))),
-      { bold: true, cells: totalsRow.map((value, i) => (COLUMNS[i]?.money ? money(value) : String(value ?? ""))) },
+      // ₱ amounts, one format with every other PDF (2026-11-19).
+      ...items.map((item) => COLUMNS.map((c) => (c.key === "flags" ? flagText(item.flags) : c.money ? pesoPdf(item[c.key]) : String(item[c.key] ?? "")))),
+      { bold: true, cells: totalsRow.map((value, i) => (COLUMNS[i]?.money ? pesoPdf(value) : String(value ?? ""))) },
     ],
     footer: `SACS Payroll · snapshot ${run.submission_no} · ${new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila" })}`,
   });
@@ -374,9 +382,9 @@ export async function GET(request) {
         // with none in the run the file is exactly as before.
         const demo = await loadDemoIds(supabase);
         const items = (detail.items || []).filter(notDemo(demo));
-        if (items.length === (detail.items || []).length) return exportFile(detail, format);
+        if (items.length === (detail.items || []).length) return await exportFile(detail, format);
         const totals = { ...detail.run.totals, employees: items.length, gross: sum(items, "gross_pay"), deductions: sum(items, "total_deductions"), net: sum(items, "net_pay") };
-        return exportFile({ ...detail, items, run: { ...detail.run, totals } }, format);
+        return await exportFile({ ...detail, items, run: { ...detail.run, totals } }, format);
       }
       return NextResponse.json(detail);
     }
@@ -441,7 +449,7 @@ export async function GET(request) {
     // run totals only. Per-employee figures stay in each run's own export.
     const listFormat = wantsFile(url);
     if (listFormat) {
-      return reportResponse({
+      return await reportResponse({
         format: listFormat, fileName: `payroll-runs-${status}`, title: "Processed payroll",
         branch: branchId ? runs[0]?.branch_name || "Branch" : "All branches",
         period: period || "All periods", totals: true,

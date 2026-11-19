@@ -29,7 +29,8 @@ import { RemittanceCard } from "@/components/portal/remittance-report";
 function downloadQuotedCsv(filename, headers, rows) {
   const text = (v) => { const s = String(v ?? ""); return /^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s) ? `'${s}` : s; };
   const csv = [headers, ...rows].map((row) => row.map((v) => `"${text(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  // UTF-8 with a BOM, so Excel opens ₱ and ñ as they are.
+  const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;

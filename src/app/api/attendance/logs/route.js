@@ -278,7 +278,7 @@ export async function GET(request) {
       // Demo people never reach an export (is_demo, 2026-11-08).
       const demoIds = await loadDemoIds(supabase);
       const clock = (v) => (v ? new Date(v).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" }) : "");
-      return reportResponse({
+      return await reportResponse({
         format: fileFormat, fileName: `attendance-${range.from}-to-${range.to}`, title: "Attendance",
         branch: guard.branchExempt && !normalizeText(url.searchParams.get("branch_id")) ? "All branches" : (labelled[0]?.branch_name || "Branch"),
         period: `${range.from} to ${range.to}`,

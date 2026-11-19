@@ -20,6 +20,8 @@ import { NextResponse } from "next/server";
 import { buildTablePdf } from "@/lib/export/table-pdf";
 import { buildXlsx } from "@/lib/export/xlsx";
 import { roundPeso } from "@/lib/payroll/money";
+import { pesoPdf } from "@/lib/export/pdf-text";
+import { columnName } from "@/lib/export/xlsx";
 
 export const SCHOOL_NAME = "Shepherd Angels Christian School";
 
@@ -52,7 +54,7 @@ function stamp() {
   return new Date().toLocaleString("en-PH", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
 }
 
-export function buildReport({ format, title, branch = "All branches", period = "", filters = [], columns, rows, totals = false }) {
+export async function buildReport({ format, title, branch = "All branches", period = "", filters = [], columns, rows, totals = false }) {
   const body = rows.map((r) => columns.map((c, i) => (isAmount(c.kind) ? signed(r[i], c.kind) : r[i] ?? "")));
   const all = totals && body.length ? [...body, totalsRow(columns, body)] : body;
   const generated = stamp();
@@ -60,7 +62,8 @@ export function buildReport({ format, title, branch = "All branches", period = "
 
   if (format === "pdf") {
     return buildTablePdf({
-      title: `${SCHOOL_NAME} — ${title}`,
+      // The school is the PDF's first line already (table-pdf.js); the title is the report.
+      title,
       subtitle: [branch, period].filter(Boolean).join(" · "),
       summary: [
         ...(filterText ? [["Filters", filterText]] : []),
@@ -68,16 +71,25 @@ export function buildReport({ format, title, branch = "All branches", period = "
         ["Generated", generated],
       ],
       columns: columns.map((c) => ({ header: c.header, align: isNumeric(c.kind) ? "right" : undefined })),
-      rows: all.map((r) => r.map((v, i) => (isAmount(columns[i].kind) && v !== "" ? pesoText(v) : String(v ?? "")))),
+      // The totals row in bold.
+      rows: all.map((r, n) => ({ cells: r.map((v, i) => (isAmount(columns[i].kind) && v !== "" ? pesoPdf(v) : String(v ?? ""))), bold: totals && body.length > 0 && n === all.length - 1 })),
       footer: `System-generated report · ${SCHOOL_NAME} · ${generated}`,
     });
   }
 
+  // Excel: the title, branch, period and filters above the table; totals as SUM formulas.
+  const titleLines = [`${SCHOOL_NAME} — ${title}`, [branch, period].filter(Boolean).join(" · "), filterText ? `Filters: ${filterText}` : "", `${rows.length} record${rows.length === 1 ? "" : "s"} · Generated ${generated}`].filter(Boolean);
+  const firstRow = titleLines.length + 3; // title lines, a blank row, the header row
+  const lastRow = firstRow + body.length - 1;
+  const xlsxRows = totals && body.length
+    ? [...body, totalsRow(columns, body).map((v, i) => (i > 0 && isNumeric(columns[i].kind) ? { f: `SUM(${columnName(i)}${firstRow}:${columnName(i)}${lastRow})`, v } : v))]
+    : body;
   return buildXlsx([
     {
       name: title.slice(0, 31),
-      columns: columns.map((c) => ({ header: c.kind === "deduction" ? `${c.header} (−)` : c.header, width: c.width || (isNumeric(c.kind) ? 14 : 22), integer: c.kind === "number" && c.integer })),
-      rows: all,
+      title: titleLines,
+      columns: columns.map((c) => ({ header: c.kind === "deduction" ? `${c.header} (−)` : c.header, width: c.width || (isNumeric(c.kind) ? 14 : 22), integer: c.kind === "number" && c.integer, money: isAmount(c.kind) })),
+      rows: xlsxRows,
     },
     {
       name: "About this report",
@@ -92,9 +104,9 @@ export function buildReport({ format, title, branch = "All branches", period = "
 }
 
 /** The file as a download response. */
-export function reportResponse({ format, fileName, ...report }) {
+export async function reportResponse({ format, fileName, ...report }) {
   const kind = format === "pdf" ? "pdf" : "xlsx";
-  const file = buildReport({ ...report, format: kind });
+  const file = await buildReport({ ...report, format: kind });
   return new NextResponse(file, {
     status: 200,
     headers: {

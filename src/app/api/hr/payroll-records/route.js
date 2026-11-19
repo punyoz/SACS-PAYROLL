@@ -20,7 +20,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { floorNetPay } from "@/lib/payroll/net-pay";
-import { buildPayslipPdf } from "@/lib/payroll/payslip-pdf";
+import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 
@@ -95,13 +95,13 @@ export async function GET(request) {
       }
       if (!entry) return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       entry = await withBranchName(supabase, entry);
-      const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase) });
       // A Paid 2nd half computed with an old 1st half (2026-11-16): the same warning as the list row.
       const run = entry.run_id ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data : null;
+      const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase), runStatus: run?.status || null });
       const needsCorrection = (await correctionsDue(supabase, [{ ...entry, run_status: run?.status || null }])).get(String(entry.id)) || null;
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
-        const pdf = buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
-        const fileName = `payslip-${(entry.payslip_no || entry.employee_code || "record").replace(/[^\w-]/g, "")}-${String(entry.pay_period || "").replace(/[^\w-]+/g, "-")}.pdf`;
+        const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
+        const fileName = payslipFileName(entry);
         return new NextResponse(pdf, {
           status: 200,
           headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileName}"`, "Cache-Control": "no-store" },

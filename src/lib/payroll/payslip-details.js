@@ -75,9 +75,34 @@ function formatManilaDateTime(iso) {
   }).format(date);
 }
 
-export function buildPayslipDetails(entry, { taxRows = [] } = {}) {
+/** "Nov 19, 2026" (Manila): a payslip's pay date. */
+export function formatManilaDate(iso) {
+  const date = new Date(iso);
+  if (!iso || Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" }).format(date);
+}
+
+/**
+ * What the payslip is, in the employee's words (2026-11-19): Draft while the
+ * period is open; Paid once HR approved its run (approved_at; a payslip with
+ * no run -- a final pay -- has its own approval); else Pending HR Approval,
+ * or Returned by HR when the run was sent back. A label only: the status
+ * rules themselves are unchanged.
+ */
+export function payslipStatus(entry, runStatus = null) {
+  if (entry?.status === "draft") return { label: "Draft", pay_date_label: null };
+  if (entry?.approved_at || !entry?.run_id) return { label: "Paid", pay_date_label: formatManilaDate(entry?.approved_at) };
+  if (runStatus === "rejected") return { label: "Returned by HR", pay_date_label: null };
+  return { label: "Pending HR Approval", pay_date_label: null };
+}
+
+export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = {}) {
   if (!entry) return null;
   const generation = entry.payroll?.generation || null;
+  const taxTable = taxTableForPayroll(taxRows, entry.payroll);
+  // The employee's view of the same stored figures: on a 2nd half, the monthly tax computation and the month total.
+  const view = employeePayslipView(entry.payroll, { taxTable });
+  const state = payslipStatus(entry, runStatus);
 
   return {
     entry_id: entry.id,
@@ -86,6 +111,10 @@ export function buildPayslipDetails(entry, { taxRows = [] } = {}) {
     issued_at: entry.submitted_at || entry.updated_at || entry.created_at,
     // Draft while the period is open; Final (locked) once processed.
     status: entry.status === "draft" ? "draft" : "final",
+    status_label: state.label,
+    pay_date_label: state.pay_date_label,
+    tax_box: view?.tax_box || null,
+    month_total: view?.month_total || null,
     generation: generation
       ? {
         attendance_through: generation.attendance_through || null,
@@ -160,7 +189,6 @@ export function buildPayslipDetails(entry, { taxRows = [] } = {}) {
     final_pay: entry.payroll.final_pay?.breakdown || null,
     final_pay_overpayment: entry.payroll.final_pay?.overpayment_to_recover || 0,
     // A hire on the 16th (one whole-month 2nd half) has no grouped lines: the employee's view of it.
-    line_groups: payrollLineGroups(entry.payroll, { taxTable: taxTableForPayroll(taxRows, entry.payroll) })
-      || employeePayslipView(entry.payroll, { taxTable: taxTableForPayroll(taxRows, entry.payroll) }),
+    line_groups: payrollLineGroups(entry.payroll, { taxTable }) || view,
   };
 }
