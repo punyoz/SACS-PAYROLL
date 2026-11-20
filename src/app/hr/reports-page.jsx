@@ -42,6 +42,8 @@ export function ReportsPage() {
   const [state, setState] = React.useState({ loading: false, error: null, type: null, rows: [], meta: {}, from: "", to: "" });
 
   const [branch, setBranch] = React.useState("all");
+  // Employee records: employment status or type (Part A).
+  const [employment, setEmployment] = React.useState("all");
 
   async function generate(event) {
     event?.preventDefault();
@@ -76,8 +78,9 @@ export function ReportsPage() {
     state.rows.forEach((r) => map.set(String(r.branch_id || "none"), r.branch_name || "Unassigned"));
     return [...map.entries()].sort((a, b) => (a[0] === "none" ? 1 : b[0] === "none" ? -1 : a[1].localeCompare(b[1])));
   }, [state.rows]);
-  const shownRows = React.useMemo(() => (branch === "all" ? state.rows : state.rows.filter((r) => String(r.branch_id || "none") === branch)), [state.rows, branch]);
-  const exportHref = `/api/hr/reports?type=${state.type || type}${(state.type || type) === "attendance" ? `${state.from ? `&from=${state.from}` : ""}&to=${state.to || to}` : ""}&branch_id=${encodeURIComponent(branch)}`;
+  const shownRows = React.useMemo(() => (branch === "all" ? state.rows : state.rows.filter((r) => String(r.branch_id || "none") === branch))
+    .filter((r) => state.type === "attendance" || employment === "all" || r.employment_status === employment || r.employment_type === employment), [state.rows, state.type, branch, employment]);
+  const exportHref = `/api/hr/reports?type=${state.type || type}${(state.type || type) === "attendance" ? `${state.from ? `&from=${state.from}` : ""}&to=${state.to || to}` : ""}&branch_id=${encodeURIComponent(branch)}${(state.type || type) === "attendance" ? "" : `&employment=${encodeURIComponent(employment)}`}`;
 
   // The CSV lists what the table shows: the branch chosen and the search (2026-11-19).
   function exportCsv(rows) {
@@ -88,8 +91,8 @@ export function ReportsPage() {
         rows.map((r) => [r.branch_name || "", r.employee_name || "", r.employee_type || "", r.present ?? 0, r.late ?? 0, r.absent ?? 0, r.on_leave ?? 0, Number(r.total_hours || 0).toFixed(2)]));
     } else {
       downloadCsv(`sacs-hr-employees-report-${localDateKey()}.csv`,
-        ["Branch", "Employee", "ID", "Type", "Position", "Status", "Email"],
-        rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", r.employee_type || "", r.position || "", r.employee_status || "", r.email || ""]));
+        ["Branch", "Employee", "ID", "Type", "Employment", "Position", "Status", "Email"],
+        rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", r.employee_type || "", [r.employment_status, r.employment_type].filter(Boolean).join(" · "), r.position || "", r.employee_status || "", r.email || ""]));
     }
   }
 
@@ -126,6 +129,7 @@ export function ReportsPage() {
     { key: "full_name", header: "Employee", className: "font-medium", cell: (r) => <>{r.full_name || "—"}{r.archived ? <span className="ml-1 text-xs text-destructive">(Archived)</span> : null}</> },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (r) => r.employee_id || "—" },
     { key: "employee_type", header: "Type", cell: (r) => r.employee_type || "—" },
+    { key: "employment", header: "Employment", cell: (r) => [r.employment_status, r.employment_type].filter(Boolean).join(" · ") || "—" },
     { key: "position", header: "Position", cell: (r) => r.position || "—" },
     { key: "status", header: "Status", cell: (r) => r.employee_status || "Active" },
     { key: "email", header: "Email", className: "text-xs text-muted-foreground", cell: (r) => r.email || "—" },
@@ -162,6 +166,18 @@ export function ReportsPage() {
                   <DatePicker id="hr-report-to" value={to} onChange={setTo} />
                 </div>
               </>
+            ) : null}
+            {type !== "attendance" ? (
+              <div className="space-y-2 lg:w-44">
+                <Label htmlFor="hr-report-employment">Employment</Label>
+                <Select value={employment} onValueChange={setEmployment}>
+                  <SelectTrigger id="hr-report-employment" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any</SelectItem>
+                    {["Regular", "Probationary", "Contractual", "Full-time", "Part-time"].map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             ) : null}
             <div className="space-y-2 lg:w-52">
               <Label htmlFor="hr-report-branch">Branch</Label>

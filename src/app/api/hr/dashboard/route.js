@@ -140,7 +140,33 @@ export async function GET(request) {
       String(u.user_metadata?.employee_type || "").toLowerCase() === "non-teaching"
     ).length;
 
+    // Action needed (Part A, 20261121010000): records to confirm, probations and
+    // contracts ending within the reminder windows. Never fails the dashboard.
+    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [] };
+    try {
+      // Not the viewer's own record: another HR confirms it.
+      const ids = employees.map((u) => u.id).filter((id) => id !== guard.userId);
+      const [rows, cfg] = await Promise.all([
+        fetchAllIn(() => supabase.from("profiles").select("id,full_name,employment_status,contract_end_date,classification_unconfirmed").order("id", { ascending: true }), "id", ids),
+        supabase.from("system_config").select("key,value").eq("section", "hr").in("key", ["probation_reminder_days", "contract_reminder_days"]),
+      ]);
+      const days = (key) => Number((cfg.data || []).find((r) => r.key === key)?.value) || 30;
+      const plus = (n) => new Date(Date.parse(`${today}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+      const people = rows.data || [];
+      const probation = await Promise.all(people.filter((p) => p.employment_status === "Probationary").map(async (p) => {
+        const end = await supabase.rpc("employee_probation_end", { p_employee: p.id });
+        return { id: p.id, full_name: p.full_name, due_on: end.data || null };
+      }));
+      actionNeeded = {
+        unconfirmed: people.filter((p) => p.classification_unconfirmed).map((p) => ({ id: p.id, full_name: p.full_name })),
+        probation_ending: probation.filter((p) => p.due_on && p.due_on >= today && p.due_on <= plus(days("probation_reminder_days"))),
+        contract_ending: people.filter((p) => p.contract_end_date && p.contract_end_date >= today && p.contract_end_date <= plus(days("contract_reminder_days")))
+          .map((p) => ({ id: p.id, full_name: p.full_name, due_on: p.contract_end_date })),
+      };
+    } catch { /* ignore */ }
+
     return NextResponse.json({
+      action_needed: actionNeeded,
       total_employees: totalEmployees,
       teaching_staff: teaching,
       non_teaching_staff: nonTeaching,

@@ -204,6 +204,9 @@ describe("Leave over the paid balance: split, never blocked (decision 2026-11-12
       ROUTES["hr/leave-requests"] = () => import("@/app/api/hr/leave-requests/route");
       rpc.results.attendance_sync_leave = { data: { marked: 0, removed: 0, conflicts: [] }, error: null };
       table("system_config").push({ section: "payroll", key: "leave_with_pay_days", value: "6" });
+      // Since 20261121010000 the paid days come from the leave credit rules per classification.
+      Object.assign(table("profiles").find((p) => p.id === PAOLO), { employee_type: "Teaching", employment_status: "Regular", employment_type: "Full-time" });
+      table("leave_credit_rules").push({ id: "r-vl", leave_type: "Vacation Leave", employee_type: "Teaching", employment_status: "Regular", employment_type: "Full-time", days_per_year: 6, effective_from: "2026-01-01" });
       table("leave_requests").push(used("u1", "2026-03-02", "2026-03-03")); // 2 used: 4 left
     });
     const rows = () => table("leave_requests").filter((r) => r.id !== "u1");

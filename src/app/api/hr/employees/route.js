@@ -19,6 +19,7 @@ import { separateEmployee, validateSeparation } from "@/lib/employees/separation
 import { textLimitError } from "@/lib/input-limits";
 import { resolvePosition } from "@/lib/hr/positions";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
+import { CHANGE_WITH_DATE, changedClassification } from "@/lib/employees/classification";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The note"] };
@@ -67,11 +68,14 @@ function shapeEmployee(user, profile) {
     emergency_contact_number: normalizeText(profile?.emergency_contact_number),
     employee_id: normalizeText(meta.employee_id),
     role: normalizeText(meta.role, "employee"),
-    employee_type: normalizeText(meta.employee_type, "Teaching"),
+    // The profile columns first (20261121010000), the metadata as fallback.
+    employee_type: normalizeText(profile?.employee_type, normalizeText(meta.employee_type, "Teaching")),
     position: normalizeText(meta.position, "Employee"),
     employee_status: normalizeText(meta.employee_status, "Active"),
-    employment_type: normalizeText(meta.employment_type),
-    employment_status: normalizeText(meta.employment_status),
+    employment_type: normalizeText(profile?.employment_type, normalizeText(meta.employment_type)),
+    employment_status: normalizeText(profile?.employment_status, normalizeText(meta.employment_status)),
+    contract_end_date: profile?.contract_end_date || null,
+    classification_unconfirmed: Boolean(profile?.classification_unconfirmed),
     sex: normalizeText(meta.sex),
     civil_status: normalizeText(meta.civil_status),
     date_of_birth: normalizeText(meta.date_of_birth),
@@ -126,7 +130,7 @@ export async function GET(request) {
       // an error, not a list of employees without their profiles.
       const { data: profiles, error: profileError } = await fetchAllIn(() => supabase
         .from("profiles")
-        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,updated_at")
+        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,updated_at,employee_type,employment_status,employment_type,contract_end_date,classification_unconfirmed")
         .order("id", { ascending: true }), "id", userIds);
       if (profileError) throw new Error(profileError.message);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
@@ -258,6 +262,11 @@ export async function PATCH(request) {
     // which also holds and releases pay): editing other details keeps them.
     const caseStatus = ["AWOL", "Separated"].includes(profileResult.data?.employee_status) ? profileResult.data.employee_status : null;
     if (caseStatus) record.employee_status = caseStatus;
+    // First: category / status / type change only with a date and a reason (Part A, 20261121010000).
+    if (changedClassification(currentMeta, record).length) {
+      return NextResponse.json({ error: CHANGE_WITH_DATE }, { status: 400 });
+    }
+
     const invalid = validateEmployeeRecord(record, { creating: false });
     if (invalid) {
       return NextResponse.json({ error: invalid }, { status: 400 });
@@ -324,6 +333,8 @@ export async function PATCH(request) {
         full_name: fullName,
         email: record.email,
         employee_type: record.employee_type,
+        employment_status: record.employment_status || null,
+        employment_type: record.employment_type || null,
         position: updatedMeta.position,
         employee_status: record.employee_status,
         cp_number: record.cp_number,

@@ -78,6 +78,7 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
     <>
       {/* Final pay waiting for HR, with days left (20261120010000). */}
       <FinalPayWaitingCard refreshKey={refreshKey} onOpen={() => onNavigate?.("hr-final-pay-approvals")} />
+      <ActionNeededCard data={d.action_needed} />
       <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} href={portalHref("hr-employees")} actionLabel="View active employees" />
         <StatCard label="Present today" value={d.present_today ?? 0} hint="Late included" icon={CheckCircle2Icon} tone="success" loading={loading} href={portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" })} actionLabel="View who is present today" />
@@ -163,5 +164,38 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
         </CardContent>
       </Card>
     </>
+  );
+}
+
+const fmtDay = (key) => new Date(`${key}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+
+/** HR's Action needed (Part A): records to confirm, probations and contracts ending soon. */
+function ActionNeededCard({ data }) {
+  const a = data || {};
+  const groups = [
+    { key: "unconfirmed", title: "Needs HR confirmation", text: "Employment status and type set by default (Regular / Full-time).", href: portalHref("hr-employees", { emp_filter: "unconfirmed" }), rows: a.unconfirmed || [] },
+    { key: "probation", title: "Probation ending", text: "Decide the next status before the date.", href: portalHref("hr-employees", { emp_status: "Probationary" }), rows: a.probation_ending || [] },
+    { key: "contract", title: "Contract ending", text: "Renew, end or change the status before the date.", href: portalHref("hr-employees", { emp_status: "Contractual" }), rows: a.contract_ending || [] },
+  ].filter((g) => g.rows.length);
+  if (!groups.length) return null;
+  return (
+    <Card className="border-brand-gold/40 shadow-xs">
+      <CardHeader>
+        <CardTitle>Action needed</CardTitle>
+        <CardDescription>Employee records waiting for HR.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-3">
+        {groups.map((g) => (
+          <a key={g.key} href={g.href} className="block rounded-lg border p-3 transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+            <p className="text-sm font-semibold">{g.title} <span className="tabular-nums text-gold-text">({g.rows.length})</span></p>
+            <p className="mb-2 text-xs text-muted-foreground">{g.text}</p>
+            <ul className="space-y-0.5 text-sm">
+              {g.rows.slice(0, 5).map((r) => <li key={r.id}>{r.full_name}{r.due_on ? <span className="text-muted-foreground"> · {fmtDay(r.due_on)}</span> : null}</li>)}
+              {g.rows.length > 5 ? <li className="text-xs text-muted-foreground">and {g.rows.length - 5} more</li> : null}
+            </ul>
+          </a>
+        ))}
+      </CardContent>
+    </Card>
   );
 }

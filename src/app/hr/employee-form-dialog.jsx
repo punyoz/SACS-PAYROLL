@@ -14,6 +14,7 @@ import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DatePicker } from "@/components/portal/date-picker";
 import { LicenseSection } from "@/components/portal/license-section";
 import { SeparateEmployeeDialog } from "./separate-employee-dialog";
+import { ClassificationDialog } from "./classification-dialog";
 import { SearchableSelect } from "@/components/portal/searchable-select";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
@@ -43,7 +44,7 @@ const SEXES = ["Male", "Female"];
 const CIVIL = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
 const TYPES = ["Teaching", "Non-Teaching"];
 const EMPLOYMENT_TYPES = ["Full-time", "Part-time"];
-const EMPLOYMENT_STATUSES = ["Regular", "Probationary", "Contractual", "Substitute"];
+const EMPLOYMENT_STATUSES = ["Regular", "Probationary", "Contractual"];
 const RELATIONSHIPS = ["Spouse", "Parent", "Child", "Sibling", "Guardian", "Relative", "Partner", "Friend", "Other"];
 const NONE = "__none__";
 
@@ -64,6 +65,7 @@ const LABELS = {
   cp_number: "Contact number", emergency_contact_name: "Contact person", emergency_contact_relationship: "Relationship",
   emergency_contact_number: "Emergency contact number", emergency_contact_address: "Emergency contact address",
   sss_number: "SSS number", philhealth_number: "PhilHealth number", pagibig_number: "Pag-IBIG number", tin_number: "TIN",
+  contract_end_date: "Contract end date",
 };
 
 const REQUIRED_COMMON = [
@@ -103,7 +105,7 @@ function emptyValues() {
     date_of_birth: "", sex: "", civil_status: "", employee_type: "", position: "Employee", employment_type: "", employment_status: "",
     date_hired: "", basic_salary: "", address: "", cp_number: "", emergency_contact_name: "", emergency_contact_relationship: "",
     emergency_contact_number: "", emergency_contact_address: "", sss_number: "", philhealth_number: "", pagibig_number: "",
-    tin_number: "",
+    tin_number: "", contract_end_date: "",
   };
 }
 
@@ -153,6 +155,11 @@ function validate(values, { creating, ecOnFile }) {
   const v = (key) => String(values[key] ?? "").trim();
   const fail = (key, message) => ({ errors: { [key]: message }, summary: message });
 
+  // A contract has an end date (HR is reminded before it; Part A).
+  if (creating && v("employment_status") === "Contractual") {
+    if (!parseDate(v("contract_end_date"))) return fail("contract_end_date", "Contract end date is required for a Contractual employee.");
+    if (v("date_hired") && v("contract_end_date") < v("date_hired")) return fail("contract_end_date", "Contract end date must be on or after the date hired.");
+  }
   if (!NAME.test(v("first_name"))) return fail("first_name", `First name may contain ${PERSON_NAME_RULE}.`);
   if (v("middle_initial") && !NAME.test(v("middle_initial"))) return fail("middle_initial", `Middle name may contain ${PERSON_NAME_RULE}.`);
   if (!NAME.test(v("last_name"))) return fail("last_name", `Last name may contain ${PERSON_NAME_RULE}.`);
@@ -210,6 +217,7 @@ function validate(values, { creating, ecOnFile }) {
     payload.role = v("role");
     payload.branch_id = v("branch_id");
     payload.basic_salary = basicSalary;
+    if (v("employment_status") === "Contractual") payload.contract_end_date = v("contract_end_date");
   }
   payload.emergency_contact_name = v("emergency_contact_name");
   payload.emergency_contact_relationship = v("emergency_contact_relationship");
@@ -238,6 +246,9 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   const [archiving, setArchiving] = React.useState(false);
   // Separate (resigned, end of contract, …): src/app/hr/separate-employee-dialog.jsx.
   const [separating, setSeparating] = React.useState(false);
+  // Category / status / type change with a date and a reason (Part A): classification-dialog.jsx.
+  const [classifying, setClassifying] = React.useState(false);
+  const classLocked = !creating && Boolean(employee?.employee_type && employee?.employment_status && employee?.employment_type);
   const [confirmDialog, confirm] = useConfirm();
   // Positions HR picks from and adds to (alpha test B3, /api/hr/positions).
   const [positions, setPositions] = React.useState([]);
@@ -448,7 +459,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
             {field("civil_status", select("civil_status", CIVIL, "Select civil status"), { wide: true, required: true })}
 
             <Section>Employment</Section>
-            {field("employee_type", select("employee_type", TYPES, "Select type"), { required: true })}
+            {field("employee_type", classLocked ? readOnly("employee_type", values.employee_type) : select("employee_type", TYPES, "Select type"), { required: true })}
             {field("position", (
               <div className="space-y-2">
                 <SearchableSelect id="emp-form-position" label="Position" value={values.position || ""} onValueChange={(v) => set("position", v)}
@@ -471,8 +482,16 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
                 {newPosition.error ? <p className="text-sm text-destructive" role="alert">{newPosition.error}</p> : null}
               </div>
             ), { required: true, hint: "Pick from the list, or add one. The list never repeats a position, whatever the capitals." })}
-            {field("employment_type", select("employment_type", EMPLOYMENT_TYPES, "Select employment type"), { required: true })}
-            {field("employment_status", select("employment_status", EMPLOYMENT_STATUSES, "Select employment status"), { required: true })}
+            {field("employment_type", classLocked ? readOnly("employment_type", values.employment_type) : select("employment_type", EMPLOYMENT_TYPES, "Select employment type"), { required: true })}
+            {field("employment_status", classLocked ? readOnly("employment_status", values.employment_status) : select("employment_status", EMPLOYMENT_STATUSES, "Select employment status"), { required: true })}
+            {creating && values.employment_status === "Contractual" ? field("contract_end_date", date("contract_end_date"), { required: true, hint: "HR is reminded before it." }) : null}
+            {classLocked ? (
+              <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setClassifying(true)}>Change status or type…</Button>
+                {employee?.classification_unconfirmed ? <span className="text-xs font-medium text-warning">Needs HR confirmation</span> : null}
+                <span className="text-xs text-muted-foreground">Changes take effect on a date you choose, with a reason; the history is kept.</span>
+              </div>
+            ) : null}
             {field("date_hired", date("date_hired"), { required: true })}
             {creating
               ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: String(SALARY_MAX), step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
@@ -527,6 +546,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
           </form>
         </DialogContent>
       </Dialog>
+      {employee ? <ClassificationDialog employee={employee} open={classifying} onOpenChange={setClassifying} onSaved={onSaved} /> : null}
       <SeparateEmployeeDialog employee={separating ? employee : null} onClose={() => setSeparating(false)} onDone={() => { onOpenChange(false); onSaved(); }} />
       {confirmDialog}
     </>

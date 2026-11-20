@@ -21,7 +21,8 @@ import { EMAIL_MAX, NAME_PART_MAX, POSITION_MAX, SALARY_MAX, TIN_RULE, digitsOrN
 export const SEX_OPTIONS = ["Male", "Female"];
 export const CIVIL_STATUS_OPTIONS = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
 export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time", "Part-time"];
-export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual", "Substitute"];
+// "Substitute" is not a status: the school uses its own employees as substitutes (Part C, 2026-11-20).
+export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual"];
 export const EMPLOYEE_TYPE_OPTIONS = ["Teaching", "Non-Teaching"];
 export const ACCOUNT_STATUS_OPTIONS = ["Active", "Pending", "On Leave", "Inactive"];
 // profiles_suffix_valid; the form's Suffix list.
@@ -84,6 +85,7 @@ export function normalizeEmployeeFields(body = {}) {
     employee_status: pickOption(body.employee_status, ACCOUNT_STATUS_OPTIONS),
     position: normalizeText(body.position),
     date_hired: normalizeText(body.date_hired),
+    contract_end_date: normalizeText(body.contract_end_date),
     basic_salary: body.basic_salary === undefined || body.basic_salary === "" ? NaN : Number(body.basic_salary),
     address: normalizeText(body.address),
     cp_number: digitsOrNull(body.cp_number) ?? "",
@@ -116,6 +118,7 @@ const FIELD_LABELS = {
   pagibig_number: "Pag-IBIG number",
   tin_number: "TIN",
   branch_id: "Branch",
+  contract_end_date: "Contract end date",
 };
 
 /** Required on every employee record HR saves. */
@@ -183,6 +186,13 @@ export function validateEmployeeRecord(record, { creating = false, today = new D
   if (!hiredDate) return "Date hired is not a valid date.";
   if (yearsBetween(birthDate, hiredDate) < MIN_WORKING_AGE) {
     return `Date hired must be on or after the employee's ${MIN_WORKING_AGE}th birthday.`;
+  }
+
+  // A contract has an end date (HR is reminded before it, 20261121010000).
+  if (record.employment_status === "Contractual" && creating) {
+    const end = parseIsoDate(record.contract_end_date);
+    if (!end) return "Contract end date is required for a Contractual employee.";
+    if (end < hiredDate) return "Contract end date must be on or after the date hired.";
   }
 
   if (creating || Number.isFinite(record.basic_salary)) {

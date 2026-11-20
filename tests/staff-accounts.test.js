@@ -57,6 +57,9 @@ function validBody(overrides = {}) {
     employee_status: "Active",
     address: "12 Mabini St, Quezon City",
     cp_number: "09171234567",
+    // HR is on payroll: employment status and type are required for it (Part A, 20261121010000).
+    employment_status: "Regular",
+    employment_type: "Full-time",
     ...overrides,
   };
 }
@@ -379,5 +382,15 @@ describe("Quick Add has been removed", () => {
   it("/api/admin/users no longer has a POST handler", () => {
     expect(usersRoute).not.toMatch(/export async function POST/);
     expect(usersRoute).toMatch(/export async function PATCH/);
+  });
+});
+
+describe("HR needs an employment status and type (Part A, 20261121010000)", () => {
+  it("refuses an HR account without them, and a Contractual one without a contract end date", () => {
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "" })))).toMatch(/employment status/i);
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_type: "" })))).toMatch(/employment type/i);
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Contractual" })))).toMatch(/contract end date/i);
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Contractual", contract_end_date: "2027-05-31" })))).toBeNull();
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Substitute" })))).toMatch(/employment status/i);
   });
 });

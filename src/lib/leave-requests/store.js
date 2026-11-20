@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { countLeaveDays, describeSplit, splitForBalance } from "@/lib/leave-requests/split";
+import { leaveBalances } from "@/lib/employees/classification-server";
 
 export function normalizeLeaveRequest(row) {
   return {
@@ -326,13 +327,8 @@ export function summarizeLeaveBalance(requests, employeeId, year = new Date().ge
 export async function leaveBalancesFor(employeeIds, year = Number(new Date().toISOString().slice(0, 4))) {
   const ids = [...new Set((employeeIds || []).filter(Boolean))];
   if (!ids.length) return {};
-  const supabase = getAdminClient();
-  const allotment = allotmentForYear(year, await readLeaveWithPayDays(supabase));
-  const result = await fetchAllIn(() => supabase.from("leave_requests").select("id,employee_id,start_date,end_date,status,pay_status")
-    .eq("status", "approved").gte("start_date", `${year}-01-01`).lte("start_date", `${year}-12-31`).order("id", { ascending: true }), "employee_id", ids);
-  if (result.error) throw new Error(result.error.message);
-  const rows = (result.data || []).map((r) => normalizeLeaveRequest(r));
-  return Object.fromEntries(ids.map((id) => [id, summarizeLeaveBalance(rows, id, year, allotment)]));
+  // Per leave type, from the classification rules (20261121010000).
+  return leaveBalances(getAdminClient(), ids, year);
 }
 
 /**
@@ -352,7 +348,9 @@ export async function applyBalanceSplit(id) {
   if (!row || row.status !== "approved" || normalizeLeaveRequest(row).pay_status !== "with_pay") return null;
   const year = Number(String(row.start_date).slice(0, 4));
   const others = (await readLeaveRequestsWithoutProof({ employeeId: row.employee_id, status: "approved" })).filter((r) => r.id !== id);
-  const balance = summarizeLeaveBalance(others, row.employee_id, year, allotmentForYear(year, await readLeaveWithPayDays(supabase)));
+  // The credits of THIS leave type (leave_credit_rules, 20261121010000).
+  const all = await leaveBalances(supabase, [row.employee_id], year, { requests: others });
+  const balance = { with_pay_remaining: all[row.employee_id]?.by_type?.[row.leave_type]?.remaining ?? 0 };
   const split = splitForBalance(row, balance.with_pay_remaining);
   if (!split.without_pay_days) return null;
   const now = new Date().toISOString();

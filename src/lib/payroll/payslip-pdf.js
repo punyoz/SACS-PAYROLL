@@ -308,6 +308,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
       [["Pay period", details?.pay_period], [details?.final_pay ? "Release date" : "Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")], ["Status", status]],
     ],
     lines: [
+      employee.type ? `Classification: ${employee.type}` : null,
       Array.isArray(employee.branch_days) && employee.branch_days.length ? `Days by branch: ${employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(", ")}` : null,
       !final && generation.attendance_through_label ? `Includes attendance up to ${generation.attendance_through_label}.` : null,
       // A final pay: who approved it and when (20261120010000).

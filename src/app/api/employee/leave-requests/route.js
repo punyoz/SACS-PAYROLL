@@ -5,8 +5,6 @@ import {
   readLeaveRequestsWithoutProof,
   insertLeaveRequest,
   normalizeLeaveRequest,
-  summarizeLeaveBalance,
-  readLeaveWithPayDays,
 } from "@/lib/leave-requests/store";
 import { createClient } from "@supabase/supabase-js";
 import { requirePermission, resolveTargetUserId, denyForeignBranch } from "@/lib/rbac/guard";
@@ -18,6 +16,7 @@ import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { REASON_MAX } from "@/lib/input-limits";
 import { otherActiveHrIds, recordFallback } from "@/lib/rbac/routing";
+import { leaveBalances } from "@/lib/employees/classification-server";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -56,7 +55,9 @@ export async function GET(request) {
 
     const requests = await readLeaveRequestsWithoutProof({ employeeId });
 
-    const balance = summarizeLeaveBalance(requests, employeeId, new Date().getFullYear(), await readLeaveWithPayDays(getServiceClient()));
+    // Per leave type, from the classification rules (20261121010000).
+    const year = Number(new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 4));
+    const balance = (await leaveBalances(getServiceClient(), [employeeId], year, { requests }))[employeeId] || null;
 
     return NextResponse.json({ requests, balance });
   } catch (error) {

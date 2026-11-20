@@ -18,6 +18,7 @@
 import { fetchProfilesPii } from "@/lib/employees/pii";
 import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
 import { summarizeLeaveBalance, DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, allotmentForYear, readLeaveWithPayDays } from "@/lib/leave-requests/store";
+import { leaveBalances } from "@/lib/employees/classification-server";
 import { branchPayRates, derivedHourly, loadRateConfigs, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey } from "@/lib/payroll/periods";
 import { loadDemoIds } from "@/lib/demo";
@@ -293,12 +294,15 @@ export async function leaveBalancesFile(supabase, actorId, context, filters) {
   const year = Number(manilaDateKey().slice(0, 4));
   const setting = await readLeaveWithPayDays(supabase);
   const people = peopleOf(context, filters);
+  // From 2026: per leave type, from the classification rules (20261121010000); before: the one yearly pool.
+  const perType = {};
+  for (const y of [year, year - 1]) if (y >= 2026) perType[y] = await leaveBalances(supabase, people.map((p) => p.id), y, { requests });
   const columns = [col("Employee ID"), col("Full name"), col("Branch"), col("Is demo", "bool", DEMO), col("Year", "int"), col("Leave with pay allotment (days)", "num"), col("Leave with pay used (days)", "num"),
     col("Leave with pay remaining (days)", "num"), col("Leave without pay used (days)", "num"), col("Employee profile UUID", "uuid")];
   function* rows() {
     for (const y of [year, year - 1]) {
       for (const p of people) {
-        const b = summarizeLeaveBalance(requests, p.id, y, allotmentForYear(y, setting));
+        const b = perType[y]?.[p.id] || summarizeLeaveBalance(requests, p.id, y, allotmentForYear(y, setting));
         yield [p.employee_id || p.staff_id || "", fullName(p), context.branchName(p.branch_id), context.isDemo(p.id), y,
           b.with_pay_allotment ?? DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, b.with_pay_used, b.with_pay_remaining, b.without_pay_used, p.id];
       }

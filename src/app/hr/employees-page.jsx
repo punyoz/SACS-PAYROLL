@@ -20,6 +20,8 @@ import { SEPARATION_REASONS } from "@/lib/employees/separation-rules";
 import { downloadCsv } from "@/lib/portal/attendance";
 import { UserAvatar } from "@/components/portal/user-avatar";
 import { FilterTabs } from "@/components/portal/filter-tabs";
+import { EMPLOYMENT_STATUS_OPTIONS, EMPLOYMENT_TYPE_OPTIONS } from "@/lib/employees/classification";
+import { useUrlParam } from "@/components/portal/use-url-param";
 
 /*
  * User Management (loadHREmployees / renderHREmployeeTable,
@@ -48,8 +50,12 @@ export function useBranches(refreshKey) {
 export function EmployeesPage({ refreshKey }) {
   const branches = useBranches(refreshKey);
   const [state, setState] = React.useState({ loading: true, error: null, employees: [] });
-  const [filter, setFilter] = React.useState("all");
+  // Kept in the address (a dashboard link opens a filtered list).
+  const [filter, setFilter] = useUrlParam("emp_filter", "all");
   const [branch, setBranch] = React.useState("all");
+  // Employment status and type filters (Part A).
+  const [empStatus, setEmpStatus] = useUrlParam("emp_status", "all");
+  const [empType, setEmpType] = useUrlParam("emp_type", "all");
   const [dialog, setDialog] = React.useState(null); // { mode, employee }
   const [salaryFor, setSalaryFor] = React.useState(null); // Change salary (2026-10-26)
   // Import CSV: onboard many at once (scenario SC-10 / HR-02).
@@ -97,14 +103,19 @@ export function EmployeesPage({ refreshKey }) {
     teaching: active.filter((e) => e.employee_type?.toLowerCase() === "teaching").length,
     "non-teaching": active.filter((e) => e.employee_type?.toLowerCase() === "non-teaching").length,
     archived: inBranch.filter((e) => e.archived).length,
+    unconfirmed: active.filter((e) => e.classification_unconfirmed).length,
   };
   // Memoized: DataTable reports its rows back through onRowsShown (setShownRows), so a new array every render loops forever.
   const rows = React.useMemo(() => {
     const list = state.employees.filter((e) => (branch === "all" ? true : branch === "unassigned" ? !e.branch_id : String(e.branch_id || "") === branch));
-    if (filter === "archived") return list.filter((e) => e.archived);
-    const live = list.filter((e) => !e.archived);
+    const classified = list
+      .filter((e) => empStatus === "all" || e.employment_status === empStatus)
+      .filter((e) => empType === "all" || e.employment_type === empType);
+    if (filter === "archived") return classified.filter((e) => e.archived);
+    const live = classified.filter((e) => !e.archived);
+    if (filter === "unconfirmed") return live.filter((e) => e.classification_unconfirmed);
     return filter === "all" ? live : live.filter((e) => e.employee_type?.toLowerCase() === filter);
-  }, [state.employees, branch, filter]);
+  }, [state.employees, branch, filter, empStatus, empType]);
 
   const columns = React.useMemo(() => [
     {
@@ -113,6 +124,16 @@ export function EmployeesPage({ refreshKey }) {
     },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (e) => e.employee_id || "—", searchValue: (e) => e.employee_id },
     { key: "employee_type", header: "Type", cell: (e) => e.employee_type || "—" },
+    {
+      key: "employment_status", header: "Employment", sortable: true, sortValue: (e) => `${e.employment_status} ${e.employment_type}`,
+      searchValue: (e) => `${e.employment_status || ""} ${e.employment_type || ""}`,
+      cell: (e) => (
+        <div className="whitespace-nowrap">
+          <span>{[e.employment_status, e.employment_type].filter(Boolean).join(" · ") || "—"}</span>
+          {e.classification_unconfirmed ? <StatusBadge tone="warning" className="ml-1.5">Needs HR confirmation</StatusBadge> : null}
+        </div>
+      ),
+    },
     { key: "position", header: "Position", cell: (e) => e.position || "—", searchValue: (e) => e.position },
     {
       key: "license",
@@ -151,8 +172,9 @@ export function EmployeesPage({ refreshKey }) {
   const [shownRows, setShownRows] = React.useState(null);
   function exportList() {
     downloadCsv(`sacs-employees-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Employee ID", "Name", "Email", "Branch", "Type", "Position", "Status", "Date hired", "Contact number"],
-      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "", e.position || "",
+      ["Employee ID", "Name", "Email", "Branch", "Type", "Employment status", "Employment type", "Position", "Status", "Date hired", "Contact number"],
+      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "",
+        e.employment_status || "", e.employment_type || "", e.position || "",
         e.archived ? "Archived" : e.employee_status || "Active", e.date_hired || "", e.cp_number || ""]));
   }
 
@@ -178,7 +200,22 @@ export function EmployeesPage({ refreshKey }) {
                   { value: "teaching", label: "Teaching", count: counts.teaching },
                   { value: "non-teaching", label: "Non-Teaching", count: counts["non-teaching"] },
                   { value: "archived", label: "Archived", count: counts.archived },
+                  ...(counts.unconfirmed ? [{ value: "unconfirmed", label: "Needs HR confirmation", count: counts.unconfirmed }] : []),
                 ]} />
+                <Select value={empStatus} onValueChange={setEmpStatus}>
+                  <SelectTrigger className="w-44" aria-label="Filter by employment status"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any status</SelectItem>
+                    {EMPLOYMENT_STATUS_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={empType} onValueChange={setEmpType}>
+                  <SelectTrigger className="w-36" aria-label="Filter by employment type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any type</SelectItem>
+                    {EMPLOYMENT_TYPE_OPTIONS.map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                  </SelectContent>
+                </Select>
                 <Select value={branch} onValueChange={setBranch}>
                   <SelectTrigger className="w-48" aria-label="Filter by branch"><SelectValue /></SelectTrigger>
                   <SelectContent>

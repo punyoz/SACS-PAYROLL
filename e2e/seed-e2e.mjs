@@ -61,11 +61,15 @@ export async function seed({ reset = false } = {}) {
   // metadata (src/app/api/hr/employees/route.js); payroll reads the metadata,
   // so mirror them the same way.
   const everyone = [ACCOUNTS.admin, ACCOUNTS.admin2, ACCOUNTS.accountant, ACCOUNTS.hr, ACCOUNTS.employee, ACCOUNTS.employee2, ACCOUNTS.employee3];
+  // Everyone on payroll has an employment status and type (Part A, 20261121010000).
+  for (const { email } of [ACCOUNTS.accountant, ACCOUNTS.hr, ACCOUNTS.employee, ACCOUNTS.employee2, ACCOUNTS.employee3]) {
+    await set(email, { employment_status: "Regular", employment_type: "Full-time" });
+  }
   for (const { email } of everyone) {
-    const p = must(await sb.from("profiles").select("id,branch_id,full_name,employee_id,employee_type,position,basic_salary,date_hired").eq("email", email).single(), `read ${email}`);
+    const p = must(await sb.from("profiles").select("id,branch_id,full_name,employee_id,employee_type,employment_status,employment_type,position,basic_salary,date_hired").eq("email", email).single(), `read ${email}`);
     const u = must(await sb.auth.admin.getUserById(p.id), `auth ${email}`).user;
     const meta = { ...u.user_metadata, branch_id: p.branch_id, full_name: p.full_name };
-    for (const key of ["employee_id", "employee_type", "position", "basic_salary", "date_hired"]) if (p[key] !== null && p[key] !== undefined) meta[key] = p[key];
+    for (const key of ["employee_id", "employee_type", "employment_status", "employment_type", "position", "basic_salary", "date_hired"]) if (p[key] !== null && p[key] !== undefined) meta[key] = p[key];
     must(await sb.auth.admin.updateUserById(p.id, { user_metadata: meta }), `meta ${email}`);
   }
 
