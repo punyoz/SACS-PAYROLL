@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { readEnvFile } from "./config.mjs";
 import { chooseTarget } from "./db.mjs";
 
-const db = await chooseTarget(process.argv.slice(2));
+const db = await chooseTarget(process.argv.slice(2), { readOnly: true });
 let url; let anon; let jwtSecret;
 if (db.target === "production") {
   const env = readEnvFile(join(process.cwd(), ".env.live.local"));

@@ -88,9 +88,17 @@ export async function confirm(question, expected = "yes") {
 /**
  * Production guard for every script: the target must be named on the command
  * line AND the production project URL typed back exactly.
+ *
+ * Since 2026-11-20 the demo accounts are removed from live and the demo
+ * tooling is LOCAL ONLY: production is refused unless the caller is a
+ * read-only check (`{ readOnly: true }`).
  */
-export async function chooseTarget(argv = process.argv.slice(2)) {
+export async function chooseTarget(argv = process.argv.slice(2), { readOnly = false } = {}) {
   const target = (argv.find((a) => a.startsWith("--target=")) || "--target=local").split("=")[1];
+  if (target === "production" && !readOnly) {
+    console.log("Refused: the demo tooling is local only since 2026-11-20 (demo accounts were removed from live). Use --target=local.");
+    process.exit(1);
+  }
   if (target === "production") {
     console.log(`PRODUCTION. Type the project URL to continue (${PRODUCTION.url.replace(/^https:\/\//, "")} written in full, with https://):`);
     const ok = await confirm(">", PRODUCTION.url);
