@@ -26,7 +26,9 @@ for (const code of process.argv.slice(2)) {
     : `select id, email, full_name from profiles where employee_id = ${lit(code)} limit 1`);
   if (!p) { console.log(`${code}: not found`); continue; }
   const password = creds[String(p.email).toLowerCase()];
-  const browser = await chromium.launch({ headless: false });
+  // Edge first: Playwright's bundled Chromium 141 crashed on the code screen (2026-11-20).
+  const browser = await chromium.launch({ headless: false, channel: "msedge" })
+    .catch(() => chromium.launch({ headless: false }));
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(`${BASE}/login`);
