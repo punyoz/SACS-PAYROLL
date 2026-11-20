@@ -14,6 +14,7 @@ import { normalizeText } from "@/lib/auth/normalize";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 // HR is an employee too (decision 2026-11-09; 20261110010000_hr_on_payroll.sql).
 const PAID_ROLES = new Set(["employee", "accountant", "hr"]);
@@ -32,7 +33,7 @@ export async function loadPayrollStaff(supabase, guard, { includeArchived = fals
   const usersResult = await listUsersCached(supabase);
   if (usersResult.error) throw new Error(`Failed to list users: ${usersResult.error.message}`);
 
-  const users = (usersResult.data?.users || []).filter((user) => PAID_ROLES.has(String(user.user_metadata?.role || "employee").toLowerCase()));
+  const users = (usersResult.data?.users || []).filter((user) => PAID_ROLES.has(String(user.user_metadata?.role || "employee").toLowerCase()) && isOnPayroll(user));
   const ids = users.map((user) => user.id);
   const profiles = new Map();
   if (ids.length) {

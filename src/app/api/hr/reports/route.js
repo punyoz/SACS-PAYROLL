@@ -12,6 +12,7 @@ import { loadDemoIds, notDemo } from "@/lib/demo";
 import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file";
 import { tableQuery } from "@/lib/export/table-query";
 import { hrReportSearchFields, sortByBranch } from "@/lib/hr/report-table";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 export async function GET(request) {
   try {
@@ -125,7 +126,7 @@ export async function GET(request) {
         .filter(notDemo(demo, (u) => u.id))
         .filter((u) => {
           const role = String(u.user_metadata?.role || "employee").toLowerCase();
-          if (role !== "employee" && role !== "accountant") return false;
+          if ((role !== "employee" && role !== "accountant") || !isOnPayroll(u)) return false;
           if (guard.branchExempt) return true;
           const branchId = branchMap.get(u.id) || u.user_metadata?.branch_id || "";
           return String(branchId) === String(guard.branchId || "");

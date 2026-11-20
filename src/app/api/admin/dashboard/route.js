@@ -9,6 +9,7 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 function parseEmployeeIdNumber(employeeId) {
   const match = /^SACS-(\d+)$/i.exec(String(employeeId || "").trim());
@@ -56,7 +57,7 @@ async function fetchEmployees(supabase) {
 
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return role === "employee" || role === "accountant";
+    return (role === "employee" || role === "accountant") && isOnPayroll(user);
   });
 
   const userIds = employeeUsers.map((user) => user.id);

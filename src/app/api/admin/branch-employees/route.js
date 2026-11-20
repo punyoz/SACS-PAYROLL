@@ -7,6 +7,7 @@ import { revokeActiveSession } from "@/lib/auth/active-session";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { invalidateBranchCache } from "@/lib/auth/live-branch";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 async function fetchBranchMap(supabase) {
   const result = await supabase.from("branches").select("id,name,status");
@@ -72,7 +73,7 @@ export async function GET(request) {
       .filter((u) => {
         const role = String(u.user_metadata?.role || "employee").toLowerCase();
         // HR serves every branch and is never assigned to one.
-        return role === "employee" || role === "accountant";
+        return (role === "employee" || role === "accountant") && isOnPayroll(u);
       })
       .filter((u) => !u.user_metadata?.archived)
       .map((u) => ({

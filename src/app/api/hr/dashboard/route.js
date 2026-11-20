@@ -10,6 +10,7 @@ import { SCOPE_SELF } from "@/lib/rbac/permissions";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { manilaDateKey as getDateKey } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 // Statuses attendance_missing_days leaves out (20261110020000 private.is_active_staff).
 const GONE = ["Inactive", "Archived", "Separated"];
@@ -40,7 +41,7 @@ export async function GET(request) {
       // viewer too, HR is on payroll -- not archived, Inactive or Separated.
       // So Present + Absent (+ on leave / day off) adds up to this total.
       const status = String(u.user_metadata?.employee_status || "Active");
-      return ["employee", "accountant", "hr"].includes(role) && !u.user_metadata?.archived && !GONE.includes(status);
+      return ["employee", "accountant", "hr"].includes(role) && !u.user_metadata?.archived && !GONE.includes(status) && isOnPayroll(u);
     });
 
     let employees = candidateEmployees;

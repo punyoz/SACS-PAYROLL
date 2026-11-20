@@ -169,10 +169,10 @@ function isMissing(error) {
 async function loadCandidates(supabase) {
   const base = "id,full_name,employee_id,branch_id,role,archived,employee_status";
   let result = await fetchAllRows(() => supabase.from("profiles").select(`${base},payroll_hold`)
-    .in("role", PAID_ROLES).eq("archived", false).order("id", { ascending: true }));
+    .in("role", PAID_ROLES).eq("archived", false).neq("on_payroll", false).order("id", { ascending: true }));
   if (result.error && isMissing(result.error)) {
     result = await fetchAllRows(() => supabase.from("profiles").select(base)
-      .in("role", PAID_ROLES).eq("archived", false).order("id", { ascending: true }));
+      .in("role", PAID_ROLES).eq("archived", false).neq("on_payroll", false).order("id", { ascending: true }));
   }
   if (result.error) throw new Error(result.error.message);
   return (result.data || []).filter((row) => String(row.employee_status || "active").toLowerCase() !== "inactive" && row.payroll_hold !== true);

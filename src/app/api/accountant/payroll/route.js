@@ -105,6 +105,7 @@ import { tableQuery } from "@/lib/export/table-query";
 import { RECORD_SORTS, recordSearchFields, recordStatusLabel } from "@/lib/payroll/records-table";
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
 import { activeAccountantIds } from "@/lib/rbac/routing";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -310,7 +311,7 @@ async function fetchEmployees(supabase, guard = null) {
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
     // HR is on payroll too (decision 2026-11-09): its home-branch Accountant processes it.
-    return role === "employee" || role === "accountant" || role === "hr";
+    return (role === "employee" || role === "accountant" || role === "hr") && isOnPayroll(user);
   });
 
   const userIds = employeeUsers.map((user) => user.id);
