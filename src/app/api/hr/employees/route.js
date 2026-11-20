@@ -18,6 +18,7 @@ import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { separateEmployee, validateSeparation } from "@/lib/employees/separation";
 import { textLimitError } from "@/lib/input-limits";
 import { resolvePosition } from "@/lib/hr/positions";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The note"] };
@@ -114,7 +115,7 @@ export async function GET(request) {
 
     const employeeUsers = (usersResult.data.users || []).filter((u) => {
       const role = String(u.user_metadata?.role || "employee").toLowerCase();
-      return MANAGED_ROLES.includes(role) || (guard.role === "hr" && PEER_ROLES.includes(role) && u.id !== guard.userId);
+      return isOnPayroll(u) && (MANAGED_ROLES.includes(role) || (guard.role === "hr" && PEER_ROLES.includes(role) && u.id !== guard.userId));
     });
 
     const userIds = employeeUsers.map((u) => u.id);

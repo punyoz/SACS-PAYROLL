@@ -156,7 +156,8 @@ async function loadEmployees(supabase, guard) {
     let query = supabase.from("profiles")
       .select("id,full_name,employee_id,branch_id,position,employee_type,employee_level,role,archived,employee_status")
       .in("role", PAID_ROLES)
-      .eq("archived", false);
+      .eq("archived", false)
+      .neq("on_payroll", false);
     if (!guard.branchExempt) query = query.eq("branch_id", guard.branchId);
     return query.order("full_name", { ascending: true }).order("id", { ascending: true });
   };

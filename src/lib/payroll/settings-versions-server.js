@@ -15,6 +15,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { CONTRIBUTION_MAX, TAX_AMOUNT_MAX, pesoLimit } from "@/lib/input-limits";
 import { textLimitError } from "@/lib/input-limits";
 import { notify, superAdminIds } from "@/lib/branch-requests-server";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [300, "The note"] };
@@ -151,7 +152,7 @@ async function listPayrollEmployees(supabase) {
   const branchNames = new Map((branches.data || []).map((b) => [b.id, b.name]));
   return (usersResult.data.users || [])
     .filter((user) => ["employee", "accountant", "hr"].includes(String(user.user_metadata?.role || "employee").toLowerCase()))
-    .filter((user) => !user.user_metadata?.archived)
+    .filter((user) => !user.user_metadata?.archived && isOnPayroll(user))
     .map((user) => {
       const metadata = user.user_metadata || {};
       const profile = profileMap.get(user.id);

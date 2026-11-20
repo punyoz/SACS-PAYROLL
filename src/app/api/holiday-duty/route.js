@@ -69,6 +69,7 @@ function describeHoliday(holiday) {
 async function roster(supabase) {
   const result = await fetchAllRows(() => supabase.from("profiles")
     .select("id,full_name,employee_id,branch_id,position,role,archived,employee_status")
+    .neq("on_payroll", false)
     .order("full_name", { ascending: true }));
   if (result.error) throw new Error(result.error.message);
   return (result.data || []).filter((p) => ["employee", "accountant", "hr"].includes(String(p.role || "").toLowerCase())

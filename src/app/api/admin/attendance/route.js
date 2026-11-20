@@ -17,6 +17,7 @@ import { LEAVE_TAP_MESSAGE, isEmployeeOnLeave, recordBlockedTap } from "@/lib/at
 import { annotateAttendanceRows } from "@/lib/attendance/annotate";
 import { holidayAppliesTo, isDayOff, readHolidayMap } from "@/lib/attendance/holidays";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
+import { isOnPayroll } from "@/lib/payroll/on-payroll";
 
 function getDateLabel(date = new Date()) {
   return new Intl.DateTimeFormat("en-PH", {
@@ -93,7 +94,7 @@ async function fetchEmployees(supabase) {
 
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return role === "employee" || role === "accountant";
+    return (role === "employee" || role === "accountant") && isOnPayroll(user);
   });
 
   const userIds = employeeUsers.map((user) => user.id);
@@ -142,7 +143,7 @@ async function findEmployeeByCard(supabase, code) {
   if (usersResult.error || profileResult.error || !(profileResult.data || []).length) return null;
   const employeeUsers = (usersResult.data.users || []).filter((user) => {
     const role = String(user.user_metadata?.role || "employee").toLowerCase();
-    return role === "employee" || role === "accountant";
+    return (role === "employee" || role === "accountant") && isOnPayroll(user);
   });
   const candidates = (profileResult.data || []).map((profile) => {
     const index = employeeUsers.findIndex((user) => user.id === profile.id);
