@@ -1,4 +1,5 @@
-// The demo data scripts (G3), one command line:
+// The demo data scripts (G3), one command line. LOCAL ONLY since 2026-11-20:
+// --target=production is refused except for the read-only "counts".
 //
 //   node scripts/demo/demo.mjs export                       local -> demo-data/bundle.json
 //   node scripts/demo/demo.mjs counts   --target=production  what demo data is there
@@ -520,7 +521,7 @@ const commands = {
     say(`bundle written: ${BUNDLE}`);
   },
   async counts() {
-    const db = await chooseTarget(rest);
+    const db = await chooseTarget(rest, { readOnly: true });
     if (db.target === "local") globalThis.__localSupabase = (await import("../../e2e/local-env.mjs")).localSupabase();
     printCounts(`${db.target} demo data`, await collect(db, { withRows: false }));
   },

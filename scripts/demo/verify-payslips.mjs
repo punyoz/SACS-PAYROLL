@@ -8,7 +8,7 @@
 //   node scripts/demo/verify-payslips.mjs [--target=production]
 import { chooseTarget, lit } from "./db.mjs";
 
-const db = await chooseTarget(process.argv.slice(2));
+const db = await chooseTarget(process.argv.slice(2), { readOnly: true });
 const round = (n) => Math.round(n * 100) / 100;
 function train(monthly) {
   const bands = [[666667, 183541.8, 0.35], [166667, 33541.8, 0.3], [66667, 8541.8, 0.25], [33333, 1875, 0.2], [20833, 0, 0.15]];
