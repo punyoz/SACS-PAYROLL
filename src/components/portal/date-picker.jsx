@@ -68,6 +68,8 @@ export const DatePicker = React.forwardRef(function DatePicker(
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"
+          // Clicking the day already chosen keeps it chosen (2026-11-21, finding c).
+          required
           selected={selected}
           defaultMonth={selected || maxDate || minDate}
           captionLayout="dropdown"
@@ -75,7 +77,7 @@ export const DatePicker = React.forwardRef(function DatePicker(
           startMonth={minDate}
           endMonth={maxDate || latestMonth()}
           onSelect={(date) => {
-            onChange?.(dateToKey(date));
+            if (date) onChange?.(dateToKey(date));
             setOpen(false);
           }}
         />
