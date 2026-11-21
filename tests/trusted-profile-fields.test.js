@@ -11,7 +11,7 @@
  *     the kiosk could clock a colleague in by typing theirs.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resetDb, table, users } from "./helpers/fake-supabase.js";
 
@@ -132,7 +132,13 @@ describe("RFID scan matching", () => {
     }));
   }
 
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(async () => {
+    // A fixed weekday clock (Mon Sep 28, 2026, 10:00 Manila): a tap is refused on a
+    // rest day, so these failed whenever the suite ran on a weekend.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-28T02:00:00Z"));
     vi.resetModules();
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service";

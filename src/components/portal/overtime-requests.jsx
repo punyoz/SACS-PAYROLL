@@ -45,8 +45,12 @@ const hoursText = (minutes) => {
   return `${h ? `${h} h` : ""}${h && m ? " " : ""}${m ? `${m} min` : ""}` || "0 h";
 };
 
+/** Shown instead of a filing form once the person is separated (the server refuses too). */
+export const SEPARATED_NOTE = "You can't file new requests after separation.";
+
 export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
-  const { notify } = usePortalSession();
+  const { notify, me } = usePortalSession();
+  const separated = Boolean(me?.user?.separated);
   const list = useRequests(apiBase);
   const [form, setForm] = React.useState({ request_date: "", planned_start: "", planned_end: "", reason: "" });
   const [busy, setBusy] = React.useState(false);
@@ -89,7 +93,7 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
     { key: "status", header: "Status", sortable: true, cell: (r) => (
       <div className="space-y-0.5"><RequestStatusBadge status={r.status} />{r.decision_note ? <p className="text-xs text-muted-foreground">{r.decision_note}</p> : null}</div>
     ) },
-    { key: "actions", header: "", cell: (r) => (r.status === "pending" ? <Button size="sm" variant="outline" onClick={() => cancel(r)}>Cancel</Button> : null) },
+    { key: "actions", header: "", cell: (r) => (r.status === "pending" && !separated ? <Button size="sm" variant="outline" onClick={() => cancel(r)}>Cancel</Button> : null) },
   ];
 
   return (
@@ -102,6 +106,7 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {separated ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p> : (
           <form className="space-y-3" onSubmit={submit} noValidate>
             <div className="space-y-1.5">
               <Label htmlFor="ot-date">Date</Label>
@@ -118,6 +123,7 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
             {error ? <p role="alert" className="text-sm text-destructive" data-testid="ot-error">{error}</p> : null}
             <Button type="submit" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <SendIcon aria-hidden="true" />}File overtime request</Button>
           </form>
+          )}
         </CardContent>
       </Card>
       <Card className="min-w-0 shadow-xs">

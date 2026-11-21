@@ -57,12 +57,21 @@ export function EmployeesPage({ refreshKey }) {
   const [empStatus, setEmpStatus] = useUrlParam("emp_status", "all");
   const [empType, setEmpType] = useUrlParam("emp_type", "all");
   const [dialog, setDialog] = React.useState(null); // { mode, employee }
+  // ?emp_open=<id> (Action needed → Salary not set): opens that employee's record once loaded.
+  const [openId, setOpenId] = useUrlParam("emp_open", "");
   const [salaryFor, setSalaryFor] = React.useState(null); // Change salary (2026-10-26)
   // Import CSV: onboard many at once (scenario SC-10 / HR-02).
   const [importing, setImporting] = React.useState(false);
   // Offboard many (scenario HR-03): one line per employee, the same reason.
   const [offboarding, setOffboarding] = React.useState(false);
   const [offboard, setOffboard] = React.useState({ reason: "End of contract", note: "" });
+
+  React.useEffect(() => {
+    if (!openId || state.loading) return;
+    const found = state.employees.find((e) => String(e.id) === String(openId));
+    if (found) setDialog({ mode: "edit", employee: found });
+    setOpenId("");
+  }, [openId, state.loading, state.employees, setOpenId]);
 
   const load = React.useCallback(async () => {
     setState((current) => ({ ...current, loading: !current.employees.length, error: null }));

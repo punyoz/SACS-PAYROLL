@@ -142,7 +142,7 @@ export async function GET(request) {
 
     // Action needed (Part A, 20261121010000): records to confirm, probations and
     // contracts ending within the reminder windows. Never fails the dashboard.
-    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [] };
+    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [] };
     try {
       // Not the viewer's own record: another HR confirms it.
       const ids = employees.map((u) => u.id).filter((id) => id !== guard.userId);
@@ -162,7 +162,21 @@ export async function GET(request) {
         probation_ending: probation.filter((p) => p.due_on && p.due_on >= today && p.due_on <= plus(days("probation_reminder_days"))),
         contract_ending: people.filter((p) => p.contract_end_date && p.contract_end_date >= today && p.contract_end_date <= plus(days("contract_reminder_days")))
           .map((p) => ({ id: p.id, full_name: p.full_name, due_on: p.contract_end_date })),
+        salary_not_set: [],
       };
+    } catch { /* ignore */ }
+    // Salary not set (2026-11-22): every on-payroll account with a ₱0 salary;
+    // payroll refuses to process them until the salary is set.
+    try {
+      let zero = supabase.from("profiles").select("id,full_name,role,branch_id")
+        .or("basic_salary.is.null,basic_salary.eq.0")
+        .not("archived", "is", true)
+        .not("on_payroll", "is", false)
+        .in("role", ["employee", "accountant", "hr"])
+        .order("full_name", { ascending: true });
+      if (!guard.branchExempt) zero = zero.eq("branch_id", guard.branchId);
+      const { data } = await zero;
+      actionNeeded.salary_not_set = (data || []).map((p) => ({ id: p.id, full_name: p.full_name, role: p.role }));
     } catch { /* ignore */ }
 
     return NextResponse.json({

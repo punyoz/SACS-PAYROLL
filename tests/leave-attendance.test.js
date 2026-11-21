@@ -10,7 +10,7 @@
  *     cancel approved leave until it ends (the database releases the days).
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetDb, table, users, rpc } from "./helpers/fake-supabase.js";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
@@ -118,7 +118,13 @@ describe("RFID tap on a leave day", () => {
     });
   };
 
+  afterEach(() => vi.useRealTimers());
+
   beforeEach(async () => {
+    // A fixed weekday clock (Mon Sep 28, 2026, 10:00 Manila): a tap is refused on a
+    // rest day, so these failed whenever the suite ran on a weekend.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-28T02:00:00Z"));
     vi.resetModules();
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service";
