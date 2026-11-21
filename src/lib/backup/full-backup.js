@@ -53,7 +53,7 @@ export const BACKUP_GROUPS = Object.freeze([
   {
     key: "leave", label: "Leave requests and balances",
     description: "Every leave request, each employee's leave balance for this year and last year, the leave credit rules and overrides, and the statutory leave settings.",
-    computed: ["leave_balances"], tables: ["leave_requests", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
+    computed: ["leave_balances"], tables: ["leave_requests", "overtime_requests", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
   },
   {
     key: "payroll", label: "Payroll records and payslips",

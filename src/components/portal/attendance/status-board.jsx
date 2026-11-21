@@ -154,7 +154,13 @@ export function AttendanceStatusBoard({
         { key: "employee", header: "Employee", mobilePrimary: true, cell: (r) => <span className="font-medium">{r.employee_name || "—"}</span> },
         { key: "date", header: "Date", className: "whitespace-nowrap", cell: (r) => formatDateKey(r.log_date) },
         { key: "out", header: "Time out", cell: (r) => <div><p className="tabular-nums">{formatTime(r.time_out)}</p><p className="text-xs text-muted-foreground">Shift ends {r.work_end || ""}</p></div> },
-        { key: "past", header: "Past schedule", align: "right", className: "tabular-nums", cell: (r) => formatMinutes(r.overtime_minutes) },
+        { key: "past", header: "Past schedule", align: "right", className: "tabular-nums", cell: (r) => (
+          <div>
+            <p>{formatMinutes(r.overtime_minutes)}</p>
+            {/* Part B: no request filed for the day, so the extra time pays nothing. */}
+            {r.flag ? <p className="text-xs text-warning" data-testid="overtime-not-filed">{r.flag}</p> : r.request ? <p className="text-xs text-muted-foreground">Request {r.request.status}</p> : null}
+          </div>
+        ) },
         { key: "decision", header: "Decision", cell: (r) => <OvertimeDecision row={r} /> },
         ...(queues.overtimeCanReview ? [{ key: "action", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => <OvertimeAction row={r} /> }] : []),
       ];

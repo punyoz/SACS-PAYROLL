@@ -146,6 +146,20 @@ export async function GET(request) {
       (result.data || []).forEach((row) => approvals.set(String(row.log_id), row));
     }
     const paid = await paidPeriods(supabase, [...new Set(candidates.map((item) => item.row.employee_id))]);
+    // Part B (2026-11-22): overtime is requested ahead. A late tap out with no
+    // pending or approved request is flagged "Overtime not filed" and pays nothing.
+    const filed = new Map();
+    if (candidates.length) {
+      const dates = candidates.map((item) => String(item.row.log_date).slice(0, 10)).sort();
+      const result = await fetchAllIn(() => supabase
+        .from("overtime_requests")
+        .select("employee_id,request_date,status,minutes")
+        .in("status", ["pending", "approved"])
+        .gte("request_date", dates[0])
+        .lte("request_date", dates.at(-1)), "employee_id", [...new Set(candidates.map((item) => item.row.employee_id))]);
+      if (result.error) throw new Error(result.error.message);
+      (result.data || []).forEach((r) => filed.set(`${r.employee_id}|${r.request_date}`, { status: r.status, minutes: r.minutes }));
+    }
 
     return NextResponse.json({
       range,
@@ -161,6 +175,8 @@ export async function GET(request) {
         work_end: policy.work_end,
         overtime_minutes: minutes,
         approval: approvals.get(String(row.id)) || null,
+        request: filed.get(`${row.employee_id}|${String(row.log_date).slice(0, 10)}`) || null,
+        flag: filed.has(`${row.employee_id}|${String(row.log_date).slice(0, 10)}`) ? null : "Overtime not filed",
         locked: paid.has(`${row.employee_id}|${periodForDateKey(String(row.log_date).slice(0, 10)).label}`),
       })),
     });

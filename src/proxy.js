@@ -139,6 +139,8 @@ const API_MODULES = [
   ["/api/hr/positions", "employee_information"],
   ["/api/hr/attendance", "attendance"],
   ["/api/hr/leave-requests", "leave_approval"],
+  // Overtime requests (Part B, 2026-11-22): HR lists ("read") and decides (PATCH, "update").
+  ["/api/hr/overtime-requests", "leave_approval"],
   // The shared HR queue's claim lock (2026-11-09).
   ["/api/hr/queue-claims", "leave_approval"],
   ["/api/hr/reports", "hr_reports"],
@@ -223,6 +225,9 @@ const API_MODULES = [
   ["/api/employee/payslips", "payslips"],
   ["/api/employee/timesheet", "timesheet"],
   ["/api/employee/leave-requests", "leave_approval"],
+  // An employee's own overtime requests; the portal uses /api/me/overtime-requests
+  // (my_account), whose PATCH (cancel) every role on payroll may send.
+  ["/api/employee/overtime-requests", "leave_approval"],
   ["/api/employee/stats", "dashboard"],
 ];
 
