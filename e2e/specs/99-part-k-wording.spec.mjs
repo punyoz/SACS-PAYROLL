@@ -54,7 +54,10 @@ test("Accountant: monitoring statuses, 13th month pay, Category filter", async (
   }
   await expect(main(page).getByText(/Not submitted to HR|Rejected by HR/)).toHaveCount(0);
   await shot(page, "05-accountant-monitoring-statuses");
-  await expect(page.getByRole("link", { name: "13th month pay" }).first()).toBeVisible();
+  await as(page, "accountant", "ac-13th");
+  await settle(page);
+  await expect(page.locator("header").getByText("13th month pay").first()).toBeVisible();
+  await expect(page.getByText("13th Month Pay", { exact: true })).toHaveCount(0);
 
   await as(page, "accountant", "ac-process");
   await settle(page);
