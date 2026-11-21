@@ -22,7 +22,7 @@ import { loadPayrollStaff } from "@/lib/payroll/staff";
 import { floorNetPay } from "@/lib/payroll/net-pay";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
-import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadPayslipYtd, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 
 const RUN_LABELS = { pending: "Pending HR approval", approved: "Paid", rejected: "Returned by HR" };
 
@@ -100,6 +100,7 @@ export async function GET(request) {
       const details = buildPayslipDetails(entry, { taxRows: await loadTaxBracketRows(supabase), runStatus: run?.status || null });
       const needsCorrection = (await correctionsDue(supabase, [{ ...entry, run_status: run?.status || null }])).get(String(entry.id)) || null;
       if (normalizeText(url.searchParams.get("format")).toLowerCase() === "pdf") {
+        details.ytd = await loadPayslipYtd(supabase, entry, details);
         const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
         const fileName = payslipFileName(entry);
         return new NextResponse(pdf, {

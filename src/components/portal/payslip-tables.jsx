@@ -4,6 +4,7 @@ import * as React from "react";
 import { InfoTip } from "@/components/portal/info-tip";
 import { holidayLineLabel } from "@/lib/portal/format";
 import { money } from "@/lib/portal/payroll-preview";
+import { DEDUCTION_GROUPS } from "@/lib/payroll/payslip-tables";
 import { cn } from "@/lib/utils";
 
 /*
@@ -34,8 +35,13 @@ export function PayslipSection({ title, children }) {
   );
 }
 
-/** "-₱1,000.00" for a deduction (₱0.00 when none); "+₱…" for a credit. */
-const deduction = (row) => (row.text ? row.text : row.credit ? `+${money(row.amount)}` : Number(row.amount) ? `-${money(Math.abs(Number(row.amount)))}` : money(0));
+/** A deduction reads positive, as on the PDF (2026-11-22); a credit (a tax refund) reads "−₱…" against them. */
+const deduction = (row) => (row.text ? row.text : row.credit ? `−${money(Math.abs(Number(row.amount)))}` : money(Math.abs(Number(row.amount) || 0)));
+
+/** A group's name over its lines (attendance, government contributions, tax, loans and advances, other). */
+function GroupLabel({ children }) {
+  return <div role="row" className="px-3 pt-2 pb-0.5 text-[0.7rem] font-semibold tracking-wide text-muted-foreground uppercase"><span role="cell">{children}</span></div>;
+}
 
 export function PayslipTables({ tables }) {
   if (!tables) return null;
@@ -60,7 +66,15 @@ export function PayslipTables({ tables }) {
           ) : null}
         </div>
         <PayslipSection title="Deductions">
-          {tables.deductions.map((row) => <PayslipRow key={`${row.key}-${row.label}`} label={row.label} value={deduction(row)} tone={row.credit ? "plus" : undefined} note={row.note} />)}
+          {DEDUCTION_GROUPS.map(([key, label]) => {
+            const rows = tables.deductions.filter((row) => row.group === key);
+            return rows.length ? (
+              <React.Fragment key={key}>
+                <GroupLabel>{label}</GroupLabel>
+                {rows.map((row) => <PayslipRow key={`${row.key}-${row.label}`} label={row.label} value={deduction(row)} tone={row.credit ? "plus" : undefined} note={row.note} />)}
+              </React.Fragment>
+            ) : null;
+          })}
           <PayslipRow label="Total deductions" value={deduction({ amount: tables.total_deductions })} strong tone="minus" />
         </PayslipSection>
       </div>

@@ -12,6 +12,8 @@ import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { employeePayslipView, payrollLineGroups } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
 import { classificationLabel } from "@/lib/employees/classification";
+import { periodFromLabel } from "@/lib/payroll/periods";
+import { payslipTables } from "@/lib/payroll/payslip-tables";
 
 /**
  * payroll_tax_brackets rows (every version), for the withholding tax line's
@@ -206,5 +208,101 @@ export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = 
     final_pay_overpayment: entry.payroll.final_pay?.overpayment_to_recover || 0,
     // A hire on the 16th (one whole-month 2nd half) has no grouped lines: the employee's view of it.
     line_groups: payrollLineGroups(entry.payroll, { taxTable }) || view,
+  };
+}
+
+/* ── Year to date (2026-11-22) ── */
+
+const cents = (value) => Math.round((Number(value) || 0) * 100);
+const sumKeys = (rows, keys) => rows.filter((r) => keys.includes(r.key) && !r.text).reduce((t, r) => t + (r.credit ? -1 : 1) * Math.abs(cents(r.amount)), 0);
+
+/**
+ * Year-to-date figures from payslips as they are shown (buildPayslipDetails +
+ * payslipTables, the stored figures only): gross pay, taxable income (the
+ * 2nd-half monthly computation), withholding tax and the employee's SSS,
+ * PhilHealth and Pag-IBIG.
+ */
+export function payslipYtd(detailsList) {
+  const total = { gross: 0, taxable: 0, tax: 0, sss: 0, philhealth: 0, pagibig: 0 };
+  for (const d of detailsList.filter(Boolean)) {
+    const t = payslipTables(d);
+    total.gross += cents(t ? t.gross : d.earnings?.gross_pay);
+    const taxable = d.tax_box?.taxable ?? (d.monthly?.half === "second" ? d.monthly.taxable_income : d.final_pay?.taxable_income);
+    total.taxable += cents(taxable);
+    const rows = t?.deductions || [];
+    total.tax += t ? sumKeys(rows, ["withholding_tax", "year_end_tax", "year_end_refund"]) : cents(d.deductions?.withholding_tax);
+    total.sss += t ? sumKeys(rows, ["sss"]) : cents(d.deductions?.sss);
+    total.philhealth += t ? sumKeys(rows, ["philhealth"]) : cents(d.deductions?.philhealth);
+    total.pagibig += t ? sumKeys(rows, ["pagibig"]) : cents(d.deductions?.pagibig);
+  }
+  return Object.fromEntries(Object.entries(total).map(([k, v]) => [k, v / 100]));
+}
+
+function asEntry(row) {
+  let payroll = row.payroll;
+  if (typeof payroll === "string") {
+    try { payroll = JSON.parse(payroll); } catch { payroll = null; }
+  }
+  payroll = payroll && typeof payroll === "object" ? payroll : {};
+  return { ...row, status: String(row.status || "").toLowerCase(), payroll: { ...payroll, totals: payroll.totals || {}, deductions: payroll.deductions || {}, incentives: payroll.incentives || {} } };
+}
+
+/**
+ * This payslip's year to date: its own figures plus the employee's released
+ * payslips earlier in the same calendar year (a pay period counts once its
+ * run is approved). A final pay counts every released period of its year.
+ * null when the history cannot be read (the PDF then leaves the box out).
+ */
+export async function loadPayslipYtd(supabase, entry, details) {
+  if (!supabase || !entry?.employee_id || !details) return null;
+  const own = periodFromLabel(entry.pay_period || "");
+  const year = own?.start_key?.slice(0, 4) || String(entry.approved_at || entry.submitted_at || entry.created_at || "").slice(0, 4);
+  if (!/^\d{4}$/.test(year)) return null;
+  try {
+    const found = await supabase.from("payroll_entries").select("id,employee_id,pay_period,status,run_id,payroll").eq("employee_id", entry.employee_id).neq("status", "draft").like("pay_period", `%${year}%`);
+    if (found.error) return null;
+    const earlier = (found.data || []).filter((row) => {
+      if (String(row.id) === String(entry.id)) return false;
+      const p = periodFromLabel(row.pay_period || "");
+      return Boolean(p && row.run_id && p.start_key.startsWith(year) && (!own || p.start_key < own.start_key));
+    });
+    const runIds = [...new Set(earlier.map((row) => row.run_id))];
+    const runs = runIds.length ? await supabase.from("payroll_runs").select("id").in("id", runIds).eq("status", "approved") : { data: [] };
+    if (runs.error) return null;
+    const approved = new Set((runs.data || []).map((r) => String(r.id)));
+    const prior = earlier.filter((row) => approved.has(String(row.run_id))).map((row) => buildPayslipDetails(asEntry(row)));
+    return { year, ...payslipYtd([...prior, details]), payslips: prior.length + 1 };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A 13th month payout (payroll_thirteenth_month row) as payslip details, for
+ * the same PDF layout as a final pay (2026-11-22): one line, basic pay earned
+ * in the year ÷ 12, no deductions; the stored amount only.
+ */
+export function thirteenthMonthDetails(row, employee = {}) {
+  if (!row) return null;
+  const amount = Math.round((Number(row.amount) || 0) * 100) / 100;
+  const basic = Math.round((Number(row.basic_earned) || 0) * 100) / 100;
+  const peso = (n) => `₱${Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const periods = Array.isArray(row.breakdown?.periods) ? row.breakdown.periods.length : 0;
+  return {
+    entry_id: row.id,
+    payslip_no: row.payslip_no || `13M-${row.year}-${String(employee.id || row.employee_id || "").slice(-6)}`,
+    pay_period: `13th month pay ${row.year}`,
+    pay_type: "13th month",
+    status: "final",
+    status_label: "Paid",
+    pay_date_label: row.processed_at ? formatManilaDate(row.processed_at) : "—",
+    employee: { id: employee.id || null, name: employee.name || row.employee_name, type: employee.type || null, position: employee.position || null, branch: employee.branch || null },
+    final_pay: {
+      earnings: [{ kind: "thirteenth_month", label: "13th month pay", amount, note: `Basic pay earned ${peso(basic)} ÷ 12${periods ? ` (${periods} payslips)` : ""}` }],
+      deductions: [],
+      gross: amount,
+      total_deductions: 0,
+    },
+    net_pay: amount,
   };
 }
