@@ -44,7 +44,7 @@ export const MY_REQUEST_TABS = [
   { value: "cash_advances", label: "Cash Advances" },
   { value: "incentives", label: "Incentives" },
   { value: "subsidy", label: "Subsidy" },
-  { value: "thirteenth_month", label: "13th Month" },
+  { value: "thirteenth_month", label: "13th month" },
 ];
 
 /**

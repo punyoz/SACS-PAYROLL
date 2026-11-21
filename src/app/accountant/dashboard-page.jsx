@@ -25,9 +25,9 @@ const TOTALS_CHART = { amount: { label: "Amount" } };
 const STATUS_CHART = {
   paid: { label: "Paid", color: "var(--chart-1)" },
   draft: { label: "Draft", color: "var(--chart-4)" },
-  unsubmitted: { label: "Not submitted to HR", color: "var(--info)" },
-  pending: { label: "Pending HR Approval", color: "var(--chart-2)" },
-  on_hold: { label: "Rejected by HR", color: "var(--destructive)" },
+  unsubmitted: { label: "Ready for HR", color: "var(--info)" },
+  pending: { label: "Pending HR approval", color: "var(--chart-2)" },
+  on_hold: { label: "Returned by HR", color: "var(--destructive)" },
 };
 
 export const RECORD_COLUMNS = [
@@ -43,8 +43,8 @@ function bucket(record) {
   const label = recordStatusMeta(record).label;
   if (label === "Paid") return "paid";
   if (label === "Draft") return "draft";
-  if (label === "Not submitted to HR") return "unsubmitted";
-  if (label === "Pending HR Approval") return "pending";
+  if (label === "Ready for HR") return "unsubmitted";
+  if (label === "Pending HR approval") return "pending";
   return "on_hold";
 }
 

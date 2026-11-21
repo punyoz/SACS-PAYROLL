@@ -42,21 +42,21 @@ const json = async (p) => { const r = await p; return { status: r.status, body: 
 
 describe("one set of payroll status labels", () => {
   it("runs use exactly the four payroll labels", () => {
-    expect(RUN_STATUS_LABELS).toEqual({ draft: "Not submitted to HR", pending: "Pending HR Approval", approved: "Paid", rejected: "Rejected by HR" });
+    expect(RUN_STATUS_LABELS).toEqual({ draft: "Ready for HR", pending: "Pending HR approval", approved: "Paid", rejected: "Returned by HR" });
   });
 
   it("records say the same, before and after HR's decision", () => {
     const period = "October 1-15, 2026";
     // A Draft has its own label (decision 2026-11-15 #5).
     expect(recordStatusMeta({ status: "draft", pay_period: period }).label).toBe("Draft");
-    expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: null }).label).toBe("Not submitted to HR");
-    expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: "pending" }).label).toBe("Pending HR Approval");
-    expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: "rejected" }).label).toBe("Rejected by HR");
+    expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: null }).label).toBe("Ready for HR");
+    expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: "pending" }).label).toBe("Pending HR approval");
+    expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: "rejected" }).label).toBe("Returned by HR");
     expect(recordStatusMeta({ status: "paid", pay_period: period, run_status: "approved" }).label).toBe("Paid");
     // Before approval existed (pre-October 2026) the same words are used.
     expect(statusMeta("draft").label).toBe("Draft");
-    expect(statusMeta("pending").label).toBe("Pending HR Approval");
-    expect(statusMeta("rejected").label).toBe("Rejected by HR");
+    expect(statusMeta("pending").label).toBe("Pending HR approval");
+    expect(statusMeta("rejected").label).toBe("Returned by HR");
     expect(statusMeta("paid").label).toBe("Paid");
   });
 });

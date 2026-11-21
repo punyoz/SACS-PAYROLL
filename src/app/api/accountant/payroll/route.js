@@ -293,7 +293,7 @@ async function readPayrollHolds(supabase, userIds) {
     if (isInternalDbSchemaError(result.error.message)) return held;
     throw new Error(`Failed to read payroll holds: ${result.error.message}`);
   }
-  (result.data || []).forEach((row) => held.set(row.id, row.payroll_hold_reason || "Pay held"));
+  (result.data || []).forEach((row) => held.set(row.id, row.payroll_hold_reason || "Pay on hold"));
   return held;
 }
 
@@ -3968,7 +3968,7 @@ export async function GET(request) {
       if (!entry || (!guard.branchExempt && !visible.has(entry.employee_id))) {
         return NextResponse.json({ error: "Payslip not found." }, { status: 404 });
       }
-      // The run's status only tells Pending HR Approval from Returned by HR on the PDF.
+      // The run's status only tells Pending HR approval from Returned by HR on the PDF.
       const runStatus = entry.run_id && !entry.approved_at
         ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data?.status || null
         : null;

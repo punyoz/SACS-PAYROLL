@@ -30,7 +30,7 @@ export const PAGES = {
   accountant: [
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
-    ["ac-13th", "13th Month Pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
+    ["ac-13th", "13th month pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
     ["ac-attendance", "View Attendance"], ["ac-holidays", "Holidays & Duty"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
     ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "My Leave"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-profile", "My Profile"],
   ],

@@ -21,7 +21,7 @@ import { PER_CUTOFF_RULE, monthlyWithholdingTax, resolveTaxTableRows, taxTableFr
 export const LEFT_OUT_AS = Object.freeze({ not_processed: "not_processed", draft: "draft", outside_list: "outside_list" });
 export const LEFT_OUT_LABELS = Object.freeze({
   not_processed: "Not processed",
-  draft: "Draft, not finalized",
+  draft: "Draft",
   outside_list: "Not in this branch's active list",
 });
 

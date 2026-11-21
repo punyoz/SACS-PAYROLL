@@ -12,7 +12,7 @@ export const CORRECTION_KIND_LABELS = Object.freeze({
 });
 
 export const CORRECTION_STATUS_LABELS = Object.freeze({
-  pending: "Pending HR Approval",
+  pending: "Pending HR approval",
   approved: "Approved",
   rejected: "Rejected by HR",
   cancelled: "Cancelled",

@@ -775,7 +775,7 @@ describe("Payroll Approval workflow", () => {
     expect((await submit()).status).toBe(200);
     const supplemental = latestRun(BRANCH_A);
     expect(supplemental.run_no).toBe(2);
-    expect((await leftOutList())[0]).toMatchObject({ follow_up: "supplemental_pending", follow_up_label: "In supplemental run, Pending HR Approval" });
+    expect((await leftOutList())[0]).toMatchObject({ follow_up: "supplemental_pending", follow_up_label: "In supplemental run, Pending HR approval" });
 
     await rejectRun(supplemental);
     expect((await leftOutList())[0].follow_up).toBe("supplemental_rejected");

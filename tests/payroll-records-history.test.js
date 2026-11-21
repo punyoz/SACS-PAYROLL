@@ -7,10 +7,10 @@ describe('recordStatusMeta (Accountant Payroll Records / Monitoring)', () => {
 
   it('is Paid only once HR approves the branch run', () => {
     expect(recordStatusMeta(rec('approved')).label).toBe('Paid');
-    expect(recordStatusMeta(rec('pending')).label).toBe('Pending HR Approval');
-    expect(recordStatusMeta(rec('rejected')).label).toBe('Rejected by HR');
-    expect(recordStatusMeta(rec(null)).label).toBe('Not submitted to HR');
-    expect(recordStatusMeta(rec('draft')).label).toBe('Not submitted to HR');
+    expect(recordStatusMeta(rec('pending')).label).toBe('Pending HR approval');
+    expect(recordStatusMeta(rec('rejected')).label).toBe('Returned by HR');
+    expect(recordStatusMeta(rec(null)).label).toBe('Ready for HR');
+    expect(recordStatusMeta(rec('draft')).label).toBe('Ready for HR');
   });
 
   it('keeps the old labels before approval existed, and for drafts', () => {

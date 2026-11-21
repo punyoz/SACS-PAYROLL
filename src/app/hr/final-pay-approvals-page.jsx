@@ -172,9 +172,9 @@ export function FinalPayWaitingCard({ refreshKey, onOpen }) {
 }
 
 const STATUS_FILTERS = [
-  { value: "pending", label: "Pending HR Approval" },
+  { value: "pending", label: "Pending HR approval" },
   { value: "approved", label: "Released" },
-  { value: "rejected", label: "Rejected by HR" },
+  { value: "rejected", label: "Returned by HR" },
 ];
 
 /** Payroll Approval → Final pay tab: what waits first, then one card per final pay, filtered by status and branch. */

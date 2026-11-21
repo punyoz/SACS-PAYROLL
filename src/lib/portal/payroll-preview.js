@@ -422,11 +422,11 @@ export function statusMeta(status) {
   if (s === "paid" || s === "approved") return { label: "Paid", tone: "success" };
   // Same wording as recordStatusMeta (2026-10-20); "On hold" is an entry
   // the Accountant held back, not an HR decision.
-  if (s === "rejected") return { label: "Rejected by HR", tone: "danger" };
-  if (s === "on_hold") return { label: "On hold", tone: "danger" };
+  if (s === "rejected") return { label: "Returned by HR", tone: "danger" };
+  if (s === "on_hold") return { label: "Pay on hold", tone: "danger" };
   // A Draft has its own label (2026-11-15): processed, not Final yet.
   if (s === "draft") return { label: "Draft", tone: "gold" };
-  return { label: "Pending HR Approval", tone: "gold" };
+  return { label: "Pending HR approval", tone: "gold" };
 }
 
 /**
@@ -440,9 +440,9 @@ export function recordStatusMeta(record) {
   if (s === "draft") return { label: "Draft", tone: "gold" };
   if (s === "on_hold" || s === "rejected" || !requiresApproval(record?.pay_period)) return statusMeta(record?.status);
   if (record.run_status === "approved") return { label: "Paid", tone: "success" };
-  if (record.run_status === "pending") return { label: "Pending HR Approval", tone: "gold" };
-  if (record.run_status === "rejected") return { label: "Rejected by HR", tone: "danger" };
-  return { label: "Not submitted to HR", tone: "info" };
+  if (record.run_status === "pending") return { label: "Pending HR approval", tone: "gold" };
+  if (record.run_status === "rejected") return { label: "Returned by HR", tone: "danger" };
+  return { label: "Ready for HR", tone: "info" };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

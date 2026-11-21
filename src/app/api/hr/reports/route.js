@@ -92,7 +92,7 @@ export async function GET(request) {
           period: `${from ? reportDate(from) : "Start of records"} to ${reportDate(to)}`, totals: shown.length > 0,
           filters: [["Search", q || "none"], ["Sorted by", "Branch, then employee"]],
           empty: `No attendance matches${q ? `: Search = "${q}"` : " this branch and period"}.`,
-          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Type" }, { header: "Present", kind: "number", integer: true },
+          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Category" }, { header: "Present", kind: "number", integer: true },
             { header: "Late", kind: "number", integer: true }, { header: "Absent", kind: "number", integer: true }, { header: "On leave", kind: "number", integer: true },
             { header: "Total hours", kind: "number" }],
           rows: shown.map((r) => [r.branch_name || "Unassigned", r.employee_name || "", r.employee_type || "", r.present, r.late, r.absent, r.on_leave, Number(r.total_hours) || 0]),
@@ -163,7 +163,7 @@ export async function GET(request) {
           period: `As of ${reportDate(to)}`,
           filters: [["Search", q || "none"], ["Employment", employment && employment !== "all" ? employment : "any"], ["Sorted by", "Branch, then employee"]],
           empty: `No employees match${q ? `: Search = "${q}"` : " this branch"}.`,
-          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Type" }, { header: "Employment" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
+          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Category" }, { header: "Employment" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
           rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "",
             [r.employment_status, r.employment_type].filter(Boolean).join(" · "), r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
         });

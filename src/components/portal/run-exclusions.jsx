@@ -44,9 +44,9 @@ export function ExclusionsAlert({ exclusions, title = "Left out of this run", cl
 
 const FOLLOW_UP = {
   not_processed: ["Not processed yet", "warning"],
-  draft: ["Draft, not finalized", "gold"],
+  draft: ["Draft", "gold"],
   processed_not_submitted: ["Processed, not submitted", "info"],
-  supplemental_pending: ["In supplemental run, Pending HR Approval", "warning"],
+  supplemental_pending: ["In supplemental run, Pending HR approval", "warning"],
   supplemental_rejected: ["Left out again: supplemental run rejected by HR", "danger"],
 };
 

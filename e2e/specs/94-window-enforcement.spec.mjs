@@ -154,7 +154,7 @@ test("processing window enforcement: ON blocks, OFF opens own-branch processing,
     const ack = dialog.getByRole("checkbox");
     if (await ack.count()) await ack.first().check();
     await confirm(page, "Submit for HR Approval");
-    await expect(main(page).getByText("Pending HR Approval").first()).toBeVisible();
+    await expect(main(page).getByText("Pending HR approval").first()).toBeVisible();
     const branch = await rows(db().from("branches").select("id").eq("name", BRANCH).single());
     const run = await rows(db().from("payroll_runs").select("status,created_in_testing_mode").eq("branch_id", branch.id).eq("period_label", NOV1).single());
     expect(run.status).toBe("pending");
@@ -168,7 +168,7 @@ test("processing window enforcement: ON blocks, OFF opens own-branch processing,
     const back = main(page).getByRole("button", { name: "All runs" });
     if (await back.isVisible().catch(() => false)) { await back.click(); await settle(page); }
     await expect(banner(page).first()).toContainText(BANNER);
-    await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+    await page.getByRole("tab", { name: /Pending HR approval/ }).click();
     await settle(page);
     const row = main(page).locator("tr", { hasText: NOV1 }).filter({ hasText: BRANCH }).first();
     await expect(row.getByText("Testing mode")).toBeVisible();

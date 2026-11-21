@@ -8,7 +8,8 @@
  *                     row's own branch_id when the profile has none
  *   branch_name       that branch's name
  *   last_correction   for a Corrected day: the latest approved correction
- *                     (who, when, why), for "Corrected by … · reason"
+ *                     (who, when, why), for "Overridden by … · reason" or
+ *                     "Corrected by … (approved request)"
  *   tap_after_correction_at  for a Corrected day: a tap came in after the
  *                     correction ("New tap after correction")
  *
@@ -42,7 +43,7 @@ export async function annotateAttendanceRows(supabase, rows) {
       correctedIds.length
         ? fetchAllIn(() => supabase
           .from("attendance_corrections")
-          .select("id,log_id,approved_by_name,approved_at,reason,review_note,correction_type,original_time_in,original_time_out")
+          .select("id,log_id,requested_by,approved_by,approved_by_name,approved_at,reason,review_note,correction_type,original_time_in,original_time_out")
           .eq("status", "approved")
           .order("approved_at", { ascending: true })
           .order("id", { ascending: true }), "log_id", correctedIds)

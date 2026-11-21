@@ -24,7 +24,7 @@ import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 
-const RUN_LABELS = { pending: "Pending HR approval", approved: "Approved", rejected: "Rejected" };
+const RUN_LABELS = { pending: "Pending HR approval", approved: "Paid", rejected: "Returned by HR" };
 
 const amount = (value) => {
   const n = Number(value || 0);
