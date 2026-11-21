@@ -11,7 +11,12 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api, manilaDay } from "../support/flow.mjs";
-import { archiveTestAccount, db, profileByEmail, psql, rows } from "../support/db.mjs";
+import { archiveTestAccount, db, profileByEmail, psql, retireAccountsCreatedSince, rows, workingTodayFor } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+
 import { TIME_TRAVEL, travelTo, travelHome } from "../support/time-travel.mjs";
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 
@@ -45,7 +50,9 @@ const manilaMinutesNow = () => {
 };
 
 // Eli leaves Main Campus's headcount as seeded for later specs, even on a failure.
-test.afterAll(async () => { await travelHome(); await archiveTestAccount(ELI.email); });
+// A weekend / holiday run: today is a working day for Eli (undone after).
+let undoWorkingDay = async () => {};
+test.afterAll(async () => { await undoWorkingDay(); await travelHome(); await archiveTestAccount(ELI.email); await retireAccountsCreatedSince(SPEC_START); });
 
 async function kioskTap(page, uid, offlineAt) {
   return page.evaluate(async ({ uid, offlineAt }) => {
@@ -68,6 +75,7 @@ test("RFID edge cases: late time in, time out, where taps show, absence, nightly
     const made = await api(page, "POST", "/api/admin/employees", body(mainId));
     expect(made.status, JSON.stringify(made.data)).toBe(201);
     eli = await profileByEmail(ELI.email);
+    undoWorkingDay = await workingTodayFor([eli.id]);
     const card = await api(page, "POST", "/api/rfid/cards", { action: "register", employee_id: eli.id, uid: CARD, reason: "E2E new card" });
     expect([200, 201], JSON.stringify(card.data)).toContain(card.status);
     const ts = await api(page, "GET", `/api/employee/timesheet?email=${encodeURIComponent(ELI.email)}&start_date=${today}&end_date=${today}`);

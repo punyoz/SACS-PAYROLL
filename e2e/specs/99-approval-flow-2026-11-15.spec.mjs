@@ -16,7 +16,13 @@ import { test, expect } from "../support/test.mjs";
 import { as, loginThroughUi, signOutLocally } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api, confirm } from "../support/flow.mjs";
-import { db, psql, rows } from "../support/db.mjs";
+import { db, psql, retireAccountsCreatedSince, rows } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+test.afterAll(async () => { await retireAccountsCreatedSince(SPEC_START); });
+
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 
 const BEFORE = process.env.E2E_BEFORE === "1";
@@ -158,7 +164,9 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
       await card.getByTestId("include-outside").click();
       await card.getByTestId("group-drafts").locator("summary").click();
       await expect(card.getByTestId("group-drafts")).toContainText("Dan Draft");
-      await expect(card.getByTestId("group-drafts").getByRole("button", { name: "Finalize" })).toBeVisible();
+      // Drafts are finalized from the batch table, not here (decided 2026-11-16, 3dac550): the group explains it.
+      await expect(card.getByTestId("group-drafts").getByRole("button", { name: "Finalize" })).toHaveCount(0);
+      await expect(card.getByTestId("group-drafts")).toContainText("A Draft is never sent to HR");
       await shot(card, "run-card-groups-open");
 
       // Confirm and submit: the Draft is left out, never in the run.

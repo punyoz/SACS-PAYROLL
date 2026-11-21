@@ -15,7 +15,12 @@
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { api } from "../support/flow.mjs";
-import { db, profileByEmail, psql, rows } from "../support/db.mjs";
+import { db, profileByEmail, psql, retireAccountsCreatedSince, rows } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+
 import { ACCOUNTS } from "../accounts.mjs";
 import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
 
@@ -29,7 +34,7 @@ const AMOUNTS = ["basic_salary", "gross_pay", "total_deductions", "net_pay", "ab
 
 const setSwitch = (enforced) => db().rpc("set_payroll_window_enforcement", { p_enforced: enforced, p_expires_on: null, p_reason: `E2E proof ${enforced ? "ON" : "OFF"}`, p_actor: null, p_actor_name: "E2E", p_source: "seed", p_environment: "local" });
 
-test.afterAll(async () => { await travelHome(); await setSwitch(true); });
+test.afterAll(async () => { await travelHome(); await setSwitch(true); await retireAccountsCreatedSince(SPEC_START); });
 
 function person(branchId, n) {
   return {

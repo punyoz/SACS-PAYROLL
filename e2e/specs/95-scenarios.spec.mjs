@@ -10,7 +10,13 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api, choose, confirm, manilaDay, refresh } from "../support/flow.mjs";
-import { db, profileByEmail, rows } from "../support/db.mjs";
+import { db, profileByEmail, retireAccountsCreatedSince, rows, workingTodayFor } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+test.afterAll(async () => { await retireAccountsCreatedSince(SPEC_START); });
+
 import { ACCOUNTS } from "../accounts.mjs";
 
 const stamp = Date.now() % 100000;
@@ -216,9 +222,14 @@ test("AC-08 / AC-06: a wrong approved payslip is corrected on a later payslip (f
   });
 });
 
+let undoWorkingDay = async () => {};
+test.afterEach(async () => { await undoWorkingDay(); undoWorkingDay = async () => {}; });
+
 test("EM-01 / EM-03: a forgotten card is recorded by HR; a 'time in' hours before the shift is refused", async ({ page, monitor }) => {
   const acct = await profileByEmail(ACCOUNTS.accountant.email);
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
+  // A weekend / holiday run: today is a working day for both (undone after the test).
+  undoWorkingDay = await workingTodayFor([bea.id, acct.id]);
   await step(page, "HR > records today by hand for Bea, who forgot her card (EM-01)", async () => {
     monitor.at("HR > Attendance > correct_record");
     await as(page, "hr", "hr-attendance");
@@ -321,7 +332,8 @@ test("HR-07 / SA-03 / SC-14 / SA-01: audit search reaches old entries; size warn
   await step(page, "Super Admin > System health shows the database size");
   const system = await api(page, "GET", "/api/admin/system");
   expect(system.data.database_size.bytes).toBeGreaterThan(0);
-  expect(system.data.database_size.limit_bytes).toBe(500 * 1024 * 1024);
+  // Supabase Pro since 2026-11-05: 8 GB (it was the Free plan's 500 MB).
+  expect(system.data.database_size.limit_bytes).toBe(8 * 1024 * 1024 * 1024);
   await as(page, "super_admin", "sa-dashboard");
   await expect(main(page).getByText("Database size")).toBeVisible();
 

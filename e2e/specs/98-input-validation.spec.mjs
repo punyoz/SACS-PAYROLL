@@ -22,7 +22,12 @@ import { as, ROLE_LABEL } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { PAGES, main, navTo, settle } from "../support/portal.mjs";
 import { api } from "../support/flow.mjs";
-import { db, profileByEmail, psql, rows } from "../support/db.mjs";
+import { db, profileByEmail, psql, retireAccountsCreatedSince, rows } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 
 test.use({ viewport: { width: 1280, height: 800 } });
@@ -379,7 +384,8 @@ test("API fields: wrong type, oversized and empty values are refused server-side
   writeFileSync(join(OUT, "api.json"), JSON.stringify(apiResults, null, 1));
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
+  await retireAccountsCreatedSince(SPEC_START);
   mkdirSync(OUT, { recursive: true });
   const ui = [...uiResults.values()];
   if (ui.length) writeFileSync(join(OUT, "ui.json"), JSON.stringify(ui, null, 1));
