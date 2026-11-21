@@ -13,7 +13,9 @@ import { readPdf } from "./helpers/pdf-read";
 const PAGE_W = 595;
 const M = 42;
 const COL = (PAGE_W - 2 * M) / 3;
-const AMOUNT_RIGHT = PAGE_W - M - 6; // every payslip amount ends here
+const AMOUNT_RIGHT = PAGE_W - M - 6; // every Deductions-panel (right) amount ends here
+// Two panels since 2026-11-22 (Earnings | Deductions, 12 pt apart): the Earnings amounts end here.
+const EARNINGS_RIGHT = M + (PAGE_W - 2 * M - 12) / 2 - 6;
 const MONEY = /^−?₱[\d,]+\.\d\d$/;
 
 const LONG_NAME = "Maria Concepcion Dela Cruz-Villanueva Spring Valle"; // 50 characters
@@ -62,11 +64,14 @@ describe("payslip PDF layout (2026-11-19, one template, embedded Noto Sans)", ()
     expect(nameLines.length).toBeGreaterThan(1);
     nameLines.forEach((i) => expect(i.x1).toBeLessThanOrEqual(M + COL - 10 + 0.5));
     expect(text).toContain("DEMO-013");
-    // Every amount in the Amount column, summary included, ends at the same x.
-    const amounts = page.items.filter((i) => MONEY.test(i.text) && i.x0 > PAGE_W * 0.55);
+    // Every amount in a panel's Amount column (and the boxes under it) ends at that panel's x
+    // (2026-11-22: two panels; the net pay box in between is left out, its amounts are larger).
+    const amounts = page.items.filter((i) => MONEY.test(i.text) && i.size < 11);
     expect(amounts.length).toBeGreaterThan(12);
-    amounts.forEach((i) => expect(Math.abs(i.x1 - AMOUNT_RIGHT), i.text).toBeLessThan(0.5));
-    expect(text).toContain("−₱10,500.00");
+    amounts.forEach((i) => expect(Math.min(Math.abs(i.x1 - AMOUNT_RIGHT), Math.abs(i.x1 - EARNINGS_RIGHT)), i.text).toBeLessThan(0.5));
+    // Deductions read positive (2026-11-22).
+    expect(text).toContain("₱10,500.00");
+    expect(text).not.toContain("−₱10,500.00");
   });
 
   it("2nd half: zero rows hidden, short formulas, tax computation, month total in the box, page x of y", async () => {
@@ -75,9 +80,10 @@ describe("payslip PDF layout (2026-11-19, one template, embedded Noto Sans)", ()
     ["Overtime", "Holiday pay", "Perfect attendance", "Absences", "Late", "Undertime", "Half day", "Leave without pay", "Loans / cash advance"]
       .forEach((label) => expect(labels.has(label), label).toBe(false));
     ["₱29,500 ÷ 2", "5% × ₱29,500", "2.5% × ₱29,500", "2% × ₱10,000 (cap)", "15% of excess over ₱20,833", "Monthly tax computation", "Taxable income",
-      "₱24,374.87", "Month total: 1st half ₱12,037.36 + 2nd half ₱11,806.22 = ₱23,843.58", "PAID", "Nov 19, 2026", "Page 1 of 1", "−₱1,475.00"]
+      "₱24,374.87", "Month total: 1st half ₱12,037.36 + 2nd half ₱11,806.22 = ₱23,843.58", "PAID", "Nov 19, 2026", "Page 1 of 1", "₱1,475.00"]
       .forEach((piece) => expect(text, piece).toContain(piece));
     expect(text).not.toMatch(/PHP|Final \(locked\)|of taxable income|-₱/);
+    expect(text).not.toContain("−₱1,475.00"); // deductions read positive (2026-11-22)
     // The month total sits inside the summary box: below the net pay, above the footer.
     const net = pages[0].items.find((i) => i.text === "₱11,806.22" && i.size > 12);
     const month = pages[0].items.find((i) => i.text.startsWith("Month total"));

@@ -69,6 +69,7 @@ function fromGroups(g, holidayLines) {
     ],
     gross: num(g.gross),
     total_deductions: num(g.total_deductions),
+    carry_over_out: carry > 0 ? carry : 0,
     notes,
   };
 }
@@ -113,6 +114,7 @@ function fromCutoff(c, holidayLines) {
     ],
     gross: num(c.gross_pay),
     total_deductions: num(c.total_deductions),
+    carry_over_out: num(c.carry_over_out) > 0 ? num(c.carry_over_out) : 0,
     notes: c.half === "first" ? [FIRST_HALF_NOTE] : [],
   };
 }
@@ -162,6 +164,60 @@ export function shortHow(how) {
   return String(how).replace(/^[A-Za-z-]+:\s+/, "").replace(/\s*=\s*[−-]?₱[\d,.]+\s*$/, "").trim() || null;
 }
 
+/**
+ * Deduction groups, in the payslip's order (2026-11-22): attendance, government
+ * contributions, withholding tax, loans and advances, other. Final pay lines
+ * carry the same kinds, so they group the same way.
+ */
+export const DEDUCTION_GROUPS = [
+  ["attendance", "Attendance"],
+  ["government", "Government contributions"],
+  ["tax", "Tax"],
+  ["loans", "Loans and advances"],
+  ["other", "Other"],
+];
+const ATTENDANCE_KEYS = new Set(["absent", "late", "undertime", "half_day", "lwop", "leave_with_pay", "prior_attendance"]);
+const GOVERNMENT_KEYS = new Set(["sss", "philhealth", "pagibig"]);
+const TAX_KEYS = new Set(["withholding_tax", "year_end_tax", "year_end_refund"]);
+
+export function deductionGroup(row) {
+  const key = String(row?.key || "");
+  if (ATTENDANCE_KEYS.has(key)) return "attendance";
+  if (GOVERNMENT_KEYS.has(key)) return "government";
+  if (TAX_KEYS.has(key)) return "tax";
+  if (/^(loan|loans|offset|cash_advance|carry|carry_over)(-|$)/.test(key)) return "loans";
+  // Lines without a known key (an older per-cutoff payslip): read the label.
+  const label = String(row?.label || "");
+  if (/^(Absen|Late|Undertime|Half day|Leave with)/i.test(label)) return "attendance";
+  if (/^(SSS|PhilHealth|Pag-IBIG)/i.test(label)) return "government";
+  if (/tax/i.test(label)) return "tax";
+  if (/loan|advance|carried/i.test(label)) return "loans";
+  return "other";
+}
+
+const cents = (value) => Math.round((Number(value) || 0) * 100);
+
+/**
+ * The payslip adds up (2026-11-22): Gross = the earnings lines (incentives
+ * included; they keep their sign: a final pay can hold a negative salary
+ * line), Total deductions = the deduction lines (a credit counts against
+ * them), Net = Gross - Total deductions + what is carried to next month
+ * (deductions above the pay), each line rounded to the centavo first. Returns every mismatch of ₱0.01 or more; [] when it adds up.
+ */
+export function payslipTotalsCheck(t, netPay) {
+  if (!t) return [];
+  const earned = [...t.earnings, ...t.incentives].reduce((total, r) => total + (r.text ? 0 : cents(r.amount)), 0);
+  const deducted = t.deductions.reduce((total, r) => total + (r.text ? 0 : (r.credit ? -1 : 1) * Math.abs(cents(r.amount))), 0);
+  const carried = cents(t.carry_over_out);
+  const found = [];
+  const out = (what, shown, lines) => found.push({ what, shown: shown / 100, lines: lines / 100, difference: (shown - lines) / 100 });
+  if (cents(t.gross) !== earned) out("gross", cents(t.gross), earned);
+  if (cents(t.total_deductions) !== deducted) out("total_deductions", cents(t.total_deductions), deducted);
+  const expected = cents(t.gross) - cents(t.total_deductions) + carried;
+  if (netPay !== undefined && netPay !== null && cents(netPay) !== expected) out("net_pay", cents(netPay), expected);
+  return found;
+}
+
 /** Shown: a row with an amount, or words that say something (not "0 days" or a deferred "2nd half"). */
 const shown = (r) => (r.text ? r.text !== DEFERRED && !/^0 days?$/.test(r.text) : num(r.amount) !== 0);
 
@@ -181,6 +237,11 @@ export function payslipTables(p) {
   if (!p) return null;
   const t = tablesFor(p);
   if (!t) return null;
-  const withFormula = (r) => ({ ...r, formula: r.formula ?? shortHow(r.note) });
-  return { ...t, earnings: t.earnings.filter(shown).map(withFormula), incentives: t.incentives.filter(shown).map(withFormula), deductions: t.deductions.filter(shown).map(withFormula) };
+  // Each line to the centavo (the totals are checked against these: payslipTotalsCheck).
+  const withFormula = (r) => ({ ...r, amount: Math.round((Number(r.amount) || 0) * 100) / 100, formula: r.formula ?? shortHow(r.note) });
+  const order = DEDUCTION_GROUPS.map(([key]) => key);
+  const deductions = t.deductions.filter(shown).map(withFormula).map((r) => ({ ...r, group: deductionGroup(r) }));
+  // Grouped in the payslip's order; within a group the stored order stays (sort is stable).
+  deductions.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group));
+  return { ...t, earnings: t.earnings.filter(shown).map(withFormula), incentives: t.incentives.filter(shown).map(withFormula), deductions };
 }
