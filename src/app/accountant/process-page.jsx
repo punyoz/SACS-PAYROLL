@@ -216,6 +216,9 @@ function batchRowState(data, employee, base) {
   if (!final && base.blocking.length) reasons.push(...base.blocking.map((b) => ({ kind: "attendance", text: `${b.status} record, ${shortDate(b.log_date)}` })));
   if (!final && firstHalfBlock) reasons.push({ kind: "first_half", text: firstHalfBlock });
   if (!final && employee.payroll_hold) reasons.push({ kind: "hold", text: "Pay on hold: an AWOL case must be closed first (HR), and a separated employee is paid through Final Pay." });
+  // ₱0 salary is never processed (2026-11-22); the server refuses it too.
+  const noSalary = !final && !(Number(employee.basic_salary) > 0);
+  if (noSalary) reasons.push({ kind: "salary", text: "No basic salary (₱0): HR sets the salary first (Employees → Salary)." });
   if (!final && runLocked) reasons.push({ kind: "run", text: "Run waiting for HR approval: locked" });
   const recompute = data?.needs_recompute?.[employee.id] || null;
   if (recompute && !runLocked) reasons.push({ kind: "recompute", text: `Needs recompute: ${recompute}. It cannot be submitted to HR until recomputed.` });
@@ -226,7 +229,7 @@ function batchRowState(data, employee, base) {
   else if (slip?.status === "draft" || slip?.status === "form_draft") status = "draft";
   else if (base.blocking.length) status = "blocked";
   else if (firstHalfBlock) status = "first_half";
-  else if (employee.payroll_hold || runLocked) status = "blocked";
+  else if (employee.payroll_hold || runLocked || noSalary) status = "blocked";
   else status = "ready";
   const sub = final
     ? `${slip.payslip_no || ""} · ${runLocked ? (ownStatus === "pending" ? "Pending HR approval" : "Paid") : "Ready for HR"}`
@@ -482,6 +485,7 @@ function BatchCard({ onNavigate, onEdit }) {
   const otherBlocked = [
     [blockedBy("first_half"), "waiting for a Final 1st half"],
     [blockedBy("hold"), "on pay hold"],
+    [blockedBy("salary"), "with no salary (₱0)"],
     [blockedBy("run"), "in a run with HR"],
   ].filter(([n]) => n).map(([n, why]) => `${n} ${why}`).join(", ");
   // The expanded banner: the names under each reason, each a link to its row.
@@ -489,6 +493,7 @@ function BatchCard({ onNavigate, onEdit }) {
     ["attendance", "Unresolved attendance (HR or the branch Administrator resolves it)"],
     ["first_half", "Waiting for a Final 1st half"],
     ["hold", "Pay on hold (AWOL case or separated: HR)"],
+    ["salary", "No basic salary (₱0): HR sets it first"],
     ["run", "In a run with HR (locked)"],
   ].map(([kind, title]) => ({ kind, title, rows: blockedRows(kind) })).filter((g) => g.rows.length);
   const showRow = (row) => {

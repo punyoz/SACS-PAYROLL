@@ -108,9 +108,16 @@ describe("a separated (offboarded) account keeps only its own payslips and profi
     expect((await requirePermission(as("/api/legacy-auth/update-profile"), "profile", "update")).denied).toBeNull();
   });
 
-  it("offboarded: other My Account pages and every other role permission are refused", async () => {
+  it("offboarded: own timesheet, attendance and leave are read-only (2026-11-22); filing and every role permission are refused", async () => {
     hana().employee_status = "Separated";
-    expect((await requirePermission(as("/api/me/timesheet"), "timesheet", "read")).denied?.status).toBe(403);
+    // User decision 2026-11-22: they keep Timesheet and Leave as READ-ONLY until archived.
+    expect((await requirePermission(as("/api/me/timesheet"), "timesheet", "read")).denied).toBeNull();
+    expect((await requirePermission(as("/api/me/leave-requests"), "leave_approval", "read")).denied).toBeNull();
+    expect((await requirePermission(as("/api/me/leave-requests"), "leave_approval", "create")).denied?.status).toBe(403);
+    expect((await requirePermission(as("/api/me/overtime-requests"), "leave_approval", "create")).denied?.status).toBe(403);
+    expect((await requirePermission(as("/api/me/attendance/corrections"), "attendance_corrections", "create")).denied?.status).toBe(403);
+    // HR's own leave pages (every branch) are a role permission: refused.
+    expect((await requirePermission(as("/api/hr/leave-requests"), "leave_approval", "read")).denied?.status).toBe(403);
     expect((await requirePermission(as("/api/hr/payroll-approval"), "payroll_approvals", "update")).denied?.status).toBe(403);
     // An Accountant, an Admin and a Super Admin lose theirs the same way.
     for (const role of ["accountant", "admin", "super_admin"]) {

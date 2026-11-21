@@ -521,3 +521,19 @@ describe("semi-monthly test case through the payroll API", () => {
     expect(table("payroll_thirteenth_month")).toEqual([expect.objectContaining({ employee_id: EMP, year: 2026, amount: 2421.46 })]);
   });
 });
+
+describe("₱0 salary is never processed (2026-11-22)", () => {
+  it("a batch skips an employee whose salary is ₱0, saying why in plain words", async () => {
+    const ZERO = "11111111-1111-4111-8111-000000000000";
+    users.push({ id: ZERO, email: "zero@sacs.test", user_metadata: { role: "employee", full_name: "Zed Zero", employee_id: "SACS-000", basic_salary: 0, branch_id: BRANCH } });
+    table("profiles").push({ id: ZERO, full_name: "Zed Zero", email: "zero@sacs.test", branch_id: BRANCH, role: "employee", basic_salary: 0, employee_id: "SACS-000", rfid_uid: null, archived: false });
+    const response = await POST(request("POST", { action: "batch_submit", pay_period: PERIOD, entries: [{ employee_id: ZERO, basic_salary: 0 }] }));
+    const body = await response.json();
+    expect(body.processed || [], JSON.stringify(body)).toHaveLength(0);
+    expect(body.skipped, JSON.stringify(body)).toEqual([expect.objectContaining({
+      employee_id: ZERO, code: "zero_salary",
+      reason: "Zed Zero has no basic salary (₱0) on October 1-15, 2026. HR sets the salary first (Employees → Salary); payroll never makes a payslip with ₱0 pay.",
+    })]);
+    expect(table("payroll_entries").some((e) => e.employee_id === ZERO)).toBe(false);
+  });
+});

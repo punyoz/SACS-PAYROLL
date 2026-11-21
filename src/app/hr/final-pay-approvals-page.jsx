@@ -61,7 +61,7 @@ function DecideDialog({ target, onClose, onSaved }) {
             <DialogHeader>
               <DialogTitle>{target.action === "approve" ? "Approve and release this final pay?" : "Reject this final pay?"}</DialogTitle>
               <DialogDescription>
-                {row.employee_name}: net {money(row.net_pay)}, release {dateLabel(row.release_on)}.{" "}
+                {row.employee_name}: net {money(row.net_pay)}, release {dateLabel(row.release_on)}.{row.overpayment_to_recover > 0 ? ` Overpayment to recover: ${money(row.overpayment_to_recover)}.` : ""}{" "}
                 {target.action === "approve"
                   ? "The Final payslip, loan repayments, 13th month and subsidy settlement are written now, and the employee is notified."
                   : "Nothing is written: the held loans, 13th month and subsidy are released, and the Accountant recomputes."}
