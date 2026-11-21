@@ -206,7 +206,8 @@ export function IncentivesPage({ refreshKey }) {
   // is paid with the next month (intended; the form says so before saving).
   const deferTo = form.date ? deferredPayrollMonth(form.date, manilaDateKey(), info?.cutoffs) : null;
   const formCutoff = form.date ? info?.cutoffs?.[form.date.slice(0, 7)] || null : null;
-  const deferred = (info?.items || []).filter((i) => i.moved_to_next_month);
+  // Deferred until paid or cancelled: a rejected item is not waiting for any payroll.
+  const deferred = (info?.items || []).filter((i) => i.moved_to_next_month && i.approval_status !== "rejected");
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, cell: (i) => <div><p className="font-medium">{i.employee_name}</p><p className="text-xs text-muted-foreground">{i.employee_code || ""}</p></div>, searchValue: (i) => `${i.employee_name} ${i.employee_code || ""}` },
     { key: "item_date", header: "Date", sortable: true, className: "whitespace-nowrap tabular-nums", cell: (i) => dateLabel(i.item_date) },
