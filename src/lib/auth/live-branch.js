@@ -92,7 +92,7 @@ export async function resolveCurrentBranchId(userId, fallbackBranchId = null) {
  * archive or branch move applies to the very next API call. requirePermission
  * (src/lib/rbac/guard.js) decides from this, never from the cookie's copy.
  *
- * @returns {Promise<{ role: string, branchId: string|null, archived: boolean } | null>}
+ * @returns {Promise<{ role: string, branchId: string|null, archived: boolean, separated?: boolean } | null>}
  *   null when profiles cannot be read; the guard then refuses the request.
  *   A missing row is an account with no profile: treated as archived.
  */
@@ -101,12 +101,12 @@ export async function readLiveAccount(userId) {
   const supabase = getAdminClient();
   if (!id || !supabase) return null;
   try {
-    const { data, error } = await supabase.from("profiles").select("role,branch_id,archived").eq("id", id).maybeSingle();
+    const { data, error } = await supabase.from("profiles").select("role,branch_id,archived,employee_status").eq("id", id).maybeSingle();
     if (error) return null;
     if (!data) return { role: "", branchId: null, archived: true, missing: true };
     const branchId = data.branch_id ? String(data.branch_id) : null;
     cache.set(id, { branchId, at: Date.now() });
-    return { role: String(data.role || "").toLowerCase(), branchId, archived: data.archived === true };
+    return { role: String(data.role || "").toLowerCase(), branchId, archived: data.archived === true, separated: data.employee_status === "Separated" };
   } catch {
     return null;
   }

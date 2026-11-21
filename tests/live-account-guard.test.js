@@ -81,3 +81,53 @@ describe("requirePermission reads the account live", () => {
     expect(guard.denied?.status).toBe(403);
   });
 });
+
+describe("a separated (offboarded) account keeps only its own payslips and profile", () => {
+  const HR = { user_id: "u-hana", role: "hr", branch_id: null, email: "hana@sacs.test", full_name: "Hana", session_id: "s-2" };
+  const as = (path, who = HR) => new Request(`https://sacs.test${path}`, { headers: { cookie: `${SESSION_COOKIE}=${createSessionToken(who)}` } });
+  const hana = () => table("profiles").find((p) => p.id === "u-hana");
+
+  beforeEach(() => {
+    table("profiles").push({ id: "u-hana", role: "hr", branch_id: null, archived: false, employee_status: "Active" });
+  });
+
+  it("before separation HR reaches its HR pages", async () => {
+    expect((await requirePermission(as("/api/hr/employees"), "employee_information", "read")).denied).toBeNull();
+  });
+
+  it("offboarded HR: the next HR request is refused, My Payslips (final pay included) and My Profile still work", async () => {
+    await requirePermission(as("/api/hr/employees"), "employee_information", "read");
+    hana().employee_status = "Separated";
+    const hrPage = await requirePermission(as("/api/hr/employees"), "employee_information", "read");
+    expect(hrPage.denied?.status).toBe(403);
+    expect((await hrPage.denied.json()).error).toMatch(/separated/);
+    const myPayslips = await requirePermission(as("/api/me/payslips"), "payslips", "read");
+    expect(myPayslips.denied).toBeNull();
+    expect(myPayslips.myAccount).toBe(true);
+    expect((await requirePermission(as("/api/legacy-auth/update-profile"), "profile", "read")).denied).toBeNull();
+    expect((await requirePermission(as("/api/legacy-auth/update-profile"), "profile", "update")).denied).toBeNull();
+  });
+
+  it("offboarded: other My Account pages and every other role permission are refused", async () => {
+    hana().employee_status = "Separated";
+    expect((await requirePermission(as("/api/me/timesheet"), "timesheet", "read")).denied?.status).toBe(403);
+    expect((await requirePermission(as("/api/hr/payroll-approval"), "payroll_approvals", "update")).denied?.status).toBe(403);
+    // An Accountant, an Admin and a Super Admin lose theirs the same way.
+    for (const role of ["accountant", "admin", "super_admin"]) {
+      table("profiles").push({ id: `u-${role}`, role, branch_id: role === "super_admin" ? null : NORTH, archived: false, employee_status: "Separated" });
+      const who = { user_id: `u-${role}`, role, branch_id: role === "super_admin" ? null : NORTH, email: `${role}@sacs.test`, full_name: role, session_id: "s-3" };
+      expect((await requirePermission(as("/api/admin/branch-oversight", who), "branch_oversight", "read")).denied?.status, role).toBe(403);
+    }
+  });
+
+  it("an offboarded employee still opens its own payslips", async () => {
+    table("profiles").push({ id: "u-eli", role: "employee", branch_id: NORTH, archived: false, employee_status: "Separated" });
+    const eli = { user_id: "u-eli", role: "employee", branch_id: NORTH, email: "eli@sacs.test", full_name: "Eli", session_id: "s-4" };
+    expect((await requirePermission(as("/api/employee/payslips", eli), "payslips", "read")).denied).toBeNull();
+  });
+
+  it("archived after final pay: nothing at all", async () => {
+    Object.assign(hana(), { employee_status: "Separated", archived: true });
+    expect((await requirePermission(as("/api/me/payslips"), "payslips", "read")).denied?.status).toBe(401);
+  });
+});

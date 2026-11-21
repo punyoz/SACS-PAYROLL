@@ -66,6 +66,13 @@ export function isMyAccountRequest(request) {
   }
 }
 
+/** What a separated, not-yet-archived account may still reach: its own payslips and profile. */
+function separatedMayUse(request, role, module, action) {
+  if (module === "profile") return true;
+  if (module !== "payslips" || action !== "read") return false;
+  return isMyAccountRequest(request) || scopeFor(role, module) === SCOPE_SELF;
+}
+
 export async function requirePermission(request, module, action = "read") {
   // An RFID terminal tap carries the kiosk's own session
   // (src/lib/auth/kiosk-session.js), which src/proxy.js has already checked;
@@ -106,6 +113,17 @@ export async function requirePermission(request, module, action = "read") {
     return {
       denied: deny("Your account's role was changed by an administrator. Please sign in again.", 401),
       session, role: live.role, userId: session.sub, branchId: null,
+      scope: SCOPE_NONE, branchExempt: false,
+    };
+  }
+
+  // Separated (offboarded) but not archived yet (2026-11-21): the role's
+  // permissions end at once; only their own payslips (final pay included) and
+  // profile stay, until the account is archived after final pay.
+  if (live.separated && !separatedMayUse(request, role, module, action)) {
+    return {
+      denied: deny("Your access ended when you were separated. You can still open My Payslips and My Profile.", 403),
+      session, role, userId: session.sub, branchId: null,
       scope: SCOPE_NONE, branchExempt: false,
     };
   }
