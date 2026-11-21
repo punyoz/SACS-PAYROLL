@@ -140,6 +140,20 @@ describe("an incentive filed by the Accountant", () => {
     const body = await (await GET(request("/api/accountant/payroll?view=monthly_items&month=2026-12"))).json();
     expect(body.items.find((i) => i.id === item.id)).toMatchObject({ payroll_month: "2026-12", approval_status: "approved", approval_label: "Approved by HR" });
   });
+
+  it("approved two months late: listed as deferred in the month that pays it (finding d, 2026-11-21)", async () => {
+    await fileIncentive();
+    const item = table("payroll_monthly_incentives")[0];
+    vi.setSystemTime(new Date("2027-01-05T09:00:00+08:00"));
+    await decide("incentive", item.id, "approve");
+    const { GET } = await import("@/app/api/accountant/payroll/route");
+    const january = await (await GET(request("/api/accountant/payroll?view=monthly_items&month=2027-01"))).json();
+    // Dated Nov 5, paid with January: more than one month back, still listed.
+    expect(january.items.find((i) => i.id === item.id)).toMatchObject({ item_date: "2026-11-05", payroll_month: "2027-01", moved_to_next_month: true });
+    // December neither dates nor pays it.
+    const december = await (await GET(request("/api/accountant/payroll?view=monthly_items&month=2026-12"))).json();
+    expect(december.items.find((i) => i.id === item.id)).toBeUndefined();
+  });
 });
 
 describe("a loan filed by the Accountant", () => {
