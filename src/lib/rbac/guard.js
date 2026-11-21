@@ -23,7 +23,7 @@
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
 import { readKioskSession } from "@/lib/auth/kiosk-session";
-import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
+import { readLiveAccount } from "@/lib/auth/live-branch";
 import { clientAddressFrom } from "@/lib/auth/login-throttle";
 import {
   can,
@@ -83,6 +83,33 @@ export async function requirePermission(request, module, action = "read") {
 
   const role = String(session.role || "").toLowerCase();
 
+  // The account as it is NOW, read from profiles on every request (no cache):
+  // the cookie's role and branch were stamped at sign-in. A role change or an
+  // archive refuses the very next request; a branch move scopes it to the new
+  // branch (2026-11-21).
+  const live = await readLiveAccount(session.sub);
+  if (!live) {
+    return {
+      denied: deny("Could not check your account right now. Please try again.", 503),
+      session, role, userId: session.sub, branchId: null,
+      scope: SCOPE_NONE, branchExempt: false,
+    };
+  }
+  if (live.archived) {
+    return {
+      denied: deny("This account has been archived and can no longer sign in.", 401),
+      session, role, userId: session.sub, branchId: null,
+      scope: SCOPE_NONE, branchExempt: false,
+    };
+  }
+  if (live.role !== role) {
+    return {
+      denied: deny("Your account's role was changed by an administrator. Please sign in again.", 401),
+      session, role: live.role, userId: session.sub, branchId: null,
+      scope: SCOPE_NONE, branchExempt: false,
+    };
+  }
+
   if (!isKnownRole(role)) {
     return {
       denied: deny("Your account has no valid role assigned.", 403),
@@ -105,7 +132,7 @@ export async function requirePermission(request, module, action = "read") {
     }
     return {
       denied: null, session, role, userId: String(session.sub || ""),
-      branchId: await resolveCurrentBranchId(session.sub, session.branch_id || null),
+      branchId: live.branchId,
       scope: SCOPE_SELF, branchExempt: false, myAccount: true,
       clientIp: clientAddressFrom(request), kiosk: false,
     };
@@ -114,7 +141,7 @@ export async function requirePermission(request, module, action = "read") {
   if (!can(role, module, action)) {
     return {
       denied: deny("You do not have permission to perform this action.", 403),
-      session, role, userId: session.sub, branchId: session.branch_id || null,
+      session, role, userId: session.sub, branchId: live.branchId,
       scope: SCOPE_NONE, branchExempt: false,
     };
   }
@@ -130,11 +157,10 @@ export async function requirePermission(request, module, action = "read") {
   // service-role key so RLS (whose current_branch_id() does read profiles
   // live) never runs to correct it. Without this, reassigning someone's
   // branch changed nothing they could see until their next sign-in.
-  // src/lib/auth/live-branch.js caches the lookup for a few seconds, so a
-  // page load's burst of calls costs one round trip.
+  // live = readLiveAccount() above, read on every request with no cache.
   const branchId = branchExempt
     ? null
-    : await resolveCurrentBranchId(session.sub, session.branch_id || null);
+    : live.branchId;
   const scope = scopeFor(role, module);
 
   // A branch-scoped role with no branch on file cannot be safely scoped:
