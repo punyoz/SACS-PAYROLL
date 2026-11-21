@@ -1,8 +1,8 @@
 // Payroll, end to end: the Accountant processes and submits the run, HR
 // rejects it with a reason, the Accountant sees the reason and resubmits, HR
 // approves, it is in History, and the Employee sees the payslip only after
-// approval. Status labels: Not submitted to HR / Pending HR Approval /
-// Rejected by HR / Paid.
+// approval. Status labels: Ready for HR / Pending HR approval /
+// Returned by HR / Paid.
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
@@ -46,7 +46,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     expect(await main(page).innerText()).toMatch(new RegExp(`Branch\\s+${BRANCH}`));
     // Back on Process Payroll the run exists and is not with HR yet.
     await as(page, "accountant", processUrl);
-    await expect(main(page).getByText("Not submitted to HR").first()).toBeVisible();
+    await expect(main(page).getByText("Ready for HR").first()).toBeVisible();
   });
 
   await step(page, "Employee > Payslips > nothing before HR approves", async () => {
@@ -63,16 +63,16 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     await as(page, "accountant", processUrl);
     await runCard(page).getByRole("button", { name: "Submit for HR Approval" }).click();
     await confirm(page, "Submit for HR Approval");
-    await expect(main(page).getByText("Pending HR Approval").first()).toBeVisible();
+    await expect(main(page).getByText("Pending HR approval").first()).toBeVisible();
     await refresh(page);
-    await expect(main(page).getByText("Pending HR Approval").first()).toBeVisible();
+    await expect(main(page).getByText("Pending HR approval").first()).toBeVisible();
     expect((await runStatus()).status).toBe("pending");
   });
 
   await step(page, "HR > Payroll Approval > Review > Reject without a reason (refused)", async () => {
     monitor.at("HR > Payroll Approval > reject");
     await as(page, "hr", "hr-payroll-approval");
-    await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+    await page.getByRole("tab", { name: /Pending HR approval/ }).click();
     await settle(page);
     const row = main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: BRANCH }).first();
     await row.getByRole("button", { name: "Review" }).click();
@@ -94,7 +94,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     // The run that was open stays open after a refresh.
     await expect(main(page).getByText(REASON).first()).toBeVisible();
     await backToRuns(page);
-    await page.getByRole("tab", { name: /Rejected by HR/ }).click();
+    await page.getByRole("tab", { name: /Returned by HR/ }).click();
     await settle(page);
     await expect(main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: BRANCH })).toBeVisible();
   });
@@ -102,12 +102,12 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
   await step(page, "Accountant > Process Payroll > sees HR's reason, resubmits", async () => {
     monitor.at("Accountant > resubmit");
     await as(page, "accountant", processUrl);
-    await expect(main(page).getByText("Rejected by HR").first()).toBeVisible();
+    await expect(main(page).getByText("Returned by HR").first()).toBeVisible();
     await expect(main(page).getByText(REASON)).toBeVisible();
     await runCard(page).getByRole("button", { name: "Resubmit for HR Approval" }).click();
     await confirm(page, "Resubmit");
     await refresh(page);
-    await expect(main(page).getByText("Pending HR Approval").first()).toBeVisible();
+    await expect(main(page).getByText("Pending HR approval").first()).toBeVisible();
     expect((await runStatus()).status).toBe("pending");
   });
 
@@ -115,7 +115,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     monitor.at("HR > Payroll Approval > approve");
     await as(page, "hr", "hr-payroll-approval");
     await backToRuns(page);
-    await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+    await page.getByRole("tab", { name: /Pending HR approval/ }).click();
     await settle(page);
     await main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: BRANCH }).first().getByRole("button", { name: "Review" }).click();
     await settle(page);

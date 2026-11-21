@@ -26,10 +26,10 @@ export const RUN_STATUSES = Object.freeze(["draft", "pending", "approved", "reje
 // The four payroll labels, the same on every screen (2026-10-20): an
 // approved run is what the Accountant, HR and the employee all call "Paid".
 export const RUN_STATUS_LABELS = Object.freeze({
-  draft: "Not submitted to HR",
-  pending: "Pending HR Approval",
+  draft: "Ready for HR",
+  pending: "Pending HR approval",
   approved: "Paid",
-  rejected: "Rejected by HR",
+  rejected: "Returned by HR",
 });
 
 /** StatusBadge tones: Draft gray, Pending amber, Approved green, Rejected red. */

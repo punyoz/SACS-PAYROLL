@@ -220,7 +220,7 @@ async function handleResolve(guard, body) {
     action: "incomplete_resolve",
     entity_type: "attendance_log",
     entity_id: logId,
-    description: `Incomplete record for ${logResult.data.employee_name || "employee"} on ${logResult.data.log_date} resolved by ${reviewerName}: ${resolution === "time_out" ? `time out ${time}` : resolution.replace("_", " ")}.`,
+    description: `Incomplete record for ${logResult.data.employee_name || "employee"} on ${logResult.data.log_date} overridden by HR (${reviewerName}): ${resolution === "time_out" ? `time out ${time}` : resolution.replace("_", " ")}.`,
     status: "success",
     source: "api",
     metadata: { correction_id: data?.id, resolution, time_out: timeOut, note },
@@ -290,7 +290,7 @@ async function handleCorrectAbsence(guard, body) {
     action: "absence_correct",
     entity_type: "attendance_log",
     entity_id: data?.log_id || employeeId,
-    description: `Absence of ${data?.employee_name || "employee"} on ${logDate} corrected by ${reviewerName}: ${timeIn}–${timeOut}.`,
+    description: `Absence of ${data?.employee_name || "employee"} on ${logDate} overridden by HR (${reviewerName}): ${timeIn}–${timeOut}.`,
     status: "success",
     source: "api",
     metadata: { correction_id: data?.id, employee_id: employeeId, log_date: logDate, time_in: timeIn, time_out: timeOut, note },
@@ -302,9 +302,9 @@ async function handleCorrectAbsence(guard, body) {
 
 const CORRECTION_TYPES = ["time_in", "time_out", "both", "present"];
 const CORRECTION_TYPE_LABELS = {
-  time_in: "time in corrected",
-  time_out: "time out corrected",
-  both: "time in and time out corrected",
+  time_in: "time in overridden",
+  time_out: "time out overridden",
+  both: "time in and time out overridden",
   present: "marked present",
 };
 
@@ -416,7 +416,7 @@ async function handleCorrectRecord(guard, body) {
     action: "record_correct",
     entity_type: "attendance_log",
     entity_id: data?.log_id || logId || employeeId,
-    description: `Attendance of ${data?.employee_name || before?.employee_name || "employee"} on ${logDate} ${CORRECTION_TYPE_LABELS[type]} by ${reviewerName}.`,
+    description: `Attendance of ${data?.employee_name || before?.employee_name || "employee"} on ${logDate} ${CORRECTION_TYPE_LABELS[type]} by HR (${reviewerName}).`,
     status: "success",
     source: "api",
     metadata: {

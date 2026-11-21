@@ -1,4 +1,4 @@
-// Gaps the other specs leave: the 13th Month Pay page and its December-only
+// Gaps the other specs leave: the 13th month pay page and its December-only
 // rule, branch isolation through direct API calls (not only the screens),
 // and the portal chrome every role has: theme toggle (light / dark), sidebar
 // collapse, Refresh, the notifications bell and the account menu.
@@ -10,10 +10,10 @@ import { api } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS, ROLES, BRANCH_NORTH } from "../accounts.mjs";
 
-test("13th Month Pay: the page lists every employee's amount; processing waits for December", async ({ page, monitor }) => {
+test("13th month pay: the page lists every employee's amount; processing waits for December", async ({ page, monitor }) => {
   monitor.allow(/^403 PATCH \/api\/accountant\/payroll/, /status of 403/);
-  await step(page, "Accountant > 13th Month Pay > the year's list loads", async () => {
-    monitor.at("Accountant > 13th Month Pay");
+  await step(page, "Accountant > 13th month pay > the year's list loads", async () => {
+    monitor.at("Accountant > 13th month pay");
     await as(page, "accountant", "ac-13th");
     await settle(page);
     const year = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }).slice(0, 4);
@@ -24,7 +24,7 @@ test("13th Month Pay: the page lists every employee's amount; processing waits f
     for (const r of list) expect(Number(r.amount), `${r.employee_name}'s 13th month = basic earned / 12`).toBeCloseTo(Number(r.total_basic_earned) / 12, 1);
     await expect(main(page).getByText(/13th/i).first()).toBeVisible();
   });
-  await step(page, "Accountant > 13th Month Pay > Process before December (refused by the server)", async () => {
+  await step(page, "Accountant > 13th month pay > Process before December (refused by the server)", async () => {
     const month = Number(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }).slice(5, 7));
     const res = await api(page, "PATCH", "/api/accountant/payroll", { action: "process_13th_month", year: new Date().getFullYear() });
     if (month === 12) console.log(`  · December: processing answered ${res.status}`);

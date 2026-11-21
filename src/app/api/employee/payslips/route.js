@@ -146,7 +146,7 @@ function mapRecordToPayslip(rec) {
 /**
  * Payroll Approval (20261014010000): a payslip reaches the employee only once
  * HR has approved its branch's payroll run (Paid), whatever its period.
- * Draft, Pending HR Approval and Rejected are not listed.
+ * Draft, Pending HR approval and Rejected are not listed.
  */
 async function approvedRunIds(supabase, rows) {
   const ids = [...new Set((rows || []).map((row) => row.run_id).filter(Boolean))];

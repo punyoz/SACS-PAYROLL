@@ -165,7 +165,7 @@ test("RFID edge cases: late time in, time out, where taps show, absence, nightly
     const search = main(page).getByPlaceholder(/Search/i).first();
     if (await search.isVisible().catch(() => false)) { await search.fill(ELI.last); await settle(page); }
     await expect(main(page).getByText(new RegExp(`Eli ${ELI.last}`, "i")).first()).toBeVisible({ timeout: 30000 });
-    for (const name of ["Edit", "Correct", "Delete", "Save"]) await expect(main(page).getByRole("button", { name, exact: true })).toHaveCount(0);
+    for (const name of ["Edit", "Correct", "Override", "Delete", "Save"]) await expect(main(page).getByRole("button", { name, exact: true })).toHaveCount(0);
   });
 
   await step(page, "Timesheet (Eli's) shows today's time in and time out", async () => {

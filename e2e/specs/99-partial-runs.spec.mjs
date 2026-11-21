@@ -141,7 +141,7 @@ test("partial runs: deliberate, visible, recorded, and followed up in a suppleme
       monitor.at("HR > Payroll Approval");
       say("Logging in as HR…");
       await as(page, "hr", "hr-payroll-approval");
-      await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+      await page.getByRole("tab", { name: /Pending HR approval/ }).click();
       await settle(page);
       const row = main(page).locator("tr", { hasText: OCT2 }).filter({ hasText: BRANCH_MAIN }).first();
       check("HR list", /left out/.test(await row.innerText()), "the pending list shows the left-out count");
@@ -214,7 +214,7 @@ test("partial runs: deliberate, visible, recorded, and followed up in a suppleme
       const before = await api(page, "GET", "/api/employee/payslips");
       check("Employee", !hasPayslip(before, OCT2), "not visible while run 2 waits for HR");
       await as(page, "hr", "hr-payroll-approval");
-      await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+      await page.getByRole("tab", { name: /Pending HR approval/ }).click();
       await settle(page);
       await main(page).locator("tr", { hasText: OCT2 }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();
       await settle(page);

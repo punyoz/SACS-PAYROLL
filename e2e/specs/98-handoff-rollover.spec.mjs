@@ -207,7 +207,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
       const before = monitor.issues.length;
       await card.getByRole("button", { name: "Submit for HR Approval" }).click();
       await confirm(page, "Submit for HR Approval");
-      await waitForResponse(page, "Submit", "Pending HR Approval");
+      await waitForResponse(page, "Submit", "Pending HR approval");
       await reportIssues(page, monitor, before, "Submit");
       const run = await rows(db().from("payroll_runs").select("id,status").eq("branch_id", branch.id).eq("period_label", OCT2).single());
       check("Submit", run.status === "pending", `run status after submit: ${run.status}`);
@@ -226,7 +226,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
       monitor.at("HR > Payroll Approval");
       say("Logging out, logging in as HR…");
       await as(page, "hr", "hr-payroll-approval");
-      await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+      await page.getByRole("tab", { name: /Pending HR approval/ }).click();
       await settle(page);
       say(`Opening the ${BRANCH_MAIN} ${OCT2} run…`);
       await main(page).locator("tr", { hasText: OCT2 }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();

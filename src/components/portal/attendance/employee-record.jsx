@@ -19,6 +19,7 @@ import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
 import { RecordActions } from "@/components/portal/attendance/grouped-table";
 import { fetchJson } from "@/lib/portal/api";
 import {
+  correctionByLabel,
   employeeRange,
   formatMinutes,
   formatMonthHeading,
@@ -51,7 +52,7 @@ function Remarks({ row, employeeName }) {
   if (pending) parts.push(<p key="pd">Correction requested: time out {formatTime(pending.corrected_time_out)} · “{pending.reason || ""}”</p>);
   if (status === "Corrected" && row.last_correction) {
     const c = row.last_correction;
-    parts.push(<p key="cr">Corrected by {c.approved_by_name || "HR / Admin"}{c.reason ? ` · ${c.reason}` : ""}</p>);
+    parts.push(<p key="cr">{correctionByLabel(c)}{c.reason ? ` · ${c.reason}` : ""}</p>);
   }
   if (row.tap_after_correction_at && status === "Corrected") {
     parts.push(<p key="fl" className="font-medium text-warning" title={`Latest tap ${formatTapTime(row.tap_after_correction_at)}`}>New tap after correction</p>);

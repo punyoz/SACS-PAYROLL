@@ -124,7 +124,7 @@ const MODULE_EXTRA_PAGES = {
     accountant: [
       { page: "ac-incentives", label: "Incentives & Overload", icon: "star" },
       { page: "ac-cash-advances", label: "Cash Advances", icon: "cash" },
-      { page: "ac-13th", label: "13th Month Pay", icon: "calendar" },
+      { page: "ac-13th", label: "13th month pay", icon: "calendar" },
     ],
   },
 };

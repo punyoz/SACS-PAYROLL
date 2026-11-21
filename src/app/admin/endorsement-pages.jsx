@@ -61,7 +61,7 @@ export function LeaveRecommendationsPage({ refreshKey }) {
         <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DataTable toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Waiting for HR" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} />}
+        <DataTable toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Pending HR approval" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} />}
           columns={columns} rows={rows} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
           searchPlaceholder="Search employee or leave type…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Leave recommendations" minWidth={1100} />
       </CardContent>

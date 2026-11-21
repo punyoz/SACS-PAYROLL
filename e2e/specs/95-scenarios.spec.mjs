@@ -167,7 +167,7 @@ test("AC-08 / AC-06: a wrong approved payslip is corrected on a later payslip (f
     await dialog.locator("#pc-reason").fill(reason);
     await dialog.getByRole("button", { name: "Send to HR" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
-    await expect(main(page).locator("tr", { hasText: reason }).getByText("Pending HR Approval")).toBeVisible();
+    await expect(main(page).locator("tr", { hasText: reason }).getByText("Pending HR approval")).toBeVisible();
   });
 
   const correction = async () => rows(db().from("payroll_corrections").select("*").eq("reason", reason).single());

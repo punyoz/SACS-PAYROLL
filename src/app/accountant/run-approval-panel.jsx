@@ -28,7 +28,7 @@ import { useAccountant } from "./accountant-data";
  *   - the open card (not submitted yet, Rejected by HR, or a supplemental
  *     run): Included in this run / Drafts, not finalized / Left out, and the
  *     Final payslips outside the branch's active list (in only if ticked);
- *   - every submitted run (Pending HR Approval, Paid), read only, with the
+ *   - every submitted run (Pending HR approval, Paid), read only, with the
  *     payslips HR received.
  *
  * The server says why a run cannot be submitted (card.blockers); this page
@@ -212,7 +212,7 @@ export function RunApprovalPanel() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || "The payroll could not be submitted.");
       notify("Submitted for HR Approval", `${card.branch_name}, ${card.period_label}${leftOut.length ? `: ${leftOut.length} left out` : ""}: HR has been notified.`, "success");
-      setFeedback({ text: `${card.branch_name} submitted. Status: Pending HR Approval.`, ok: true });
+      setFeedback({ text: `${card.branch_name} submitted. Status: Pending HR approval.`, ok: true });
       setAck((c) => ({ ...c, [card.key]: false }));
       setListKey((k) => k + 1);
       await Promise.all([load(), reloadPayroll({ period })]);

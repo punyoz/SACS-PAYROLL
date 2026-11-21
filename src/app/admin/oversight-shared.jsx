@@ -95,7 +95,7 @@ export function HistoryButton({ request }) {
 
 /** HR's (or the Super Admin's) decision, under a request. */
 export function DecisionCell({ request }) {
-  if (!request?.decided_at) return <span className="text-xs text-muted-foreground">{request?.status === "pending" ? "Waiting for HR" : "—"}</span>;
+  if (!request?.decided_at) return <span className="text-xs text-muted-foreground">{request?.status === "pending" ? "Pending HR approval" : "—"}</span>;
   return (
     <div className="max-w-64 text-xs whitespace-normal">
       <p className="font-medium">{request.decided_by_name}{request.decided_by_role === "super_admin" ? " (Super Admin)" : " (HR)"}</p>

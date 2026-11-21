@@ -147,7 +147,7 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
       const leftOut = card.getByTestId("group-left-out");
       for (const name of ["Dan Draft", "Eli Waiting", "Dora Archived"]) await expect(leftOut).toContainText(name);
       await expect(leftOut).not.toContainText("Carl Held");
-      await expect(leftOut.getByTestId("left-out-row").filter({ hasText: "Dan Draft" })).toContainText("Draft, not finalized");
+      await expect(leftOut.getByTestId("left-out-row").filter({ hasText: "Dan Draft" })).toContainText("Draft");
       await expect(leftOut.getByTestId("left-out-row").filter({ hasText: "Dora Archived" })).toContainText("Not in this branch's active list");
       await expect(card.getByTestId("run-card-counts")).toContainText(/\d+ of \d+ processed · 1 draft · 1 not in active list/);
       // The Included total equals the header's net.
@@ -176,7 +176,7 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
       await confirm(page, "Submit for HR Approval");
       const pending = main(page).locator("[data-testid=run-card][data-status=pending]", { hasText: BRANCH_MAIN }).first();
       await expect(pending).toBeVisible();
-      await expect(pending.getByTestId("group-included")).toContainText("Sent to HR (Pending HR Approval)");
+      await expect(pending.getByTestId("group-included")).toContainText("Sent to HR (Pending HR approval)");
       await expect(pending.getByTestId("run-row").filter({ hasText: "Fay Final" })).toHaveCount(1);
       await expect(pending.getByTestId("run-row").filter({ hasText: "Dora Archived" })).toHaveCount(0);
       await shot(pending, "run-card-pending");
@@ -192,7 +192,7 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
       await as(page, "hr", "hr-payroll-approval");
       const detail = await api(page, "GET", `/api/hr/payroll-runs?run_id=${run.id}`);
       const why = Object.fromEntries(detail.data.exclusions.map((x) => [x.employee_name, x.left_out_label]));
-      expect(why).toMatchObject({ "Dan Draft": "Draft, not finalized", "Dora Archived": "Not in this branch's active list", "Eli Waiting": "Not processed" });
+      expect(why).toMatchObject({ "Dan Draft": "Draft", "Dora Archived": "Not in this branch's active list", "Eli Waiting": "Not processed" });
       await as(page, "accountant", `ac-process&period=${encodeURIComponent(PERIOD)}`);
       await settle(page);
     }
@@ -202,7 +202,7 @@ test("approval flow: who goes to HR, why a run cannot be submitted, and what is 
     await list.scrollIntoViewIfNeeded();
     if (!BEFORE) {
       await expect(list).toContainText("Dan Draft");
-      await expect(list.getByTestId("left-out-follow-up").filter({ hasText: "Draft, not finalized" })).toHaveCount(1);
+      await expect(list.getByTestId("left-out-follow-up").filter({ hasText: "Draft" })).toHaveCount(1);
     }
     await shot(list, "left-out-list");
   } finally {
@@ -243,7 +243,7 @@ async function hrDecide(page, runNo, decision, remarks) {
   await as(page, "hr", "hr-payroll-approval");
   const back = main(page).getByRole("button", { name: "All runs" });
   if (await back.isVisible().catch(() => false)) { await back.click(); await settle(page); }
-  await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+  await page.getByRole("tab", { name: /Pending HR approval/ }).click();
   await settle(page);
   await main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();
   await settle(page);
@@ -304,7 +304,7 @@ test("approval hand-off: Accountant submits, HR rejects and approves, employee i
     await hrNotice.click();
     await expect(page).toHaveURL(/page=hr-payroll-approval/);
     // HR's left-out list reads the same server list as the Accountant's.
-    expect(await followUp(page, "/api/hr/payroll-runs?view=excluded", "Dan Draft")).toBe("Draft, not finalized");
+    expect(await followUp(page, "/api/hr/payroll-runs?view=excluded", "Dan Draft")).toBe("Draft");
 
     // 3. The employee cannot see the payslip before HR approves.
     await signOutLocally(page);
@@ -339,7 +339,7 @@ test("approval hand-off: Accountant submits, HR rejects and approves, employee i
     await expect(menu.getByRole("menuitem").filter({ hasText: `Payroll approved: ${BRANCH_MAIN}, ${PERIOD}` }).first()).toBeVisible();
     await closeBell(page);
     await expect(main(page).locator("[data-testid=run-card][data-status=approved]", { hasText: BRANCH_MAIN }).first()).toBeVisible();
-    expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Dan Draft")).toBe("Draft, not finalized");
+    expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Dan Draft")).toBe("Draft");
     expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Eli Waiting")).toBeTruthy();
 
     // 8. The employee: "Your payslip is ready" in the bell, and the payslip is visible.
@@ -361,9 +361,9 @@ test("approval hand-off: Accountant submits, HR rejects and approves, employee i
     await expect(openCard(page).getByTestId("run-row").filter({ hasText: "Dan Draft" })).toHaveCount(1);
     await submitOpenCard(page, "Submit for HR Approval");
     expect((await runOf(2)).status).toBe("pending");
-    expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Dan Draft")).toBe("In supplemental run, Pending HR Approval");
+    expect(await followUp(page, "/api/accountant/payroll-runs?view=excluded", "Dan Draft")).toBe("In supplemental run, Pending HR approval");
     await as(page, "hr", "hr-payroll-approval");
-    expect(await followUp(page, "/api/hr/payroll-runs?view=excluded", "Dan Draft")).toBe("In supplemental run, Pending HR Approval");
+    expect(await followUp(page, "/api/hr/payroll-runs?view=excluded", "Dan Draft")).toBe("In supplemental run, Pending HR approval");
 
     // 10. HR rejects the supplemental run: Dan is back on the list; resubmitted and approved, he leaves it.
     await hrDecide(page, 2, "Reject", REASON);

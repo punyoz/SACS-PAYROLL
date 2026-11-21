@@ -19,7 +19,7 @@ export const IMPORT_COLUMNS = [
   ["email", "Email *"],
   ["role", "Role (employee or accountant)"],
   ["branch", "Branch *"],
-  ["employee_type", "Employee type * (Teaching / Non-Teaching)"],
+  ["employee_type", "Category * (Teaching / Non-Teaching)"],
   ["position", "Position *"],
   ["employment_type", "Employment type * (Full-time / Part-time)"],
   ["employment_status", "Employment status * (Regular / Probationary / Contractual)"],
@@ -42,11 +42,16 @@ export const IMPORT_COLUMNS = [
   ["emergency_contact_number", "Emergency contact number *"],
 ];
 
-const KEY_BY_HEADER = new Map(IMPORT_COLUMNS.flatMap(([key, label]) => [
-  [key, key],
-  [label.toLowerCase(), key],
-  [label.replace(/\s*\*.*$|\s*\(.*$/, "").trim().toLowerCase(), key],
-]));
+const KEY_BY_HEADER = new Map([
+  ...IMPORT_COLUMNS.flatMap(([key, label]) => [
+    [key, key],
+    [label.toLowerCase(), key],
+    [label.replace(/\s*\*.*$|\s*\(.*$/, "").trim().toLowerCase(), key],
+  ]),
+  // Templates downloaded before the rename (Part K, 2026-11-21) still import.
+  ["employee type", "employee_type"],
+  ["employee type * (teaching / non-teaching)", "employee_type"],
+]);
 
 /** RFC 4180 CSV: quoted fields, "" inside quotes, commas and line breaks in quotes, CRLF, a BOM. */
 export function parseCsv(text) {

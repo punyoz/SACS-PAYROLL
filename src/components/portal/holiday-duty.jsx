@@ -231,7 +231,7 @@ function HolidayDetail({ date, refreshKey, onChanged }) {
       cell: (r) => (r.decision === "approved"
         ? <StatusBadge tone="success">Approved{r.decided_by_name ? ` by ${r.decided_by_name}` : ""}</StatusBadge>
         : r.decision === "rejected" ? <StatusBadge tone="muted">Not approved{r.decided_by_name ? ` by ${r.decided_by_name}` : ""}</StatusBadge>
-          : <StatusBadge tone="warning">Waiting for HR</StatusBadge>),
+          : <StatusBadge tone="warning">Pending HR approval</StatusBadge>),
     },
     ...(data?.can_assign || data?.candidates ? [{
       key: "actions",

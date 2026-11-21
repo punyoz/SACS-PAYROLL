@@ -11,6 +11,7 @@ import { EmptyState, ErrorState } from "@/components/portal/empty-state";
 import { AttendanceBadge } from "@/components/portal/status-badge";
 import { useAttendanceActions } from "@/components/portal/attendance/dialogs";
 import {
+  correctionByLabel,
   branchLabel,
   canCorrect,
   formatDayHeading,
@@ -228,7 +229,7 @@ export function StatusCell({ row }) {
       {row.holiday_name ? <p className="text-xs text-muted-foreground">{row.holiday_name}</p> : null}
       {row.not_yet_tapped ? <p className="text-xs text-muted-foreground">No tap yet today</p> : null}
       {status === "On Leave" ? <p className="text-xs text-muted-foreground">{leaveSummary(row.leave)}</p> : null}
-      {status === "Corrected" && c ? <p className="text-xs text-muted-foreground">{[`Corrected by ${c.approved_by_name || "HR / Admin"}`, c.reason].filter(Boolean).join(" · ")}</p> : null}
+      {status === "Corrected" && c ? <p className="text-xs text-muted-foreground">{[correctionByLabel(c), c.reason].filter(Boolean).join(" · ")}</p> : null}
       {row.tap_after_correction_at && status === "Corrected" ? (
         <p className="text-xs font-medium text-warning" title={`Latest tap ${formatTapTime(row.tap_after_correction_at)}`}>New tap after correction</p>
       ) : null}
@@ -243,7 +244,7 @@ export function RecordActions({ row, viewRecords = true }) {
   if (!showCorrect && !showView) return null;
   return (
     <div className="flex justify-end gap-1.5 whitespace-nowrap">
-      {showCorrect ? <Button variant="outline" size="sm" onClick={() => open("correct", row)}>Correct</Button> : null}
+      {showCorrect ? <Button variant="outline" size="sm" onClick={() => open("correct", row)}>Override</Button> : null}
       {showView ? <Button variant="ghost" size="sm" onClick={() => openEmployee(row.employee_id)}>View records</Button> : null}
     </div>
   );
