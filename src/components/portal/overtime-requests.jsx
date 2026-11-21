@@ -56,6 +56,11 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
 
   async function submit(e) {
     e.preventDefault();
+    // Required fields are checked here first, like the leave form (the server checks everything again).
+    if (!form.request_date || !form.planned_start || !form.planned_end || form.reason.trim().length < 3) {
+      setError("Fill in the date, the planned start and end, and the reason (at least 3 characters).");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
