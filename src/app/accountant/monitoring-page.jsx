@@ -76,7 +76,7 @@ export function MonitoringPage() {
       <section aria-label="Totals" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <StatCard label="Total records" value={all.length} icon={ListIcon} loading={first} href={currentPageHref({ mon_status: "all" })} onClick={() => setFilter("all")} scrollTo="monitoring-table" actionLabel="Show every record" />
         <StatCard label="Paid" value={paid} icon={CheckCircle2Icon} tone="success" loading={first} href={currentPageHref({ mon_status: "Paid" })} onClick={() => setFilter("Paid")} scrollTo="monitoring-table" actionLabel="Show paid records" />
-        <StatCard label="Pay on hold" value={hold} icon={PauseCircleIcon} tone="danger" loading={first} href={currentPageHref({ mon_status: "Pay on hold" })} onClick={() => setFilter("On hold")} scrollTo="monitoring-table" actionLabel="Show records on hold" />
+        <StatCard label="Pay on hold" value={hold} icon={PauseCircleIcon} tone="danger" loading={first} href={currentPageHref({ mon_status: "Pay on hold" })} onClick={() => setFilter("Pay on hold")} scrollTo="monitoring-table" actionLabel="Show records on hold" />
       </section>
       <Card id="monitoring-table" className="min-w-0 scroll-mt-20 shadow-xs">
         <CardHeader>

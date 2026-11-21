@@ -135,7 +135,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     await page.getByRole("tab", { name: /History/ }).click();
     await settle(page);
     const history = main(page).locator("tr", { hasText: PERIOD });
-    await expect(history.filter({ hasText: /Reject/i }).first()).toBeVisible();
+    await expect(history.filter({ hasText: /Reject|Returned by HR/i }).first()).toBeVisible();
     await expect(history.filter({ hasText: /Approv|Paid/i }).first()).toBeVisible();
     await expect(main(page).getByText(REASON).first()).toBeVisible();
   });
