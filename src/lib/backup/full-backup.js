@@ -18,6 +18,7 @@
 import { fetchProfilesPii } from "@/lib/employees/pii";
 import { loadSalaryChanges, salaryOn } from "@/lib/employees/salary-history";
 import { summarizeLeaveBalance, DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, allotmentForYear, readLeaveWithPayDays } from "@/lib/leave-requests/store";
+import { leaveBalances } from "@/lib/employees/classification-server";
 import { branchPayRates, derivedHourly, loadRateConfigs, resolveRate, resolveRates } from "@/lib/payroll/rates";
 import { manilaDateKey, nextPeriod, periodForDateKey } from "@/lib/payroll/periods";
 import { loadDemoIds } from "@/lib/demo";
@@ -34,12 +35,12 @@ export const BACKUP_GROUPS = Object.freeze([
   },
   {
     key: "employees", label: "Employees",
-    description: "Employee records with salary, daily and hourly rate, contact details, government ID numbers, RFID card, tenure protection and status; salary, status and license history; schedules, transfers and the positions list.",
+    description: "Employee records with salary, daily and hourly rate, contact details, government ID numbers, RFID card, tenure protection and status; salary, status and license history; schedules, transfers and the positions list; category, status and type history and HR reminders.",
     computed: ["employees"],
     tables: ["profiles", "employee_salary_changes", "employee_status_changes", "employee_awol_cases", "employee_license_changes",
       "employee_license_alerts", "employee_license_documents", "tenure_protection_policies", "tenure_protection_grants",
       "tenure_protection_applications", "rfid_cards", "rfid_card_events", "work_schedules", "work_schedule_assignments", "transfer_requests",
-      "employee_positions"],
+      "employee_positions", "employee_classification_changes", "employee_hr_reminders"],
   },
   {
     key: "attendance", label: "Attendance",
@@ -51,8 +52,8 @@ export const BACKUP_GROUPS = Object.freeze([
   },
   {
     key: "leave", label: "Leave requests and balances",
-    description: "Every leave request and each employee's leave balance for this year and last year.",
-    computed: ["leave_balances"], tables: ["leave_requests"],
+    description: "Every leave request, each employee's leave balance for this year and last year, the leave credit rules and overrides, and the statutory leave settings.",
+    computed: ["leave_balances"], tables: ["leave_requests", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
   },
   {
     key: "payroll", label: "Payroll records and payslips",
@@ -75,7 +76,7 @@ export const BACKUP_GROUPS = Object.freeze([
     description: "Government rate tables, pay rates (daily and the automatic hourly rate, per branch), payslip schedule and system settings.",
     computed: ["pay_rates"],
     tables: ["payroll_rate_configs", "payroll_tax_brackets", "payroll_sss_msc_brackets", "payroll_schedule_settings",
-      "payroll_setting_changes", "payroll_window_enforcement", "payroll_window_enforcement_changes", "system_config"],
+      "payroll_setting_changes", "payroll_window_enforcement", "payroll_window_enforcement_changes", "system_config", "employee_pay_rules"],
   },
   {
     key: "branches", label: "Branches, roles and permissions",
@@ -293,12 +294,15 @@ export async function leaveBalancesFile(supabase, actorId, context, filters) {
   const year = Number(manilaDateKey().slice(0, 4));
   const setting = await readLeaveWithPayDays(supabase);
   const people = peopleOf(context, filters);
+  // From 2026: per leave type, from the classification rules (20261121010000); before: the one yearly pool.
+  const perType = {};
+  for (const y of [year, year - 1]) if (y >= 2026) perType[y] = await leaveBalances(supabase, people.map((p) => p.id), y, { requests });
   const columns = [col("Employee ID"), col("Full name"), col("Branch"), col("Is demo", "bool", DEMO), col("Year", "int"), col("Leave with pay allotment (days)", "num"), col("Leave with pay used (days)", "num"),
     col("Leave with pay remaining (days)", "num"), col("Leave without pay used (days)", "num"), col("Employee profile UUID", "uuid")];
   function* rows() {
     for (const y of [year, year - 1]) {
       for (const p of people) {
-        const b = summarizeLeaveBalance(requests, p.id, y, allotmentForYear(y, setting));
+        const b = perType[y]?.[p.id] || summarizeLeaveBalance(requests, p.id, y, allotmentForYear(y, setting));
         yield [p.employee_id || p.staff_id || "", fullName(p), context.branchName(p.branch_id), context.isDemo(p.id), y,
           b.with_pay_allotment ?? DEFAULT_ANNUAL_LEAVE_WITH_PAY_DAYS, b.with_pay_used, b.with_pay_remaining, b.without_pay_used, p.id];
       }

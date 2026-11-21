@@ -106,6 +106,9 @@ import { RECORD_SORTS, recordSearchFields, recordStatusLabel } from "@/lib/payro
 import { reportResponse, wantsFile } from "@/lib/export/report-file";
 import { activeAccountantIds } from "@/lib/rbac/routing";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
+import { eligibilityRefusal } from "@/lib/employees/classification-server";
+import { loadClassificationContext, loadPayRules } from "@/lib/employees/classification-server";
+import { classificationOn, payRuleFor } from "@/lib/employees/classification";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -254,6 +257,9 @@ function shapeEmployee(user, profile, index) {
     email: normalizeText(profile?.email, user.email),
     employee_id: normalizeText(metadata.employee_id, `SACS-${String(index + 1).padStart(3, "0")}`),
     employee_type: normalizeText(metadata.employee_type, "Teaching"),
+    // Part A (20261121010000): shown and filtered in the batch table.
+    employment_status: normalizeText(metadata.employment_status),
+    employment_type: normalizeText(metadata.employment_type),
     position: normalizePositionForRole(metadata.position, role),
     basic_salary: Number(metadata.basic_salary || 0),
     archived: Boolean(metadata.archived),
@@ -1596,6 +1602,21 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     return [employee.id, await restDayHolidaysFor(supabase, employee, logs, holidays.forBranch(employee.branch_id))];
   })));
 
+  // Pay basis per category / status / type (Part A, 20261121010000). Unknown = monthly.
+  const classification = await loadClassificationContext(supabase, employees.map((e) => e.id)).catch(() => null);
+  const payRules = await loadPayRules(supabase).catch(() => []);
+  // The category / status / type in effect on the period's first day.
+  const classificationOf = (employeeId) => {
+    const profile = classification?.profiles.get(employeeId);
+    if (!profile) return null;
+    const c = classificationOn(profile, classification.changes.get(employeeId) || [], period.start_key);
+    return { employee_type: c.employee_type, employment_status: c.employment_status, employment_type: c.employment_type };
+  };
+  const payBasisOf = (employeeId) => {
+    const c = classificationOf(employeeId);
+    return (c && payRuleFor(payRules, c, period.start_key)?.pay_basis) || "monthly";
+  };
+
   const byEmployee = new Map();
   employees.forEach((employee) => {
     const resolved = resolveRates(
@@ -1646,6 +1667,8 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       early_bird: earlyBird,
       branch_days: branchDaysFor(employee.id, own),
       msc_table: mscTable,
+      pay_basis: payBasisOf(employee.id),
+      classification: classificationOf(employee.id),
     });
   });
 
@@ -1994,7 +2017,21 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCuto
  * made it and why, and kept as its own is_override line next to the computed
  * lines rather than replacing them.
  */
-function buildEmployeePayroll({ employee, context, input = {}, allowAttendanceOverrides = false, period, actor }) {
+// shortcut: payroll computes monthly-salary pay only; a part-time hourly /
+// scheduled-hours pay basis (employee_pay_rules) is refused until the engine
+// pays by the hour -- no part-timer exists yet (2026-11-20).
+function buildEmployeePayroll(args) {
+  const built = buildEmployeePayrollMonthly(args);
+  const basis = args.context?.pay_basis;
+  if (!basis || basis === "monthly") return built;
+  return {
+    ...built,
+    refusal: `${args.employee.full_name} is paid ${basis === "hourly" ? "per hour worked" : "per scheduled hour"} (part-time pay rules); payroll does not compute that pay basis yet. Ask HR to check the employee's pay rule.`,
+    refusal_code: "pay_basis_not_supported",
+  };
+}
+
+function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAttendanceOverrides = false, period, actor }) {
   const { resolved, auto, leave } = context;
   // Semi-monthly payroll (src/lib/payroll/semi-monthly.js): the 1st half is
   // half the salary with nothing deducted; the 2nd half settles the month.
@@ -3466,6 +3503,11 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     return NextResponse.json({ error: "Enter overload hours greater than 0 (at most 744)." }, { status: 400 });
   }
 
+  if (kind === "incentive") {
+    const notEligible = await eligibilityRefusal(supabase, employee.id, "incentive", itemDate);
+    if (notEligible) return NextResponse.json({ error: notEligible }, { status: 400 });
+  }
+
   const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
   const row = {
     employee_id: employee.id,
@@ -4348,6 +4390,8 @@ async function handleBatchSubmit(supabase, body, guard) {
       position_title: employee.position_title || employee.position,
       // Worked in more than one branch this period (a transfer).
       branch_days: payContext.byEmployee.get(employee.id)?.branch_days || null,
+      // Category / status / type in effect for this period (Part A, 20261121010000).
+      classification: payContext.byEmployee.get(employee.id)?.classification || null,
     };
 
     const baseEntry = {

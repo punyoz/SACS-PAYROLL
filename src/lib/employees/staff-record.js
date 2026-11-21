@@ -233,6 +233,12 @@ export function normalizeStaffFields(body = {}) {
     cp_number: digitsOrNull(body.cp_number) ?? normalizeText(body.cp_number),
     // Only HR is on payroll; a salary sent for any other role is dropped.
     ...(role === "hr" ? { basic_salary: Number(body.basic_salary) } : {}),
+    // HR is on payroll: employment status and type (Part A, 20261121010000). HR is Non-Teaching.
+    ...(role === "hr" ? {
+      employment_status: pickOption(body.employment_status, ["Regular", "Probationary", "Contractual"]),
+      employment_type: pickOption(body.employment_type, ["Full-time", "Part-time"]),
+      contract_end_date: normalizeText(body.contract_end_date),
+    } : {}),
   };
 }
 
@@ -303,6 +309,11 @@ export function validateStaffRecord(record) {
 
   if (record.role === "hr" && !(record.basic_salary > 0 && record.basic_salary <= SALARY_MAX)) {
     return `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.`;
+  }
+  if (record.role === "hr" && !record.employment_status) return "Employment status is required (Regular, Probationary or Contractual).";
+  if (record.role === "hr" && !record.employment_type) return "Employment type is required (Full-time or Part-time).";
+  if (record.role === "hr" && record.employment_status === "Contractual" && !parseDate(record.contract_end_date)) {
+    return "Contract end date is required for a Contractual employee.";
   }
 
   const emailError = validateStaffEmail(record.email);

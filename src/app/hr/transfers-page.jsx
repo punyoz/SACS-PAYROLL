@@ -208,7 +208,12 @@ export function TransfersPage({ refreshKey }) {
   const columns = [
     { key: "full_name", header: "Employee", className: "font-medium", cell: (e) => e.full_name || "" },
     { key: "employee_id", header: "Employee ID", className: "tabular-nums", cell: (e) => e.employee_id || "—" },
-    { key: "type", header: "Type", cell: (e) => <StatusBadge tone={e.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{e.employee_type || "Teaching"}</StatusBadge> },
+    { key: "type", header: "Type", cell: (e) => (
+      <div className="flex flex-wrap items-center gap-1.5">
+        <StatusBadge tone={e.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{e.employee_type || "Teaching"}</StatusBadge>
+        {e.employment_status ? <span className="text-xs text-muted-foreground">{[e.employment_status, e.employment_type].filter(Boolean).join(" · ")}</span> : null}
+      </div>
+    ) },
     { key: "position", header: "Position", cell: (e) => e.position || "—" },
     { key: "branch", header: "Branch", cell: branchCell },
     { key: "assigned", header: "Assigned at", className: "whitespace-nowrap text-xs", cell: (e) => (e.assigned_at ? new Date(e.assigned_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—") },

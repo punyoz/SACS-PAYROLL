@@ -140,6 +140,8 @@ export async function GET(request) {
             email: normalizeText(u.email),
             role: normalizeText(meta.role, "employee"),
             employee_type: normalizeText(meta.employee_type, "Teaching"),
+            employment_status: normalizeText(meta.employment_status),
+            employment_type: normalizeText(meta.employment_type),
             position: normalizeText(meta.position, "Employee"),
             employee_status: normalizeText(meta.employee_status, "Active"),
             archived: Boolean(meta.archived),
@@ -151,16 +153,19 @@ export async function GET(request) {
 
       if (wantsFile(url)) {
         const branchFilter = url.searchParams.get("branch_id");
-        const inBranch = sortByBranch(employees, "full_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter);
+        const employment = url.searchParams.get("employment");
+        const inBranch = sortByBranch(employees, "full_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter)
+          .filter((r) => !employment || employment === "all" || r.employment_status === employment || r.employment_type === employment);
         const { rows: shown, q } = tableQuery(url, inBranch, { fields: hrReportSearchFields });
         return await reportResponse({
           format: wantsFile(url), fileName: `employee-records-${to}`, title: "Employee records",
           branch: branchFilter && branchFilter !== "all" ? inBranch[0]?.branch_name || "Branch" : "All branches",
           period: `As of ${reportDate(to)}`,
-          filters: [["Search", q || "none"], ["Sorted by", "Branch, then employee"]],
+          filters: [["Search", q || "none"], ["Employment", employment && employment !== "all" ? employment : "any"], ["Sorted by", "Branch, then employee"]],
           empty: `No employees match${q ? `: Search = "${q}"` : " this branch"}.`,
-          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Type" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
-          rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "", r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
+          columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Type" }, { header: "Employment" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
+          rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "",
+            [r.employment_status, r.employment_type].filter(Boolean).join(" · "), r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
         });
       }
       return NextResponse.json({

@@ -11,6 +11,7 @@ import path from "node:path";
 import { holidayPayLines } from "@/lib/payroll/holiday-lines";
 import { employeePayslipView, payrollLineGroups } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
+import { classificationLabel } from "@/lib/employees/classification";
 
 /**
  * payroll_tax_brackets rows (every version), for the withholding tax line's
@@ -146,7 +147,8 @@ export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = 
     employee: {
       id: entry.employee_code,
       name: entry.employee_name,
-      type: entry.employee_type,
+      // "Teaching · Regular · Full-time" when the payslip kept it (from 20261121010000).
+      type: classificationLabel(entry.payroll?.payslip_meta?.classification || {}) || entry.employee_type,
       position: generation?.position_title || entry.payroll?.payslip_meta?.position_title || entry.position,
       branch: generation?.branch_name || entry.payroll?.payslip_meta?.branch_name || null,
       // Days worked in each branch when there was more than one (a transfer).

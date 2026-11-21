@@ -43,6 +43,7 @@ import { describeSubsidyError } from "@/lib/payroll/subsidy-requests";
 import { textLimitError } from "@/lib/input-limits";
 import { reportDate, reportResponse, wantsFile } from "@/lib/export/report-file";
 import { LOAN_STATUS_LABELS, loanCanResume, loanCanSuspend, loanDecisionText, loanMatchesQuery, loanMatchesStatus, loanSortLabel, loanStatusLabel, parseLoanSort, sortLoans } from "@/lib/payroll/loan-status";
+import { eligibilityRefusal } from "@/lib/employees/classification-server";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { description: [200, "The description"], reason: [300, "The reason"] };
@@ -265,6 +266,9 @@ export async function POST(request) {
       if (input.start_period < `${manilaDateKey().slice(0, 7)}-16`) {
         return NextResponse.json({ error: "The first deduction must be this month's 16–end payslip or a later one." }, { status: 400 });
       }
+      // The pay rules of the employee's category / status / type (Part A, 20261121010000).
+      const notEligible = await eligibilityRefusal(supabase, person.id, "loan", input.date_granted);
+      if (notEligible) return NextResponse.json({ error: notEligible }, { status: 400 });
       const startLabel = periodForDateKey(input.start_period).label;
       const finalExists = await supabase.from("payroll_entries").select("id")
         .eq("employee_id", person.id).eq("pay_period", startLabel).eq("status", "paid").maybeSingle();
@@ -318,6 +322,8 @@ export async function POST(request) {
         return NextResponse.json({ error: "No open subsidy balance for this teacher." }, { status: 404 });
       }
       const dateGranted = normalizeText(body.date_granted, manilaDateKey());
+      const notEligible = await eligibilityRefusal(supabase, person.id, "subsidy", dateGranted);
+      if (notEligible) return NextResponse.json({ error: notEligible }, { status: 400 });
       const invalid = validateSubsidyAdvanceInput({ principal: body.principal, date_granted: dateGranted }, advanceAvailable(balance, dateGranted));
       if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 

@@ -25,6 +25,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { DECISION_STATUS, REQUEST_KINDS, STATUS_LABELS, historyEntry, shapeRequest } from "@/lib/branch-requests";
 import { notify } from "@/lib/branch-requests-server";
 import { textLimitError } from "@/lib/input-limits";
+import { eligibilityRefusal } from "@/lib/employees/classification-server";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [1000, "The remark"] };
@@ -107,6 +108,10 @@ export async function PATCH(request) {
     // An approved incentive recommendation becomes the incentive / overload item.
     if (row.kind === "incentive_endorsement" && decision === "approve") {
       const d = row.details || {};
+      if (d.kind !== "overload") {
+        const notEligible = await eligibilityRefusal(supabase, row.employee_id, "incentive", d.item_date);
+        if (notEligible) return NextResponse.json({ error: notEligible }, { status: 400 });
+      }
       const item = await supabase.from("payroll_monthly_incentives").insert({
         employee_id: row.employee_id, branch_id: row.branch_id, item_date: d.item_date, kind: d.kind,
         description: `${d.description} (recommended by ${row.created_by_name || "the branch Admin"})`.slice(0, 200),

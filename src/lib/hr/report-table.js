@@ -10,4 +10,4 @@ export function sortByBranch(records, nameKey) {
 }
 
 /** What the search box matches (one text, as the table does). */
-export const hrReportSearchFields = (r) => [[r.employee_name, r.full_name, r.employee_id, r.branch_name, r.employee_type, r.position, r.email].join(" ")];
+export const hrReportSearchFields = (r) => [[r.employee_name, r.full_name, r.employee_id, r.branch_name, r.employee_type, r.employment_status, r.employment_type, r.position, r.email].join(" ")];

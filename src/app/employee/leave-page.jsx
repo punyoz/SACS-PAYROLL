@@ -28,7 +28,8 @@ import { REASON_MAX } from "@/lib/input-limits";
  * sent as a data URL, under 2 MB, PDF / PNG / JPEG.
  */
 
-const LEAVE_TYPES = ["Sick Leave", "Vacation Leave", "Emergency Leave", "Maternity Leave", "Paternity Leave"];
+// Yearly credits; statutory leaves (maternity, paternity, …) are added when the person may file them.
+const LEAVE_TYPES = ["Sick Leave", "Vacation Leave", "Emergency Leave"];
 const MAX_PROOF_BYTES = 2 * 1024 * 1024;
 
 const schema = z.object({
@@ -71,9 +72,12 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
   const startDate = form.watch("start_date");
   const endDate = form.watch("end_date");
   const payStatus = form.watch("pay_status");
+  const leaveType = form.watch("leave_type");
+  // The credits of the chosen leave type (20261121010000).
+  const remaining = balance?.by_type?.[leaveType]?.remaining ?? balance?.with_pay_remaining ?? 0;
   // Over the paid balance (2026-11-12): not blocked; the extra days are without pay.
-  const split = balance && payStatus === "with_pay" && startDate && endDate
-    ? splitForBalance({ start_date: startDate, end_date: endDate, pay_status: payStatus }, balance.with_pay_remaining) : null;
+  const split = balance && leaveType && payStatus === "with_pay" && startDate && endDate
+    ? splitForBalance({ start_date: startDate, end_date: endDate, pay_status: payStatus }, remaining) : null;
 
   async function onSubmit(values) {
     setServerError("");
@@ -118,7 +122,7 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
               <FormLabel>Leave type</FormLabel>
               <Select value={field.value} onValueChange={field.onChange}>
                 <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select leave type" /></SelectTrigger></FormControl>
-                <SelectContent>{LEAVE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                <SelectContent>{[...LEAVE_TYPES, ...(balance?.statutory || []).filter((t) => !t.refusal).map((t) => t.leave_type)].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
               </Select>
               <FormMessage />
             </FormItem>
@@ -166,7 +170,7 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
         />
         {split?.without_pay_days ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning/5 p-2 text-sm text-warning sm:col-span-2" data-testid="leave-split-preview">
-            This is more than your {balance.with_pay_remaining} paid day{balance.with_pay_remaining === 1 ? "" : "s"} left: if approved, {describeSplit(split)} (deducted at your daily rate).
+            This is more than your {remaining} paid {leaveType.toLowerCase()} day{remaining === 1 ? "" : "s"} left: if approved, {describeSplit(split)} (deducted at your daily rate).
           </p>
         ) : null}
         <FormField
@@ -218,25 +222,32 @@ const days = (n) => `${n} ${Number(n) === 1 ? "day" : "days"}`;
 
 function LeaveBalance({ balance, loading }) {
   const bal = balance || { with_pay_allotment: 0, with_pay_used: 0, with_pay_remaining: 0, without_pay_used: 0 };
-  const allotment = Number(bal.with_pay_allotment || 0);
-  const used = Number(bal.with_pay_used || 0);
-  const percent = allotment > 0 ? Math.min(100, Math.round((used / allotment) * 100)) : 0;
+  // Yearly credits per leave type (20261121010000).
+  const types = Object.entries(bal.by_type || {});
+  const statutory = (bal.statutory || []).filter((t) => !t.refusal);
 
   return (
     <Card className="shadow-xs">
       <CardHeader>
         <CardTitle>Leave balance</CardTitle>
-        <CardDescription>This year&apos;s leave with pay</CardDescription>
+        <CardDescription>This year&apos;s leave with pay, by type</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? <Skeleton className="h-24 w-full" /> : (
           <>
-            <div>
-              <div className="mb-2 flex items-baseline justify-between text-sm">
-                <span className="text-muted-foreground">With pay — used</span>
-                <span className="tabular-nums font-medium">{bal.with_pay_used} of {bal.with_pay_allotment} days</span>
-              </div>
-              <Progress value={percent} aria-label={`Leave with pay used: ${bal.with_pay_used} of ${bal.with_pay_allotment} days`} />
+            <div className="space-y-3">
+              {types.map(([type, b]) => {
+                const percent = b.allotment > 0 ? Math.min(100, Math.round((b.used / b.allotment) * 100)) : 0;
+                return (
+                  <div key={type}>
+                    <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
+                      <span className="text-muted-foreground">{type}</span>
+                      <span className="tabular-nums font-medium">{b.used} of {days(b.allotment)} used · {days(b.remaining)} left</span>
+                    </div>
+                    <Progress value={percent} aria-label={`${type}: ${b.used} of ${b.allotment} days used`} />
+                  </div>
+                );
+              })}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-lg border bg-success/8 p-3">
@@ -248,6 +259,17 @@ function LeaveBalance({ balance, loading }) {
                 <p className="mt-0.5 tabular-nums text-lg font-semibold text-warning">{days(bal.without_pay_used)}</p>
               </div>
             </div>
+            {statutory.length ? (
+              <div className="space-y-1.5 border-t pt-3">
+                <p className="text-xs font-medium text-muted-foreground">Statutory leave, filed per event (not from your yearly credits)</p>
+                {statutory.map((t) => (
+                  <p key={t.leave_type} className="text-sm">
+                    <span className="font-medium">{t.leave_type}</span>: up to {days(t.days)}{t.basis === "year" ? " a year" : " each time"}
+                    {t.max_events ? ` (first ${t.max_events}; ${t.used} used)` : ""}. <span className="text-xs text-muted-foreground">{t.note}</span>
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </>
         )}
       </CardContent>

@@ -388,6 +388,8 @@ function BatchCard({ onNavigate, onEdit }) {
   });
   const [query, setQuery] = React.useState("");
   const [typeFilter, setTypeFilter] = React.useState("all");
+  // Employment status / type filter (Part A): "Regular", "Part-time", …
+  const [employmentFilter, setEmploymentFilter] = React.useState("all");
   const [branchFilter, setBranchFilter] = React.useState("all");
   const [selected, setSelected] = React.useState(() => new Set());
   const [expanded, setExpanded] = React.useState(() => new Set());
@@ -398,7 +400,7 @@ function BatchCard({ onNavigate, onEdit }) {
   // New data: the selection starts again.
   React.useEffect(() => { setSelected(new Set()); }, [data]);
   // A new period or filter starts on page 1 (the page size stays).
-  React.useEffect(() => { setTablePage(1); }, [period, filter, query, typeFilter, branchFilter]);
+  React.useEffect(() => { setTablePage(1); }, [period, filter, query, typeFilter, branchFilter, employmentFilter]);
 
   const employees = data?.employees || [];
   const ready = data?.payroll_ready !== false;
@@ -459,6 +461,7 @@ function BatchCard({ onNavigate, onEdit }) {
   const batchBranches = [...new Set(employees.map((e) => String(e.branch_id || "")))];
   const totalNet = toAmount(rows.reduce((sum, r) => sum + r.net, 0));
   const types = [...new Set(employees.map((e) => e.employee_type).filter(Boolean))];
+  const employmentKinds = [...new Set(employees.flatMap((e) => [e.employment_status, e.employment_type]).filter(Boolean))].sort();
   const q = query.trim().toLowerCase();
   const matches = (r) => (filter === "off_list" ? !r.listed
     : !r.listed ? false
@@ -466,6 +469,7 @@ function BatchCard({ onNavigate, onEdit }) {
   const shown = rows.filter((r) => matches(r)
     && (branchFilter === "all" || String(r.employee.branch_id || "") === branchFilter)
     && (typeFilter === "all" || r.employee.employee_type === typeFilter)
+    && (employmentFilter === "all" || r.employee.employment_status === employmentFilter || r.employee.employment_type === employmentFilter)
     && (!q || `${r.employee.full_name} ${r.employee.employee_id || ""}`.toLowerCase().includes(q)));
   const pages = Math.max(1, Math.ceil(shown.length / tableSize));
   const at = Math.min(tablePage, pages);
@@ -488,7 +492,7 @@ function BatchCard({ onNavigate, onEdit }) {
     ["run", "In a run with HR (locked)"],
   ].map(([kind, title]) => ({ kind, title, rows: blockedRows(kind) })).filter((g) => g.rows.length);
   const showRow = (row) => {
-    setFilter(row.listed ? "all" : "off_list"); setBranchFilter("all"); setTypeFilter("all"); setQuery(row.employee.full_name);
+    setFilter(row.listed ? "all" : "off_list"); setBranchFilter("all"); setTypeFilter("all"); setEmploymentFilter("all"); setQuery(row.employee.full_name);
     setExpanded((c) => new Set(c).add(row.employee.id));
   };
   const canProcess = ready && finalWindow && !allRunsLocked;
@@ -621,7 +625,7 @@ function BatchCard({ onNavigate, onEdit }) {
   const who = (row) => (
     <div className="min-w-0">
       <p className="truncate font-medium">{row.employee.full_name}</p>
-      <p className="truncate text-[11px] text-muted-foreground">{[row.employee.employee_id, row.employee.employee_type].filter(Boolean).join(" · ")}</p>
+      <p className="truncate text-[11px] text-muted-foreground">{[row.employee.employee_id, row.employee.employee_type, row.employee.employment_status, row.employee.employment_type].filter(Boolean).join(" · ")}</p>
     </div>
   );
   const attendanceCell = (row) => (
@@ -743,6 +747,15 @@ function BatchCard({ onNavigate, onEdit }) {
               <SelectContent>
                 <SelectItem value="all">All types</SelectItem>
                 {types.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : null}
+          {employmentKinds.length > 1 ? (
+            <Select value={employmentFilter} onValueChange={setEmploymentFilter}>
+              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Employment status or type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any employment</SelectItem>
+                {employmentKinds.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
               </SelectContent>
             </Select>
           ) : null}

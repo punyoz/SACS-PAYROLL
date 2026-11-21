@@ -13,16 +13,25 @@ import { ACCOUNTS } from "../accounts.mjs";
 
 const TAG = `E2E-LV-${Date.now().toString(36)}`;
 const REJECT_REASON = "E2E: a sick leave needs a medical certificate";
-// Weekdays in the 2nd half of the month 13-20 days ahead (7-day notice rule).
-function weekdayFrom(offset) {
-  for (let d = offset; d < offset + 7; d += 1) {
-    const key = manilaDay(d);
-    const dow = new Date(`${key}T00:00:00Z`).getUTCDay();
-    if (dow >= 1 && dow <= 3) return d; // Mon-Wed, so +1 and +2 are weekdays too
+// A fixed, holiday-free range (2026-11-21: run on Nov 20 it picked Dec 7-9, and
+// Dec 8 is a holiday, so one leave day was not counted). The server keeps the
+// real date (7-day notice), so the range is chosen, not the clock: the first
+// Mon-Wed start 13+ days ahead whose three days and the rejected day (+7) are
+// working days with no holiday on the calendar, all three in one cutoff.
+const HOLIDAYS = new Set(((await db().from("attendance_holidays").select("holiday_date")
+  .gte("holiday_date", manilaDay(0)).lte("holiday_date", manilaDay(90))).data || []).map((h) => String(h.holiday_date).slice(0, 10)));
+const dayOfWeek = (d) => new Date(`${manilaDay(d)}T00:00:00Z`).getUTCDay();
+const working = (d) => dayOfWeek(d) >= 1 && dayOfWeek(d) <= 5 && !HOLIDAYS.has(manilaDay(d));
+function holidayFreeStart(offset) {
+  for (let d = offset; d < offset + 60; d += 1) {
+    if (dayOfWeek(d) < 1 || dayOfWeek(d) > 3) continue; // Mon-Wed, so +1 and +2 are weekdays too
+    if (![d, d + 1, d + 2, d + 7].every(working)) continue;
+    if (periodOf(manilaDay(d)) !== periodOf(manilaDay(d + 2))) continue;
+    return d;
   }
-  return offset;
+  throw new Error("No holiday-free working days ahead for the leave test.");
 }
-const BASE = weekdayFrom(13);
+const BASE = holidayFreeStart(13);
 const D1 = manilaDay(BASE), D2 = manilaDay(BASE + 1), D3 = manilaDay(BASE + 2);
 const DR = manilaDay(BASE + 7);
 

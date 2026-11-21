@@ -28,6 +28,7 @@ import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { applyDueSalaryChanges } from "@/lib/employees/salary-history";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { resolvePosition } from "@/lib/hr/positions";
+import { CHANGE_WITH_DATE, changedClassification } from "@/lib/employees/classification";
 
 function buildEmployeeId(currentCount = 0) {
   const next = currentCount + 1;
@@ -370,6 +371,7 @@ export async function POST(request) {
       civil_status: record.civil_status,
       employment_type: record.employment_type,
       employment_status: record.employment_status,
+      ...(record.employment_status === "Contractual" && record.contract_end_date ? { contract_end_date: record.contract_end_date } : {}),
       rfid_status: record.employee_status,
       employee_status: record.employee_status,
       archived: false,
@@ -425,6 +427,10 @@ export async function POST(request) {
           // "Active", whatever the form said (HR's edit already wrote them).
           ...(record.employee_type ? { employee_type: record.employee_type } : {}),
           ...(record.employee_status ? { employee_status: record.employee_status } : {}),
+          // Columns since 20261121010000 (the nightly jobs and payroll read them there).
+          employment_status: record.employment_status || null,
+          employment_type: record.employment_type || null,
+          contract_end_date: record.employment_status === "Contractual" ? record.contract_end_date || null : null,
           cp_number: normalizeDigits(body.cp_number, 11) || null,
           date_hired: normalizeText(body.date_hired, "") || null,
           address: normalizeText(body.address, "") || null,
@@ -590,6 +596,9 @@ export async function PATCH(request) {
       }
 
       nextMetadata.employee_id = currentEmployeeId;
+      if (changedClassification(currentMetadata, { employee_type: normalizeText(body.employee_type) }).length) {
+        return NextResponse.json({ error: CHANGE_WITH_DATE }, { status: 400 });
+      }
       nextMetadata.employee_type = normalizeText(body.employee_type, normalizeText(currentMetadata.employee_type, "Teaching"));
       const nextPosition = await resolvePosition(supabase, body.position, nextRole, normalizePositionForRole,
         { userId: guard.userId, name: normalizeText(guard.session?.full_name, guard.session?.email) });

@@ -46,7 +46,7 @@ const LABELS = {
   first_name: "First name", middle_name: "Middle name", last_name: "Last name", suffix: "Suffix", email: "Email",
   role: "Role", employee_status: "Account status", branch_id: "Branch", date_of_birth: "Date of birth",
   date_hired: "Date hired", sex: "Sex", civil_status: "Civil status", cp_number: "Contact number", address: "Home address",
-  basic_salary: "Basic salary",
+  basic_salary: "Basic salary", employment_status: "Employment status", employment_type: "Employment type", contract_end_date: "Contract end date",
   emergency_contact_name: "Contact person", emergency_contact_relationship: "Relationship",
   emergency_contact_number: "Emergency contact number", emergency_contact_address: "Emergency contact address",
   password: "Reset password (optional)",
@@ -404,6 +404,7 @@ const EMPTY_ADD = {
   first_name: "", middle_name: "", last_name: "", suffix: "", email: "", role: "super_admin", employee_status: "Active",
   branch_id: "", basic_salary: "", date_of_birth: "", date_hired: "", sex: "", civil_status: "", cp_number: "", address: "",
   emergency_contact_name: "", emergency_contact_relationship: "", emergency_contact_address: "", emergency_contact_number: "",
+  employment_status: "", employment_type: "", contract_end_date: "",
 };
 
 function CreatedNotice({ created }) {
@@ -472,6 +473,8 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
       // Admin: its branch; HR: its optional home branch for payroll (2026-11-10).
       branch_id: role === "admin" || role === "hr" ? v("branch_id") : "",
       ...(role === "hr" ? { basic_salary: Number(v("basic_salary")) } : {}),
+      // HR is on payroll: its employment status and type (Part A).
+      ...(role === "hr" ? { employment_status: v("employment_status"), employment_type: v("employment_type"), contract_end_date: v("contract_end_date") } : {}),
       employee_status: v("employee_status"),
       date_of_birth: v("date_of_birth"),
       date_hired: v("date_hired"),
@@ -537,6 +540,10 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
           {form.values.role === "hr"
             ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: String(SALARY_MAX), step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
             : null}
+          {form.values.role === "hr" ? field("employment_status", select("employment_status", ["Regular", "Probationary", "Contractual"], "Select"), { required: true }) : null}
+          {form.values.role === "hr" ? field("employment_type", select("employment_type", ["Full-time", "Part-time"], "Select"), { required: true }) : null}
+          {form.values.role === "hr" && form.values.employment_status === "Contractual"
+            ? field("contract_end_date", dateField("contract_end_date"), { required: true, hint: "HR is reminded before it." }) : null}
 
           <SectionTitle>Personal information</SectionTitle>
           {field("date_of_birth", dateField("date_of_birth", { min: "1900-01-01", max: latestBirthDate() }), { hint: "Must be at least 18 years old. Used with the last name to build the first-time password." })}

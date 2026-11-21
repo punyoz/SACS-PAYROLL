@@ -200,6 +200,9 @@ const API_MODULES = [
   ["/api/payroll/remittance", "payroll_records"],
   // Basic salary changes (2026-10-26): HR only; the route also checks the role.
   ["/api/hr/salary-changes", "employee_information"],
+  // Category / status / type and the leave and pay rules (Part A, 20261121010000): HR and Super Admin.
+  ["/api/hr/employee-classification", "user_management"],
+  ["/api/hr/classification-rules", "user_management"],
   // Incentives, overload and loans waiting for HR (20261027020000): HR decides,
   // the Accountant follows its own branch's items.
   ["/api/hr/adjustment-approvals", "payroll_approvals"],

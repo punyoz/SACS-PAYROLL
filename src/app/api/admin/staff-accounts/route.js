@@ -139,6 +139,11 @@ export async function POST(request) {
       // An HR is always "HR Officer", Non-Teaching (src/lib/hr/positions.js); without
       // these HR's staff list showed the "Teaching" / "Employee" defaults.
       ...(record.role === "hr" ? HR_JOB : {}),
+      ...(record.role === "hr" ? {
+        employment_status: record.employment_status,
+        employment_type: record.employment_type,
+        ...(record.employment_status === "Contractual" ? { contract_end_date: record.contract_end_date } : {}),
+      } : {}),
       archived: false,
     };
 
@@ -175,6 +180,11 @@ export async function POST(request) {
         branch_id: branchId,
         ...(basicSalary ? { basic_salary: basicSalary } : {}),
         ...(record.role === "hr" ? HR_JOB : {}),
+        ...(record.role === "hr" ? {
+          employment_status: record.employment_status,
+          employment_type: record.employment_type,
+          contract_end_date: record.employment_status === "Contractual" ? record.contract_end_date : null,
+        } : {}),
         ...emergencyContactColumns(emergencyContact),
       },
       { onConflict: "id" },

@@ -10,11 +10,21 @@ import { cn } from "@/lib/utils";
  */
 export function LeaveBalanceNote({ balance, request = null, className }) {
   if (!balance) return null;
+  // Statutory leave (maternity, paternity, …) uses no yearly credits.
+  if (request && balance.by_type && !balance.by_type[request.leave_type]) {
+    return <p className={cn("text-xs text-muted-foreground", className)} data-testid="leave-balance">{request.leave_type}: statutory leave, filed per event (no yearly credits used).</p>;
+  }
+  // The credits of the request's own leave type (leave_credit_rules, 20261121010000).
+  const own = request ? balance.by_type?.[request.leave_type] : null;
+  const label = own ? request.leave_type : "Leave with pay";
+  const used = own ? own.used : balance.with_pay_used;
+  const allotment = own ? own.allotment : balance.with_pay_allotment;
+  const remaining = own ? own.remaining : balance.with_pay_remaining;
   const pending = request && ["pending_admin", "pending_accountant"].includes(request.status);
-  const split = pending && request.pay_status !== "without_pay" ? splitForBalance(request, balance.with_pay_remaining) : null;
+  const split = pending && request.pay_status !== "without_pay" ? splitForBalance(request, remaining) : null;
   return (
     <p className={cn("text-xs text-muted-foreground", className)} data-testid="leave-balance">
-      Leave with pay: {balance.with_pay_used} of {balance.with_pay_allotment} days used, {balance.with_pay_remaining} remaining
+      {label}: {used} of {allotment} days used, {remaining} remaining
       {split?.without_pay_days ? <span className="block font-medium text-warning">Over the balance: {describeSplit(split)} on approval.</span> : null}
     </p>
   );

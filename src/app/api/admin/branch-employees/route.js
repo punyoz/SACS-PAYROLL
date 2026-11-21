@@ -83,6 +83,8 @@ export async function GET(request) {
         email: normalizeText(u.email),
         role: normalizeText(u.user_metadata?.role, "employee"),
         employee_type: normalizeText(u.user_metadata?.employee_type, "Teaching"),
+        employment_status: normalizeText(u.user_metadata?.employment_status),
+        employment_type: normalizeText(u.user_metadata?.employment_type),
         position: normalizeText(u.user_metadata?.position, "Employee"),
         basic_salary: Number(u.user_metadata?.basic_salary || 0),
         employee_status: normalizeText(u.user_metadata?.employee_status, "Active"),

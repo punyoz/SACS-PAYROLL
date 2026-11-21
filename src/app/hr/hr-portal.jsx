@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
-import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, CalendarHeartIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, UserXIcon, UsersIcon } from "lucide-react";
+import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, CalendarHeartIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, SlidersHorizontalIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
 import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
@@ -16,6 +16,7 @@ import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
 import { EmployeesPage } from "./employees-page";
+import { ClassificationRulesPage } from "./classification-rules-page";
 import { TransfersPage } from "./transfers-page";
 import { AttendancePage } from "./attendance-page";
 import { LeavesPage } from "./leaves-page";
@@ -88,7 +89,11 @@ const NAV = [
   },
   { section: "Reports", collapsible: true, items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
   // School-wide and branch announcements (2026-10-30).
-  { section: "Settings", collapsible: true, items: [{ id: "hr-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
+  { section: "Settings", collapsible: true, items: [
+    { id: "hr-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
+    // Leave credits and pay rules per category / status / type (Part A, 20261121010000).
+    { id: "hr-classification-rules", label: "Status & Leave Rules", icon: SlidersHorizontalIcon, module: "user_management" },
+  ] },
   // HR is an employee too (2026-11-09): its own pages, below the work groups.
   myAccountGroup("hr"),
 ];
@@ -116,6 +121,7 @@ const TITLES = {
   "hr-adjustment-approvals": "Incentive & Loan Approvals",
   "hr-gov-rates": "Government Rates",
   "hr-reports": "HR Reports",
+  "hr-classification-rules": "Status & Leave Rules",
   "hr-profile": "My Profile",
   ...Object.fromEntries(Object.entries(MY_PAGE_IDS.hr).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, myAccountGroup("hr").items.find((i) => i.id === id).label])),
 };
@@ -140,6 +146,7 @@ const DESCRIPTIONS = {
   "hr-gov-rates": "Change the daily rate and the SSS, PhilHealth and Pag-IBIG rates for future pay periods (with a reason; the Super Admin is notified). The hourly rate is the daily rate ÷ 8, automatic; the withholding tax table is fixed by law.",
   "hr-payroll-approval": "Approve each branch's payroll and each final pay, or send it back to the Accountant with a reason.",
   "hr-payroll-records": "Every employee's processed payslips across all branches, read-only. Open any payslip to print or download it.",
+  "hr-classification-rules": "Leave credits and pay rules per category, employment status and type, and the reminders before a probation or contract ends. Each change applies from a date you choose.",
   "hr-profile": null,
   ...Object.fromEntries(Object.entries(MY_PAGE_IDS.hr).filter(([kind]) => kind !== "profile").map(([kind, id]) => [id, MY_DESCRIPTIONS[kind]])),
 };
@@ -258,6 +265,7 @@ function HrScreens() {
         {current === "hr-gov-rates" ? <><RatesSection refreshKey={refreshKey} endpoint="/api/payroll/rates" onlyEditable /><PayrollSettingsSection refreshKey={refreshKey} endpoint="/api/payroll/settings" showTax={false} /><LeaveConversionCard /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
         {current === "hr-announcements" ? <AnnouncementsManager refreshKey={refreshKey} /> : null}
+        {current === "hr-classification-rules" ? <ClassificationRulesPage refreshKey={refreshKey} /> : null}
         {current === "hr-profile" ? <StaffProfilePage roleLabel="HR" showPosition /> : null}
         {myKind && myKind !== "profile" ? <MyAccountScreen kind={myKind} refreshKey={refreshKey} /> : null}
       </AppShell>
