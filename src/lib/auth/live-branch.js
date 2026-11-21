@@ -85,3 +85,29 @@ export async function resolveCurrentBranchId(userId, fallbackBranchId = null) {
     return fallbackBranchId;
   }
 }
+
+/**
+ * The account as it stands right now (2026-11-21): role, branch and archived,
+ * read from profiles on EVERY request with no cache, so a role change,
+ * archive or branch move applies to the very next API call. requirePermission
+ * (src/lib/rbac/guard.js) decides from this, never from the cookie's copy.
+ *
+ * @returns {Promise<{ role: string, branchId: string|null, archived: boolean, separated?: boolean } | null>}
+ *   null when profiles cannot be read; the guard then refuses the request.
+ *   A missing row is an account with no profile: treated as archived.
+ */
+export async function readLiveAccount(userId) {
+  const id = String(userId || "");
+  const supabase = getAdminClient();
+  if (!id || !supabase) return null;
+  try {
+    const { data, error } = await supabase.from("profiles").select("role,branch_id,archived,employee_status").eq("id", id).maybeSingle();
+    if (error) return null;
+    if (!data) return { role: "", branchId: null, archived: true, missing: true };
+    const branchId = data.branch_id ? String(data.branch_id) : null;
+    cache.set(id, { branchId, at: Date.now() });
+    return { role: String(data.role || "").toLowerCase(), branchId, archived: data.archived === true, separated: data.employee_status === "Separated" };
+  } catch {
+    return null;
+  }
+}
