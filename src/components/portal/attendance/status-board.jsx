@@ -36,7 +36,7 @@ const NOTES = {
   incomplete: "Days with a time in but no time out after the shift ended. They are left out of payroll until resolved: by the employee's correction request, by recording the time out (or Absent / Half Day) here, or with Override.",
   blocked: "RFID taps that were refused: an unregistered card, an inactive employee, another branch's card, or an employee on approved leave. Nothing was recorded for them.",
   corrections: "Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day. Override enters different times yourself and closes the request.",
-  overtime: "Days whose time out is well after the branch's end of shift. Payroll pays overtime only for the minutes approved here. Decisions lock once that pay period is processed.",
+  overtime: "Days whose time out is well after the shift end. Overtime is paid only from an approved overtime request (Leave Approval → Overtime requests); a day without one shows \"Overtime not filed\" and pays nothing.",
 };
 
 /**
@@ -131,7 +131,7 @@ export function AttendanceStatusBoard({
     ...(readOnly && !branchFilter ? [{ value: "incomplete", label: "Incomplete queue", count: incompleteCount || undefined }] : []),
     ...(!readOnly ? [{ value: "incomplete", label: "Incomplete queue", count: incompleteCount || undefined }] : []),
     ...(canReview ? [{ value: "corrections", label: "Correction requests", count: corrections.length || undefined }] : []),
-    ...(canReview || queues.overtimeCanReview ? [{ value: "overtime", label: "Overtime", count: overtime.filter((r) => !r.approval && !r.locked).length || undefined }] : []),
+    ...(canReview || queues.overtimeCanReview ? [{ value: "overtime", label: "Overtime", count: overtime.filter((r) => r.flag).length || undefined }] : []),
     ...(!readOnly || branchFilter ? [{ value: "blocked", label: "Blocked taps", count: blocked.length || undefined }] : []),
   ];
   const activeTab = tabOptions.some((t) => t.value === tab) ? tab : "all";
@@ -162,7 +162,6 @@ export function AttendanceStatusBoard({
           </div>
         ) },
         { key: "decision", header: "Decision", cell: (r) => <OvertimeDecision row={r} /> },
-        ...(queues.overtimeCanReview ? [{ key: "action", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => <OvertimeAction row={r} /> }] : []),
       ];
     }
     if (activeTab === "blocked") {
@@ -188,7 +187,7 @@ export function AttendanceStatusBoard({
       { key: "notes", header: "Notes", className: "min-w-40 max-w-72 text-xs whitespace-normal text-muted-foreground", cell: (r) => rowNote(r) },
       ...(canReview ? [{ key: "action", header: <span className="sr-only">Actions</span>, align: "right", cell: (r) => (r.not_tapped_yet ? null : activeTab === "incomplete" ? <IncompleteActions row={r} /> : <RecordActions row={r} />) }] : []),
     ];
-  }, [activeTab, canReview, queues.overtimeCanReview, state.scope, branchFilter, multiBranch]);
+  }, [activeTab, canReview, state.scope, branchFilter, multiBranch]);
 
   const resetFilters = () => {
     setSearch(""); setQ(""); setStatus("all"); setDay("all"); setBranch("");
@@ -290,25 +289,17 @@ function CorrectionActions({ correction }) {
 }
 
 function OvertimeDecision({ row }) {
+  // History: an approval made before overtime requests (read only), else the request's state.
   const approval = row.approval;
-  return (
-    <div className="space-y-1">
-      {approval
-        ? (approval.status === "approved"
+  if (approval) {
+    return (
+      <div className="space-y-1">
+        {approval.status === "approved"
           ? <StatusBadge tone="success">Approved {formatMinutes(approval.approved_minutes)}</StatusBadge>
-          : <StatusBadge tone="danger">Rejected</StatusBadge>)
-        : <StatusBadge tone="gold">Waiting</StatusBadge>}
-      {approval?.decided_by_name ? <p className="text-xs text-muted-foreground">by {approval.decided_by_name}</p> : null}
-    </div>
-  );
-}
-
-function OvertimeAction({ row }) {
-  const { open } = useAttendanceActions();
-  if (row.locked) return <span className="text-xs text-muted-foreground">Payroll processed</span>;
-  return (
-    <Button variant={row.approval ? "outline" : "default"} size="sm" onClick={() => open("overtime", row)}>
-      {row.approval ? "Change" : "Review"}
-    </Button>
-  );
+          : <StatusBadge tone="danger">Rejected</StatusBadge>}
+        {approval.decided_by_name ? <p className="text-xs text-muted-foreground">by {approval.decided_by_name}</p> : null}
+      </div>
+    );
+  }
+  return row.request ? <StatusBadge tone="gold">Request {row.request.status}</StatusBadge> : <StatusBadge tone="muted">Not filed</StatusBadge>;
 }

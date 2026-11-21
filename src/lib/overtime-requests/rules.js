@@ -13,6 +13,9 @@ export const REQUEST_SETTINGS = {
   overtime_max_hours_cutoff: { label: "Overtime limit a cutoff (hours)", min: 1, max: 80, fallback: 10 },
   file_days_before: { label: "File at least this many days before", min: 0, max: 14, fallback: 1 },
   late_filing_days_after: { label: "Late filing allowed up to this many days after", min: 0, max: 14, fallback: 2 },
+  // Labor Code Art. 87: at least 125% of the hourly rate on an ordinary working day.
+  // Rest days and holidays keep the rate table (payroll_rate_configs).
+  overtime_regular_pct: { label: "Overtime pay on a regular working day (% of the hourly rate)", min: 125, max: 300, fallback: 125 },
 };
 
 /** The settings in effect (a missing or bad value falls back to its default). */

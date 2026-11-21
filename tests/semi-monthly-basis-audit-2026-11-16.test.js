@@ -74,7 +74,7 @@ function absent(id, from, to) {
 function overtime(id, key, minutes) {
   const logId = `ot-${id}-${key}`;
   table("attendance_logs").push({ id: logId, employee_id: id, branch_id: BRANCH, log_date: key, time_in: `${key}T00:00:00Z`, time_out: `${key}T13:00:00Z`, created_at: `${key}T00:00:00Z`, status: "On Time", late_minutes: 0, undertime_minutes: 0, is_half_day: false, is_early_bird: false, archived_duplicate: false, arrival_offset_minutes: 0 });
-  table("attendance_overtime_approvals").push({ log_id: logId, employee_id: id, log_date: key, overtime_minutes: minutes, approved_minutes: minutes, status: "approved" });
+  table("attendance_overtime_approvals").push({ log_id: logId, employee_id: id, log_date: key, overtime_minutes: minutes, approved_minutes: minutes, status: "approved", note: `Overtime request ${logId}` });
 }
 function incentive(id, key, amount) {
   table("payroll_monthly_incentives").push({ id: `inc-${id}-${key}`, employee_id: id, item_date: key, kind: "incentive", description: "Audit incentive", amount, hours: null, archived: false, created_at: `${key}T02:00:00Z` });
@@ -192,8 +192,10 @@ describe("Case 2: uneven month", () => {
     ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-09"].forEach((k) => overtime(id, k, 120));
     absent(id, "2026-11-17", "2026-11-18");
     const { l1, l2 } = await processMonth("2026-11", [id]);
-    const gross = r2(salary + r2(12 * hourly(salary)) - 2 * daily(salary));
-    const row = record("2b 1st higher (overtime) / 2nd lower ₱30,000", id, stored(id, l1, l2), expectFor(salary, gross, "overtime at 0% premium = hourly × hours"));
+    // Part B (2026-11-22): overtime from an approved request, regular working days: 125% of the hourly rate.
+    // Each day's line (2 h) is rounded to the centavo, as the payslip shows it.
+    const gross = r2(salary + 6 * r2(2 * hourly(salary) * 1.25) - 2 * daily(salary));
+    const row = record("2b 1st higher (overtime) / 2nd lower ₱30,000", id, stored(id, l1, l2), expectFor(salary, gross, "overtime at 125% (requests setting) = hourly × 1.25 × hours"));
     expect(row.pass, JSON.stringify(row)).toBe(true);
   });
 });

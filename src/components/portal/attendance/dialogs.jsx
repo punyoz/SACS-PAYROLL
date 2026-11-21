@@ -68,7 +68,6 @@ export function AttendanceActionsProvider({ children, onOpenEmployee }) {
       <CorrectRecordDialog row={dialog?.kind === "correct" ? row : null} onOpenChange={close} onDone={changed} />
       <ReviewCorrectionDialog correction={dialog?.kind === "review" ? row : null} onOpenChange={close} onDone={changed} />
       <ResolveDialog row={dialog?.kind === "resolve" ? row : null} onOpenChange={close} onDone={changed} />
-      <OvertimeDialog row={dialog?.kind === "overtime" ? row : null} onOpenChange={close} onDone={changed} />
       <TapsDialog row={dialog?.kind === "taps" ? row : null} onOpenChange={close} />
       <HistoryDialog row={dialog?.kind === "history" ? row : null} onOpenChange={close} />
     </ActionsContext.Provider>
@@ -401,70 +400,6 @@ function ResolveDialog({ row, onOpenChange, onDone }) {
       ) : null}
       <Field id="att-resolve-note" label="Reason" error={errors.note}>
         <Textarea id="att-resolve-note" rows={2} maxLength={500} placeholder="e.g. Confirmed with the branch logbook" value={note} onChange={(e) => setNote(e.target.value)} aria-invalid={Boolean(errors.note) || undefined} />
-      </Field>
-    </ActionDialog>
-  );
-}
-
-/* ── Overtime ── */
-
-function OvertimeDialog({ row, onOpenChange, onDone }) {
-  const { notify } = usePortalSession();
-  const [minutes, setMinutes] = React.useState("");
-  const [note, setNote] = React.useState("");
-  const [errors, check, setErrors] = useFieldErrors();
-  const max = Number(row?.overtime_minutes) || 0;
-
-  React.useEffect(() => {
-    if (!row) return;
-    const current = row.approval?.status === "approved" ? row.approval.approved_minutes : row.overtime_minutes;
-    setMinutes(String(Number(current) || 0));
-    setNote(row.approval?.note || "");
-    setErrors({});
-  }, [row, setErrors]);
-  if (!row) return null;
-
-  const decide = (decision) => async () => {
-    const n = Number(minutes);
-    if (decision === "approve") {
-      check({ minutes: !minutes ? "Minutes to approve is required." : (Number.isInteger(n) && n >= 1 && n <= max ? "" : `Enter a whole number from 1 to ${max}.`) });
-    }
-    await fetchJson("/api/attendance/overtime", jsonBody("PATCH", {
-      log_id: row.log_id,
-      decision,
-      approved_minutes: decision === "approve" ? n : 0,
-      note: note.trim(),
-    }));
-    notify(
-      decision === "approve" ? "Overtime Approved" : "Overtime Rejected",
-      decision === "approve" ? `${n} minute${n === 1 ? "" : "s"} will be paid as overtime.` : "No overtime will be paid for this day.",
-      decision === "approve" ? "success" : "info",
-    );
-    onDone();
-  };
-
-  return (
-    <ActionDialog
-      open
-      onOpenChange={onOpenChange}
-      title="Review overtime"
-      summary={(
-        <>
-          <div><strong>{row.employee_name || "Employee"}</strong> · {formatDateKey(row.log_date)}</div>
-          <div>Time out <strong className="tabular-nums">{formatTime(row.time_out)}</strong>, shift ends {row.work_end || ""}: <strong>{formatMinutes(row.overtime_minutes)}</strong> past schedule.</div>
-          <div className="text-muted-foreground">Only the minutes approved here are paid as overtime.</div>
-        </>
-      )}
-      actions={[
-        { label: "Reject", variant: "destructive", onClick: decide("reject") },
-        { label: "Approve", onClick: decide("approve") },
-      ]}
-    >
-      <Field id="att-ot-minutes" label={`Minutes to approve (1–${max})`} error={errors.minutes}>
-        <Input id="att-ot-minutes" type="number" min={1} max={max} step={1} inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} aria-invalid={Boolean(errors.minutes) || undefined} />
-      </Field>
-      <Field id="att-ot-note" label="Note (optional)">
-        <Textarea id="att-ot-note" rows={2} maxLength={300} placeholder="Shown with the decision in the audit trail" value={note} onChange={(e) => setNote(e.target.value)} />
       </Field>
     </ActionDialog>
   );

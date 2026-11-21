@@ -159,7 +159,9 @@ REVOKE ALL ON FUNCTION public.overtime_request_sync_on_tap() FROM PUBLIC, anon, 
 INSERT INTO public.system_config (section, key, value, updated_by)
 SELECT 'requests', v.key, v.value, 'System'
 FROM (VALUES ('overtime_max_hours_day', '3'), ('overtime_max_hours_cutoff', '10'),
-             ('file_days_before', '1'), ('late_filing_days_after', '2')) v(key, value)
+             ('file_days_before', '1'), ('late_filing_days_after', '2'),
+             -- Labor Code Art. 87 minimum on a regular working day (rest days and holidays: the rate table).
+             ('overtime_regular_pct', '125')) v(key, value)
 WHERE NOT EXISTS (SELECT 1 FROM public.system_config c WHERE c.section = 'requests' AND c.key = v.key);
 
 -- In the Super Admin's backup (tests/backup-allow-list.test.js keeps the app's list and this one equal).
