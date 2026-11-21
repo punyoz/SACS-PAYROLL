@@ -10,6 +10,10 @@ import { cn } from "@/lib/utils";
  */
 export function LeaveBalanceNote({ balance, request = null, className }) {
   if (!balance) return null;
+  // Statutory leave (maternity, paternity, …) uses no yearly credits.
+  if (request && balance.by_type && !balance.by_type[request.leave_type]) {
+    return <p className={cn("text-xs text-muted-foreground", className)} data-testid="leave-balance">{request.leave_type}: statutory leave, filed per event (no yearly credits used).</p>;
+  }
   // The credits of the request's own leave type (leave_credit_rules, 20261121010000).
   const own = request ? balance.by_type?.[request.leave_type] : null;
   const label = own ? request.leave_type : "Leave with pay";

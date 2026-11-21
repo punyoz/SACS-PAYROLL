@@ -28,7 +28,8 @@ import { REASON_MAX } from "@/lib/input-limits";
  * sent as a data URL, under 2 MB, PDF / PNG / JPEG.
  */
 
-const LEAVE_TYPES = ["Sick Leave", "Vacation Leave", "Emergency Leave", "Maternity Leave", "Paternity Leave"];
+// Yearly credits; statutory leaves (maternity, paternity, …) are added when the person may file them.
+const LEAVE_TYPES = ["Sick Leave", "Vacation Leave", "Emergency Leave"];
 const MAX_PROOF_BYTES = 2 * 1024 * 1024;
 
 const schema = z.object({
@@ -121,7 +122,7 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
               <FormLabel>Leave type</FormLabel>
               <Select value={field.value} onValueChange={field.onChange}>
                 <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select leave type" /></SelectTrigger></FormControl>
-                <SelectContent>{LEAVE_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                <SelectContent>{[...LEAVE_TYPES, ...(balance?.statutory || []).filter((t) => !t.refusal).map((t) => t.leave_type)].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
               </Select>
               <FormMessage />
             </FormItem>
@@ -221,8 +222,9 @@ const days = (n) => `${n} ${Number(n) === 1 ? "day" : "days"}`;
 
 function LeaveBalance({ balance, loading }) {
   const bal = balance || { with_pay_allotment: 0, with_pay_used: 0, with_pay_remaining: 0, without_pay_used: 0 };
-  // Per leave type (20261121010000); maternity and paternity (statutory, for a birth) once used.
-  const types = Object.entries(bal.by_type || {}).filter(([type, b]) => !["Maternity Leave", "Paternity Leave"].includes(type) || b.used > 0);
+  // Yearly credits per leave type (20261121010000).
+  const types = Object.entries(bal.by_type || {});
+  const statutory = (bal.statutory || []).filter((t) => !t.refusal);
 
   return (
     <Card className="shadow-xs">
@@ -257,6 +259,17 @@ function LeaveBalance({ balance, loading }) {
                 <p className="mt-0.5 tabular-nums text-lg font-semibold text-warning">{days(bal.without_pay_used)}</p>
               </div>
             </div>
+            {statutory.length ? (
+              <div className="space-y-1.5 border-t pt-3">
+                <p className="text-xs font-medium text-muted-foreground">Statutory leave, filed per event (not from your yearly credits)</p>
+                {statutory.map((t) => (
+                  <p key={t.leave_type} className="text-sm">
+                    <span className="font-medium">{t.leave_type}</span>: up to {days(t.days)}{t.basis === "year" ? " a year" : " each time"}
+                    {t.max_events ? ` (first ${t.max_events}; ${t.used} used)` : ""}. <span className="text-xs text-muted-foreground">{t.note}</span>
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </>
         )}
       </CardContent>

@@ -86,11 +86,22 @@ test("Admin cannot change a classification; employee sees leave credits by type"
   const refused = await page.request.post("/api/hr/employee-classification", { data: { action: "confirm", employee_id: "00000000-0000-4000-8000-000000000000" } });
   expect(refused.status()).toBe(403);
 
-  await as(page, "employee", "emp-leave");
-  await settle(page);
-  await expect(page.getByText("This year's leave with pay, by type")).toBeVisible();
-  await expect(page.getByText(/of 5 days used/).first()).toBeVisible();
-  await shot(page, "06-employee-leave-credits-by-type");
+  // Ana on file as female: maternity shows as statutory leave, paternity does not.
+  const ana = (await db().from("profiles").select("id").eq("email", ACCOUNTS.employee.email).single()).data;
+  const before = (await db().auth.admin.getUserById(ana.id)).data.user.user_metadata;
+  await db().auth.admin.updateUserById(ana.id, { user_metadata: { ...before, sex: "Female" } });
+  try {
+    await as(page, "employee", "emp-leave");
+    await settle(page);
+    await expect(page.getByText("This year's leave with pay, by type")).toBeVisible();
+    await expect(page.getByText(/of 5 days used/).first()).toBeVisible();
+    await expect(page.getByText("Statutory leave, filed per event")).toBeVisible();
+    await expect(page.getByText(/Maternity Leave: up to 105 days each time/)).toBeVisible();
+    await expect(page.getByText("Paternity Leave")).toHaveCount(0);
+    await shot(page, "06-employee-leave-credits-by-type");
+  } finally {
+    await db().auth.admin.updateUserById(ana.id, { user_metadata: { ...before, sex: before.sex ?? null } });
+  }
 });
 
 test("Accountant: the batch shows the classification and filters by it", async ({ page }) => {

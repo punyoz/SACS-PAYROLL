@@ -19,7 +19,7 @@ import {
   CATEGORY_OPTIONS, CREDIT_LEAVE_TYPES, EMPLOYMENT_STATUS_OPTIONS, EMPLOYMENT_TYPE_OPTIONS, HR_SETTINGS,
   leaveRuleFor, legalMinimumWarnings, payRuleFor,
 } from "@/lib/employees/classification";
-import { loadLeaveRules, loadPayRules } from "@/lib/employees/classification-server";
+import { loadLeaveRules, loadPayRules, loadStatutoryLeaves } from "@/lib/employees/classification-server";
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
@@ -32,9 +32,10 @@ export async function GET(request) {
     const guard = await requirePermission(request, "user_management", "read");
     if (guard.denied) return guard.denied;
     const supabase = getAdminClient();
-    const [leaveRules, payRules, config] = await Promise.all([
+    const [leaveRules, payRules, config, statutory] = await Promise.all([
       loadLeaveRules(supabase), loadPayRules(supabase),
       supabase.from("system_config").select("key,value").eq("section", "hr").in("key", Object.keys(HR_SETTINGS)),
+      loadStatutoryLeaves(supabase),
     ]);
     const on = today();
     const leave = combos().map((c) => ({
@@ -53,7 +54,7 @@ export async function GET(request) {
       const n = Number((config.data || []).find((r) => r.key === key)?.value);
       return [key, { ...def, value: Number.isFinite(n) && n > 0 ? n : def.fallback }];
     }));
-    return NextResponse.json({ leave, pay, upcoming, warnings: legalMinimumWarnings(leaveRules, on), settings, leave_types: CREDIT_LEAVE_TYPES });
+    return NextResponse.json({ leave, pay, upcoming, warnings: legalMinimumWarnings(leaveRules, on), settings, leave_types: CREDIT_LEAVE_TYPES, statutory });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -68,6 +69,35 @@ export async function POST(request) {
     const supabase = getAdminClient();
     const by = normalizeText(guard.session?.full_name, guard.session?.email);
     const note = normalizeText(body.note).slice(0, 500) || null;
+
+    // Statutory leaves: on / off, days, how many times (maternity, paternity, ...).
+    if (body.kind === "statutory") {
+      const known = await loadStatutoryLeaves(supabase);
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      const changed = [];
+      for (const r of rows) {
+        const row = known.find((k) => k.leave_type === r.leave_type);
+        if (!row) return NextResponse.json({ error: "Unknown statutory leave." }, { status: 400 });
+        const days = Number(r.days);
+        const max = r.max_events === "" || r.max_events === null || r.max_events === undefined ? null : Number(r.max_events);
+        if (!Number.isFinite(days) || days <= 0 || days > 366 || Math.round(days * 2) !== days * 2) {
+          return NextResponse.json({ error: `${row.leave_type}: days must be above 0 and at most 366, in half days.` }, { status: 400 });
+        }
+        if (max !== null && (!Number.isInteger(max) || max < 1 || max > 50)) {
+          return NextResponse.json({ error: `${row.leave_type}: times must be a whole number from 1 to 50, or blank.` }, { status: 400 });
+        }
+        const next = { enabled: r.enabled === true, days, max_events: max };
+        if (next.enabled === row.enabled && next.days === Number(row.days) && next.max_events === row.max_events) continue;
+        const saved = await supabase.from("statutory_leave_types").update({ ...next, updated_by_name: by, updated_at: new Date().toISOString() }).eq("leave_type", row.leave_type);
+        if (saved.error) return NextResponse.json({ error: sanitizeError(saved.error) }, { status: 400 });
+        changed.push(`${row.leave_type}: ${next.enabled ? "on" : "off"}, ${days} days${max ? `, first ${max} times` : ""}`);
+      }
+      if (changed.length) {
+        await appendAuditLog({ actor: guard, module: "employees", action: "statutory_leave_change", entity_type: "statutory_leave_types", entity_id: "statutory", status: "success", source: "api",
+          description: `Statutory leave saved by ${by}: ${changed.join("; ")}.`, metadata: { changes: changed } });
+      }
+      return NextResponse.json({ success: true, changed: changed.length });
+    }
 
     if (body.kind === "settings") {
       const values = body.values || {};

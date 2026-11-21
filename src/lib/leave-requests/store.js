@@ -10,6 +10,7 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import { countLeaveDays, describeSplit, splitForBalance } from "@/lib/leave-requests/split";
 import { leaveBalances } from "@/lib/employees/classification-server";
+import { CREDIT_LEAVE_TYPES } from "@/lib/employees/classification";
 
 export function normalizeLeaveRequest(row) {
   return {
@@ -346,6 +347,8 @@ export async function applyBalanceSplit(id) {
   if (found.error) throw new Error(found.error.message);
   const row = found.data;
   if (!row || row.status !== "approved" || normalizeLeaveRequest(row).pay_status !== "with_pay") return null;
+  // Statutory leave (maternity, paternity, …) is filed per event: no yearly credits to split against.
+  if (!CREDIT_LEAVE_TYPES.includes(row.leave_type)) return null;
   const year = Number(String(row.start_date).slice(0, 4));
   const others = (await readLeaveRequestsWithoutProof({ employeeId: row.employee_id, status: "approved" })).filter((r) => r.id !== id);
   // The credits of THIS leave type (leave_credit_rules, 20261121010000).

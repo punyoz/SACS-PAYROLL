@@ -16,7 +16,20 @@ import { hrAccountIds, notify } from "@/lib/branch-requests-server";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { REASON_MAX } from "@/lib/input-limits";
 import { otherActiveHrIds, recordFallback } from "@/lib/rbac/routing";
-import { leaveBalances } from "@/lib/employees/classification-server";
+import { leaveBalances, loadStatutoryLeaves } from "@/lib/employees/classification-server";
+import { statutoryRefusal } from "@/lib/employees/classification";
+import { countLeaveDays } from "@/lib/leave-requests/split";
+
+/** Sex and civil status from the account (what statutory leave depends on). */
+async function personOf(employeeId) {
+  const user = await getServiceClient().auth.admin.getUserById(employeeId);
+  const meta = user.data?.user?.user_metadata || {};
+  return { sex: meta.sex || "", civil_status: meta.civil_status || "" };
+}
+
+/** Earlier filings of a statutory leave that count as events (pending or approved, not the split-off part). */
+const eventsOf = (requests, leaveType) => requests.filter((r) => r.leave_type === leaveType && !r.split_from
+  && ["pending_admin", "pending_accountant", "approved"].includes(r.status)).length;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -58,6 +71,15 @@ export async function GET(request) {
     // Per leave type, from the classification rules (20261121010000).
     const year = Number(new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 4));
     const balance = (await leaveBalances(getServiceClient(), [employeeId], year, { requests }))[employeeId] || null;
+    // The statutory leaves this person may file now (maternity, paternity, …).
+    if (balance) {
+      const person = await personOf(employeeId);
+      balance.statutory = (await loadStatutoryLeaves(getServiceClient())).filter((t) => t.enabled).map((t) => {
+        const used = eventsOf(requests, t.leave_type);
+        return { leave_type: t.leave_type, days: Number(t.days), basis: t.basis, note: t.note, max_events: t.max_events, used,
+          refusal: statutoryRefusal(t, person, { days: 0, priorEvents: used }) };
+      });
+    }
 
     return NextResponse.json({ requests, balance });
   } catch (error) {
@@ -182,6 +204,15 @@ export async function POST(request) {
         },
         { status: 409 },
       );
+    }
+
+    // Statutory leave (maternity, paternity, …): filed per event, only when eligible (Part A).
+    const statutory = (await loadStatutoryLeaves(getServiceClient())).find((t) => t.leave_type === leaveType);
+    if (statutory) {
+      const refusal = statutoryRefusal(statutory, await personOf(employeeId), {
+        days: countLeaveDays(startDate, endDate), priorEvents: eventsOf(allRequests, leaveType),
+      });
+      if (refusal) return NextResponse.json({ error: refusal, code: "statutory_leave_refused" }, { status: 400 });
     }
 
     // The submission date and time the 7-day rule was checked against.

@@ -101,7 +101,18 @@ BEGIN
   IF v_n <> 2 THEN RAISE EXCEPTION '6e: reminders repeated (% notifications)', v_n; END IF;
 
   -- 7. Leave credit rules and pay rules: every combination has a default, pending the policy manual.
-  IF (SELECT COUNT(*) FROM public.leave_credit_rules WHERE note LIKE '%pending policy manual%') <> 60 THEN RAISE EXCEPTION '7: leave credit defaults'; END IF;
+  IF (SELECT COUNT(*) FROM public.leave_credit_rules WHERE note LIKE '%pending policy manual%') <> 36 THEN RAISE EXCEPTION '7: leave credit defaults'; END IF;
+  -- Maternity / paternity are statutory, per event: never yearly credits.
+  v_ok := FALSE;
+  BEGIN
+    INSERT INTO public.leave_credit_rules (leave_type, employee_type, employment_status, employment_type, days_per_year, effective_from)
+    VALUES ('Maternity Leave', 'Teaching', 'Regular', 'Full-time', 105, v_today);
+  EXCEPTION WHEN check_violation THEN v_ok := TRUE;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION '7d: maternity accepted as a yearly credit'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.statutory_leave_types WHERE leave_type = 'Maternity Leave' AND enabled AND days = 105 AND eligibility = 'female') THEN RAISE EXCEPTION '7e: maternity setting'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.statutory_leave_types WHERE leave_type = 'Paternity Leave' AND enabled AND days = 7 AND eligibility = 'married_male' AND max_events = 4) THEN RAISE EXCEPTION '7f: paternity setting'; END IF;
+  IF (SELECT COUNT(*) FROM public.statutory_leave_types WHERE NOT enabled) <> 3 THEN RAISE EXCEPTION '7g: other statutory leaves are off by default'; END IF;
   IF (SELECT COUNT(*) FROM public.employee_pay_rules WHERE note LIKE '%pending policy manual%') <> 12 THEN RAISE EXCEPTION '7b: pay rule defaults'; END IF;
   v_ok := FALSE;
   BEGIN

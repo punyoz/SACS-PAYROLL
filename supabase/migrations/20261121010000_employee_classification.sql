@@ -13,6 +13,8 @@
 --    takes effect on its date (employee_classification_apply, nightly 00:00
 --    Manila, before the 00:05 close); payroll reads the value in effect on
 --    each date from this history.
+--  * statutory_leave_types: maternity, paternity (and others, off by default)
+--    filed per event with eligibility; not yearly credits.
 --  * leave_credit_rules: days per year by leave type × category × status ×
 --    type (versioned by effective_from); leave_credit_overrides: per employee
 --    and year, with a reason. Defaults are marked "pending policy manual".
@@ -143,7 +145,7 @@ $$;
 -- ── leave credit rules ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.leave_credit_rules (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  leave_type        TEXT NOT NULL CHECK (leave_type IN ('Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Maternity Leave', 'Paternity Leave')),
+  leave_type        TEXT NOT NULL CHECK (leave_type IN ('Vacation Leave', 'Sick Leave', 'Emergency Leave')),
   employee_type     TEXT NOT NULL CHECK (employee_type IN ('Teaching', 'Non-Teaching')),
   employment_status TEXT NOT NULL CHECK (employment_status IN ('Regular', 'Probationary', 'Contractual')),
   employment_type   TEXT NOT NULL CHECK (employment_type IN ('Full-time', 'Part-time')),
@@ -159,7 +161,7 @@ CREATE TABLE IF NOT EXISTS public.leave_credit_rules (
 CREATE TABLE IF NOT EXISTS public.leave_credit_overrides (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id     UUID NOT NULL REFERENCES public.profiles(id),
-  leave_type      TEXT NOT NULL CHECK (leave_type IN ('Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Maternity Leave', 'Paternity Leave')),
+  leave_type      TEXT NOT NULL CHECK (leave_type IN ('Vacation Leave', 'Sick Leave', 'Emergency Leave')),
   year            INTEGER NOT NULL CHECK (year BETWEEN 2020 AND 2100),
   days            NUMERIC(6, 2) NOT NULL CHECK (days BETWEEN 0 AND 366),
   reason          TEXT NOT NULL CHECK (char_length(btrim(reason)) BETWEEN 5 AND 500),
@@ -172,23 +174,39 @@ CREATE INDEX IF NOT EXISTS leave_credit_overrides_employee_idx ON public.leave_c
 -- Defaults, pending the school's policy manual: the same for every
 -- combination (5 vacation, 5 sick, 3 emergency) so nobody has fewer paid days
 -- than under the shared 6-day pool for the leave they file most; HR sets the
--- school's own differences. Maternity (RA 11210) and paternity (RA 8187) are
--- the statutory days.
+-- school's own differences. Maternity and paternity are NOT yearly credits:
+-- they are statutory leaves filed per event (statutory_leave_types below).
 INSERT INTO public.leave_credit_rules (leave_type, employee_type, employment_status, employment_type, days_per_year, effective_from, note, created_by_name)
-SELECT lt.leave_type, et.v, es.v, ty.v,
-  CASE lt.leave_type
-    WHEN 'Vacation Leave'  THEN 5
-    WHEN 'Sick Leave'      THEN 5
-    WHEN 'Emergency Leave' THEN 3
-    WHEN 'Maternity Leave' THEN 105
-    WHEN 'Paternity Leave' THEN 7
-  END,
-  DATE '2026-01-01', 'Default: pending policy manual', 'System'
-FROM (VALUES ('Vacation Leave'), ('Sick Leave'), ('Emergency Leave'), ('Maternity Leave'), ('Paternity Leave')) lt(leave_type)
+SELECT lt.leave_type, et.v, es.v, ty.v, lt.days, DATE '2026-01-01', 'Default: pending policy manual', 'System'
+FROM (VALUES ('Vacation Leave', 5), ('Sick Leave', 5), ('Emergency Leave', 3)) lt(leave_type, days)
 CROSS JOIN (VALUES ('Teaching'), ('Non-Teaching')) et(v)
 CROSS JOIN (VALUES ('Regular'), ('Probationary'), ('Contractual')) es(v)
 CROSS JOIN (VALUES ('Full-time'), ('Part-time')) ty(v)
 ON CONFLICT DO NOTHING;
+
+-- Statutory leaves, filed per event (or per year) when the employee is
+-- eligible; HR approves them like other leave. Days are settings, pending the
+-- policy manual. Maternity and paternity are on; the others off until the
+-- school turns them on.
+CREATE TABLE IF NOT EXISTS public.statutory_leave_types (
+  leave_type      TEXT PRIMARY KEY CHECK (char_length(leave_type) BETWEEN 3 AND 64),
+  enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+  days            NUMERIC(6, 2) NOT NULL CHECK (days > 0 AND days <= 366),
+  basis           TEXT NOT NULL CHECK (basis IN ('event', 'year')),
+  eligibility     TEXT NOT NULL CHECK (eligibility IN ('female', 'married_male', 'any')),
+  max_events      INTEGER CHECK (max_events IS NULL OR max_events BETWEEN 1 AND 50),
+  note            TEXT CHECK (note IS NULL OR char_length(note) <= 500),
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  updated_by_name TEXT,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+INSERT INTO public.statutory_leave_types (leave_type, enabled, days, basis, eligibility, max_events, note, sort_order, updated_by_name) VALUES
+  ('Maternity Leave', TRUE, 105, 'event', 'female', NULL, 'Per pregnancy or childbirth (RA 11210); the SSS maternity benefit applies. Days pending policy manual.', 1, 'System'),
+  ('Paternity Leave', TRUE, 7, 'event', 'married_male', 4, 'Per delivery of the lawful wife, the first 4 deliveries (RA 8187). Days pending policy manual.', 2, 'System'),
+  ('Solo Parent Leave', FALSE, 7, 'year', 'any', NULL, 'For a solo parent with a Solo Parent ID (RA 11861). Off until the school turns it on.', 3, 'System'),
+  ('VAWC Leave', FALSE, 10, 'year', 'female', NULL, 'For a woman victim of violence or her child (RA 9262). Off until the school turns it on.', 4, 'System'),
+  ('Special Leave for Women', FALSE, 60, 'event', 'female', NULL, 'After surgery for a gynecological disorder, up to 2 months (RA 9710). Off until the school turns it on.', 5, 'System')
+ON CONFLICT (leave_type) DO NOTHING;
 
 -- ── pay rules per combination ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.employee_pay_rules (
@@ -306,8 +324,9 @@ ALTER TABLE public.leave_credit_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leave_credit_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_pay_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_hr_reminders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.statutory_leave_types ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.employee_classification_changes, public.leave_credit_rules, public.leave_credit_overrides,
-  public.employee_pay_rules, public.employee_hr_reminders FROM anon, authenticated;
+  public.employee_pay_rules, public.employee_hr_reminders, public.statutory_leave_types FROM anon, authenticated;
 REVOKE ALL ON FUNCTION public.employee_classification_apply(DATE) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.employee_probation_end(UUID) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.employee_hr_reminders_run(DATE) FROM PUBLIC, anon, authenticated;

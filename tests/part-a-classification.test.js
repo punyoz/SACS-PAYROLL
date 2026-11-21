@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import {
-  CHANGE_WITH_DATE, changedClassification, classificationLabel, classificationOn, classificationSegments,
+  CHANGE_WITH_DATE, CREDIT_LEAVE_TYPES, changedClassification, statutoryRefusal, classificationLabel, classificationOn, classificationSegments,
   eligibilityError, leaveEntitlement, legalMinimumWarnings, payRuleFor,
 } from "@/lib/employees/classification";
 import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/record";
@@ -137,5 +137,27 @@ describe("a record with no status or type on file", () => {
   it("earns the default Teaching · Regular · Full-time credits, not zero", () => {
     const e = leaveEntitlement({ rules: RULES, current: { employee_type: "Teaching" }, year: 2026, dateHired: "2020-06-01" });
     expect(e["Sick Leave"].days).toBe(5);
+  });
+});
+
+describe("statutory leave: per event, with eligibility (not yearly credits)", () => {
+  const MAT = { leave_type: "Maternity Leave", enabled: true, days: 105, eligibility: "female", max_events: null };
+  const PAT = { leave_type: "Paternity Leave", enabled: true, days: 7, eligibility: "married_male", max_events: 4 };
+  const SOLO = { leave_type: "Solo Parent Leave", enabled: false, days: 7, eligibility: "any", max_events: null };
+  it("maternity: female employees, up to the set days", () => {
+    expect(statutoryRefusal(MAT, { sex: "Female" }, { days: 105 })).toBeNull();
+    expect(statutoryRefusal(MAT, { sex: "Male" }, { days: 5 })).toMatch(/female employees/);
+    expect(statutoryRefusal(MAT, { sex: "Female" }, { days: 106 })).toMatch(/at most 105 days/);
+  });
+  it("paternity: married male employees, the first 4 deliveries", () => {
+    expect(statutoryRefusal(PAT, { sex: "Male", civil_status: "Married" }, { days: 7, priorEvents: 3 })).toBeNull();
+    expect(statutoryRefusal(PAT, { sex: "Male", civil_status: "Married" }, { days: 7, priorEvents: 4 })).toMatch(/first 4 times only; this would be time 5/);
+    expect(statutoryRefusal(PAT, { sex: "Male", civil_status: "Single" }, { days: 7 })).toMatch(/married male/);
+  });
+  it("a leave the school has not turned on is refused", () => {
+    expect(statutoryRefusal(SOLO, { sex: "Female" }, { days: 1 })).toMatch(/not offered/);
+  });
+  it("maternity and paternity are not in the yearly credits", () => {
+    expect(CREDIT_LEAVE_TYPES).toEqual(["Vacation Leave", "Sick Leave", "Emergency Leave"]);
   });
 });

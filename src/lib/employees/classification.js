@@ -8,7 +8,9 @@
 export const CATEGORY_OPTIONS = ["Teaching", "Non-Teaching"];
 export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual"];
 export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time", "Part-time"];
-export const CREDIT_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave", "Maternity Leave", "Paternity Leave"];
+// Yearly credits. Maternity, paternity and other statutory leaves are filed per
+// event (statutory_leave_types), never granted yearly.
+export const CREDIT_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave"];
 // The paid leave that counts toward the 5-day service incentive leave (Labor Code Art. 95).
 export const SIL_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave"];
 export const SIL_MIN_DAYS = 5;
@@ -170,4 +172,22 @@ export function eligibilityError(rule, what, c) {
   if (!rule || !key || rule[key] !== false) return null;
   const noun = { loan: "loans", incentive: "incentives", subsidy: "subsidies", overtime: "overtime" }[what];
   return `${classificationLabel(c)} employees are not eligible for ${noun} (pay rules).`;
+}
+
+/**
+ * Why `person` cannot file a statutory leave, or null. `type` is a
+ * statutory_leave_types row; `days` the calendar days asked; `priorEvents` how
+ * many of this leave the person already has (approved or pending).
+ */
+export function statutoryRefusal(type, person = {}, { days, priorEvents = 0 } = {}) {
+  if (!type?.enabled) return `${type?.leave_type || "This leave"} is not offered by the school yet.`;
+  const sex = String(person.sex || "").toLowerCase();
+  const married = String(person.civil_status || "").toLowerCase() === "married";
+  if (type.eligibility === "female" && sex !== "female") return `${type.leave_type} is for female employees.`;
+  if (type.eligibility === "married_male" && !(sex === "male" && married)) return `${type.leave_type} is for married male employees.`;
+  if (type.max_events && priorEvents >= type.max_events) {
+    return `${type.leave_type} is granted for the first ${type.max_events} times only; this would be time ${priorEvents + 1}.`;
+  }
+  if (Number(days) > Number(type.days)) return `${type.leave_type} is at most ${Number(type.days)} days.`;
+  return null;
 }

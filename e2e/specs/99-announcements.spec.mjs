@@ -166,7 +166,10 @@ test("announcements: HR and Admin manage, audiences hold, readers read only", as
 
   await step(page, "An expired announcement disappears from the normal view", async () => {
     await as(page, "hr", "hr-announcements");
-    const posted = await api(page, "POST", "/api/announcements", { title: T.expired, body: "Enrollment closes.", audience: "all" });
+    // Let HR's list finish loading (author photos) before the role switch clears its cookies.
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await settle(page);
+    const posted =await api(page, "POST", "/api/announcements", { title: T.expired, body: "Enrollment closes.", audience: "all" });
     psql(`select set_config('sacs.announcement_action', 'on', false); update branch_announcements set expires_on = current_date - 1 where id = '${posted.data.announcement.id}';`);
     await as(page, "employee", "emp-announcements");
     check("Expiry", !(await feedTitles(page)).includes(T.expired), "an employee no longer sees it");

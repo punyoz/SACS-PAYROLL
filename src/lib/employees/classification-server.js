@@ -49,6 +49,13 @@ export async function loadPayRules(supabase) {
   return result.data || [];
 }
 
+/** The statutory leaves (maternity, paternity, …), in their display order. */
+export async function loadStatutoryLeaves(supabase) {
+  const result = await supabase.from("statutory_leave_types").select("*").order("sort_order", { ascending: true });
+  if (result.error) throw new Error(result.error.message);
+  return result.data || [];
+}
+
 /** An "hr" section setting from system_config as a positive number, or the fallback. */
 export async function readHrNumber(supabase, key, fallback) {
   const result = await supabase.from("system_config").select("value").eq("section", "hr").eq("key", key).maybeSingle();

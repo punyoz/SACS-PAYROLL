@@ -18,7 +18,8 @@ import { PAY_BASIS_LABELS } from "@/lib/employees/classification";
 const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 const comboLabel = (r) => `${r.employee_type} · ${r.employment_status} · ${r.employment_type}`;
 const pending = (note) => /pending policy manual/i.test(String(note || ""));
-const SHORT = { "Vacation Leave": "Vacation", "Sick Leave": "Sick", "Emergency Leave": "Emergency", "Maternity Leave": "Maternity", "Paternity Leave": "Paternity" };
+const SHORT = { "Vacation Leave": "Vacation", "Sick Leave": "Sick", "Emergency Leave": "Emergency" };
+const WHO = { female: "Female employees", married_male: "Married male employees", any: "Any employee" };
 const FLAGS = [["overtime_allowed", "Overtime"], ["subsidy_eligible", "Subsidies"], ["incentive_eligible", "Incentives"], ["loan_eligible", "Loans"]];
 
 /**
@@ -35,6 +36,7 @@ export function ClassificationRulesPage({ refreshKey }) {
   const [leave, setLeave] = React.useState([]);
   const [pay, setPay] = React.useState([]);
   const [settings, setSettings] = React.useState({});
+  const [statutory, setStatutory] = React.useState([]);
   const [from, setFrom] = React.useState({ leave: today(), pay: today() });
   const [note, setNote] = React.useState({ leave: "", pay: "" });
   const [busy, setBusy] = React.useState("");
@@ -47,6 +49,7 @@ export function ClassificationRulesPage({ refreshKey }) {
       setLeave(d.leave.map((r) => ({ ...r, values: Object.fromEntries(d.leave_types.map((t) => [t, String(r.days[t]?.days ?? 0)])) })));
       setPay(d.pay.map((r) => ({ ...r, ...(r.rule || { pay_basis: r.employment_type === "Part-time" ? "hourly" : "monthly", overtime_allowed: true, subsidy_eligible: true, incentive_eligible: true, loan_eligible: true }) })));
       setSettings(Object.fromEntries(Object.entries(d.settings).map(([k, v]) => [k, String(v.value)])));
+      setStatutory((d.statutory || []).map((t) => ({ ...t, days: String(Number(t.days)), max_events: t.max_events ? String(t.max_events) : "" })));
     } catch (e) {
       setError(e.message);
     }
@@ -141,6 +144,47 @@ export function ClassificationRulesPage({ refreshKey }) {
               <Button onClick={saveLeave} disabled={Boolean(busy)}>{busy === "leave" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save leave credits</Button>
             </div>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card className="min-w-0 shadow-xs">
+        <CardHeader>
+          <CardTitle>Statutory leave</CardTitle>
+          <CardDescription>Filed per event (or per year) when the employee is eligible, not granted every January 1. HR approves them like other leave.</CardDescription>
+          {canEdit ? (
+            <CardAction>
+              <Button onClick={() => save("statutory", { rows: statutory.map(({ leave_type, enabled, days, max_events }) => ({ leave_type, enabled, days: Number(days), max_events })) })} disabled={Boolean(busy)}>
+                {busy === "statutory" ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save
+              </Button>
+            </CardAction>
+          ) : null}
+        </CardHeader>
+        <CardContent>
+          <ul className="divide-y rounded-md border text-sm">
+            {statutory.map((t, i) => {
+              const setRow = (patch) => setStatutory((rows) => rows.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+              return (
+                <li key={t.leave_type} className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:items-center">
+                  <div>
+                    <p className="font-medium">{t.leave_type}</p>
+                    <p className="text-xs text-muted-foreground">{WHO[t.eligibility]} · {t.basis === "year" ? "per year" : "per event"}. {t.note}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor={`stat-days-${i}`} className="text-xs">Days</Label>
+                    <Input id={`stat-days-${i}`} inputMode="decimal" className="h-8 w-20 tabular-nums" disabled={!canEdit} value={t.days} onChange={(e) => setRow({ days: e.target.value })} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor={`stat-max-${i}`} className="text-xs">Times</Label>
+                    <Input id={`stat-max-${i}`} inputMode="numeric" placeholder="any" className="h-8 w-16 tabular-nums" disabled={!canEdit} value={t.max_events} onChange={(e) => setRow({ max_events: e.target.value })} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox id={`stat-on-${i}`} checked={t.enabled} disabled={!canEdit} onCheckedChange={(v) => setRow({ enabled: v === true })} />
+                    <Label htmlFor={`stat-on-${i}`} className="text-xs">Offered</Label>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         </CardContent>
       </Card>
 
