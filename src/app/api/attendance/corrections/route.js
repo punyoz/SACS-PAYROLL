@@ -48,7 +48,8 @@ function rpcFailure(error, fallback) {
     return NextResponse.json({ error: "A correction for this record is already waiting for review." }, { status: 409 });
   }
   if (code === "P0002" || code === "23514") {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    // The database names HR's option "Correct both"; on screen it is "Override both" (Part K).
+    return NextResponse.json({ error: String(error.message || "").replaceAll('"Correct both"', '"Override both"') }, { status: 400 });
   }
   return NextResponse.json({ error: sanitizeError(error, fallback) }, { status: 500 });
 }
