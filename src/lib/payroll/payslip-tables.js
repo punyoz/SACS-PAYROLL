@@ -75,29 +75,40 @@ function fromGroups(g, holidayLines) {
 }
 
 const FINAL_EARNING = { thirteenth_month: "13th month pay (pro-rated)", subsidy: "Licensed teacher subsidy", leave_conversion: "Unused leave conversion" };
-const FINAL_DEDUCTION = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax", carry_over: "Balance carried over", loan: "Loan" };
+const FINAL_DEDUCTION = { sss: "SSS", philhealth: "PhilHealth", pagibig: "Pag-IBIG", withholding_tax: "Withholding tax", carry_over: "Balance carried over", loan: "Loan", first_half_paid: "1st half already paid" };
 
 /** A final pay (payroll.final_pay.breakdown, final-pay.js): every month, the 13th month, subsidy, leave and loans. */
 function fromFinalPay(fp, overpayment) {
   const month = (l) => (l.month_key ? ` (${monthText(l.month_key)})` : "");
-  const earnings = (fp.earnings || []).map((l) => ({
+  const allEarnings = (fp.earnings || []).map((l) => ({
     key: l.kind, label: l.kind === "salary" ? `Salary${month(l)}` : l.label || FINAL_EARNING[l.kind] || l.kind, amount: num(l.amount), note: l.note || null,
   }));
-  const deductions = (fp.deductions || []).map((l) => ({
+  // A final pay never shows a negative gross (2026-11-22): a salary line below zero (the
+  // 1st half paid more than was earned, stored before that rule) is shown as a deduction.
+  const earnings = allEarnings.filter((l) => l.amount >= 0);
+  const overpaid = allEarnings.filter((l) => l.amount < 0).map((l) => ({
+    key: "first_half_paid", label: `Salary paid above earned${l.label.replace(/^Salary/, "")}`, amount: Math.abs(l.amount), note: l.note,
+  }));
+  const deductions = [...overpaid, ...(fp.deductions || []).map((l) => ({
     key: l.kind,
     label: l.kind === "loan" ? l.label || (l.note || "Loan").split(" — ")[0] : `${l.label || FINAL_DEDUCTION[l.kind] || l.kind}${month(l)}`,
     amount: num(l.amount), note: l.kind === "loan" ? l.note : l.note || null, ...(l.credit ? { credit: true } : {}),
-  }));
+  }))];
   const hasLoan = deductions.some((l) => l.key === "loan");
+  const cent = (v) => Math.round(v * 100) / 100;
+  const gross = cent(earnings.reduce((s, l) => s + l.amount, 0));
+  const totalDeductions = cent(num(fp.total_deductions) + overpaid.reduce((s, l) => s + l.amount, 0));
+  const recover = Math.max(num(overpayment), cent(totalDeductions - gross));
   return {
     earnings: withFixed([["salary", "Salary"], ["thirteenth_month", FINAL_EARNING.thirteenth_month]], earnings),
     holiday_lines: [],
     incentives: [],
     deductions: [...withFixed([["sss", "SSS"], ["philhealth", "PhilHealth"], ["pagibig", "Pag-IBIG"], ["withholding_tax", "Withholding tax"]], deductions),
       ...(hasLoan ? [] : [{ key: "loans", label: "Loans / cash advance", amount: 0 }])],
-    gross: num(fp.gross),
-    total_deductions: num(fp.total_deductions),
-    notes: num(overpayment) > 0 ? [`Deductions above the final pay (recovered by HR): ${pesoText(overpayment)}`] : [],
+    gross: overpaid.length ? gross : num(fp.gross),
+    total_deductions: overpaid.length ? totalDeductions : num(fp.total_deductions),
+    overpayment_to_recover: recover > 0 ? recover : 0,
+    notes: recover > 0 ? [`Overpayment to recover: ${pesoText(recover)} (listed for HR; never shown as negative pay)`] : [],
   };
 }
 
@@ -201,14 +212,15 @@ const cents = (value) => Math.round((Number(value) || 0) * 100);
  * The payslip adds up (2026-11-22): Gross = the earnings lines (incentives
  * included; they keep their sign: a final pay can hold a negative salary
  * line), Total deductions = the deduction lines (a credit counts against
- * them), Net = Gross - Total deductions + what is carried to next month
- * (deductions above the pay), each line rounded to the centavo first. Returns every mismatch of ₱0.01 or more; [] when it adds up.
+ * them), Net = Gross - Total deductions + what is carried to next month or
+ * is an overpayment to recover (deductions above the pay), each line rounded
+ * to the centavo first. Returns every mismatch of ₱0.01 or more; [] when it adds up.
  */
 export function payslipTotalsCheck(t, netPay) {
   if (!t) return [];
   const earned = [...t.earnings, ...t.incentives].reduce((total, r) => total + (r.text ? 0 : cents(r.amount)), 0);
   const deducted = t.deductions.reduce((total, r) => total + (r.text ? 0 : (r.credit ? -1 : 1) * Math.abs(cents(r.amount))), 0);
-  const carried = cents(t.carry_over_out);
+  const carried = cents(t.carry_over_out) + cents(t.overpayment_to_recover);
   const found = [];
   const out = (what, shown, lines) => found.push({ what, shown: shown / 100, lines: lines / 100, difference: (shown - lines) / 100 });
   if (cents(t.gross) !== earned) out("gross", cents(t.gross), earned);

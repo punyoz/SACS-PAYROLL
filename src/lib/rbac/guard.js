@@ -67,9 +67,14 @@ export function isMyAccountRequest(request) {
 }
 
 /** What a separated, not-yet-archived account may still reach: its own payslips and profile. */
+// Own records a separated person may still READ until archived (2026-11-22): payslips
+// (final pay included), timesheet, attendance, leave (balances, requests) and the
+// own-dashboard numbers. Nothing new can be filed.
+const SEPARATED_READ = new Set(["payslips", "timesheet", "attendance", "leave_approval", "dashboard"]);
+
 function separatedMayUse(request, role, module, action) {
   if (module === "profile") return true;
-  if (module !== "payslips" || action !== "read") return false;
+  if (!SEPARATED_READ.has(module) || action !== "read") return false;
   return isMyAccountRequest(request) || scopeFor(role, module) === SCOPE_SELF;
 }
 
@@ -122,7 +127,7 @@ export async function requirePermission(request, module, action = "read") {
   // profile stay, until the account is archived after final pay.
   if (live.separated && !separatedMayUse(request, role, module, action)) {
     return {
-      denied: deny("Your access ended when you were separated. You can still open My Payslips and My Profile.", 403),
+      denied: deny("Your access ended when you were separated. You can still open My Payslips and My Profile, and view your own attendance and leave.", 403),
       session, role, userId: session.sub, branchId: null,
       scope: SCOPE_NONE, branchExempt: false,
     };

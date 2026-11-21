@@ -129,7 +129,15 @@ export function computeFinalPay(input) {
     const firstHalf = peso(month.first_half_paid || 0);
     // The basic this final pay adds: the 1st half paid is already in basicEarnedYtd.
     basicEarned = peso(basicEarned + earned - peso(month.first_half_basic ?? month.first_half_paid ?? 0));
-    earnings.push({ kind: "salary", month_key: month.month_key, amount: peso(earned - firstHalf), gross: earned, note: firstHalf ? `${note}; less 1st half paid ${pesoText(firstHalf)}` : note });
+    if (firstHalf > earned) {
+      // The 1st half paid more than the month earned (2026-11-22): the salary stays a
+      // positive earning and the 1st half is a deduction, so gross is never negative;
+      // what net pay cannot cover is the overpayment to recover (HR).
+      earnings.push({ kind: "salary", month_key: month.month_key, amount: earned, gross: earned, note });
+      deductions.push({ kind: "first_half_paid", month_key: month.month_key, amount: firstHalf, note: `1st half already paid, more than this month's salary earned (${pesoText(earned)})` });
+    } else {
+      earnings.push({ kind: "salary", month_key: month.month_key, amount: peso(earned - firstHalf), gross: earned, note: firstHalf ? `${note}; less 1st half paid ${pesoText(firstHalf)}` : note });
+    }
 
     if (earned > 0) {
       const c = input.contributions || {};
