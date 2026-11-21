@@ -465,7 +465,8 @@ export async function writeCsvBackup(files, push, { single = false, readme } = {
 
 /** Parents before children (foreign keys among the backup tables, 2026-11-15). */
 export const RESTORE_ORDER = Object.freeze([
-  "branches", "profiles", "employee_positions", "leave_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
+  "branches", "profiles", "employee_positions", "employee_classification_changes", "employee_hr_reminders", "leave_credit_rules",
+  "leave_credit_overrides", "statutory_leave_types", "employee_pay_rules", "leave_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
   "attendance_logs_history", "attendance_overtime_approvals", "rfid_terminals", "attendance_taps", "audit_logs", "branch_admin_requests",
   "branch_announcements", "early_bird_winners", "employee_awol_cases", "employee_branch_assignments", "employee_license_alerts",
   "employee_license_documents", "employee_license_changes", "employee_salary_changes", "employee_status_changes", "holiday_duty_assignments",

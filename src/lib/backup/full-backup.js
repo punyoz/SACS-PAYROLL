@@ -35,12 +35,12 @@ export const BACKUP_GROUPS = Object.freeze([
   },
   {
     key: "employees", label: "Employees",
-    description: "Employee records with salary, daily and hourly rate, contact details, government ID numbers, RFID card, tenure protection and status; salary, status and license history; schedules, transfers and the positions list.",
+    description: "Employee records with salary, daily and hourly rate, contact details, government ID numbers, RFID card, tenure protection and status; salary, status and license history; schedules, transfers and the positions list; category, status and type history and HR reminders.",
     computed: ["employees"],
     tables: ["profiles", "employee_salary_changes", "employee_status_changes", "employee_awol_cases", "employee_license_changes",
       "employee_license_alerts", "employee_license_documents", "tenure_protection_policies", "tenure_protection_grants",
       "tenure_protection_applications", "rfid_cards", "rfid_card_events", "work_schedules", "work_schedule_assignments", "transfer_requests",
-      "employee_positions"],
+      "employee_positions", "employee_classification_changes", "employee_hr_reminders"],
   },
   {
     key: "attendance", label: "Attendance",
@@ -52,8 +52,8 @@ export const BACKUP_GROUPS = Object.freeze([
   },
   {
     key: "leave", label: "Leave requests and balances",
-    description: "Every leave request and each employee's leave balance for this year and last year.",
-    computed: ["leave_balances"], tables: ["leave_requests"],
+    description: "Every leave request, each employee's leave balance for this year and last year, the leave credit rules and overrides, and the statutory leave settings.",
+    computed: ["leave_balances"], tables: ["leave_requests", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
   },
   {
     key: "payroll", label: "Payroll records and payslips",
@@ -76,7 +76,7 @@ export const BACKUP_GROUPS = Object.freeze([
     description: "Government rate tables, pay rates (daily and the automatic hourly rate, per branch), payslip schedule and system settings.",
     computed: ["pay_rates"],
     tables: ["payroll_rate_configs", "payroll_tax_brackets", "payroll_sss_msc_brackets", "payroll_schedule_settings",
-      "payroll_setting_changes", "payroll_window_enforcement", "payroll_window_enforcement_changes", "system_config"],
+      "payroll_setting_changes", "payroll_window_enforcement", "payroll_window_enforcement_changes", "system_config", "employee_pay_rules"],
   },
   {
     key: "branches", label: "Branches, roles and permissions",
