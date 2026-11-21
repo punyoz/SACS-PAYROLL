@@ -394,9 +394,12 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
       overtime: {
         amount: t.overtime_pay,
         minutes: overtimeLines.reduce((s, l) => s + num(l.quantity), 0),
-        // The line's rate is the overtime hourly rate (hourly × (100% + premium)).
-        hourly: overtimeLines[0] ? peso(num(overtimeLines[0].rate) / (1 + rate("overtime_premium_pct") / 100)) : rate("hourly"),
-        premium_pct: rate("overtime_premium_pct"),
+        // The line's rate is the overtime hourly rate (hourly × (100% + premium)); a line
+        // from an overtime request on a regular day carries its own % (rate_pct, Part B: 125).
+        hourly: overtimeLines[0]
+          ? peso(num(overtimeLines[0].rate) / (overtimeLines[0].rate_pct ? num(overtimeLines[0].rate_pct) / 100 : 1 + rate("overtime_premium_pct") / 100))
+          : rate("hourly"),
+        premium_pct: overtimeLines[0]?.rate_pct ? num(overtimeLines[0].rate_pct) - 100 : rate("overtime_premium_pct"),
       },
       holiday: {
         amount: t.holiday_pay,

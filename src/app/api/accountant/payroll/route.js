@@ -16,6 +16,7 @@ import { loadPayslipSchedule } from "@/lib/payroll/schedule";
 import { loadLoanContext, scheduleLoans } from "@/lib/payroll/loans";
 import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from "@/lib/payroll/teacher-subsidy";
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
+import { readRequestSettings } from "@/lib/overtime-requests/rules";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { buildPayslipDetails, loadPayslipYtd, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
@@ -1082,7 +1083,10 @@ async function readPeriodAttendance(supabase, periodStart, periodEnd, employeeId
 
 /**
  * Approved overtime minutes for the period, by attendance log id
- * (public.attendance_overtime_approvals). `available` is false when the table
+ * (public.attendance_overtime_approvals). Only minutes from an approved
+ * overtime request count (Part B, 2026-11-22: overtime is paid only from
+ * approved requests; overtime_request_sync writes them with the note
+ * "Overtime request <id>"). Older direct approvals stay readable in history. `available` is false when the table
  * does not exist yet -- payroll then refuses to process, like it does without
  * the attendance engine, rather than silently paying no overtime.
  */
@@ -1095,6 +1099,7 @@ async function readApprovedOvertime(supabase, periodStart, periodEnd) {
     .gte("log_date", periodStart)
     .lte("log_date", periodEnd)
     .eq("status", "approved")
+    .like("note", "Overtime request %")
     .order("log_id", { ascending: true }));
   if (result.error) return { minutes: new Map(), available: false };
   return {
@@ -1535,13 +1540,15 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     : null;
   // Holidays first: leave days are counted on working days only.
   const holidays = await readHolidays(supabase, leaveFrom < span.start_key ? leaveFrom : span.start_key, period.end_key);
-  const [leaveContext, attendance, overtimeResult, school, tenure] = await Promise.all([
+  const [leaveContext, attendance, overtimeResult, school, tenure, requestSettings] = await Promise.all([
     buildLeaveContext(employees, leaveFrom, lastDay, holidays, includeLeaveDay),
     readPeriodAttendance(supabase, span.start_key, lastDay, employeeIds),
     readApprovedOvertime(supabase, span.start_key, lastDay),
     perHalf ? loadPerHalfContext(supabase, employees, period, rateResult.configs, holidays) : null,
     // Tenure Pay Protection (20261015010000); none until the migration is applied.
     loadTenureProtection(supabase, { employeeIds }),
+    // Overtime on a regular working day: the requests setting (Part B, 125%).
+    readRequestSettings(supabase),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
 
@@ -1638,6 +1645,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       periodStart: own.start_key,
       periodEnd: own.end_key,
       overtime: overtimeResult.minutes,
+      overtimeRegularPct: requestSettings.overtime_regular_pct,
       // The employee's branch: a branch-only closure counts for its people.
       holidays: holidays.forBranch(employee.branch_id),
       restDays: restDaysByEmployee.get(employee.id),

@@ -1,5 +1,6 @@
 "use client";
 
+import { HrOvertimeRequests } from "@/components/portal/overtime-requests";
 import * as React from "react";
 import { CalendarCheck2Icon, CalendarDaysIcon, CheckIcon, InfoIcon, Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -247,6 +248,8 @@ export function LeavesPage({ refreshKey }) {
 
       {confirmDialog}
       {proofViewer}
+      {/* Overtime requests are decided here too (Part B, 2026-11-22). */}
+      <HrOvertimeRequests />
       <LeaveRejectDialog
         request={rejecting}
         onClose={() => setRejecting(null)}

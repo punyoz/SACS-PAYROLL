@@ -119,7 +119,7 @@ const FRONT = ["payslip_no", "employee_code", "employee_name", "name", "code", "
 
 const ENTITY = {
   payroll_entries: "Payslip", profiles: "Employee profile", branches: "Branch", attendance_logs: "Attendance log", audit_logs: "Audit log",
-  leave_requests: "Leave request", payroll_runs: "Payroll run", payroll_records: "Payroll record", rfid_cards: "RFID card", payroll_loans: "Loan",
+  leave_requests: "Leave request", overtime_requests: "Overtime request", payroll_runs: "Payroll run", payroll_records: "Payroll record", rfid_cards: "RFID card", payroll_loans: "Loan",
 };
 
 /** Header and meaning overrides where the column name alone would mislead. */
@@ -346,6 +346,7 @@ export const DATE_FILTER = {
   school_break_periods: ["start_date", "end_date"], holiday_duty_assignments: "holiday_date", holiday_duty_history: "holiday_date",
   holiday_work_reviews: "holiday_date", early_bird_winners: "period_start",
   leave_requests: ["start_date", "end_date"],
+  overtime_requests: "request_date",
   payroll_entries: "@period_start", payroll_records: "period_start", payroll_runs: "period_start", payroll_run_items: "created_at",
   payroll_run_exclusions: "created_at", payroll_approval_history: "created_at", payroll_corrections: "requested_at",
   payroll_final_overrides: "created_at", payroll_review_flags: "created_at", payroll_tax_annualizations: "created_at", payroll_bir_exports: "generated_at",
@@ -466,7 +467,7 @@ export async function writeCsvBackup(files, push, { single = false, readme } = {
 /** Parents before children (foreign keys among the backup tables, 2026-11-15). */
 export const RESTORE_ORDER = Object.freeze([
   "branches", "profiles", "employee_positions", "employee_classification_changes", "employee_hr_reminders", "leave_credit_rules",
-  "leave_credit_overrides", "statutory_leave_types", "employee_pay_rules", "leave_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
+  "leave_credit_overrides", "statutory_leave_types", "employee_pay_rules", "leave_requests", "overtime_requests", "attendance_blocked_taps", "attendance_logs", "attendance_corrections", "attendance_holidays",
   "attendance_logs_history", "attendance_overtime_approvals", "rfid_terminals", "attendance_taps", "audit_logs", "branch_admin_requests",
   "branch_announcements", "early_bird_winners", "employee_awol_cases", "employee_branch_assignments", "employee_license_alerts",
   "employee_license_documents", "employee_license_changes", "employee_salary_changes", "employee_status_changes", "holiday_duty_assignments",

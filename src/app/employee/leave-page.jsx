@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
+import { MyOvertimeRequests } from "@/components/portal/overtime-requests";
 import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
@@ -317,7 +318,7 @@ const REQUEST_COLUMNS = [
   },
 ];
 
-export function LeavePage({ leave }) {
+export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) {
   return (
     <>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -351,6 +352,9 @@ export function LeavePage({ leave }) {
           />
         </CardContent>
       </Card>
+
+      {/* Overtime is requested ahead, like leave (Part B, 2026-11-22). */}
+      <MyOvertimeRequests apiBase={overtimeApi} />
     </>
   );
 }
