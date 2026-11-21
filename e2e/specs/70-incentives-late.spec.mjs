@@ -5,7 +5,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { choose, confirm, pickDate, refresh } from "../support/flow.mjs";
+import { choose, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -19,6 +19,16 @@ test.afterEach(() => {
 
 test("incentive filed after the cutoff is deferred to next month, with the notice", async ({ page, monitor }) => {
   const description = `E2E late-filed coaching incentive ${Date.now() % 100000}`;
+  // Dates relative to the run (written for Oct 22; 2026-11-21): the item is
+  // dated the 5th of last month, filed today, after that month's cutoff.
+  const today = manilaDay(0);
+  const [ty, tm] = today.split("-").map(Number);
+  const monthKey = (y, m) => `${m < 1 ? y - 1 : m > 12 ? y + 1 : y}-${String(((m + 11) % 12) + 1).padStart(2, "0")}`;
+  const itemMonth = monthKey(ty, tm - 1);
+  const itemDate = `${itemMonth}-05`;
+  const lastDay = new Date(Date.UTC(Number(itemMonth.slice(0, 4)), Number(itemMonth.slice(5, 7)), 0)).getUTCDate();
+  // The month whose payroll pays it: read from the app's own message after filing.
+  let landsIn = null;
 
   // The incentive cutoff is the day before the 2nd-half payslip day (Oct 29
   // by default), so nothing filed today (Oct 22) is late yet. The Super Admin
@@ -29,7 +39,7 @@ test("incentive filed after the cutoff is deferred to next month, with the notic
   // with triggers off.
   planted = { id: psql(`set session_replication_role = replica;
     insert into payroll_schedule_settings (effective_from, first_half_day, second_half_day, window_days, note, created_by_name)
-    values ('2026-10-16', 15, 20, 5, 'E2E: incentive cutoff in the past', 'E2E') returning id;`).split(/\s+/).pop() };
+    values ('${itemMonth}-16', 15, 20, 5, 'E2E: incentive cutoff in the past', 'E2E') returning id;`).split(/\s+/).pop() };
 
   await step(page, "Accountant > Incentives & Overload > Add with no employee (refused)", async () => {
     monitor.at("Accountant > Incentives & Overload");
@@ -38,18 +48,27 @@ test("incentive filed after the cutoff is deferred to next month, with the notic
     await expect(main(page).locator('[aria-invalid="true"]').first()).toBeVisible();
   });
 
-  await step(page, "Accountant > Incentives & Overload > file an Oct 5 incentive today (after the Oct 19 cutoff)", async () => {
+  await step(page, `Accountant > Incentives & Overload > file a ${itemDate} incentive today (after that month's cutoff)`, async () => {
     await choose(page, main(page).locator("#ac-item-employee"), /Bea/);
-    await pickDate(page, main(page).locator("#ac-item-date"), "2026-10-05");
+    await pickDate(page, main(page).locator("#ac-item-date"), itemDate);
     await expect(main(page).getByRole("status").filter({ hasText: /deferred to next month/ }).first()).toBeVisible();
     await main(page).locator("#ac-item-amount").fill("750");
     await main(page).locator("#ac-item-description").fill(description);
     await main(page).getByRole("button", { name: "Send for HR approval →" }).click();
-    await expect(main(page).getByText(/Sent for HR approval — deferred to next month's payroll/)).toBeVisible({ timeout: 30000 });
+    const sent = main(page).getByText(/Sent for HR approval — deferred to next month's payroll/);
+    await expect(sent).toBeVisible({ timeout: 30000 });
+    const label = (await sent.first().innerText()).match(/\[([A-Za-z]+ \d{4})\]/)?.[1];
+    expect(label, "the message names the payroll month").toBeTruthy();
+    const landed = new Date(`1 ${label} 00:00 UTC`);
+    landsIn = `${landed.getUTCFullYear()}-${String(landed.getUTCMonth() + 1).padStart(2, "0")}`;
+    expect(landsIn > itemMonth, `paid in a later month than ${itemMonth}`).toBe(true);
   });
 
   await step(page, "Accountant > Incentives & Overload > listed under Deferred incentives after refresh", async () => {
     await refresh(page);
+    // The item's own month lists what moved out of it, and where to.
+    await main(page).getByLabel("Month").fill(itemMonth);
+    await settle(page);
     const deferred = main(page).locator("table", { has: page.locator("caption", { hasText: /Deferred incentives/i }) });
     const row = deferred.locator("tr", { hasText: description }).or(main(page).locator("tr", { hasText: description })).first();
     await expect(row).toBeVisible();
@@ -69,12 +88,15 @@ test("incentive filed after the cutoff is deferred to next month, with the notic
     const item = await rows(db().from("payroll_monthly_incentives").select("approval_status").eq("description", description));
     expect(item[0]?.approval_status).toBe("approved");
     await as(page, "accountant", "ac-incentives");
+    await main(page).getByLabel("Month").fill(itemMonth);
+    await settle(page);
     await expect(main(page).locator("tr", { hasText: description }).getByText("Approved by HR").first()).toBeVisible({ timeout: 30000 });
   });
 
   await step(page, "Accountant > Process Payroll > the deferred-items notice", async () => {
     monitor.at("Accountant > Process Payroll");
-    await as(page, "accountant", `ac-process&period=${encodeURIComponent("October 16-31, 2026")}`);
+    const label = `${new Date(`${itemMonth}-01T00:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" })} 16-${lastDay}, ${itemMonth.slice(0, 4)}`;
+    await as(page, "accountant", `ac-process&period=${encodeURIComponent(label)}`);
     await settle(page);
     await expect(main(page).locator('[role="alert"]', { hasText: /deferred|next month/i }).first()).toBeVisible();
   });
@@ -99,7 +121,8 @@ test("late arrivals are recorded but deducted at 0%", async ({ page, monitor }) 
     await main(page).getByText("October 1-15, 2026").first().click();
     await settle(page);
     const text = await main(page).innerText();
-    expect(text).toMatch(/Late/);
+    // A ₱0 line is not shown on the payslip (decided 2026-11-19): no Late deduction line at all.
+    expect(text).not.toMatch(/Late/);
     expect(text).not.toMatch(/Late[^\n]*-\s*₱\s*[1-9]/);
     const items = await rows(db().from("payroll_run_items").select("late_deduction,late_days,late_minutes,run_id,payroll_runs!inner(period_label)").eq("employee_id", ana.id).eq("payroll_runs.period_label", "October 1-15, 2026"));
     expect(items.length, "Ana has an October 1-15 payslip").toBeGreaterThan(0);

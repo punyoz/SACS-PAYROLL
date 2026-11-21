@@ -16,7 +16,12 @@ import { as, signOutLocally, waitForPortal } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api } from "../support/flow.mjs";
-import { archiveTestAccount, db, profileByEmail, psql, rows } from "../support/db.mjs";
+import { archiveTestAccount, db, profileByEmail, psql, retireAccountsCreatedSince, rows } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+
 import { ACCOUNTS, TEST_OTP, TEST_SESSION_SECRET, BRANCH_MAIN, BRANCH_NORTH } from "../accounts.mjs";
 
 const stamp = Date.now().toString(36).slice(-5);
@@ -42,6 +47,8 @@ function staffBody(who, role, branch) {
     date_of_birth: who.dob, date_hired: "2024-01-01", sex: "Female", civil_status: "Single", cp_number: "09171234560",
     address: "12 Rizal St, Pasig City", emergency_contact_name: "Maria Probe", emergency_contact_relationship: "Parent",
     emergency_contact_number: "09181234560", emergency_contact_address: "45 Rizal Ave, Pasig City",
+    // HR is on payroll: salary (2026-11-19) and employment status / type (Part A) are required.
+    ...(role === "hr" ? { basic_salary: 25000, employment_status: "Regular", employment_type: "Full-time" } : {}),
   };
 }
 
@@ -109,6 +116,7 @@ test.describe.configure({ mode: "serial" });
 // The accounts made here leave the branches' headcount as seeded for later specs.
 test.afterAll(async () => {
   for (const who of Object.values(NEW)) await archiveTestAccount(who.email);
+  await retireAccountsCreatedSince(SPEC_START);
 });
 
 test("accounts: who may create whom, duplicates and bad input", async ({ page, monitor }) => {
@@ -308,7 +316,9 @@ test("sessions: logout, an expired session and a tampered session", async ({ pag
     };
     await page.context().addCookies([{ ...cookie, value: forge({ ...payload, exp: Math.floor(Date.now() / 1000) - 60 }) }]);
     expect((await api(page, "GET", "/api/employee/payslips")).status).toBe(401);
-    await page.goto("/employee");
+    // The portal sends an expired session to /login while it loads, which can
+    // abort this navigation itself (net::ERR_ABORTED); landing on /login is the check.
+    await page.goto("/employee").catch(() => {});
     await page.waitForURL(/\/login/, { timeout: 30000 });
 
     await step(page, "Employee > a tampered session (role changed to super_admin, signature not redone) is refused");
