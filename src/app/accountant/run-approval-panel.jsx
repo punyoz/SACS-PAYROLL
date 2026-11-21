@@ -78,7 +78,7 @@ function PayslipRows({ rows, onView, onRecompute, recomputing, extra, footer }) 
           <tr className="text-left">
             {extra ? <th className="w-8 py-1 font-normal"><span className="sr-only">Include</span></th> : null}
             <th className="py-1 font-normal">Employee</th>
-            <th className="py-1 font-normal">Type</th>
+            <th className="py-1 font-normal">Category</th>
             <th className="py-1 font-normal">Period</th>
             <th className="py-1 text-right font-normal">Gross</th>
             <th className="py-1 text-right font-normal">Deductions</th>

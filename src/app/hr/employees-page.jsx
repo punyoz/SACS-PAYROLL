@@ -123,7 +123,7 @@ export function EmployeesPage({ refreshKey }) {
       cell: (e) => <span className="flex items-center gap-2"><UserAvatar userId={e.id} name={e.full_name} className="size-7" fallbackClassName="text-[10px]" />{e.full_name}</span>,
     },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (e) => e.employee_id || "—", searchValue: (e) => e.employee_id },
-    { key: "employee_type", header: "Type", cell: (e) => e.employee_type || "—" },
+    { key: "employee_type", header: "Category", cell: (e) => e.employee_type || "—" },
     {
       key: "employment_status", header: "Employment", sortable: true, sortValue: (e) => `${e.employment_status} ${e.employment_type}`,
       searchValue: (e) => `${e.employment_status || ""} ${e.employment_type || ""}`,
