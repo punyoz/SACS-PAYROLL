@@ -14,6 +14,7 @@ import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthl
 import { classificationLabel } from "@/lib/employees/classification";
 import { periodFromLabel } from "@/lib/payroll/periods";
 import { payslipTables } from "@/lib/payroll/payslip-tables";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
 /**
  * payroll_tax_brackets rows (every version), for the withholding tax line's
@@ -267,7 +268,7 @@ export async function loadPayslipYtd(supabase, entry, details) {
       return Boolean(p && row.run_id && p.start_key.startsWith(year) && (!own || p.start_key < own.start_key));
     });
     const runIds = [...new Set(earlier.map((row) => row.run_id))];
-    const runs = runIds.length ? await supabase.from("payroll_runs").select("id").in("id", runIds).eq("status", "approved") : { data: [] };
+    const runs = runIds.length ? await fetchAllIn(() => supabase.from("payroll_runs").select("id").eq("status", "approved"), "id", runIds) : { data: [] };
     if (runs.error) return null;
     const approved = new Set((runs.data || []).map((r) => String(r.id)));
     const prior = earlier.filter((row) => approved.has(String(row.run_id))).map((row) => buildPayslipDetails(asEntry(row)));
