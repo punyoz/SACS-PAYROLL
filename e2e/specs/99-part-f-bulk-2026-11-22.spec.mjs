@@ -72,9 +72,9 @@ test("bulk: HR filters pending leave by type and name (kept in the address), sel
     await filters.getByRole("combobox", { name: "Leave type" }).click();
     await page.getByRole("option", { name: /^Emergency Leave \(\d+\)$/ }).click();
     await expect(page).toHaveURL(/lv_type=Emergency/);
-    await filters.getByRole("textbox", { name: "Search pending leave" }).fill(people[0].full_name);
+    await filters.getByRole("textbox", { name: "Search name or ID" }).fill(people[0].full_name);
     await expect(main(page).locator("li", { hasText: TAG })).toHaveCount(1);
-    await filters.getByRole("textbox", { name: "Search pending leave" }).fill("");
+    await filters.getByRole("textbox", { name: "Search name or ID" }).fill("");
     await expect(main(page).locator("li", { hasText: TAG })).toHaveCount(2);
   });
 

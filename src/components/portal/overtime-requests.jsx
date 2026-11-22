@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { BulkActionDialog } from "@/components/portal/bulk-action-dialog";
 import { DatePicker } from "@/components/portal/date-picker";
 import { RequestStatusBadge, StatusBadge } from "@/components/portal/status-badge";
@@ -147,6 +148,10 @@ export function HrOvertimeRequests() {
   const { notify } = usePortalSession();
   const [status, setStatus] = React.useState("pending");
   const list = useRequests(`/api/hr/overtime-requests?status=${status}`);
+  // Part F: search, branch, category, employment status, dates and sort (in the address).
+  const filters = useApprovalFilters(list.rows, {
+    prefix: "ot", get: { name: (r) => r.employee_name, code: (r) => r.employee_code, filed: (r) => r.created_at, requested: (r) => r.request_date, branch: (r) => r.branch_id, employeeId: (r) => r.employee_id },
+  });
   const [deciding, setDeciding] = React.useState(null);
   // Part F: pending requests decided in bulk (one remark for all; each row checked and reported).
   const [selected, setSelected] = React.useState(() => new Set());
@@ -211,7 +216,7 @@ export function HrOvertimeRequests() {
         </Select>
       </CardHeader>
       <CardContent>
-        <DataTable columns={columns} rows={list.rows} loading={list.loading} error={list.error} onRetry={list.reload}
+        <DataTable toolbar={filters.toolbar} columns={columns} rows={filters.rows} loading={list.loading} error={list.error} onRetry={list.reload}
           searchPlaceholder="Search employees…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Overtime requests" minWidth={860} 
           selection={{
             selected, onChange: setSelected, rowId: (r) => r.id, isSelectable: (r) => r.status === "pending",

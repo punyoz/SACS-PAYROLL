@@ -9,10 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { BulkActionDialog } from "@/components/portal/bulk-action-dialog";
-import { useUrlParam } from "@/components/portal/use-url-param";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { DataTable } from "@/components/portal/data-table";
@@ -78,10 +76,12 @@ export function LeavesPage({ refreshKey }) {
   const [deciding, setDeciding] = React.useState(null);
   // Part F: search and a leave-type filter (kept in the address), counts per type,
   // and bulk approve / reject of the pending requests shown.
-  const [pendingQuery, setPendingQuery] = useUrlParam("lv_q", "");
-  const [pendingType, setPendingType] = useUrlParam("lv_type", "all");
   const [selected, setSelected] = React.useState(() => new Set());
   const [bulk, setBulk] = React.useState(null); // { decision, rows }
+  const pendingFiltersHook = useApprovalFilters(state.pending, {
+    prefix: "lv", typeLabel: "Leave type",
+    get: { name: (r) => r.employee_name, code: (r) => r.employee_code || r.employee_id, type: (r) => r.leave_type || "Leave", filed: (r) => r.submitted_at, requested: (r) => r.start_date, branch: (r) => r.branch_id, employeeId: (r) => r.employee_id },
+  });
   // The branch Admins' recommendations, by leave request (2026-10-20).
   const [recs, setRecs] = React.useState(() => new Map());
 
@@ -183,11 +183,9 @@ export function LeavesPage({ refreshKey }) {
     { key: "decided", header: "Decided", className: "whitespace-nowrap", sortValue: (r) => r.decided_at || "", cell: (r) => (r.decided_at ? new Date(r.decided_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—") },
   ];
 
-  // Part F: the pending list as filtered here; counts per leave type.
-  const typeCounts = state.pending.reduce((acc, r) => ({ ...acc, [r.leave_type || "Leave"]: (acc[r.leave_type || "Leave"] || 0) + 1 }), {});
-  const needle = pendingQuery.trim().toLowerCase();
-  const shownPending = state.pending.filter((r) => (pendingType === "all" || (r.leave_type || "Leave") === pendingType)
-    && (!needle || `${r.employee_name || ""} ${r.employee_code || ""} ${r.employee_id || ""}`.toLowerCase().includes(needle)));
+  // Part F: the pending list as filtered here (search, type with counts, branch,
+  // category, employment status, dates, sort; all in the address).
+  const { rows: shownPending, toolbar: pendingFilters } = pendingFiltersHook;
 
   return (
     <>
@@ -224,14 +222,7 @@ export function LeavesPage({ refreshKey }) {
           ) : (
             <div className="space-y-3">
               <div className="flex flex-wrap items-end gap-2" data-testid="leave-pending-filters">
-                <Input aria-label="Search pending leave" className="w-full sm:w-64" placeholder="Search name or employee ID…" value={pendingQuery} onChange={(e) => setPendingQuery(e.target.value)} />
-                <Select value={pendingType} onValueChange={setPendingType}>
-                  <SelectTrigger aria-label="Leave type" className="w-56"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Every type ({state.pending.length})</SelectItem>
-                    {Object.entries(typeCounts).map(([t, n]) => <SelectItem key={t} value={t}>{t} ({n})</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                {pendingFilters}
                 <label className="ml-auto inline-flex items-center gap-2 text-sm">
                   <Checkbox aria-label="Select all shown" checked={shownPending.length > 0 && shownPending.every((r) => selected.has(r.id)) ? true : shownPending.some((r) => selected.has(r.id)) ? "indeterminate" : false}
                     onCheckedChange={(on) => setSelected(on === true ? new Set(shownPending.map((r) => r.id)) : new Set())} />
