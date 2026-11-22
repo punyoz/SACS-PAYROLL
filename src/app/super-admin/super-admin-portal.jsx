@@ -1,5 +1,6 @@
 "use client";
 
+import { DecisionReasonsCard } from "@/components/portal/remark-presets-manager";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -192,6 +193,8 @@ function SuperAdminScreens() {
           BIR is the Super Admin's only since 2026-11-12). */}
       {current === "sa-audit" ? <YearEndTaxCard refreshKey={refreshKey} /> : null}
       {current === "sa-audit" ? <BirExportsCard refreshKey={refreshKey} /> : null}
+      {/* Part H: how often each decision remark was used, every branch. */}
+      {current === "sa-audit" ? <DecisionReasonsCard allBranches refreshKey={refreshKey} /> : null}
       {current === "sa-backup" ? <BackupPage refreshKey={refreshKey} /> : null}
       {current === "sa-announcements" ? <AnnouncementsManager refreshKey={refreshKey} description="Post to the whole school or to one branch. You can edit your own, and delete any announcement (moderation)." /> : null}
       {current === "sa-profile" ? <StaffProfilePage roleLabel="Super Admin" accountOnly /> : null}

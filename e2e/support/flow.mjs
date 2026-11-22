@@ -75,3 +75,12 @@ export async function choose(page, trigger, option) {
   await trigger.click();
   await page.getByRole("option", { name: option }).first().click();
 }
+
+/**
+ * Part H (2026-11-22): write a decision's remark in a RemarkField (`prefix` is
+ * its id, e.g. "pa-remark"): a preset by its label, or "Other" with the text.
+ */
+export async function writeRemark(page, prefix, text, { preset = null } = {}) {
+  await choose(page, page.locator(`#${prefix}-preset`), preset || "Other (write your own)");
+  if (text) await page.locator(`#${prefix}-extra`).fill(text);
+}

@@ -1,3 +1,4 @@
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -170,7 +171,10 @@ export async function POST(request) {
 async function handleResolve(guard, body) {
   const logId = normalizeText(body.log_id);
   const resolution = normalizeText(body.resolution).toLowerCase();
-  const note = normalizeText(body.note).slice(0, 500);
+  // Part H: the reason is a preset remark (required), audited with the resolution's own new correction row.
+  const remark = await resolveRemark(getAdminClient(), body.remark, { decision: "resolve", entityType: "attendance_correction", required: true, fallbackText: body.note });
+  if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+  const note = normalizeText(remark.text).slice(0, 500);
   const time = normalizeText(body.time_out);
 
   if (!logId) return NextResponse.json({ error: "log_id is required." }, { status: 400 });
@@ -205,7 +209,7 @@ async function handleResolve(guard, body) {
     ? new Date(`${logResult.data.log_date}T${time}:00+08:00`).toISOString()
     : null;
   const reviewerName = normalizeText(guard.session?.full_name, guard.session?.email);
-  const { data, error } = await supabase.rpc("attendance_resolve_record", {
+  const { data, error } = await remarkClient(remark, { decision: "resolve", entityType: "attendance_correction", module: "attendance", table: "attendance_corrections", ops: ["INSERT"], actor: guard }).rpc("attendance_resolve_record", {
     p_log_id: logId,
     p_resolution: resolution,
     p_time_out: timeOut,
@@ -244,7 +248,10 @@ async function handleCorrectAbsence(guard, body) {
   const logDate = normalizeText(body.log_date);
   const timeIn = normalizeText(body.time_in);
   const timeOut = normalizeText(body.time_out);
-  const note = normalizeText(body.note).slice(0, 500);
+  // Part H: an override's reason is a preset remark (required), audited with the override's own new correction row.
+  const remark = await resolveRemark(getAdminClient(), body.remark, { decision: "override", entityType: "attendance_correction", required: true, fallbackText: body.note });
+  if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+  const note = normalizeText(remark.text).slice(0, 500);
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
 
   if (!employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(logDate)) {
@@ -268,7 +275,7 @@ async function handleCorrectAbsence(guard, body) {
   }
 
   const reviewerName = normalizeText(guard.session?.full_name, guard.session?.email);
-  const { data, error } = await supabase.rpc("attendance_correct_absence", {
+  const { data, error } = await remarkClient(remark, { decision: "override", entityType: "attendance_correction", module: "attendance", table: "attendance_corrections", ops: ["INSERT"], actor: guard }).rpc("attendance_correct_absence", {
     p_employee_id: employeeId,
     p_log_date: logDate,
     p_time_in: new Date(`${logDate}T${timeIn}:00+08:00`).toISOString(),
@@ -324,7 +331,10 @@ async function handleCorrectRecord(guard, body) {
   const type = normalizeText(body.type).toLowerCase();
   const timeIn = normalizeText(body.time_in);
   const timeOut = normalizeText(body.time_out);
-  const note = normalizeText(body.note).slice(0, 500);
+  // Part H: an override's reason is a preset remark (required), audited with the override's own new correction row.
+  const remark = await resolveRemark(getAdminClient(), body.remark, { decision: "override", entityType: "attendance_correction", required: true, fallbackText: body.note });
+  if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+  const note = normalizeText(remark.text).slice(0, 500);
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
   const needsIn = type === "time_in" || type === "both" || type === "present";
   const needsOut = type === "time_out" || type === "both" || type === "present";
@@ -373,7 +383,7 @@ async function handleCorrectRecord(guard, body) {
   // Manila local time on the record's own day.
   const toIso = (hm) => (hm ? new Date(`${logDate}T${hm}:00+08:00`).toISOString() : null);
   const reviewerName = normalizeText(guard.session?.full_name, guard.session?.email);
-  const { data, error } = await supabase.rpc("attendance_correct_record", {
+  const { data, error } = await remarkClient(remark, { decision: "override", entityType: "attendance_correction", module: "attendance", table: "attendance_corrections", ops: ["INSERT"], actor: guard }).rpc("attendance_correct_record", {
     p_log_id: logId || null,
     p_employee_id: employeeId,
     p_log_date: logDate,
@@ -452,7 +462,6 @@ export async function PATCH(request) {
     const correctionId = normalizeText(body.correction_id);
     const decision = normalizeText(body.decision).toLowerCase();
     const resolution = normalizeText(body.resolution, "incomplete").toLowerCase();
-    const note = normalizeText(body.note).slice(0, 500);
 
     if (!correctionId) return NextResponse.json({ error: "correction_id is required." }, { status: 400 });
     if (decision !== "approve" && decision !== "reject") {
@@ -463,6 +472,10 @@ export async function PATCH(request) {
     }
 
     const supabase = getAdminClient();
+    // Part H: a preset remark (required to reject), audited with the request's own update.
+    const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "attendance_correction", fallbackText: body.note });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const note = normalizeText(remark.text).slice(0, 500);
     const existing = await supabase
       .from("attendance_corrections")
       .select("id,employee_id,employee_name,log_id,log_date,status")
@@ -484,7 +497,7 @@ export async function PATCH(request) {
     }
 
     const reviewerName = normalizeText(guard.session?.full_name, guard.session?.email);
-    const { data, error } = await supabase.rpc("attendance_review_correction", {
+    const { data, error } = await remarkClient(remark, { decision, entityType: "attendance_correction", module: "attendance", table: "attendance_corrections", ids: [correctionId], actor: guard }).rpc("attendance_review_correction", {
       p_correction_id: correctionId,
       p_decision: decision,
       p_resolution: decision === "reject" ? resolution : null,

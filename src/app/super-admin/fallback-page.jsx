@@ -11,16 +11,16 @@ import * as React from "react";
 import { toast } from "sonner";
 import { InboxIcon } from "lucide-react";
 import { DataTable } from "@/components/portal/data-table";
+import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
 import { fetchJson } from "@/lib/portal/api";
 
 /** onCounts(total): the sidebar badge takes the count from this same reload (2026-11-14). */
 export function FallbackPage({ refreshKey = 0, onCounts }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [reasons, setReasons] = React.useState({});
-  const [busy, setBusy] = React.useState(null);
+  // The item being decided, with its remark dialog (Part H): { row, action }.
+  const [deciding, setDeciding] = React.useState(null);
   const load = React.useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
@@ -33,17 +33,12 @@ export function FallbackPage({ refreshKey = 0, onCounts }) {
   }, [onCounts]);
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
-  const decide = async (row, action) => {
-    setBusy(`${row.id}:${action}`);
-    try {
-      await fetchJson("/api/super-admin/fallback", { method: "POST", body: JSON.stringify({ action, item_type: row.item_type, id: row.id, reason: reasons[row.id] || "" }) });
-      toast.success(action === "approve" ? "Approved as the fallback" : "Rejected as the fallback", { description: "Recorded in the audit log; the requester was notified." });
-      await load();
-    } catch (error) {
-      toast.error("Not saved", { description: error?.message || "Try again." });
-    } finally {
-      setBusy(null);
-    }
+  const decide = async (remark) => {
+    const { row, action } = deciding;
+    await fetchJson("/api/super-admin/fallback", { method: "POST", body: JSON.stringify({ action, item_type: row.item_type, id: row.id, remark }) });
+    toast.success(action === "approve" ? "Approved as the fallback" : "Rejected as the fallback", { description: "Recorded in the audit log; the requester was notified." });
+    setDeciding(null);
+    await load();
   };
 
   const columns = [
@@ -52,12 +47,9 @@ export function FallbackPage({ refreshKey = 0, onCounts }) {
     { key: "submitted_at", header: "Filed", cell: (r) => (r.submitted_at ? String(r.submitted_at).slice(0, 10) : "—"), sortable: true },
     {
       key: "actions", header: "", cell: (r) => (
-        <div className="flex min-w-56 flex-col gap-2">
-          <Textarea aria-label={`Reason for ${r.title}`} placeholder="Reason (required to reject)" rows={2} value={reasons[r.id] || ""} onChange={(e) => setReasons((m) => ({ ...m, [r.id]: e.target.value }))} />
-          <div className="flex gap-2">
-            <Button size="sm" disabled={Boolean(busy)} onClick={() => decide(r, "approve")}>Approve</Button>
-            <Button size="sm" variant="outline" disabled={Boolean(busy) || String(reasons[r.id] || "").trim().length < 5} onClick={() => decide(r, "reject")}>Reject</Button>
-          </div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setDeciding({ row: r, action: "approve" })}>Approve</Button>
+          <Button size="sm" variant="outline" onClick={() => setDeciding({ row: r, action: "reject" })}>Reject</Button>
         </div>
       ),
     },
@@ -83,6 +75,18 @@ export function FallbackPage({ refreshKey = 0, onCounts }) {
           empty={{ title: "Nothing waits on the fallback", description: "Every item has an active HR to decide it." }}
         />
       </CardContent>
+      <DecisionRemarkDialog
+        open={Boolean(deciding)}
+        idPrefix="fb-remark"
+        decision={deciding?.action || "approve"}
+        entityType={deciding?.row?.item_type || "leave_request"}
+        destructive={deciding?.action === "reject"}
+        confirmLabel={deciding?.action === "reject" ? "Reject" : "Approve"}
+        title={deciding ? `${deciding.action === "reject" ? "Reject" : "Approve"} as the fallback: ${deciding.row.title}` : ""}
+        description="Recorded in the audit log as the fallback approver; the requester is notified (a rejection with your remark)."
+        onClose={() => setDeciding(null)}
+        onConfirm={decide}
+      />
     </Card>
   );
 }

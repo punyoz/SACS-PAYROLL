@@ -7,15 +7,14 @@ import {
   WalletIcon, XCircleIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { useUrlParam } from "@/components/portal/use-url-param";
 import { EmptyState, ErrorState } from "@/components/portal/empty-state";
@@ -70,10 +69,10 @@ const cutoffLabel = (run) => (run.cutoff_type === "first" ? "1st cutoff (1–15)
 
 function DecisionDialog({ decision, onClose, onDone }) {
   const { notify } = usePortalSession();
-  const [remarks, setRemarks] = React.useState("");
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setRemarks(""); setError(""); }, [decision]);
+  React.useEffect(() => { setRemark(EMPTY_REMARK); setError(""); }, [decision]);
   if (!decision) return null;
   const { kind, runs } = decision;
   const grand = runs.reduce((acc, r) => ({
@@ -82,16 +81,15 @@ function DecisionDialog({ decision, onClose, onDone }) {
   }), { employees: 0, gross: 0, deductions: 0, net: 0 });
 
   async function submit() {
-    if (kind === "reject" && remarks.trim().length < 5) {
-      setError("Write the reason for rejecting (at least 5 characters). The Accountant sees it.");
-      return;
-    }
+    // Part H: a preset remark (required to reject; one remark for every run chosen).
+    const problem = remarkProblem(remark, kind);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     setError("");
     try {
       const body = kind === "approve"
-        ? { action: "approve", run_ids: runs.map((r) => r.id), remarks: remarks.trim() }
-        : { action: "reject", run_id: runs[0].id, remarks: remarks.trim() };
+        ? { action: "approve", run_ids: runs.map((r) => r.id), remark }
+        : { action: "reject", run_id: runs[0].id, remark };
       const response = await apiFetch("/api/hr/payroll-runs", jsonBody("PATCH", body));
       const data = await response.json().catch(() => ({}));
       if (kind === "approve") {
@@ -159,12 +157,8 @@ function DecisionDialog({ decision, onClose, onDone }) {
             <div className="rounded-lg border bg-muted/40 px-3 py-2"><dt className="text-xs text-muted-foreground">Deductions</dt><dd className="font-semibold tabular-nums">{money(grand.deductions)}</dd></div>
             <div className="rounded-lg border bg-muted/40 px-3 py-2"><dt className="text-xs text-muted-foreground">Net pay</dt><dd className="font-semibold tabular-nums">{money(grand.net)}</dd></div>
           </dl>
-          <div className="space-y-1.5">
-            <Label htmlFor="pa-remarks">{kind === "reject" ? "Reason for rejecting" : "Note (optional)"}</Label>
-            <Textarea id="pa-remarks" rows={3} maxLength={1000} value={remarks} onChange={(e) => { setRemarks(e.target.value); setError(""); }}
-              placeholder={kind === "reject" ? "Required: what the Accountant must correct" : "Kept with the approval"} aria-invalid={Boolean(error) || undefined} autoFocus />
-          </div>
-          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+          <RemarkField id="pa-remark" decision={kind} entityType="payroll_run" label={kind === "reject" ? "Reason for rejecting (the Accountant sees it)" : "Remark"}
+            value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
         </div>
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>

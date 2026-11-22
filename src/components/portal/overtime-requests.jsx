@@ -4,12 +4,12 @@ import * as React from "react";
 import { ClockIcon, Loader2Icon, SendIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
+import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { DatePicker } from "@/components/portal/date-picker";
 import { RequestStatusBadge, StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
@@ -147,24 +147,15 @@ export function HrOvertimeRequests() {
   const [status, setStatus] = React.useState("pending");
   const list = useRequests(`/api/hr/overtime-requests?status=${status}`);
   const [deciding, setDeciding] = React.useState(null);
-  const [note, setNote] = React.useState("");
-  const [busy, setBusy] = React.useState(false);
 
-  async function decide() {
-    setBusy(true);
-    try {
-      const res = await apiFetch("/api/hr/overtime-requests", jsonBody("PATCH", { id: deciding.row.id, decision: deciding.decision, note }));
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Not saved.");
-      notify(deciding.decision === "approve" ? "Overtime approved" : "Overtime rejected", `${deciding.row.employee_name} · ${deciding.row.request_date}`, "success");
-      setDeciding(null);
-      setNote("");
-      list.reload();
-    } catch (e) {
-      notify("Not saved", e.message, "error");
-    } finally {
-      setBusy(false);
-    }
+  // Part H: the remark comes from DecisionRemarkDialog; an error stays in the dialog.
+  async function decide(remark) {
+    const res = await apiFetch("/api/hr/overtime-requests", jsonBody("PATCH", { id: deciding.row.id, decision: deciding.decision, remark }));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Not saved.");
+    notify(deciding.decision === "approve" ? "Overtime approved" : "Overtime rejected", `${deciding.row.employee_name} · ${deciding.row.request_date}`, "success");
+    setDeciding(null);
+    list.reload();
   }
 
   const columns = [
@@ -214,22 +205,18 @@ export function HrOvertimeRequests() {
         <DataTable columns={columns} rows={list.rows} loading={list.loading} error={list.error} onRetry={list.reload}
           searchPlaceholder="Search employees…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Overtime requests" minWidth={860} />
       </CardContent>
-      <Dialog open={Boolean(deciding)} onOpenChange={(open) => { if (!open) { setDeciding(null); setNote(""); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{deciding?.decision === "approve" ? "Approve overtime" : "Reject overtime"}</DialogTitle>
-            <DialogDescription>{deciding ? `${deciding.row.employee_name} · ${deciding.row.request_date} · ${deciding.row.planned_start}-${deciding.row.planned_end} (${deciding.row.hours_text})` : ""}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-1.5">
-            <Label htmlFor="ot-note">{deciding?.decision === "reject" ? "Reason (required)" : "Note (optional)"}</Label>
-            <Textarea id="ot-note" rows={3} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeciding(null)}>Back</Button>
-            <Button onClick={decide} disabled={busy || (deciding?.decision === "reject" && !note.trim())}>{deciding?.decision === "approve" ? "Approve" : "Reject"}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DecisionRemarkDialog
+        open={Boolean(deciding)}
+        idPrefix="ot-remark"
+        decision={deciding?.decision || "approve"}
+        entityType="overtime_request"
+        destructive={deciding?.decision === "reject"}
+        confirmLabel={deciding?.decision === "reject" ? "Reject" : "Approve"}
+        title={deciding?.decision === "approve" ? "Approve overtime" : "Reject overtime"}
+        description={deciding ? `${deciding.row.employee_name} · ${deciding.row.request_date} · ${deciding.row.planned_start}-${deciding.row.planned_end} (${deciding.row.hours_text})` : ""}
+        onClose={() => setDeciding(null)}
+        onConfirm={decide}
+      />
     </Card>
   );
 }

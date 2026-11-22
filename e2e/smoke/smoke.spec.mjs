@@ -12,7 +12,7 @@ import { test, expect } from "../support/test.mjs";
 import { as, loginThroughUi, signOutLocally } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { expectHealthy, main, navTo, settle } from "../support/portal.mjs";
-import { api, confirm, manilaDay } from "../support/flow.mjs";
+import { api, confirm, manilaDay, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS, BRANCH_MAIN, ROLES } from "../accounts.mjs";
 
@@ -93,7 +93,7 @@ test.describe("smoke: payroll chain", () => {
       await main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();
       await settle(page);
       await main(page).getByRole("button", { name: "Approve", exact: true }).click();
-      await page.locator("#pa-remarks").fill("E2E smoke approval");
+      await writeRemark(page, "pa-remark", "", { preset: "Approved as requested" });
       await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
       await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
       expect((await runStatus()).status).toBe("approved");

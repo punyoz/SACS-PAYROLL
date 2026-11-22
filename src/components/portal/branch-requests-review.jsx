@@ -2,11 +2,10 @@
 
 import * as React from "react";
 import { CheckIcon, InboxIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { usePortalSession } from "@/components/portal/session";
@@ -29,7 +28,8 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
   const [tab, setTab] = React.useState("pending");
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [dialog, setDialog] = React.useState(null);
-  const [note, setNote] = React.useState("");
+  // Part H: the decision's preset remark (a remark for the Admin is always required).
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const url = source || `/api/hr/branch-requests?kind=${encodeURIComponent(kinds.join(","))}`;
@@ -51,13 +51,14 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
   const rows = !hasPendingState || tab === "all" ? all : tab === "pending" ? all.filter((r) => r.status === "pending") : all.filter((r) => r.status !== "pending");
 
   async function decide() {
-    if (dialog.decision === "reject" ? note.trim().length < 5 : note.trim().length < 3) {
-      setError(dialog.decision === "reject" ? "Write the reason (at least 5 characters)." : "Write a remark for the Admin.");
+    const problem = remarkProblem(remark, dialog.decision, true);
+    if (problem) {
+      setError(problem);
       return;
     }
     setBusy(true); setError("");
     try {
-      await fetchJson("/api/hr/branch-requests", jsonBody("PATCH", { id: dialog.row.id, decision: dialog.decision, note }));
+      await fetchJson("/api/hr/branch-requests", jsonBody("PATCH", { id: dialog.row.id, decision: dialog.decision, remark }));
       notify("Decision Saved", "The branch Admin has been notified.", "success");
       setDialog(null);
       await load();
@@ -84,7 +85,7 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
           <HistoryButton request={r} />
           {!readOnly && r.status === "pending" ? (REQUEST_KINDS[r.kind]?.decisions || []).map((decision) => (
             <Button key={decision} size="sm" variant={decision === "reject" ? "outline" : "default"} className={cn(decision === "reject" && "text-destructive")}
-              onClick={() => { setDialog({ row: r, decision }); setNote(""); setError(""); }}>
+              onClick={() => { setDialog({ row: r, decision }); setRemark(EMPTY_REMARK); setError(""); }}>
               {decision === "reject" ? <XIcon aria-hidden="true" /> : <CheckIcon aria-hidden="true" />}{DECISION_LABELS[decision]}
             </Button>
           )) : null}
@@ -113,11 +114,8 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
                 <DialogTitle>{DECISION_LABELS[dialog.decision]} — {dialog.row.kind_label}</DialogTitle>
                 <DialogDescription>{dialog.row.employee_name ? `${dialog.row.employee_name} · ` : ""}{requestSummary(dialog.row)}{dialog.row.kind === "incentive_endorsement" && dialog.decision === "approve" ? " Approving adds it to payroll now (after the month's cutoff it moves to next month)." : ""}</DialogDescription>
               </DialogHeader>
-              <div className="space-y-1.5">
-                <Label htmlFor="brr-note">{dialog.decision === "reject" ? "Reason" : "Remark for the Admin"}</Label>
-                <Textarea id="brr-note" rows={3} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
-              </div>
-              {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+              <RemarkField id="brr-remark" decision={dialog.decision} entityType="branch_request" required label={dialog.decision === "reject" ? "Reason" : "Remark for the Admin"}
+                value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button variant="outline" onClick={() => setDialog(null)} disabled={busy}>Cancel</Button>
                 <Button variant={dialog.decision === "reject" ? "destructive" : "default"} onClick={decide} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{DECISION_LABELS[dialog.decision]}</Button>

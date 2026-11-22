@@ -21,6 +21,7 @@
  *   PATCH  { action: "decide", request_id, decision: approve | reject, note }   HR
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -228,9 +229,11 @@ export async function PATCH(request) {
     if (!UUID.test(requestId)) return NextResponse.json({ error: "Subsidy request not found." }, { status: 404 });
     const decision = normalizeText(body.decision);
     if (!["approve", "reject"].includes(decision)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
-    const note = normalizeText(body.note).slice(0, 1000);
-
     const supabase = getAdminClient();
+    // Part H: a preset remark (required to reject), audited with the decision.
+    const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "subsidy_request", fallbackText: body.note });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const note = normalizeText(remark.text).slice(0, 1000);
     const found = await supabase.from("payroll_subsidy_requests").select("*").eq("id", requestId).maybeSingle();
     if (found.error) return NextResponse.json({ error: NOT_READY }, { status: 503 });
     if (!found.data) return NextResponse.json({ error: "Subsidy request not found." }, { status: 404 });
@@ -238,7 +241,8 @@ export async function PATCH(request) {
     const person = staff.find((p) => p.id === found.data.employee_id);
     if (!person) return NextResponse.json({ error: "Subsidy request not found." }, { status: 404 });
 
-    const result = await supabase.rpc("subsidy_request_decide", { p_actor: guard.userId, p_request_id: requestId, p_decision: decision, p_note: note || null });
+    const decider = remarkClient(remark, { decision, entityType: "subsidy_request", module: "payroll", table: "payroll_subsidy_requests", ids: [requestId], actor: guard });
+    const result = await decider.rpc("subsidy_request_decide", { p_actor: guard.userId, p_request_id: requestId, p_decision: decision, p_note: note || null });
     if (result.error) return refused(result.error);
     const row = Array.isArray(result.data) ? result.data[0] : result.data;
 

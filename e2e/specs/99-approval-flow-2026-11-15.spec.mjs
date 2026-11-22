@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { test, expect } from "../support/test.mjs";
 import { as, loginThroughUi, signOutLocally } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, confirm } from "../support/flow.mjs";
+import { api, confirm, writeRemark } from "../support/flow.mjs";
 import { db, psql, retireAccountsCreatedSince, rows } from "../support/db.mjs";
 // Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
 // the spec starts (after the seed), on the real clock.
@@ -249,7 +249,7 @@ async function hrDecide(page, runNo, decision, remarks) {
   await settle(page);
   if (runNo > 1) await expect(main(page).getByText(new RegExp(`supplemental|run ${runNo}`, "i")).first()).toBeVisible();
   await main(page).getByRole("button", { name: decision, exact: true }).click();
-  if (remarks) await page.locator("#pa-remarks").fill(remarks);
+  if (remarks) await writeRemark(page, "pa-remark", remarks);
   await page.getByRole("dialog").getByRole("button", { name: decision, exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
   await settle(page);

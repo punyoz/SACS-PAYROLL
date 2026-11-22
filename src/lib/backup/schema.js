@@ -75,6 +75,7 @@ export const TABLE_COLUMNS = Object.freeze({
   school_break_periods: "id:uuid,school_year:text,kind:text,start_date:date,end_date:date,archived:bool,note:text,created_by:uuid,created_by_name:text,updated_by:uuid,updated_by_name:text,updated_by_role:text,created_at:tstz,updated_at:tstz",
   statutory_leave_types: "leave_type:text,enabled:bool,days:num,basis:text,eligibility:text,max_events:int,note:text,sort_order:int,updated_by_name:text,updated_at:tstz",
   system_config: "id:uuid,section:text,key:text,value:text,updated_at:tstz,updated_by:text",
+  remark_presets: "id:uuid,code:text,decision:text,entity_type:text,label:text,active:bool,sort_order:int,created_at:tstz,updated_at:tstz,updated_by:text",
   tenure_protection_applications: "id:uuid,entry_id:uuid,employee_id:uuid,pay_period:text,grant_id:uuid,category:text,deduction_type:text,log_id:uuid,log_date:date,quantity:num,unit:text,amount:num,created_at:tstz",
   tenure_protection_grants: "id:uuid,employee_id:uuid,effective_from:date,notes:text,granted_by:uuid,granted_by_name:text,granted_by_role:text,granted_at:tstz,revoked_on:date,revoked_by:uuid,revoked_by_name:text,revoked_by_role:text,revoked_at:tstz,revoke_notes:text",
   tenure_protection_policies: "id:uuid,branch_id:uuid,use_global:bool,min_tenure_years:num,cover_absence:bool,cover_late:bool,cover_holiday:bool,cover_suspension:bool,cover_summer_break:bool,cover_christmas_break:bool,is_active:bool,updated_by:uuid,updated_by_name:text,updated_by_role:text,created_at:tstz,updated_at:tstz",

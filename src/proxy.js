@@ -107,6 +107,10 @@ const API_MODULES = [
   ["/api/admin/branch-oversight", "branch_oversight"],
   ["/api/hr/branch-requests", "branch_oversight"],
   ["/api/announcements", "announcements"],
+  // Preset remarks and the reasons report (Part H, 2026-11-22): every staff role has "profile";
+  // the routes check the role themselves (HR / Super Admin manage; branch Admin reads its own branch).
+  ["/api/remark-presets", "profile"],
+  ["/api/reports/remark-reasons", "profile"],
   ["/api/admin/branches", "branch_management"],
   ["/api/admin/config", "system_configuration"],
   // Effective-dated payroll rates: Super Admin's System Configuration.

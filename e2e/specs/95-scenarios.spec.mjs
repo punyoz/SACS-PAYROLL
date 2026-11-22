@@ -9,7 +9,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, refresh } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, refresh, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, retireAccountsCreatedSince, rows, workingTodayFor } from "../support/db.mjs";
 // Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
 // the spec starts (after the seed), on the real clock.
@@ -178,7 +178,7 @@ test("AC-08 / AC-06: a wrong approved payslip is corrected on a later payslip (f
     const row = main(page).locator("tr", { hasText: reason });
     await row.getByRole("button", { name: "Reject" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#pc-note").fill("Attach the memo for the raise");
+    await writeRemark(page, "pc-remark", "Attach the memo for the raise");
     await dialog.getByRole("button", { name: "Reject" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     expect((await correction()).status).toBe("rejected");

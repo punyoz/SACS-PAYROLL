@@ -5,7 +5,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { choose, refresh } from "../support/flow.mjs";
+import { choose, refresh, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -60,12 +60,14 @@ test("AWOL: admin files a no-show → HR AWOL case → HR confirms and closes �
     const row = main(page).locator("tr", { hasText: "Bea" }).first();
     await row.getByRole("button", { name: "Close" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#hr-awol-note").fill("E2E: employee returned with a medical certificate");
+    await writeRemark(page, "hr-awol-remark", "with a medical certificate", { preset: "Record corrected" });
     await dialog.getByRole("button", { name: "Save" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     await refresh(page);
     const latest = await rows(db().from("employee_awol_cases").select("stage").eq("employee_id", bea.id).order("created_at", { ascending: false }).limit(1));
     expect(latest[0].stage).toBe("closed");
+    const audited = await rows(db().from("audit_logs").select("action,metadata").eq("entity_type", "awol_case").eq("metadata->>kind", "decision_remark").order("created_at", { ascending: false }).limit(1));
+    expect(audited[0]).toMatchObject({ action: "resolve", metadata: { remark_code: "resolve.record_corrected", remark_text: "Record corrected: with a medical certificate" } });
   });
 
   await step(page, "Admin > Incident & AWOL Reports > status updated, still listed", async () => {

@@ -477,7 +477,7 @@ export const RESTORE_ORDER = Object.freeze([
   "payroll_final_overrides", "payroll_final_pay_submissions", "payroll_incentives", "payroll_loan_payments", "payroll_review_flags", "payroll_run_exclusions",
   "payroll_run_items", "payroll_schedule_settings", "payroll_setting_changes", "payroll_sss_msc_brackets", "payroll_subsidy_adjustments",
   "payroll_subsidy_requests", "payroll_tax_annualizations", "payroll_tax_brackets", "payroll_thirteenth_month", "payroll_window_enforcement",
-  "payroll_window_enforcement_changes", "rfid_cards", "rfid_card_events", "role_permissions", "school_break_periods", "system_config",
+  "payroll_window_enforcement_changes", "rfid_cards", "rfid_card_events", "role_permissions", "school_break_periods", "system_config", "remark_presets",
   "tenure_protection_grants", "tenure_protection_applications", "tenure_protection_policies", "transfer_requests",
   "work_schedule_assignments", "work_schedules",
 ]);

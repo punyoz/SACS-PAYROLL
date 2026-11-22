@@ -9,6 +9,7 @@
  * The database functions check the role, the branch and the rules again.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -135,12 +136,16 @@ export async function PATCH(request) {
       if (badInput) return NextResponse.json({ error: badInput }, { status: 400 });
     }
     const supabase = getAdminClient();
+    // Part H: HR's decision takes a preset remark (required to reject), audited with it.
+    const remark = resubmit ? null : await resolveRemark(supabase, body.remark, { decision: action, entityType: "payroll_correction", fallbackText: body.note });
+    if (remark?.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
     const result = resubmit
       ? await supabase.rpc("payroll_correction_resubmit", {
         p_actor: guard.userId, p_id: id, p_kind: normalizeText(body.kind), p_amount: Number(body.amount),
         p_payrolls: Number(body.payrolls) || 1, p_reason: normalizeText(body.reason),
       })
-      : await supabase.rpc("payroll_correction_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_note: normalizeText(body.note) || null });
+      : await remarkClient(remark, { decision: action, entityType: "payroll_correction", module: "payroll", table: "payroll_corrections", ids: [id], actor: guard })
+        .rpc("payroll_correction_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_note: normalizeText(remark.text) || null });
     if (result.error) return refused(result.error);
     const row = Array.isArray(result.data) ? result.data[0] : result.data;
     await appendAuditLog({
