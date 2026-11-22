@@ -110,3 +110,31 @@ test("HR > User Management: offboarding starts from the selected rows (no separa
   await page.keyboard.press("Escape");
   expect((await profileByEmail(ACCOUNTS.employee2.email)).employee_status).not.toBe("Separated");
 });
+
+test("HR: Move and Replace start from the list's selection (no separate Move many / Replace many buttons)", async ({ page }) => {
+  const bea = await profileByEmail(ACCOUNTS.employee2.email);
+  await as(page, "hr", "hr-transfers");
+  await settle(page);
+  await expect(main(page).getByRole("button", { name: "Move many" })).toHaveCount(0);
+  await main(page).getByRole("checkbox", { name: `Select ${bea.full_name}` }).first().check();
+  await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Move selected" }).click();
+  const move = page.getByTestId("move-many");
+  await expect(move.getByTestId("bulk-row")).toHaveCount(1);
+  await expect(move.getByTestId("bulk-row").first()).toContainText(bea.full_name);
+  await page.keyboard.press("Escape");
+
+  // A card for Bea to replace (local test data only).
+  const uid = `55${Date.now()}`.slice(0, 10);
+  const card = await (await page.request.post("/api/rfid/cards", { data: { action: "register", employee_id: bea.id, uid, reason: "E2E part F" } }));
+  expect([200, 409]).toContain(card.status());
+  await as(page, "hr", "hr-rfid-cards");
+  await settle(page);
+  await expect(main(page).getByRole("button", { name: "Replace many" })).toHaveCount(0);
+  await main(page).getByRole("checkbox", { name: `Select ${bea.full_name} card` }).first().check();
+  await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Replace selected" }).click();
+  const replace = page.getByTestId("rfid-bulk-replace");
+  await expect(replace.getByTestId("bulk-row")).toHaveCount(1);
+  await expect(replace.getByTestId("bulk-row").first()).toContainText(bea.full_name);
+  await page.keyboard.press("Escape");
+  expect((await profileByEmail(ACCOUNTS.employee2.email)).branch_id, "nothing moved").toBe(bea.branch_id);
+});

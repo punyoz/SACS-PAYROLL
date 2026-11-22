@@ -4,6 +4,7 @@ import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -206,7 +207,14 @@ export function TransfersPage({ refreshKey }) {
     return <StatusBadge tone={idx >= 0 ? BRANCH_TONES[idx % BRANCH_TONES.length] : "muted"} dot={false}>{`${e.branch_label || "Unknown branch"}${inactive}`}</StatusBadge>;
   };
 
+  // Part F: Move starts from the employees selected in the list (the per-row check dialog opens with them).
+  const [moveSelected, setMoveSelected] = React.useState(() => new Set());
+  const [moveIds, setMoveIds] = React.useState([]);
+  const toggleMove = (id, on) => setMoveSelected((cur) => { const next = new Set(cur); if (on) next.add(id); else next.delete(id); return next; });
   const columns = [
+    { key: "__select", header: <span className="sr-only">Select</span>, className: "w-10", cell: (e) => (
+      <Checkbox aria-label={`Select ${e.full_name}`} checked={moveSelected.has(e.id)} onCheckedChange={(on) => toggleMove(e.id, on === true)} />
+    ) },
     { key: "full_name", header: "Employee", className: "font-medium", cell: (e) => e.full_name || "" },
     { key: "employee_id", header: "Employee ID", className: "tabular-nums", cell: (e) => e.employee_id || "—" },
     { key: "type", header: "Category", cell: (e) => (
@@ -318,12 +326,20 @@ export function TransfersPage({ refreshKey }) {
           <CardTitle>Employee branch list</CardTitle>
           <CardDescription>Where every Employee and Accountant is assigned.</CardDescription>
           <CardAction className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => setMoving(true)} disabled={!all.length}><UsersIcon aria-hidden="true" />Move many</Button>
             <Button variant="outline" size="sm" onClick={load} disabled={roster.loading}><RefreshCwIcon className={cn(roster.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
           {!branches.length && !first ? <p className="text-sm text-muted-foreground">No branches configured — ask the Super Admin to add branches first.</p> : null}
+          {moveSelected.size ? (
+            <div role="region" aria-label="Selected rows" data-testid="bulk-bar" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+              <span className="font-medium tabular-nums">{moveSelected.size} selected</span>
+              <span className="flex flex-1 flex-wrap justify-end gap-2">
+                <Button size="sm" onClick={() => { setMoveIds([...moveSelected]); setMoving(true); }}><UsersIcon aria-hidden="true" />Move selected</Button>
+                <Button size="sm" variant="ghost" onClick={() => setMoveSelected(new Set())}>Clear</Button>
+              </span>
+            </div>
+          ) : null}
           <BranchGroupedTable
             toolbar={<FilterTabs value={filter} onValueChange={setFilter} label="Branch filter" options={[
               { value: "all", label: "All", count: all.length },
@@ -371,9 +387,10 @@ export function TransfersPage({ refreshKey }) {
       <TransferDialog employee={editing} branches={branches} onOpenChange={(open) => { if (!open) setEditing(null); }} onDone={async () => { await Promise.all([load(), loadEndorsements()]); }} />
       <BulkRowsDialog
         open={moving}
-        onOpenChange={setMoving}
+        onOpenChange={(o) => { setMoving(o); if (!o) setMoveSelected(new Set()); }}
+        initialIds={moveIds}
         testId="move-many"
-        title="Move many employees"
+        title="Move the selected employees"
         description="Choose each employee. Each moves to the chosen branch now and the move is kept in Transfer History (e.g. a branch closing or merging into another). Check first: only the rows that pass are moved."
         employees={all.map((e) => ({ id: e.id, full_name: e.full_name, employee_code: e.employee_id, branch_name: branches.find((b) => b.id === e.branch)?.name || "Unassigned" }))}
         pasteLabel="One employee ID (or name) per line"

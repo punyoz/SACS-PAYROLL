@@ -53,6 +53,9 @@ export function RfidCardsPanel({ refreshKey }) {
   // Many cards at once (scenarios SC-11 / HR-10; alpha test A4): Register many
   // and Replace many, both in the shared row-per-employee dialog.
   const [bulk, setBulk] = React.useState(null); // "register" | "replace" | null
+  // Part F: Replace starts from the active cards selected in the list.
+  const [cardSelected, setCardSelected] = React.useState(() => new Set());
+  const [replaceIds, setReplaceIds] = React.useState([]);
   const [bulkInput, setBulkInput] = React.useState({ reason: "", lost: false });
 
   const load = React.useCallback(async () => {
@@ -187,7 +190,6 @@ export function RfidCardsPanel({ refreshKey }) {
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
             <Button variant="outline" size="sm" onClick={() => setBulk("register")} disabled={!employees.length}><ListPlusIcon aria-hidden="true" />Register many</Button>
-            <Button variant="outline" size="sm" onClick={() => { setBulkInput({ reason: "", lost: false }); setBulk("replace"); }} disabled={!(data?.cards || []).some((c) => c.status === "active")}><ListPlusIcon aria-hidden="true" />Replace many</Button>
             <Button size="sm" onClick={() => open("register")} disabled={!employees.length}><PlusIcon aria-hidden="true" />Register card</Button>
           </CardAction>
         </CardHeader>
@@ -209,6 +211,15 @@ export function RfidCardsPanel({ refreshKey }) {
             )}
             columns={columns} rows={cards} loading={first} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee, ID or last 4 digits…" caption="RFID cards" minWidth={1040}
+            selection={{
+              selected: cardSelected, onChange: setCardSelected, rowId: (c) => c.id, isSelectable: (c) => c.status === "active",
+              label: (c) => `${c.employee_name || "card"} card`,
+              actions: (rows) => (
+                <Button size="sm" variant="outline" onClick={() => { setReplaceIds(rows.map((c) => c.employee_id)); setBulkInput({ reason: "", lost: false }); setBulk("replace"); }}>
+                  <ListPlusIcon aria-hidden="true" />Replace selected
+                </Button>
+              ),
+            }}
             empty={{ title: status === ALL ? "No cards registered yet" : `No ${CARD_STATUS_LABELS[status].toLowerCase()} cards`, icon: CreditCardIcon }} />
         </CardContent>
       </Card>
@@ -290,9 +301,10 @@ export function RfidCardsPanel({ refreshKey }) {
       </Dialog>
       <BulkRowsDialog
         open={Boolean(bulk)}
-        onOpenChange={(o) => { if (!o) setBulk(null); }}
+        onOpenChange={(o) => { if (!o) { setBulk(null); setCardSelected(new Set()); } }}
+        initialIds={bulk === "replace" ? replaceIds : null}
         testId={bulk === "replace" ? "rfid-bulk-replace" : "rfid-bulk"}
-        title={bulk === "replace" ? "Replace many cards" : "Register many cards"}
+        title={bulk === "replace" ? "Replace the selected cards" : "Register many cards"}
         description={bulk === "replace"
           ? "Choose each employee and type (or tap) their NEW card number. The old card stops recording attendance at once. Check first: only the rows that pass are replaced."
           : "Choose each employee by name and type (or tap) their card number. Check first: only the rows that pass are registered."}

@@ -126,7 +126,7 @@ test.describe("HR: register a deleted card number again, then tap it", () => {
   });
 });
 
-test.describe("HR: Replace many and Offboard many", () => {
+test.describe("HR: Replace and Offboard from the list's selection", () => {
   test.use({ storageState: stateFile("hr") });
   for (const [label, viewport] of [["desktop", DESKTOP], ["phone", PHONE]]) {
     test(`Replace many: current card, new number, reason required (${label})`, async ({ page }) => {
@@ -138,9 +138,10 @@ test.describe("HR: Replace many and Offboard many", () => {
         expect(res.status(), await res.text()).toBe(200);
       }
       await openCards(page, "/hr", "hr-rfid-cards");
-      await page.getByRole("button", { name: "Replace many" }).click();
+      // Part F: Replace starts from the selected active card in the list.
+      await page.locator("#portal-main").getByRole("checkbox", { name: "Select Dindo Demo Dimaculangan card" }).check();
+      await page.getByTestId("bulk-bar").getByRole("button", { name: "Replace selected" }).click();
       const dialog = page.getByTestId("rfid-bulk-replace");
-      await pick(dialog, page, 0, "Dindo Demo Dimaculangan");
       await expect(dialog.getByTestId("bulk-row").first()).toContainText("0008");
       await dialog.locator("[data-bulk-value]").first().fill(label === "desktop" ? "9990000777" : "9990000778");
       await dialog.getByRole("button", { name: "Check rows" }).click();
