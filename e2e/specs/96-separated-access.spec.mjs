@@ -64,7 +64,7 @@ test("offboarded HR: the next HR request is refused, My Payslips and My Profile 
     const profile = await asStaff("/api/legacy-auth/update-profile");
     expect(profile.status, profile.text).toBe(200);
     // 2026-11-22 (user decision): own timesheet and leave stay READ-ONLY until archived; no new filings.
-    expect((await asStaff("/api/me/timesheet")).status).toBe(200);
+    expect((await asStaff("/api/me/timesheet?start_date=2026-11-01&end_date=2026-11-15")).status).toBe(200);
     expect((await asStaff("/api/me/leave-requests")).status).toBe(200);
     const filing = await page.request.post("/api/me/overtime-requests", { headers: { cookie, "x-sacs-background": "1" }, data: { request_date: "2026-12-01", planned_start: "17:00", planned_end: "18:00", reason: "After separation" } });
     expect(filing.status()).toBe(403);

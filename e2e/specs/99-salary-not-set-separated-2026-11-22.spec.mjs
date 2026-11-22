@@ -29,7 +29,8 @@ test("Action needed: Salary not set lists ₱0-salary accounts and opens the rec
     await card.screenshot({ path: join(OUT, "hr-salary-not-set.png") });
     await link.click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page.getByRole("dialog")).toContainText(carlo.full_name);
+    // The name sits in the form boxes (values, not text): the record opened is Carlo's.
+    await expect(page.getByRole("dialog").getByLabel(/^Email/).first()).toHaveValue(carlo.email);
   } finally {
     await db().from("profiles").update({ basic_salary: carlo.basic_salary }).eq("id", carlo.id);
   }
