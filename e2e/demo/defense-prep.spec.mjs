@@ -156,8 +156,11 @@ test.describe("HR: Replace many and Offboard many", () => {
     test(`Offboard many: date picker, what will happen, HR logins and duplicates refused (${label})`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.goto("/hr?page=hr-employees");
-      await page.getByRole("button", { name: "Offboard many" }).click();
+      // Part F: offboarding starts from the list's selection; the dialog keeps its paste and check.
+      await page.locator("#portal-main").getByRole("checkbox", { name: /^Select / }).first().check();
+      await page.getByTestId("bulk-bar").getByRole("button", { name: "Offboard selected" }).click();
       const dialog = page.getByTestId("offboard-many");
+      await dialog.getByTestId("bulk-row").first().getByRole("button", { name: /Remove row/ }).click();
       await dialog.getByRole("button", { name: "Paste several rows" }).click();
       await dialog.locator("textarea").fill("DEMO-009, 2026-11-30\nDEMO-009, 2026-11-30\nDEMO-002, 2026-11-30");
       await dialog.getByRole("button", { name: "Add these rows" }).click();

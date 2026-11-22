@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
  *   info       (employee) => text for a read-only column (e.g. the current card), or null
  *   check(rows) -> Promise<[{ ok, error?, note? }]>   (same order as rows)
  *   run(row)    -> Promise                              (rejects with the reason)
+ *   initialIds  employees chosen on the list (Part F): one row each, to start with
  */
 export const BULK_MAX_ROWS = 50;
 
@@ -34,6 +35,7 @@ const blank = () => ({ key: nextKey++, employee_id: "", value: "", result: null 
 export function BulkRowsDialog({
   open, onOpenChange, title, description, employees, showBranch = true, field = null, info = null, infoLabel = "",
   pasteLabel, pastePlaceholder, check, run, actionLabel, extra = null, ready = true, notReadyText = "", onDone, testId = "bulk-rows",
+  initialIds = null,
 }) {
   const [rows, setRows] = React.useState(() => [blank(), blank(), blank()]);
   const [paste, setPaste] = React.useState("");
@@ -45,9 +47,9 @@ export function BulkRowsDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    setRows([blank(), blank(), blank()]);
+    setRows(initialIds?.length ? initialIds.map((id) => ({ ...blank(), employee_id: id })) : [blank(), blank(), blank()]);
     setPaste(""); setShowPaste(false); setMessage(""); setChecked(false); setBusy("");
-  }, [open]);
+  }, [open, initialIds]);
 
   const byId = React.useMemo(() => new Map(employees.map((e) => [e.id, e])), [employees]);
   const options = React.useMemo(() => employees.map((e) => ({

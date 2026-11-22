@@ -95,3 +95,18 @@ test("bulk: HR filters pending leave by type and name (kept in the address), sel
     expect(audited).toHaveLength(2);
   });
 });
+
+test("HR > User Management: offboarding starts from the selected rows (no separate Offboard many button)", async ({ page }) => {
+  const bea = await profileByEmail(ACCOUNTS.employee2.email);
+  await as(page, "hr", "hr-employees");
+  await settle(page);
+  await expect(main(page).getByRole("button", { name: "Offboard many" })).toHaveCount(0);
+  await main(page).getByRole("searchbox").first().fill(bea.full_name).catch(() => main(page).getByPlaceholder(/Search name/).fill(bea.full_name));
+  await main(page).getByRole("checkbox", { name: `Select ${bea.full_name}` }).check();
+  await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Offboard selected" }).click();
+  const dialog = page.getByTestId("offboard-many");
+  await expect(dialog.getByTestId("bulk-row")).toHaveCount(1);
+  await expect(dialog.getByTestId("bulk-row").first()).toContainText(bea.full_name);
+  await page.keyboard.press("Escape");
+  expect((await profileByEmail(ACCOUNTS.employee2.email)).employee_status).not.toBe("Separated");
+});

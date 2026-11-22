@@ -62,8 +62,10 @@ export function EmployeesPage({ refreshKey }) {
   const [salaryFor, setSalaryFor] = React.useState(null); // Change salary (2026-10-26)
   // Import CSV: onboard many at once (scenario SC-10 / HR-02).
   const [importing, setImporting] = React.useState(false);
-  // Offboard many (scenario HR-03): one line per employee, the same reason.
+  // Offboard (scenario HR-03), from the list's selection (Part F): one line per employee, the same reason.
   const [offboarding, setOffboarding] = React.useState(false);
+  const [offboardIds, setOffboardIds] = React.useState([]);
+  const [selected, setSelected] = React.useState(() => new Set());
   const [offboard, setOffboard] = React.useState({ reason: "End of contract", note: "" });
 
   React.useEffect(() => {
@@ -196,7 +198,7 @@ export function EmployeesPage({ refreshKey }) {
           <CardAction className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={exportList} disabled={!(shownRows || rows).length}><DownloadIcon aria-hidden="true" />Export CSV</Button>
             <Button variant="outline" onClick={() => setImporting(true)}><FileUpIcon aria-hidden="true" />Import CSV</Button>
-            <Button variant="outline" onClick={() => setOffboarding(true)}><UserMinusIcon aria-hidden="true" />Offboard many</Button>
+            {/* Part F: offboarding starts from the selected rows in the list (Offboard selected). */}
             <Button onClick={() => setDialog({ mode: "add" })}><PlusIcon aria-hidden="true" />Add employee</Button>
           </CardAction>
         </CardHeader>
@@ -246,6 +248,17 @@ export function EmployeesPage({ refreshKey }) {
             empty={{ title: "No employees found", icon: UsersIcon }}
             caption="Staff list"
             minWidth={1100}
+            selection={{
+              selected, onChange: setSelected, rowId: (e) => e.id,
+              // Active people only; an HR login is separated by the Super Admin.
+              isSelectable: (e) => !e.archived && e.employee_status !== "Separated" && String(e.role || "employee").toLowerCase() !== "hr",
+              label: (e) => e.full_name,
+              actions: (rows) => (
+                <Button size="sm" variant="outline" onClick={() => { setOffboardIds(rows.map((r) => r.id)); setOffboarding(true); }}>
+                  <UserMinusIcon aria-hidden="true" />Offboard selected
+                </Button>
+              ),
+            }}
           />
         </CardContent>
       </Card>
@@ -264,9 +277,10 @@ export function EmployeesPage({ refreshKey }) {
       <EmployeeImportDialog open={importing} onOpenChange={setImporting} onImported={load} />
       <BulkRowsDialog
         open={offboarding}
-        onOpenChange={setOffboarding}
+        onOpenChange={(o) => { setOffboarding(o); if (!o) setSelected(new Set()); }}
+        initialIds={offboardIds}
         testId="offboard-many"
-        title="Offboard many employees"
+        title="Offboard the selected employees"
         description="Choose each employee and their last day. Each becomes Separated from that day: no more taps, card deactivated, pay settled through Final Pay. Check first: only the rows that pass are separated."
         employees={state.employees
           .filter((e) => !e.archived && e.employee_status !== "Separated")
