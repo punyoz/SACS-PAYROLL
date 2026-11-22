@@ -60,7 +60,8 @@ test("tenure: tabs, bulk grant, bulk revoke with a required preset, HR re-grant"
       expect(g.revoked_by_role).toBe("hr");
       expect(g.revoke_notes).toContain("Granted in error");
       await main(page).getByRole("tab", { name: /^Revoked/ }).click();
-      await expect(main(page).locator("tr", { hasText: bea.full_name })).toBeVisible();
+      // The Revoked list's row (the grant history below names Carlo too).
+      await expect(main(page).getByRole("row", { name: new RegExp(`^Select ${bea.full_name}`) })).toBeVisible();
     });
 
     await step(page, "Revoked stays revoked for the job; HR re-grants it by hand", async () => {
