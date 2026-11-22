@@ -52,3 +52,46 @@ test("bulk: HR approves three overtime requests at once; a row refused by the se
     expect(audited.map((a) => a.metadata.remark_code)).toEqual(["approve.as_requested", "approve.as_requested"]);
   });
 });
+
+test("bulk: HR filters pending leave by type and name (kept in the address), selects all shown, rejects them with one remark", async ({ page }) => {
+  const people = await Promise.all([ACCOUNTS.employee.email, ACCOUNTS.employee2.email].map(profileByEmail));
+  const TAG = `E2E bulk leave ${Date.now()}`;
+  const ids = [];
+  for (const [n, p] of people.entries()) {
+    const day = manilaDay(80 + (Math.floor(Date.now() / 1000) % 200) * 2 + n);
+    const id = `e2e-f-${Date.now()}-${n}`;
+    await rows(db().from("leave_requests").insert({ id, employee_id: p.id, employee_name: p.full_name, leave_type: "Emergency Leave", start_date: day, end_date: day,
+      reason: TAG, status: "pending_accountant", pay_status: "with_pay", branch_id: p.branch_id }).select("id"));
+    ids.push(id);
+  }
+  await as(page, "hr", "hr-leaves");
+  await settle(page);
+  const filters = main(page).getByTestId("leave-pending-filters");
+
+  await step(page, "Type filter with counts, name search; both stay in the address", async () => {
+    await filters.getByRole("combobox", { name: "Leave type" }).click();
+    await page.getByRole("option", { name: /^Emergency Leave \(\d+\)$/ }).click();
+    await expect(page).toHaveURL(/lv_type=Emergency/);
+    await filters.getByRole("textbox", { name: "Search pending leave" }).fill(people[0].full_name);
+    await expect(main(page).locator("li", { hasText: TAG })).toHaveCount(1);
+    await filters.getByRole("textbox", { name: "Search pending leave" }).fill("");
+    await expect(main(page).locator("li", { hasText: TAG })).toHaveCount(2);
+  });
+
+  await step(page, "Select all shown → Reject selected with one preset: both rejected, one audited remark each", async () => {
+    await filters.getByRole("checkbox", { name: /Select all shown/ }).check();
+    await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Reject selected" }).click();
+    const dialog = page.getByTestId("bulk-dialog");
+    await dialog.getByRole("button", { name: /^Reject \(\d+\)$/ }).click();
+    await expect(dialog.getByText("Choose a remark (a reason is required).")).toBeVisible();
+    await writeRemark(page, "bulk-remark", "", { preset: "Incomplete documents" });
+    await dialog.getByRole("button", { name: /^Reject \(\d+\)$/ }).click();
+    await expect(dialog.getByTestId("bulk-summary")).toContainText("done");
+    await expect(dialog.getByTestId("bulk-summary")).not.toContainText("not done");
+    await dialog.getByRole("button", { name: "Done" }).click();
+    const after = await rows(db().from("leave_requests").select("status,decision_reason").in("id", ids));
+    expect(after).toEqual([{ status: "rejected", decision_reason: "Incomplete documents" }, { status: "rejected", decision_reason: "Incomplete documents" }]);
+    const audited = await rows(db().from("audit_logs").select("entity_id").in("entity_id", ids).eq("metadata->>kind", "decision_remark"));
+    expect(audited).toHaveLength(2);
+  });
+});
