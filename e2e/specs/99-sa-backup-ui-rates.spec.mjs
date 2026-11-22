@@ -360,8 +360,8 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     // The earliest allowed date (future pay periods only), not a fixed Dec 1 (written 2026-11-08; 2026-11-21).
     const MIN_DATE = (await api(page, "GET", "/api/admin/payroll-rates")).data.min_effective_date;
     expect(MIN_DATE, "the rates API names the earliest allowed date").toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    // The pay period after the earliest one: the dialog already shows the earliest,
-    // and picking a date that is already chosen clears it (open item, 2026-11-20).
+    // The pay period after the earliest one, so the save below changes the date
+    // the dialog pre-fills (the earliest).
     const [my, mm, md] = MIN_DATE.split("-").map(Number);
     const RATE_DATE = md < 16 ? `${my}-${String(mm).padStart(2, "0")}-16` : (mm === 12 ? `${my + 1}-01-01` : `${my}-${String(mm + 1).padStart(2, "0")}-01`);
     const RATE_LABEL = new Date(`${RATE_DATE}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
@@ -379,7 +379,14 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     await dialog.locator("#sa-rate-value").fill("700");
     await expect(dialog.locator('[data-testid="hourly-preview"]')).toContainText("₱87.50");
     check("Rates dialog", true, "typing ₱700 shows the hourly rate ₱87.50 live");
-    await pickDate(page, dialog.locator("#sa-rate-effective"), RATE_DATE);
+    // Clicking the date already chosen keeps it chosen (finding c, 2026-11-21).
+    const effective = dialog.locator("#sa-rate-effective");
+    const prefilled = (await effective.innerText()).trim();
+    expect(prefilled, "the dialog pre-fills the earliest date").not.toMatch(/Pick a date/);
+    await pickDate(page, effective, MIN_DATE);
+    await expect(effective).toHaveText(prefilled);
+    check("Date picker", true, `re-clicking the chosen day keeps ${prefilled}`);
+    await pickDate(page, effective, RATE_DATE);
     await dialog.getByRole("button", { name: "Save new version" }).click();
     await expect(dialog.getByText("Give a reason for the daily rate change.")).toBeVisible();
     check("Rates dialog", true, "a reason is required");
