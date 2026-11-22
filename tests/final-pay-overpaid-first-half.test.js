@@ -38,13 +38,14 @@ const anjo = {
 describe("Final pay after an overpaid 1st half (Anjo's case, hand-checked)", () => {
   it("a. no 13th month on a 1st half taken back; b. the 603.45 is reported to recover", () => {
     const r = computeFinalPay(anjo);
-    // salary: 0 × 689.65 − 603.45 = −603.45
-    expect(r.earnings.find((e) => e.kind === "salary").amount).toBe(-603.45);
+    // salary earned: 0 × 689.65 = 0; the 603.45 1st half is a deduction (2026-11-22: never a negative gross)
+    expect(r.earnings.find((e) => e.kind === "salary").amount).toBe(0);
+    expect(r.deductions.find((d) => d.kind === "first_half_paid").amount).toBe(603.45);
     // 13th month: (603.45 YTD + (0 − 603.45) added) ÷ 12 = 0 → no line
     expect(r.thirteenth_month).toBe(0);
     expect(r.earnings.some((e) => e.kind === "thirteenth_month")).toBe(false);
-    // gross −603.45, nothing deducted, net floored at 0, the shortfall reported
-    expect(r.gross).toBe(-603.45);
+    // gross 0 (never negative), net floored at 0, the shortfall reported
+    expect(r.gross).toBe(0);
     expect(r.net_pay).toBe(0);
     expect(r.overpayment_to_recover).toBe(603.45);
   });

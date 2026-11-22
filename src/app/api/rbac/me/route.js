@@ -13,7 +13,7 @@
 
 import { NextResponse } from "next/server";
 import { readSession } from "@/lib/rbac/session";
-import { resolveCurrentBranchId } from "@/lib/auth/live-branch";
+import { readLiveAccount, resolveCurrentBranchId } from "@/lib/auth/live-branch";
 import { buildMenu, allowedPagesFor, defaultPageFor } from "@/lib/rbac/menu";
 import { loadOrgName } from "@/lib/org-name";
 import {
@@ -52,6 +52,8 @@ export async function GET(request) {
       branch_id: branchId,
       branch_exempt: isBranchExempt(role),
       must_change_password: Boolean(session.pwd),
+      // Separated, not archived (2026-11-22): own pages are read-only; the forms hide.
+      separated: Boolean((await readLiveAccount(session.sub))?.separated),
     },
     permissions: ROLE_PERMISSIONS[role] || {},
     manageable_roles: MANAGEABLE_ROLES[role] || [],

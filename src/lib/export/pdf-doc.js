@@ -240,6 +240,9 @@ export function renderPayslipDocument(model) {
       // Deductions above the pay are carried to next month: added back so the line adds up.
       model.net.carried ? h(Text, { style: P.netSign }, "+") : null,
       model.net.carried ? h(View, { style: P.netPart }, h(Text, { style: S.gridLabel }, "Carried to next month"), h(Text, { style: P.netValue }, model.net.carried)) : null,
+      // A final pay whose deductions are above the pay: never negative pay; HR recovers the rest.
+      model.net.recover ? h(Text, { style: P.netSign }, "+") : null,
+      model.net.recover ? h(View, { style: P.netPart }, h(Text, { style: S.gridLabel }, "Overpayment to recover"), h(Text, { style: P.netValue }, model.net.recover)) : null,
       h(Text, { style: P.netSign }, "="),
       h(View, { style: [P.netPart, { alignItems: "flex-end" }] },
         h(Text, { style: [S.gridLabel, { textAlign: "right" }] }, model.net.netLabel),

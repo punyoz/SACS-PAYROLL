@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
-import { MyOvertimeRequests } from "@/components/portal/overtime-requests";
+import { MyOvertimeRequests, SEPARATED_NOTE } from "@/components/portal/overtime-requests";
 import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
@@ -319,6 +319,8 @@ const REQUEST_COLUMNS = [
 ];
 
 export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) {
+  const { me } = usePortalSession();
+  const separated = Boolean(me?.user?.separated);
   return (
     <>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -328,7 +330,9 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
             <CardDescription>Your request goes to HR / your Administrator for approval.</CardDescription>
           </CardHeader>
           <CardContent>
-            <LeaveRequestForm onSubmitted={leave.reload} balance={leave.balance} />
+            {separated
+              ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p>
+              : <LeaveRequestForm onSubmitted={leave.reload} balance={leave.balance} />}
           </CardContent>
         </Card>
         <LeaveBalance balance={leave.balance} loading={leave.loading} />

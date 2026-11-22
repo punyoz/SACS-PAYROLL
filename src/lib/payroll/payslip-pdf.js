@@ -354,7 +354,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
     panels: tables ? panelsFor(tables) : null,
     sections,
     notes: (tables?.notes || []).map(sentence),
-    net: { gross: pesoPdf(gross), deductions: pesoPdf(Math.abs(totalDeductions)), carried: tables?.carry_over_out ? pesoPdf(tables.carry_over_out) : null, net: pesoPdf(details?.net_pay || 0), netLabel: String(netLabel || "Net pay").toUpperCase() },
+    net: { gross: pesoPdf(gross), deductions: pesoPdf(Math.abs(totalDeductions)), carried: tables?.carry_over_out ? pesoPdf(tables.carry_over_out) : null, recover: tables?.overpayment_to_recover ? pesoPdf(tables.overpayment_to_recover) : null, net: pesoPdf(details?.net_pay || 0), netLabel: String(netLabel || "Net pay").toUpperCase() },
     monthTotal: extra.month_total?.label || null,
     boxes,
     by: generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : null,

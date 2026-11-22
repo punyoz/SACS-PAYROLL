@@ -309,6 +309,28 @@ function refusePayrollHold(employee) {
   return NextResponse.json({ error: payrollHoldMessage(employee), code: PAYROLL_HOLD_CODE }, { status: 409 });
 }
 
+/**
+ * ₱0 salary is never processed (2026-11-22): the basic salary in force on the
+ * period's first day (HR's salary history) must be above zero. `history` is
+ * loadSalaryChanges() when the caller already has it (the batch).
+ */
+const ZERO_SALARY_CODE = "zero_salary";
+async function zeroSalaryMessage(supabase, employee, payPeriodLabel, history = null) {
+  const start = periodFromLabel(payPeriodLabel || "")?.start_key || null;
+  let salary = Number(employee?.basic_salary) || 0;
+  if (start) {
+    const rows = history ? history.rows : (await loadSalaryChanges(supabase, [employee.id])).rows;
+    salary = Number(salaryOn(rows || [], employee.id, start, employee.basic_salary)) || 0;
+  }
+  if (salary > 0) return null;
+  return `${employee.full_name} has no basic salary (₱0)${start ? ` on ${payPeriodLabel}` : ""}. HR sets the salary first (Employees → Salary); payroll never makes a payslip with ₱0 pay.`;
+}
+
+async function refuseZeroSalary(supabase, employee, payPeriodLabel) {
+  const message = await zeroSalaryMessage(supabase, employee, payPeriodLabel);
+  return message ? NextResponse.json({ error: message, code: ZERO_SALARY_CODE }, { status: 409 }) : null;
+}
+
 async function fetchEmployees(supabase, guard = null) {
   const usersResult = await listUsersCached(supabase);
   if (usersResult.error) {
@@ -4291,6 +4313,8 @@ async function handleBatchSubmit(supabase, body, guard) {
   // position_title): batch payslips showed Branch "—" without it.
   const branchNames = new Map(((await supabase.from("branches").select("id,name")).data || []).map((b) => [b.id, b.name]));
 
+  // Salary history read once for the ₱0-salary check below.
+  const batchSalaryHistory = await loadSalaryChanges(supabase, requestedEntries.map((item) => normalizeText(item.employee_id)).filter(Boolean));
   // Pure in-memory work — no DB calls here, so this loop costs nothing extra
   // regardless of how many employees are in the batch.
   for (const item of requestedEntries) {
@@ -4321,6 +4345,11 @@ async function handleBatchSubmit(supabase, body, guard) {
 
     if (employee.payroll_hold) {
       skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: payrollHoldMessage(employee), code: PAYROLL_HOLD_CODE });
+      continue;
+    }
+    const zeroSalary = await zeroSalaryMessage(supabase, employee, payPeriod, batchSalaryHistory);
+    if (zeroSalary) {
+      skipped.push({ employee_id: employee.id, employee_name: employee.full_name, reason: zeroSalary, code: ZERO_SALARY_CODE });
       continue;
     }
 
@@ -4570,6 +4599,8 @@ export async function POST(request) {
     if (heldPay) return heldPay;
 
     const payPeriod = normalizeText(body.pay_period, formatPeriodLabel(manilaToday()));
+    const zero = await refuseZeroSalary(supabase, employee, payPeriod);
+    if (zero) return zero;
     const period = periodFromLabel(payPeriod) || findPeriodRangeByLabel(payPeriod) || getPayPeriodRange(manilaToday());
     const badAttendance = attendanceInputError(body.deductions, period) || overrideReasonError(body.override_reason);
     if (badAttendance) return NextResponse.json({ error: badAttendance, code: "invalid_attendance_input" }, { status: 400 });
@@ -4873,6 +4904,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
   // first (returned / excused), then the held payslip can be generated.
   const heldPay = refusePayrollHold(employee);
   if (heldPay) return heldPay;
+  const zero = await refuseZeroSalary(supabase, employee, payPeriod);
+  if (zero) return zero;
 
   // Payroll Approval (20261014010000): a branch's run that is Pending HR
   // Approval or Approved changes for nobody but the override. While the run

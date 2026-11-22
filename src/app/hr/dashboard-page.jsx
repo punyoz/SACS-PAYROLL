@@ -169,13 +169,16 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
 
 const fmtDay = (key) => new Date(`${key}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
 
-/** HR's Action needed (Part A): records to confirm, probations and contracts ending soon. */
+/** HR's Action needed (Part A): records to confirm, probations and contracts ending soon, salaries not set. */
 function ActionNeededCard({ data }) {
   const a = data || {};
   const groups = [
     { key: "unconfirmed", title: "Needs HR confirmation", text: "Employment status and type set by default (Regular / Full-time).", href: portalHref("hr-employees", { emp_filter: "unconfirmed" }), rows: a.unconfirmed || [] },
     { key: "probation", title: "Probation ending", text: "Decide the next status before the date.", href: portalHref("hr-employees", { emp_status: "Probationary" }), rows: a.probation_ending || [] },
     { key: "contract", title: "Contract ending", text: "Renew, end or change the status before the date.", href: portalHref("hr-employees", { emp_status: "Contractual" }), rows: a.contract_ending || [] },
+    // 2026-11-22: payroll refuses a ₱0 salary; each name opens that employee's record.
+    { key: "salary", title: "Salary not set", text: "₱0 salary: payroll refuses them until it is set (an HR account's salary: Super Admin).", href: portalHref("hr-employees"), rows: a.salary_not_set || [],
+      rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
   ].filter((g) => g.rows.length);
   if (!groups.length) return null;
   return (
@@ -185,7 +188,16 @@ function ActionNeededCard({ data }) {
         <CardDescription>Employee records waiting for HR.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-3">
-        {groups.map((g) => (
+        {groups.map((g) => (g.rowHref ? (
+          // One link per person (a card-wide link cannot hold links inside it).
+          <div key={g.key} className="rounded-lg border p-3" data-testid={`action-${g.key}`}>
+            <p className="text-sm font-semibold">{g.title} <span className="tabular-nums text-gold-text">({g.rows.length})</span></p>
+            <p className="mb-2 text-xs text-muted-foreground">{g.text}</p>
+            <ul className="space-y-0.5 text-sm">
+              {g.rows.map((r) => <li key={r.id}><a href={g.rowHref(r)} className="underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">{r.full_name}</a></li>)}
+            </ul>
+          </div>
+        ) : (
           <a key={g.key} href={g.href} className="block rounded-lg border p-3 transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
             <p className="text-sm font-semibold">{g.title} <span className="tabular-nums text-gold-text">({g.rows.length})</span></p>
             <p className="mb-2 text-xs text-muted-foreground">{g.text}</p>
@@ -194,7 +206,7 @@ function ActionNeededCard({ data }) {
               {g.rows.length > 5 ? <li className="text-xs text-muted-foreground">and {g.rows.length - 5} more</li> : null}
             </ul>
           </a>
-        ))}
+        )))}
       </CardContent>
     </Card>
   );
