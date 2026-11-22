@@ -98,7 +98,7 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
   ];
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]" data-testid="my-overtime-requests">
+    <div className="grid gap-4" data-testid="my-overtime-requests">
       <Card className="shadow-xs">
         <CardHeader>
           <CardTitle>Overtime request</CardTitle>
