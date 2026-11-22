@@ -102,7 +102,7 @@ export function initialsOf(name, fallback = "EM") {
 /* ── Attendance statuses (app.js ATTENDANCE_STATUS_LIST) ── */
 
 export const ATTENDANCE_STATUS_LIST = [
-  "On Time", "Early Bird", "Late", "Undertime", "Half Day", "Absent",
+  "On Time", "Early Bird", "Late", "Undertime", "Half Day", "Absent", "Absent (short day)",
   "Incomplete", "Pending Correction", "Corrected", "On Leave", "Holiday",
 ];
 
@@ -120,7 +120,7 @@ export function attendanceBucket(status) {
   if (label === "Absent") return "absent";
   if (label === "On Leave") return "leave";
   if (label === "Holiday") return "holiday";
-  if (label === "Late" || label === "Undertime" || label === "Half Day") return "late";
+  if (label === "Late" || label === "Undertime" || label === "Half Day" || label === "Absent (short day)") return "late";
   if (label === "On Time" || label === "Early Bird" || label === "Corrected") return "present";
   return "";
 }

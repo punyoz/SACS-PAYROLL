@@ -120,12 +120,14 @@ test("RFID edge cases: late time in, time out, where taps show, absence, nightly
     console.log(`  · Eli today: ${JSON.stringify(log)}`);
     expect(log.time_out).toBeTruthy();
     // Worked under the minimum (requests.absent_below_pct, default half the
-    // required hours): an Absent, which replaces late and undertime. No "Half
-    // Day" without a half-day leave request (20261122020000).
+    // required hours): "Absent (short day)", no late; the minutes NOT worked are
+    // the undertime (only those are deducted). No "Half Day" without a request (20261122020000).
     const inAt = Math.min(shift.in + lateBy, out - 10);
     if ((out - inAt) / 60 < Number(shift.required || 8) / 2) {
-      expect(log.status).toBe("Absent");
-      expect(Number(log.undertime_minutes || 0) + Number(log.late_minutes || 0)).toBe(0);
+      expect(log.status).toBe("Absent (short day)");
+      expect(Number(log.late_minutes || 0)).toBe(0);
+      const notWorked = Number(shift.required || 8) * 60 - (out - inAt);
+      expect(Math.abs(Number(log.undertime_minutes) - notWorked), `not worked ${log.undertime_minutes} vs ${notWorked}`).toBeLessThanOrEqual(2);
     } else if (out < shift.out) {
       const expected = shift.out - out;
       expect(Math.abs(Number(log.undertime_minutes) - expected), `undertime ${log.undertime_minutes} vs ${expected} expected`).toBeLessThanOrEqual(2);

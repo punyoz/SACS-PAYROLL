@@ -31,14 +31,17 @@ DECLARE
   ana CONSTANT UUID := '00000000-0000-4000-8000-0000000004a1';
   v_log public.attendance_logs;
   v_mid INTEGER;
+  v_hours NUMERIC;
 BEGIN
-  SELECT work_start + (work_end - work_start) / 2 INTO v_mid FROM public.attendance_schedule_for(ana, '00000000-0000-4000-8000-0000000004f1', '2026-10-06');
+  SELECT work_start + (work_end - work_start) / 2, work_hours INTO v_mid, v_hours FROM public.attendance_schedule_for(ana, '00000000-0000-4000-8000-0000000004f1', '2026-10-06');
 
-  -- 1. Without a request a short day is never "Half Day": below half the day's hours it is Absent.
+  -- 1. Without a request a short day is never "Half Day": below half the day's hours it is
+  --    "Absent (short day)", and only the time not worked is kept for payroll (undertime minutes).
   INSERT INTO public.attendance_logs (employee_id, employee_name, log_date, time_in, time_out, branch_id)
   VALUES (ana, 'Ana Halfday', '2026-10-05', '2026-10-05 08:00+08', '2026-10-05 10:00+08', '00000000-0000-4000-8000-0000000004f1')
   RETURNING * INTO v_log;
-  ASSERT v_log.status = 'Absent' AND NOT v_log.is_half_day, format('1: short day is Absent, got %s', v_log.status);
+  ASSERT v_log.status = 'Absent (short day)' AND NOT v_log.is_half_day AND v_log.late_minutes = 0, format('1: got %s', v_log.status);
+  ASSERT v_log.undertime_minutes = ROUND((v_hours - 2) * 60), format('1: %s min not worked, expected %s', v_log.undertime_minutes, ROUND((v_hours - 2) * 60));
   -- 1b. Above the minimum it is undertime minutes, not Half Day.
   INSERT INTO public.attendance_logs (employee_id, employee_name, log_date, time_in, time_out, branch_id)
   VALUES (ana, 'Ana Halfday', '2026-10-09', '2026-10-09 08:00+08', '2026-10-09 14:00+08', '00000000-0000-4000-8000-0000000004f1')
@@ -85,7 +88,7 @@ BEGIN
   INSERT INTO public.attendance_logs (employee_id, employee_name, log_date, time_in, time_out, branch_id)
   SELECT ana, 'Ana Halfday', d, d + TIME '08:00' AT TIME ZONE 'Asia/Manila', d + TIME '09:00' AT TIME ZONE 'Asia/Manila', '00000000-0000-4000-8000-0000000004f1'
   FROM unnest(ARRAY['2026-10-12', '2026-10-13', '2026-10-14']::DATE[]) d;
-  ASSERT (SELECT bool_and(status = 'Absent') FROM public.attendance_logs WHERE employee_id = ana AND log_date BETWEEN '2026-10-12' AND '2026-10-14'), '7a: short days are Absent';
+  ASSERT (SELECT bool_and(status = 'Absent (short day)') FROM public.attendance_logs WHERE employee_id = ana AND log_date BETWEEN '2026-10-12' AND '2026-10-14'), '7a: short days';
   PERFORM public.awol_flag_candidates('2026-10-14');
   ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = ana), '7b: no AWOL case for days with taps';
   -- 7c. Control: three no-show days do open a case (the check above is not vacuous).

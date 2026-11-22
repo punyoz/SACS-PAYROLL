@@ -193,13 +193,13 @@ const TAX_KEYS = new Set(["withholding_tax", "year_end_tax", "year_end_refund"])
 
 export function deductionGroup(row) {
   const key = String(row?.key || "");
-  if (ATTENDANCE_KEYS.has(key)) return "attendance";
+  if (ATTENDANCE_KEYS.has(key) || /^short_day(-|$)/.test(key)) return "attendance";
   if (GOVERNMENT_KEYS.has(key)) return "government";
   if (TAX_KEYS.has(key)) return "tax";
   if (/^(loan|loans|offset|cash_advance|carry|carry_over)(-|$)/.test(key)) return "loans";
   // Lines without a known key (an older per-cutoff payslip): read the label.
   const label = String(row?.label || "");
-  if (/^(Absen|Late|Undertime|Half day|Leave with)/i.test(label)) return "attendance";
+  if (/^(Absen|Late|Undertime|Half day|Short day|Leave with)/i.test(label)) return "attendance";
   if (/^(SSS|PhilHealth|Pag-IBIG)/i.test(label)) return "government";
   if (/tax/i.test(label)) return "tax";
   if (/loan|advance|carried/i.test(label)) return "loans";

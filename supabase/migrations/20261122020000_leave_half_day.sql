@@ -7,6 +7,12 @@ ALTER TABLE public.leave_requests DROP CONSTRAINT IF EXISTS leave_requests_half_
 ALTER TABLE public.leave_requests ADD CONSTRAINT leave_requests_half_day_check
   CHECK (half_day IS NULL OR (half_day IN ('AM', 'PM') AND start_date = end_date));
 
+-- "Absent (short day)": taps, but worked below the minimum (see the engine below).
+ALTER TABLE public.attendance_logs DROP CONSTRAINT IF EXISTS attendance_logs_status_check;
+ALTER TABLE public.attendance_logs ADD CONSTRAINT attendance_logs_status_check CHECK (status = ANY (ARRAY[
+  'On Time', 'Early Bird', 'Late', 'Undertime', 'Half Day', 'Absent', 'Absent (short day)', 'Incomplete',
+  'Pending Correction', 'Corrected', 'On Leave', 'Holiday']));
+
 -- The minimum worked share of a day (% of its hours) below which a day with
 -- taps is an Absent; pending the school's policy manual.
 INSERT INTO public.system_config (section, key, value, updated_by)
@@ -142,11 +148,13 @@ BEGIN
 
       -- No "Half Day" without a half-day leave request (2026-11-22): worked
       -- below the minimum (setting requests.absent_below_pct, % of the day's
-      -- hours) is an Absent; otherwise the late / undertime minutes count.
+      -- hours) is "Absent (short day)" for HR follow-up. Pay is deducted only
+      -- for the time NOT worked: undertime_minutes holds the day's hours less
+      -- the hours worked (never a full day for a day with taps).
       IF v_worked < p.work_hours * v_min_pct / 100.0 THEN
-        v_status := 'Absent';
+        v_status := 'Absent (short day)';
         v_late := 0;
-        v_under := 0;
+        v_under := GREATEST(0, ROUND((p.work_hours - v_worked) * 60))::INTEGER;
         v_early := FALSE;
       ELSIF v_late > 0 THEN
         v_status := 'Late';

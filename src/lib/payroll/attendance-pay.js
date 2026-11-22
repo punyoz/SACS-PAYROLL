@@ -61,6 +61,7 @@
 
 import { isUnresolvedStatus, normalizeAttendanceStatus } from "@/lib/attendance/status";
 import { roundPeso } from "@/lib/payroll/money";
+import { pesoText } from "@/lib/payroll/line-tags";
 
 /** Round to centavos. */
 export function peso(value) {
@@ -92,6 +93,17 @@ export function holidayPayPct(type, { regularPct, specialPct, restDay = false })
   if (type === "special") return restDay ? SPECIAL_DAY_REST_DAY_PCT : specialPct;
   return 0;
 }
+
+/** "Short day (Nov 5)": the payslip line of an "Absent (short day)" (2026-11-22). */
+export function shortDayLabel(dateKey) {
+  const d = new Date(`${dateKey}T00:00:00Z`);
+  return `Short day (${d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })})`;
+}
+const hoursNotWorked = (minutes) => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h ? `${h} h` : ""}${h && m ? " " : ""}${m ? `${m} min` : ""}` || "0 h";
+};
 
 /**
  * @param {object}   args
@@ -323,10 +335,13 @@ export function computeAttendancePay({ logs, leaveDays, halfLeaveDays, rates, pe
 
     const undertimeMinutes = Math.max(0, Math.round(Number(row.undertime_minutes) || 0));
     if (undertimeMinutes > 0) {
+      // "Absent (short day)" (2026-11-22): only the time not worked, never a full day.
+      const shortDay = status === "Absent (short day)";
       const undertimeLine = {
         type: "undertime", quantity: undertimeMinutes, unit: "minute", rate: hourly,
         rate_config_id: configOf(rates, "hourly"),
         amount: peso((undertimeMinutes / 60) * hourly), source_log_id: logId, log_date: date,
+        ...(shortDay ? { short_day: true, note: `${shortDayLabel(date)}: ${hoursNotWorked(undertimeMinutes)} not worked × ${pesoText(hourly)}` } : {}),
       };
       if (waive(date, undertimeLine)) {
         counts.protected_undertime_minutes += undertimeMinutes;
