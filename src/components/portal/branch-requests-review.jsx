@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CheckIcon, InboxIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -49,6 +50,16 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
   const all = state.data?.requests || [];
   const hasPendingState = kinds.some((k) => !REQUEST_KINDS[k]?.endorsement);
   const rows = !hasPendingState || tab === "all" ? all : tab === "pending" ? all.filter((r) => r.status === "pending") : all.filter((r) => r.status !== "pending");
+  // Part F: decide several at once; the decisions common to every kind on this page (a remark for the Admin is always required).
+  const shared = (kinds || []).map((k) => REQUEST_KINDS[k]?.decisions || []).reduce((acc, d) => (acc === null ? d : acc.filter((x) => d.includes(x))), null) || [];
+  const bulkRequests = useBulkDecisions({
+    entityType: "branch_request", remarkRequired: true, onDone: () => load(),
+    decisions: (shared || []).map((d) => ({ decision: d, label: DECISION_LABELS[d], destructive: d === "reject" })),
+    isSelectable: (r) => !readOnly && r.status === "pending" && (REQUEST_KINDS[r.kind]?.decisions || []).length > 0,
+    label: (r) => `${r.employee_name || r.kind_label} request`,
+    rowLabel: (r) => `${r.employee_name ? `${r.employee_name} · ` : ""}${r.kind_label} · ${requestSummary(r)}`,
+    send: (r, decision, remark) => fetchJson("/api/hr/branch-requests", jsonBody("PATCH", { id: r.id, decision, remark })),
+  });
 
   async function decide() {
     const problem = remarkProblem(remark, dialog.decision, true);
@@ -104,7 +115,9 @@ export function BranchRequestsReview({ refreshKey, kinds, title, description, ic
       <CardContent className="space-y-4">
         <DataTable toolbar={hasPendingState ? <FilterTabs value={tab} onValueChange={setTab} label="Request filter" options={[{ value: "pending", label: "Pending" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} /> : null}
           columns={columns} rows={rows} loading={state.loading && !state.data} error={state.error} onRetry={load} pageSize={15}
-          searchPlaceholder="Search employee, branch or remark…" empty={{ title: tab === "pending" && hasPendingState ? "Nothing waiting" : "Nothing here yet", icon: Icon }} caption={title} minWidth={1150} />
+          searchPlaceholder="Search employee, branch or remark…" empty={{ title: tab === "pending" && hasPendingState ? "Nothing waiting" : "Nothing here yet", icon: Icon }} caption={title} minWidth={1150}
+          selection={!readOnly && shared.length ? bulkRequests.selection : null} />
+        {bulkRequests.dialog}
       </CardContent>
       <Dialog open={Boolean(dialog)} onOpenChange={(o) => { if (!o && !busy) setDialog(null); }}>
         <DialogContent className="sm:max-w-lg">

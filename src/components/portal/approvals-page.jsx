@@ -4,6 +4,7 @@ import * as React from "react";
 import { CheckIcon, GiftIcon, HandCoinsIcon, HistoryIcon, Loader2Icon, PencilIcon, RefreshCwIcon, WalletIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -67,6 +68,14 @@ export function ApprovalsPage({ refreshKey }) {
 
   const data = state.data;
   const can = data?.can || {};
+  // Part F: HR decides several processed requests at once (one remark; each row checked and reported).
+  const bulkSubsidy = useBulkDecisions({
+    entityType: "subsidy_request", decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }], onDone: () => load(),
+    isSelectable: (r) => Boolean(can.decide) && r.status === "processed",
+    label: (r) => `${r.employee_name} ${r.kind_label}`,
+    rowLabel: (r) => `${r.employee_name} · ${r.kind_label}${r.amount ? ` · ${money(r.amount)}` : ""}`,
+    send: (r, decision, remark) => fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "decide", request_id: r.id, decision, remark })),
+  });
   const first = state.loading && !data;
   const requests = React.useMemo(() => data?.requests || [], [data]);
   const shown = (kind) => requests.filter((r) => r.kind === kind && (status === "all" || r.status === status));
@@ -194,7 +203,8 @@ export function ApprovalsPage({ refreshKey }) {
           <DataTable columns={columns} rows={shown(kind)} loading={first} error={state.error} onRetry={load} pageSize={10}
             rowClassName={(r) => ((can.decide && r.status === "processed") || (can.process && ["pending", "rejected"].includes(r.status)) ? "bg-brand-gold/5" : undefined)}
             searchPlaceholder="Search teacher…" empty={{ title: status === "all" ? "Nothing here yet" : `Nothing ${SUBSIDY_STATUS_LABELS[status].toLowerCase()}`, icon }}
-            caption={title} minWidth={1180} />
+            caption={title} minWidth={1180} selection={can.decide ? bulkSubsidy.selection : null} />
+          {bulkSubsidy.dialog}
         </CardContent>
       </Card>
     );

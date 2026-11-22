@@ -138,3 +138,29 @@ test("HR: Move and Replace start from the list's selection (no separate Move man
   await page.keyboard.press("Escape");
   expect((await profileByEmail(ACCOUNTS.employee2.email)).branch_id, "nothing moved").toBe(bea.branch_id);
 });
+
+test("bulk: HR approves two schedule requests from branch Admins with one remark (required here)", async ({ page }) => {
+  const people = await Promise.all([ACCOUNTS.employee.email, ACCOUNTS.employee2.email].map(profileByEmail));
+  const admin = await profileByEmail(ACCOUNTS.admin.email);
+  const TAG = `E2E bulk schedule ${Date.now()}`;
+  const planted = await rows(db().from("branch_admin_requests").insert(people.map((p) => ({
+    branch_id: p.branch_id, kind: "schedule_request", employee_id: p.id, status: "pending", admin_note: TAG,
+    details: { employee_name: p.full_name, request_type: "schedule_change", request_type_label: "Schedule change", effective_from: manilaDay(14), requested: "7:00-16:00" },
+    created_by: admin.id, created_by_name: admin.full_name, history: [],
+  }))).select("id"));
+  const ids = planted.map((r) => r.id);
+  await as(page, "hr", "hr-branch-requests");
+  await settle(page);
+  for (const p of people) await main(page).getByRole("checkbox", { name: `Select ${p.full_name} request` }).first().check();
+  await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Approve selected" }).click();
+  const dialog = page.getByTestId("bulk-dialog");
+  await dialog.getByRole("button", { name: "Approve (2)" }).click();
+  await expect(dialog.getByText("Choose a remark (a reason is required).")).toBeVisible();
+  await writeRemark(page, "bulk-remark", "applied from Dec 7", { preset: "Approved as requested" });
+  await dialog.getByRole("button", { name: "Approve (2)" }).click();
+  await expect(dialog.getByTestId("bulk-summary")).toHaveText("2 done.");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  const after = await rows(db().from("branch_admin_requests").select("status,decision_note").in("id", ids));
+  expect(after.map((r) => r.decision_note)).toEqual(["Approved as requested: applied from Dec 7", "Approved as requested: applied from Dec 7"]);
+  expect((await rows(db().from("audit_logs").select("entity_id").in("entity_id", ids).eq("metadata->>kind", "decision_remark")))).toHaveLength(2);
+});

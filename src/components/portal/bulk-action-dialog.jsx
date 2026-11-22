@@ -18,7 +18,7 @@ import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/re
  *   decision    approve | reject | … (with entityType: a RemarkField), or null
  *   run(row, remark) → resolves (done) or throws Error(reason)
  */
-export function BulkActionDialog({ open, title, description, rows = [], label = (r) => r.id, decision = null, entityType = null, confirmLabel = "Confirm", destructive = false, onClose, onDone, run }) {
+export function BulkActionDialog({ open, title, description, rows = [], label = (r) => r.id, decision = null, entityType = null, remarkRequired = undefined, confirmLabel = "Confirm", destructive = false, onClose, onDone, run }) {
   const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
@@ -28,7 +28,7 @@ export function BulkActionDialog({ open, title, description, rows = [], label = 
 
   async function go() {
     if (decision && entityType) {
-      const problem = remarkProblem(remark, decision);
+      const problem = remarkProblem(remark, decision, remarkRequired);
       if (problem) { setError(problem); return; }
     }
     setBusy(true);
@@ -75,7 +75,7 @@ export function BulkActionDialog({ open, title, description, rows = [], label = 
           })}
         </ul>
         {decision && entityType && !results ? (
-          <RemarkField id="bulk-remark" decision={decision} entityType={entityType} label={`Remark for all ${rows.length}`}
+          <RemarkField id="bulk-remark" decision={decision} entityType={entityType} label={`Remark for all ${rows.length}`} {...(remarkRequired === undefined ? {} : { required: remarkRequired })}
             value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
         ) : null}
         {finished ? (
@@ -106,7 +106,7 @@ export function BulkActionDialog({ open, title, description, rows = [], label = 
  * throws Error(reason) when the server refuses the row.
  *   decisions: [{ decision, label, destructive? }]
  */
-export function useBulkDecisions({ send, entityType, isSelectable, label, rowLabel = label, decisions, onDone, title = (d) => `${d.label} the selected` }) {
+export function useBulkDecisions({ send, entityType, isSelectable, label, rowLabel = label, decisions, onDone, remarkRequired = undefined, title = (d) => `${d.label} the selected` }) {
   const [selected, setSelected] = React.useState(() => new Set());
   const [bulk, setBulk] = React.useState(null); // { d, rows }
   const selection = {
@@ -124,6 +124,7 @@ export function useBulkDecisions({ send, entityType, isSelectable, label, rowLab
       label={rowLabel}
       decision={bulk?.d.decision}
       entityType={entityType}
+      remarkRequired={remarkRequired}
       destructive={Boolean(bulk?.d.destructive)}
       confirmLabel={bulk?.d.label || "Confirm"}
       run={(row, remark) => send(row, bulk.d.decision, remark)}
