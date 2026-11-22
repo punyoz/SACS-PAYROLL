@@ -13,7 +13,7 @@
 import { money } from "@/lib/payroll/payslip-summary";
 import { contributionLabel, withholdingTaxLabel } from "@/lib/payroll/statutory";
 import { describeHolidayLine } from "@/lib/payroll/holiday-lines";
-import { payslipTables } from "@/lib/payroll/payslip-tables";
+import { DEDUCTION_GROUPS, payslipTables } from "@/lib/payroll/payslip-tables";
 import { DEFAULT_ORG_NAME, systemName } from "@/lib/org-name-format";
 import { pesoPdf } from "@/lib/export/pdf-text";
 import { renderPayslipDocument } from "@/lib/export/pdf-doc";
@@ -197,39 +197,6 @@ class SectionCollector {
   }
 }
 
-/** The one payslip layout (payslipTables, the same rows every screen shows); Details is the formula. */
-function tablesRows(p, t) {
-  const cell = (r) => (r.text ? { amount: null, note: r.text } : { amount: r.amount, note: r.formula || r.note || "" });
-  p.heading("Earnings");
-  t.earnings.forEach((r) => {
-    p.row(r.label, cell(r).amount, { note: cell(r).note });
-    if (r.key === "holiday" && Number(r.amount) > 0) holidayRows(p, t.holiday_lines);
-  });
-  p.row("Gross pay", t.gross, { bold: true });
-  if (t.incentives.length) {
-    p.heading("Incentives");
-    t.incentives.forEach((r) => p.row(r.label, r.amount, { note: cell(r).note }));
-  }
-  p.heading("Deductions");
-  // Deductions below zero; a credit (the year-end tax refund) is added to pay.
-  t.deductions.forEach((r) => p.row(r.label, cell(r).amount, { note: cell(r).note, ...(r.text ? {} : { signed: r.credit ? Math.abs(r.amount) : -Math.abs(r.amount) }) }));
-  p.row("Total deductions", t.total_deductions, { bold: true, signed: -Math.abs(Number(t.total_deductions) || 0) });
-  if (t.notes.length) {
-    p.heading("Notes");
-    t.notes.forEach((n) => p.row(n, null));
-  }
-}
-
-/** The monthly tax computation (employeePayslipView tax_box), as on the screen. */
-function taxBoxRows(p, box) {
-  const signed = (sign, amount) => (sign === "-" ? -Math.abs(Number(amount) || 0) : Math.abs(Number(amount) || 0));
-  p.heading("Monthly tax computation");
-  box.rows.forEach((r) => p.row(r.label, r.amount, { signed: signed(r.sign, r.amount) }));
-  p.row("Taxable income", box.taxable, { bold: true, signed: box.taxable });
-  if (box.bracket) p.row(`Bracket: ${box.bracket}`, null, { note: box.formula || "" });
-  p.row("Withholding tax", box.tax, { bold: true, signed: box.tax, note: box.reason || "" });
-}
-
 /** A section of deductions: its amounts are shown below zero. */
 const isDeductionSection = (title) => /deduction|contribution/i.test(title);
 
@@ -254,15 +221,78 @@ export function payslipFileName(entry, draft = false) {
   return `payslip-${no}${dates ? `-${dates}` : ""}${draft ? "-DRAFT" : ""}.pdf`;
 }
 
+/** Deductions read positive on the payslip (2026-11-22); a credit (a tax refund) reads −₱ against them. */
+const deductionAmount = (r) => (r.text ? "" : pesoPdf(r.credit ? -Math.abs(r.amount) : Math.abs(r.amount)));
+const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+/** The two panels from payslipTables(): Earnings (pay, holiday lines, incentives) | Deductions (grouped). */
+function panelsFor(t) {
+  const earnings = [];
+  t.earnings.forEach((r) => {
+    earnings.push({ label: r.label, formula: r.text || r.formula || "", amount: r.text ? "" : pesoPdf(r.amount) });
+    if (r.key === "holiday" && Number(r.amount) > 0) {
+      (t.holiday_lines || []).forEach((line) => earnings.push({ label: describeHolidayLine(line), amount: pesoPdf(line.amount), indent: true }));
+    }
+  });
+  if (t.incentives.length) {
+    earnings.push({ group: "Incentives" });
+    t.incentives.forEach((r) => earnings.push({ label: r.label, formula: r.formula || "", amount: pesoPdf(r.amount) }));
+  }
+  const deductions = [];
+  DEDUCTION_GROUPS.forEach(([key, label]) => {
+    const rows = t.deductions.filter((r) => r.group === key);
+    if (!rows.length) return;
+    deductions.push({ group: label });
+    rows.forEach((r) => deductions.push({ label: r.label, formula: r.text || r.formula || "", amount: deductionAmount(r) }));
+  });
+  if (!deductions.length) deductions.push({ label: "None", amount: "" });
+  return {
+    earnings: { title: "Earnings", rows: earnings, total: ["Gross pay", pesoPdf(t.gross)] },
+    deductions: { title: "Deductions", rows: deductions, total: ["Total deductions", pesoPdf(Math.abs(Number(t.total_deductions) || 0))] },
+  };
+}
+
+/** The monthly tax computation (2nd half; employeePayslipView tax_box), positive amounts with "Less:". */
+function taxBox(box) {
+  return {
+    title: "Monthly tax computation",
+    rows: [
+      ...box.rows.map((r) => [r.sign === "-" ? `Less: ${r.label}` : r.label, pesoPdf(Math.abs(Number(r.amount) || 0))]),
+      ["Taxable income", pesoPdf(box.taxable), true],
+      ["Withholding tax", pesoPdf(box.tax), true],
+    ],
+    note: [box.bracket ? `Bracket: ${box.bracket}` : null, box.formula, box.reason].filter(Boolean).join(" · ") || null,
+  };
+}
+
+/** Year to date (loadPayslipYtd): the employee's share only. */
+function ytdBox(ytd) {
+  return {
+    title: `Year to date (${ytd.year})`,
+    rows: [["Gross pay", pesoPdf(ytd.gross)], ["Taxable income", pesoPdf(ytd.taxable)], ["Tax withheld", pesoPdf(ytd.tax)],
+      ["SSS", pesoPdf(ytd.sss)], ["PhilHealth", pesoPdf(ytd.philhealth)], ["Pag-IBIG", pesoPdf(ytd.pagibig)]],
+    note: `${ytd.payslips} released payslip${ytd.payslips === 1 ? "" : "s"} of ${ytd.year}, this one included.`,
+  };
+}
+
+/** "1st half", "2nd half", "Final pay", "13th month" (details.pay_type wins). */
+function payType(details) {
+  if (details?.pay_type) return details.pay_type;
+  if (details?.final_pay) return "Final pay";
+  const half = details?.monthly?.half || details?.line_groups?.half || details?.employee_view?.half;
+  if (half === "first") return "1st half";
+  if (half === "second") return "2nd half";
+  return "Payslip";
+}
+
 /**
  * The payslip (buildPayslipDetails() in the payroll route) as PDF bytes
- * (async): the header (seal, school, branch, status, payslip number), the
- * employee in a three-column grid, Earnings / Incentives / Deductions
- * (attendance, contributions, tax, loans; negative) and on a 2nd half the
- * monthly tax computation, on one shared Item | Details | Amount grid; the
- * summary box (gross, total deductions, net, month total); the footer with
- * page x of y. The rows are payslipTables(), the same the screen shows; only
- * the employee's share ever appears.
+ * (async), A4 portrait, one page (2026-11-22): header (seal, school, branch,
+ * PAYSLIP, number, status), header cells (period, pay date, pay type), the
+ * employee grid, Earnings | Deductions side by side with their totals on one
+ * line, Net pay = Gross - Total deductions, the month total, then the monthly
+ * tax computation (2nd half) and the year to date. Every amount is a stored
+ * figure (payslipTables); only the employee's share ever appears.
  */
 export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NAME } = {}) {
   const final = details?.status === "final";
@@ -276,39 +306,44 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   const extra = view || details || {};
   const waiting = status === "Pending HR approval" || status === "Returned by HR";
 
-  const collected = new SectionCollector();
   const monthly = details?.monthly || null;
   const earnings = details?.earnings || {};
   const tables = payslipTables(view ? { ...details, line_groups: view } : details);
-  if (tables) tablesRows(collected, tables);
-  else semiMonthlyRows(collected, monthly, details?.holiday_lines);
-  if (extra.tax_box) taxBoxRows(collected, extra.tax_box);
-  const sections = collected.sections.filter((s) => s.rows.length).map((s) => (s.title === "Notes"
-    ? { kind: "notes", title: s.title, rows: s.rows }
-    : {
+  // An older semi-monthly payslip without per-line figures keeps its one-column layout.
+  let sections = null;
+  if (!tables) {
+    const collected = new SectionCollector();
+    semiMonthlyRows(collected, monthly, details?.holiday_lines);
+    sections = collected.sections.filter((s) => s.rows.length).map((s) => ({
       title: s.title,
       rows: s.rows.map((r) => {
         const shown = shownAmount(s, r);
         return { label: r.label, details: r.note || "", amount: shown === null ? null : pesoPdf(shown), bold: r.bold };
       }),
     }));
+  }
 
   const gross = Number(tables ? tables.gross : view ? view.gross : details?.gross_pay ?? monthly?.cutoff?.gross_pay ?? earnings.gross_pay ?? 0);
   const totalDeductions = Number(tables ? tables.total_deductions : view ? view.total_deductions : details?.deductions?.total_deductions ?? monthly?.cutoff?.total_deductions ?? 0);
-  const netLabel = view ? view.net_label : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1st" : "2nd"} Half Net Pay` : "Net Pay";
+  const netLabel = view ? view.net_label : monthly && !details?.final_pay ? `${monthly.half === "first" ? "1st" : "2nd"} half net pay` : "Net pay";
   const stamp = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila", dateStyle: "medium", timeStyle: "short" });
+  const boxes = [extra.tax_box ? taxBox(extra.tax_box) : null, details?.ytd ? ytdBox(details.ytd) : null].filter(Boolean);
 
   return renderPayslipDocument({
     seal: sealUsable ? seal : null,
     status,
     payslipNo: details?.payslip_no,
-    subtitle: `${employee.branch || "Branch"} - Payslip - ${systemName(orgName)} Management System`,
+    branchLine: `${employee.branch || "Branch"} - Payslip - ${systemName(orgName)} Management System`,
+    strip: [
+      ["Pay period", details?.pay_period],
+      [details?.final_pay ? "Release date" : "Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")],
+      ["Pay type", payType(details)],
+    ],
     grid: [
-      [["Employee", employee.name], ["Employee ID", employee.id], ["Position / Branch", [employee.position, employee.branch].filter(Boolean).join(" · ")]],
-      [["Pay period", details?.pay_period], [details?.final_pay ? "Release date" : "Pay date", details?.pay_date_label || (waiting ? "After HR approval" : "—")], ["Status", status]],
+      [["Employee", employee.name], ["Employee ID", employee.id], ["Position", employee.position]],
+      [["Branch", employee.branch], ["Category", employee.type], ["Status", status]],
     ],
     lines: [
-      employee.type ? `Classification: ${employee.type}` : null,
       Array.isArray(employee.branch_days) && employee.branch_days.length ? `Days by branch: ${employee.branch_days.map((b) => `${b.branch_name} ${b.days}`).join(", ")}` : null,
       !final && generation.attendance_through_label ? `Includes attendance up to ${generation.attendance_through_label}.` : null,
       // A final pay: who approved it and when (20261120010000).
@@ -316,13 +351,13 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
     ].filter(Boolean),
     stats: summary ? [["Days present", summary.days_present], ["Days absent", summary.days_absent], ["Half days", summary.half_days],
       ["Late minutes", summary.late_minutes], ["Undertime minutes", summary.undertime_minutes], ["Leave days", summary.leave_days]] : null,
+    panels: tables ? panelsFor(tables) : null,
     sections,
-    summary: {
-      rows: [["Gross pay", pesoPdf(gross)], ["Total deductions", pesoPdf(-Math.abs(totalDeductions))]],
-      net: [netLabel.toUpperCase(), pesoPdf(details?.net_pay || 0)],
-      monthTotal: extra.month_total?.label || null,
-      by: generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : null,
-    },
+    notes: (tables?.notes || []).map(sentence),
+    net: { gross: pesoPdf(gross), deductions: pesoPdf(Math.abs(totalDeductions)), carried: tables?.carry_over_out ? pesoPdf(tables.carry_over_out) : null, net: pesoPdf(details?.net_pay || 0), netLabel: String(netLabel || "Net pay").toUpperCase() },
+    monthTotal: extra.month_total?.label || null,
+    boxes,
+    by: generation.generated_by_name ? `Computed by ${generation.generated_by_name}` : null,
     footer: ["Employee share only. Attendance includes HR-approved corrections.", `Generated ${stamp} by ${systemName(orgName)}`],
   });
 }

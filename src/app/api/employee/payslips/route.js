@@ -10,7 +10,7 @@ import { periodFromLabel } from "@/lib/payroll/periods";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { employeePayslipView } from "@/lib/payroll/line-tags";
 import { resolveTaxTableRows, taxTableFromRows } from "@/lib/payroll/semi-monthly";
-import { buildPayslipDetails, formatManilaDate, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, formatManilaDate, loadPayslipYtd, loadTaxBracketRows, payslipSeal, payslipStatus, withBranchName } from "@/lib/payroll/payslip-details";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
 import { formatIssued } from "@/lib/portal/format";
@@ -308,6 +308,7 @@ export async function GET(request) {
       const shown = mapEntryToPayslip(entry, taxRows);
       // Only released (Paid) payslips reach here: paid on the day HR approved the run.
       const details = { ...buildPayslipDetails(await withBranchName(supabase, entry), { taxRows }), employee_view: shown.line_groups, status_label: shown.status_label || "Paid", pay_date_label: shown.pay_date_label || formatManilaDate(shown.processed_at), net_pay: shown.net_pay };
+      details.ytd = await loadPayslipYtd(supabase, entry, details);
       const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = payslipFileName(entry);
       return new NextResponse(pdf, {

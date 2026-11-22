@@ -122,22 +122,100 @@ function Section({ section }) {
       h(Text, { style: [S.amount, r.bold ? S.bold : null] }, r.amount || ""))));
 }
 
+/* ── The payslip (2026-11-22): two panels, Earnings | Deductions ── */
+
+const PANEL_GAP = 12;
+const HEAD = "#dfe6ea"; // header cells, panel titles and total bars
+const P = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", paddingBottom: 8, marginBottom: 8, borderBottomWidth: 0.75, borderBottomColor: "#b0b6bb" },
+  title: { fontSize: 20, fontWeight: 700, textAlign: "right", lineHeight: 1.2, letterSpacing: 1 },
+  strip: { flexDirection: "row", marginBottom: 8 },
+  stripCell: { flexGrow: 1, flexBasis: 0, marginRight: 4 },
+  stripLast: { flexGrow: 1, flexBasis: 0 },
+  stripLabel: { backgroundColor: HEAD, paddingVertical: 2.5, paddingHorizontal: INNER, fontSize: 7, fontWeight: 700, color: "#33373a", lineHeight: 1.3 },
+  stripValue: { paddingVertical: 3, paddingHorizontal: INNER, borderBottomWidth: 0.5, borderBottomColor: RULE, fontSize: 9, lineHeight: 1.3 },
+  panels: { flexDirection: "row", marginBottom: GAP },
+  panel: { flexGrow: 1, flexBasis: 0, flexDirection: "column", borderWidth: 0.5, borderColor: RULE },
+  panelGap: { width: PANEL_GAP },
+  panelTitle: { flexDirection: "row", backgroundColor: HEAD, paddingVertical: 4, paddingHorizontal: INNER },
+  panelBody: { flexGrow: 1 },
+  group: { paddingTop: 5, paddingBottom: 2, paddingHorizontal: INNER, fontSize: 7, fontWeight: 700, color: MUTED, letterSpacing: 0.4, lineHeight: 1.3 },
+  prow: { flexDirection: "row", alignItems: "flex-start", paddingVertical: 3, paddingHorizontal: INNER, borderBottomWidth: 0.5, borderBottomColor: RULE },
+  pitem: { width: "64%", paddingRight: 6 },
+  pformula: { fontSize: 7, color: MUTED, lineHeight: 1.3, marginTop: 0.5 },
+  pamount: { width: "36%", textAlign: "right" },
+  ptotal: { flexDirection: "row", paddingVertical: 4, paddingHorizontal: INNER, backgroundColor: HEAD },
+  netBox: { flexDirection: "row", alignItems: "flex-end", backgroundColor: BOX, borderWidth: 0.5, borderColor: RULE, paddingVertical: 6, paddingHorizontal: INNER, marginBottom: 4 },
+  netPart: { flexGrow: 1, flexBasis: 0 },
+  netSign: { width: 16, textAlign: "center", fontSize: 11, color: MUTED, lineHeight: 1.3 },
+  netValue: { fontSize: 11, fontWeight: 700, lineHeight: 1.3 },
+  netBig: { fontSize: 14, fontWeight: 700, lineHeight: 1.3, textAlign: "right" },
+  monthTotal: { fontSize: 8.5, fontWeight: 700, marginBottom: GAP, paddingHorizontal: INNER, lineHeight: 1.3 },
+  boxes: { flexDirection: "row", marginBottom: GAP },
+  box: { flexGrow: 1, flexBasis: 0, borderWidth: 0.5, borderColor: RULE },
+  brow: { flexDirection: "row", paddingVertical: 2.5, paddingHorizontal: INNER, borderBottomWidth: 0.5, borderBottomColor: RULE },
+  blabel: { width: "64%", paddingRight: 6 },
+  bamount: { width: "36%", textAlign: "right" },
+  bnote: { paddingVertical: 3, paddingHorizontal: INNER, fontSize: 7, color: MUTED, lineHeight: 1.3 },
+});
+
+function panelRows(rows) {
+  return rows.map((r, i) => (r.group
+    ? h(Text, { key: i, style: P.group }, r.group)
+    : h(View, { key: i, style: P.prow, wrap: false },
+      h(View, { style: [P.pitem, r.indent ? { paddingLeft: 8 } : null] },
+        h(Text, { style: r.indent ? { fontSize: 8, color: MUTED } : null }, r.label),
+        r.formula ? h(Text, { style: P.pformula }, r.formula) : null),
+      h(Text, { style: [P.pamount, r.indent ? { fontSize: 8, color: MUTED } : null] }, r.amount || ""))));
+}
+
+/** A panel: its title over Item | Amount, the rows, and its total at the bottom (both totals on one line). */
+function Panel({ panel }) {
+  return h(View, { style: P.panel },
+    h(View, { style: P.panelTitle },
+      h(Text, { style: [P.pitem, S.bold] }, panel.title),
+      h(Text, { style: [P.pamount, S.bandHead] }, "Amount")),
+    h(View, { style: P.panelBody }, ...panelRows(panel.rows)),
+    h(View, { style: P.ptotal, wrap: false },
+      h(Text, { style: [P.pitem, S.bold] }, panel.total[0]),
+      h(Text, { style: [P.pamount, S.bold] }, panel.total[1])));
+}
+
+/** A small box (tax computation, year to date): title, label | amount rows, an optional note. */
+function SmallBox({ box, last }) {
+  return h(View, { style: [P.box, last ? null : { marginRight: PANEL_GAP }], wrap: false },
+    h(View, { style: P.panelTitle }, h(Text, { style: S.bold }, box.title)),
+    ...box.rows.map(([label, amount, bold], i) => h(View, { key: i, style: P.brow },
+      h(Text, { style: [P.blabel, bold ? S.bold : null] }, label),
+      h(Text, { style: [P.bamount, bold ? S.bold : null] }, amount || ""))),
+    box.note ? h(Text, { style: P.bnote }, box.note) : null);
+}
+
 /**
- * model: { seal?: Buffer (JPEG), status, payslipNo, subtitle, grid: [[[label, value] x3] ...],
- *   lines: [text], stats?: [[label, value]], sections: [{ title, kind?: "notes", rows: [{ label, details?, amount?, bold? }] }],
- *   summary: { rows: [[label, amount]], net: [label, amount], monthTotal?, by? }, footer: [text] }
+ * model: { seal?: Buffer (JPEG), school, branchLine, status, payslipNo,
+ *   strip: [[label, value]] (header cells), grid: [[[label, value] x3] ...], lines: [text],
+ *   stats?: [[label, value]],
+ *   panels?: { earnings: { title, rows: [{ label, formula?, amount, indent? } | { group }], total: [label, amount] }, deductions: {...} },
+ *   sections?: [...] (an older payslip without per-line figures: the one-column layout),
+ *   notes: [text], net: { gross, deductions, carried?, net, netLabel }, monthTotal?, boxes: [{ title, rows: [[label, amount, bold?]], note? }],
+ *   by?, footer: [text] }
  */
 export function renderPayslipDocument(model) {
   registerFonts();
   const page = h(Page, { size: "A4", style: S.page }, h(View, { style: S.content },
-    h(View, { style: S.header },
+    h(View, { style: P.header },
       model.seal ? h(Image, { style: S.seal, src: { data: model.seal, format: "jpg" } }) : null,
       h(View, { style: S.headerMain },
-        h(Text, { style: S.school }, "Shepherd Angels Christian School"),
-        h(Text, { style: S.headerSub }, model.subtitle)),
+        h(Text, { style: S.school }, model.school || "Shepherd Angels Christian School"),
+        h(Text, { style: S.headerSub }, model.branchLine)),
       h(View, { style: S.headerSide },
-        h(Text, { style: [S.status, model.status === "Paid" ? null : S.muted] }, String(model.status || "").toUpperCase()),
-        h(Text, { style: S.headerSub }, `Payslip No. ${model.payslipNo || "—"}`))),
+        h(Text, { style: P.title }, "PAYSLIP"),
+        h(Text, { style: [S.headerSub, { textAlign: "right" }] }, `No. ${model.payslipNo || "—"}`),
+        h(Text, { style: [S.headerSub, S.bold, { textAlign: "right" }, model.status === "Paid" ? { color: INK } : null] }, String(model.status || "").toUpperCase()))),
+    h(View, { style: P.strip },
+      ...model.strip.map(([label, value], i) => h(View, { key: i, style: i === model.strip.length - 1 ? P.stripLast : P.stripCell },
+        h(Text, { style: P.stripLabel }, label),
+        h(Text, { style: P.stripValue }, value || "—")))),
     ...model.grid.map((cells, i) => h(View, { key: `g${i}`, style: S.gridRow },
       ...cells.map(([label, value], j) => h(View, { key: j, style: S.gridCell },
         h(Text, { style: S.gridLabel }, label),
@@ -146,15 +224,34 @@ export function renderPayslipDocument(model) {
     model.stats ? h(View, { style: S.stats },
       ...model.stats.map(([label, value], i) => h(View, { key: i, style: S.stat },
         h(Text, { style: S.gridLabel }, label), h(Text, { style: S.gridValue }, String(value ?? 0))))) : null,
-    h(View, { style: { marginTop: model.lines.length || model.stats ? 4 : 0 } }),
-    ...model.sections.map((section, i) => h(Section, { key: `s${i}`, section })),
-    h(View, { style: S.box, wrap: false },
-      ...model.summary.rows.map(([label, amount], i) => h(View, { key: i, style: S.boxRow },
-        h(Text, { style: S.boxLabel }, label), h(Text, { style: S.boxAmount }, amount))),
-      h(View, { style: [S.boxRow, { marginTop: 3 }] },
-        h(Text, { style: [S.boxLabel, S.net] }, model.summary.net[0]), h(Text, { style: [S.boxAmount, S.net] }, model.summary.net[1])),
-      model.summary.monthTotal ? h(Text, { style: S.monthTotal }, model.summary.monthTotal) : null),
-    model.summary.by ? h(Text, { style: S.line }, model.summary.by) : null),
+    h(View, { style: { marginTop: 4 } }),
+    model.panels
+      ? h(View, { style: P.panels },
+        h(Panel, { panel: model.panels.earnings }),
+        h(View, { style: P.panelGap }),
+        h(Panel, { panel: model.panels.deductions }))
+      : null,
+    ...(model.sections || []).map((section, i) => h(Section, { key: `s${i}`, section })),
+    ...(model.notes || []).map((text, i) => h(Text, { key: `n${i}`, style: [S.note, { marginBottom: 4 }] }, text)),
+    h(View, { style: P.netBox, wrap: false },
+      h(View, { style: P.netPart }, h(Text, { style: S.gridLabel }, "Gross pay"), h(Text, { style: P.netValue }, model.net.gross)),
+      h(Text, { style: P.netSign }, "−"),
+      h(View, { style: P.netPart }, h(Text, { style: S.gridLabel }, "Total deductions"), h(Text, { style: P.netValue }, model.net.deductions)),
+      // Deductions above the pay are carried to next month: added back so the line adds up.
+      model.net.carried ? h(Text, { style: P.netSign }, "+") : null,
+      model.net.carried ? h(View, { style: P.netPart }, h(Text, { style: S.gridLabel }, "Carried to next month"), h(Text, { style: P.netValue }, model.net.carried)) : null,
+      h(Text, { style: P.netSign }, "="),
+      h(View, { style: [P.netPart, { alignItems: "flex-end" }] },
+        h(Text, { style: [S.gridLabel, { textAlign: "right" }] }, model.net.netLabel),
+        h(Text, { style: P.netBig }, model.net.net))),
+    model.monthTotal ? h(Text, { style: P.monthTotal }, model.monthTotal) : h(View, { style: { marginBottom: GAP - 4 } }),
+    model.boxes?.length
+      // One box (a 1st half: year to date only) keeps the right column, so its amounts line up with Deductions.
+      ? h(View, { style: P.boxes }, ...(model.boxes.length === 1 ? [null, model.boxes[0]] : model.boxes).map((box, i, all) => (box
+        ? h(SmallBox, { key: i, box, last: i === all.length - 1 })
+        : h(View, { key: i, style: { flexGrow: 1, flexBasis: 0, marginRight: PANEL_GAP } }))))
+      : null,
+    model.by ? h(Text, { style: S.line }, model.by) : null),
     ...footer(model.footer));
   return renderToBuffer(h(Document, { title: `Payslip ${model.payslipNo || ""}`.trim(), author: "SACS Payroll", creator: "SACS Payroll", producer: "SACS Payroll" }, page));
 }

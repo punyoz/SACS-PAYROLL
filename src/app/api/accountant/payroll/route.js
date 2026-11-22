@@ -18,7 +18,7 @@ import { DEFAULT_BENEFITS_CEILING, loadSubsidyContext, subsidyForPayslip } from 
 import { buildAttendanceSummary, buildDeductionBasis, money } from "@/lib/payroll/payslip-summary";
 import { buildPayslipPdf, payslipFileName } from "@/lib/payroll/payslip-pdf";
 import { loadOrgName } from "@/lib/org-name";
-import { buildPayslipDetails, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
+import { buildPayslipDetails, loadPayslipYtd, loadTaxBracketRows, payslipSeal, withBranchName } from "@/lib/payroll/payslip-details";
 import {
   SEMI_MONTHLY_RULE,
   SEMI_MONTHLY_RULES_EFFECTIVE,
@@ -3976,6 +3976,7 @@ export async function GET(request) {
         ? (await supabase.from("payroll_runs").select("status").eq("id", entry.run_id).maybeSingle()).data?.status || null
         : null;
       const details = buildPayslipDetails(await withBranchName(supabase, entry), { taxRows: await loadTaxBracketRows(supabase), runStatus });
+      details.ytd = await loadPayslipYtd(supabase, entry, details);
       const pdf = await buildPayslipPdf(details, { seal: payslipSeal(), orgName: await loadOrgName() });
       const fileName = payslipFileName(entry, details.status === "draft");
       return new NextResponse(pdf, {
