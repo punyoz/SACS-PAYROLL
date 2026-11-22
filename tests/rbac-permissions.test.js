@@ -6,9 +6,16 @@
  * src/lib/rbac/permissions.js that reopens one of these holes fails here.
  */
 
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
+
+// The guard reads the caller's profile on every request (2026-11-21); an
+// empty in-memory database stands in, so each caller answers as its session
+// (tests/helpers/signed-in-profiles.js).
+vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
 process.env.SESSION_SECRET ||= "test-signing-secret-for-rbac-suite";
+process.env.NEXT_PUBLIC_SUPABASE_URL ||= "https://project.supabase.co";
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= "service";
 
 const { proxy: middleware } = await import("@/proxy");
 const { createSessionToken, SESSION_COOKIE, verifySessionToken } = await import("@/lib/rbac/session");

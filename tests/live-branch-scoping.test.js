@@ -33,13 +33,26 @@ describe("The guard resolves branch from profiles, not the cookie", () => {
     // The exact line that caused the bug:
     //   const branchId = branchExempt ? null : (session.branch_id || null);
     expect(guardSource).not.toMatch(/const branchId = branchExempt\s*\?\s*null\s*:\s*\(session\.branch_id/);
-    expect(guardSource).toMatch(/resolveCurrentBranchId\(session\.sub/);
+    // Since 2026-11-21: one uncached profiles read per request (readLiveAccount).
+    expect(guardSource).toMatch(/const live = await readLiveAccount\(session\.sub\)/);
+    expect(guardSource).toMatch(/: live\.branchId;/);
   });
 
-  it("keeps the cookie value only as an outage fallback", () => {
-    // Passed as the second argument, i.e. used when profiles cannot be read --
-    // never as the primary source.
-    expect(guardSource).toMatch(/resolveCurrentBranchId\(session\.sub,\s*session\.branch_id \|\| null\)/);
+  it("never falls back to the cookie: an unreadable profile refuses the request", () => {
+    // Was: the cookie's branch as an outage fallback. The user ruled (2026-11-21)
+    // that the cookie's copy is never used, so an outage answers 503 instead.
+    expect(guardSource).not.toMatch(/session\.branch_id \|\| null/);
+    expect(guardSource).toMatch(/if \(!live\) \{[\s\S]{0,200}503/);
+  });
+
+  it("a changed role or an archived account refuses the very next request", () => {
+    expect(guardSource).toMatch(/if \(live\.archived\) \{[\s\S]{0,200}401/);
+    expect(guardSource).toMatch(/if \(live\.role !== role\) \{[\s\S]{0,250}401/);
+    // Checked before the permission matrix, so the old role grants nothing.
+    expect(guardSource.indexOf("live.role !== role")).toBeLessThan(guardSource.indexOf("if (!can(role, module, action))"));
+    const live = readFileSync("src/lib/auth/live-branch.js", "utf8");
+    const fn = live.slice(live.indexOf("export async function readLiveAccount"));
+    expect(fn).not.toMatch(/cache\.get/);
   });
 
   it("still short-circuits for branch-exempt roles", () => {
