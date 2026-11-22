@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -271,6 +272,14 @@ export function TransfersPage({ refreshKey }) {
 
   // Batch 2: approve / reject with a preset remark (required to reject), in DecisionRemarkDialog.
   const [decidingTransfer, setDecidingTransfer] = React.useState(null);
+  // Part F: decide several pending transfers at once.
+  const bulkTransfers = useBulkDecisions({
+    entityType: "transfer_request", decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }], onDone: () => Promise.all([load(), loadEndorsements()]),
+    isSelectable: (r) => String(r.status) === "pending",
+    label: (r) => r.employee_name || "this transfer",
+    rowLabel: (r) => `${r.employee_name || "Employee"} · ${r.from_branch_name || "Unassigned"} → ${r.to_branch_name || "—"}`,
+    send: (r, decision, remark) => fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action: decision, remark })),
+  });
   function decideTransfer(r, action) { setDecidingTransfer({ row: r, action }); }
   async function sendTransferDecision(remark) {
     const { row: r, action } = decidingTransfer;
@@ -353,7 +362,9 @@ export function TransfersPage({ refreshKey }) {
             empty={{ title: "No transfers yet", icon: Building2Icon }}
             caption="Transfer history"
             minWidth={900}
+            selection={bulkTransfers.selection}
           />
+          {bulkTransfers.dialog}
         </CardContent>
       </Card>
 

@@ -99,3 +99,37 @@ export function BulkActionDialog({ open, title, description, rows = [], label = 
     </Dialog>
   );
 }
+
+/**
+ * Bulk decisions on a DataTable (Part F): the table's `selection` prop and the
+ * dialog, for approve / reject (or any decisions). send(row, decision, remark)
+ * throws Error(reason) when the server refuses the row.
+ *   decisions: [{ decision, label, destructive? }]
+ */
+export function useBulkDecisions({ send, entityType, isSelectable, label, rowLabel = label, decisions, onDone, title = (d) => `${d.label} the selected` }) {
+  const [selected, setSelected] = React.useState(() => new Set());
+  const [bulk, setBulk] = React.useState(null); // { d, rows }
+  const selection = {
+    selected, onChange: setSelected, rowId: (r) => r.id, isSelectable, label,
+    actions: (rows) => decisions.map((d) => (
+      <Button key={d.decision} size="sm" variant={d.destructive ? "outline" : "default"} className={d.destructive ? "text-destructive" : undefined}
+        onClick={() => setBulk({ d, rows })}>{d.label} selected</Button>
+    )),
+  };
+  const dialog = (
+    <BulkActionDialog
+      open={Boolean(bulk)}
+      title={bulk ? title(bulk.d) : ""}
+      rows={bulk?.rows || []}
+      label={rowLabel}
+      decision={bulk?.d.decision}
+      entityType={entityType}
+      destructive={Boolean(bulk?.d.destructive)}
+      confirmLabel={bulk?.d.label || "Confirm"}
+      run={(row, remark) => send(row, bulk.d.decision, remark)}
+      onDone={onDone}
+      onClose={() => { setBulk(null); setSelected(new Set()); }}
+    />
+  );
+  return { selection, dialog };
+}
