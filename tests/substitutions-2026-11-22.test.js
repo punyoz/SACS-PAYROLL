@@ -104,3 +104,10 @@ describe("late approvals (Part C)", () => {
     expect([...lateSubstitutions(subs, [paid])]).toEqual([]);
   });
 });
+
+describe("AWOL 1st notice template (Part D)", () => {
+  it("fills the fields; unknown fields stay as written", async () => {
+    const { fillNotice } = await import("@/lib/awol/cases");
+    expect(fillNotice("To {employee_name}: reply by {reply_by}. {unknown}", { employee_name: "Abe", reply_by: "March 8, 2027" })).toBe("To Abe: reply by March 8, 2027. {unknown}");
+  });
+});

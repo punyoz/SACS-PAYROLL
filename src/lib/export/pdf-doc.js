@@ -283,3 +283,17 @@ export function renderTableDocument(model) {
     ...footer([model.footer]));
   return renderToBuffer(h(Document, { title: model.title, author: "SACS Payroll", creator: "SACS Payroll", producer: "SACS Payroll" }, page));
 }
+
+/**
+ * A one-page letter (Part D, 2026-11-22: the AWOL 1st notice from its editable
+ * template): the school, a title, paragraphs, a footer line.
+ */
+export function renderLetterDocument({ title, paragraphs = [], footerText = "" }) {
+  registerFonts();
+  const page = h(Page, { size: "A4", style: [S.page, { fontSize: 10.5 }] }, h(View, { style: S.content },
+    h(Text, { style: S.school }, "Shepherd Angels Christian School"),
+    h(Text, { style: S.title }, title),
+    ...paragraphs.map((p, i) => h(Text, { key: i, style: { marginTop: 10, lineHeight: 1.45 } }, p))),
+    ...footer([footerText]));
+  return renderToBuffer(h(Document, { title, author: "SACS Payroll", creator: "SACS Payroll", producer: "SACS Payroll" }, page));
+}
