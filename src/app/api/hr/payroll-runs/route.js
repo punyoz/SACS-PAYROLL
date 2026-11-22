@@ -493,6 +493,8 @@ export async function PATCH(request) {
     const remark = action === "approve" || action === "reject"
       ? await resolveRemark(supabase, body.remark, { decision: action, entityType: "payroll_run", fallbackText: body.remarks })
       : { code: null, text: "" };
+    // No reason at all keeps the earlier answer (code remarks_required).
+    if (remark.missing) return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters).", code: "remarks_required" }, { status: 400 });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
     const remarks = normalizeText(remark.text).slice(0, 1000);
     const decider = (id) => remarkClient(remark, { decision: action, entityType: "payroll_run", module: "payroll", table: "payroll_runs", ids: [id], actor: guard });

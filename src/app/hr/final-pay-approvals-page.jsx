@@ -3,11 +3,10 @@
 import * as React from "react";
 import { CheckIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -33,16 +32,17 @@ const ANY = "all";
 
 function DecideDialog({ target, onClose, onSaved }) {
   const { notify } = usePortalSession();
-  const [reason, setReason] = React.useState("");
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setReason(""); setError(""); }, [target]);
+  React.useEffect(() => { setRemark(EMPTY_REMARK); setError(""); }, [target]);
   const row = target?.row;
   async function decide() {
-    if (target.action === "reject" && reason.trim().length < 5) { setError("Give the reason for rejecting (at least 5 characters)."); return; }
+    const problem = remarkProblem(remark, target.action);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     try {
-      await fetchJson("/api/hr/final-pay-approvals", jsonBody("PATCH", { id: row.id, action: target.action, reason: reason.trim() }));
+      await fetchJson("/api/hr/final-pay-approvals", jsonBody("PATCH", { id: row.id, action: target.action, remark }));
       notify(target.action === "approve" ? "Final Pay Approved" : "Final Pay Rejected",
         target.action === "approve" ? "Released: the employee can now see it." : "It went back to the Accountant with your reason.", "success");
       onSaved?.();
@@ -67,13 +67,8 @@ function DecideDialog({ target, onClose, onSaved }) {
                   : "Nothing is written: the held loans, 13th month and subsidy are released, and the Accountant recomputes."}
               </DialogDescription>
             </DialogHeader>
-            {target.action === "reject" ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="fp-reject-reason">Reason for rejecting</Label>
-                <Textarea id="fp-reject-reason" rows={3} maxLength={500} value={reason} onChange={(e) => { setReason(e.target.value); setError(""); }} autoFocus />
-              </div>
-            ) : null}
-            {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+            <RemarkField id="fp-remark" decision={target.action} entityType="final_pay" label={target.action === "reject" ? "Reason for rejecting" : "Remark"}
+              value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
               <Button variant={target.action === "reject" ? "destructive" : "default"} onClick={decide} disabled={busy} data-testid={`fp-confirm-${target.action}`}>

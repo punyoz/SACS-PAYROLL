@@ -21,6 +21,7 @@
  * kind=overtime_confirmation: it reads the Admin's confirmations before paying.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -546,9 +547,17 @@ export async function POST(request) {
     if (normalizeText(body.action) !== "file") return bad("Unknown action.");
     const kind = normalizeText(body.kind);
     if (!REQUEST_KINDS[kind]) return bad("Choose what you are sending.");
-    const note = normalizeText(body.note).slice(0, 1000);
-    if (note.length < 3) return bad("Write a remark for HR.");
     const supabase = getAdminClient();
+    // Part H: an endorsement (Endorse / Not endorse = "endorse" / "object") picks a preset remark;
+    // other filings keep their own words. The remark is audited with the request's own write.
+    const endorsing = Boolean(REQUEST_KINDS[kind].endorsement) || kind === "overtime_confirmation";
+    const remarkDecision = body.decision === "not_endorse" ? "object" : "endorse";
+    const remarkType = { leave_endorsement: "leave_request", transfer_endorsement: "transfer_request", overtime_confirmation: "overtime_request" }[kind] || "branch_request";
+    const remark = endorsing ? await resolveRemark(supabase, body.remark, { decision: remarkDecision, entityType: remarkType, required: true, fallbackText: body.note }) : null;
+    if (remark?.error) return bad(remark.error);
+    const note = normalizeText(remark ? remark.text : body.note).slice(0, 1000);
+    if (note.length < 3) return bad("Write a remark for HR.");
+    const writer = remark ? remarkClient(remark, { decision: remarkDecision, entityType: remarkType, module: "branch_oversight", table: "branch_admin_requests", actor: guard }) : supabase;
     const staff = await loadBranchStaff(supabase, branchId);
     const person = body.employee_id ? staff.find((p) => p.id === normalizeText(body.employee_id)) : null;
     if (body.employee_id && !person) return bad("That employee is not in your branch.", 404);
@@ -655,7 +664,7 @@ export async function POST(request) {
       // One per record: a second answer changes it, with history.
       const existing = (await supabase.from("branch_admin_requests").select("*").eq("kind", kind).eq("ref_id", refId).eq("branch_id", branchId).maybeSingle()).data;
       if (existing) {
-        const updated = await supabase.from("branch_admin_requests").update({
+        const updated = await writer.from("branch_admin_requests").update({
           status, admin_note: note, details: { ...existing.details, ...details },
           created_by: guard.userId, created_by_name: actorName(guard),
           history: [...(existing.history || []), { ...entry, action: "change" }],
@@ -665,7 +674,7 @@ export async function POST(request) {
       }
     }
     if (!saved) {
-      const inserted = await supabase.from("branch_admin_requests").insert({
+      const inserted = await writer.from("branch_admin_requests").insert({
         branch_id: branchId, kind, employee_id: employeeId, ref_id: refId, details, admin_note: note, status,
         created_by: guard.userId, created_by_name: actorName(guard), outcome_ref: outcomeRef, history: [entry],
       }).select("*").maybeSingle();

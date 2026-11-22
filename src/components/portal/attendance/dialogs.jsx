@@ -1,5 +1,6 @@
 "use client";
 
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import * as React from "react";
 import { Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { AttendanceBadge, StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
@@ -21,7 +21,6 @@ import {
   hoursMinutes,
   isLogId,
   nowHm,
-  reasonError,
   todayKey,
   workedMinutes,
 } from "@/lib/portal/attendance";
@@ -175,7 +174,8 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
   const [type, setType] = React.useState("time_in");
   const [timeIn, setTimeIn] = React.useState("");
   const [timeOut, setTimeOut] = React.useState("");
-  const [note, setNote] = React.useState("");
+  // Part H: the reason is a preset remark (an override needs one).
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [errors, check, setErrors] = useFieldErrors();
 
   React.useEffect(() => {
@@ -183,7 +183,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
     setType(!row.time_in ? "present" : !row.time_out ? "time_out" : "time_in");
     setTimeIn(timeInputValue(row.time_in));
     setTimeOut(timeInputValue(row.time_out));
-    setNote("");
+    setRemark(EMPTY_REMARK);
     setErrors({});
   }, [row, setErrors]);
 
@@ -211,7 +211,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
       else if (effectiveIn && timeOut <= effectiveIn) next.timeOut = "Time out must be later than time in.";
       else next.timeOut = notFuture(timeOut);
     }
-    next.note = reasonError(note);
+    next.note = remarkProblem(remark, "override");
     check(next);
     const effectiveOut = needs.out ? timeOut : currentOut;
     if (row.time_in && effectiveIn === currentIn && effectiveOut === currentOut) {
@@ -226,7 +226,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
       type,
       time_in: needs.in ? timeIn : undefined,
       time_out: needs.out ? timeOut : undefined,
-      note: note.trim(),
+      remark,
     }));
     notify("Attendance Overridden", `${row.employee_name || "The employee"}'s ${formatDateKey(row.log_date)} record is updated and marked Corrected.`, "success");
     payrollNotice(result);
@@ -270,9 +270,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
           </Field>
         ) : null}
       </div>
-      <Field id="att-correct-note" label="Reason" error={errors.note}>
-        <Textarea id="att-correct-note" rows={2} maxLength={500} placeholder="e.g. Tapped in late by mistake; confirmed with the branch logbook" value={note} onChange={(e) => setNote(e.target.value)} aria-invalid={Boolean(errors.note) || undefined} />
-      </Field>
+      <RemarkField id="att-correct-remark" decision="override" entityType="attendance_correction" label="Reason" value={remark} onChange={setRemark} error={errors.note} />
       <p className="text-xs text-muted-foreground">Hours, late, undertime and status are recomputed from the branch schedule and used by payroll. The original taps are kept in the correction history.</p>
     </ActionDialog>
   );
@@ -284,17 +282,22 @@ function ReviewCorrectionDialog({ correction, onOpenChange, onDone }) {
   const { notify } = usePortalSession();
   const payrollNotice = usePayrollNotice();
   const [resolution, setResolution] = React.useState("incomplete");
-  const [note, setNote] = React.useState("");
+  // Part H: the remark of a rejection (required then); an approval needs none.
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
 
-  React.useEffect(() => { if (correction) { setResolution("incomplete"); setNote(""); } }, [correction]);
+  React.useEffect(() => { if (correction) { setResolution("incomplete"); setRemark(EMPTY_REMARK); } }, [correction]);
   if (!correction) return null;
 
   const decide = (decision) => async () => {
+    if (decision === "reject") {
+      const problem = remarkProblem(remark, "reject");
+      if (problem) throw new Error(problem);
+    }
     const result = await fetchJson("/api/attendance/corrections", jsonBody("PATCH", {
       correction_id: correction.id,
       decision,
       resolution,
-      note: note.trim(),
+      ...(decision === "reject" ? { remark } : {}),
     }));
     notify(
       decision === "approve" ? "Correction Approved" : "Correction Rejected",
@@ -333,9 +336,7 @@ function ReviewCorrectionDialog({ correction, onOpenChange, onDone }) {
           </SelectContent>
         </Select>
       </Field>
-      <Field id="att-review-note" label="Note (optional)">
-        <Textarea id="att-review-note" rows={2} maxLength={500} placeholder="Shown with the decision in the audit trail" value={note} onChange={(e) => setNote(e.target.value)} />
-      </Field>
+      <RemarkField id="att-review-remark" decision="reject" entityType="attendance_correction" required={false} label="Remark if rejected (required to reject)" value={remark} onChange={setRemark} />
     </ActionDialog>
   );
 }
@@ -347,23 +348,24 @@ function ResolveDialog({ row, onOpenChange, onDone }) {
   const payrollNotice = usePayrollNotice();
   const [resolution, setResolution] = React.useState("time_out");
   const [time, setTime] = React.useState("");
-  const [note, setNote] = React.useState("");
+  // Part H: the reason is a preset remark (required).
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [errors, check, setErrors] = useFieldErrors();
 
-  React.useEffect(() => { if (row) { setResolution("time_out"); setTime(""); setNote(""); setErrors({}); } }, [row, setErrors]);
+  React.useEffect(() => { if (row) { setResolution("time_out"); setTime(""); setRemark(EMPTY_REMARK); setErrors({}); } }, [row, setErrors]);
   if (!row) return null;
 
   async function save() {
     check({
       time: resolution === "time_out" && !time ? "Time out is required." : "",
-      note: reasonError(note),
+      note: remarkProblem(remark, "resolve", true),
     });
     const result = await fetchJson("/api/attendance/corrections", jsonBody("PATCH", {
       action: "resolve",
       log_id: row.id,
       resolution,
       time_out: resolution === "time_out" ? time : "",
-      note: note.trim(),
+      remark,
     }));
     notify("Record Resolved", "The attendance record is resolved and can now be included in payroll.", "success");
     payrollNotice(result);
@@ -398,9 +400,7 @@ function ResolveDialog({ row, onOpenChange, onDone }) {
           <Input id="att-resolve-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-invalid={Boolean(errors.time) || undefined} />
         </Field>
       ) : null}
-      <Field id="att-resolve-note" label="Reason" error={errors.note}>
-        <Textarea id="att-resolve-note" rows={2} maxLength={500} placeholder="e.g. Confirmed with the branch logbook" value={note} onChange={(e) => setNote(e.target.value)} aria-invalid={Boolean(errors.note) || undefined} />
-      </Field>
+      <RemarkField id="att-resolve-remark" decision="resolve" entityType="attendance_correction" required label="Reason" value={remark} onChange={setRemark} error={errors.note} />
     </ActionDialog>
   );
 }

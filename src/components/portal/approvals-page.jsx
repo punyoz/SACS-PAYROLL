@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CheckIcon, GiftIcon, HandCoinsIcon, HistoryIcon, Loader2Icon, PencilIcon, RefreshCwIcon, WalletIcon, XIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -78,6 +79,7 @@ export function ApprovalsPage({ refreshKey }) {
     setError("");
     setInput({
       note: "",
+      remark: EMPTY_REMARK,
       balance: row?.subsidy_balance_id || data?.balances?.[0]?.id || "",
       months: String(d.months_missed || 1),
       label: d.months_label || "",
@@ -99,8 +101,10 @@ export function ApprovalsPage({ refreshKey }) {
     try {
       let message;
       if (kind === "approve" || kind === "reject") {
-        if (kind === "reject" && input.note.trim().length < 5) throw new Error("Write the reason for rejecting (at least 5 characters).");
-        await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "decide", request_id: row.id, decision: kind, note: input.note.trim() }));
+        // Part H: a preset remark (required to reject).
+        const problem = remarkProblem(input.remark, kind);
+        if (problem) throw new Error(problem);
+        await fetchJson("/api/admin/approvals", jsonBody("PATCH", { action: "decide", request_id: row.id, decision: kind, remark: input.remark }));
         message = kind === "approve" ? ["Subsidy Approved", "The Accountant has been notified."] : ["Subsidy Rejected", "It went back to the Accountant with your reason."];
       } else {
         const body = { action: "process", request_id: row?.id || null, kind, subsidy_balance_id: input.balance, loan_id: row?.loan_id || null, reason: input.reason.trim() };
@@ -262,8 +266,8 @@ export function ApprovalsPage({ refreshKey }) {
                       <div className="rounded-lg border bg-muted/40 px-3 py-2"><dt className="text-xs text-muted-foreground">Processed by</dt><dd className="font-medium">{dialog.row.processed_by_name}</dd></div>
                     </dl>
                     <p className="text-sm">{dialog.row.details_label}{dialog.row.reason ? ` — ${dialog.row.reason}` : ""}</p>
-                    {fieldFor("note", dialog.kind === "reject" ? "Reason for rejecting" : "Note (optional)",
-                      <Textarea id="sb-note" rows={3} maxLength={1000} value={input.note} placeholder={dialog.kind === "reject" ? "Required: what the Accountant must fix" : "Kept with the approval"} onChange={(e) => { setInput((c) => ({ ...c, note: e.target.value })); setError(""); }} autoFocus />)}
+                    <RemarkField id="sb-remark" decision={dialog.kind} entityType="subsidy_request" label={dialog.kind === "reject" ? "Reason for rejecting" : "Remark"}
+                      value={input.remark || EMPTY_REMARK} onChange={(v) => { setInput((c) => ({ ...c, remark: v })); setError(""); }} />
                   </>
                 ) : null}
                 {["adjustment", "advance"].includes(dialog.kind) && isNew ? fieldFor("bal", "Teacher", (

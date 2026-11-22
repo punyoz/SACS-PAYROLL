@@ -48,7 +48,7 @@ export async function resolveRemark(supabase, input, { decision, entityType, req
   if (!code) {
     const text = String(fallbackText || "").trim();
     if (text.length >= 3) return { code: OTHER, text: text.slice(0, EXTRA_MAX) };
-    return required ? { error: "Choose a remark (a reason is required)." } : { code: null, text: "" };
+    return required ? { error: "Choose a remark (a reason is required).", missing: true } : { code: null, text: "" };
   }
   if (code === OTHER) {
     if (extra.length < 3) return { error: "Write the remark (at least 3 characters)." };
@@ -64,15 +64,17 @@ export async function resolveRemark(supabase, input, { decision, entityType, req
 /**
  * A service-role client whose calls carry the remark: the decided table's
  * trigger writes one audit entry per row in `ids` (all rows of `table` the
- * call writes when ids is null), in the call's own transaction. Without a
+ * call writes when ids is null; only INSERTs with ops ["INSERT"]), in the
+ * call's own transaction. Without a
  * remark (an optional one left empty) it is a plain service client.
  */
-export function remarkClient(remark, { decision, entityType, module, table, ids = null, actor = null }) {
+export function remarkClient(remark, { decision, entityType, module, table, ids = null, ops = null, actor = null }) {
   const headers = {};
   if (remark?.code) {
     const payload = {
       code: remark.code, text: remark.text, decision, entity_type: entityType, module, table,
       ids: Array.isArray(ids) ? ids.map(String) : null,
+      ops: Array.isArray(ops) ? ops : null,
       actor_id: actor?.userId || null, actor_role: actor?.role || null,
       actor_name: actor?.session?.full_name || actor?.session?.email || null,
     };

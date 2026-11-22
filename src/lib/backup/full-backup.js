@@ -76,7 +76,7 @@ export const BACKUP_GROUPS = Object.freeze([
     description: "Government rate tables, pay rates (daily and the automatic hourly rate, per branch), payslip schedule and system settings.",
     computed: ["pay_rates"],
     tables: ["payroll_rate_configs", "payroll_tax_brackets", "payroll_sss_msc_brackets", "payroll_schedule_settings",
-      "payroll_setting_changes", "payroll_window_enforcement", "payroll_window_enforcement_changes", "system_config", "employee_pay_rules"],
+      "payroll_setting_changes", "payroll_window_enforcement", "payroll_window_enforcement_changes", "system_config", "employee_pay_rules", "remark_presets"],
   },
   {
     key: "branches", label: "Branches, roles and permissions",

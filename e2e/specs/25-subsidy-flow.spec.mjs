@@ -6,7 +6,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { choose, pickDate, refresh } from "../support/flow.mjs";
+import { choose, pickDate, refresh, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -89,7 +89,7 @@ test("subsidy: SA sets it → HR licenses → Accountant processes → HR reject
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Reject" }).click();
     await expect(dialog).toBeVisible();
-    await dialog.locator("#sb-note").fill(REJECT);
+    await writeRemark(page, "sb-remark", REJECT);
     await dialog.getByRole("button", { name: "Reject" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     expect((await latestRequest(ana.id)).status).toBe("rejected");
@@ -114,7 +114,7 @@ test("subsidy: SA sets it → HR licenses → Accountant processes → HR reject
     await as(page, "hr", "hr-subsidy-approvals");
     await main(page).locator("tr", { hasText: "Ana" }).first().getByRole("button", { name: "Approve" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#sb-note").fill("E2E: approved after correction");
+    await writeRemark(page, "sb-remark", "E2E: approved after correction");
     await dialog.getByRole("button", { name: "Approve" }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     expect(["approved", "applied"]).toContain((await latestRequest(ana.id)).status);

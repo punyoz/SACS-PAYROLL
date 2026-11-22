@@ -8,7 +8,7 @@
 -- to audit_logs IN THE SAME TRANSACTION as the decision:
 --
 --   the API sends the remark in the request header x-sacs-remark (base64
---   JSON: code, text, decision, entity_type, module, table, ids, actor); the
+--   JSON: code, text, decision, entity_type, module, table, ids, ops, actor); the
 --   trigger decision_remark_audit() on the decided table reads it
 --   (request.headers, set by PostgREST for the request's transaction) and
 --   inserts one audit entry per decided row. A bad or deactivated preset, or
@@ -94,6 +94,16 @@ BEGIN
   -- request writes keep no remark).
   IF v_remark ->> 'table' IS DISTINCT FROM TG_TABLE_NAME THEN RETURN NULL; END IF;
   IF jsonb_typeof(v_remark -> 'ids') = 'array' AND NOT ((v_remark -> 'ids') ? v_id) THEN RETURN NULL; END IF;
+  -- ops: only the decision's own write (e.g. ["INSERT"]: the new correction row, not a request it settles).
+  IF jsonb_typeof(v_remark -> 'ops') = 'array' AND NOT ((v_remark -> 'ops') ? TG_OP) THEN RETURN NULL; END IF;
+  -- One entry per decided row and decision: a function that inserts then
+  -- updates the same row in this transaction is counted once (now() is the
+  -- transaction's start, the same for both).
+  IF EXISTS (SELECT 1 FROM public.audit_logs a
+             WHERE a.created_at = now() AND a.entity_id = v_id AND (a.metadata ->> 'kind') = 'decision_remark'
+               AND (a.metadata ->> 'table') = TG_TABLE_NAME) THEN
+    RETURN NULL;
+  END IF;
 
   v_code := v_remark ->> 'code';
   v_text := btrim(COALESCE(v_remark ->> 'text', ''));

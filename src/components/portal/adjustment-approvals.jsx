@@ -2,11 +2,10 @@
 
 import * as React from "react";
 import { CheckIcon, ClipboardCheckIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { FilterTabs } from "@/components/portal/filter-tabs";
 import { StatusBadge } from "@/components/portal/status-badge";
@@ -28,7 +27,7 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
   const [tab, setTab] = React.useState("pending");
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
   const [deciding, setDeciding] = React.useState(null); // { item, decision }
-  const [note, setNote] = React.useState("");
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
 
@@ -50,16 +49,17 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
 
   function open(item, decision) {
     setDeciding({ item, decision });
-    setNote("");
+    setRemark(EMPTY_REMARK);
     setError("");
   }
 
   async function decide(event) {
     event.preventDefault();
-    if (deciding.decision === "reject" && note.trim().length < 5) { setError("Give the reason for rejecting it (at least 5 characters)."); return; }
+    const problem = remarkProblem(remark, deciding.decision);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     try {
-      await fetchJson("/api/hr/adjustment-approvals", jsonBody("PATCH", { kind: deciding.item.kind, id: deciding.item.id, decision: deciding.decision, note: note.trim() }));
+      await fetchJson("/api/hr/adjustment-approvals", jsonBody("PATCH", { kind: deciding.item.kind, id: deciding.item.id, decision: deciding.decision, remark }));
       notify(deciding.decision === "approve" ? "Approved" : "Rejected",
         deciding.decision === "approve" ? "Payroll will include it." : "It will not be paid or deducted. The Accountant is notified.", "success");
       setDeciding(null);
@@ -127,11 +127,8 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
                 <DialogTitle>{deciding.decision === "approve" ? "Approve" : "Reject"} {deciding.item.type_label.toLowerCase()} — {deciding.item.employee_name}</DialogTitle>
                 <DialogDescription>{deciding.item.amount_label} · {deciding.item.detail}</DialogDescription>
               </DialogHeader>
-              <div className="space-y-1.5">
-                <Label htmlFor="adj-note">{deciding.decision === "reject" ? "Reason (required)" : "Note (optional)"}</Label>
-                <Textarea id="adj-note" rows={2} maxLength={500} value={note} onChange={(e) => { setNote(e.target.value); setError(""); }} autoFocus aria-invalid={Boolean(error) || undefined} />
-                {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-              </div>
+              <RemarkField id="adj-remark" decision={deciding.decision} entityType="adjustment" value={remark}
+                onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button type="button" variant="outline" onClick={() => setDeciding(null)} disabled={busy}>Cancel</Button>
                 <Button type="submit" disabled={busy} variant={deciding.decision === "reject" ? "destructive" : "default"}>

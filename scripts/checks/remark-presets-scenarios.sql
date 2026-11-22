@@ -84,6 +84,13 @@ BEGIN
   UPDATE public.leave_requests SET reason = 'again' WHERE id = 'rem-5';
   ASSERT pg_temp.remarks(ARRAY['rem-5']) = 1, '6: no header, no entry';
 
+  -- 7. A function that inserts then updates the same row (e.g. attendance_correct_record) counts once.
+  PERFORM pg_temp.header(jsonb_build_object('code', 'override.entry_error', 'decision', 'override', 'entity_type', 'leave_request', 'table', 'leave_requests', 'ids', jsonb_build_array('rem-6')));
+  INSERT INTO public.leave_requests (id, employee_id, employee_name, start_date, end_date, status, branch_id)
+  VALUES ('rem-6', '00000000-0000-4000-8000-0000000005a1', 'Rem Remark', '2027-02-09', '2027-02-09', 'pending_accountant', '00000000-0000-4000-8000-0000000005f1');
+  UPDATE public.leave_requests SET status = 'approved' WHERE id = 'rem-6';
+  ASSERT pg_temp.remarks(ARRAY['rem-6']) = 1, '7: insert + update of one row = one entry';
+
   RAISE NOTICE 'all remark preset scenarios passed';
 END $$;
 

@@ -11,6 +11,7 @@
  *          Accountant who filed it is notified.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -96,13 +97,17 @@ export async function PATCH(request) {
     const kind = normalizeText(body.kind);
     const id = normalizeText(body.id);
     const decision = normalizeText(body.decision);
-    const note = normalizeText(body.note).slice(0, 500);
     if (!["incentive", "loan"].includes(kind) || !UUID.test(id)) return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (!["approve", "reject"].includes(decision)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
-    if (decision === "reject" && note.length < 5) return NextResponse.json({ error: "Give the reason for rejecting it (at least 5 characters)." }, { status: 400 });
 
     const supabase = getAdminClient();
-    const result = await supabase.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });
+    // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
+    const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "adjustment", fallbackText: body.note });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const note = normalizeText(remark.text).slice(0, 500);
+    if (decision === "reject" && note.length < 5) return NextResponse.json({ error: "Give the reason for rejecting it (at least 5 characters)." }, { status: 400 });
+    const decider = remarkClient(remark, { decision, entityType: "adjustment", module: "payroll", table: kind === "loan" ? "payroll_loans" : "payroll_monthly_incentives", ids: [id], actor: guard });
+    const result = await decider.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });
     if (result.error) {
       const failure = describeDecisionError(result.error);
       return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });

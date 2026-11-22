@@ -16,6 +16,7 @@
  * is notified.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -83,7 +84,6 @@ export async function PATCH(request) {
     if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const id = normalizeText(body.id);
     const decision = normalizeText(body.decision);
-    const note = normalizeText(body.note).slice(0, 1000);
     if (!REQUEST_ID.test(id)) return NextResponse.json({ error: "Request not found." }, { status: 404 });
     const supabase = getAdminClient();
     const found = await supabase.from("branch_admin_requests").select("*").eq("id", id).maybeSingle();
@@ -98,6 +98,10 @@ export async function PATCH(request) {
       return NextResponse.json({ error: REQUEST_KINDS[row.kind].endorsement ? "This is the Admin's endorsement: decide the record itself on its own page." : "That decision does not apply here." }, { status: 400 });
     }
     if (row.status !== "pending") return NextResponse.json({ error: "Already decided." }, { status: 409 });
+    // Part H: a preset remark (a remark for the Admin is always required here), audited with the request's update.
+    const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "branch_request", required: true, fallbackText: body.note });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const note = normalizeText(remark.text).slice(0, 1000);
     if (decision === "reject" && note.length < 5) return NextResponse.json({ error: "Write the reason (at least 5 characters)." }, { status: 400 });
     if (decision !== "reject" && note.length < 3) return NextResponse.json({ error: "Write a remark for the Admin." }, { status: 400 });
 
@@ -125,7 +129,8 @@ export async function PATCH(request) {
     }
 
     const status = DECISION_STATUS[decision];
-    const updated = await supabase.from("branch_admin_requests").update({
+    const decider = remarkClient(remark, { decision, entityType: "branch_request", module: "branch_oversight", table: "branch_admin_requests", ids: [row.id], actor: guard });
+    const updated = await decider.from("branch_admin_requests").update({
       status, decided_by: guard.userId || null, decided_by_name: actorName, decided_by_role: guard.role, decided_at: now,
       decision_note: note || null, outcome_ref: outcomeRef,
       history: [...(row.history || []), historyEntry({ action: decision, status, by: guard.userId, byName: actorName, role: guard.role, note, at: now })],

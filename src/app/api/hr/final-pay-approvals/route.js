@@ -17,6 +17,7 @@
  * the snapshot the Accountant submitted.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -114,9 +115,12 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => ({}));
     const id = normalizeText(body.id);
     const action = normalizeText(body.action);
-    const reason = normalizeText(body.reason).slice(0, 500);
     if (!UUID.test(id)) return NextResponse.json({ error: "Choose the final pay." }, { status: 400 });
     if (!["approve", "reject"].includes(action)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
+    // Part H: a preset remark (required to reject), audited with the decision.
+    const remark = await resolveRemark(supabase, body.remark, { decision: action, entityType: "final_pay", fallbackText: body.reason });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const reason = normalizeText(remark.text).slice(0, 500);
     if (action === "reject" && reason.length < 5) return NextResponse.json({ error: "Give the reason for rejecting (at least 5 characters)." }, { status: 400 });
 
     const before = await supabase.from(SUBMISSIONS).select("*").eq("id", id).maybeSingle();
@@ -124,7 +128,8 @@ export async function PATCH(request) {
     const row = before.data;
     if (scope.branchId && row.branch_id !== scope.branchId) return NextResponse.json({ error: "This final pay belongs to another branch's HR." }, { status: 403 });
 
-    const { data, error } = await supabase.rpc("payroll_final_pay_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_reason: reason || null });
+    const decider = remarkClient(remark, { decision: action, entityType: "final_pay", module: "payroll", table: "payroll_final_pay_submissions", ids: [id], actor: guard });
+    const { data, error } = await decider.rpc("payroll_final_pay_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_reason: reason || null });
     if (error) {
       const failure = describeDecideError(error);
       return NextResponse.json({ error: failure.error }, { status: failure.status });
