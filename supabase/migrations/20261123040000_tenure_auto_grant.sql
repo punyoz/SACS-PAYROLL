@@ -12,9 +12,15 @@
 -- the branch's (or the school-wide) policy active; not protected now; never
 -- revoked by HR since the service started (only HR re-grants). Continuous
 -- service starts at date hired, or at the last return after a separation
--- (status history) — a break restarts the count. The grant takes effect from
--- the cutoff containing the anniversary (processed payslips are stored and
--- never change). Logged "by System, rule: N years of service"; HR and the
+-- (status history) — a break restarts the count.
+-- A grant NEVER applies backwards (user decision 2026-11-22): it takes effect
+-- from the cutoff in progress on the day it is granted, or the next one when
+-- that cutoff's branch run is already submitted or approved. A new
+-- anniversary reached while the job runs daily falls in the cutoff in
+-- progress, so it takes effect from the cutoff containing it; someone already
+-- past it at the first run (or whose date hired is filled in later) starts
+-- from the current cutoff, never the old anniversary. No retroactive
+-- adjustments; processed payslips are stored and never change. Logged "by System, rule: N years of service"; HR and the
 -- employee are notified. Existing manual grants stay as they are.
 
 INSERT INTO public.system_config (section, key, value, updated_by)
@@ -27,6 +33,24 @@ CREATE OR REPLACE FUNCTION public.cutoff_start_of(p_day DATE)
 AS $function$
   SELECT CASE WHEN EXTRACT(DAY FROM p_day) <= 15 THEN date_trunc('month', p_day)::DATE ELSE (date_trunc('month', p_day)::DATE + 15) END;
 $function$;
+
+/** The first day of the cutoff after the one starting on p_start. */
+CREATE OR REPLACE FUNCTION public.next_cutoff_start(p_start DATE)
+ RETURNS DATE LANGUAGE sql IMMUTABLE
+AS $function$
+  SELECT CASE WHEN EXTRACT(DAY FROM p_start) = 1 THEN p_start + 15 ELSE (date_trunc('month', p_start) + INTERVAL '1 month')::DATE END;
+$function$;
+
+/** The cutoff a grant made on p_today starts from: the one in progress, or the next if its branch run is submitted / approved. */
+CREATE OR REPLACE FUNCTION public.tenure_grant_start(p_branch UUID, p_today DATE)
+ RETURNS DATE LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM public.payroll_runs r WHERE r.branch_id = p_branch AND r.period_start = public.cutoff_start_of(p_today)
+                                                            AND r.status IN ('pending', 'approved'))
+              THEN public.next_cutoff_start(public.cutoff_start_of(p_today))
+              ELSE public.cutoff_start_of(p_today) END;
+$function$;
+REVOKE ALL ON FUNCTION public.tenure_grant_start(UUID, DATE) FROM PUBLIC, anon, authenticated;
 
 /** Who the job would grant today, and from when (also the first-run review list). */
 CREATE OR REPLACE FUNCTION public.tenure_auto_grant_candidates(p_today DATE DEFAULT ((now() AT TIME ZONE 'Asia/Manila')::DATE))
@@ -55,7 +79,8 @@ AS $function$
   )
   SELECT pe.id, pe.full_name, pe.code, pe.branch_id, pe.employment_status, pe.date_hired, pe.service_start, pe.years,
          (pe.service_start + make_interval(months => (pe.years * 12)::INTEGER))::DATE AS anniversary,
-         public.cutoff_start_of((pe.service_start + make_interval(months => (pe.years * 12)::INTEGER))::DATE) AS effective_from
+         -- never backwards: the cutoff in progress today (or the next if processed), not the old anniversary
+         public.tenure_grant_start(pe.branch_id, p_today) AS effective_from
   FROM people pe
   WHERE pe.active AND pe.years IS NOT NULL
     AND (pe.service_start + make_interval(months => (pe.years * 12)::INTEGER))::DATE <= p_today
