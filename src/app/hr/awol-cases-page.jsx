@@ -135,6 +135,14 @@ export function AwolCasesPage({ refreshKey }) {
   const rows = caseFilters.rows;
   const first = state.loading && !state.data;
 
+  // Part D: HR sends the prepared 1st notice with one click; the reply deadline starts now.
+  const sendPrepared = async (c) => {
+    try {
+      await fetchJson("/api/hr/awol-cases", jsonBody("PATCH", { case_id: c.id, action: "first_notice", sent_on: today, reply_by: plusDays(today, replyDays) }));
+      notify("1st notice sent", `${c.employee_name} must reply by ${dateLabel(plusDays(today, replyDays))}.`, "success");
+      await load();
+    } catch (e) { notify("Not sent", e.message, "error"); }
+  };
   // Part D: the 1st notice's editable template (fields in braces, e.g. {reply_by}).
   const [template, setTemplate] = React.useState(null); // { text, fields } while open
   const [templateBusy, setTemplateBusy] = React.useState(false);
@@ -167,8 +175,13 @@ export function AwolCasesPage({ refreshKey }) {
       key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
       cell: (c) => (canEdit && c.open ? (
         <div className="flex flex-wrap justify-end gap-1.5">
-          {c.first_notice_sent_on ? (
-            <Button size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?id=${c.id}`, {}, { fallbackName: "awol-first-notice.pdf" }).catch((e) => notify("Not downloaded", e.message, "error"))}>1st notice (PDF)</Button>
+          {c.first_notice_sent_on || (c.auto_flagged && c.stage === "flagged") ? (
+            <Button size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?id=${c.id}`, {}, { fallbackName: "awol-first-notice.pdf" }).catch((e) => notify("Not downloaded", e.message, "error"))}>
+              {c.first_notice_sent_on ? "1st notice (PDF)" : "Review notice (PDF)"}
+            </Button>
+          ) : null}
+          {c.auto_flagged && c.stage === "flagged" ? (
+            <Button size="sm" onClick={() => sendPrepared(c)} data-testid="awol-send-prepared">Send 1st notice</Button>
           ) : null}
           {NEXT_STEP[c.stage] ? <Button size="sm" onClick={() => open(NEXT_STEP[c.stage][0], c)}>{NEXT_STEP[c.stage][1]}</Button> : null}
           {c.stage !== "flagged" && c.stage !== "for_decision" ? <Button size="sm" variant="outline" onClick={() => open("record_reply", c)}>Reply</Button> : null}

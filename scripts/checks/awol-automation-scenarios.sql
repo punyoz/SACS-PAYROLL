@@ -67,13 +67,20 @@ DECLARE
 BEGIN
   PERFORM public.awol_flag_candidates('2027-03-06');
 
-  -- 1. Abe: 3 working days absent, no leave → a case, 1st notice issued, reply by today + 5, HR and Abe told.
+  -- 1. Abe: 3 working days absent, no leave → a case opened by the system, the notice PREPARED (not sent):
+  --    no deadline yet; HR told, Abe not yet (HR sends the notice with one click).
   SELECT * INTO v_case FROM public.employee_awol_cases WHERE employee_id = abe;
   ASSERT FOUND, '1: Abe has a case';
-  ASSERT v_case.stage = 'first_notice' AND v_case.auto_flagged AND v_case.first_absent_on = '2027-03-03', format('1b: %s %s', v_case.stage, v_case.first_absent_on);
-  ASSERT v_case.first_notice_reply_by = v_case.first_notice_sent_on + 5, '1c: reply by +5 days';
-  ASSERT EXISTS (SELECT 1 FROM public.notifications WHERE recipient_id = abe AND kind = 'awol_first_notice'), '1d: Abe told';
+  ASSERT v_case.stage = 'flagged' AND v_case.auto_flagged AND v_case.first_absent_on = '2027-03-03', format('1b: %s %s', v_case.stage, v_case.first_absent_on);
+  ASSERT v_case.first_notice_sent_on IS NULL AND v_case.first_notice_reply_by IS NULL, '1c: not sent, no deadline';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.notifications WHERE recipient_id = abe), '1d: Abe not told before HR sends';
   ASSERT EXISTS (SELECT 1 FROM public.notifications WHERE recipient_id = '00000000-0000-4000-8000-0000000006e1' AND kind = 'awol_case_opened'), '1e: HR told';
+  -- No reminder while the notice is not sent.
+  PERFORM public.awol_daily_review('2027-04-30');
+  ASSERT (SELECT reminded_at IS NULL FROM public.employee_awol_cases WHERE id = v_case.id), '1f: no reminder before the notice is sent';
+  -- HR sends it (what the one-click Send writes): the deadline starts now.
+  UPDATE public.employee_awol_cases SET stage = 'first_notice', first_notice_sent_on = '2027-03-08', first_notice_reply_by = '2027-03-13' WHERE id = v_case.id
+  RETURNING * INTO v_case;
 
   -- 2. Sat: his own schedule counts Saturday → Thu, Fri, Sat are 3 working days → a case.
   ASSERT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = sat), '2: own schedule (Mon-Sat)';

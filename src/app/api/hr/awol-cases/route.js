@@ -17,6 +17,7 @@
  * HR decides every case; the Admin has no approval step.
  */
 
+import { notify } from "@/lib/branch-requests-server";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -159,7 +160,9 @@ export async function PATCH(request) {
     const staff = await loadPayrollStaff(supabase, guard, { includeArchived: true });
     const person = staff.find((p) => p.id === row.employee_id);
     if (!person) return NextResponse.json({ error: "That case belongs to another branch." }, { status: 403 });
-    if (!canTransition(action, row.stage)) {
+    // Part D: a system-opened case's prepared 1st notice is sent from "flagged" (HR reviews it first).
+    const sendPrepared = action === "first_notice" && row.stage === "flagged" && row.auto_flagged;
+    if (!sendPrepared && !canTransition(action, row.stage)) {
       return NextResponse.json({ error: `This case is "${row.stage.replace("_", " ")}": that step is not open now.` }, { status: 409 });
     }
 
@@ -250,6 +253,14 @@ export async function PATCH(request) {
       actor: guard, module: "hr", action: `awol_${action}`, entity_type: "employee_awol_case", entity_id: row.id,
       status: "success", source: "api", description, metadata: { employee_id: person.id, from: row.stage, ...patch },
     });
+    // The employee is told when HR sends a notice (Part D).
+    if (action === "first_notice" || action === "second_notice") {
+      await notify(supabase, [row.employee_id], {
+        kind: `awol_${action}`, title: action === "first_notice" ? "Notice to return to work" : "Second notice",
+        body: `Report back to work or explain in writing by ${patch.first_notice_reply_by || patch.second_notice_reply_by}. No decision has been made.`,
+        link_page: "emp-dash",
+      }).catch(() => 0);
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });

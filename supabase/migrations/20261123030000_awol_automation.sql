@@ -11,10 +11,11 @@
 --   2. Detection (awol_flag_candidates): N consecutive scheduled working days
 --      absent with no tap (hr.awol_flag_days, default 3), on each employee's
 --      OWN schedule (rest days, holidays, On Leave and gap days left out), no
---      approved or pending leave (half days too). The case opens with the
---      1st notice issued (reply by today + hr.awol_reply_days, default 5);
---      HR and the employee are told. The notice is a PDF from the editable
---      template hr.awol_first_notice_template.
+--      approved or pending leave (half days too). The case opens "flagged"
+--      with the 1st notice PREPARED (a PDF from the editable template
+--      hr.awol_first_notice_template); HR is told, reviews it and sends it
+--      with one click (user decision 2026-11-22). The deadlines start when HR
+--      sends it (reply by + hr.awol_reply_days, default 5).
 --   3. Review (awol_daily_review): a return (a tap) or a leave filed marks the
 --      case for HR review; after the 1st notice's deadline HR is reminded to
 --      send the 2nd; after the 2nd notice's deadline the case is "Ready for HR
@@ -108,8 +109,6 @@ CREATE OR REPLACE FUNCTION public.awol_flag_candidates(p_through DATE DEFAULT ((
 AS $function$
 DECLARE
   v_days  INTEGER := GREATEST(1, public.hr_setting_int('awol_flag_days', 3));
-  v_reply INTEGER := GREATEST(1, public.hr_setting_int('awol_reply_days', 5));
-  v_today DATE := (now() AT TIME ZONE 'Asia/Manila')::DATE;
   v_count INTEGER;
 BEGIN
   PERFORM public.attendance_detect_data_gaps(p_through - 30, p_through);
@@ -131,14 +130,13 @@ BEGIN
     GROUP BY w.employee_id
     HAVING COUNT(*) = v_days AND bool_and(w.status = 'Absent' AND w.time_in IS NULL AND w.time_out IS NULL)
   ), opened AS (
-    INSERT INTO public.employee_awol_cases (employee_id, branch_id, first_absent_on, last_present_on, stage, auto_flagged,
-                                            first_notice_sent_on, first_notice_reply_by, notes)
+    INSERT INTO public.employee_awol_cases (employee_id, branch_id, first_absent_on, last_present_on, stage, auto_flagged, notes)
     SELECT s.employee_id, p.branch_id, s.first_absent,
            (SELECT MAX(l.log_date) FROM public.attendance_logs l
             WHERE l.employee_id = s.employee_id AND l.log_date < s.first_absent
               AND l.status NOT IN ('Absent', 'Holiday', 'On Leave')),
-           'first_notice', TRUE, v_today, v_today + v_reply,
-           format('Opened by System, rule: %s scheduled working days absent with no taps and no leave; 1st notice issued (reply by %s).', v_days, v_today + v_reply)
+           'flagged', TRUE,
+           format('Opened by System, rule: %s scheduled working days absent with no taps and no leave. 1st notice prepared for HR to review and send.', v_days)
     FROM streaks s
     JOIN public.profiles p ON p.id = s.employee_id
     WHERE p.archived = FALSE
@@ -153,16 +151,12 @@ BEGIN
           AND (CASE WHEN r.start_date::TEXT ~ '^\d{4}-\d{2}-\d{2}$' THEN r.start_date::TEXT::DATE END) <= p_through
           AND (CASE WHEN r.end_date::TEXT ~ '^\d{4}-\d{2}-\d{2}$' THEN r.end_date::TEXT::DATE END) >= s.first_absent)
     ON CONFLICT DO NOTHING
-    RETURNING id, employee_id, first_absent_on, first_notice_reply_by
+    RETURNING id, employee_id, first_absent_on
   ), told AS (
+    -- HR only: the employee hears when HR sends the notice.
     INSERT INTO public.notifications (recipient_id, kind, title, body, link_page)
-    SELECT o.employee_id, 'awol_first_notice', 'Notice to return to work',
-           format('Our records show you absent since %s with no leave. Report back or explain in writing by %s. No decision has been made.', to_char(o.first_absent_on, 'Mon DD, YYYY'), to_char(o.first_notice_reply_by, 'Mon DD, YYYY')),
-           'emp-requests'
-    FROM opened o
-    UNION ALL
     SELECT h.id, 'awol_case_opened', 'AWOL case opened by the system',
-           format('%s: absent since %s; 1st notice issued, reply by %s.', COALESCE(p.full_name, 'An employee'), to_char(o.first_absent_on, 'Mon DD, YYYY'), to_char(o.first_notice_reply_by, 'Mon DD, YYYY')),
+           format('%s: absent since %s. The 1st notice is prepared: review it and send it.', COALESCE(p.full_name, 'An employee'), to_char(o.first_absent_on, 'Mon DD, YYYY')),
            'hr-awol'
     FROM opened o
     JOIN public.profiles p ON p.id = o.employee_id
