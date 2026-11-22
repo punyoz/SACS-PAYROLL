@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RemarkPresetsCard } from "@/components/portal/remark-presets-manager";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { ErrorState } from "@/components/portal/empty-state";
@@ -43,6 +44,8 @@ const TABS = [
   { id: "tax", label: "Tax & contributions" },
   { id: "holidays", label: "Holidays" },
   { id: "security", label: "Security" },
+  // Part H (2026-11-22): the preset remarks of every decision.
+  { id: "remarks", label: "Preset remarks" },
 ];
 
 const ATT_DEFAULTS = { work_start: "08:00", work_end: "17:00", grace: "15", work_hours: "8" };
@@ -673,6 +676,7 @@ export function ConfigPage({ refreshKey }) {
         <TabsContent value="rates" className="flex flex-col gap-4"><RatesSection refreshKey={refreshKey} /></TabsContent>
         <TabsContent value="tax" className="flex flex-col gap-4"><PayrollSettingsSection refreshKey={refreshKey} /><LeaveConversionCard /></TabsContent>
         <TabsContent value="holidays" className="flex flex-col gap-4"><HolidaysSection refreshKey={refreshKey} /></TabsContent>
+        <TabsContent value="remarks" className="flex flex-col gap-4"><RemarkPresetsCard refreshKey={refreshKey} /></TabsContent>
         <TabsContent value="security" className="flex flex-col gap-4">
           {state.config ? (
             <SimpleSection

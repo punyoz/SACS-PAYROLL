@@ -27,6 +27,7 @@ const remarksOf = (id) => rows(db().from("audit_logs").select("action,entity_typ
 
 test("preset remarks: same-transaction audit, refusals undo the decision, bulk counts per item, report = export", async ({ page, monitor }) => {
   monitor.allow(/^400 PATCH \/api\/hr\/leave-requests/, /status of 400/);
+  monitor.allow(/^403 (POST|GET) \/api\/(remark-presets|reports\/remark-reasons)/, /status of 403/);
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const ids = [];
   for (let n = 0; n < 4; n += 1) ids.push(await pendingLeave(ana, n));
@@ -112,6 +113,31 @@ test("preset remarks: same-transaction audit, refusals undo the decision, bulk c
     const fileRows = [...xml.matchAll(/<row[^>]*>(.*?)<\/row>/g)].map((m) => [...m[1].matchAll(/<c [^>]*>(?:<is><t[^>]*>(.*?)<\/t><\/is>|<v>(.*?)<\/v>|<f>.*?<\/f><v>(.*?)<\/v>)<\/c>/g)].map((c) => c[1] ?? c[2] ?? c[3]));
     const dataRows = fileRows.filter((r) => r.length === 4 && r[0] !== "Reason" && r[0] !== "TOTAL");
     expect(dataRows.map((r) => [r[0], Number(r[3])]), "the export lists the screen's rows").toEqual(screen.rows.map((r) => [r.label, r.count]));
+  });
+
+  await step(page, "HR > Settings > Preset Remarks: add one, it is offered in the dialog; deactivate it, it is not; the reasons card counts", async () => {
+    await as(page, "hr", "hr-remark-presets");
+    await settle(page);
+    const card = main(page).getByTestId("remark-presets");
+    const label = `E2E preset ${Date.now() % 100000}`;
+    await choose(page, card.locator("#rp-decision"), "Reject");
+    await choose(page, card.locator("#rp-type"), "Leave request");
+    await card.locator("#rp-label").fill(label);
+    await card.getByRole("button", { name: "Add" }).click();
+    await expect(card.getByRole("textbox", { name: `Remark: ${label}` })).toBeVisible();
+    const offered = await api(page, "GET", "/api/remark-presets?decision=reject&entity_type=leave_request");
+    expect(offered.data.presets.map((p) => p.label)).toContain(label);
+    await card.getByRole("switch", { name: `Deactivate ${label}` }).click();
+    await expect(card.getByRole("switch", { name: `Reactivate ${label}` })).toBeVisible();
+    const after = await api(page, "GET", "/api/remark-presets?decision=reject&entity_type=leave_request");
+    expect(after.data.presets.map((p) => p.label)).not.toContain(label);
+    // The Accountant may not manage presets.
+    await as(page, "accountant");
+    const refused = await api(page, "POST", "/api/remark-presets", { decision: "reject", label: "Not mine to add" });
+    expect(refused.status).toBe(403);
+    await as(page, "hr", "hr-reports");
+    await settle(page);
+    await expect(main(page).getByTestId("decision-reasons").getByRole("cell", { name: "Filed late" }).first()).toBeVisible();
   });
 
   await step(page, "Admin cannot read another branch's reasons", async () => {
