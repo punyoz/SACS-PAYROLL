@@ -197,3 +197,23 @@ export function SubstitutionsPanel({ role, refreshKey = 0 }) {
     </Card>
   );
 }
+
+/** The Accountant's Action needed (Part C): substitutions approved after their cutoff was processed. */
+export function SubstitutionsActionNeededCard({ refreshKey = 0, onOpen }) {
+  const [rows, setRows] = React.useState([]);
+  React.useEffect(() => {
+    let live = true;
+    fetchJson("/api/substitutions?late=1").then((d) => { if (live) setRows(d.late || []); }).catch(() => {});
+    return () => { live = false; };
+  }, [refreshKey]);
+  if (!rows.length) return null;
+  return (
+    <div role="status" className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm" data-testid="substitutions-action-needed">
+      <p className="font-semibold">Action needed: substitutions approved after their cutoff ({rows.length})</p>
+      <p className="mb-1 text-xs text-muted-foreground">Their cutoff was already processed: they are paid on the next payslip as an adjustment when you process it.</p>
+      <ul className="space-y-0.5">{rows.slice(0, 8).map((r) => <li key={r.id}>{r.substitute_name} · {r.sub_date} {r.start_time}-{r.end_time}, covering {r.absent_name}</li>)}</ul>
+      {onOpen ? <Button size="sm" variant="outline" className="mt-2" onClick={onOpen}>Open Process Payroll</Button> : null}
+    </div>
+  );
+}
+

@@ -18,7 +18,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { manilaDateKey } from "@/lib/payroll/periods";
-import { minutesOf, readSubstitutionSettings, suggestSubstitutes, tapsConfirm, weekOf } from "@/lib/substitutions/pay";
+import { lateSubstitutions, minutesOf, readSubstitutionSettings, suggestSubstitutes, tapsConfirm, weekOf } from "@/lib/substitutions/pay";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -84,6 +84,21 @@ export async function GET(request) {
       if (out.denied) return out.denied;
       if (out.error) return NextResponse.json({ error: out.error }, { status: 404 });
       return NextResponse.json(out);
+    }
+    // Approved after their cutoff was processed (Part C): paid on the next payslip; the Accountant's Action needed.
+    if (url.searchParams.get("late") === "1") {
+      const since = addDays(manilaDateKey(), -62);
+      let lq = supabase.from("substitutions").select(COLUMNS).eq("status", "approved").gte("sub_date", since);
+      if (!guard.branchExempt) lq = lq.eq("branch_id", guard.branchId);
+      const { data: approved } = await lq;
+      const subIds = [...new Set((approved || []).map((r) => r.substitute_id))];
+      const { data: entries } = subIds.length
+        ? await supabase.from("payroll_entries").select("id,employee_id,status,pay_period,payroll").neq("status", "draft").gte("created_at", `${since}T00:00:00Z`).in("employee_id", subIds)
+        : { data: [] };
+      const late = lateSubstitutions(approved || [], entries || []);
+      const rows = (approved || []).filter((r) => late.has(r.id));
+      const who = await people(supabase, [...new Set(rows.flatMap((r) => [r.absent_employee_id, r.substitute_id]))]);
+      return NextResponse.json({ late: rows.map((r) => ({ ...r, substitute_name: who.get(r.substitute_id)?.full_name || "—", absent_name: who.get(r.absent_employee_id)?.full_name || "—" })) });
     }
     // The branch's teachers (the form's absent-teacher list) and their approved leave around today
     // (from 7 days back to 14 ahead): "Arrange substitute" starts from these.
