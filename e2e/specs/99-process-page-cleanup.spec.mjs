@@ -30,8 +30,8 @@ async function plantBlockedEmployee() {
   const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-Pc#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name } });
   if (error) throw new Error(error.message);
   const id = data.user.id;
-  // No card: an RFID card is set only through RFID registration.
-  const { id: _id, email: _email, created_at: _c, updated_at: _u, rfid_uid: _card, ...rest } = bea;
+  // No card (set only through RFID registration) and no photo (it must sit in the owner's own folder).
+  const { id: _id, email: _email, created_at: _c, updated_at: _u, rfid_uid: _card, photo_path: _p, photo_thumb_path: _t, photo_updated_at: _pu, ...rest } = bea;
   await rows(db().from("profiles").upsert({ ...rest, id, email, full_name, employee_id: `E2E-PC-${stamp}`, archived: false, on_payroll: true }, { onConflict: "id" }).select("id"));
   const logs = [];
   for (let d = 1; d <= 30; d += 1) {
