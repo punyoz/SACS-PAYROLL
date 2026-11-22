@@ -1,6 +1,6 @@
 // Part J (2026-11-22): the HR dashboard's combined chart is split in two:
 // Staff breakdown (Teaching / Non-Teaching) and Today's attendance (Present /
-// Late / Absent / On leave / Not tapped yet), each with its own title and a
+// Late / Absent / On leave / Not tapped yet; "On time" = Present less Late, so the bars add up), each with its own title and a
 // legend whose entries link to the filtered list behind the bar.
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
@@ -30,10 +30,10 @@ test("HR dashboard: two charts, own titles and legends, each entry links to its 
     const card = main(page).getByTestId("chart-today");
     await expect(card.getByText("Today's attendance", { exact: true })).toBeVisible();
     const expected = {
-      Present: Math.max(0, data.present_today - data.late_today), Late: data.late_today, Absent: data.absent_marked_today,
+      "On time": Math.max(0, data.present_today - data.late_today), Late: data.late_today, Absent: data.absent_marked_today,
       "On leave": data.on_leave_today, "Not tapped yet": data.absent_today,
     };
-    const status = { Present: "Present", Late: "Late", Absent: "Absent", "On leave": "On\\+Leave|On%20Leave", "Not tapped yet": "Not\\+tapped\\+yet|Not%20tapped%20yet" };
+    const status = { "On time": "Present", Late: "Late", Absent: "Absent", "On leave": "On\\+Leave|On%20Leave", "Not tapped yet": "Not\\+tapped\\+yet|Not%20tapped%20yet" };
     for (const [label, count] of Object.entries(expected)) {
       const link = legend(card, label);
       await expect(link).toContainText(String(count));

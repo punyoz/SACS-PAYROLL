@@ -67,8 +67,8 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
   ];
   const late = Number(d.late_today || 0);
   const todayBars = [
-    // Late is its own bar, so Present here is the on-time part (the card above counts Late in).
-    { label: "Present", count: Math.max(0, Number(d.present_today || 0) - late), fill: "var(--chart-1)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" }) },
+    // "On time" (not "Present"): Late is its own bar, so the bars add up; the Present card above counts Late in.
+    { label: "On time", count: Math.max(0, Number(d.present_today || 0) - late), fill: "var(--chart-1)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" }) },
     { label: "Late", count: late, fill: "var(--chart-4)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Late" }) },
     { label: "Absent", count: Number(d.absent_marked_today || 0), fill: "var(--destructive)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Absent" }) },
     { label: "On leave", count: Number(d.on_leave_today || 0), fill: "var(--chart-2)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "On Leave" }) },
@@ -94,7 +94,7 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="grid min-w-0 gap-4">
           <CountChart testId="chart-staff" title="Staff breakdown" description={`Teaching ${d.teaching_staff ?? 0} · Non-Teaching ${d.non_teaching_staff ?? 0}`} bars={staffBars} loading={loading} unit="Employees" />
-          <CountChart testId="chart-today" title="Today's attendance" description="Present (on time), Late, Absent, On leave and Not tapped yet, from today's records" bars={todayBars} loading={loading} unit="Employees" />
+          <CountChart testId="chart-today" title="Today's attendance" description="On time, Late, Absent, On leave and Not tapped yet, from today's records" bars={todayBars} loading={loading} unit="Employees" />
         </div>
 
         <div className="grid gap-4">
