@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import { execSync } from "node:child_process";
 import { createClient } from "@supabase/supabase-js";
-import { TEST_OTP, TEST_SESSION_SECRET } from "../accounts.mjs";
+import { ACCOUNTS, TEST_OTP, TEST_SESSION_SECRET } from "../accounts.mjs";
 import { localSupabase } from "../local-env.mjs";
 
 let client = null;
@@ -53,4 +53,49 @@ export async function archiveTestAccount(email) {
   const { data: user } = await db().auth.admin.getUserById(profile.id);
   if (user?.user) await db().auth.admin.updateUserById(profile.id, { user_metadata: { ...(user.user.user_metadata || {}), archived: true } });
   if (!profile.archived) await db().from("profiles").update({ archived: true, archived_at: new Date().toISOString() }).eq("id", profile.id);
+}
+
+/**
+ * Take every account a spec made since `since` (ISO time) out of the way of
+ * the specs after it: archived and off payroll (20261120020000), so it is in
+ * no payroll run, attendance close or employee list. Seeded accounts are
+ * older than any spec and are never touched.
+ */
+export async function retireAccountsCreatedSince(since) {
+  if (!since) return 0;
+  const seeded = new Set(Object.values(ACCOUNTS).map((a) => String(a.email).toLowerCase()));
+  const made = (await rows(db().from("profiles").select("id,email").gte("created_at", since)))
+    .filter((p) => !seeded.has(String(p.email || "").toLowerCase()));
+  for (const { id } of made) {
+    const { data: user } = await db().auth.admin.getUserById(id);
+    if (user?.user) await db().auth.admin.updateUserById(id, { user_metadata: { ...(user.user.user_metadata || {}), archived: true, on_payroll: false } });
+    await db().from("profiles").update({ archived: true, archived_at: new Date().toISOString(), on_payroll: false }).eq("id", id);
+  }
+  return made.length;
+}
+
+/**
+ * Today is a working day for these employees, for a spec that taps or records
+ * "today" (2026-11-21): when the suite runs on a weekend or a holiday, they
+ * get an every-day work schedule from today and today's holiday is set aside.
+ * The real date stays (the database keeps its own clock). Returns the undo;
+ * on a working day nothing changes.
+ */
+export async function workingTodayFor(employeeIds) {
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const weekday = new Date(`${today}T00:00:00Z`).getUTCDay();
+  const holidays = await rows(db().from("attendance_holidays").select("*").eq("holiday_date", today));
+  if (weekday !== 0 && weekday !== 6 && !holidays.length) return async () => {};
+  const key = crypto.randomUUID();
+  psql(`set session_replication_role = replica;
+    insert into work_schedules (schedule_key, name, work_start, work_end, grace_minutes, work_hours, working_days, effective_from, note, created_by_name)
+      values ('${key}', 'E2E every day ${key.slice(0, 8)}', '08:00', '17:00', 15, 8, '{1,2,3,4,5,6,7}', '2026-01-01', 'E2E: today is a working day', 'E2E');
+    ${employeeIds.map((id) => `insert into work_schedule_assignments (employee_id, schedule_key, effective_from, note, created_by_name) values ('${id}', '${key}', '${today}', 'E2E', 'E2E');`).join("\n    ")}
+    delete from attendance_holidays where holiday_date = '${today}';`);
+  return async () => {
+    psql(`set session_replication_role = replica;
+      delete from work_schedule_assignments where schedule_key = '${key}';
+      delete from work_schedules where schedule_key = '${key}';`);
+    if (holidays.length) await db().from("attendance_holidays").insert(holidays);
+  };
 }

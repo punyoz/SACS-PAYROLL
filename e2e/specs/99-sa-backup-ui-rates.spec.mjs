@@ -357,6 +357,14 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     monitor.at("Super Admin > System Configuration > Rates");
     const before = psql("select string_agg(id::text || '=' || coalesce(payroll->'audit'->'rates'->'hourly'->>'value',''), ',' order by id) from payroll_entries where status in ('approved','paid')");
     await as(page, "super_admin", "sa-config");
+    // The earliest allowed date (future pay periods only), not a fixed Dec 1 (written 2026-11-08; 2026-11-21).
+    const MIN_DATE = (await api(page, "GET", "/api/admin/payroll-rates")).data.min_effective_date;
+    expect(MIN_DATE, "the rates API names the earliest allowed date").toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // The pay period after the earliest one: the dialog already shows the earliest,
+    // and picking a date that is already chosen clears it (open item, 2026-11-20).
+    const [my, mm, md] = MIN_DATE.split("-").map(Number);
+    const RATE_DATE = md < 16 ? `${my}-${String(mm).padStart(2, "0")}-16` : (mm === 12 ? `${my + 1}-01-01` : `${my}-${String(mm + 1).padStart(2, "0")}-01`);
+    const RATE_LABEL = new Date(`${RATE_DATE}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
     await settle(page);
     await main(page).getByRole("tab", { name: "Rates" }).click();
     await settle(page);
@@ -371,7 +379,7 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     await dialog.locator("#sa-rate-value").fill("700");
     await expect(dialog.locator('[data-testid="hourly-preview"]')).toContainText("₱87.50");
     check("Rates dialog", true, "typing ₱700 shows the hourly rate ₱87.50 live");
-    await pickDate(page, dialog.locator("#sa-rate-effective"), "2026-12-01");
+    await pickDate(page, dialog.locator("#sa-rate-effective"), RATE_DATE);
     await dialog.getByRole("button", { name: "Save new version" }).click();
     await expect(dialog.getByText("Give a reason for the daily rate change.")).toBeVisible();
     check("Rates dialog", true, "a reason is required");
@@ -382,7 +390,7 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     await settle(page);
     const daily = await pair.locator('[data-testid="daily-history"]').innerText();
     const hourly = await pair.locator('[data-testid="hourly-history"]').innerText();
-    check("Rates history", /₱700\.00[\s\S]*Dec 1, 2026/.test(daily) && /₱87\.50[\s\S]*Dec 1, 2026/.test(hourly), "daily ₱700.00 and hourly ₱87.50 both from Dec 1, 2026");
+    check("Rates history", new RegExp(`₱700\\.00[\\s\\S]*${RATE_LABEL}`).test(daily) && new RegExp(`₱87\\.50[\\s\\S]*${RATE_LABEL}`).test(hourly), `daily ₱700.00 and hourly ₱87.50 both from ${RATE_LABEL}`);
     const ranges = (text) => text.split("\n").filter((l) => /\d{4}/.test(l)).map((l) => l.replace(/₱[\d,.]+/, "").replace(/·.*$/, "").trim());
     check("Rates history", JSON.stringify(ranges(daily)) === JSON.stringify(ranges(hourly)), "the hourly history has exactly the daily history's dates");
     const audit = JSON.parse(psql("select metadata::text from audit_logs where action = 'rate_version' order by created_at desc limit 1"));
@@ -393,10 +401,10 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     check("Rates columns", Math.abs((d.x + d.width) - (h.x + h.width)) <= 2, "This period values line up (right edges)");
     await shot(page, "09-rate-pair-after-change", pair);
 
-    const typed = await api(page, "POST", "/api/admin/payroll-rates", { rate_type: "hourly", scope: "global", value: 99, effective_date: "2026-12-01", note: "x" });
+    const typed = await api(page, "POST", "/api/admin/payroll-rates", { rate_type: "hourly", scope: "global", value: 99, effective_date: RATE_DATE, note: "x" });
     check("Rates API", typed.status === 400 && typed.data?.code === "hourly_rate_derived", `typed hourly refused (${typed.status} ${typed.data?.code})`);
     let dbRefused = false;
-    try { psql(`insert into payroll_rate_configs (rate_type, scope, value, effective_date, created_by) values ('hourly', 'global', 99, '2026-12-01', '${sa.id}')`); } catch { dbRefused = true; }
+    try { psql(`insert into payroll_rate_configs (rate_type, scope, value, effective_date, created_by) values ('hourly', 'global', 99, '${RATE_DATE}', '${sa.id}')`); } catch { dbRefused = true; }
     check("Rates DB", dbRefused, "the database refuses a typed hourly row");
 
     // A branch daily rate: North only.
@@ -405,14 +413,14 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
     const bDialog = page.getByRole("dialog");
     await bDialog.locator("#sa-rate-value").fill("650");
     await expect(bDialog.locator('[data-testid="hourly-preview"]')).toContainText("₱81.25");
-    await pickDate(page, bDialog.locator("#sa-rate-effective"), "2026-12-01");
+    await pickDate(page, bDialog.locator("#sa-rate-effective"), RATE_DATE);
     await bDialog.locator("#sa-rate-note").fill("E2E North rate");
     await bDialog.getByRole("button", { name: "Save new version" }).click();
     await confirm(page, "Save");
     await settle(page);
     const northText = await main(page).locator("tr", { hasText: BRANCH_NORTH }).first().innerText();
     const mainText = await main(page).locator("tr", { hasText: BRANCH_MAIN }).first().innerText();
-    check("Branch rates", /₱650\.00/.test(northText) && /₱81\.25/.test(northText), "North: ₱650.00 daily, ₱81.25 hourly (Dec 1)");
+    check("Branch rates", /₱650\.00/.test(northText) && /₱81\.25/.test(northText), `North: ₱650.00 daily, ₱81.25 hourly (${RATE_LABEL})`);
     check("Branch rates", !/₱650\.00/.test(mainText) && /Uses system default/.test(mainText), "Main unaffected: uses the system default");
     await shot(page, "09-branch-rates", main(page).locator("tr", { hasText: BRANCH_NORTH }).first().locator("xpath=ancestor::*[@data-slot='card'][1]"));
 
@@ -421,7 +429,7 @@ test("2026-11-08: Super Admin backup, announcements, toolbars, dropdowns, sideba
 
     for (const role of ["admin", "hr", "accountant"]) {
       await as(page, role);
-      const post = await api(page, "POST", "/api/admin/payroll-rates", { rate_type: "daily", scope: "global", value: 1, effective_date: "2026-12-01", note: "x" });
+      const post = await api(page, "POST", "/api/admin/payroll-rates", { rate_type: "daily", scope: "global", value: 1, effective_date: RATE_DATE, note: "x" });
       const read = await api(page, "GET", "/api/payroll/pay-rates");
       const names = (read.data?.branches || []).map((b) => b.name);
       const scopedOk = role === "hr" ? names.includes(BRANCH_NORTH) && names.includes(BRANCH_MAIN) : names.length === 1;

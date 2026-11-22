@@ -5,6 +5,7 @@
 // changes a basic salary (effective-dated, with an audit trail); the Super
 // Admin holds no HR or payroll decision. Expectations come from the rules,
 // not from the code under test. Runs after the payroll flow (Oct 1-15 paid).
+import { pdfText } from "../support/pdf-text.mjs";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
@@ -181,7 +182,9 @@ test("Payslip export: the PDF carries the school seal and the figures stored for
   const pdfOf = async (role, path) => {
     await as(page, role);
     const res = await page.request.get(path);
-    return { status: res.status(), type: res.headers()["content-type"], text: res.ok() ? (await res.body()).toString("latin1") : "" };
+    const body = res.ok() ? await res.body() : null;
+    // raw: the file's bytes (header, embedded seal); text: what a viewer shows (the PDF's text is compressed since 2026-11-19).
+    return { status: res.status(), type: res.headers()["content-type"], text: body ? body.toString("latin1") : "", shown: body ? await pdfText(body) : "" };
   };
 
   await step(page, "Accountant > Pay Record > PDF: seal, org name, payslip no., net pay match the record", async () => {
@@ -191,10 +194,10 @@ test("Payslip export: the PDF carries the school seal and the figures stored for
     expect(pdf.type).toContain("application/pdf");
     expect(pdf.text.startsWith("%PDF-")).toBe(true);
     expect(pdf.text, "the school seal is embedded").toContain("/DCTDecode");
-    expect(pdf.text).toContain("Payroll");
-    if (entry.payslip_no) expect(pdf.text).toContain(entry.payslip_no);
+    expect(pdf.shown).toContain("Payroll");
+    if (entry.payslip_no) expect(pdf.shown).toContain(entry.payslip_no);
     const net = Number(entry.net_pay).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    expect(pdf.text, `net pay ${net}`).toContain(net);
+    expect(pdf.shown, `net pay ${net}`).toContain(net);
   });
 
   await step(page, "HR > Payroll Records > the same payslip as PDF, same net pay", async () => {
@@ -202,7 +205,7 @@ test("Payslip export: the PDF carries the school seal and the figures stored for
     const pdf = await pdfOf("hr", `/api/hr/payroll-records?entry_id=${entry.id}&format=pdf`);
     expect(pdf.status).toBe(200);
     expect(pdf.text).toContain("/DCTDecode");
-    expect(pdf.text).toContain(Number(entry.net_pay).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    expect(pdf.shown).toContain(Number(entry.net_pay).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
   });
 
   await step(page, "Admin (another role) cannot download it", async () => {

@@ -11,14 +11,19 @@ import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api } from "../support/flow.mjs";
-import { archiveTestAccount, db, profileByEmail, psql, rows } from "../support/db.mjs";
+import { archiveTestAccount, db, profileByEmail, psql, retireAccountsCreatedSince, rows } from "../support/db.mjs";
+// Accounts this spec makes are retired after it (e2e/support/db.mjs). Taken when
+// the spec starts (after the seed), on the real clock.
+let SPEC_START = null;
+test.beforeAll(() => { SPEC_START = new Date(Date.now()).toISOString(); });
+
 import { ACCOUNTS, BRANCH_NORTH } from "../accounts.mjs";
 
 const stamp = Date.now().toString(36).slice(-5);
 const letters = stamp.replace(/\d/g, (d) => "abcdefghij"[d]);
 const STAFF = { email: `role.change.${stamp}@e2e.test`, last: `Shift${letters.charAt(0).toUpperCase()}${letters.slice(1)}` };
 
-test.afterAll(async () => { await archiveTestAccount(STAFF.email); });
+test.afterAll(async () => { await archiveTestAccount(STAFF.email); await retireAccountsCreatedSince(SPEC_START); });
 
 async function pdfOf(page, path) {
   return page.evaluate(async (url) => {
@@ -85,6 +90,8 @@ test("an Admin always has a branch: API, Branch Assignment and the database refu
       date_of_birth: "1990-05-05", date_hired: "2024-01-01", sex: "Female", civil_status: "Single", cp_number: "09171234560",
       address: "12 Rizal St, Pasig City", emergency_contact_name: "Maria Probe", emergency_contact_relationship: "Parent",
       emergency_contact_number: "09181234560", emergency_contact_address: "45 Rizal Ave, Pasig City",
+      // HR is on payroll: salary (2026-11-19) and employment status / type (Part A) are required.
+      basic_salary: 25000, employment_status: "Regular", employment_type: "Full-time",
     });
     expect([200, 201], JSON.stringify(made.data)).toContain(made.status);
   });
@@ -132,13 +139,18 @@ test("an Admin always has a branch: API, Branch Assignment and the database refu
     expect((await profileByEmail(STAFF.email)).branch_id).toBe(north);
   });
 
-  await step(page, "Super Admin > Admin → HR clears the branch (allowed)", async () => {
+  await step(page, "Super Admin > Admin → HR (allowed); the branch stays as HR's home branch until cleared", async () => {
     const staff = await profileByEmail(STAFF.email);
     const res = await api(page, "PATCH", "/api/admin/users", { id: staff.id, action: "update", role: "hr" });
     expect(res.status, JSON.stringify(res.data)).toBe(200);
     const after = await profileByEmail(STAFF.email);
     expect(after.role).toBe("hr");
-    expect(after.branch_id).toBeNull();
+    // HR's home branch for payroll (2026-11-10): not sent -> unchanged.
+    expect(after.branch_id).toBe(staff.branch_id);
+    // Sent as "" -> cleared: HR may be branchless, an Admin may not.
+    const cleared = await api(page, "PATCH", "/api/admin/users", { id: staff.id, action: "update", role: "hr", branch_id: "" });
+    expect(cleared.status, JSON.stringify(cleared.data)).toBe(200);
+    expect((await profileByEmail(STAFF.email)).branch_id).toBeNull();
   });
 });
 
