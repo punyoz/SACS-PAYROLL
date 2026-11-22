@@ -85,6 +85,22 @@ export async function GET(request) {
       if (out.error) return NextResponse.json({ error: out.error }, { status: 404 });
       return NextResponse.json(out);
     }
+    // The branch's teachers (the form's absent-teacher list) and their approved leave around today
+    // (from 7 days back to 14 ahead): "Arrange substitute" starts from these.
+    if (url.searchParams.get("teachers") === "1") {
+      let tq = supabase.from("profiles").select("id,full_name,employee_id,branch_id,employee_level").eq("archived", false).neq("on_payroll", false)
+        .in("role", ["employee", "accountant"]).or("employee_type.is.null,employee_type.ilike.teaching").order("full_name", { ascending: true });
+      if (!guard.branchExempt) tq = tq.eq("branch_id", guard.branchId);
+      const { data: teachers } = await tq;
+      const ids = (teachers || []).map((t) => t.id);
+      const today = manilaDateKey();
+      const { data: leaves } = ids.length
+        ? await supabase.from("leave_requests").select("id,employee_id,leave_type,start_date,end_date,half_day").eq("status", "approved")
+          .gte("end_date", addDays(today, -7)).lte("start_date", addDays(today, 14)).in("employee_id", ids).order("start_date", { ascending: true })
+        : { data: [] };
+      const nameOf = new Map((teachers || []).map((t) => [t.id, t.full_name]));
+      return NextResponse.json({ teachers: teachers || [], on_leave: (leaves || []).map((l) => ({ ...l, employee_name: nameOf.get(l.employee_id) || "—" })) });
+    }
     const from = url.searchParams.get("from") || addDays(manilaDateKey(), -45);
     const to = url.searchParams.get("to") || addDays(manilaDateKey(), 45);
     if (!DAY.test(from) || !DAY.test(to)) return NextResponse.json({ error: "Choose a valid date range." }, { status: 400 });
