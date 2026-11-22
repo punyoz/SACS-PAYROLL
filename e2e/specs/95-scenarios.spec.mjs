@@ -233,7 +233,11 @@ test("EM-01 / EM-03: a forgotten card is recorded by HR; a 'time in' hours befor
   await step(page, "HR > records today by hand for Bea, who forgot her card (EM-01)", async () => {
     monitor.at("HR > Attendance > correct_record");
     await as(page, "hr", "hr-attendance");
-    const day = manilaDay(0);
+    // The most recent past weekday, not today: a 07:30 time in today is still in the
+    // future when the suite runs before 07:30 Manila (failed 2026-11-22, early morning).
+    const recent = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => manilaDay(-n));
+    const holidays = new Set((await rows(db().from("attendance_holidays").select("holiday_date").gte("holiday_date", recent.at(-1)).lte("holiday_date", recent[0]))).map((h) => String(h.holiday_date).slice(0, 10)));
+    const day = recent.find((key) => ![0, 6].includes(new Date(`${key}T00:00:00Z`).getUTCDay()) && !holidays.has(key));
     const res = await api(page, "PATCH", "/api/attendance/corrections", {
       action: "correct_record", employee_id: bea.id, log_date: day, type: "time_in", time_in: "07:30",
       note: "E2E forgot the RFID card; confirmed by the branch Admin",
