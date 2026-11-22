@@ -188,3 +188,25 @@ test("bulk: the branch Admin endorses two leave requests at once with one remark
   const recs = await rows(db().from("branch_admin_requests").select("ref_id,status,admin_note").eq("kind", "leave_endorsement").in("ref_id", ids.map((x) => x.id)));
   expect(recs.map((r) => [r.status, r.admin_note])).toEqual([["endorsed", "Coverage arranged"], ["endorsed", "Coverage arranged"]]);
 });
+
+test("bulk: the branch Admin endorses a pending transfer from the list's selection", async ({ page }) => {
+  const bea = await profileByEmail(ACCOUNTS.employee2.email);
+  const admin = await profileByEmail(ACCOUNTS.admin.email);
+  const north = await rows(db().from("branches").select("id").eq("name", "E2E North Branch").single());
+  const [t] = await rows(db().from("transfer_requests").insert({ employee_id: bea.id, from_branch_id: bea.branch_id, to_branch_id: north.id, requested_by: admin.id, status: "pending", remarks: `E2E bulk transfer ${Date.now()}` }).select("id"));
+  try {
+    await as(page, "admin", "adm-transfers");
+    await settle(page);
+    await main(page).getByRole("checkbox", { name: `Select ${bea.full_name} transfer` }).check();
+    await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Endorse selected", exact: true }).click();
+    const dialog = page.getByTestId("bulk-dialog");
+    await writeRemark(page, "bulk-remark", "", { preset: "Recommend approval" });
+    await dialog.getByRole("button", { name: "Endorse (1)" }).click();
+    await expect(dialog.getByTestId("bulk-summary")).toHaveText("1 done.");
+    await dialog.getByRole("button", { name: "Done" }).click();
+    const rec = await rows(db().from("branch_admin_requests").select("status,admin_note").eq("kind", "transfer_endorsement").eq("ref_id", t.id).single());
+    expect(rec).toEqual({ status: "endorsed", admin_note: "Recommend approval" });
+  } finally {
+    await db().from("transfer_requests").update({ status: "rejected" }).eq("id", t.id);
+  }
+});

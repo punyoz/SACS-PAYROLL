@@ -101,6 +101,20 @@ export function TransferEndorsementsPage({ refreshKey }) {
   const { notify } = usePortalSession();
   const view = useBranchView("transfers", {}, refreshKey);
   const [target, setTarget] = React.useState(null);
+  // Part F: search, dates and sort (in the address); several endorsed at once with one remark.
+  const filters = useApprovalFilters(view.data?.transfers || [], {
+    prefix: "admt", people: false,
+    get: { name: (t) => t.employee_name, code: (t) => t.employee_code, filed: (t) => t.created_at, requested: (t) => t.created_at },
+  });
+  const bulk = useBulkDecisions({
+    entityType: "transfer_request", remarkRequired: true, onDone: () => view.load(),
+    decisions: [{ decision: "endorse", label: "Endorse" }, { decision: "object", label: "Not endorse", destructive: true }],
+    title: (d) => `${d.label}: the selected transfers`,
+    isSelectable: (t) => Boolean(t.can_endorse),
+    label: (t) => `${t.employee_name} transfer`,
+    rowLabel: (t) => `${t.employee_name} · ${t.from_branch_name || "Unassigned"} → ${t.to_branch_name || "—"}`,
+    send: (t, decision, remark) => fileRequest("transfer_endorsement", { ref_id: t.id, decision: decision === "object" ? "not_endorse" : "endorse", remark }),
+  });
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (t) => t.employee_name },
     { key: "direction", header: "Move", cell: (t) => <div className="text-xs"><StatusBadge tone={t.direction === "incoming" ? "info" : "gold"} dot={false}>{t.direction === "incoming" ? "Incoming" : "Outgoing"}</StatusBadge><p className="mt-1">{t.from_branch} → {t.to_branch}</p></div> },
@@ -123,8 +137,10 @@ export function TransferEndorsementsPage({ refreshKey }) {
         <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent>
-        <DataTable columns={columns} rows={view.data?.transfers || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
-          searchPlaceholder="Search employee…" empty={{ title: "No transfers for your branch", icon: ArrowLeftRightIcon }} caption="Transfer endorsements" minWidth={1100} />
+        <DataTable toolbar={filters.toolbar} columns={columns} rows={filters.rows} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
+          searchPlaceholder="Search employee…" empty={{ title: "No transfers for your branch", icon: ArrowLeftRightIcon }} caption="Transfer endorsements" minWidth={1100}
+          selection={bulk.selection} />
+        {bulk.dialog}
       </CardContent>
       <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions remarkType="transfer_request"
         title={`Endorse transfer — ${target?.employee_name || ""}`}
