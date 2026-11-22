@@ -1,7 +1,9 @@
 // Process Payroll cleanup (2026-11-14): the entry form, the Computation
 // summary and the batch table, 1st and 2nd half, desktop and phone. Local
-// stack only. One seeded day is marked Incomplete for a Blocked row and put
-// back afterwards. Screenshots: screenshots/2026-11-14-process-cleanup/.
+// stack only. The test makes its own employee (a copy of Bea, same branch)
+// with its own October attendance and an Incomplete Oct 20 for the Blocked
+// row, so specs that process Bea's October 16-31 earlier in a full run cannot
+// hide it (2026-11-21). The employee is retired afterwards. Screenshots: screenshots/2026-11-14-process-cleanup/.
 //
 //   E2E_HEADLESS=1 E2E_SLOWMO=0 npx playwright test e2e/specs/99-process-page-cleanup.spec.mjs --project=desktop
 import { mkdirSync } from "node:fs";
@@ -9,7 +11,7 @@ import { join } from "node:path";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { db, profileByEmail } from "../support/db.mjs";
+import { db, rows, profileByEmail, retireAccountsCreatedSince } from "../support/db.mjs";
 
 const OUT = join(process.cwd(), "screenshots", "2026-11-14-process-cleanup");
 mkdirSync(OUT, { recursive: true });
@@ -19,12 +21,36 @@ const BLOCKED_DAY = "2026-10-20";
 const DESKTOP = { width: 1366, height: 900 };
 const PHONE = { width: 390, height: 844 };
 
+/** A copy of Bea in her branch, on time Oct 1-30 (weekdays) except an Incomplete Oct 20. */
+async function plantBlockedEmployee() {
+  const bea = await profileByEmail("emp2@e2e.test");
+  const stamp = Date.now();
+  const email = `process-cleanup.${stamp}@e2e.test`;
+  const full_name = "Aaron E2E Process Cleanup";
+  const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-Pc#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name } });
+  if (error) throw new Error(error.message);
+  const id = data.user.id;
+  // No card (set only through RFID registration) and no photo (it must sit in the owner's own folder).
+  const { id: _id, email: _email, created_at: _c, updated_at: _u, rfid_uid: _card, photo_path: _p, photo_thumb_path: _t, photo_updated_at: _pu, ...rest } = bea;
+  await rows(db().from("profiles").upsert({ ...rest, id, email, full_name, employee_id: `E2E-PC-${stamp}`, archived: false, on_payroll: true }, { onConflict: "id" }).select("id"));
+  const logs = [];
+  for (let d = 1; d <= 30; d += 1) {
+    const day = `2026-10-${String(d).padStart(2, "0")}`;
+    const dow = new Date(`${day}T00:00:00Z`).getUTCDay();
+    if (dow === 0 || dow === 6) continue;
+    logs.push({ employee_id: id, employee_name: full_name, employee_type: bea.employee_type, branch_id: bea.branch_id, log_date: day,
+      time_in: `${day}T07:00:00+08:00`, time_out: `${day}T17:00:00+08:00`, status: "Absent" });
+  }
+  await rows(db().from("attendance_logs").insert(logs).select("id"));
+  await rows(db().from("attendance_logs").update({ time_out: null, status: "Incomplete" }).eq("employee_id", id).eq("log_date", BLOCKED_DAY).select("id"));
+  return id;
+}
+
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 test("Process Payroll: short labels, one note per explanation, read-only batch table with status pills", async ({ page }) => {
-  const bea = await profileByEmail("emp2@e2e.test");
-  const { data: before } = await db().from("attendance_logs").select("id,time_out,status").eq("employee_id", bea.id).eq("log_date", BLOCKED_DAY).single();
-  await db().from("attendance_logs").update({ time_out: null, status: "Incomplete" }).eq("id", before.id);
+  const since = new Date().toISOString();
+  await plantBlockedEmployee();
   try {
     for (const [label, size] of [["desktop", DESKTOP], ["phone", PHONE]]) {
       await page.setViewportSize(size);
@@ -112,6 +138,6 @@ test("Process Payroll: short labels, one note per explanation, read-only batch t
       }
     }
   } finally {
-    await db().from("attendance_logs").update({ time_out: before.time_out, status: before.status }).eq("id", before.id);
+    await retireAccountsCreatedSince(since);
   }
 });
