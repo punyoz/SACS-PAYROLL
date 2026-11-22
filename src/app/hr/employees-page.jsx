@@ -1,5 +1,6 @@
 "use client";
 
+import { Skeleton } from "@/components/ui/skeleton";
 import * as React from "react";
 import { DownloadIcon, FileUpIcon, PlusIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,8 +30,10 @@ import { useUrlParam } from "@/components/portal/use-url-param";
  * rows always load so the Archived count is right) and /api/admin/branches.
  */
 
-export function useBranches(refreshKey) {
+export function useBranches(refreshKey, { withStatus = false } = {}) {
   const [branches, setBranches] = React.useState([]);
+  // Loaded, or given up after the retries: only then is a branch truly "Unknown" (2026-11-22).
+  const [loaded, setLoaded] = React.useState(false);
   React.useEffect(() => {
     let cancelled = false;
     let timer = null;
@@ -38,17 +41,21 @@ export function useBranches(refreshKey) {
     // the next refresh: try again a few times, a little later each time.
     const attempt = (n) => {
       fetchJson("/api/admin/branches")
-        .then((data) => { if (!cancelled) setBranches(data.branches || []); })
-        .catch(() => { if (!cancelled && n < 3) timer = setTimeout(() => attempt(n + 1), 1500 * (n + 1)); });
+        .then((data) => { if (!cancelled) { setBranches(data.branches || []); setLoaded(true); } })
+        .catch(() => {
+          if (cancelled) return;
+          if (n < 3) timer = setTimeout(() => attempt(n + 1), 1500 * (n + 1));
+          else setLoaded(true);
+        });
     };
     attempt(0);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [refreshKey]);
-  return branches;
+  return withStatus ? { branches, loaded } : branches;
 }
 
 export function EmployeesPage({ refreshKey }) {
-  const branches = useBranches(refreshKey);
+  const { branches, loaded: branchesLoaded } = useBranches(refreshKey, { withStatus: true });
   const [state, setState] = React.useState({ loading: true, error: null, employees: [] });
   // Kept in the address (a dashboard link opens a filtered list).
   const [filter, setFilter] = useUrlParam("emp_filter", "all");
@@ -155,7 +162,10 @@ export function EmployeesPage({ refreshKey }) {
       },
     },
     { key: "cp_number", header: "Contact number", className: "tabular-nums whitespace-nowrap", cell: (e) => formatContactNumber(e.cp_number) || "—" },
-    { key: "branch", header: "Branch", sortValue: (e) => branchName(e.branch_id), cell: (e) => branchName(e.branch_id) || "—", searchValue: (e) => branchName(e.branch_id) },
+    { key: "branch", header: "Branch", sortValue: (e) => branchName(e.branch_id), cell: (e) => (e.branch_id && !branchesLoaded
+      // Still loading the branch names: say so, never "Unknown branch" (2026-11-22).
+      ? <Skeleton className="h-4 w-24" aria-busy="true" aria-label="Loading branch" />
+      : branchName(e.branch_id) || "—"), searchValue: (e) => branchName(e.branch_id) },
     { key: "date_hired", header: "Date hired", sortable: true, className: "whitespace-nowrap", cell: (e) => e.date_hired || "—" },
     {
       key: "status",
@@ -176,7 +186,7 @@ export function EmployeesPage({ refreshKey }) {
         </div>
       ),
     },
-  ], [branchName, licenses]);
+  ], [branchName, branchesLoaded, licenses]);
 
   // The list as shown (tab, branch filter and the search box, 2026-11-19), for a master list or a
   // report (scenario SC-13). Government IDs are left out (data privacy).

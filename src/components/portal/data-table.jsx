@@ -100,6 +100,21 @@ export function DataTable({
   // page of the search), and a bar with the count, the actions and Clear.
   selection = null,
 }) {
+  // A failed refresh with rows on screen: retry by itself after 5, 15 and 45 s, then leave it to "Try again".
+  // The count starts over once refreshes have worked for two minutes.
+  const retries = React.useRef({ n: 0, lastFail: 0 });
+  const [retrying, setRetrying] = React.useState(false);
+  const hasRows = Boolean((rows || []).length);
+  React.useEffect(() => {
+    if (!error || !hasRows || !onRetry) { setRetrying(false); return undefined; }
+    const r = retries.current;
+    if (Date.now() - r.lastFail > 120000) r.n = 0;
+    r.lastFail = Date.now();
+    if (r.n >= 3) { setRetrying(false); return undefined; }
+    setRetrying(true);
+    const timer = setTimeout(() => { r.n += 1; onRetry(); }, 5000 * 3 ** r.n);
+    return () => clearTimeout(timer);
+  }, [error, hasRows, onRetry]);
   const isMobile = useIsMobile();
   const asCards = mobileCards && isMobile;
   // mobileOnly columns show on cards only (e.g. one "Time" line on phones).
@@ -214,10 +229,11 @@ export function DataTable({
       ) : null}
 
       {/* A failed refresh never empties a table that already has rows: they
-          stay, with the error and a retry above them. */}
+          stay, with the error and a retry above them; it retries by itself a
+          few times first (2026-11-22). */}
       {error && (rows || []).length ? (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          <span>{error} Showing the last loaded data.</span>
+          <span data-testid="refresh-failed-note">{retrying ? "Couldn't refresh, retrying…" : `Couldn't refresh: ${error}`} Showing the last loaded data.</span>
           {onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>Try again</Button> : null}
         </div>
       ) : null}
