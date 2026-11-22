@@ -6,7 +6,7 @@
 --   SELECT cron.schedule('tenure-auto-grant', '45 16 * * *', 'SELECT public.tenure_auto_grant();');
 -- ═══════════════════════════════════════════════════════════════════════════
 --
--- Eligible: active, on payroll, an eligible employment status (setting
+-- Eligible: any account on payroll (HR, Accountant or Employee), active, an eligible employment status (setting
 -- tenure.eligible_statuses, default Regular; pending the policy manual), at
 -- least the policy's min_tenure_years (default 2) of continuous service, and
 -- the branch's (or the school-wide) policy active; not protected now; never
@@ -49,7 +49,8 @@ AS $function$
     LEFT JOIN public.tenure_protection_policies bp ON bp.branch_id = p.branch_id AND NOT COALESCE(bp.use_global, FALSE)
     LEFT JOIN public.tenure_protection_policies gp ON gp.branch_id IS NULL
     WHERE p.archived = FALSE AND p.on_payroll AND COALESCE(p.employee_status, 'Active') = 'Active'
-      AND p.role IN ('employee', 'accountant') AND p.date_hired IS NOT NULL
+      -- every account on payroll, whatever its login role (user decision 2026-11-22)
+      AND p.date_hired IS NOT NULL
       AND p.employment_status = ANY (s.list)
   )
   SELECT pe.id, pe.full_name, pe.code, pe.branch_id, pe.employment_status, pe.date_hired, pe.service_start, pe.years,
