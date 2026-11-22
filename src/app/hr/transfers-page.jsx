@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
+import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -153,7 +154,6 @@ export function TransfersPage({ refreshKey }) {
   const [moving, setMoving] = React.useState(false);
   const [move, setMove] = React.useState({ to: "", remarks: "" });
   const { notify } = usePortalSession();
-  const [confirmDialogNode, confirmDecision] = useConfirm();
   // The branch Admins' endorsements, by transfer request (2026-10-20).
   const [endorsements, setEndorsements] = React.useState(() => new Map());
   const loadEndorsements = React.useCallback(async () => {
@@ -241,7 +241,9 @@ export function TransfersPage({ refreshKey }) {
         return <StatusBadge tone={s === "approved" ? "success" : s === "rejected" ? "danger" : "gold"}>{label}</StatusBadge>;
       },
     },
-    { key: "remarks", header: "Remarks", className: "max-w-56 whitespace-normal text-muted-foreground", cell: (r) => r.remarks || "—" },
+    { key: "remarks", header: "Remarks", className: "max-w-56 whitespace-normal text-muted-foreground", cell: (r) => (
+      <>{r.remarks || "—"}{r.decision_note ? <p className="mt-1 text-foreground">HR: {r.decision_note}</p> : null}</>
+    ), searchValue: (r) => `${r.remarks || ""} ${r.decision_note || ""}` },
     { key: "created_at", header: "Requested", className: "whitespace-nowrap text-xs", sortValue: (r) => r.created_at || "", cell: (r) => fmt(r.created_at) },
     { key: "reviewed_at", header: "Decided", className: "whitespace-nowrap text-xs", sortValue: (r) => r.reviewed_at || "", cell: (r) => fmt(r.reviewed_at) },
     {
@@ -267,24 +269,33 @@ export function TransfersPage({ refreshKey }) {
     },
   ];
 
-  async function decideTransfer(r, action) {
-    const ok = await confirmDecision(action === "approve"
-      ? { title: `Approve the transfer of ${r.employee_name || "this employee"}?`, description: "The employee moves to the new branch now.", confirmLabel: "Approve" }
-      : { title: `Reject the transfer of ${r.employee_name || "this employee"}?`, description: "The employee stays in the current branch.", confirmLabel: "Reject", destructive: true });
-    if (!ok) return;
-    try {
-      await fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action }));
-      notify(action === "approve" ? "Transfer Approved" : "Transfer Rejected", "The branch Admins were notified.", "success");
-      await Promise.all([load(), loadEndorsements()]);
-    } catch (err) {
-      notify("Error", err.message || "Not saved.", "error");
-    }
+  // Batch 2: approve / reject with a preset remark (required to reject), in DecisionRemarkDialog.
+  const [decidingTransfer, setDecidingTransfer] = React.useState(null);
+  function decideTransfer(r, action) { setDecidingTransfer({ row: r, action }); }
+  async function sendTransferDecision(remark) {
+    const { row: r, action } = decidingTransfer;
+    await fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action, remark }));
+    notify(action === "approve" ? "Transfer Approved" : "Transfer Rejected", "The branch Admins were notified.", "success");
+    setDecidingTransfer(null);
+    await Promise.all([load(), loadEndorsements()]);
   }
 
   const first = roster.loading && !all.length;
 
   return (
     <>
+      <DecisionRemarkDialog
+        open={Boolean(decidingTransfer)}
+        idPrefix="tr-remark"
+        decision={decidingTransfer?.action || "approve"}
+        entityType="transfer_request"
+        destructive={decidingTransfer?.action === "reject"}
+        confirmLabel={decidingTransfer?.action === "reject" ? "Reject" : "Approve"}
+        title={decidingTransfer ? `${decidingTransfer.action === "reject" ? "Reject" : "Approve"} the transfer of ${decidingTransfer.row.employee_name || "this employee"}?` : ""}
+        description={decidingTransfer?.action === "reject" ? "The employee stays in the current branch. The branch Admins see your remark." : "The employee moves to the new branch now."}
+        onClose={() => setDecidingTransfer(null)}
+        onConfirm={sendTransferDecision}
+      />
       <section aria-label="Employees by branch" className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Total employees" value={all.length} hint="All active employees" icon={UsersIcon} loading={first} href={currentPageHref({ tr_branch: "all" })} onClick={() => setFilter("all")} scrollTo="transfers-table" actionLabel="Show every employee" />
         <StatCard label="Unassigned" value={unassigned} hint="Not yet in a branch" icon={UserMinusIcon} tone="danger" loading={first} href={currentPageHref({ tr_branch: "unassigned" })} onClick={() => setFilter("unassigned")} scrollTo="transfers-table" actionLabel="Show unassigned employees" />
@@ -385,7 +396,6 @@ export function TransfersPage({ refreshKey }) {
           </div>
         )}
       />
-      {confirmDialogNode}
     </>
   );
 }
