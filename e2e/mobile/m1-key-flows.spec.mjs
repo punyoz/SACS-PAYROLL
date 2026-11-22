@@ -61,7 +61,8 @@ test("phone: Employee files a leave; HR rejects it from the phone; Employee sees
     await card.getByRole("button", { name: "Reject" }).click();
     // A rejection needs a reason (2026-11-06).
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#lv-reject-reason").fill("E2E: dates clash with the exam week");
+    await choose(page, dialog.locator("#lv-reject-preset"), "Other (write your own)");
+    await dialog.locator("#lv-reject-extra").fill("E2E: dates clash with the exam week");
     await dialog.getByRole("button", { name: "Reject" }).click();
     await expect.poll(async () => (await rows(db().from("leave_requests").select("status").eq("employee_id", ana.id).eq("reason", REASON)))[0]?.status, { timeout: 30000 }).toBe("rejected");
   });

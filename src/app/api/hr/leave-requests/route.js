@@ -12,6 +12,7 @@ import {
 import { sanitizeError } from "@/lib/api-error";
 import { REASON_MAX } from "@/lib/input-limits";
 import { appendAuditLog } from "@/lib/audit/store";
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { requirePermission, denyForeignBranch, denySelfScopeList } from "@/lib/rbac/guard";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { notify, notifyEndorsers } from "@/lib/branch-requests-server";
@@ -118,7 +119,10 @@ export async function PATCH(request) {
 
     // A rejection needs a reason the employee sees (decision 2026-11-06), as a
     // payroll rejection does: 5-500 characters.
-    const rejectReason = String(body.reason || "").trim().replace(/\s+/g, " ");
+    // Part H: a preset remark (or "Other"); its code + text are audited with the decision itself.
+    const remark = action === "cancel" ? null : await resolveRemark(getAdminClient(), body.remark, { decision: action, entityType: "leave_request", fallbackText: body.reason });
+    if (remark?.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const rejectReason = String(remark?.text || body.reason || "").trim().replace(/\s+/g, " ");
     if (action === "reject") {
       if (rejectReason.length < 5) {
         return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters). The employee sees it.", code: "reason_required" }, { status: 400 });
@@ -219,6 +223,7 @@ export async function PATCH(request) {
       decidedBy: guard.userId || null,
       decidedByName: deciderName || null,
       ...(action === "reject" ? { decisionReason: rejectReason } : {}),
+      client: remarkClient(remark, { decision: action, entityType: "leave_request", module: "leave", table: "leave_requests", ids: [id], actor: guard }),
     });
     // The decision is made: the item leaves the shared queue (its claim goes).
     if (!result.conflict) await getAdminClient().from("hr_queue_claims").delete().eq("item_type", "leave_request").eq("item_id", id);

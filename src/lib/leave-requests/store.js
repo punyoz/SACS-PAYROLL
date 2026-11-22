@@ -159,7 +159,8 @@ export async function insertLeaveRequest(newRequest) {
  *
  * `decidedBy` / `decidedByName` record who made the decision.
  */
-export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, decidedBy, decidedByName, decisionReason } = {}) {
+// client: the decision's own client (remarkClient, Part H) so its remark is audited in the same transaction.
+export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, decidedBy, decidedByName, decisionReason, client = null } = {}) {
   const nowIso = new Date().toISOString();
   const supabase = getAdminClient();
 
@@ -178,7 +179,7 @@ export async function updateLeaveRequestStatus(id, nextStatus, { fromStatuses, d
   // HR's reason for a rejection (20261106060000), shown to the employee.
   if (decisionReason !== undefined) patch.decision_reason = decisionReason || null;
 
-  let query = supabase
+  let query = (client || supabase)
     .from("leave_requests")
     .update(patch)
     .eq("id", id);
