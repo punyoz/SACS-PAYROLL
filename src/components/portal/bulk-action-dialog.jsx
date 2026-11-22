@@ -122,8 +122,8 @@ export function useBulkDecisions({ send, entityType, isSelectable, label, rowLab
       title={bulk ? title(bulk.d) : ""}
       rows={bulk?.rows || []}
       label={rowLabel}
-      decision={bulk?.d.decision}
-      entityType={entityType}
+      decision={bulk?.d.remark === false ? null : bulk?.d.decision}
+      entityType={bulk?.d.remark === false ? null : entityType}
       remarkRequired={remarkRequired}
       destructive={Boolean(bulk?.d.destructive)}
       confirmLabel={bulk?.d.label || "Confirm"}

@@ -4,6 +4,7 @@ import * as React from "react";
 import { CalendarRangeIcon, Loader2Icon, ShieldCheckIcon, UsersIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -180,17 +181,47 @@ export function TenureProtectionPanel({ refreshKey }) {
     }
   }
 
+  // Revoked: the latest grant ended by HR and none active now (Part G: never re-granted automatically).
+  const revokedIds = React.useMemo(() => new Set((data?.grants || []).filter((g) => g.revoked_on && g.revoked_by_role !== "system").map((g) => g.employee_id)), [data]);
+  // Upcoming: reaches the policy's tenure within the next 60 days.
+  const isUpcoming = React.useCallback((r) => {
+    if (!r.eligible_from) return false;
+    const limit = new Date(Date.parse(`${today}T00:00:00Z`) + 60 * 864e5).toISOString().slice(0, 10);
+    return r.eligible_from > today && r.eligible_from <= limit;
+  }, [today]);
   const employees = React.useMemo(() => {
     const rows = data?.employees || [];
     const byBranch = branchFilter === ALL ? rows : rows.filter((r) => String(r.branch_id) === branchFilter);
-    if (tab === "meets") return byBranch.filter((r) => r.meets_tenure);
+    if (tab === "meets") return byBranch.filter((r) => r.meets_tenure && !r.grant && !revokedIds.has(r.id));
     if (tab === "granted") return byBranch.filter((r) => r.grant);
+    if (tab === "revoked") return byBranch.filter((r) => !r.grant && revokedIds.has(r.id));
+    if (tab === "upcoming") return byBranch.filter((r) => !r.meets_tenure && isUpcoming(r));
     return byBranch;
-  }, [data, tab, branchFilter]);
+  }, [data, tab, branchFilter, revokedIds, isUpcoming]);
   const counts = React.useMemo(() => {
     const rows = (data?.employees || []).filter((r) => branchFilter === ALL || String(r.branch_id) === branchFilter);
-    return { meets: rows.filter((r) => r.meets_tenure).length, granted: rows.filter((r) => r.grant).length, all: rows.length };
-  }, [data, branchFilter]);
+    return {
+      meets: rows.filter((r) => r.meets_tenure && !r.grant && !revokedIds.has(r.id)).length, granted: rows.filter((r) => r.grant).length,
+      revoked: rows.filter((r) => !r.grant && revokedIds.has(r.id)).length, upcoming: rows.filter((r) => !r.meets_tenure && isUpcoming(r)).length, all: rows.length,
+    };
+  }, [data, branchFilter, revokedIds, isUpcoming]);
+  // Part F / G: several at once — revoke (a preset reason is required) or grant / re-grant (HR only re-grants a revoked one).
+  const bulk = useBulkDecisions({
+    entityType: "tenure_grant", onDone: () => load(),
+    decisions: [{ decision: "revoke", label: "Revoke", destructive: true }, { decision: "grant", label: "Grant", remark: false }],
+    title: (d) => (d.decision === "revoke" ? "Revoke Tenure Pay Protection" : "Grant Tenure Pay Protection"),
+    isSelectable: () => canEdit,
+    label: (r) => r.full_name,
+    rowLabel: (r) => `${r.full_name}${r.grant ? " · protected" : r.meets_tenure ? " · eligible" : ""}`,
+    send: async (r, decision, remark) => {
+      if (decision === "revoke") {
+        if (!r.grant) throw new Error("Not protected now: nothing to revoke.");
+        return fetchJson("/api/hr/tenure-protection", jsonBody("POST", { action: "revoke", grant_id: r.grant.id, revoked_on: today, remark }));
+      }
+      if (r.grant) throw new Error("Already protected.");
+      return fetchJson("/api/hr/tenure-protection", jsonBody("POST", { action: "grant", employee_id: r.id, effective_from: today, notes: "Granted by HR" }));
+    },
+  });
 
   function statusOf(r) {
     if (r.protected_today) return <StatusBadge tone="success">Protected</StatusBadge>;
@@ -394,8 +425,10 @@ export function TenureProtectionPanel({ refreshKey }) {
             toolbar={(
               <>
                 <FilterTabs value={tab} onValueChange={setTab} label="Tenure filter" options={[
-                  { value: "meets", label: "Meets tenure", count: counts.meets },
+                  { value: "meets", label: "Eligible", count: counts.meets },
                   { value: "granted", label: "Benefit granted", count: counts.granted },
+                  { value: "revoked", label: "Revoked", count: counts.revoked },
+                  { value: "upcoming", label: "Upcoming (60 days)", count: counts.upcoming },
                   { value: "all", label: "All employees", count: counts.all },
                 ]} />
                 {(data?.branches || []).length > 1 ? (
@@ -411,7 +444,9 @@ export function TenureProtectionPanel({ refreshKey }) {
             )}
             columns={columns} rows={employees} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee or ID…" caption="Employees and Tenure Pay Protection" minWidth={canEdit ? 900 : 800}
-            empty={{ title: tab === "granted" ? "Nobody has the benefit granted" : tab === "meets" ? "Nobody meets the tenure requirement yet" : "No employees" }} />
+            empty={{ title: tab === "granted" ? "Nobody has the benefit granted" : tab === "meets" ? "Nobody eligible without the benefit" : tab === "revoked" ? "Nobody revoked" : tab === "upcoming" ? "Nobody reaches the tenure in the next 60 days" : "No employees" }}
+            selection={canEdit ? bulk.selection : null} />
+          {bulk.dialog}
         </CardContent>
       </Card>
 
