@@ -175,7 +175,9 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
 
 function AccountantScreens() {
   const { can } = usePortalSession();
-  const [page, setPage] = usePersistedPage("accountant", PAGE_IDS, "ac-dashboard");
+  const [page, setPersistedPage] = usePersistedPage("accountant", PAGE_IDS, "ac-dashboard");
+  // A leave notification names the Employee page; the Accountant's own Leave & Overtime is ac-my-leave (2026-11-22).
+  const setPage = React.useCallback((id) => setPersistedPage(id === "emp-leave" ? "ac-my-leave" : id), [setPersistedPage]);
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const item = NAV_ITEMS.find((i) => i.id === page);

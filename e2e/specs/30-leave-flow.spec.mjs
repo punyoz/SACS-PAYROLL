@@ -4,7 +4,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, pickDate, refresh, writeRemark } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, pickDate, refresh, writeRemark, newRequest } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -23,14 +23,14 @@ test("leave: employee files → admin recommends → HR approves → employee se
   await step(page, "Employee > Leave > submit the empty form (refused)", async () => {
     monitor.at("Employee > Leave");
     await as(page, "employee", "emp-leave");
-    const form = main(page).locator("form").first();
+    const form = await newRequest(page, "leave");
     await form.getByRole("button", { name: /Submit/ }).click();
     await expect(form.getByText("Leave type is required.")).toBeVisible();
     await expect(form.getByText("Reason is required.")).toBeVisible();
   });
 
   await step(page, "Employee > Leave > file Vacation Leave", async () => {
-    const form = main(page).locator("form").first();
+    const form = page.getByRole("dialog", { name: "New request" }).locator("form").first();
     await choose(page, form.getByRole("combobox").first(), "Vacation Leave");
     await pickDate(page, form.getByLabel("Start date"), start);
     await pickDate(page, form.getByLabel("End date"), end);

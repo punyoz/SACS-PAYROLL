@@ -19,7 +19,7 @@ import { apiFetch, jsonBody } from "@/lib/portal/api";
 
 /*
  * Overtime requests (Part B, 2026-11-22): filed ahead like leave; HR approves
- * or rejects. MyOvertimeRequests is the employee's form and list (Leave page,
+ * or rejects. OvertimeRequestForm / MyOvertimeList are the person's form and list (Leave & Overtime page,
  * My Account); HrOvertimeRequests is HR's list with the facts the system
  * prepared. The server checks every rule (src/lib/overtime-requests/rules.js).
  */
@@ -50,15 +50,23 @@ const hoursText = (minutes) => {
 /** Shown instead of a filing form once the person is separated (the server refuses too). */
 export const SEPARATED_NOTE = "You can't file new requests after separation.";
 
-export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
-  const { notify, me } = usePortalSession();
-  const separated = Boolean(me?.user?.separated);
-  const list = useRequests(apiBase);
+/** The person's own overtime requests and the filing rules (Leave & Overtime page). */
+export function useMyOvertime(apiBase = "/api/me/overtime-requests") {
+  return useRequests(apiBase);
+}
+
+/** The filing rules, in one sentence (the New request dialog). */
+export function overtimeRulesText(s) {
+  return s ? `File at least ${s.file_days_before} day${s.file_days_before === 1 ? "" : "s"} before (late filing up to ${s.late_filing_days_after} days after). Up to ${s.overtime_max_hours_day} h a day and ${s.overtime_max_hours_cutoff} h a cutoff. Only approved overtime is paid: the smaller of the approved hours and the hours you work past your shift end.` : "Only approved overtime is paid.";
+}
+
+/** The overtime filing form (Leave & Overtime > New request > Overtime). */
+export function OvertimeRequestForm({ apiBase = "/api/me/overtime-requests", settings = null, onFiled }) {
+  const { notify } = usePortalSession();
   const [form, setForm] = React.useState({ request_date: "", planned_start: "", planned_end: "", reason: "" });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e?.target ? e.target.value : e }));
-  const s = list.settings;
 
   async function submit(e) {
     e.preventDefault();
@@ -75,13 +83,39 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
       if (!res.ok) throw new Error(data.error || "The request was not filed.");
       notify("Overtime request filed", `${form.request_date} · ${form.planned_start}-${form.planned_end}${data.request?.late_filing ? " · Late filing" : ""}`, "success");
       setForm({ request_date: "", planned_start: "", planned_end: "", reason: "" });
-      list.reload();
+      onFiled?.();
     } catch (err) {
       setError(err.message);
     } finally {
       setBusy(false);
     }
   }
+
+  return (
+    <form className="space-y-3" onSubmit={submit} noValidate data-testid="overtime-form">
+      <p className="text-sm text-muted-foreground">{overtimeRulesText(settings)}</p>
+      <div className="space-y-1.5">
+        <Label htmlFor="ot-date">Date</Label>
+        <DatePicker id="ot-date" value={form.request_date} onChange={set("request_date")} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5"><Label htmlFor="ot-start">Planned start</Label><Input id="ot-start" type="time" value={form.planned_start} onChange={set("planned_start")} /></div>
+        <div className="space-y-1.5"><Label htmlFor="ot-end">Planned end</Label><Input id="ot-end" type="time" value={form.planned_end} onChange={set("planned_end")} /></div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="ot-reason">Reason / task</Label>
+        <Textarea id="ot-reason" rows={3} maxLength={500} value={form.reason} onChange={set("reason")} placeholder="What the overtime is for" />
+      </div>
+      {error ? <p role="alert" className="text-sm text-destructive" data-testid="ot-error">{error}</p> : null}
+      <Button type="submit" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <SendIcon aria-hidden="true" />}File overtime request</Button>
+    </form>
+  );
+}
+
+/** The person's overtime requests, with Cancel on a pending one (Leave & Overtime > Overtime tab). */
+export function MyOvertimeList({ list, apiBase = "/api/me/overtime-requests" }) {
+  const { notify, me } = usePortalSession();
+  const separated = Boolean(me?.user?.separated);
 
   async function cancel(row) {
     const res = await apiFetch(apiBase, jsonBody("PATCH", { id: row.id, action: "cancel" }));
@@ -104,42 +138,9 @@ export function MyOvertimeRequests({ apiBase = "/api/me/overtime-requests" }) {
   ];
 
   return (
-    <div className="grid gap-4" data-testid="my-overtime-requests">
-      <Card className="shadow-xs">
-        <CardHeader>
-          <CardTitle>Overtime request</CardTitle>
-          <CardDescription>
-            {s ? `File at least ${s.file_days_before} day${s.file_days_before === 1 ? "" : "s"} before (late filing up to ${s.late_filing_days_after} days after). Up to ${s.overtime_max_hours_day} h a day and ${s.overtime_max_hours_cutoff} h a cutoff. Only approved overtime is paid: the smaller of the approved hours and the hours you work past your shift end.` : "Only approved overtime is paid."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {separated ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p> : (
-          <form className="space-y-3" onSubmit={submit} noValidate>
-            <div className="space-y-1.5">
-              <Label htmlFor="ot-date">Date</Label>
-              <DatePicker id="ot-date" value={form.request_date} onChange={set("request_date")} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label htmlFor="ot-start">Planned start</Label><Input id="ot-start" type="time" value={form.planned_start} onChange={set("planned_start")} /></div>
-              <div className="space-y-1.5"><Label htmlFor="ot-end">Planned end</Label><Input id="ot-end" type="time" value={form.planned_end} onChange={set("planned_end")} /></div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ot-reason">Reason / task</Label>
-              <Textarea id="ot-reason" rows={3} maxLength={500} value={form.reason} onChange={set("reason")} placeholder="What the overtime is for" />
-            </div>
-            {error ? <p role="alert" className="text-sm text-destructive" data-testid="ot-error">{error}</p> : null}
-            <Button type="submit" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : <SendIcon aria-hidden="true" />}File overtime request</Button>
-          </form>
-          )}
-        </CardContent>
-      </Card>
-      <Card className="min-w-0 shadow-xs">
-        <CardHeader><CardTitle>My overtime requests</CardTitle></CardHeader>
-        <CardContent>
-          <DataTable columns={columns} rows={list.rows} loading={list.loading} error={list.error} onRetry={list.reload}
-            searchPlaceholder="Search overtime…" empty={{ title: "No overtime requests yet", icon: ClockIcon }} caption="My overtime requests" minWidth={480} />
-        </CardContent>
-      </Card>
+    <div data-testid="my-overtime-requests">
+      <DataTable columns={columns} rows={list.rows} loading={list.loading} error={list.error} onRetry={list.reload}
+        searchPlaceholder="Search overtime…" empty={{ title: "No overtime requests yet", icon: ClockIcon }} caption="My overtime requests" minWidth={480} />
     </div>
   );
 }

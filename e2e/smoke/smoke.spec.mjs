@@ -12,7 +12,7 @@ import { test, expect } from "../support/test.mjs";
 import { as, loginThroughUi, signOutLocally } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { expectHealthy, main, navTo, settle } from "../support/portal.mjs";
-import { api, confirm, manilaDay, writeRemark } from "../support/flow.mjs";
+import { api, confirm, manilaDay, writeRemark, requestTab } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS, BRANCH_MAIN, ROLES } from "../accounts.mjs";
 
@@ -123,7 +123,7 @@ test.describe("smoke: payroll chain", () => {
 test("smoke: the Employee files a leave request and cancels it", async ({ page }) => {
   const reason = `E2E smoke leave ${Date.now()}`;
   const start = nextWeekday(10);
-  await step(page, "Employee > My Leave > file, then Cancel", async () => {
+  await step(page, "Employee > Leave & Overtime > file, then Cancel", async () => {
     await as(page, "employee", "emp-leave");
     await settle(page);
     const filed = await api(page, "POST", "/api/me/leave-requests", { leave_type: "Vacation Leave", pay_status: "with_pay", start_date: start, end_date: start, reason });
@@ -138,13 +138,14 @@ test("smoke: the Employee files a leave request and cancels it", async ({ page }
 
 test("smoke: the Employee files an overtime request and cancels it on the page", async ({ page }) => {
   const date = nextWeekday(2);
-  await step(page, "Employee > My Leave > Overtime request > file, then Cancel", async () => {
+  await step(page, "Employee > Leave & Overtime > Overtime > file, then Cancel", async () => {
     await as(page, "employee", "emp-leave");
     await settle(page);
     const filed = await api(page, "POST", "/api/me/overtime-requests", { request_date: date, planned_start: "17:00", planned_end: "18:00", reason: "E2E smoke overtime" });
     expect(filed.status, JSON.stringify(filed.data)).toBe(201);
     await page.reload();
     await settle(page);
+    await requestTab(page, "Overtime");
     const row = main(page).getByTestId("my-overtime-requests").getByRole("row").filter({ hasText: date });
     await row.getByRole("button", { name: "Cancel" }).click();
     await expect(row).toContainText("Cancelled");

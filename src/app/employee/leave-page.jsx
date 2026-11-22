@@ -5,7 +5,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { CalendarOffIcon, Loader2Icon, SendIcon } from "lucide-react";
+import { CalendarOffIcon, Loader2Icon, PlusIcon, SendIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -16,7 +16,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
-import { MyOvertimeRequests, SEPARATED_NOTE } from "@/components/portal/overtime-requests";
+import { MyOvertimeList, OvertimeRequestForm, SEPARATED_NOTE, useMyOvertime } from "@/components/portal/overtime-requests";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { FilterTabs } from "@/components/portal/filter-tabs";
+import { useUrlParam } from "@/components/portal/use-url-param";
+import { isPendingRequest } from "@/components/portal/status-badge";
 import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { apiFetch, jsonBody } from "@/lib/portal/api";
@@ -69,11 +74,13 @@ function readAsDataUrl(file) {
   });
 }
 
-function LeaveRequestForm({ onSubmitted, balance = null, filing = null }) {
+// mode "full": whole day(s); "half": the morning or afternoon of one day (Leave & Overtime, 2026-11-22).
+function LeaveRequestForm({ onSubmitted, balance = null, filing = null, mode = "full" }) {
   const { ctx, notify } = usePortalSession();
   const [serverError, setServerError] = React.useState("");
   const [fileKey, setFileKey] = React.useState(0);
-  const form = useForm({ resolver: zodResolver(schema), defaultValues: DEFAULTS });
+  const defaults = React.useMemo(() => ({ ...DEFAULTS, day_length: mode === "half" ? "AM" : "full" }), [mode]);
+  const form = useForm({ resolver: zodResolver(schema), defaultValues: defaults });
   // Days before today + 7 (Manila) cannot be picked.
   const earliest = earliestLeaveStart();
   const startDate = form.watch("start_date");
@@ -112,11 +119,11 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null }) {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Failed to submit leave request.");
 
-      form.reset(DEFAULTS);
+      form.reset(defaults);
       setFileKey((k) => k + 1);
       const when = values.day_length === "full" ? `${values.start_date} to ${values.end_date}` : `${values.start_date}, ${HALF_LABEL[values.day_length].toLowerCase()}`;
       notify("Leave Request Submitted", `${values.leave_type} · ${when} · Awaiting admin approval.`, "success");
-      await onSubmitted();
+      await onSubmitted(values.day_length === "full" ? "leave" : "half");
     } catch (error) {
       setServerError(error.message);
     }
@@ -156,6 +163,7 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null }) {
             </FormItem>
           )}
         />
+        {mode === "half" ? (
         <FormField
           control={form.control}
           name="day_length"
@@ -165,7 +173,6 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null }) {
               <Select value={field.value} onValueChange={field.onChange}>
                 <FormControl><SelectTrigger className="w-full" aria-label="Length"><SelectValue /></SelectTrigger></FormControl>
                 <SelectContent>
-                  <SelectItem value="full">Whole day(s)</SelectItem>
                   <SelectItem value="AM">{HALF_LABEL.AM}</SelectItem>
                   <SelectItem value="PM">{HALF_LABEL.PM}</SelectItem>
                 </SelectContent>
@@ -179,6 +186,7 @@ function LeaveRequestForm({ onSubmitted, balance = null, filing = null }) {
             </FormItem>
           )}
         />
+        ) : null}
         <FormField
           control={form.control}
           name="start_date"
@@ -357,47 +365,98 @@ const REQUEST_COLUMNS = [
   },
 ];
 
+const TABS = [
+  { value: "leave", label: "Leave" },
+  { value: "half", label: "Half day" },
+  { value: "overtime", label: "Overtime" },
+];
+const TYPE_TITLES = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime" };
+
+/**
+ * Leave & Overtime (2026-11-22; was "My Leave"): balances at the top, one
+ * "New request" button (the type chosen in the dialog), and the person's
+ * requests in three tabs with a pending count each. The tab is kept in the
+ * address (?lo_tab=); the old page address opens the Leave tab.
+ */
 export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) {
   const { me } = usePortalSession();
   const separated = Boolean(me?.user?.separated);
+  const overtime = useMyOvertime(overtimeApi);
+  const [tab, setTab] = useUrlParam("lo_tab", "leave");
+  const current = TABS.some((t) => t.value === tab) ? tab : "leave";
+  const [filing, setFiling] = React.useState(null); // the type chosen in the dialog, or null when closed
+  const whole = (leave.requests || []).filter((r) => !r.half_day);
+  const halves = (leave.requests || []).filter((r) => r.half_day);
+  const pending = {
+    leave: whole.filter((r) => isPendingRequest(r.status)).length,
+    half: halves.filter((r) => isPendingRequest(r.status)).length,
+    overtime: (overtime.rows || []).filter((r) => r.status === "pending").length,
+  };
+  const filed = async (kind) => {
+    setFiling(null);
+    setTab(kind);
+    if (kind === "overtime") await overtime.reload();
+    else await leave.reload();
+  };
+  const leaveTable = (rows, title) => (
+    <DataTable
+      columns={REQUEST_COLUMNS}
+      rows={rows}
+      loading={leave.loading}
+      error={leave.error}
+      onRetry={leave.reload}
+      searchPlaceholder="Search requests…"
+      empty={{ title, icon: CalendarOffIcon }}
+      caption={title}
+      minWidth={680}
+    />
+  );
+
   return (
     <>
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <Card className="shadow-xs">
-          <CardHeader>
-            <CardTitle>Leave request</CardTitle>
-            <CardDescription>Your request goes to HR / your Administrator for approval.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {separated
-              ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p>
-              : <LeaveRequestForm onSubmitted={leave.reload} balance={leave.balance} filing={leave.filing} />}
-          </CardContent>
-        </Card>
-        <LeaveBalance balance={leave.balance} loading={leave.loading} />
-      </div>
+      <LeaveBalance balance={leave.balance} loading={leave.loading} />
 
       <Card className="min-w-0 shadow-xs">
-        <CardHeader>
-          <CardTitle>My leave requests</CardTitle>
+        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <CardTitle>My requests</CardTitle>
+            <CardDescription>Leave, half days and overtime. Each goes to HR / your Administrator for approval.</CardDescription>
+          </div>
+          {separated
+            ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p>
+            : <Button onClick={() => setFiling(current)} data-testid="new-request"><PlusIcon aria-hidden="true" />New request</Button>}
         </CardHeader>
-        <CardContent>
-          <DataTable
-            columns={REQUEST_COLUMNS}
-            rows={leave.requests}
-            loading={leave.loading}
-            error={leave.error}
-            onRetry={leave.reload}
-            searchPlaceholder="Search requests…"
-            empty={{ title: "No leave requests submitted yet", icon: CalendarOffIcon }}
-            caption="My leave requests"
-            minWidth={680}
-          />
+        <CardContent className="space-y-3">
+          <FilterTabs value={current} onValueChange={setTab} label="Request type"
+            options={TABS.map((t) => ({ ...t, count: pending[t.value] || undefined }))} />
+          {current === "leave" ? leaveTable(whole, "No leave requests submitted yet") : null}
+          {current === "half" ? leaveTable(halves, "No half-day requests yet") : null}
+          {current === "overtime" ? <MyOvertimeList list={overtime} apiBase={overtimeApi} /> : null}
         </CardContent>
       </Card>
 
-      {/* Overtime is requested ahead, like leave (Part B, 2026-11-22). */}
-      <MyOvertimeRequests apiBase={overtimeApi} />
+      <Dialog open={Boolean(filing)} onOpenChange={(open) => { if (!open) setFiling(null); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>New request</DialogTitle>
+            <DialogDescription>Choose the type, then fill in the request.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="new-request-type">Type</Label>
+            <Select value={filing || "leave"} onValueChange={setFiling}>
+              <SelectTrigger id="new-request-type" className="w-full" aria-label="Request type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TABS.map((t) => <SelectItem key={t.value} value={t.value}>{TYPE_TITLES[t.value]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {filing === "overtime"
+            ? <OvertimeRequestForm apiBase={overtimeApi} settings={overtime.settings} onFiled={() => filed("overtime")} />
+            : filing
+              ? <LeaveRequestForm key={filing} mode={filing === "half" ? "half" : "full"} onSubmitted={filed} balance={leave.balance} filing={leave.filing} />
+              : null}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

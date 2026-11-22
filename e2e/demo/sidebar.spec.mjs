@@ -18,7 +18,7 @@ test.describe("Employee", () => {
     await page.goto("/employee");
     await expect(header(page, "My Account")).toHaveAttribute("aria-expanded", "true");
     // Six items (2026-11-12: no "My BIR Form 2316"; the BIR is the Super Admin's only).
-    const SIX = ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My Profile"];
+    const SIX = ["My Attendance", "My Timesheet", "Leave & Overtime", "My Payslips", "My Requests", "My Profile"];
     for (const label of SIX) {
       await expect(group(page, "My Account").getByRole("link", { name: label, exact: true })).toBeVisible();
     }
@@ -131,7 +131,7 @@ test.describe("Super Admin: saving an HR's home branch", () => {
 // 2026-11-12: the BIR is the Super Admin's only. "My Account" has six items,
 // with no gap where "My BIR Form 2316" was, on desktop and on phones; the old
 // BIR page addresses show the normal "Page not found" screen.
-const SIX_ITEMS = ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My Profile"];
+const SIX_ITEMS = ["My Attendance", "My Timesheet", "Leave & Overtime", "My Payslips", "My Requests", "My Profile"];
 for (const [role, portal, retired] of [["employee", "/employee", "emp-bir"], ["hr", "/hr", "hr-my-bir"], ["accountant", "/accountant", "ac-my-bir"]]) {
   for (const width of [1366, 390]) {
     test.describe(`${role} ${width}px`, () => {

@@ -7,7 +7,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, pickDate, refresh, newRequest, requestTab } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -30,7 +30,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
   await step(page, "Employee > Leave > Length: Half day (PM) shows one date and the requests' window", async () => {
     monitor.at("Employee > Leave");
     await as(page, "employee", "emp-leave");
-    const form = main(page).locator("form").first();
+    const form = await newRequest(page, "half");
     await choose(page, form.getByRole("combobox", { name: "Length" }), "Half day: afternoon (PM)");
     await expect(form.getByLabel("End date"), "a half day has one date").toHaveCount(0);
     await expect(form.getByText(/At least 1 day before, or up to 2 days after as a late filing\./)).toBeVisible();
@@ -38,7 +38,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
   });
 
   await step(page, "Employee > Leave > file Sick Leave for the afternoon", async () => {
-    const form = main(page).locator("form").first();
+    const form = page.getByRole("dialog", { name: "New request" }).locator("form").first();
     await choose(page, form.getByRole("combobox").first(), "Sick Leave");
     await pickDate(page, form.getByLabel("Date", { exact: true }), day);
     await form.getByPlaceholder("State the reason for your leave request").fill(REASON);
@@ -80,6 +80,7 @@ test("half-day leave: the employee files the afternoon, HR approves half a day, 
   await step(page, "Employee > Leave > Approved; the balance used counts half a day", async () => {
     monitor.at("Employee > Leave (after decision)");
     await as(page, "employee", "emp-leave");
+    await requestTab(page, "Half day");
     await expect(main(page).locator("tr", { hasText: REASON }).getByText("Approved")).toBeVisible();
     const res = await api(page, "GET", "/api/me/leave-requests");
     expect(res.status).toBe(200);

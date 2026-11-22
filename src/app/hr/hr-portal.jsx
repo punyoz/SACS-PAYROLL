@@ -159,7 +159,11 @@ const DESCRIPTIONS = {
 };
 
 /** Retired page ids and where they open now (2026-11-20: Final Pay Approvals moved into Payroll Approval). */
-const MOVED_PAGES = { "hr-final-pay-approvals": { page: "hr-payroll-approval", params: { pa_section: "final-pay" } } };
+const MOVED_PAGES = {
+  "hr-final-pay-approvals": { page: "hr-payroll-approval", params: { pa_section: "final-pay" } },
+  // A leave notification names the Employee page; HR's own Leave & Overtime is hr-my-leave (2026-11-22).
+  "emp-leave": { page: "hr-my-leave", params: {} },
+};
 
 /** An old address (?page=hr-final-pay-approvals): rewritten before the page is read. */
 function redirectMovedPage() {

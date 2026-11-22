@@ -25,20 +25,20 @@ export const PAGES = {
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
     ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"], ["hr-remark-presets", "Preset Remarks"],
     // "My Account" (2026-11-09): HR is on payroll; its own pages.
-    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "My Leave"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-profile", "My Profile"],
+    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "Leave & Overtime"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-profile", "My Profile"],
   ],
   accountant: [
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
     ["ac-13th", "13th month pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
     ["ac-attendance", "View Attendance"], ["ac-holidays", "Holidays & Duty"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
-    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "My Leave"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-profile", "My Profile"],
+    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "Leave & Overtime"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-profile", "My Profile"],
   ],
   employee: [
     // One "My Account" group (2026-11-09), with My Requests; six items since
     // 2026-11-12 (no "My BIR Form 2316": the BIR is the Super Admin's only).
     ["emp-dash", "Dashboard"], ["emp-announcements", "Announcements"], ["emp-attendance", "My Attendance"], ["emp-timesheet", "My Timesheet"],
-    ["emp-leave", "My Leave"], ["emp-payslips", "My Payslips"], ["emp-requests", "My Requests"], ["emp-profile", "My Profile"],
+    ["emp-leave", "Leave & Overtime"], ["emp-payslips", "My Payslips"], ["emp-requests", "My Requests"], ["emp-profile", "My Profile"],
   ],
 };
 
