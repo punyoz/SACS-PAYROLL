@@ -1,4 +1,4 @@
-import { computeSubstitutionPay, readSubstitutionSettings, weekOf } from "@/lib/substitutions/pay";
+import { computeSubstitutionPay, lateSubstitutions, readSubstitutionSettings, weekOf } from "@/lib/substitutions/pay";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { floorNetPay } from "@/lib/payroll/net-pay";
@@ -898,16 +898,30 @@ function normalizeAttendanceStatus(value) {
  * (the whole weeks around the period) their shift and taps by day and their
  * scheduled hours by week. Empty when the table is not there yet.
  */
+
 async function loadSubstitutionContext(supabase, employeeIds, from, to) {
   const empty = { byEmployee: new Map(), shiftOf: () => null, tapsOf: () => null, weekHours: () => 0, settings: await readSubstitutionSettings(supabase) };
   if (!employeeIds?.length) return empty;
+  // Back to 62 days before the period: an approval after its own cutoff was processed is paid on the
+  // next payslip as an adjustment (Part C), listed in the Accountant's Action needed.
+  const lookBack = new Date(Date.parse(`${from}T00:00:00Z`) - 62 * 864e5).toISOString().slice(0, 10);
   const subs = await fetchAllIn(() => supabase.from("substitutions").select("id,sub_date,start_time,end_time,periods,class_section,subject,absent_employee_id,substitute_id")
-    .eq("status", "approved").gte("sub_date", from).lte("sub_date", to), "substitute_id", employeeIds);
+    .eq("status", "approved").gte("sub_date", lookBack).lte("sub_date", to), "substitute_id", employeeIds);
   if (subs.error || !(subs.data || []).length) return empty;
-  const rows = subs.data;
+  const earlier = (subs.data || []).filter((r) => String(r.sub_date).slice(0, 10) < from);
+  let late = new Set();
+  if (earlier.length) {
+    const entries = await fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,status,pay_period,payroll")
+      .neq("status", "draft").gte("created_at", `${lookBack}T00:00:00Z`), "employee_id", [...new Set(earlier.map((r) => r.substitute_id))]);
+    late = lateSubstitutions(earlier, entries.data || []);
+  }
+  const rows = (subs.data || []).filter((r) => String(r.sub_date).slice(0, 10) >= from || late.has(r.id))
+    .map((r) => (late.has(r.id) ? { ...r, late: true } : r));
+  if (!rows.length) return empty;
   const subIds = [...new Set(rows.map((r) => r.substitute_id))];
   const absentIds = [...new Set(rows.map((r) => r.absent_employee_id))];
-  const weekStart = weekOf(from);
+  const firstDate = rows.reduce((min, r) => (String(r.sub_date).slice(0, 10) < min ? String(r.sub_date).slice(0, 10) : min), from);
+  const weekStart = weekOf(firstDate);
   const weekEnd = new Date(Date.parse(`${weekOf(to)}T00:00:00Z`) + 6 * 864e5).toISOString().slice(0, 10);
   const [names, logs] = await Promise.all([
     fetchAllIn(() => supabase.from("profiles").select("id,full_name"), "id", absentIds),
@@ -918,7 +932,7 @@ async function loadSubstitutionContext(supabase, employeeIds, from, to) {
   const byEmployee = new Map();
   for (const r of rows) {
     const list = byEmployee.get(r.substitute_id) || [];
-    list.push({ ...r, sub_date: String(r.sub_date).slice(0, 10), absent_name: nameOf.get(r.absent_employee_id) || "a teacher" });
+    list.push({ ...r, sub_date: String(r.sub_date).slice(0, 10), absent_name: `${nameOf.get(r.absent_employee_id) || "a teacher"}${r.late ? "; approved after its cutoff" : ""}` });
     byEmployee.set(r.substitute_id, list);
   }
   const minutes = (iso) => { if (!iso) return null; const d = new Date(new Date(iso).getTime() + 8 * 3600e3); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
@@ -1752,7 +1766,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     });
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
     // Part C: this payslip's approved substitutions, paid only when the substitute's taps cover them.
-    const mySubs = (substitutionContext.byEmployee.get(employee.id) || []).filter((r) => r.sub_date >= own.start_key && r.sub_date <= own.end_key);
+    const mySubs = (substitutionContext.byEmployee.get(employee.id) || []).filter((r) => (r.sub_date >= own.start_key || r.late) && r.sub_date <= own.end_key);
     const substitution = mySubs.length ? computeSubstitutionPay({
       subs: mySubs,
       shiftOf: (date) => substitutionContext.shiftOf(employee.id, date),

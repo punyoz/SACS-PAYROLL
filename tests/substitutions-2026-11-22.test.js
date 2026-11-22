@@ -92,3 +92,15 @@ describe("the payslip line (Part C)", () => {
     ]);
   });
 });
+
+describe("late approvals (Part C)", () => {
+  it("approved after its cutoff was processed without it → the next payslip; not processed yet, or already paid → not late", async () => {
+    const { lateSubstitutions } = await import("@/lib/substitutions/pay");
+    const entry = (o = {}) => ({ id: "e1", employee_id: "t1", status: "paid", payroll: { audit: { period: { start_key: "2026-11-01", end_key: "2026-11-15" }, lines: { incentives: [] } } }, ...o });
+    const subs = [{ id: "s1", substitute_id: "t1", sub_date: "2026-11-05" }];
+    expect([...lateSubstitutions(subs, [entry()])]).toEqual(["s1"]);
+    expect([...lateSubstitutions(subs, [])]).toEqual([]);
+    const paid = entry({ payroll: { audit: { period: { start_key: "2026-11-01", end_key: "2026-11-15" }, lines: { incentives: [{ type: "substitution", substitution_id: "s1" }] } } } });
+    expect([...lateSubstitutions(subs, [paid])]).toEqual([]);
+  });
+});

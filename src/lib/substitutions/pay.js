@@ -16,6 +16,8 @@
  *     instead. Never paid twice: each hour is in exactly one of the three.
  */
 
+import { attendanceSpanOf } from "@/lib/payroll/final-payslips";
+
 export const SUBSTITUTION_SETTINGS = {
   substitution_rate_mode: { label: "Allowance inside the shift", options: ["fixed", "hourly", "pct"], fallback: "fixed" },
   substitution_fixed_per_period: { label: "Allowance per class period (₱)", min: 0, max: 5000, fallback: 150 },
@@ -154,4 +156,20 @@ export function suggestSubstitutes({ absent, people, tapped, onLeave, weekPeriod
       && (weekPeriods.get(p.id) || 0) + periods <= cap)
     .map((p) => ({ id: p.id, full_name: p.full_name, week_periods: weekPeriods.get(p.id) || 0 }))
     .sort((a, b) => a.week_periods - b.week_periods || a.full_name.localeCompare(b.full_name));
+}
+
+/**
+ * Approved substitutions whose own cutoff was already processed (a non-draft
+ * payslip covers the date) without them: the next payslip pays them.
+ */
+export function lateSubstitutions(subs, entries) {
+  const out = new Set();
+  for (const r of subs) {
+    const date = String(r.sub_date).slice(0, 10);
+    const covering = entries.filter((e) => String(e.employee_id) === String(r.substitute_id) && (() => { const span = attendanceSpanOf(e); return span && date >= span.start_key && date <= span.end_key; })());
+    if (!covering.length) continue; // not processed yet: its own payslip pays it
+    const paid = covering.some((e) => (e.payroll?.audit?.lines?.incentives || []).some((l) => l.type === "substitution" && String(l.substitution_id) === String(r.id)));
+    if (!paid) out.add(r.id);
+  }
+  return out;
 }
