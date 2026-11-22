@@ -13,6 +13,7 @@ import { AttendanceBadge, StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import {
+  correctionByLabel,
   canCorrect,
   formatDateTime,
   formatMinutes,
@@ -155,12 +156,12 @@ function usePayrollNotice() {
   };
 }
 
-/* ── Correct any record ── */
+/* ── Override any record (HR) ── */
 
 const CORRECTION_TYPES = [
-  ["time_in", "Correct time in (accidental late time in)"],
-  ["time_out", "Correct time out (accidental late or missing time out)"],
-  ["both", "Correct both time in and time out"],
+  ["time_in", "Override time in (accidental late time in)"],
+  ["time_out", "Override time out (accidental late or missing time out)"],
+  ["both", "Override both time in and time out"],
   ["present", "Mark as present (worked but did not tap)"],
 ];
 
@@ -197,10 +198,10 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
     const currentIn = timeInputValue(row.time_in);
     const currentOut = timeInputValue(row.time_out);
     const effectiveIn = needs.in ? timeIn : currentIn;
-    const notFuture = (value) => (row.log_date === today && value && value > now ? "A corrected time cannot be in the future." : "");
+    const notFuture = (value) => (row.log_date === today && value && value > now ? "An overridden time cannot be in the future." : "");
     const next = {};
-    if (!needs.in && !row.time_in) next.type = 'This record has no time in. Choose "Correct both" or "Mark as present".';
-    else if (!needs.out && !row.time_out && row.log_date < today) next.type = 'This day has no time out. Choose "Correct both" to enter it too.';
+    if (!needs.in && !row.time_in) next.type = 'This record has no time in. Choose "Override both" or "Mark as present".';
+    else if (!needs.out && !row.time_out && row.log_date < today) next.type = 'This day has no time out. Choose "Override both" to enter it too.';
     if (needs.in) {
       if (!timeIn) next.timeIn = "New time in is required.";
       else if (!needs.out && currentOut && timeIn >= currentOut) next.timeIn = `Time in must be earlier than the time out (${formatTime(row.time_out)}).`;
@@ -228,7 +229,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
       time_out: needs.out ? timeOut : undefined,
       note: note.trim(),
     }));
-    notify("Attendance Corrected", `${row.employee_name || "The employee"}'s ${formatDateKey(row.log_date)} record is updated and marked Corrected.`, "success");
+    notify("Attendance Overridden", `${row.employee_name || "The employee"}'s ${formatDateKey(row.log_date)} record is updated and marked Corrected.`, "success");
     payrollNotice(result);
     onDone();
   }
@@ -237,7 +238,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
     <ActionDialog
       open
       onOpenChange={onOpenChange}
-      title="Correct attendance"
+      title="Override attendance"
       summary={(
         <>
           <div className="flex flex-wrap items-center gap-2">
@@ -250,7 +251,7 @@ function CorrectRecordDialog({ row, onOpenChange, onDone }) {
           {status === "Pending Correction" ? <div>Saving closes the employee&apos;s pending correction request.</div> : null}
         </>
       )}
-      actions={[{ label: "Cancel", variant: "outline", close: true }, { label: "Save correction", onClick: save }]}
+      actions={[{ label: "Cancel", variant: "outline", close: true }, { label: "Save override", onClick: save }]}
     >
       <Field id="att-correct-type" label="Resolution" error={errors.type}>
         <Select value={type} onValueChange={setType}>
@@ -493,7 +494,7 @@ function TapsDialog({ row, onOpenChange }) {
           <div className="flex flex-wrap items-center gap-2"><strong>{row.employee_name || "Employee"}</strong> · {formatDateKey(row.log_date)} <AttendanceBadge status={row.status} /></div>
           <div className="text-muted-foreground">{note}</div>
           {corrected ? (
-            <div>This day was corrected{row.last_correction?.approved_by_name ? ` by ${row.last_correction.approved_by_name}` : ""}: the record shows <span className="tabular-nums">{formatTime(row.time_in)} – {formatTime(row.time_out)}</span>, not the taps below.</div>
+            <div>{correctionByLabel(row.last_correction)}: the record shows <span className="tabular-nums">{formatTime(row.time_in)} – {formatTime(row.time_out)}</span>, not the taps below.</div>
           ) : null}
         </>
       )}
@@ -534,14 +535,14 @@ function TapsDialog({ row, onOpenChange }) {
 
 function correctionKind(c) {
   const labels = {
-    time_in: "Time in corrected",
-    time_out: "Time out corrected",
-    both: "Time in and time out corrected",
+    time_in: "Time in overridden",
+    time_out: "Time out overridden",
+    both: "Time in and time out overridden",
     present: "Marked present (did not tap)",
   };
   if (c.correction_type && labels[c.correction_type]) return labels[c.correction_type];
-  if (c.corrected_time_in) return "Absence corrected";
-  if (c.original_status === "Incomplete" && c.status === "approved" && c.reason && c.reason === c.review_note) return "Incomplete record resolved";
+  if (c.corrected_time_in) return "Absence overridden";
+  if (c.original_status === "Incomplete" && c.status === "approved" && c.reason && c.reason === c.review_note) return "Incomplete record overridden";
   return "Employee correction request";
 }
 

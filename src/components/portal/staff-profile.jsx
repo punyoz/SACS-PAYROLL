@@ -89,7 +89,7 @@ export function StaffProfilePage({ roleLabel, showPosition = false, employeeIdLa
             { label: "Full name", value: ctx?.full_name },
             // Staff portals carry a STAFF-### ID; the Accountant has an employee ID.
             employeeIdLabel ? { label: "Employee ID", value: ctx?.employee_id } : { label: "ID", value: ctx?.staff_id },
-            ...(showPosition ? [{ label: "Position", value: ctx?.position }, { label: "Employee type", value: ctx?.employee_type }] : []),
+            ...(showPosition ? [{ label: "Position", value: ctx?.position }, { label: "Category", value: ctx?.employee_type }] : []),
             { label: "Email address", value: ctx?.email, wide: true },
             ...(employeeIdLabel ? [] : [{ label: "Account role", value: ctx?.role }]),
             ...(accountOnly ? [] : [

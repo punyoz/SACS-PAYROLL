@@ -249,7 +249,7 @@ export async function employeesFile(supabase, actorId, context, filters) {
 
   const columns = [
     col("Employee ID", "text", "Readable employee number (for example SACS-001)."), col("Full name"), col("Branch"), col("Is demo", "bool", DEMO), col("First name"), col("Middle name"), col("Last name"), col("Suffix"),
-    col("Role", "label"), col("Employee type", "label"), col("Level", "label"), col("Position"), col("Record status", "text", "Active, Archived or Separated (with the date)."),
+    col("Role", "label"), col("Category", "label"), col("Level", "label"), col("Position"), col("Record status", "text", "Active, Archived or Separated (with the date)."),
     col("Employment status", "label"), col("Date hired", "date"), col("Separated on", "date"), col("Separation reason"),
     col("Monthly salary (PHP, as of export date)", "money", "Salary in force on the export date (salary history applied)."),
     col("Daily rate (PHP, as of export date)", "money", "Daily rate payroll uses for this pay period."),

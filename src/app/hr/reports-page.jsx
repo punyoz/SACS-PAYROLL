@@ -119,7 +119,7 @@ export function ReportsPage() {
 
   const columns = isAttendance ? [
     { key: "employee_name", header: "Employee", className: "font-medium", cell: (r) => r.employee_name || "—" },
-    { key: "employee_type", header: "Type", cell: (r) => r.employee_type || "—" },
+    { key: "employee_type", header: "Category", cell: (r) => r.employee_type || "—" },
     { key: "present", header: "Present", align: "right", className: "tabular-nums text-success", cell: (r) => r.present ?? 0 },
     { key: "late", header: "Late", align: "right", className: "tabular-nums text-warning", cell: (r) => r.late ?? 0 },
     { key: "absent", header: "Absent", align: "right", className: "tabular-nums text-destructive", cell: (r) => r.absent ?? 0 },
@@ -128,7 +128,7 @@ export function ReportsPage() {
   ] : [
     { key: "full_name", header: "Employee", className: "font-medium", cell: (r) => <>{r.full_name || "—"}{r.archived ? <span className="ml-1 text-xs text-destructive">(Archived)</span> : null}</> },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (r) => r.employee_id || "—" },
-    { key: "employee_type", header: "Type", cell: (r) => r.employee_type || "—" },
+    { key: "employee_type", header: "Category", cell: (r) => r.employee_type || "—" },
     { key: "employment", header: "Employment", cell: (r) => [r.employment_status, r.employment_type].filter(Boolean).join(" · ") || "—" },
     { key: "position", header: "Position", cell: (r) => r.position || "—" },
     { key: "status", header: "Status", cell: (r) => r.employee_status || "Active" },

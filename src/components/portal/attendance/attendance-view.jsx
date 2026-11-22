@@ -45,7 +45,8 @@ export const SUMMARY_STATUSES = [
   { status: "Incomplete", icon: AlertCircleIcon, tone: "text-muted-foreground" },
   { status: "Corrected", icon: PencilLineIcon, tone: "text-info" },
   { status: "On Leave", icon: CalendarOffIcon, tone: "text-info" },
-  { status: "Not tapped yet", icon: HourglassIcon, tone: "text-muted-foreground" },
+  // Shown as "No tap yet" (Part K); the status value stays "Not tapped yet".
+  { status: "Not tapped yet", label: "No tap yet", icon: HourglassIcon, tone: "text-muted-foreground" },
 ];
 // "Present" first: the group the dashboards count (On Time, Early Bird, Late,
 // Undertime, Half Day, Corrected; decision 2026-11-14), so a card's number
@@ -57,12 +58,12 @@ export function AttendanceSummary({ counts = {}, active = "all", onSelect, loadi
   return (
     <div role="group" aria-label="Filter by status" data-testid="attendance-summary"
       className="grid grid-cols-2 gap-2 min-[480px]:grid-cols-3 sm:grid-cols-5 2xl:grid-cols-10">
-      {statuses.map(({ status, icon: Icon, tone }) => {
+      {statuses.map(({ status, label, icon: Icon, tone }) => {
         const n = Number(counts[status] || 0);
         const on = active === status;
         return (
           <button key={status} type="button" aria-pressed={on} onClick={() => onSelect?.(on ? "all" : status)}
-            title={on ? "Show every status" : `Show only ${status}`} data-testid="attendance-tile"
+            title={on ? "Show every status" : `Show only ${label || status}`} data-testid="attendance-tile"
             className={cn(
               "flex min-h-16 min-w-0 flex-col justify-between gap-1 rounded-lg border bg-card px-3 py-2 text-left transition-colors",
               "hover:bg-accent/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
@@ -71,7 +72,7 @@ export function AttendanceSummary({ counts = {}, active = "all", onSelect, loadi
             <span className={cn("text-xl leading-tight font-semibold tabular-nums", !n && "text-muted-foreground")}>{loading ? "…" : n.toLocaleString("en-PH")}</span>
             <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
               <Icon className={cn("size-3.5 shrink-0", tone)} aria-hidden="true" />
-              <span className="truncate">{status}</span>
+              <span className="truncate">{label || status}</span>
             </span>
           </button>
         );
@@ -121,7 +122,7 @@ export function AttendanceToolbar({ search, range, branch, status, day, onReset,
             <SelectTrigger id={mobile ? "att-status-m" : undefined} className="w-full lg:w-36" aria-label="Status" data-testid="att-status"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              {(status.options || FILTER_STATUSES).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              {(status.options || FILTER_STATUSES).map((s) => <SelectItem key={s} value={s}>{s === "Not tapped yet" ? "No tap yet" : s}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>

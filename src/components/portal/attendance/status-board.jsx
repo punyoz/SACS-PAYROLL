@@ -32,10 +32,10 @@ import { manilaDateKey } from "@/lib/payroll/periods";
  */
 
 const NOTES = {
-  all: "Statuses are computed automatically from each branch's schedule. Today, people who have not tapped yet show as \"Not tapped yet\", not Absent: the day is not over.",
-  incomplete: "Days with a time in but no time out after the shift ended. They are left out of payroll until resolved: by the employee's correction request, by recording the time out (or Absent / Half Day) here, or with Correct.",
+  all: "Statuses are computed automatically from each branch's schedule. Today, people who have not tapped yet show as \"No tap yet\", not Absent: the day is not over.",
+  incomplete: "Days with a time in but no time out after the shift ended. They are left out of payroll until resolved: by the employee's correction request, by recording the time out (or Absent / Half Day) here, or with Override.",
   blocked: "RFID taps that were refused: an unregistered card, an inactive employee, another branch's card, or an employee on approved leave. Nothing was recorded for them.",
-  corrections: "Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day. Correct enters different times yourself and closes the request.",
+  corrections: "Approving replaces the time out and marks the day Corrected. Rejecting keeps it Incomplete (out of payroll) or sets it to Absent or Half Day. Override enters different times yourself and closes the request.",
   overtime: "Days whose time out is well after the branch's end of shift. Payroll pays overtime only for the minutes approved here. Decisions lock once that pay period is processed.",
 };
 
@@ -251,7 +251,7 @@ function rowNote(row) {
   if (Number(row.late_minutes) > 0) parts.push(`Late ${formatMinutes(row.late_minutes)}`);
   if (Number(row.undertime_minutes) > 0) parts.push(`Undertime ${formatMinutes(row.undertime_minutes)}`);
   if (row.holiday_name) parts.push(row.holiday_name);
-  if (row.leave?.leave_type) parts.push(`${row.leave.leave_type} leave`);
+  if (row.leave?.leave_type) parts.push(String(row.leave.leave_type).replace(/ Leave$/, " leave"));
   if (row.correction) parts.push("Correction requested");
   if (row.corrected_reason || row.correction_reason) parts.push(`Corrected: ${row.corrected_reason || row.correction_reason}`);
   return parts.join(" · ") || "—";

@@ -5,7 +5,7 @@
 
 export const SUBMISSIONS = "payroll_final_pay_submissions";
 export const LEGACY_LABEL = "Released before HR approval was required";
-export const STATUS_LABELS = { pending: "Pending HR Approval", approved: "Paid/Released", rejected: "Rejected by HR" };
+export const STATUS_LABELS = { pending: "Pending HR approval", approved: "Paid", rejected: "Returned by HR" };
 const DEADLINE_DAYS = 30;
 
 /** Days left on the 30-day deadline (DOLE Labor Advisory 06-2020), counted to HR's approval. */

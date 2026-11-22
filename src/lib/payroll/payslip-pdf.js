@@ -274,7 +274,7 @@ export function buildPayslipPdf(details, { seal = null, orgName = DEFAULT_ORG_NA
   const employee = details?.employee || {};
   const view = details?.employee_view || null;
   const extra = view || details || {};
-  const waiting = status === "Pending HR Approval" || status === "Returned by HR";
+  const waiting = status === "Pending HR approval" || status === "Returned by HR";
 
   const collected = new SectionCollector();
   const monthly = details?.monthly || null;

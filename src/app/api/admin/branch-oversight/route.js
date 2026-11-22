@@ -295,7 +295,7 @@ function transferState(t, branchId, endorsement, branchName) {
   if (!mine) {
     return {
       can_endorse: false,
-      state_note: endorsement ? `Endorsement sent by the ${branchName.get(source) || "other"} branch Admin. Waiting for HR.`
+      state_note: endorsement ? `Endorsement sent by the ${branchName.get(source) || "other"} branch Admin. Pending HR approval.`
         : `Waiting for the ${branchName.get(source) || "other"} branch Admin to endorse.`,
     };
   }

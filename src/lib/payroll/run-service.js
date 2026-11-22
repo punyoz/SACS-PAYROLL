@@ -133,7 +133,7 @@ function leftOutOf(roster) {
  *   - the open card (Draft / Rejected run, a new supplemental run, or no run
  *     yet): its Included payslips, Drafts, Left out and, apart, Final
  *     payslips outside the branch's active list (in the run only if ticked);
- *   - every submitted run of the period (Pending HR Approval, Paid), read
+ *   - every submitted run of the period (Pending HR approval, Paid), read
  *     only, with exactly the payslips HR received.
  *
  * Each card says on the server why it cannot be submitted (blockers).
@@ -388,9 +388,9 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
 /** follow_up values of the left-out list, as the screens say them. */
 export const FOLLOW_UP_LABELS = Object.freeze({
   not_processed: "Not processed yet",
-  draft: "Draft, not finalized",
+  draft: "Draft",
   processed_not_submitted: "Processed, not submitted",
-  supplemental_pending: "In supplemental run, Pending HR Approval",
+  supplemental_pending: "In supplemental run, Pending HR approval",
   supplemental_rejected: "Left out again: supplemental run rejected by HR",
 });
 
@@ -440,7 +440,7 @@ export async function correctionsDue(supabase, rows) {
  * Employees left out of a submitted run who are not paid for that period
  * yet: the follow-up list (Accountant: own branch; HR: every branch). They
  * stay until a run holding their payslip is Paid (2026-11-15); while that
- * run is Pending they show "In supplemental run, Pending HR Approval", and
+ * run is Pending they show "In supplemental run, Pending HR approval", and
  * if HR rejects it they show as left out again.
  * @returns {Promise<Array<object>>}
  */

@@ -218,7 +218,18 @@ export function employeeRange({ range, from, to }) {
   return { from: `${today.slice(0, 8)}01`, to: today };
 }
 
-/** A record can be corrected unless it is a leave day (attCanCorrect). */
+/**
+ * Who changed a Corrected day (Part K, 2026-11-21): HR's own change is an
+ * override; an employee's request that HR approved stays a correction.
+ * The requester and the approver are the same person on an override.
+ */
+export function correctionByLabel(c) {
+  const name = c?.approved_by_name || "HR / Admin";
+  const request = c?.requested_by && c?.approved_by && String(c.requested_by) !== String(c.approved_by);
+  return request ? `Corrected by ${name} (approved request)` : `Overridden by ${name}`;
+}
+
+/** A record can be overridden unless it is a leave day (attCanCorrect). */
 export function canCorrect(row) {
   return Boolean(row?.employee_id && row?.log_date) && normalizeAttendanceStatus(row.status) !== "On Leave";
 }

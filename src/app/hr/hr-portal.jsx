@@ -253,7 +253,7 @@ function HrScreens() {
         ) : null}
         {current === "hr-branch-requests" ? (
           <div className="flex flex-col gap-4">
-            <BranchRequestsReview refreshKey={refreshKey} kinds={["attendance_flag"]} title="Attendance flags" description="Records a branch Admin asked HR to check. Correct the record in Attendance if needed, then mark it resolved." />
+            <BranchRequestsReview refreshKey={refreshKey} kinds={["attendance_flag"]} title="Attendance flags" description="Records a branch Admin asked HR to check. Override the record in Attendance if needed, then mark it resolved." />
             <BranchRequestsReview refreshKey={refreshKey} kinds={["schedule_request"]} title="Work schedule & class-load requests" description="Approve or reject. Apply an approved change in Work Schedules." />
             <BranchRequestsReview refreshKey={refreshKey} kinds={["incentive_endorsement"]} title="Incentive recommendations" description="Approving adds the incentive or overload to payroll, counted by today's date (after the month's cutoff it moves to next month's payroll)." />
             <BranchRequestsReview refreshKey={refreshKey} kinds={["rfid_issue"]} title="RFID issues" description="Lost or broken cards and faulty readers. HR or the Super Admin marks them resolved." />

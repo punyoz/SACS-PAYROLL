@@ -11,9 +11,9 @@ describe("final pay approval helpers", () => {
   });
 
   it("labels each state; the final pay saved before the rule says so", () => {
-    expect(shapeSubmission({ status: "pending", net_pay: "10.5" })).toMatchObject({ status_label: "Pending HR Approval", net_pay: 10.5 });
-    expect(shapeSubmission({ status: "approved" }).status_label).toBe("Paid/Released");
-    expect(shapeSubmission({ status: "rejected", reject_reason: "Clearance missing" })).toMatchObject({ status_label: "Rejected by HR", reject_reason: "Clearance missing" });
+    expect(shapeSubmission({ status: "pending", net_pay: "10.5" })).toMatchObject({ status_label: "Pending HR approval", net_pay: 10.5 });
+    expect(shapeSubmission({ status: "approved" }).status_label).toBe("Paid");
+    expect(shapeSubmission({ status: "rejected", reject_reason: "Clearance missing" })).toMatchObject({ status_label: "Returned by HR", reject_reason: "Clearance missing" });
     expect(shapeSubmission({ status: "approved", legacy: true }).status_label).toBe(LEGACY_LABEL);
     expect(shapeSubmission(null)).toBeNull();
   });

@@ -66,7 +66,7 @@ export function ThirteenthMonthPage({ refreshKey }) {
       const result = await fetchJson("/api/accountant/payroll", jsonBody("PATCH", { action: "process_13th_month", year: data.year }));
       const message = `Processed ${result.processed.length} payout${result.processed.length === 1 ? "" : "s"}.${result.skipped.length ? ` ${result.skipped.length} skipped.` : ""}`;
       setFeedback({ text: message, ok: true });
-      notify("13th Month Pay Processed", message, "success");
+      notify("13th month pay processed", message, "success");
       await load();
     } catch (error) {
       setFeedback({ text: error.message || "Unable to process the 13th month pay.", ok: false });

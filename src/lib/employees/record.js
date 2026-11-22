@@ -104,7 +104,7 @@ const FIELD_LABELS = {
   date_of_birth: "Date of birth",
   sex: "Sex",
   civil_status: "Civil status",
-  employee_type: "Employee type",
+  employee_type: "Category",
   employment_type: "Employment type",
   employment_status: "Employment status",
   employee_status: "Account status",

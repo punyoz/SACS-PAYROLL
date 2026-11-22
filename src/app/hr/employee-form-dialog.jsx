@@ -60,7 +60,7 @@ const DIGIT_SPEC = {
 const LABELS = {
   first_name: "First name", middle_initial: "Middle name", last_name: "Last name", suffix: "Suffix", email: "Email",
   role: "Role", employee_status: "Account status", branch_id: "Branch", date_of_birth: "Date of birth", sex: "Sex",
-  civil_status: "Civil status", employee_type: "Employee type", position: "Position", employment_type: "Employment type",
+  civil_status: "Civil status", employee_type: "Category", position: "Position", employment_type: "Employment type",
   employment_status: "Employment status", date_hired: "Date hired", basic_salary: "Basic salary", address: "Home address",
   cp_number: "Contact number", emergency_contact_name: "Contact person", emergency_contact_relationship: "Relationship",
   emergency_contact_number: "Emergency contact number", emergency_contact_address: "Emergency contact address",

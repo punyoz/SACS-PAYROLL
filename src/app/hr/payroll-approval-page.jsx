@@ -50,9 +50,9 @@ import { printPdf } from "@/lib/portal/print-pdf";
 
 const TABS = [
   // The payroll status labels (RUN_STATUS_LABELS).
-  { id: "pending", label: "Pending HR Approval" },
+  { id: "pending", label: "Pending HR approval" },
   { id: "approved", label: "Paid" },
-  { id: "rejected", label: "Rejected by HR" },
+  { id: "rejected", label: "Returned by HR" },
   { id: "all", label: "All runs" },
   // Every approve / reject decision, kept for good (a rejected run that is
   // resubmitted keeps its rejection here).
@@ -105,7 +105,7 @@ function DecisionDialog({ decision, onClose, onDone }) {
         }
       } else {
         if (!response.ok) throw new Error(data.error || "The run could not be rejected.");
-        notify("Payroll Rejected", `${runs[0].branch_name}, ${runs[0].period_label} went back to the Accountant.`, "success");
+        notify("Payroll Returned", `${runs[0].branch_name}, ${runs[0].period_label} went back to the Accountant.`, "success");
       }
       onDone();
     } catch (err) {

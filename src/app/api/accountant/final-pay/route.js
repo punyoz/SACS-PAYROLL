@@ -372,7 +372,7 @@ export async function GET(request) {
           ...deadlineOf(p.separated_on, today), released: Boolean(entry),
           final_pay: entry ? { payslip_no: entry.payslip_no, net_pay: entry.payroll?.totals?.net_pay ?? null, release_on: entry.payroll?.final_pay?.release_on || null,
             overpayment_to_recover: Number(entry.payroll?.final_pay?.overpayment_to_recover) || 0,
-            approval: entry.payroll?.final_pay?.approval || null, legacy: Boolean(approved?.legacy), status_label: approved?.legacy ? LEGACY_LABEL : "Paid/Released" } : null,
+            approval: entry.payroll?.final_pay?.approval || null, legacy: Boolean(approved?.legacy), status_label: approved?.legacy ? LEGACY_LABEL : "Paid" } : null,
           submission: shapeSubmission(mine[0]),
         };
       }),

@@ -87,7 +87,7 @@ describe("payslip PDF layout (2026-11-19, one template, embedded Noto Sans)", ()
 
   it("1st half: the note once as a plain line, no contribution or tax rows, no empty column headers", async () => {
     const g = buildLineGroups({ half: "first", additions: { basic: { amount: 14750 } } });
-    const details = { status: "final", status_label: "Pending HR Approval", employee: { name: "Ana" }, pay_period: "October 1-15, 2026", line_groups: { ...g, gross: 14750, total_deductions: 0 }, net_pay: 14750, monthly: { half: "first" } };
+    const details = { status: "final", status_label: "Pending HR approval", employee: { name: "Ana" }, pay_period: "October 1-15, 2026", line_groups: { ...g, gross: 14750, total_deductions: 0 }, net_pay: 14750, monthly: { half: "first" } };
     const { pages, text } = await readPdf(await buildPayslipPdf(details));
     expect(text.match(/Government contributions and withholding tax are deducted on the 2nd-half payslip/g)).toHaveLength(1);
     ["SSS", "PhilHealth", "Pag-IBIG", "Withholding tax", "Monthly tax computation", "Notes"].forEach((label) => expect(pages[0].items.some((i) => i.text === label), label).toBe(false));
@@ -109,7 +109,7 @@ describe("payslip status, pay date and file name", () => {
   it("labels the stored state in the employee's words (rules unchanged)", () => {
     expect(payslipStatus({ status: "draft" }).label).toBe("Draft");
     expect(payslipStatus({ status: "paid", run_id: "r", approved_at: "2026-11-19T02:00:00Z" })).toEqual({ label: "Paid", pay_date_label: "Nov 19, 2026" });
-    expect(payslipStatus({ status: "paid", run_id: "r" }).label).toBe("Pending HR Approval");
+    expect(payslipStatus({ status: "paid", run_id: "r" }).label).toBe("Pending HR approval");
     expect(payslipStatus({ status: "paid", run_id: "r" }, "rejected").label).toBe("Returned by HR");
     expect(payslipStatus({ status: "paid", run_id: null }).label).toBe("Paid"); // a final pay: its own approval
   });

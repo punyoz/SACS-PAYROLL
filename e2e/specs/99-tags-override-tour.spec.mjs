@@ -187,7 +187,7 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
     await step(page, "HR > Payroll Approval > Ana's row: same groups and tags; reject", async () => {
       monitor.at("HR > Payroll Approval");
       await as(page, "hr", "hr-payroll-approval");
-      await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+      await page.getByRole("tab", { name: /Pending HR approval/ }).click();
       await settle(page);
       await main(page).locator("tr", { hasText: OCT2 }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();
       await settle(page);
@@ -233,7 +233,7 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
       await shot(page, "07b-hr-processing-windows");
       const back = main(page).getByRole("button", { name: "All runs" });
       if (await back.isVisible().catch(() => false)) { await back.click(); await settle(page); }
-      await page.getByRole("tab", { name: /Pending HR Approval/ }).click();
+      await page.getByRole("tab", { name: /Pending HR approval/ }).click();
       await settle(page);
       await main(page).locator("tr", { hasText: OCT2 }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();
       await settle(page);

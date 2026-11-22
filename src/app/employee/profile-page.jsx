@@ -95,7 +95,7 @@ export function ProfilePage() {
         <Section icon={BriefcaseIcon} title="Employment">
           <InfoList items={[
             { label: "Position", value: ctx?.position },
-            { label: "Employee type", value: ctx?.employee_type },
+            { label: "Category", value: ctx?.employee_type },
             { label: "Employment", value: [ctx?.employment_type, ctx?.employment_status].filter(Boolean).join(" · ") },
             { label: "Date hired", value: ctx?.date_hired },
           ]} />

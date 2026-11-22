@@ -229,7 +229,7 @@ function batchRowState(data, employee, base) {
   else if (employee.payroll_hold || runLocked) status = "blocked";
   else status = "ready";
   const sub = final
-    ? `${slip.payslip_no || ""} · ${runLocked ? (ownStatus === "pending" ? "Pending HR Approval" : "Paid") : "not submitted to HR"}`
+    ? `${slip.payslip_no || ""} · ${runLocked ? (ownStatus === "pending" ? "Pending HR approval" : "Paid") : "Ready for HR"}`
     : status === "draft" ? (slip.attendance_through ? `Up to ${dateLabel(slip.attendance_through)}` : "Saved from the form")
       : status === "ready" && !canGenerate && win?.state === "not_open" ? `Opens ${dateLabel(win.opens_on)}`
         : status === "ready" && win?.state === "closed" ? "Window closed: marked late for HR" : "";
@@ -488,7 +488,7 @@ function BatchCard({ onNavigate, onEdit }) {
   const blockedGroups = [
     ["attendance", "Unresolved attendance (HR or the branch Administrator resolves it)"],
     ["first_half", "Waiting for a Final 1st half"],
-    ["hold", "On pay hold (AWOL case or separated: HR)"],
+    ["hold", "Pay on hold (AWOL case or separated: HR)"],
     ["run", "In a run with HR (locked)"],
   ].map(([kind, title]) => ({ kind, title, rows: blockedRows(kind) })).filter((g) => g.rows.length);
   const showRow = (row) => {
@@ -743,7 +743,7 @@ function BatchCard({ onNavigate, onEdit }) {
           ) : null}
           {types.length > 1 ? (
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Employee type"><SelectValue /></SelectTrigger>
+              <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Category"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All types</SelectItem>
                 {types.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}

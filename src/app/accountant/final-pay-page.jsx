@@ -107,7 +107,7 @@ function FinalPayState({ p }) {
   if (p.final_pay) {
     return (
       <div>
-        <StatusBadge tone="success">{p.final_pay.legacy ? "Released" : "Paid/Released"}</StatusBadge>
+        <StatusBadge tone="success">{p.final_pay.legacy ? "Released" : "Paid"}</StatusBadge>
         <p className="text-xs text-muted-foreground">{p.final_pay.payslip_no} · net {money(p.final_pay.net_pay)} · released {dateLabel(p.final_pay.release_on)}</p>
         {p.final_pay.legacy ? <p className="text-xs text-muted-foreground" data-testid="legacy-label">{p.final_pay.status_label}</p> : null}
         {p.final_pay.approval ? <p className="text-xs text-muted-foreground">Approved by {p.final_pay.approval.approved_by_name}</p> : null}
@@ -118,10 +118,10 @@ function FinalPayState({ p }) {
     );
   }
   if (p.submission?.status === "pending") {
-    return <div><StatusBadge tone="warning">Pending HR Approval</StatusBadge><p className="text-xs text-muted-foreground">Net {money(p.submission.net_pay)} · release {dateLabel(p.submission.release_on)} · locked</p></div>;
+    return <div><StatusBadge tone="warning">Pending HR approval</StatusBadge><p className="text-xs text-muted-foreground">Net {money(p.submission.net_pay)} · release {dateLabel(p.submission.release_on)} · locked</p></div>;
   }
   if (p.submission?.status === "rejected") {
-    return <div data-testid="rejected-final-pay"><StatusBadge tone="danger">Rejected by HR</StatusBadge><p className="max-w-xs text-xs whitespace-normal text-destructive">{p.submission.reject_reason}</p><p className="text-xs text-muted-foreground">by {p.submission.decided_by_name}</p></div>;
+    return <div data-testid="rejected-final-pay"><StatusBadge tone="danger">Returned by HR</StatusBadge><p className="max-w-xs text-xs whitespace-normal text-destructive">{p.submission.reject_reason}</p><p className="text-xs text-muted-foreground">by {p.submission.decided_by_name}</p></div>;
   }
   return <StatusBadge tone="gold">Not yet</StatusBadge>;
 }

@@ -67,7 +67,7 @@ const NAV = [
       { id: "ac-loans", label: "Loans", icon: HandCoinsIcon, module: "loans" },
       { id: "ac-incentives", label: "Incentives & Overload", icon: StarIcon, module: "process_payroll" },
       { id: "ac-cash-advances", label: "Cash Advances", icon: BanknoteIcon, module: "process_payroll" },
-      { id: "ac-13th", label: "13th Month Pay", icon: CalendarIcon, module: "process_payroll" },
+      { id: "ac-13th", label: "13th month pay", icon: CalendarIcon, module: "process_payroll" },
       { id: "ac-approvals", label: "Subsidies", icon: ClipboardCheckIcon, module: "payroll_approvals" },
       { id: "ac-final-pay", label: "Final Pay", icon: UserMinusIcon, module: "process_payroll" },
     ],

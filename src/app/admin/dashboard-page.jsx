@@ -46,7 +46,7 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
         <StatCard label="Present" value={a.present ?? 0} hint={data ? dateLabel(data.today) : ""} icon={CheckCircle2Icon} tone="success" loading={view.first} href={todayHref("Present")} actionLabel="View who is present today" />
         <StatCard label="Late" value={a.late ?? 0} hint="Included in present" icon={ClockAlertIcon} tone="gold" loading={view.first} href={todayHref("Late")} actionLabel="View today's late records" />
         {/* One card (decision 2026-11-14): the same label, rule and link as HR's "Absent today", this branch only. */}
-        <StatCard label="Absent today" value={a.absent_today ?? 0} hint="Not yet recorded" icon={XCircleIcon} tone="danger" loading={view.first} href={todayHref("Not tapped yet")} actionLabel="View who has not tapped in today" />
+        <StatCard label="Absent today" value={a.absent_today ?? 0} hint="No tap yet" icon={XCircleIcon} tone="danger" loading={view.first} href={todayHref("Not tapped yet")} actionLabel="View who has not tapped in today" />
         <StatCard label="On leave" value={a.on_leave ?? 0} icon={CalendarDaysIcon} loading={view.first} href={todayHref("On Leave")} actionLabel="View today's leave records" />
       </section>
       <section aria-label="Branch" className="grid grid-cols-1 gap-3 sm:grid-cols-3">

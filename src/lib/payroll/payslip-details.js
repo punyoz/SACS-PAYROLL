@@ -87,7 +87,7 @@ export function formatManilaDate(iso) {
 /**
  * What the payslip is, in the employee's words (2026-11-19): Draft while the
  * period is open; Paid once HR approved its run (approved_at; a payslip with
- * no run -- a final pay -- has its own approval); else Pending HR Approval,
+ * no run -- a final pay -- has its own approval); else Pending HR approval,
  * or Returned by HR when the run was sent back. A label only: the status
  * rules themselves are unchanged.
  */
@@ -98,7 +98,7 @@ export function payslipStatus(entry, runStatus = null) {
   if (finalPay && entry?.status === "paid") {
     const approval = finalPay.approval || null;
     return {
-      label: approval ? "Paid/Released" : "Released before HR approval was required",
+      label: approval ? "Paid" : "Released before HR approval was required",
       pay_date_label: formatManilaDate(finalPay.release_on ? `${finalPay.release_on}T12:00:00+08:00` : null),
       approval_line: approval
         ? `Approved by ${approval.approved_by_name}${approval.approved_by_role === "super_admin" ? " (Super Admin, stand-in for HR)" : " (HR)"} on ${dateTimeText(approval.approved_at)}`
@@ -107,7 +107,7 @@ export function payslipStatus(entry, runStatus = null) {
   }
   if (entry?.approved_at || !entry?.run_id) return { label: "Paid", pay_date_label: formatManilaDate(entry?.approved_at) };
   if (runStatus === "rejected") return { label: "Returned by HR", pay_date_label: null };
-  return { label: "Pending HR Approval", pay_date_label: null };
+  return { label: "Pending HR approval", pay_date_label: null };
 }
 
 export function buildPayslipDetails(entry, { taxRows = [], runStatus = null } = {}) {
