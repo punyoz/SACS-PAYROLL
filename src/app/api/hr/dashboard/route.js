@@ -67,6 +67,9 @@ export async function GET(request) {
     let presentToday = 0;
     let lateToday = 0;
     let absentToday = 0;
+    // Part J (2026-11-22): today's attendance chart, each status on its own.
+    let absentMarkedToday = 0;
+    let onLeaveToday = 0;
 
     try {
       let attQuery = supabase
@@ -83,6 +86,8 @@ export async function GET(request) {
         collapseDailyTaps(attRows, { dateKey: () => today }).forEach((row) => {
           if (isPresentRow(row, today)) presentToday++;
           if (attendanceBucket(row.status) === "late") lateToday++;
+          if (attendanceBucket(row.status) === "absent") absentMarkedToday++;
+          if (attendanceBucket(row.status) === "leave") onLeaveToday++;
         });
       }
       // Absent = scheduled today with no record (the board's "Not tapped yet").
@@ -187,6 +192,9 @@ export async function GET(request) {
       present_today: presentToday,
       late_today: lateToday,
       absent_today: absentToday,
+      // Part J: Absent / On Leave records today (the "Not tapped yet" count is absent_today).
+      absent_marked_today: absentMarkedToday,
+      on_leave_today: onLeaveToday,
       pending_leaves: pendingLeaves,
       recent_activity: recentActivity,
       generated_at: new Date().toISOString(),

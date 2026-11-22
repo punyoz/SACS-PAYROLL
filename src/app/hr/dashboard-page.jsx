@@ -30,8 +30,6 @@ function timeOnly(value) {
   return new Intl.DateTimeFormat("en-PH", { hour: "2-digit", minute: "2-digit", hour12: true }).format(date);
 }
 
-const CHART = { count: { label: "Employees" } };
-
 export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
 
@@ -60,15 +58,22 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
   const loading = state.loading && !state.data;
   const pending = Number(d.pending_leaves || 0);
   const activity = d.recent_activity || [];
-  const bars = [
-    { label: "Teaching", count: Number(d.teaching_staff || 0), fill: "var(--chart-1)" },
-    { label: "Non-Teaching", count: Number(d.non_teaching_staff || 0), fill: "var(--chart-2)" },
-    { label: "Present today", count: Number(d.present_today || 0), fill: "var(--chart-3)" },
-    { label: "Late today", count: Number(d.late_today || 0), fill: "var(--chart-4)" },
-  ];
-
   const today = manilaDateKey();
   const todayRange = { hr_att_from: today, hr_att_to: today };
+  // Part J (2026-11-22): two charts, each bar linking to its filtered list.
+  const staffBars = [
+    { label: "Teaching", count: Number(d.teaching_staff || 0), fill: "var(--chart-1)", href: portalHref("hr-employees", { emp_filter: "teaching" }) },
+    { label: "Non-Teaching", count: Number(d.non_teaching_staff || 0), fill: "var(--chart-2)", href: portalHref("hr-employees", { emp_filter: "non-teaching" }) },
+  ];
+  const late = Number(d.late_today || 0);
+  const todayBars = [
+    // Late is its own bar, so Present here is the on-time part (the card above counts Late in).
+    { label: "Present", count: Math.max(0, Number(d.present_today || 0) - late), fill: "var(--chart-1)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" }) },
+    { label: "Late", count: late, fill: "var(--chart-4)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Late" }) },
+    { label: "Absent", count: Number(d.absent_marked_today || 0), fill: "var(--destructive)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Absent" }) },
+    { label: "On leave", count: Number(d.on_leave_today || 0), fill: "var(--chart-2)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "On Leave" }) },
+    { label: "Not tapped yet", count: Number(d.absent_today || 0), fill: "var(--chart-5)", href: portalHref("hr-attendance", { ...todayRange, hr_att_status: "Not tapped yet" }) },
+  ];
 
   if (state.error && !state.data) {
     return <Card className="shadow-xs"><CardContent><ErrorState message={state.error} /></CardContent></Card>;
@@ -87,31 +92,10 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="min-w-0 shadow-xs">
-          <CardHeader>
-            <CardTitle>Staff breakdown</CardTitle>
-            <CardDescription>Teaching: {d.teaching_staff ?? 0} · Non-Teaching: {d.non_teaching_staff ?? 0} · Late today: {d.late_today ?? 0}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {loading ? <Skeleton className="h-[220px] w-full" /> : (
-              <ChartContainer config={CHART} className="h-[220px] w-full">
-                <BarChart accessibilityLayer data={bars} margin={{ left: 4, right: 4 }}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
-                  <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} fontSize={11} />
-                  <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<ChartTooltipContent hideLabel />} />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={52}>
-                    {bars.map((bar) => <Cell key={bar.label} fill={bar.fill} />)}
-                  </Bar>
-                </BarChart>
-              </ChartContainer>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => onNavigate("hr-employees")}>View employees</Button>
-              <Button variant="outline" size="sm" onClick={() => onNavigate("hr-attendance")}>View attendance</Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid min-w-0 gap-4">
+          <CountChart testId="chart-staff" title="Staff breakdown" description={`Teaching ${d.teaching_staff ?? 0} · Non-Teaching ${d.non_teaching_staff ?? 0}`} bars={staffBars} loading={loading} unit="Employees" />
+          <CountChart testId="chart-today" title="Today's attendance" description="Present (on time), Late, Absent, On leave and Not tapped yet, from today's records" bars={todayBars} loading={loading} unit="Employees" />
+        </div>
 
         <div className="grid gap-4">
           <Card className="min-w-0 shadow-xs">
@@ -168,6 +152,46 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
 }
 
 const fmtDay = (key) => new Date(`${key}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" });
+
+/**
+ * One bar chart with its own title and legend (Part J, 2026-11-22); each
+ * legend entry links to the filtered list behind its bar.
+ */
+function CountChart({ testId, title, description, bars, loading, unit }) {
+  return (
+    <Card className="min-w-0 shadow-xs" data-testid={testId}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? <Skeleton className="h-[180px] w-full" /> : (
+          <ChartContainer config={{ count: { label: unit } }} className="h-[180px] w-full">
+            <BarChart accessibilityLayer data={bars} margin={{ left: 4, right: 4 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} interval={0} />
+              <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={32} fontSize={11} />
+              <ChartTooltip cursor={{ fill: "var(--muted)" }} content={<ChartTooltipContent hideLabel />} />
+              <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={52}>
+                {bars.map((bar) => <Cell key={bar.label} fill={bar.fill} />)}
+              </Bar>
+            </BarChart>
+          </ChartContainer>
+        )}
+        <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label={`${title}: legend`}>
+          {bars.map((bar) => (
+            <li key={bar.label}>
+              <a href={bar.href} className="inline-flex items-center gap-1.5 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                <span aria-hidden="true" className="size-2.5 rounded-sm" style={{ background: bar.fill }} />
+                {bar.label} <span className="tabular-nums font-medium">{bar.count}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
 
 /** HR's Action needed (Part A): records to confirm, probations and contracts ending soon, salaries not set. */
 function ActionNeededCard({ data }) {
