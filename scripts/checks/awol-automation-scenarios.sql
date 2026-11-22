@@ -19,6 +19,11 @@ INSERT INTO auth.users (id, email, aud, role, instance_id) VALUES
   ('00000000-0000-4000-8000-0000000006e1', 'hr@awol.test',  'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-0000000006d1', 'adm@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
+-- Four colleagues who tap in as usual: Awol Branch is a normal branch, not a dead terminal
+-- (without them everyone there was absent and the days were, rightly, data gaps).
+INSERT INTO auth.users (id, email, aud, role, instance_id)
+SELECT ('00000000-0000-4000-8000-0000000006b' || n)::UUID, 'p' || n || '@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'
+FROM generate_series(1, 4) n ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.branches (id, name) VALUES
   ('00000000-0000-4000-8000-0000000006f1', 'Awol Branch'),
   ('00000000-0000-4000-8000-0000000006f2', 'Gap Branch') ON CONFLICT (id) DO NOTHING;
@@ -31,6 +36,10 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on
   ('00000000-0000-4000-8000-0000000006e1', 'hr@awol.test',  'Hana HR',     'hr',       NULL, FALSE, TRUE, 'Active'),
   -- An Admin wrongly flagged on payroll, with Absent rows: never an AWOL case (2026-11-22).
   ('00000000-0000-4000-8000-0000000006d1', 'adm@awol.test', 'Ada Admin',   'admin',    '00000000-0000-4000-8000-0000000006f1', FALSE, TRUE, 'Active')
+ON CONFLICT (id) DO UPDATE SET branch_id = EXCLUDED.branch_id, archived = FALSE, on_payroll = TRUE, employee_status = 'Active';
+INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on_payroll, employee_status)
+SELECT ('00000000-0000-4000-8000-0000000006b' || n)::UUID, 'p' || n || '@awol.test', 'Present ' || n, 'employee', '00000000-0000-4000-8000-0000000006f1', FALSE, TRUE, 'Active'
+FROM generate_series(1, 4) n
 ON CONFLICT (id) DO UPDATE SET branch_id = EXCLUDED.branch_id, archived = FALSE, on_payroll = TRUE, employee_status = 'Active';
 
 -- 2027-03-01 is a Monday. Sat works Mon-Sat; everyone else Mon-Fri.
@@ -51,6 +60,10 @@ INSERT INTO public.attendance_logs (employee_id, employee_name, branch_id, log_d
   ('00000000-0000-4000-8000-0000000006a2', 'Sat Monsat', '00000000-0000-4000-8000-0000000006f1', '2027-03-04', 'Absent'),
   ('00000000-0000-4000-8000-0000000006a2', 'Sat Monsat', '00000000-0000-4000-8000-0000000006f1', '2027-03-05', 'Absent'),
   ('00000000-0000-4000-8000-0000000006a2', 'Sat Monsat', '00000000-0000-4000-8000-0000000006f1', '2027-03-06', 'Absent');
+-- The four colleagues tap in on those days.
+INSERT INTO public.attendance_logs (employee_id, employee_name, branch_id, log_date, time_in, status)
+SELECT ('00000000-0000-4000-8000-0000000006b' || n)::UUID, 'Present ' || n, '00000000-0000-4000-8000-0000000006f1', d::DATE, (d || ' 08:00+08')::TIMESTAMPTZ, 'On Time'
+FROM generate_series(1, 4) n CROSS JOIN (VALUES ('2027-03-03'), ('2027-03-04'), ('2027-03-05'), ('2027-03-06')) d(d);
 -- Gap Branch: both people absent the same three days (a dead terminal).
 INSERT INTO public.attendance_logs (employee_id, employee_name, branch_id, log_date, status)
 SELECT e, n, '00000000-0000-4000-8000-0000000006f2', d::DATE, 'Absent' FROM (VALUES
@@ -97,6 +110,7 @@ BEGIN
 
   -- 4. Gap Branch: everyone without taps those days → a data gap per day, HR told, no AWOL case.
   ASSERT (SELECT COUNT(*) FROM public.attendance_data_gaps WHERE branch_id = '00000000-0000-4000-8000-0000000006f2') = 3, '4: three gap days';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.attendance_data_gaps WHERE branch_id = '00000000-0000-4000-8000-0000000006f1'), '4d: a normal branch has no gap days';
   ASSERT EXISTS (SELECT 1 FROM public.notifications WHERE kind = 'attendance_data_gap'), '4b: HR told of a device / data problem';
   ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = gab), '4c: no AWOL case on gap days';
 

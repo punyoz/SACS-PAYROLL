@@ -10,15 +10,24 @@
 
 BEGIN;
 
--- One clean school-wide policy (2 years, active) for the test.
+-- One clean school-wide policy (2 years, active) for the test. Setup only: the
+-- HR-only settings guard is a trigger, skipped here (replica) as for the other setup rows.
+SET LOCAL session_replication_role = replica;
 UPDATE public.tenure_protection_policies SET is_active = TRUE, min_tenure_years = 2 WHERE branch_id IS NULL;
 INSERT INTO public.tenure_protection_policies (branch_id, use_global, min_tenure_years, is_active)
 SELECT NULL, FALSE, 2, TRUE WHERE NOT EXISTS (SELECT 1 FROM public.tenure_protection_policies WHERE branch_id IS NULL);
+SET LOCAL session_replication_role = origin;
 
 INSERT INTO auth.users (id, email, aud, role, instance_id)
 SELECT ('00000000-0000-4000-8000-0000000007a' || n)::UUID, 't' || n || '@tenure.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'
 FROM generate_series(1, 9) n ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.branches (id, name) VALUES ('00000000-0000-4000-8000-0000000007f1', 'Tenure Branch') ON CONFLICT (id) DO NOTHING;
+-- Hana: the HR who granted, revoked and re-grants by hand (no date hired: never a candidate herself).
+INSERT INTO auth.users (id, email, aud, role, instance_id)
+VALUES ('00000000-0000-4000-8000-0000000007e1', 'hana@tenure.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000') ON CONFLICT (id) DO NOTHING;
+INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on_payroll, employee_status)
+VALUES ('00000000-0000-4000-8000-0000000007e1', 'hana@tenure.test', 'Hana HR', 'hr', NULL, FALSE, TRUE, 'Active')
+ON CONFLICT (id) DO UPDATE SET role = 'hr', archived = FALSE;
 INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on_payroll, employee_status, employment_status, date_hired) VALUES
   ('00000000-0000-4000-8000-0000000007a1', 't1@tenure.test', 'Tina Today',     'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      '2025-03-20'),
   ('00000000-0000-4000-8000-0000000007a2', 't2@tenure.test', 'Tom Tomorrow',   'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      '2025-03-21'),
@@ -35,10 +44,10 @@ ON CONFLICT (id) DO UPDATE SET date_hired = EXCLUDED.date_hired, employment_stat
 
 -- Rex: granted once and revoked by HR. Mia: an existing manual grant. Rita: separated, back on 2026-02-02.
 SET LOCAL session_replication_role = replica;
-INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by_name, granted_by_role, granted_at, revoked_on, revoked_by_name, revoked_by_role, revoke_notes)
-VALUES ('00000000-0000-4000-8000-0000000007a4', '2024-01-01', 'manual', 'Hana HR', 'hr', '2024-01-01', '2026-06-01', 'Hana HR', 'hr', 'Granted in error');
-INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by_name, granted_by_role, granted_at)
-VALUES ('00000000-0000-4000-8000-0000000007a6', '2019-02-01', 'manual grant', 'Hana HR', 'hr', '2019-02-01');
+INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by, granted_by_name, granted_by_role, granted_at, revoked_on, revoked_by, revoked_by_name, revoked_by_role, revoked_at, revoke_notes)
+VALUES ('00000000-0000-4000-8000-0000000007a4', '2024-01-01', 'manual', '00000000-0000-4000-8000-0000000007e1', 'Hana HR', 'hr', '2024-01-01', '2026-06-01', '00000000-0000-4000-8000-0000000007e1', 'Hana HR', 'hr', '2026-06-01', 'Granted in error');
+INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by, granted_by_name, granted_by_role, granted_at)
+VALUES ('00000000-0000-4000-8000-0000000007a6', '2019-02-01', 'manual grant', '00000000-0000-4000-8000-0000000007e1', 'Hana HR', 'hr', '2019-02-01');
 INSERT INTO public.employee_status_changes (employee_id, old_status, new_status, effective_on, reason)
 VALUES ('00000000-0000-4000-8000-0000000007a5', 'Active', 'Separated', '2025-12-31', 'resigned'),
        ('00000000-0000-4000-8000-0000000007a5', 'Separated', 'Active', '2026-02-02', 'rehired');
@@ -79,8 +88,10 @@ BEGIN
 
   -- 3. Tom reaches it the next day, but the Mar 16-31 run is already approved: from the NEXT cutoff
   --    (no retroactive adjustment to a processed payslip); nobody twice.
+  PERFORM set_config('sacs.payroll_run_action', 'on', true);  -- setup row: as the approve action writes it
   INSERT INTO public.payroll_runs (branch_id, period_label, period_start, period_end, cutoff_type, status)
   VALUES ('00000000-0000-4000-8000-0000000007f1', 'March 16-31, 2027', '2027-03-16', '2027-03-31', 'second', 'approved');
+  PERFORM set_config('sacs.payroll_run_action', '', true);
   PERFORM public.tenure_auto_grant('2027-03-21');
   ASSERT (SELECT COUNT(*) FROM public.tenure_protection_grants WHERE employee_id = tom) = 1, '3: Tom on his anniversary';
   ASSERT (SELECT effective_from FROM public.tenure_protection_grants WHERE employee_id = tom) = '2027-04-01', '3c: processed cutoff → the next one';
@@ -89,8 +100,8 @@ BEGIN
   -- 4. Revoked stays revoked: Rex is never re-granted automatically; HR re-grants by hand and that stands.
   PERFORM public.tenure_auto_grant('2027-04-01');
   ASSERT (SELECT COUNT(*) FROM public.tenure_protection_grants WHERE employee_id = rex) = 1, '4: Rex not re-granted';
-  INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by_name, granted_by_role, granted_at)
-  VALUES (rex, '2027-04-01', 'HR re-grant', 'Hana HR', 'hr', NOW());
+  INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by, granted_by_name, granted_by_role, granted_at)
+  VALUES (rex, '2027-04-01', 'HR re-grant', '00000000-0000-4000-8000-0000000007e1', 'Hana HR', 'hr', NOW());
   ASSERT (SELECT COUNT(*) FROM public.tenure_protection_grants WHERE employee_id = rex AND revoked_on IS NULL) = 1, '4b: HR re-grant stands';
 
   -- 5. Rita: the break restarts the count — eligible two years after her return (2028-02-02).
@@ -105,6 +116,17 @@ BEGIN
   -- 5d. Admin / Super Admin: never, whatever the on-payroll flag says.
   ASSERT NOT EXISTS (SELECT 1 FROM public.tenure_auto_grant_candidates('2027-04-02') WHERE employee_id = '00000000-0000-4000-8000-0000000007a9'), '5d: Admin never a candidate';
   ASSERT NOT EXISTS (SELECT 1 FROM public.tenure_protection_grants WHERE employee_id = '00000000-0000-4000-8000-0000000007a9'), '5e: Admin never granted';
+
+  -- 5f. Nobody but the System (inside the database) may write a grant with no person behind it.
+  BEGIN
+    PERFORM set_config('request.jwt.claims', '{"role":"authenticated"}', true);
+    INSERT INTO public.tenure_protection_grants (employee_id, effective_from, notes, granted_by, granted_by_name, granted_by_role, granted_at)
+    VALUES (tom, '2027-05-01', 'forged', NULL, 'System', 'system', NOW());
+    PERFORM set_config('request.jwt.claims', '', true);
+    RAISE EXCEPTION 'forged system grant was accepted';
+  EXCEPTION WHEN insufficient_privilege THEN
+    PERFORM set_config('request.jwt.claims', '', true);
+  END;
 
   -- 6. Mia's manual grant is untouched.
   ASSERT (SELECT COUNT(*) FROM public.tenure_protection_grants WHERE employee_id = mia) = 1, '6: manual grant stays';

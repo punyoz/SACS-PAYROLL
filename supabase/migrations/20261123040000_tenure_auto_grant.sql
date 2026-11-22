@@ -1,6 +1,7 @@
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Part G (2026-11-22, user decision: automate the EXISTING Tenure Pay
--- Protection; no new earning). Additive: a setting and three functions.
+-- Protection; no new earning). A setting and functions, plus two NON-additive changes raised in the release
+-- plan: granted_by may be empty (a system grant), and the grants guard accepts the System's grant.
 -- The daily job is NOT scheduled here: the first-run list is reviewed first
 -- (tenure_auto_grant_candidates), then the job is enabled on the user's yes:
 --   SELECT cron.schedule('tenure-auto-grant', '45 16 * * *', 'SELECT public.tenure_auto_grant();');
@@ -23,6 +24,11 @@
 -- adjustments; processed payslips are stored and never change. Logged "by System, rule: N years of service"; HR and the
 -- employee are notified. Existing manual grants stay as they are.
 
+-- A system grant has no person behind it: granted_by (a profile) may be empty;
+-- granted_by_role 'system' and granted_by_name 'System' say who. Relaxes a
+-- NOT NULL only (existing rows and writers are unaffected).
+ALTER TABLE public.tenure_protection_grants ALTER COLUMN granted_by DROP NOT NULL;
+
 INSERT INTO public.system_config (section, key, value, updated_by)
 SELECT 'tenure', 'eligible_statuses', 'Regular', 'System'
 WHERE NOT EXISTS (SELECT 1 FROM public.system_config c WHERE c.section = 'tenure' AND c.key = 'eligible_statuses');
@@ -32,6 +38,106 @@ CREATE OR REPLACE FUNCTION public.cutoff_start_of(p_day DATE)
  RETURNS DATE LANGUAGE sql IMMUTABLE
 AS $function$
   SELECT CASE WHEN EXTRACT(DAY FROM p_day) <= 15 THEN date_trunc('month', p_day)::DATE ELSE (date_trunc('month', p_day)::DATE + 15) END;
+$function$;
+
+/**
+ * The grants guard (20261110010000_hr_on_payroll.sql), unchanged for people,
+ * plus the System's grant (Part G). Replaces that function: raised in the
+ * Batch 2 release plan as the one non-additive change.
+ */
+CREATE OR REPLACE FUNCTION public.tenure_protection_grants_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_today DATE := (NOW() AT TIME ZONE 'Asia/Manila')::DATE;
+  v_role TEXT;
+  v_employee_role TEXT;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'A Tenure Pay Protection grant is never deleted: revoke it instead.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  -- Part G (2026-11-22): the System's years-of-service grant (public.tenure_auto_grant,
+  -- run by the scheduled job inside the database, never through the API: no JWT
+  -- claims). It has no person behind it, and it may start at the cutoff in
+  -- progress (never earlier; the job checks the cutoff is not processed yet).
+  IF TG_OP = 'INSERT' AND NEW.granted_by IS NULL AND NEW.granted_by_role = 'system'
+     AND COALESCE(current_setting('request.jwt.claims', true), '') = '' THEN
+    v_employee_role := public.tenure_protection_actor_role(NEW.employee_id);
+    IF v_employee_role IS NULL OR v_employee_role NOT IN ('employee', 'accountant', 'hr') THEN
+      RAISE EXCEPTION 'Tenure Pay Protection is granted to employees, accountants and HR only.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.effective_from < public.cutoff_start_of(v_today) THEN
+      RAISE EXCEPTION 'A system grant cannot take effect before the cutoff in progress.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.revoked_on IS NOT NULL THEN
+      RAISE EXCEPTION 'A new grant cannot already be revoked.' USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.granted_by_name := 'System';
+    NEW.granted_at := NOW();
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    v_role := public.tenure_protection_actor_role(NEW.granted_by);
+    IF v_role IS NULL OR v_role <> 'hr' THEN
+      RAISE EXCEPTION 'Only HR can grant Tenure Pay Protection.'
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    v_employee_role := public.tenure_protection_actor_role(NEW.employee_id);
+    IF v_employee_role IS NULL OR v_employee_role NOT IN ('employee', 'accountant', 'hr') THEN
+      RAISE EXCEPTION 'Tenure Pay Protection is granted to employees, accountants and HR only.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.effective_from < v_today THEN
+      RAISE EXCEPTION 'A grant cannot take effect before today: payroll already worked out is never recalculated.'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.revoked_on IS NOT NULL THEN
+      RAISE EXCEPTION 'A new grant cannot already be revoked.' USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.granted_by_role := v_role;
+    NEW.granted_at := NOW();
+    RETURN NEW;
+  END IF;
+
+  -- UPDATE: only revoking, once.
+  IF OLD.revoked_on IS NOT NULL THEN
+    RAISE EXCEPTION 'This grant is already revoked; its history is kept as it is.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.employee_id IS DISTINCT FROM OLD.employee_id
+     OR NEW.effective_from IS DISTINCT FROM OLD.effective_from
+     OR NEW.notes IS DISTINCT FROM OLD.notes
+     OR NEW.granted_by IS DISTINCT FROM OLD.granted_by
+     OR NEW.granted_by_name IS DISTINCT FROM OLD.granted_by_name
+     OR NEW.granted_by_role IS DISTINCT FROM OLD.granted_by_role
+     OR NEW.granted_at IS DISTINCT FROM OLD.granted_at THEN
+    RAISE EXCEPTION 'A grant is never edited: revoke it and grant it again.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.revoked_on IS NULL THEN
+    RAISE EXCEPTION 'Revoking needs the date protection ends.' USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.revoked_on < v_today THEN
+    RAISE EXCEPTION 'Protection can only end today or later: past payroll is never changed.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  v_role := public.tenure_protection_actor_role(NEW.revoked_by);
+  IF v_role IS NULL OR v_role <> 'hr' THEN
+    RAISE EXCEPTION 'Only HR can revoke Tenure Pay Protection.'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  NEW.revoked_by_role := v_role;
+  NEW.revoked_at := NOW();
+  RETURN NEW;
+END;
 $function$;
 
 /** The first day of the cutoff after the one starting on p_start. */
