@@ -50,6 +50,7 @@ export async function isEmployeeOnLeave(supabase, employeeId, dateKey) {
     .select(LEAVE_COLUMNS)
     .eq("employee_id", employeeId)
     .eq("status", "approved")
+    .is("half_day", null) // a half day keeps its taps (2026-11-22)
     .lte("start_date", dateKey)
     .gte("end_date", dateKey)
     .limit(1);

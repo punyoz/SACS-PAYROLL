@@ -1,3 +1,4 @@
+import { leaveApprovedAfterFinal } from "@/lib/payroll/final-payslips";
 import { listUsersCached } from "@/lib/auth/users-cache";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -142,7 +143,7 @@ export async function GET(request) {
 
     // Action needed (Part A, 20261121010000): records to confirm, probations and
     // contracts ending within the reminder windows. Never fails the dashboard.
-    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [] };
+    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [], leave_after_payslip: [] };
     try {
       // Not the viewer's own record: another HR confirms it.
       const ids = employees.map((u) => u.id).filter((id) => id !== guard.userId);
@@ -163,6 +164,7 @@ export async function GET(request) {
         contract_ending: people.filter((p) => p.contract_end_date && p.contract_end_date >= today && p.contract_end_date <= plus(days("contract_reminder_days")))
           .map((p) => ({ id: p.id, full_name: p.full_name, due_on: p.contract_end_date })),
         salary_not_set: [],
+        leave_after_payslip: [],
       };
     } catch { /* ignore */ }
     // Salary not set (2026-11-22): every on-payroll account with a ₱0 salary;
@@ -177,6 +179,20 @@ export async function GET(request) {
       if (!guard.branchExempt) zero = zero.eq("branch_id", guard.branchId);
       const { data } = await zero;
       actionNeeded.salary_not_set = (data || []).map((p) => ({ id: p.id, full_name: p.full_name, role: p.role }));
+    } catch { /* ignore */ }
+    // Leave approved after its day's Final payslip (Part B, 2026-11-22): a
+    // correction on the next payslip. Approvals of the last 60 days, branch-scoped.
+    try {
+      const since = new Date(Date.parse(`${today}T00:00:00Z`) - 60 * 864e5).toISOString();
+      let recent = supabase.from("leave_requests").select("id,employee_id,employee_name,leave_type,start_date,end_date,status,decided_at,half_day,branch_id")
+        .eq("status", "approved").gte("decided_at", since).order("decided_at", { ascending: false }).limit(500);
+      if (!guard.branchExempt) recent = recent.eq("branch_id", guard.branchId);
+      const { data: leaves } = await recent;
+      const ids = [...new Set((leaves || []).map((l) => String(l.employee_id)))];
+      if (ids.length) {
+        const finals = await fetchAllIn(() => supabase.from("payroll_entries").select("id,employee_id,pay_period,status,payslip_no,payroll,submitted_at,updated_at").eq("status", "paid"), "employee_id", ids);
+        actionNeeded.leave_after_payslip = leaveApprovedAfterFinal(leaves, finals.data || []);
+      }
     } catch { /* ignore */ }
 
     return NextResponse.json({

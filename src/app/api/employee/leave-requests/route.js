@@ -82,7 +82,10 @@ export async function GET(request) {
       });
     }
 
-    return NextResponse.json({ requests, balance });
+    // The half-day filing window (the requests' settings), for the form's words.
+    const settings = await readRequestSettings(getServiceClient());
+    const filing = { file_days_before: settings.file_days_before, late_filing_days_after: settings.late_filing_days_after };
+    return NextResponse.json({ requests, balance, filing });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

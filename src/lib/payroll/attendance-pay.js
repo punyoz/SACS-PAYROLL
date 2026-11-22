@@ -97,6 +97,8 @@ export function holidayPayPct(type, { regularPct, specialPct, restDay = false })
  * @param {object}   args
  * @param {Array}    args.logs         the employee's attendance rows (one per day)
  * @param {Set}      [args.leaveDays]  date keys covered by approved leave
+ * @param {Set}      [args.halfLeaveDays] date keys with an approved half-day leave:
+ *                                    an Absent there is half a day (the other half is leave)
  * @param {object}   args.rates        resolveRates() output (or { type: value })
  * @param {string}   args.periodStart  "YYYY-MM-DD"
  * @param {string}   args.periodEnd    "YYYY-MM-DD"
@@ -115,7 +117,7 @@ export function holidayPayPct(type, { regularPct, specialPct, restDay = false })
  *                                    of the hourly rate (Part B, 2026-11-22: 125, a
  *                                    setting); rest days and holidays keep the rate table
  */
-export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays, overtimeRegularPct }) {
+export function computeAttendancePay({ logs, leaveDays, halfLeaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays, overtimeRegularPct }) {
   const hourly = valueOf(rates, "hourly");
   const daily = valueOf(rates, "daily");
   const halfDayAmount = peso(daily * valueOf(rates, "half_day_pct") / 100);
@@ -206,12 +208,13 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       // added to attendance_holidays is not a day missed.
       if (holidays?.has?.(date)) return;
       // A morning / afternoon suspension: only half the day was work.
-      const share = holidays?.partialDays?.has?.(date) ? 0.5 : 1;
+      // A half-day leave: only the worked half was missed.
+      const share = holidays?.partialDays?.has?.(date) || halfLeaveDays?.has?.(date) ? 0.5 : 1;
       const absentLine = {
         type: "absent", quantity: share, unit: "day", rate: absentAmount,
         rate_config_id: configOf(rates, "absent_pct") || configOf(rates, "daily"),
         amount: peso(absentAmount * share), source_log_id: logId, log_date: date,
-        ...(share < 1 ? { note: `${holidays?.names?.get?.(date) || "Suspension"}: half day` } : {}),
+        ...(share < 1 ? { note: halfLeaveDays?.has?.(date) ? "Half-day leave: the worked half missed" : `${holidays?.names?.get?.(date) || "Suspension"}: half day` } : {}),
       };
       if (waive(date, absentLine)) {
         counts.protected_absent_days += share;
