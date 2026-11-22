@@ -113,6 +113,7 @@ const API_MODULES = [
   // the routes check the role themselves (HR / Super Admin manage; branch Admin reads its own branch).
   ["/api/remark-presets", "profile"],
   ["/api/reports/remark-reasons", "profile"],
+  ["/api/reports/substitutions", "profile"],
   ["/api/admin/branches", "branch_management"],
   ["/api/admin/config", "system_configuration"],
   // Effective-dated payroll rates: Super Admin's System Configuration.

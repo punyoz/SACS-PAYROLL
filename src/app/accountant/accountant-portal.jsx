@@ -1,5 +1,6 @@
 "use client";
 
+import { SubstitutionsReportCard } from "@/components/portal/substitutions";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -162,6 +163,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
+      {current === "ac-reports" ? <SubstitutionsReportCard /> : null}
       {current === "ac-gov-rates" ? <><PayRatesPanel refreshKey={refreshKey} /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
       {current === "ac-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
       {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}

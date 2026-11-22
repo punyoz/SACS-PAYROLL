@@ -7,6 +7,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable } from "@/components/portal/data-table";
 import { DatePicker } from "@/components/portal/date-picker";
 import { SearchableSelect } from "@/components/portal/searchable-select";
@@ -16,6 +17,7 @@ import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
+import { ExportButtons } from "@/components/portal/export-buttons";
 import { cn } from "@/lib/utils";
 
 /*
@@ -214,6 +216,52 @@ export function SubstitutionsActionNeededCard({ refreshKey = 0, onOpen }) {
       <ul className="space-y-0.5">{rows.slice(0, 8).map((r) => <li key={r.id}>{r.substitute_name} · {r.sub_date} {r.start_time}-{r.end_time}, covering {r.absent_name}</li>)}</ul>
       {onOpen ? <Button size="sm" variant="outline" className="mt-2" onClick={onOpen}>Open Process Payroll</Button> : null}
     </div>
+  );
+}
+
+/** The substitution report (Part C): paid substitutions by substitute, absent teacher or cutoff, with totals; the export = the screen. */
+export function SubstitutionsReportCard() {
+  const [f, setF] = React.useState(() => {
+    const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    return { from: `${today.slice(0, 8)}01`, to: today, by: "substitute", q: "" };
+  });
+  const [state, setState] = React.useState({ loading: true, error: "", rows: [], totals: null });
+  const query = `from=${f.from}&to=${f.to}&by=${f.by}${f.q.trim() ? `&q=${encodeURIComponent(f.q.trim())}` : ""}`;
+  React.useEffect(() => {
+    let live = true;
+    setState((s) => ({ ...s, loading: true, error: "" }));
+    fetchJson(`/api/reports/substitutions?${query}`).then((d) => { if (live) setState({ loading: false, error: "", rows: d.rows || [], totals: d.totals }); })
+      .catch((e) => { if (live) setState({ loading: false, error: e.message || "Could not load the report.", rows: [], totals: null }); });
+    return () => { live = false; };
+  }, [query]);
+  const BY = { substitute: "Substitute", absent: "Absent teacher", cutoff: "Cutoff" };
+  return (
+    <Card className="min-w-0 shadow-xs" data-testid="substitutions-report">
+      <CardHeader>
+        <CardTitle>Substitute teaching</CardTitle>
+        <CardDescription>What processed payslips paid for substitutions{state.totals ? `: ${state.totals.substitutions} substitution${state.totals.substitutions === 1 ? "" : "s"}, ${state.totals.hours} h, ₱${state.totals.amount.toLocaleString("en-PH", { minimumFractionDigits: 2 })}` : ""}.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-40"><DatePicker aria-label="From" value={f.from} max={f.to} onChange={(v) => setF((c) => ({ ...c, from: v }))} /></div>
+          <div className="w-40"><DatePicker aria-label="To" value={f.to} min={f.from} onChange={(v) => setF((c) => ({ ...c, to: v }))} /></div>
+          <Select value={f.by} onValueChange={(v) => setF((c) => ({ ...c, by: v }))}>
+            <SelectTrigger aria-label="Group by" className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>{Object.entries(BY).map(([v, l]) => <SelectItem key={v} value={v}>By {l.toLowerCase()}</SelectItem>)}</SelectContent>
+          </Select>
+          <Input aria-label="Search" className="w-48" placeholder="Search…" value={f.q} onChange={(e) => setF((c) => ({ ...c, q: e.target.value }))} />
+          <span className="ml-auto"><ExportButtons href={`/api/reports/substitutions?${query}`} label="substitutions" disabled={state.loading} /></span>
+        </div>
+        <DataTable searchable={false} caption="Substitute teaching" loading={state.loading} error={state.error} rows={state.rows} rowKey={(r) => r.key} minWidth={520}
+          empty={{ title: "No substitutions paid in this range", icon: UsersIcon }}
+          columns={[
+            { key: "key", header: BY[f.by], className: "font-medium" },
+            { key: "substitutions", header: "Substitutions", align: "right" },
+            { key: "hours", header: "Hours", align: "right" },
+            { key: "amount", header: "Paid", align: "right", cell: (r) => `₱${Number(r.amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })}` },
+          ]} />
+      </CardContent>
+    </Card>
   );
 }
 

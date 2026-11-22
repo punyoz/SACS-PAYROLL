@@ -16,6 +16,7 @@ import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
 import { EmployeesPage } from "./employees-page";
+import { SubstitutionsReportCard } from "@/components/portal/substitutions";
 import { SubstitutionsPanel } from "@/components/portal/substitutions";
 import { DecisionReasonsCard, RemarkPresetsCard } from "@/components/portal/remark-presets-manager";
 import { ClassificationRulesPage } from "./classification-rules-page";
@@ -270,6 +271,7 @@ function HrScreens() {
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-reports" ? <DecisionReasonsCard allBranches refreshKey={refreshKey} /> : null}
+        {current === "hr-reports" ? <SubstitutionsReportCard /> : null}
         {current === "hr-remark-presets" ? <RemarkPresetsCard refreshKey={refreshKey} /> : null}
         {current === "hr-gov-rates" ? <><RatesSection refreshKey={refreshKey} endpoint="/api/payroll/rates" onlyEditable /><PayrollSettingsSection refreshKey={refreshKey} endpoint="/api/payroll/settings" showTax={false} /><LeaveConversionCard /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}
