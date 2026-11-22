@@ -936,6 +936,9 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
 
   const summaries = [];
   const leaveDaysByEmployee = new Map();
+  // A half-day leave (2026-11-22) covers only half its day: 0.5 day of leave,
+  // and the day's own record still counts for the worked half.
+  const halfLeaveDaysByEmployee = new Map();
 
   employees.forEach((employee) => {
     // leave_requests.employee_id holds either form: requests filed before the
@@ -952,6 +955,9 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
     const withPayDates = [];
     const withoutPayDates = [];
     const coveredDays = new Set();
+    const halfDays = new Set();
+    let withPayDays = 0;
+    let withoutPayDays = 0;
 
     requestsForEmployee.forEach((request) => {
       const requestStart = String(request.start_date || "");
@@ -963,11 +969,12 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
       const overlapEnd = requestEnd < periodEnd ? requestEnd : periodEnd;
       if (overlapStart > overlapEnd) return;
 
+      const share = request.half_day ? 0.5 : 1;
       expandDateRange(overlapStart, overlapEnd).forEach((day) => {
-        coveredDays.add(day);
+        (share < 1 ? halfDays : coveredDays).add(day);
         if (!isLeaveWorkingDay(day, holidays)) return;
         if (includeDay && !includeDay(day, request, employee)) return;
-        (request.pay_status === "without_pay" ? withoutPayDates : withPayDates).push(day);
+        if (request.pay_status === "without_pay") { withoutPayDates.push(day); withoutPayDays += share; } else { withPayDates.push(day); withPayDays += share; }
       });
     });
 
@@ -975,18 +982,19 @@ async function buildLeaveContext(employees, periodStart, periodEnd, holidays = n
     withoutPayDates.sort();
     summaries.push({
       employee_id: employee.id,
-      with_pay_days: withPayDates.length,
-      without_pay_days: withoutPayDates.length,
+      with_pay_days: withPayDays,
+      without_pay_days: withoutPayDays,
       with_pay_dates: withPayDates,
       without_pay_dates: withoutPayDates,
     });
     leaveDaysByEmployee.set(employee.id, coveredDays);
+    halfLeaveDaysByEmployee.set(employee.id, halfDays);
   });
 
-  return { summaries, leaveDaysByEmployee };
+  return { summaries, leaveDaysByEmployee, halfLeaveDaysByEmployee };
 }
 
-async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee, prefetchedRows = null, spanFor = null) {
+async function fetchAttendanceSummary(supabase, employees, periodStart, periodEnd, leaveDaysByEmployee, prefetchedRows = null, spanFor = null, halfLeaveDaysByEmployee = null) {
   // Filtering by log_date server-side (indexed — attendance_logs_log_date_idx)
   // means the query only ever transfers rows this period could possibly use,
   // instead of pulling the 5000 globally-most-recent rows and filtering them
@@ -1042,8 +1050,10 @@ async function fetchAttendanceSummary(supabase, employees, periodStart, periodEn
       // accountant double-deduct a Leave Without Pay day, or deduct a Leave
       // With Pay day that should cost the employee nothing.
       if (leaveDaysByEmployee?.get(employeeId)?.has(key)) return;
-      summary.absent_days += 1;
-      summary.deduction_days += 1;
+      // Absent on a half-day leave day: only the worked half was missed.
+      const share = halfLeaveDaysByEmployee?.get(employeeId)?.has(key) ? 0.5 : 1;
+      summary.absent_days += share;
+      summary.deduction_days += share;
     }
   });
 
@@ -1572,7 +1582,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     // Overtime on a regular working day: the requests setting (Part B, 125%).
     readRequestSettings(supabase),
   ]);
-  const { summaries: leaveSummary, leaveDaysByEmployee } = leaveContext;
+  const { summaries: leaveSummary, leaveDaysByEmployee, halfLeaveDaysByEmployee } = leaveContext;
 
   const attendanceRows = await fetchAttendanceSummary(
     supabase,
@@ -1582,6 +1592,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     leaveDaysByEmployee,
     attendance.rows,
     settling ? ownSpan : null,
+    halfLeaveDaysByEmployee,
   );
 
   // The period's one Early Bird winner, from the half's own attendance days
@@ -1663,6 +1674,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     const auto = computeAttendancePay({
       logs: (logsByEmployee.get(employee.id) || []).filter((row) => row.log_date >= own.start_key && row.log_date <= own.end_key),
       leaveDays: leaveDaysByEmployee.get(employee.id),
+      halfLeaveDays: halfLeaveDaysByEmployee.get(employee.id),
       rates: resolved,
       periodStart: own.start_key,
       periodEnd: own.end_key,

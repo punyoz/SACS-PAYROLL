@@ -23,6 +23,9 @@ export const ATTENDANCE_STATUSES = Object.freeze([
   "Undertime",
   "Half Day",
   "Absent",
+  // Taps, but worked below the minimum (20261122020000): HR follows it up;
+  // only the time not worked is deducted.
+  "Absent (short day)",
   "Incomplete",
   "Pending Correction",
   "Corrected",
@@ -34,7 +37,7 @@ export const ATTENDANCE_STATUSES = Object.freeze([
 export const UNRESOLVED_STATUSES = Object.freeze(["Incomplete", "Pending Correction"]);
 
 /** Records an employee may ask to correct (the time out is what is corrected). */
-export const CORRECTABLE_STATUSES = Object.freeze(["Incomplete", "Undertime", "Half Day"]);
+export const CORRECTABLE_STATUSES = Object.freeze(["Incomplete", "Undertime", "Half Day", "Absent (short day)"]);
 
 /** Badge tone per status: the Attendance dashboard colour code. */
 export const STATUS_TONES = Object.freeze({
@@ -44,6 +47,7 @@ export const STATUS_TONES = Object.freeze({
   Undertime: "yellow",
   "Half Day": "orange",
   Absent: "red",
+  "Absent (short day)": "orange",
   Incomplete: "gray",
   "Pending Correction": "gray",
   Corrected: "blue",

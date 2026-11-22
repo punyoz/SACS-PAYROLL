@@ -8,7 +8,7 @@
 import crypto from "node:crypto";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
-import { countLeaveDays, describeSplit, splitForBalance } from "@/lib/leave-requests/split";
+import { countLeaveDays, describeSplit, requestDays, splitForBalance } from "@/lib/leave-requests/split";
 import { leaveBalances } from "@/lib/employees/classification-server";
 import { CREDIT_LEAVE_TYPES } from "@/lib/employees/classification";
 
@@ -41,6 +41,8 @@ export function normalizeLeaveRequest(row) {
     cancelled_by_name: row.cancelled_by_name || null,
     // Why HR rejected it (20261106060000); null for approvals and older rows.
     decision_reason: row.decision_reason || null,
+    // A half-day leave (Part B, 20261122020000): "AM" | "PM" on a one-day request; null for whole days.
+    half_day: row.half_day === "AM" || row.half_day === "PM" ? row.half_day : null,
     updated_at: row.updated_at || row.submitted_at || new Date().toISOString(),
   };
 }
@@ -71,7 +73,7 @@ export async function readAllLeaveRequests(filters = {}) {
 // Every column except proof_url, the base64 proof document (hundreds of KB a
 // row; on 2026-10-29 the 4 live rows held 2.9 MB of proof and 1.3 KB of
 // everything else).
-const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave_type,start_date,end_date,reason,status,submitted_at,decided_at,updated_at,pay_status,branch_id,decided_by,decided_by_name,cancelled_at,cancelled_by_name,proof_path";
+const LEAVE_COLUMNS_WITHOUT_PROOF = "id,employee_id,employee_name,position,leave_type,start_date,end_date,reason,status,submitted_at,decided_at,updated_at,pay_status,branch_id,decided_by,decided_by_name,cancelled_at,cancelled_by_name,proof_path,half_day";
 
 /**
  * readAllLeaveRequests without the proof document, for every caller that
@@ -306,11 +308,11 @@ export function summarizeLeaveBalance(requests, employeeId, year = new Date().ge
 
   const withPayUsed = approved
     .filter((r) => r.pay_status === "with_pay")
-    .reduce((sum, r) => sum + countLeaveDays(r.start_date, r.end_date), 0);
+    .reduce((sum, r) => sum + requestDays(r), 0);
 
   const withoutPayUsed = approved
     .filter((r) => r.pay_status === "without_pay")
-    .reduce((sum, r) => sum + countLeaveDays(r.start_date, r.end_date), 0);
+    .reduce((sum, r) => sum + requestDays(r), 0);
 
   return {
     with_pay_allotment: allotment,

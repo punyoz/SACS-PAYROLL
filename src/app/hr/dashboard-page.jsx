@@ -179,6 +179,8 @@ function ActionNeededCard({ data }) {
     // 2026-11-22: payroll refuses a ₱0 salary; each name opens that employee's record.
     { key: "salary", title: "Salary not set", text: "₱0 salary: payroll refuses them until it is set (an HR account's salary: Super Admin).", href: portalHref("hr-employees"), rows: a.salary_not_set || [],
       rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
+    // Part B (2026-11-22): a Final payslip never changes by itself; the Accountant files the correction.
+    { key: "late-leave", title: "Leave approved after its payslip", text: "The payslip for that day was already paid: the branch Accountant files a correction on the next payslip.", href: portalHref("hr-payroll-records"), rows: a.leave_after_payslip || [] },
   ].filter((g) => g.rows.length);
   if (!groups.length) return null;
   return (
@@ -202,7 +204,7 @@ function ActionNeededCard({ data }) {
             <p className="text-sm font-semibold">{g.title} <span className="tabular-nums text-gold-text">({g.rows.length})</span></p>
             <p className="mb-2 text-xs text-muted-foreground">{g.text}</p>
             <ul className="space-y-0.5 text-sm">
-              {g.rows.slice(0, 5).map((r) => <li key={r.id}>{r.full_name}{r.due_on ? <span className="text-muted-foreground"> · {fmtDay(r.due_on)}</span> : null}</li>)}
+              {g.rows.slice(0, 5).map((r) => <li key={r.id}>{r.full_name}{r.due_on ? <span className="text-muted-foreground"> · {fmtDay(r.due_on)}</span> : null}{r.detail ? <span className="text-muted-foreground"> · {r.detail}</span> : null}</li>)}
               {g.rows.length > 5 ? <li className="text-xs text-muted-foreground">and {g.rows.length - 5} more</li> : null}
             </ul>
           </a>

@@ -36,15 +36,20 @@ const MAX_PROOF_BYTES = 2 * 1024 * 1024;
 const schema = z.object({
   leave_type: z.string().min(1, "Leave type is required."),
   pay_status: z.enum(["with_pay", "without_pay"]),
+  // Part B (2026-11-22): a whole day (or days), or the morning / afternoon of one day.
+  day_length: z.enum(["full", "AM", "PM"]),
   start_date: z.string().min(1, "Start date is required."),
-  end_date: z.string().min(1, "End date is required."),
+  end_date: z.string(),
   reason: z.string().trim().min(1, "Reason is required."),
   proof: z.any().optional(),
-}).refine((v) => !v.start_date || !v.end_date || v.start_date <= v.end_date, {
+}).refine((v) => v.day_length !== "full" || v.end_date, {
+  path: ["end_date"],
+  message: "End date is required.",
+}).refine((v) => v.day_length !== "full" || !v.start_date || !v.end_date || v.start_date <= v.end_date, {
   path: ["end_date"],
   message: "End date must be on or after the start date.",
-}).refine((v) => !v.start_date || v.start_date >= earliestLeaveStart(), {
-  // Checked again by the server against its own clock.
+}).refine((v) => v.day_length !== "full" || !v.start_date || v.start_date >= earliestLeaveStart(), {
+  // Checked again by the server against its own clock (a half day: the requests' window, on the server).
   path: ["start_date"],
   message: LEAVE_ADVANCE_MESSAGE,
 }).refine((v) => !v.proof || v.proof.size <= MAX_PROOF_BYTES, {
@@ -52,7 +57,8 @@ const schema = z.object({
   message: "Proof file must be less than 2MB.",
 });
 
-const DEFAULTS = { leave_type: "", pay_status: "with_pay", start_date: "", end_date: "", reason: "", proof: undefined };
+const DEFAULTS = { leave_type: "", pay_status: "with_pay", day_length: "full", start_date: "", end_date: "", reason: "", proof: undefined };
+const HALF_LABEL = { AM: "Half day: morning (AM)", PM: "Half day: afternoon (PM)" };
 
 function readAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -63,7 +69,7 @@ function readAsDataUrl(file) {
   });
 }
 
-function LeaveRequestForm({ onSubmitted, balance = null }) {
+function LeaveRequestForm({ onSubmitted, balance = null, filing = null }) {
   const { ctx, notify } = usePortalSession();
   const [serverError, setServerError] = React.useState("");
   const [fileKey, setFileKey] = React.useState(0);
@@ -74,10 +80,12 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
   const endDate = form.watch("end_date");
   const payStatus = form.watch("pay_status");
   const leaveType = form.watch("leave_type");
+  const dayLength = form.watch("day_length");
+  const half = dayLength !== "full";
   // The credits of the chosen leave type (20261121010000).
   const remaining = balance?.by_type?.[leaveType]?.remaining ?? balance?.with_pay_remaining ?? 0;
   // Over the paid balance (2026-11-12): not blocked; the extra days are without pay.
-  const split = balance && leaveType && payStatus === "with_pay" && startDate && endDate
+  const split = !half && balance && leaveType && payStatus === "with_pay" && startDate && endDate
     ? splitForBalance({ start_date: startDate, end_date: endDate, pay_status: payStatus }, remaining) : null;
 
   async function onSubmit(values) {
@@ -96,7 +104,8 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
         leave_type: values.leave_type,
         pay_status: values.pay_status,
         start_date: values.start_date,
-        end_date: values.end_date,
+        end_date: values.day_length === "full" ? values.end_date : values.start_date,
+        ...(values.day_length === "full" ? {} : { half_day: values.day_length }),
         reason: values.reason.trim(),
         proof_url: proofUrl,
       }));
@@ -105,7 +114,8 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
 
       form.reset(DEFAULTS);
       setFileKey((k) => k + 1);
-      notify("Leave Request Submitted", `${values.leave_type} · ${values.start_date} to ${values.end_date} · Awaiting admin approval.`, "success");
+      const when = values.day_length === "full" ? `${values.start_date} to ${values.end_date}` : `${values.start_date}, ${HALF_LABEL[values.day_length].toLowerCase()}`;
+      notify("Leave Request Submitted", `${values.leave_type} · ${when} · Awaiting admin approval.`, "success");
       await onSubmitted();
     } catch (error) {
       setServerError(error.message);
@@ -148,27 +158,56 @@ function LeaveRequestForm({ onSubmitted, balance = null }) {
         />
         <FormField
           control={form.control}
-          name="start_date"
+          name="day_length"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Start date</FormLabel>
-              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={earliest} /></FormControl>
-              <FormDescription>At least {LEAVE_ADVANCE_DAYS} days from today: {new Date(`${earliest}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} or later.</FormDescription>
+              <FormLabel>Length</FormLabel>
+              <Select value={field.value} onValueChange={field.onChange}>
+                <FormControl><SelectTrigger className="w-full" aria-label="Length"><SelectValue /></SelectTrigger></FormControl>
+                <SelectContent>
+                  <SelectItem value="full">Whole day(s)</SelectItem>
+                  <SelectItem value="AM">{HALF_LABEL.AM}</SelectItem>
+                  <SelectItem value="PM">{HALF_LABEL.PM}</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormDescription>
+                {half
+                  ? `Counts as half a day${payStatus === "with_pay" ? " of leave credit" : ", deducted at half your daily rate"}. Tap in or out as usual for the half you work.`
+                  : "A half day covers the morning or the afternoon of one day."}
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
         <FormField
           control={form.control}
-          name="end_date"
+          name="start_date"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>End date</FormLabel>
-              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={startDate && startDate > earliest ? startDate : earliest} /></FormControl>
+              <FormLabel>{half ? "Date" : "Start date"}</FormLabel>
+              <FormControl><DatePicker value={field.value} onChange={field.onChange} min={half ? undefined : earliest} /></FormControl>
+              <FormDescription>
+                {half
+                  ? `At least ${filing?.file_days_before ?? 1} day${(filing?.file_days_before ?? 1) === 1 ? "" : "s"} before, or up to ${filing?.late_filing_days_after ?? 2} days after as a late filing.`
+                  : `At least ${LEAVE_ADVANCE_DAYS} days from today: ${new Date(`${earliest}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} or later.`}
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
+        {half ? null : (
+          <FormField
+            control={form.control}
+            name="end_date"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>End date</FormLabel>
+                <FormControl><DatePicker value={field.value} onChange={field.onChange} min={startDate && startDate > earliest ? startDate : earliest} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
         {split?.without_pay_days ? (
           <p role="status" className="rounded-md border border-warning/40 bg-warning/5 p-2 text-sm text-warning sm:col-span-2" data-testid="leave-split-preview">
             This is more than your {remaining} paid {leaveType.toLowerCase()} day{remaining === 1 ? "" : "s"} left: if approved, {describeSplit(split)} (deducted at your daily rate).
@@ -292,7 +331,7 @@ const REQUEST_COLUMNS = [
     ),
     searchValue: (r) => r.leave_type,
   },
-  { key: "start_date", header: "Dates", sortable: true, cell: (r) => `${r.start_date} to ${r.end_date}`, searchValue: (r) => `${r.start_date} ${r.end_date}` },
+  { key: "start_date", header: "Dates", sortable: true, cell: (r) => (r.half_day ? `${r.start_date}, ${HALF_LABEL[r.half_day] || "half day"}` : `${r.start_date} to ${r.end_date}`), searchValue: (r) => `${r.start_date} ${r.end_date}` },
   { key: "reason", header: "Reason", className: "max-w-xs whitespace-normal text-muted-foreground", cell: (r) => r.reason, searchValue: (r) => r.reason },
   {
     key: "submitted_at",
@@ -332,7 +371,7 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
           <CardContent>
             {separated
               ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p>
-              : <LeaveRequestForm onSubmitted={leave.reload} balance={leave.balance} />}
+              : <LeaveRequestForm onSubmitted={leave.reload} balance={leave.balance} filing={leave.filing} />}
           </CardContent>
         </Card>
         <LeaveBalance balance={leave.balance} loading={leave.loading} />
