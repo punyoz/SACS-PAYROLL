@@ -1,5 +1,6 @@
 "use client";
 
+import { DecisionReasonsCard } from "@/components/portal/remark-presets-manager";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -167,6 +168,7 @@ function AdminScreens() {
       {current === "adm-announcements" ? <AnnouncementsPage refreshKey={refreshKey} /> : null}
       {current === "adm-payroll" ? <PayrollSummaryPage refreshKey={refreshKey} /> : null}
       {current === "adm-branch-reports" ? <BranchReportsPage refreshKey={refreshKey} /> : null}
+      {current === "adm-branch-reports" ? <DecisionReasonsCard refreshKey={refreshKey} /> : null}
       {current === "adm-pay-rates" ? <PayRatesPanel refreshKey={refreshKey} /> : null}
       {current === "adm-maintenance" ? <MaintenancePage refreshKey={refreshKey} /> : null}
       {current === "adm-profile" ? <StaffProfilePage roleLabel="Administrator" /> : null}

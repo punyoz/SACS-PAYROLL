@@ -103,12 +103,17 @@ test("leave extras: no proof / without pay, overlap refused, HR rejects + notice
     await card.getByRole("button", { name: "Reject" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Reject" }).click();
-    await expect(dialog.getByText(/at least 5 characters/)).toBeVisible();
-    await dialog.locator("#lv-reject-reason").fill(REJECT_REASON);
+    // Part H: a rejection's remark is required; "Other" is written by hand.
+    await expect(dialog.getByText("Choose a remark (a reason is required).")).toBeVisible();
+    await choose(page, dialog.locator("#lv-reject-preset"), "Other (write your own)");
+    await dialog.locator("#lv-reject-extra").fill(REJECT_REASON);
     await dialog.getByRole("button", { name: "Reject" }).click();
     await expect.poll(async () => (await mine(`${TAG} to reject`))[0].status, { timeout: 30000 }).toBe("rejected");
     const stored = await rows(db().from("leave_requests").select("decision_reason").eq("id", target.id));
     expect(stored[0].decision_reason).toBe(REJECT_REASON);
+    // The remark's code and text are in the audit log, written with the decision.
+    const audited = await rows(db().from("audit_logs").select("action,entity_type,metadata").eq("entity_id", target.id).eq("metadata->>kind", "decision_remark"));
+    expect(audited).toEqual([expect.objectContaining({ action: "reject", entity_type: "leave_request", metadata: expect.objectContaining({ remark_code: "other", remark_text: REJECT_REASON }) })]);
   });
 
   await step(page, "HR > Leave Approval > Approve the unpaid and the paid leave", async () => {

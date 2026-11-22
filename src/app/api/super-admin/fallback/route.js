@@ -15,6 +15,7 @@
  *
  * fallback_approvals: Super Admin only (src/lib/rbac/permissions.js).
  */
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { requirePermission } from "@/lib/rbac/guard";
@@ -47,11 +48,17 @@ export async function POST(request) {
     const action = String(body.action || "").trim();
     const type = String(body.item_type || "").trim();
     const id = String(body.id || "").trim();
-    const reason = String(body.reason || "").trim().replace(/\s+/g, " ").slice(0, 500);
     if (!["approve", "reject"].includes(action) || !UUID.test(id)) return NextResponse.json({ error: "Send action (approve or reject), item_type and id." }, { status: 400 });
-    if (action === "reject" && reason.length < 5) return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters). The requester sees it.", code: "reason_required" }, { status: 400 });
-
     const supabase = getServiceClient();
+    // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
+    const TARGET = { leave_request: ["leave_request", "leave_requests", "leave"], payroll_run: ["payroll_run", "payroll_runs", "payroll"], final_pay: ["final_pay", "payroll_final_pay_submissions", "payroll"] }[type];
+    if (!TARGET) return NextResponse.json({ error: "Unknown item type." }, { status: 400 });
+    const remark = await resolveRemark(supabase, body.remark, { decision: action, entityType: TARGET[0], fallbackText: body.reason });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const reason = String(remark.text || "").trim().replace(/\s+/g, " ").slice(0, 500);
+    if (action === "reject" && reason.length < 5) return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters). The requester sees it.", code: "reason_required" }, { status: 400 });
+    const decider = remarkClient(remark, { decision: action, entityType: TARGET[0], module: TARGET[2], table: TARGET[1], ids: [id], actor: guard });
+
     const waiting = await loadFallbackItems(supabase);
     const item = waiting.items.find((i) => i.item_type === type && i.id === id);
     if (!item) {
@@ -64,19 +71,19 @@ export async function POST(request) {
       const [current] = await readLeaveRequestsWithoutProof({ id });
       if (!current) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
       const result = await updateLeaveRequestStatus(id, decided, {
-        fromStatuses: PENDING_LEAVE, decidedBy: guard.userId, decidedByName: actorName, ...(action === "reject" ? { decisionReason: reason } : {}),
+        fromStatuses: PENDING_LEAVE, decidedBy: guard.userId, decidedByName: actorName, ...(action === "reject" ? { decisionReason: reason } : {}), client: decider,
       });
       if (result.conflict) return NextResponse.json({ error: "This leave request was already decided. Refresh to see it." }, { status: 409 });
       // Over the yearly paid balance: the extra days become without pay (re-checked at approval).
       if (action === "approve") await applyBalanceSplit(id);
     } else if (type === "payroll_run") {
       const rpc = action === "approve"
-        ? await supabase.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason || "Approved by the Super Admin as the fallback (no other HR is active)." })
-        : await supabase.rpc("reject_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason });
+        ? await decider.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason || "Approved by the Super Admin as the fallback (no other HR is active)." })
+        : await decider.rpc("reject_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason });
       if (rpc.error) { const failure = describeRunError(rpc.error); return NextResponse.json(failure, { status: failure.status }); }
     } else if (type === "final_pay") {
       const row = (await supabase.from(SUBMISSIONS).select("*").eq("id", id).maybeSingle()).data;
-      const rpc = await supabase.rpc("payroll_final_pay_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_reason: reason || null });
+      const rpc = await decider.rpc("payroll_final_pay_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_reason: reason || null });
       if (rpc.error) { const failure = describeDecideError(rpc.error); return NextResponse.json(failure, { status: failure.status }); }
       if (row) await notifyFinalPayDecision(supabase, notify, row, action, reason);
     } else {

@@ -61,6 +61,7 @@
 
 import { isUnresolvedStatus, normalizeAttendanceStatus } from "@/lib/attendance/status";
 import { roundPeso } from "@/lib/payroll/money";
+import { pesoText } from "@/lib/payroll/line-tags";
 
 /** Round to centavos. */
 export function peso(value) {
@@ -93,10 +94,23 @@ export function holidayPayPct(type, { regularPct, specialPct, restDay = false })
   return 0;
 }
 
+/** "Short day (Nov 5)": the payslip line of an "Absent (short day)" (2026-11-22). */
+export function shortDayLabel(dateKey) {
+  const d = new Date(`${dateKey}T00:00:00Z`);
+  return `Short day (${d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })})`;
+}
+const hoursNotWorked = (minutes) => {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${h ? `${h} h` : ""}${h && m ? " " : ""}${m ? `${m} min` : ""}` || "0 h";
+};
+
 /**
  * @param {object}   args
  * @param {Array}    args.logs         the employee's attendance rows (one per day)
  * @param {Set}      [args.leaveDays]  date keys covered by approved leave
+ * @param {Set}      [args.halfLeaveDays] date keys with an approved half-day leave:
+ *                                    an Absent there is half a day (the other half is leave)
  * @param {object}   args.rates        resolveRates() output (or { type: value })
  * @param {string}   args.periodStart  "YYYY-MM-DD"
  * @param {string}   args.periodEnd    "YYYY-MM-DD"
@@ -115,7 +129,7 @@ export function holidayPayPct(type, { regularPct, specialPct, restDay = false })
  *                                    of the hourly rate (Part B, 2026-11-22: 125, a
  *                                    setting); rest days and holidays keep the rate table
  */
-export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays, overtimeRegularPct }) {
+export function computeAttendancePay({ logs, leaveDays, halfLeaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays, overtimeRegularPct }) {
   const hourly = valueOf(rates, "hourly");
   const daily = valueOf(rates, "daily");
   const halfDayAmount = peso(daily * valueOf(rates, "half_day_pct") / 100);
@@ -206,12 +220,13 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
       // added to attendance_holidays is not a day missed.
       if (holidays?.has?.(date)) return;
       // A morning / afternoon suspension: only half the day was work.
-      const share = holidays?.partialDays?.has?.(date) ? 0.5 : 1;
+      // A half-day leave: only the worked half was missed.
+      const share = holidays?.partialDays?.has?.(date) || halfLeaveDays?.has?.(date) ? 0.5 : 1;
       const absentLine = {
         type: "absent", quantity: share, unit: "day", rate: absentAmount,
         rate_config_id: configOf(rates, "absent_pct") || configOf(rates, "daily"),
         amount: peso(absentAmount * share), source_log_id: logId, log_date: date,
-        ...(share < 1 ? { note: `${holidays?.names?.get?.(date) || "Suspension"}: half day` } : {}),
+        ...(share < 1 ? { note: halfLeaveDays?.has?.(date) ? "Half-day leave: the worked half missed" : `${holidays?.names?.get?.(date) || "Suspension"}: half day` } : {}),
       };
       if (waive(date, absentLine)) {
         counts.protected_absent_days += share;
@@ -320,10 +335,13 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
 
     const undertimeMinutes = Math.max(0, Math.round(Number(row.undertime_minutes) || 0));
     if (undertimeMinutes > 0) {
+      // "Absent (short day)" (2026-11-22): only the time not worked, never a full day.
+      const shortDay = status === "Absent (short day)";
       const undertimeLine = {
         type: "undertime", quantity: undertimeMinutes, unit: "minute", rate: hourly,
         rate_config_id: configOf(rates, "hourly"),
         amount: peso((undertimeMinutes / 60) * hourly), source_log_id: logId, log_date: date,
+        ...(shortDay ? { short_day: true, note: `${shortDayLabel(date)}: ${hoursNotWorked(undertimeMinutes)} not worked × ${pesoText(hourly)}` } : {}),
       };
       if (waive(date, undertimeLine)) {
         counts.protected_undertime_minutes += undertimeMinutes;

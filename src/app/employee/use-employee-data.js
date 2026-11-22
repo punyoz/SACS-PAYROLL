@@ -106,7 +106,7 @@ function notifyLeaveDecisions(requests, ctx, notify) {
 
 /** GET /api/me/leave-requests — the person's requests and leave balance. */
 export function useLeaveRequests(ctx, notify, refreshKey) {
-  const [state, setState] = React.useState({ requests: [], balance: null, loading: true, error: null });
+  const [state, setState] = React.useState({ requests: [], balance: null, filing: null, loading: true, error: null });
   const employeeId = String(ctx?.employee_id || "").trim();
   const fullName = String(ctx?.full_name || "").trim();
   const ctxRef = React.useRef(ctx);
@@ -114,7 +114,7 @@ export function useLeaveRequests(ctx, notify, refreshKey) {
 
   const load = React.useCallback(async () => {
     if (!employeeId && !fullName) {
-      setState({ requests: [], balance: null, loading: false, error: null });
+      setState({ requests: [], balance: null, filing: null, loading: false, error: null });
       return;
     }
     setState((current) => ({ ...current, loading: !current.requests.length, error: null }));
@@ -124,7 +124,7 @@ export function useLeaveRequests(ctx, notify, refreshKey) {
       if (fullName) params.set("employee_name", fullName);
       const payload = await fetchJson(`/api/me/leave-requests?${params.toString()}`);
       const requests = Array.isArray(payload.requests) ? payload.requests : [];
-      setState({ requests, balance: payload.balance || null, loading: false, error: null });
+      setState({ requests, balance: payload.balance || null, filing: payload.filing || null, loading: false, error: null });
       notifyLeaveDecisions(requests, ctxRef.current, notify);
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error.message || "Failed to load leave requests." }));

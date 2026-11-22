@@ -14,6 +14,12 @@ export function countLeaveDays(startDate, endDate) {
   return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
 }
 
+/** A request's leave days: 0.5 for a half day (AM / PM, Part B), else the inclusive day count. */
+export function requestDays(r) {
+  if (r?.half_day) return 0.5;
+  return countLeaveDays(r?.start_date, r?.end_date || r?.start_date);
+}
+
 export function addDaysKey(key, days) {
   const date = new Date(`${key}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);

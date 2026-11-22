@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CalendarRangeIcon, Loader2Icon, ShieldCheckIcon, UsersIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -168,7 +169,10 @@ export function TenureProtectionPanel({ refreshKey }) {
       post({ action: "grant", employee_id: input.employee.id, effective_from: input.date, notes: input.notes },
         `Granted to ${input.employee.full_name} from ${dateLabel(input.date)}.`, "dialog");
     } else if (dialog?.kind === "revoke") {
-      post({ action: "revoke", grant_id: input.employee.grant.id, revoked_on: input.date, notes: input.notes },
+      // Part H: the reason is a preset remark (required).
+      const problem = remarkProblem(input.remark, "revoke");
+      if (problem) { setDialogError(problem); return; }
+      post({ action: "revoke", grant_id: input.employee.grant.id, revoked_on: input.date, remark: input.remark },
         `${input.employee.full_name}: protection ends ${dateLabel(input.date)}. Earlier payroll keeps it.`, "dialog");
     } else if (dialog?.kind === "branch") {
       post({ action: "save_policy", branch_id: input.branch.branch_id, ...policyBody(input.form) },
@@ -453,11 +457,16 @@ export function TenureProtectionPanel({ refreshKey }) {
                 <DatePicker id="tp-date" value={input.date} min={today} onChange={(v) => setInput((c) => ({ ...c, date: v }))} />
                 {dialog.kind === "revoke" ? <p className="text-xs text-muted-foreground">Days before this date stay protected.</p> : null}
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="tp-notes">{dialog.kind === "grant" ? "Contract reference / notes" : "Reason"}</Label>
-                <Textarea id="tp-notes" maxLength={500} rows={3} placeholder={dialog.kind === "grant" ? "e.g. Contract No. 2026-014, clause 7" : "Optional"}
-                  value={input.notes || ""} onChange={(e) => setInput((c) => ({ ...c, notes: e.target.value }))} />
-              </div>
+              {dialog.kind === "revoke" ? (
+                <RemarkField id="tp-remark" decision="revoke" entityType="tenure_grant" label="Reason"
+                  value={input.remark || EMPTY_REMARK} onChange={(v) => { setInput((c) => ({ ...c, remark: v })); setDialogError(""); }} />
+              ) : (
+                <div className="space-y-1.5">
+                  <Label htmlFor="tp-notes">Contract reference / notes</Label>
+                  <Textarea id="tp-notes" maxLength={500} rows={3} placeholder="e.g. Contract No. 2026-014, clause 7"
+                    value={input.notes || ""} onChange={(e) => setInput((c) => ({ ...c, notes: e.target.value }))} />
+                </div>
+              )}
             </div>
           ) : null}
 

@@ -276,9 +276,18 @@ export function buildLineGroups(input) {
       : line("late", `Late (${plural(at.late.days || 0, "day")}, ${at.late.minutes || 0} min)`, 0, "0", "not_charged",
         rule || minuteRule ? `Below the charge rule (${[rule, minuteRule].filter(Boolean).join(" + ")}): recorded, nothing deducted` : "Late charge 0% under the current policy: recorded, not deducted", mark("late")));
   }
-  if (num(at.undertime?.amount) > 0 || overrides.undertime) {
-    attendance.push(line("undertime", "Undertime", at.undertime?.amount, num(at.undertime?.amount) > 0 ? "-" : "0", "rate_units",
-      `${plural(at.undertime?.minutes || 0, "minute")} × ${pesoText(at.undertime?.hourly)}/hour ÷ 60 = ${pesoText(at.undertime?.amount)}`, mark("undertime")));
+  // "Absent (short day)" (2026-11-22): one line per day, the time not worked
+  // (unless the Accountant overrode the undertime). The rest stays Undertime.
+  const shortDays = overrides.undertime ? [] : (at.short_days || []).filter((s) => num(s.amount) > 0);
+  shortDays.forEach((s, i) => {
+    const [label, how] = String(s.note || "").split(": ");
+    attendance.push(line(`short_day-${i}`, label || "Short day", s.amount, "-", "rate_units", `${how || plural(s.minutes, "minute")} = ${pesoText(s.amount)}`));
+  });
+  const restAmount = peso(num(at.undertime?.amount) - shortDays.reduce((sum, s) => sum + num(s.amount), 0));
+  const restMinutes = Math.max(0, num(at.undertime?.minutes) - shortDays.reduce((sum, s) => sum + num(s.minutes), 0));
+  if (restAmount > 0 || overrides.undertime) {
+    attendance.push(line("undertime", "Undertime", restAmount, restAmount > 0 ? "-" : "0", "rate_units",
+      `${plural(restMinutes, "minute")} × ${pesoText(at.undertime?.hourly)}/hour ÷ 60 = ${pesoText(restAmount)}`, mark("undertime")));
   }
   if (num(at.half_day?.amount) > 0 || overrides.half_day) {
     const unit = at.half_day?.unit || (num(at.half_day?.days) ? at.half_day.amount / at.half_day.days : 0);
@@ -420,6 +429,8 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
       absent: { amount: t.absence_deduction, days: d.absences_days, unit: num(firstOf(lines.deductions, "absent")?.rate) || null },
       late: { amount: t.late_deduction, days: d.late_days, minutes: d.late_minutes, per_absent: rate("late_days_per_absent"), minute_pct: rate("late_minute_charge_pct") },
       undertime: { amount: t.undertime_deduction, minutes: d.undertime_minutes, hourly: num(firstOf(lines.deductions, "undertime")?.rate) || rate("hourly") },
+      short_days: (lines.deductions || []).filter((l) => l.type === "undertime" && l.short_day && !l.is_override)
+        .map((l) => ({ date: l.log_date, minutes: num(l.quantity), amount: num(l.amount), note: l.note })),
       half_day: { amount: t.half_day_deduction, days: d.half_days, unit: num(firstOf(lines.deductions, "half_day")?.rate) || null },
       lwop: { amount: t.leave_without_pay_deduction, days: d.leave_without_pay_days, daily: num(firstOf(lines.deductions, "leave_without_pay")?.rate) || rate("daily") },
     },

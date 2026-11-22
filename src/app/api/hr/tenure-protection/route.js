@@ -25,6 +25,7 @@
  * HR, Admin or Super Admin, and never lets a grant be edited or deleted.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -436,9 +437,13 @@ async function revoke(supabase, guard, body, data) {
   // A grant that has not started yet simply never takes effect.
   const effective = String(existing.effective_from).slice(0, 10);
   const endsOn = date.key < effective ? effective : date.key;
-  const notes = normalizeText(body.notes).slice(0, 500) || null;
+  // Part H: a revocation needs a preset remark (or "Other"), audited with the update itself.
+  const remark = await resolveRemark(supabase, body.remark, { decision: "revoke", entityType: "tenure_grant", fallbackText: body.notes });
+  if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+  const notes = normalizeText(remark.text).slice(0, 500) || null;
+  const decider = remarkClient(remark, { decision: "revoke", entityType: "tenure_grant", module: "hr", table: "tenure_protection_grants", ids: [grantId], actor: guard });
 
-  const result = await supabase.from("tenure_protection_grants").update({
+  const result = await decider.from("tenure_protection_grants").update({
     revoked_on: endsOn,
     revoked_by: guard.userId,
     revoked_by_name: actorName(guard),

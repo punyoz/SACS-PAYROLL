@@ -102,12 +102,13 @@ local tool scripts/backup/restore-csv-local.mjs as the worked example (local sta
 67. `role_permissions`
 68. `school_break_periods`
 69. `system_config`
-70. `tenure_protection_grants`
-71. `tenure_protection_applications`
-72. `tenure_protection_policies`
-73. `transfer_requests`
-74. `work_schedule_assignments`
-75. `work_schedules`
+70. `remark_presets`
+71. `tenure_protection_grants`
+72. `tenure_protection_applications`
+73. `tenure_protection_policies`
+74. `transfer_requests`
+75. `work_schedule_assignments`
+76. `work_schedules`
 
 ## Worked example (local stack only)
 

@@ -65,12 +65,12 @@ export function LeaveRecommendationsPage({ refreshKey }) {
           columns={columns} rows={rows} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
           searchPlaceholder="Search employee or leave type…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Leave recommendations" minWidth={1100} />
       </CardContent>
-      <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions
+      <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions remarkType="leave_request"
         title={`Recommend — ${target?.employee_name || ""}`}
         description={target ? `${target.leave_type}, ${dateLabel(target.start_date)}${target.end_date !== target.start_date ? ` – ${dateLabel(target.end_date)}` : ""}. HR decides; this is your recommendation.` : ""}
         initial={{ note: target?.recommendation?.admin_note || "" }}
         onSubmit={async (values) => {
-          await fileRequest("leave_endorsement", { ref_id: target.id, decision: values.decision, note: values.note });
+          await fileRequest("leave_endorsement", { ref_id: target.id, decision: values.decision, remark: values.remark });
           notify("Recommendation Sent", "HR sees it on the leave request.", "success");
           await view.load();
         }} />
@@ -107,12 +107,12 @@ export function TransferEndorsementsPage({ refreshKey }) {
         <DataTable columns={columns} rows={view.data?.transfers || []} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
           searchPlaceholder="Search employee…" empty={{ title: "No transfers for your branch", icon: ArrowLeftRightIcon }} caption="Transfer endorsements" minWidth={1100} />
       </CardContent>
-      <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions
+      <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions remarkType="transfer_request"
         title={`Endorse transfer — ${target?.employee_name || ""}`}
         description={target ? `${target.from_branch} → ${target.to_branch}. HR decides; HR sees your endorsement.` : ""}
         initial={{ note: target?.endorsement?.admin_note || "" }}
         onSubmit={async (values) => {
-          await fileRequest("transfer_endorsement", { ref_id: target.id, decision: values.decision, note: values.note });
+          await fileRequest("transfer_endorsement", { ref_id: target.id, decision: values.decision, remark: values.remark });
           notify("Endorsement Sent", "HR sees it on the transfer.", "success");
           await view.load();
         }} />

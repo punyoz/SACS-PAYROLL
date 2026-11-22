@@ -345,4 +345,17 @@ describe("Leave days in payroll", () => {
       without_pay_dates: ["2026-09-29"],
     });
   });
+
+  it("a half day (Part B, 2026-11-22) is 0.5 day: without pay, half the daily rate's leave deduction", async () => {
+    const half = (id, day, payStatus, halfDay) => ({
+      id, employee_id: EMP_OK, employee_name: "Okay Employee", position: "Employee", leave_type: "Sick Leave",
+      pay_status: payStatus, start_date: day, end_date: day, half_day: halfDay, reason: "r", proof_url: "", status: "approved",
+      submitted_at: "2026-09-01T00:00:00Z",
+    });
+    table("leave_requests").push(half("am", "2026-09-22", "without_pay", "AM"), half("pm", "2026-09-23", "with_pay", "PM"));
+    const body = await (await GET(request("GET", null, `?period=${encodeURIComponent(PERIOD)}`))).json();
+    expect(body.leave_summary.find((row) => row.employee_id === EMP_OK)).toMatchObject({
+      with_pay_days: 0.5, without_pay_days: 0.5, with_pay_dates: ["2026-09-23"], without_pay_dates: ["2026-09-22"],
+    });
+  });
 });

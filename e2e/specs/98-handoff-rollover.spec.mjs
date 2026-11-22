@@ -17,7 +17,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm } from "../support/flow.mjs";
+import { api, choose, confirm, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
@@ -249,7 +249,7 @@ test("Part 1: Accountant → HR handoff keeps every figure", async ({ page, moni
       say("Clicking Approve as HR…");
       const before = monitor.issues.length;
       await main(page).getByRole("button", { name: "Approve", exact: true }).click();
-      await page.locator("#pa-remarks").fill("E2E handoff approved");
+      await writeRemark(page, "pa-remark", "E2E handoff approved");
       await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
       await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
       await waitForResponse(page, "Approve", "Approved");

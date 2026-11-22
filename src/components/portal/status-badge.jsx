@@ -37,6 +37,8 @@ const ATTENDANCE_TONE = {
   Undertime: "gold",
   "Half Day": "warning",
   Absent: "danger",
+  // Taps, but under the minimum (2026-11-22): for HR follow-up; only the time not worked is deducted.
+  "Absent (short day)": "warning",
   Incomplete: "muted",
   "Pending Correction": "muted",
   Corrected: "info",

@@ -17,6 +17,7 @@
     "supabase:seed-users": "node scripts/seed-auth-users.mjs",
     "supabase:purge-archived": "node scripts/purge-archived-employees.mjs",
     "mailtm": "node scripts/mailtm-inbox.mjs",
+    "test:smoke": "playwright test -c playwright.smoke.config.mjs",
     "db:backup": "node scripts/backup/backup-db.mjs"
   },
   "keywords": [

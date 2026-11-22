@@ -26,6 +26,7 @@
  * submission: what HR approves never changes afterwards.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -487,8 +488,16 @@ export async function PATCH(request) {
     const tooLong = textLimitError(body, TEXT_CAPS);
     if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
     const action = normalizeText(body.action).toLowerCase();
-    const remarks = normalizeText(body.remarks).slice(0, 1000);
     const supabase = getAdminClient();
+    // Part H: a preset remark (required to reject), audited with each run's decision.
+    const remark = action === "approve" || action === "reject"
+      ? await resolveRemark(supabase, body.remark, { decision: action, entityType: "payroll_run", fallbackText: body.remarks })
+      : { code: null, text: "" };
+    // No reason at all keeps the earlier answer (code remarks_required).
+    if (remark.missing) return NextResponse.json({ error: "Write the reason for rejecting (at least 5 characters).", code: "remarks_required" }, { status: 400 });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const remarks = normalizeText(remark.text).slice(0, 1000);
+    const decider = (id) => remarkClient(remark, { decision: action, entityType: "payroll_run", module: "payroll", table: "payroll_runs", ids: [id], actor: guard });
 
     if (action === "reject") {
       const runId = normalizeText(body.run_id);
@@ -498,7 +507,7 @@ export async function PATCH(request) {
       }
       const claimedReject = await refuseClaimedByOther(supabase, guard, "payroll_run", runId);
       if (claimedReject) return claimedReject;
-      const result = await supabase.rpc("reject_payroll_run", { p_run_id: runId, p_actor: guard.userId, p_remarks: remarks });
+      const result = await decider(runId).rpc("reject_payroll_run", { p_run_id: runId, p_actor: guard.userId, p_remarks: remarks });
       if (!result.error) await supabase.from("hr_queue_claims").delete().eq("item_type", "payroll_run").eq("item_id", runId);
       if (result.error) {
         const failure = describeRunError(result.error);
@@ -515,7 +524,8 @@ export async function PATCH(request) {
       // so one refusal (self-approval, no longer pending) leaves the others.
       const results = [];
       for (const id of ids) {
-        const result = await supabase.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: remarks || null });
+        // One call per run: one transaction and one audited remark per run (a bulk approval counts each).
+        const result = await decider(id).rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: remarks || null });
         if (!result.error) await supabase.from("hr_queue_claims").delete().eq("item_type", "payroll_run").eq("item_id", id);
         if (result.error) results.push({ run_id: id, ok: false, ...describeRunError(result.error) });
         else results.push({ run_id: id, ok: true, run: shapeRun(Array.isArray(result.data) ? result.data[0] : result.data) });

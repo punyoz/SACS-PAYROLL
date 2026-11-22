@@ -23,7 +23,7 @@ export const PAGES = {
     ["hr-rfid-cards", "RFID Cards"], ["hr-rfid-terminals", "RFID Terminal"], ["hr-leaves", "Leave Approval"],
     ["hr-awol", "AWOL Cases"], ["hr-branch-requests", "Branch Requests"], ["hr-announcements", "Announcements"], ["hr-payroll-approval", "Payroll Approval"],
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
-    ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"],
+    ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"], ["hr-remark-presets", "Preset Remarks"],
     // "My Account" (2026-11-09): HR is on payroll; its own pages.
     ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "My Leave"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-profile", "My Profile"],
   ],

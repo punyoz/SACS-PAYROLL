@@ -42,6 +42,7 @@ export const SUMMARY_STATUSES = [
   { status: "Undertime", icon: TimerOffIcon, tone: "text-gold-text" },
   { status: "Half Day", icon: CircleSlashIcon, tone: "text-warning" },
   { status: "Absent", icon: XCircleIcon, tone: "text-destructive" },
+  { status: "Absent (short day)", icon: TimerOffIcon, tone: "text-warning" },
   { status: "Incomplete", icon: AlertCircleIcon, tone: "text-muted-foreground" },
   { status: "Corrected", icon: PencilLineIcon, tone: "text-info" },
   { status: "On Leave", icon: CalendarOffIcon, tone: "text-info" },

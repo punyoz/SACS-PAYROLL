@@ -4,7 +4,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, pickDate, refresh, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -68,7 +68,7 @@ test("leave: employee files → admin recommends → HR approves → employee se
     const row = main(page).locator("tr", { hasText: "Ana" }).filter({ hasText: "Vacation Leave" }).first();
     await row.getByRole("button", { name: "Recommend" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.locator("#ov-note").fill("E2E: coverage arranged, recommend approval");
+    await writeRemark(page, "ov-remark", "E2E: coverage arranged, recommend approval", { preset: "Coverage arranged" });
     await dialog.getByRole("button", { name: "Endorse", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 30000 });
     await refresh(page);

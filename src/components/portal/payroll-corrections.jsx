@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { CheckIcon, FilePenLineIcon, HistoryIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -113,15 +114,16 @@ export function CorrectionDialog({ record = null, correction = null, prefill = n
 /** HR's decision on one pending correction. */
 function DecideDialog({ target, onClose, onSaved }) {
   const { notify } = usePortalSession();
-  const [note, setNote] = React.useState("");
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setNote(""); setError(""); }, [target]);
+  React.useEffect(() => { setRemark(EMPTY_REMARK); setError(""); }, [target]);
   async function decide() {
-    if (target.action === "reject" && note.trim().length < 5) { setError("Give the reason for rejecting (at least 5 characters)."); return; }
+    const problem = remarkProblem(remark, target.action);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     try {
-      await fetchJson("/api/payroll/corrections", jsonBody("PATCH", { id: target.row.id, action: target.action, note: note.trim() }));
+      await fetchJson("/api/payroll/corrections", jsonBody("PATCH", { id: target.row.id, action: target.action, remark }));
       notify(target.action === "approve" ? "Correction Approved" : "Correction Rejected", target.action === "approve" ? "It is on the employee's next payslip." : "It went back to the Accountant.", "success");
       onSaved?.();
       onClose();
@@ -141,11 +143,8 @@ function DecideDialog({ target, onClose, onSaved }) {
               <DialogTitle>{target.action === "approve" ? "Approve this correction?" : "Reject this correction?"}</DialogTitle>
               <DialogDescription>{row.employee_name} — {row.period_label}: {row.kind_label}, {moneyCompact(row.amount)}{row.kind === "overpayment" && row.payrolls > 1 ? ` over ${row.payrolls} payslips` : ""}. {row.reason}</DialogDescription>
             </DialogHeader>
-            <div className="space-y-1.5">
-              <Label htmlFor="pc-note">{target.action === "reject" ? "Reason for rejecting" : "Note (optional)"}</Label>
-              <Textarea id="pc-note" rows={3} maxLength={500} value={note} onChange={(e) => { setNote(e.target.value); setError(""); }} autoFocus />
-              {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-            </div>
+            <RemarkField id="pc-remark" decision={target.action} entityType="payroll_correction" label={target.action === "reject" ? "Reason for rejecting" : "Remark"}
+              value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
             <DialogFooter className="gap-2 sm:gap-2">
               <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
               <Button variant={target.action === "reject" ? "destructive" : "default"} onClick={decide} disabled={busy}>

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { HistoryIcon, Loader2Icon, PlusIcon, RefreshCwIcon } from "lucide-react";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -118,18 +119,25 @@ export function FiledCell({ request }) {
  * A filing dialog. fields: [{ id, label, type: "employee"|"select"|"date"|"number"|"text"|"textarea", options?, min?, max?, placeholder? }].
  * `note` (the remark for HR) is always last and required.
  */
-export function FileDialog({ open, onOpenChange, title, description, fields, employees = [], initial = {}, submitLabel = "Send to HR", decisions = null, onSubmit }) {
+export function FileDialog({ open, onOpenChange, title, description, fields, employees = [], initial = {}, submitLabel = "Send to HR", decisions = null, remarkType = "branch_request", onSubmit }) {
   const [values, setValues] = React.useState(initial);
+  // Part H: an endorsement's answer (Endorse / Not endorse) and its preset remark.
+  const [answer, setAnswer] = React.useState("endorse");
+  const [remark, setRemark] = React.useState(EMPTY_REMARK);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { if (open) { setValues(initial); setError(""); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (open) { setValues(initial); setAnswer("endorse"); setRemark(EMPTY_REMARK); setError(""); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (id, v) => setValues((c) => ({ ...c, [id]: v }));
+  const remarkDecision = answer === "not_endorse" ? "object" : "endorse";
 
   async function submit(decision) {
-    if (!String(values.note || "").trim()) { setError("Write a remark for HR."); return; }
+    if (decisions) {
+      const problem = remarkProblem(remark, remarkDecision, true);
+      if (problem) { setError(problem); return; }
+    } else if (!String(values.note || "").trim()) { setError("Write a remark for HR."); return; }
     setBusy(true); setError("");
     try {
-      await onSubmit({ ...values, decision });
+      await onSubmit({ ...values, decision, ...(decisions ? { remark } : {}) });
       onOpenChange(false);
     } catch (err) {
       setError(err.message || "Not sent.");
@@ -174,19 +182,34 @@ export function FileDialog({ open, onOpenChange, title, description, fields, emp
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           {(fields || []).map(field)}
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="ov-note">Remark for HR <span className="font-normal text-muted-foreground">(required)</span></Label>
-            <Textarea id="ov-note" rows={3} maxLength={1000} value={values.note || ""} onChange={(e) => set("note", e.target.value)} aria-invalid={Boolean(error) || undefined} />
-          </div>
+          {decisions ? (
+            <>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="ov-answer">Your answer</Label>
+                <Select value={answer} onValueChange={(v) => { setAnswer(v); setRemark(EMPTY_REMARK); setError(""); }}>
+                  <SelectTrigger id="ov-answer" className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="endorse">Endorse</SelectItem><SelectItem value="not_endorse">Not endorse</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="sm:col-span-2">
+                <RemarkField id="ov-remark" decision={remarkDecision} entityType={remarkType} required label="Remark for HR"
+                  value={remark} onChange={(v) => { setRemark(v); setError(""); }} error={error} disabled={busy} />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="ov-note">Remark for HR <span className="font-normal text-muted-foreground">(required)</span></Label>
+              <Textarea id="ov-note" rows={3} maxLength={1000} value={values.note || ""} onChange={(e) => set("note", e.target.value)} aria-invalid={Boolean(error) || undefined} />
+            </div>
+          )}
         </div>
-        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {error && !decisions ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>Cancel</Button>
           {decisions ? (
-            <>
-              <Button variant="outline" className="text-destructive" onClick={() => submit("not_endorse")} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Not endorse</Button>
-              <Button onClick={() => submit("endorse")} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Endorse</Button>
-            </>
+            <Button variant={answer === "not_endorse" ? "destructive" : "default"} onClick={() => submit(answer)} disabled={busy}>
+              {busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{answer === "not_endorse" ? "Not endorse" : "Endorse"}
+            </Button>
           ) : (
             <Button onClick={() => submit()} disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}{submitLabel}</Button>
           )}
@@ -197,8 +220,8 @@ export function FileDialog({ open, onOpenChange, title, description, fields, emp
 }
 
 /** POST a filing; the server checks everything again. */
-export async function fileRequest(kind, { employee_id, ref_id, decision, note, ...details }) {
-  return fetchJson(API, jsonBody("POST", { action: "file", kind, employee_id: employee_id || undefined, ref_id: ref_id || undefined, decision, note, details }));
+export async function fileRequest(kind, { employee_id, ref_id, decision, note, remark, ...details }) {
+  return fetchJson(API, jsonBody("POST", { action: "file", kind, employee_id: employee_id || undefined, ref_id: ref_id || undefined, decision, note, remark, details }));
 }
 
 /**
@@ -240,7 +263,7 @@ export function RequestsPage({ refreshKey, kind, title, description, icon: Icon,
         </CardContent>
       </Card>
       <FileDialog open={open} onOpenChange={setOpen} title={dialogTitle || buttonLabel} description={dialogDescription} fields={fields}
-        employees={data?.employees || []} initial={initial} decisions={decisions ? true : null}
+        employees={data?.employees || []} initial={initial} decisions={decisions ? true : null} remarkType={kind === "overtime_confirmation" ? "overtime_request" : "branch_request"}
         onSubmit={async (values) => {
           await fileRequest(kind, values);
           notify("Sent to HR", "HR has been notified. The status is shown here.", "success");

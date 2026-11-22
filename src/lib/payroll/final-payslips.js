@@ -135,3 +135,36 @@ export async function attendanceChangesAfterFinal(supabase, entries) {
   }
   return out;
 }
+
+/**
+ * Leave approved after the Final payslip that counted its day (Part B,
+ * 2026-11-22): the payslip does not change, so each is a correction on the
+ * next payslip. Pure: leave rows + the employees' Final entries.
+ * -> [{ id, leave_id, employee_id, full_name, leave_type, half_day, start_date, end_date, payslip_no, pay_period, detail }]
+ */
+export function leaveApprovedAfterFinal(leaves, entries) {
+  const time = (value) => Date.parse(String(value || "")) || 0;
+  const out = [];
+  for (const leave of leaves || []) {
+    const start = String(leave.start_date || "").slice(0, 10);
+    const end = String(leave.end_date || leave.start_date || "").slice(0, 10);
+    if (!start || String(leave.status || "").toLowerCase() !== "approved" || !leave.decided_at) continue;
+    const hit = (entries || []).find((entry) => {
+      if (String(entry.employee_id) !== String(leave.employee_id) || !isFinal(entry)) return false;
+      const span = attendanceSpanOf(entry);
+      if (!span || end < span.start_key || start > span.end_key) return false;
+      const finalizedAt = time(finalizedAtOf(entry));
+      return finalizedAt > 0 && time(leave.decided_at) > finalizedAt;
+    });
+    if (!hit) continue;
+    const when = leave.half_day ? `${start} (${leave.half_day} half day)` : start === end ? start : `${start} to ${end}`;
+    out.push({
+      id: String(leave.id), leave_id: String(leave.id), employee_id: String(leave.employee_id),
+      full_name: leave.employee_name || "Employee", leave_type: leave.leave_type || "Leave", half_day: leave.half_day || null,
+      start_date: start, end_date: end, payslip_no: hit.payslip_no || null, pay_period: hit.pay_period,
+      detail: `${leave.leave_type || "Leave"} ${when} · after ${hit.payslip_no || hit.pay_period}`,
+    });
+  }
+  return out;
+}
+

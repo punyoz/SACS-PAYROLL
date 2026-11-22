@@ -17,6 +17,7 @@
  * HR decides every case; the Admin has no approval step.
  */
 
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -165,6 +166,7 @@ export async function PATCH(request) {
     const today = manilaDateKey();
     const now = new Date().toISOString();
     const by = { id: guard.userId || null, name: actorName(guard) };
+    let closeRemark = null;
     let patch = {};
     let description = "";
 
@@ -217,7 +219,10 @@ export async function PATCH(request) {
     } else if (action === "close") {
       const outcome = normalizeText(body.outcome);
       if (!HR_CLOSE_OUTCOMES.includes(outcome)) return NextResponse.json({ error: "Choose: false alarm, returned, or excused by leave." }, { status: 400 });
-      const note = normalizeText(body.note).slice(0, 1000);
+      // Part H: closing is a "resolve" decision; its remark (required here) is audited with the case update.
+      closeRemark = await resolveRemark(supabase, body.remark, { decision: "resolve", entityType: "awol_case", required: true, fallbackText: body.note });
+      if (closeRemark.error) return NextResponse.json({ error: closeRemark.error, code: "remark_invalid" }, { status: 400 });
+      const note = normalizeText(closeRemark.text).slice(0, 1000);
       if (note.length < 5) return NextResponse.json({ error: "Explain why the case is closed (at least 5 characters)." }, { status: 400 });
       const returnedOn = normalizeText(body.returned_on);
       if (outcome === "returned" && (!isDateKey(returnedOn) || returnedOn < row.first_absent_on || returnedOn > today)) {
@@ -238,7 +243,8 @@ export async function PATCH(request) {
       description = `${personLabel(person)}'s AWOL case closed: ${OUTCOME_LABELS[outcome]}${person.employee_status === "AWOL" ? " — status Active, pay released (held payslips need a Super Admin override)" : ""}.`;
     }
 
-    const result = await supabase.from("employee_awol_cases").update({ ...patch, updated_at: now }).eq("id", row.id);
+    const writer = closeRemark ? remarkClient(closeRemark, { decision: "resolve", entityType: "awol_case", module: "hr", table: "employee_awol_cases", ids: [row.id], actor: guard }) : supabase;
+    const result = await writer.from("employee_awol_cases").update({ ...patch, updated_at: now }).eq("id", row.id);
     if (result.error) return NextResponse.json({ error: sanitizeError(result.error) }, { status: 500 });
     await appendAuditLog({
       actor: guard, module: "hr", action: `awol_${action}`, entity_type: "employee_awol_case", entity_id: row.id,

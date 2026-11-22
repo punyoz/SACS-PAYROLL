@@ -119,16 +119,19 @@ test("RFID edge cases: late time in, time out, where taps show, absence, nightly
     const log = await rows(db().from("attendance_logs").select("status,late_minutes,undertime_minutes,time_in,time_out").eq("employee_id", eli.id).eq("log_date", today).single());
     console.log(`  · Eli today: ${JSON.stringify(log)}`);
     expect(log.time_out).toBeTruthy();
-    // Worked under half the required hours: a Half Day, which replaces late
-    // and undertime (status engine, 20261013010000); deducted once as a half day.
+    // Worked under the minimum (requests.absent_below_pct, default half the
+    // required hours): "Absent (short day)", no late; the minutes NOT worked are
+    // the undertime (only those are deducted). No "Half Day" without a request (20261122020000).
     const inAt = Math.min(shift.in + lateBy, out - 10);
     if ((out - inAt) / 60 < Number(shift.required || 8) / 2) {
-      expect(log.status).toBe("Half Day");
-      expect(Number(log.undertime_minutes || 0) + Number(log.late_minutes || 0)).toBe(0);
+      expect(log.status).toBe("Absent (short day)");
+      expect(Number(log.late_minutes || 0)).toBe(0);
+      const notWorked = Number(shift.required || 8) * 60 - (out - inAt);
+      expect(Math.abs(Number(log.undertime_minutes) - notWorked), `not worked ${log.undertime_minutes} vs ${notWorked}`).toBeLessThanOrEqual(2);
     } else if (out < shift.out) {
       const expected = shift.out - out;
       expect(Math.abs(Number(log.undertime_minutes) - expected), `undertime ${log.undertime_minutes} vs ${expected} expected`).toBeLessThanOrEqual(2);
-      expect(String(log.status)).toMatch(/Undertime|Half Day|Late/i);
+      expect(String(log.status)).toMatch(/Undertime|Late/i);
     } else {
       expect(Number(log.undertime_minutes || 0)).toBe(0);
     }

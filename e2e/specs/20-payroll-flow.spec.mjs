@@ -7,7 +7,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, confirm, refresh } from "../support/flow.mjs";
+import { api, confirm, refresh, writeRemark } from "../support/flow.mjs";
 import { db, rows } from "../support/db.mjs";
 
 const PERIOD = "October 1-15, 2026";
@@ -85,7 +85,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
   });
 
   await step(page, "HR > Payroll Approval > Reject with a reason", async () => {
-    await page.locator("#pa-remarks").fill(REASON);
+    await writeRemark(page, "pa-remark", REASON);
     await page.getByRole("dialog").getByRole("button", { name: "Reject", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
     await settle(page);
@@ -120,7 +120,7 @@ test("payroll: process → submit → HR rejects → resubmit → HR approves �
     await main(page).locator("tr", { hasText: PERIOD }).filter({ hasText: BRANCH }).first().getByRole("button", { name: "Review" }).click();
     await settle(page);
     await main(page).getByRole("button", { name: "Approve", exact: true }).click();
-    await page.locator("#pa-remarks").fill("E2E approved after correction");
+    await writeRemark(page, "pa-remark", "E2E approved after correction");
     await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
     expect((await runStatus()).status).toBe("approved");

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { AlertTriangleIcon, FilePlus2Icon, HourglassIcon, Loader2Icon, PauseCircleIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
+import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -76,6 +77,7 @@ export function AwolCasesPage({ refreshKey }) {
     setInput({
       sent_on: today, reply_by: plusDays(today, replyDays), conference_on: plusDays(today, replyDays + 2), separation_effective: today,
       outcome: "returned", returned_on: today, note: "", text: "", employee: "", first_absent_on: "", last_present_on: "",
+      remark: EMPTY_REMARK,
     });
   }
 
@@ -94,7 +96,12 @@ export function AwolCasesPage({ refreshKey }) {
         if (action === "second_notice") body.conference_on = input.conference_on;
         if (action === "record_reply") body.employee_reply = input.text;
         if (action === "separate") Object.assign(body, { separation_effective: input.separation_effective, grounds: input.text });
-        if (action === "close") Object.assign(body, { outcome: input.outcome, returned_on: input.returned_on, note: input.note });
+        if (action === "close") {
+          // Part H: why it is closed is a preset remark (required).
+          const problem = remarkProblem(input.remark, "resolve", true);
+          if (problem) throw new Error(problem);
+          Object.assign(body, { outcome: input.outcome, returned_on: input.returned_on, remark: input.remark });
+        }
         await fetchJson("/api/hr/awol-cases", jsonBody("PATCH", body));
         const words = {
           confirm: ["Confirmed AWOL", "Pay is held until the case is closed."],
@@ -220,7 +227,13 @@ export function AwolCasesPage({ refreshKey }) {
                 {["record_reply", "separate"].includes(dialog.action) ? (
                   <div className="sm:col-span-2">{fieldFor("text", dialog.action === "separate" ? "Grounds" : "Reply", <Textarea id="hr-awol-text" rows={4} maxLength={AWOL_RECORD_MAX} value={input.text} onChange={(e) => setInput((c) => ({ ...c, text: e.target.value }))} />)}</div>
                 ) : null}
-                {["open", "confirm", "close"].includes(dialog.action) ? (
+                {dialog.action === "close" ? (
+                  <div className="sm:col-span-2">
+                    <RemarkField id="hr-awol-remark" decision="resolve" entityType="awol_case" required label="Why it is closed"
+                      value={input.remark} onChange={(v) => setInput((c) => ({ ...c, remark: v }))} />
+                  </div>
+                ) : null}
+                {["open", "confirm"].includes(dialog.action) ? (
                   <div className="sm:col-span-2">{fieldFor("note", dialog.action === "close" ? "Why it is closed" : "Note", <Input id="hr-awol-note" maxLength={1000} placeholder={dialog.action === "confirm" ? "e.g. Called Nov 12 and the emergency contact; no answer" : ""} value={input.note} onChange={(e) => setInput((c) => ({ ...c, note: e.target.value }))} />)}</div>
                 ) : null}
               </div>
