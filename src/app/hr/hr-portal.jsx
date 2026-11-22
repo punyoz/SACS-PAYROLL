@@ -16,6 +16,7 @@ import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
 import { EmployeesPage } from "./employees-page";
+import { SubstitutionsPanel } from "@/components/portal/substitutions";
 import { DecisionReasonsCard, RemarkPresetsCard } from "@/components/portal/remark-presets-manager";
 import { ClassificationRulesPage } from "./classification-rules-page";
 import { TransfersPage } from "./transfers-page";
@@ -249,6 +250,7 @@ function HrScreens() {
           <EmployeeAttendanceRecord key={`${employeeId}-${refreshKey}`} employeeId={employeeId} onBack={() => navigate("hr-attendance")} />
         ) : null}
         {current === "hr-leaves" ? <LeavesPage refreshKey={refreshKey} /> : null}
+        {current === "hr-leaves" ? <SubstitutionsPanel role="hr" refreshKey={refreshKey} /> : null}
         {current === "hr-awol" ? (
           <div className="flex flex-col gap-4">
             <AwolCasesPage refreshKey={refreshKey} />
