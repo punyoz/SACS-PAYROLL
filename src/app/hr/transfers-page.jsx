@@ -5,6 +5,7 @@ import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } f
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -278,6 +279,11 @@ export function TransfersPage({ refreshKey }) {
     },
   ];
 
+  // Part F: search, status, branch, category, employment status, dates and sort (in the address).
+  const historyFilters = useApprovalFilters(history.rows, {
+    prefix: "trh", statuses: { pending: "Pending", approved: "Approved", rejected: "Rejected" },
+    get: { name: (r) => r.employee_name, code: (r) => r.employee_code, status: (r) => String(r.status || "").toLowerCase(), filed: (r) => r.created_at, requested: (r) => r.created_at, branch: (r) => r.from_branch_id, employeeId: (r) => r.employee_id },
+  });
   // Batch 2: approve / reject with a preset remark (required to reject), in DecisionRemarkDialog.
   const [decidingTransfer, setDecidingTransfer] = React.useState(null);
   // Part F: decide several pending transfers at once.
@@ -368,8 +374,9 @@ export function TransfersPage({ refreshKey }) {
         </CardHeader>
         <CardContent>
           <DataTable
+            toolbar={historyFilters.toolbar}
             columns={historyColumns}
-            rows={history.rows}
+            rows={historyFilters.rows}
             loading={history.loading}
             error={history.error}
             onRetry={load}

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AlertTriangleIcon, FilePlus2Icon, HourglassIcon, Loader2Icon, PauseCircleIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -124,7 +125,13 @@ export function AwolCasesPage({ refreshKey }) {
 
   const summary = state.data?.summary || {};
   const canEdit = Boolean(state.data?.can_edit);
-  const rows = (state.data?.cases || []).filter((c) => (filter === "all" ? true : filter === "closed" ? !c.open : c.open));
+  const openRows = (state.data?.cases || []).filter((c) => (filter === "all" ? true : filter === "closed" ? !c.open : c.open));
+  // Part F: search, stage (with counts), branch, category, employment status, dates and sort (in the address).
+  const caseFilters = useApprovalFilters(openRows, {
+    prefix: "awol", typeLabel: "Stage",
+    get: { name: (c) => c.employee_name, code: (c) => c.employee_code, type: (c) => c.outcome_label || c.stage_label, filed: (c) => c.created_at || c.first_absent_on, requested: (c) => c.first_absent_on, branch: (c) => c.branch_id, employeeId: (c) => c.employee_id },
+  });
+  const rows = caseFilters.rows;
   const first = state.loading && !state.data;
 
   const columns = [
@@ -177,7 +184,7 @@ export function AwolCasesPage({ refreshKey }) {
           </CardAction>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
+          <DataTable toolbar={caseFilters.toolbar} columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee…" empty={{ title: "No AWOL cases", icon: UserXIcon }} caption="AWOL cases" minWidth={980} />
           <p className="mt-3 text-xs text-muted-foreground">An AWOL case is not automatically abandonment: separation needs both notices, a chance to reply, and HR&apos;s decision. Reply periods are at least {replyDays} calendar days.</p>
         </CardContent>
