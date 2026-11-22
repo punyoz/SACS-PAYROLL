@@ -18,6 +18,7 @@ import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { manilaDateKey } from "@/lib/payroll/periods";
+import { fetchAllIn } from "@/lib/supabase/fetch-all";
 import { lateSubstitutions, minutesOf, readSubstitutionSettings, suggestSubstitutes, tapsConfirm, weekOf } from "@/lib/substitutions/pay";
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -32,17 +33,17 @@ const manilaMinutes = (iso) => {
 
 async function people(supabase, ids) {
   if (!ids.length) return new Map();
-  const { data } = await supabase.from("profiles").select("id,full_name,employee_id,branch_id,employee_level,employee_type,archived,role").in("id", ids);
+  const { data } = await fetchAllIn(() => supabase.from("profiles").select("id,full_name,employee_id,branch_id,employee_level,employee_type,archived,role").order("id"), "id", ids);
   return new Map((data || []).map((p) => [p.id, p]));
 }
 
 /** Substitution periods already open or approved, per substitute, in the week of `date`. */
 async function weekPeriods(supabase, ids, date, exceptId = null) {
   const monday = weekOf(date);
-  let q = supabase.from("substitutions").select("id,substitute_id,periods").in("status", ["pending", "approved"])
-    .gte("sub_date", monday).lte("sub_date", addDays(monday, 6));
-  if (ids) q = q.in("substitute_id", ids);
-  const { data } = await q;
+  const q = () => supabase.from("substitutions").select("id,substitute_id,periods").in("status", ["pending", "approved"])
+    .gte("sub_date", monday).lte("sub_date", addDays(monday, 6)).order("id");
+  // Id lists are read in chunks (tests/scale-queries.test.js).
+  const { data } = ids ? await fetchAllIn(q, "substitute_id", ids) : await q();
   const map = new Map();
   for (const r of data || []) if (r.id !== exceptId) map.set(r.substitute_id, (map.get(r.substitute_id) || 0) + Number(r.periods || 0));
   return map;
@@ -57,7 +58,7 @@ async function suggestions(supabase, guard, { absentId, date, periods }) {
     .eq("archived", false).neq("on_payroll", false).in("role", ["employee", "accountant"]);
   const ids = (staff || []).map((p) => p.id);
   const [{ data: logs }, { data: leaves }, settings, week] = await Promise.all([
-    supabase.from("attendance_logs").select("employee_id,time_in").eq("log_date", date).eq("archived_duplicate", false).not("time_in", "is", null).in("employee_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]),
+    fetchAllIn(() => supabase.from("attendance_logs").select("employee_id,time_in").eq("log_date", date).eq("archived_duplicate", false).not("time_in", "is", null).order("employee_id"), "employee_id", ids),
     supabase.from("leave_requests").select("employee_id,start_date,end_date").eq("status", "approved").lte("start_date", date).gte("end_date", date),
     readSubstitutionSettings(supabase),
     weekPeriods(supabase, ids, date),
@@ -110,8 +111,8 @@ export async function GET(request) {
       const ids = (teachers || []).map((t) => t.id);
       const today = manilaDateKey();
       const { data: leaves } = ids.length
-        ? await supabase.from("leave_requests").select("id,employee_id,leave_type,start_date,end_date,half_day").eq("status", "approved")
-          .gte("end_date", addDays(today, -7)).lte("start_date", addDays(today, 14)).in("employee_id", ids).order("start_date", { ascending: true })
+        ? await fetchAllIn(() => supabase.from("leave_requests").select("id,employee_id,leave_type,start_date,end_date,half_day").eq("status", "approved")
+          .gte("end_date", addDays(today, -7)).lte("start_date", addDays(today, 14)).order("start_date", { ascending: true }), "employee_id", ids)
         : { data: [] };
       const nameOf = new Map((teachers || []).map((t) => [t.id, t.full_name]));
       return NextResponse.json({ teachers: teachers || [], on_leave: (leaves || []).map((l) => ({ ...l, employee_name: nameOf.get(l.employee_id) || "—" })) });
