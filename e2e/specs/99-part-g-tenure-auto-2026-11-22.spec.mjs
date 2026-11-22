@@ -6,7 +6,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, writeRemark } from "../support/flow.mjs";
+import { api, manilaDay, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -67,13 +67,13 @@ test("tenure: tabs, bulk grant, bulk revoke with a required preset, HR re-grant"
     await step(page, "Revoked stays revoked for the job; HR re-grants it by hand", async () => {
       const { data: cand } = await db().rpc("tenure_auto_grant_candidates");
       expect((cand || []).map((c) => c.employee_id)).not.toContain(bea.id);
-      const res = await api(page, "POST", "/api/hr/tenure-protection", { action: "grant", employee_id: bea.id, effective_from: new Date().toISOString().slice(0, 10), notes: "HR re-grant" });
+      const res = await api(page, "POST", "/api/hr/tenure-protection", { action: "grant", employee_id: bea.id, effective_from: manilaDay(0), notes: "HR re-grant" });
       expect(res.status, JSON.stringify(res.data)).toBe(200);
       expect(await rows(db().from("tenure_protection_grants").select("id").eq("employee_id", bea.id).is("revoked_on", null))).toHaveLength(1);
     });
   } finally {
     // A grant is never deleted: end the active one (as HR would) and restore the record.
-    const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    const today = manilaDay(0);
     await db().from("tenure_protection_grants").update({ revoked_on: today, revoked_by: hr.id, revoked_at: new Date().toISOString(), revoke_notes: "E2E cleanup" }).eq("employee_id", bea.id).is("revoked_on", null);
     await db().from("profiles").update(before).eq("id", bea.id);
   }
