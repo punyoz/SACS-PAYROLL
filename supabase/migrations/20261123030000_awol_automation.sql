@@ -77,6 +77,8 @@ BEGIN
     WHERE l.log_date BETWEEN p_from AND p_to AND l.archived_duplicate = FALSE AND l.branch_id IS NOT NULL
       AND l.status NOT IN ('Holiday', 'On Leave')
       AND p.archived = FALSE AND p.on_payroll
+      -- Admin / Super Admin are never on payroll here, whatever the flag says (user decision 2026-11-22)
+      AND lower(p.role::TEXT) IN ('employee', 'accountant', 'hr')
       AND public.attendance_is_working_day_for(l.employee_id, l.branch_id, l.log_date)
   ), per_day AS (
     SELECT branch_id, log_date, COUNT(DISTINCT employee_id) AS scheduled, COUNT(DISTINCT employee_id) FILTER (WHERE no_tap) AS no_taps
@@ -141,6 +143,8 @@ BEGIN
     JOIN public.profiles p ON p.id = s.employee_id
     WHERE p.archived = FALSE
       AND p.on_payroll
+      -- Admin / Super Admin: never an AWOL case, whatever the flag says (user decision 2026-11-22)
+      AND lower(p.role::TEXT) IN ('employee', 'accountant', 'hr')
       AND COALESCE(p.employee_status, 'Active') = 'Active'
       -- leave_requests.employee_id is UUID and its dates are TEXT on live:
       -- compare as text / cast only well-formed dates, never fail the job.

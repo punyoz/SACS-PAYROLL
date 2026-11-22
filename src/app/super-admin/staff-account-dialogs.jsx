@@ -477,7 +477,8 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
       ...(role === "hr" ? { employment_status: v("employment_status"), employment_type: v("employment_type"), contract_end_date: v("contract_end_date") } : {}),
       employee_status: v("employee_status"),
       date_of_birth: v("date_of_birth"),
-      date_hired: v("date_hired"),
+      // Admin / Super Admin are not on payroll (2026-11-22): no date hired.
+      ...(role === "admin" || role === "super_admin" ? {} : { date_hired: v("date_hired") }),
       sex: v("sex"),
       civil_status: v("civil_status"),
       cp_number: digitsOnly(v("cp_number")),
@@ -547,7 +548,9 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
 
           <SectionTitle>Personal information</SectionTitle>
           {field("date_of_birth", dateField("date_of_birth", { min: "1900-01-01", max: latestBirthDate() }), { hint: "Must be at least 18 years old. Used with the last name to build the first-time password." })}
-          {field("date_hired", dateField("date_hired"))}
+          {form.values.role === "admin" || form.values.role === "super_admin"
+            ? <p className="text-sm text-muted-foreground" data-testid="not-on-payroll-note">Date hired, salary and tenure: not used, not on payroll (Admin and Super Admin).</p>
+            : field("date_hired", dateField("date_hired"))}
           {field("sex", select("sex", SEXES, "Select"))}
           {field("civil_status", select("civil_status", CIVIL_STATUSES, "Select"))}
           {field("cp_number", text("cp_number", { type: "tel", inputMode: "numeric", placeholder: "e.g. 0917 123 4567" }))}

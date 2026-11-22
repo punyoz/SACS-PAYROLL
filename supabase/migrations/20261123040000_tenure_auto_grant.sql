@@ -73,7 +73,8 @@ AS $function$
     LEFT JOIN public.tenure_protection_policies bp ON bp.branch_id = p.branch_id AND NOT COALESCE(bp.use_global, FALSE)
     LEFT JOIN public.tenure_protection_policies gp ON gp.branch_id IS NULL
     WHERE p.archived = FALSE AND p.on_payroll AND COALESCE(p.employee_status, 'Active') = 'Active'
-      -- every account on payroll, whatever its login role (user decision 2026-11-22)
+      -- every account on payroll (HR, Accountant, Employee); Admin / Super Admin never, whatever the flag says (user decisions 2026-11-22)
+      AND lower(p.role::TEXT) IN ('employee', 'accountant', 'hr')
       AND p.date_hired IS NOT NULL
       AND p.employment_status = ANY (s.list)
   )

@@ -17,7 +17,7 @@ SELECT NULL, FALSE, 2, TRUE WHERE NOT EXISTS (SELECT 1 FROM public.tenure_protec
 
 INSERT INTO auth.users (id, email, aud, role, instance_id)
 SELECT ('00000000-0000-4000-8000-0000000007a' || n)::UUID, 't' || n || '@tenure.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'
-FROM generate_series(1, 8) n ON CONFLICT (id) DO NOTHING;
+FROM generate_series(1, 9) n ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.branches (id, name) VALUES ('00000000-0000-4000-8000-0000000007f1', 'Tenure Branch') ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on_payroll, employee_status, employment_status, date_hired) VALUES
   ('00000000-0000-4000-8000-0000000007a1', 't1@tenure.test', 'Tina Today',     'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      '2025-03-20'),
@@ -28,7 +28,9 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on
   ('00000000-0000-4000-8000-0000000007a6', 't6@tenure.test', 'Mia Manual',     'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      '2017-02-01'),
   -- Olga: long past 2 years when the job first runs. Dina: no date hired yet (filled in later).
   ('00000000-0000-4000-8000-0000000007a7', 't7@tenure.test', 'Olga Oldtimer',  'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      '2015-01-05'),
-  ('00000000-0000-4000-8000-0000000007a8', 't8@tenure.test', 'Dina Undated',   'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      NULL)
+  ('00000000-0000-4000-8000-0000000007a8', 't8@tenure.test', 'Dina Undated',   'employee', '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      NULL),
+  -- Adam: an Admin wrongly flagged on payroll, with an old date hired: never counted (2026-11-22).
+  ('00000000-0000-4000-8000-0000000007a9', 't9@tenure.test', 'Adam Admin',     'admin',    '00000000-0000-4000-8000-0000000007f1', FALSE, TRUE, 'Active', 'Regular',      '2014-06-02')
 ON CONFLICT (id) DO UPDATE SET date_hired = EXCLUDED.date_hired, employment_status = EXCLUDED.employment_status, archived = FALSE, on_payroll = TRUE, employee_status = 'Active', branch_id = EXCLUDED.branch_id;
 
 -- Rex: granted once and revoked by HR. Mia: an existing manual grant. Rita: separated, back on 2026-02-02.
@@ -99,6 +101,10 @@ BEGIN
   UPDATE public.profiles SET date_hired = '2024-01-10' WHERE id = dina;
   PERFORM public.tenure_auto_grant('2027-04-02');
   ASSERT (SELECT effective_from FROM public.tenure_protection_grants WHERE employee_id = dina) = '2027-04-01', '5c: date hired filled later → current cutoff, not backwards';
+
+  -- 5d. Admin / Super Admin: never, whatever the on-payroll flag says.
+  ASSERT NOT EXISTS (SELECT 1 FROM public.tenure_auto_grant_candidates('2027-04-02') WHERE employee_id = '00000000-0000-4000-8000-0000000007a9'), '5d: Admin never a candidate';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.tenure_protection_grants WHERE employee_id = '00000000-0000-4000-8000-0000000007a9'), '5e: Admin never granted';
 
   -- 6. Mia's manual grant is untouched.
   ASSERT (SELECT COUNT(*) FROM public.tenure_protection_grants WHERE employee_id = mia) = 1, '6: manual grant stays';

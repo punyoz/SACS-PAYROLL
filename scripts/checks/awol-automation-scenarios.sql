@@ -16,7 +16,8 @@ INSERT INTO auth.users (id, email, aud, role, instance_id) VALUES
   ('00000000-0000-4000-8000-0000000006a3', 'lea@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-0000000006a4', 'gap@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-0000000006a5', 'gp2@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('00000000-0000-4000-8000-0000000006e1', 'hr@awol.test',  'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
+  ('00000000-0000-4000-8000-0000000006e1', 'hr@awol.test',  'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-4000-8000-0000000006d1', 'adm@awol.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.branches (id, name) VALUES
   ('00000000-0000-4000-8000-0000000006f1', 'Awol Branch'),
@@ -27,7 +28,9 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on
   ('00000000-0000-4000-8000-0000000006a3', 'lea@awol.test', 'Lea Pending', 'employee', '00000000-0000-4000-8000-0000000006f1', FALSE, TRUE, 'Active'),
   ('00000000-0000-4000-8000-0000000006a4', 'gap@awol.test', 'Gab Gap',     'employee', '00000000-0000-4000-8000-0000000006f2', FALSE, TRUE, 'Active'),
   ('00000000-0000-4000-8000-0000000006a5', 'gp2@awol.test', 'Gia Gap',     'employee', '00000000-0000-4000-8000-0000000006f2', FALSE, TRUE, 'Active'),
-  ('00000000-0000-4000-8000-0000000006e1', 'hr@awol.test',  'Hana HR',     'hr',       NULL, FALSE, TRUE, 'Active')
+  ('00000000-0000-4000-8000-0000000006e1', 'hr@awol.test',  'Hana HR',     'hr',       NULL, FALSE, TRUE, 'Active'),
+  -- An Admin wrongly flagged on payroll, with Absent rows: never an AWOL case (2026-11-22).
+  ('00000000-0000-4000-8000-0000000006d1', 'adm@awol.test', 'Ada Admin',   'admin',    '00000000-0000-4000-8000-0000000006f1', FALSE, TRUE, 'Active')
 ON CONFLICT (id) DO UPDATE SET branch_id = EXCLUDED.branch_id, archived = FALSE, on_payroll = TRUE, employee_status = 'Active';
 
 -- 2027-03-01 is a Monday. Sat works Mon-Sat; everyone else Mon-Fri.
@@ -40,7 +43,8 @@ VALUES ('00000000-0000-4000-8000-0000000006a2', '00000000-0000-4000-8000-0000000
 INSERT INTO public.attendance_logs (employee_id, employee_name, branch_id, log_date, status)
 SELECT e, n, b, d::DATE, 'Absent' FROM (VALUES
   ('00000000-0000-4000-8000-0000000006a1'::UUID, 'Abe Absent', '00000000-0000-4000-8000-0000000006f1'::UUID),
-  ('00000000-0000-4000-8000-0000000006a3'::UUID, 'Lea Pending', '00000000-0000-4000-8000-0000000006f1'::UUID)
+  ('00000000-0000-4000-8000-0000000006a3'::UUID, 'Lea Pending', '00000000-0000-4000-8000-0000000006f1'::UUID),
+  ('00000000-0000-4000-8000-0000000006d1'::UUID, 'Ada Admin',   '00000000-0000-4000-8000-0000000006f1'::UUID)
 ) p(e, n, b) CROSS JOIN (VALUES ('2027-03-03'), ('2027-03-04'), ('2027-03-05')) d(d);
 -- Sat: absent Thu, Fri, Sat (his Saturday is a working day; a Mon-Fri person's is not).
 INSERT INTO public.attendance_logs (employee_id, employee_name, branch_id, log_date, status) VALUES
@@ -87,6 +91,9 @@ BEGIN
 
   -- 3. Lea: a pending leave covers the days → no case.
   ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = lea), '3: pending leave blocks';
+
+  -- 3b. Ada (Admin, flagged on payroll by mistake): never an AWOL case.
+  ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = '00000000-0000-4000-8000-0000000006d1'), '3b: Admin never AWOL';
 
   -- 4. Gap Branch: everyone without taps those days → a data gap per day, HR told, no AWOL case.
   ASSERT (SELECT COUNT(*) FROM public.attendance_data_gaps WHERE branch_id = '00000000-0000-4000-8000-0000000006f2') = 3, '4: three gap days';

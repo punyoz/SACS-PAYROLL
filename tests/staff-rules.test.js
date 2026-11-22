@@ -46,7 +46,10 @@ describe("staff form rules", () => {
   });
 
   it("hire date must be on or after the 18th birthday", () => {
-    expect(checkStaffFields(["date_hired"], { ...VALID_ADD, date_hired: "2007-01-01" }).date_hired).toBe("Must be on or after the 18th birthday.");
+    expect(checkStaffFields(["date_hired"], { ...VALID_ADD, role: "hr", date_hired: "2007-01-01" }).date_hired).toBe("Must be on or after the 18th birthday.");
+    // Admin / Super Admin are not on payroll (2026-11-22): no date hired asked.
+    expect(checkStaffFields(["date_hired"], { ...VALID_ADD, role: "admin", date_hired: "" }).date_hired).toBe("");
+    expect(checkStaffFields(["date_hired"], { ...VALID_ADD, role: "hr", date_hired: "" }).date_hired).toBe("Date hired is required.");
   });
 
   it("password is optional but strong when set", () => {
