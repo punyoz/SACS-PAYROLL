@@ -150,6 +150,8 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
   const badge = sidebar(page).locator('[data-sidebar="menu-badge"]');
   await expect(badge).toHaveText("1");
   await page.getByRole("button", { name: "Approve" }).click();
+  // Part H: the decision opens its remark dialog (a remark is optional to approve).
+  await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
   await expect(badge).toHaveCount(0);
   await page.unroute("**/api/super-admin/fallback");
 
