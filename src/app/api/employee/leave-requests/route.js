@@ -18,6 +18,7 @@ import { REASON_MAX } from "@/lib/input-limits";
 import { otherActiveHrIds, recordFallback } from "@/lib/rbac/routing";
 import { leaveBalances, loadStatutoryLeaves } from "@/lib/employees/classification-server";
 import { statutoryRefusal } from "@/lib/employees/classification";
+import { readRequestSettings } from "@/lib/overtime-requests/rules";
 import { countLeaveDays } from "@/lib/leave-requests/split";
 
 /** Sex and civil status from the account (what statutory leave depends on). */
@@ -112,7 +113,10 @@ export async function POST(request) {
       ? "without_pay"
       : "with_pay";
     const startDate = String(body.start_date || "").trim();
-    const endDate = String(body.end_date || "").trim();
+    // A half day (Part B, 2026-11-22): AM or PM of one day; the end is the start.
+    const halfDay = body.half_day === "AM" || body.half_day === "PM" ? body.half_day : null;
+    if (body.half_day && !halfDay) return NextResponse.json({ error: "Choose the morning (AM) or the afternoon (PM)." }, { status: 400 });
+    const endDate = halfDay ? startDate : String(body.end_date || "").trim();
     const reason = String(body.reason || "").trim();
     // Only a PDF / PNG / JPEG data URL under 2 MB, the shape the portal
     // itself sends. It used to be stored exactly as sent, and the proof
@@ -156,7 +160,19 @@ export async function POST(request) {
     // At least 7 days ahead of the submission date (Manila), whatever the
     // browser allowed (src/lib/leave-requests/advance-rule.js).
     const submittedAt = new Date();
-    if (!meetsAdvanceRule(startDate, submittedAt)) {
+    // A half day follows the requests' filing window (Part B settings: at least 1 day
+    // before, late filing up to 2 days after); a whole-day leave keeps the 7-day rule.
+    let lateFiling = false;
+    if (halfDay) {
+      const settings = await readRequestSettings(getServiceClient());
+      const days = Math.round((Date.parse(`${startDate}T00:00:00Z`) - Date.parse(`${manilaDateKey(submittedAt)}T00:00:00Z`)) / 864e5);
+      if (days < settings.file_days_before) {
+        if (days < -settings.late_filing_days_after) {
+          return NextResponse.json({ error: `A half day is filed at least ${settings.file_days_before} day${settings.file_days_before === 1 ? "" : "s"} before, or up to ${settings.late_filing_days_after} days after as a late filing. ${startDate} is past that.` }, { status: 400 });
+        }
+        lateFiling = true;
+      }
+    } else if (!meetsAdvanceRule(startDate, submittedAt)) {
       return NextResponse.json(
         { error: LEAVE_ADVANCE_MESSAGE, code: "leave_advance_notice", earliest_start: earliestLeaveStart(manilaDateKey(submittedAt)) },
         { status: 400 },
@@ -206,6 +222,16 @@ export async function POST(request) {
       );
     }
 
+    // Half-day leave WITH pay uses 0.5 credit and is refused without it (Part B);
+    // "without pay" is deducted at the half-day rate.
+    if (halfDay && payStatus === "with_pay") {
+      const balance = (await leaveBalances(getServiceClient(), [employeeId], Number(startDate.slice(0, 4))))[employeeId];
+      const left = balance?.by_type?.[leaveType]?.remaining;
+      if (left !== undefined && left < 0.5) {
+        return NextResponse.json({ error: `Not enough ${leaveType} left for a half day with pay (${left} day${left === 1 ? "" : "s"} left). File it without pay instead.`, code: "half_day_no_credit" }, { status: 400 });
+      }
+    }
+
     // Statutory leave (maternity, paternity, …): filed per event, only when eligible (Part A).
     const statutory = (await loadStatutoryLeaves(getServiceClient())).find((t) => t.leave_type === leaveType);
     if (statutory) {
@@ -235,7 +261,8 @@ export async function POST(request) {
       pay_status: payStatus,
       start_date: startDate,
       end_date: endDate,
-      reason,
+      half_day: halfDay,
+      reason: lateFiling ? `${reason} (Late filing)` : reason,
       proof_url: "",
       proof_path: proofPath,
       status: "pending_admin",

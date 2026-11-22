@@ -4,7 +4,7 @@
  * on its date), and computes leave balances per leave type.
  */
 import { getEmployeeAttendancePolicy } from "@/lib/attendance/work-schedules";
-import { countLeaveDays } from "@/lib/leave-requests/split";
+import { requestDays } from "@/lib/leave-requests/split";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 import {
   CREDIT_LEAVE_TYPES,
@@ -89,7 +89,7 @@ export async function leaveBalances(supabase, employeeIds, year, { requests = nu
   if (overridesResult.error) throw new Error(overridesResult.error.message);
   let approved = requests;
   if (!approved) {
-    const r = await fetchAllIn(() => supabase.from("leave_requests").select("id,employee_id,leave_type,start_date,end_date,status,pay_status")
+    const r = await fetchAllIn(() => supabase.from("leave_requests").select("id,employee_id,leave_type,start_date,end_date,status,pay_status,half_day")
       .eq("status", "approved").gte("start_date", `${year}-01-01`).lte("start_date", `${year}-12-31`).order("id", { ascending: true }), "employee_id", ids);
     if (r.error) throw new Error(r.error.message);
     approved = r.data || [];
@@ -107,7 +107,7 @@ export async function leaveBalances(supabase, employeeIds, year, { requests = nu
     const mine = approved.filter((r) => String(r.employee_id) === String(id) && String(r.status).toLowerCase() === "approved"
       && Number(String(r.start_date).slice(0, 4)) === Number(year));
     const paid = (type) => mine.filter((r) => r.leave_type === type && String(r.pay_status || "with_pay").toLowerCase() !== "without_pay")
-      .reduce((sum, r) => sum + countLeaveDays(r.start_date, r.end_date), 0);
+      .reduce((sum, r) => sum + requestDays(r), 0);
     const by_type = Object.fromEntries(CREDIT_LEAVE_TYPES.map((type) => {
       const used = paid(type);
       const e = entitlement[type];
@@ -122,7 +122,7 @@ export async function leaveBalances(supabase, employeeIds, year, { requests = nu
       with_pay_used: sum("used"),
       with_pay_remaining: sum("remaining"),
       sil_remaining: sum("remaining"),
-      without_pay_used: mine.filter((r) => String(r.pay_status).toLowerCase() === "without_pay").reduce((s, r) => s + countLeaveDays(r.start_date, r.end_date), 0),
+      without_pay_used: mine.filter((r) => String(r.pay_status).toLowerCase() === "without_pay").reduce((s, r) => s + requestDays(r), 0),
     };
   }
   return out;
