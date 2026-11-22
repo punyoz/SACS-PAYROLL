@@ -27,7 +27,7 @@ export const TYPE_LABELS = {
   "*": "Any type", leave_request: "Leave request", overtime_request: "Overtime request", attendance_correction: "Attendance correction",
   payroll_run: "Payroll run", awol_case: "AWOL case", transfer_request: "Transfer request", adjustment: "Incentive / loan",
   final_pay: "Final pay", tenure_grant: "Tenure pay protection", subsidy_request: "Subsidy request",
-  payroll_correction: "Payroll correction", branch_request: "Branch request",
+  payroll_correction: "Payroll correction", branch_request: "Branch request", substitution: "Substitution",
 };
 const ALL = "all";
 

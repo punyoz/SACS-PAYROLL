@@ -1,3 +1,4 @@
+import { computeSubstitutionPay, readSubstitutionSettings, weekOf } from "@/lib/substitutions/pay";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { floorNetPay } from "@/lib/payroll/net-pay";
@@ -552,6 +553,8 @@ function computeTotals(payroll) {
   const subsidyPay = Math.max(0, toAmount(payroll.extra?.subsidy));
   // The period's Early Bird winner (one employee per pay period).
   const earlyBirdWinnerPay = Math.max(0, toAmount(payroll.extra?.early_bird_winner));
+  // Substitute teaching (Part C): approved, confirmed by the substitute's taps.
+  const substitutionPay = Math.max(0, toAmount(payroll.extra?.substitution));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -562,7 +565,7 @@ function computeTotals(payroll) {
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
     + leaveWithoutPayDeduction + cashAdvance + loanDeduction,
   );
-  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay);
+  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -611,6 +614,7 @@ function computeTotals(payroll) {
       perfect_attendance_incentive: perfectAttendanceIncentive,
       other_incentive: otherIncentive,
       overload_pay: overloadPay,
+      substitution_pay: substitutionPay,
       total_incentives: totalIncentives,
       overtime_pay: overtimePay,
       holiday_pay: holidayPay,
@@ -886,6 +890,53 @@ function normalizeAttendanceStatus(value) {
   if (status === "Holiday") return "holiday";
   if (isUnresolvedStatus(status)) return "unresolved";
   return "present";
+}
+
+/**
+ * Substitute teaching (Part C, 2026-11-22): the period's approved
+ * substitutions per substitute, and from each substitute's attendance rows
+ * (the whole weeks around the period) their shift and taps by day and their
+ * scheduled hours by week. Empty when the table is not there yet.
+ */
+async function loadSubstitutionContext(supabase, employeeIds, from, to) {
+  const empty = { byEmployee: new Map(), shiftOf: () => null, tapsOf: () => null, weekHours: () => 0, settings: await readSubstitutionSettings(supabase) };
+  if (!employeeIds?.length) return empty;
+  const subs = await fetchAllIn(() => supabase.from("substitutions").select("id,sub_date,start_time,end_time,periods,class_section,subject,absent_employee_id,substitute_id")
+    .eq("status", "approved").gte("sub_date", from).lte("sub_date", to), "substitute_id", employeeIds);
+  if (subs.error || !(subs.data || []).length) return empty;
+  const rows = subs.data;
+  const subIds = [...new Set(rows.map((r) => r.substitute_id))];
+  const absentIds = [...new Set(rows.map((r) => r.absent_employee_id))];
+  const weekStart = weekOf(from);
+  const weekEnd = new Date(Date.parse(`${weekOf(to)}T00:00:00Z`) + 6 * 864e5).toISOString().slice(0, 10);
+  const [names, logs] = await Promise.all([
+    fetchAllIn(() => supabase.from("profiles").select("id,full_name"), "id", absentIds),
+    fetchAllIn(() => supabase.from("attendance_logs").select("employee_id,log_date,time_in,time_out,status,shift_start_minutes,shift_end_minutes")
+      .gte("log_date", weekStart).lte("log_date", weekEnd).eq("archived_duplicate", false), "employee_id", subIds),
+  ]);
+  const nameOf = new Map((names.data || []).map((p) => [p.id, p.full_name]));
+  const byEmployee = new Map();
+  for (const r of rows) {
+    const list = byEmployee.get(r.substitute_id) || [];
+    list.push({ ...r, sub_date: String(r.sub_date).slice(0, 10), absent_name: nameOf.get(r.absent_employee_id) || "a teacher" });
+    byEmployee.set(r.substitute_id, list);
+  }
+  const minutes = (iso) => { if (!iso) return null; const d = new Date(new Date(iso).getTime() + 8 * 3600e3); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
+  const logOf = new Map((logs.data || []).map((l) => [`${l.employee_id}|${String(l.log_date).slice(0, 10)}`, l]));
+  // shortcut: scheduled hours of a week = the shift lengths on that week's attendance rows (a day with no row yet is not counted); upgrade to the schedule table if loads need future days.
+  const weekHours = new Map();
+  for (const l of logs.data || []) {
+    if (l.status === "Holiday" || l.shift_start_minutes === null || l.shift_end_minutes === null) continue;
+    const key = `${l.employee_id}|${weekOf(String(l.log_date).slice(0, 10))}`;
+    weekHours.set(key, (weekHours.get(key) || 0) + Math.max(0, l.shift_end_minutes - l.shift_start_minutes) / 60);
+  }
+  return {
+    byEmployee,
+    settings: empty.settings,
+    shiftOf: (id, date) => { const l = logOf.get(`${id}|${date}`); return l && l.shift_start_minutes !== null && l.shift_end_minutes !== null && l.status !== "Holiday" ? { start: l.shift_start_minutes, end: l.shift_end_minutes } : null; },
+    tapsOf: (id, date) => { const l = logOf.get(`${id}|${date}`); return l ? { in: minutes(l.time_in), out: minutes(l.time_out) } : null; },
+    weekHours: (id, week) => weekHours.get(`${id}|${week}`) || 0,
+  };
 }
 
 // Every calendar-day key (YYYY-MM-DD) an approved leave request covers,
@@ -1572,7 +1623,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     : null;
   // Holidays first: leave days are counted on working days only.
   const holidays = await readHolidays(supabase, leaveFrom < span.start_key ? leaveFrom : span.start_key, period.end_key);
-  const [leaveContext, attendance, overtimeResult, school, tenure, requestSettings] = await Promise.all([
+  const [leaveContext, attendance, overtimeResult, school, tenure, requestSettings, substitutionContext] = await Promise.all([
     buildLeaveContext(employees, leaveFrom, lastDay, holidays, includeLeaveDay),
     readPeriodAttendance(supabase, span.start_key, lastDay, employeeIds),
     readApprovedOvertime(supabase, span.start_key, lastDay),
@@ -1581,6 +1632,8 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     loadTenureProtection(supabase, { employeeIds }),
     // Overtime on a regular working day: the requests setting (Part B, 125%).
     readRequestSettings(supabase),
+    // Substitute teaching (Part C): approved substitutions, with the substitutes' shifts and taps.
+    loadSubstitutionContext(supabase, employeeIds, span.start_key, lastDay),
   ]);
   const { summaries: leaveSummary, leaveDaysByEmployee, halfLeaveDaysByEmployee } = leaveContext;
 
@@ -1698,9 +1751,20 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
         : undefined,
     });
     const leave = leaveSummary.find((row) => row.employee_id === employee.id) || null;
+    // Part C: this payslip's approved substitutions, paid only when the substitute's taps cover them.
+    const mySubs = (substitutionContext.byEmployee.get(employee.id) || []).filter((r) => r.sub_date >= own.start_key && r.sub_date <= own.end_key);
+    const substitution = mySubs.length ? computeSubstitutionPay({
+      subs: mySubs,
+      shiftOf: (date) => substitutionContext.shiftOf(employee.id, date),
+      tapsOf: (date) => substitutionContext.tapsOf(employee.id, date),
+      scheduledHoursOfWeek: (week) => substitutionContext.weekHours(employee.id, week),
+      rates: { ...rateValues(resolved), overtime_regular_pct: requestSettings.overtime_regular_pct },
+      settings: substitutionContext.settings,
+    }) : null;
     byEmployee.set(employee.id, {
       resolved,
       auto,
+      substitution,
       leave,
       semi: semi?.byEmployee.get(employee.id) || null,
       school: school?.byEmployee.get(employee.id) || null,
@@ -2204,6 +2268,11 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   const otherIncentive = sumItems("incentive", itemAmount);
   const overloadHours = sumItems("overload", (item) => Number(item.hours) || 0);
   const overloadPay = sumItems("overload", itemAmount);
+  // Substitute teaching (Part C, 2026-11-22): this payslip's approved substitutions confirmed by the
+  // taps (context.substitution, computed with the attendance). Taxable like other earnings; not in
+  // the 13th month (basic salary only); contributions unchanged (monthly basic).
+  const substitutionLines = context.substitution?.lines || [];
+  const substitutionPay = toAmount(substitutionLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0));
 
   // Withholding tax on this period's taxable compensation.
   const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
@@ -2248,7 +2317,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
       overloadHours,
       overloadPay,
-      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
+      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay,
       ...prior,
     }).monthly_gross <= 0;
   }
@@ -2282,7 +2351,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
     overloadHours,
     overloadPay,
-    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total,
+    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay,
     nonTaxableEarnings: nonTaxable,
     extraTaxable: subsidy.extra_taxable,
     cashAdvance: cashAdvanceTotal,
@@ -2335,7 +2404,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       period,
       available: toAmount(
         basic + overtimePay + holidayPay
-        + finalAmounts.perfect_attendance + otherIncentive + overloadPay
+        + finalAmounts.perfect_attendance + otherIncentive + overloadPay + substitutionPay
         - (sss + philhealth + pagibig + withholdingTax
           + finalAmounts.absent + finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day
           + leaveWithoutPayAmount),
@@ -2423,6 +2492,12 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
         amount: itemAmount(item), source_log_id: null, is_override: false,
         note: item.description || null, log_date: String(item.item_date).slice(0, 10),
       })),
+    // Substitute teaching: one line per part (inside the shift, outside it, above the standard load).
+    ...substitutionLines.map((l) => ({
+      type: "substitution", quantity: Math.round((l.minutes / 60) * 100) / 100, unit: "hour",
+      rate: l.minutes ? toAmount(l.amount / (l.minutes / 60)) : 0, rate_config_id: null, amount: toAmount(l.amount),
+      source_log_id: null, is_override: false, note: l.note, log_date: l.log_date, substitution_id: l.source_id, part: l.kind,
+    })),
   ].filter(Boolean);
 
   const payroll = computeTotals({
@@ -2448,7 +2523,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
-    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay },
+    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay },
   });
   if (earlyBirdWinner) {
     payroll.early_bird = {
