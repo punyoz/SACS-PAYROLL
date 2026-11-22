@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, manilaDay, pickDate } from "../support/flow.mjs";
+import { api, choose, manilaDay, pickDate } from "../support/flow.mjs";
 import { db, rows, psql, profileByEmail } from "../support/db.mjs";
 
 const OUT = join(process.cwd(), "screenshots", "2026-11-22-part-b");
@@ -94,18 +94,23 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   await expect(bea).toHaveCount(0); // left the Pending list
 
   const noReason = await api(page, "PATCH", "/api/hr/overtime-requests", { id: anaRequest.id, decision: "reject" });
-  expect(noReason.data.error).toBe("Say why the overtime is rejected.");
+  expect(noReason.data.error).toBe("Choose a remark (a reason is required).");
   const ana = hr.getByRole("row").filter({ hasText: other });
   await ana.getByRole("button", { name: "Reject" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("button", { name: "Reject" })).toBeDisabled();
-  await dialog.getByLabel("Reason (required)").fill("Not needed this week");
+  // Part H: a rejection needs a remark; the preset carries extra words.
+  await dialog.getByRole("button", { name: "Reject" }).click();
+  await expect(dialog.getByText("Choose a remark (a reason is required).")).toBeVisible();
+  await choose(page, dialog.locator("#ot-remark-preset"), "Not needed for the task");
+  await dialog.locator("#ot-remark-extra").fill("this week");
   await dialog.getByRole("button", { name: "Reject" }).click();
   await expect(dialog).toBeHidden();
   await expect(ana).toHaveCount(0);
 
   const decided = await rows(db().from("overtime_requests").select("status,decision_note").in("id", [anaRequest.id]));
-  expect(decided[0]).toEqual({ status: "rejected", decision_note: "Not needed this week" });
+  expect(decided[0]).toEqual({ status: "rejected", decision_note: "Not needed for the task: this week" });
+  const audited = await rows(db().from("audit_logs").select("metadata").eq("entity_id", anaRequest.id).eq("metadata->>kind", "decision_remark"));
+  expect(audited.map((a) => a.metadata.remark_code)).toEqual(["reject.overtime.not_needed"]);
 
   // The employee may not decide anything.
   await as(page, "employee2", "emp-leave");

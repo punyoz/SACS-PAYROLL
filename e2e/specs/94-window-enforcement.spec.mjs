@@ -12,7 +12,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
+import { api, confirm, manilaDay, pickDate, refresh, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -175,7 +175,7 @@ test("processing window enforcement: ON blocks, OFF opens own-branch processing,
     await row.getByRole("button", { name: "Review" }).click();
     await settle(page);
     await main(page).getByRole("button", { name: "Approve", exact: true }).click();
-    await page.locator("#pa-remarks").fill("E2E approved in testing mode");
+    await writeRemark(page, "pa-remark", "E2E approved in testing mode");
     await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
     const branch = await rows(db().from("branches").select("id").eq("name", BRANCH).single());

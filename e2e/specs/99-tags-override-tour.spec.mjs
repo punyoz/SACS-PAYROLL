@@ -19,7 +19,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm } from "../support/flow.mjs";
+import { api, choose, confirm, writeRemark } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS, BRANCH_MAIN } from "../accounts.mjs";
 import { TIME_TRAVEL, shiftBrowser, travelHome, travelTo } from "../support/time-travel.mjs";
@@ -201,7 +201,7 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
       await shot(page, "06-hr-approval-breakdown");
       await shot(page, "06-hr-approval-breakdown", { phone: true });
       await main(page).getByRole("button", { name: "Reject", exact: true }).click();
-      await page.locator("#pa-remarks").fill(REJECT);
+      await writeRemark(page, "pa-remark", REJECT);
       await page.getByRole("dialog").getByRole("button", { name: "Reject", exact: true }).click();
       await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
     });
@@ -238,7 +238,7 @@ test("overrides in the processing window; contributions vs tax; tagged lines eve
       await main(page).locator("tr", { hasText: OCT2 }).filter({ hasText: BRANCH_MAIN }).first().getByRole("button", { name: "Review" }).click();
       await settle(page);
       await main(page).getByRole("button", { name: "Approve", exact: true }).click();
-      await page.locator("#pa-remarks").fill("E2E approved after the override check");
+      await writeRemark(page, "pa-remark", "E2E approved after the override check");
       await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
       await expect(page.getByRole("dialog")).toBeHidden({ timeout: 30000 });
     });

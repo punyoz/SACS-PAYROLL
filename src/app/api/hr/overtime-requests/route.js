@@ -1,3 +1,4 @@
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -99,10 +100,12 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => ({}));
     const decision = body.decision === "approve" ? "approved" : body.decision === "reject" ? "rejected" : null;
     if (!decision || !body.id) return NextResponse.json({ error: "Choose Approve or Reject." }, { status: 400 });
-    const note = String(body.note || "").trim();
-    if (decision === "rejected" && !note) return NextResponse.json({ error: "Say why the overtime is rejected." }, { status: 400 });
-    if (note.length > 300) return NextResponse.json({ error: "The note is too long (300 characters at most)." }, { status: 400 });
     const supabase = getServiceClient();
+    // Part H: a preset remark (required to reject); its code + text are audited with the decision.
+    const remark = await resolveRemark(supabase, body.remark, { decision: body.decision, entityType: "overtime_request", fallbackText: body.note });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+    const note = remark.text || "";
+    if (note.length > 500) return NextResponse.json({ error: "The remark is too long (500 characters at most)." }, { status: 400 });
     const { data: current, error: readError } = await supabase.from("overtime_requests").select("id,employee_id,branch_id,request_date,status").eq("id", body.id).maybeSingle();
     if (readError) throw readError;
     if (!current || (!guard.branchExempt && guard.branchId && String(current.branch_id) !== String(guard.branchId))) {
@@ -116,7 +119,8 @@ export async function PATCH(request) {
     }
     const { data: me } = await supabase.from("profiles").select("full_name").eq("id", guard.userId).maybeSingle();
     const by = me?.full_name || "HR";
-    const { data, error } = await supabase.from("overtime_requests")
+    const decider = remarkClient(remark, { decision: body.decision, entityType: "overtime_request", module: "attendance", table: "overtime_requests", ids: [current.id], actor: guard });
+    const { data, error } = await decider.from("overtime_requests")
       .update({ status: decision, decided_by: guard.userId, decided_by_name: by, decided_at: new Date().toISOString(), decision_note: note || null })
       .eq("id", current.id).eq("status", "pending").select(COLUMNS).maybeSingle();
     if (error) throw error;
