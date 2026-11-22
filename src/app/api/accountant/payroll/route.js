@@ -3422,7 +3422,10 @@ async function handleMonthlyItemsView(supabase, employees, url) {
     .from("payroll_monthly_incentives")
     .select("id,employee_id,item_date,kind,description,amount,hours,created_at,created_by_name,approval_status,decided_by_name,decided_at,decision_note")
     .eq("archived", false)
-    .gte("item_date", monthInfo(shiftMonth(monthKey, -1)).start_key)
+    // Every item processing could pay this month (the same lower bound as
+    // processing), not only last month's: an item filed two or more months
+    // late landed here but was missing from the list (2026-11-21, finding d).
+    .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
     .lte("item_date", month.end_key)
     .order("item_date", { ascending: false })
     .order("id", { ascending: true }));
