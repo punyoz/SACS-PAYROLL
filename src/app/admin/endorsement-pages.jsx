@@ -3,6 +3,8 @@
 import { LeaveBalanceNote } from "@/components/portal/leave-balance-note";
 import * as React from "react";
 import { ArrowLeftRightIcon, CalendarDaysIcon, RefreshCwIcon } from "lucide-react";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable } from "@/components/portal/data-table";
@@ -39,7 +41,22 @@ export function LeaveRecommendationsPage({ refreshKey }) {
   const [tab, setTab] = React.useState("pending");
   const [target, setTarget] = React.useState(null);
   const leaves = view.data?.leaves || [];
-  const rows = tab === "pending" ? leaves.filter((l) => l.pending) : tab === "decided" ? leaves.filter((l) => !l.pending) : leaves;
+  const tabRows = tab === "pending" ? leaves.filter((l) => l.pending) : tab === "decided" ? leaves.filter((l) => !l.pending) : leaves;
+  // Part F: search, leave type (with counts), dates and sort (in the address); several endorsed at once with one remark.
+  const filters = useApprovalFilters(tabRows, {
+    prefix: "adml", typeLabel: "Leave type", people: false,
+    get: { name: (l) => l.employee_name, code: (l) => l.employee_code, type: (l) => l.leave_type, filed: (l) => l.submitted_at || l.created_at, requested: (l) => l.start_date },
+  });
+  const rows = filters.rows;
+  const bulk = useBulkDecisions({
+    entityType: "leave_request", remarkRequired: true, onDone: () => view.load(),
+    decisions: [{ decision: "endorse", label: "Endorse" }, { decision: "object", label: "Not endorse", destructive: true }],
+    title: (d) => `${d.label}: the selected leave requests`,
+    isSelectable: (l) => Boolean(l.pending),
+    label: (l) => `${l.employee_name} ${l.start_date}`,
+    rowLabel: (l) => `${l.employee_name} · ${l.leave_type} · ${dateLabel(l.start_date)}`,
+    send: (l, decision, remark) => fileRequest("leave_endorsement", { ref_id: l.id, decision: decision === "object" ? "not_endorse" : "endorse", remark }),
+  });
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (l) => l.employee_name },
     { key: "leave", header: "Leave", cell: (l) => <div className="text-xs"><p className="font-medium">{l.leave_type}{l.pay_status === "without_pay" ? " (without pay)" : ""}</p><p className="text-muted-foreground">{dateLabel(l.start_date)}{l.end_date !== l.start_date ? ` – ${dateLabel(l.end_date)}` : ""}</p>{l.pending ? <LeaveBalanceNote balance={view.data?.balances?.[l.employee_id]} request={l} className="mt-1 max-w-56 whitespace-normal" /> : null}</div>, searchValue: (l) => l.leave_type },
@@ -61,9 +78,11 @@ export function LeaveRecommendationsPage({ refreshKey }) {
         <CardAction><Button variant="outline" size="sm" onClick={view.load} disabled={view.loading}><RefreshCwIcon className={cn(view.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DataTable toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Pending HR approval" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} />}
+        <DataTable toolbar={<><FilterTabs value={tab} onValueChange={setTab} label="Leave filter" options={[{ value: "pending", label: "Pending HR approval" }, { value: "decided", label: "Decided" }, { value: "all", label: "All" }]} />{filters.toolbar}</>}
           columns={columns} rows={rows} loading={view.first} error={view.error} onRetry={view.load} pageSize={15}
-          searchPlaceholder="Search employee or leave type…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Leave recommendations" minWidth={1100} />
+          searchPlaceholder="Search employee or leave type…" empty={{ title: tab === "pending" ? "No leave waiting for HR" : "No leave requests", icon: CalendarDaysIcon }} caption="Leave recommendations" minWidth={1100}
+          selection={bulk.selection} />
+        {bulk.dialog}
       </CardContent>
       <FileDialog open={Boolean(target)} onOpenChange={(o) => { if (!o) setTarget(null); }} decisions remarkType="leave_request"
         title={`Recommend — ${target?.employee_name || ""}`}

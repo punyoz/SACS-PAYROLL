@@ -164,3 +164,27 @@ test("bulk: HR approves two schedule requests from branch Admins with one remark
   expect(after.map((r) => r.decision_note)).toEqual(["Approved as requested: applied from Dec 7", "Approved as requested: applied from Dec 7"]);
   expect((await rows(db().from("audit_logs").select("entity_id").in("entity_id", ids).eq("metadata->>kind", "decision_remark")))).toHaveLength(2);
 });
+
+test("bulk: the branch Admin endorses two leave requests at once with one remark; HR sees each recommendation", async ({ page }) => {
+  const people = await Promise.all([ACCOUNTS.employee.email, ACCOUNTS.employee2.email].map(profileByEmail));
+  const TAG = `E2E bulk endorse ${Date.now()}`;
+  const ids = [];
+  for (const [n, p] of people.entries()) {
+    const day = manilaDay(120 + (Math.floor(Date.now() / 1000) % 200) * 2 + n);
+    const id = `e2e-fe-${Date.now()}-${n}`;
+    await rows(db().from("leave_requests").insert({ id, employee_id: p.id, employee_name: p.full_name, leave_type: "Vacation Leave", start_date: day, end_date: day,
+      reason: TAG, status: "pending_accountant", pay_status: "with_pay", branch_id: p.branch_id }).select("id"));
+    ids.push({ id, p, day });
+  }
+  await as(page, "admin", "adm-leaves");
+  await settle(page);
+  for (const { p, day } of ids) await main(page).getByRole("checkbox", { name: `Select ${p.full_name} ${day}` }).check();
+  await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Endorse selected", exact: true }).click();
+  const dialog = page.getByTestId("bulk-dialog");
+  await writeRemark(page, "bulk-remark", "", { preset: "Coverage arranged" });
+  await dialog.getByRole("button", { name: "Endorse (2)" }).click();
+  await expect(dialog.getByTestId("bulk-summary")).toHaveText("2 done.");
+  await dialog.getByRole("button", { name: "Done" }).click();
+  const recs = await rows(db().from("branch_admin_requests").select("ref_id,status,admin_note").eq("kind", "leave_endorsement").in("ref_id", ids.map((x) => x.id)));
+  expect(recs.map((r) => [r.status, r.admin_note])).toEqual([["endorsed", "Coverage arranged"], ["endorsed", "Coverage arranged"]]);
+});
