@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -60,6 +61,8 @@ function compare(a, b) {
   return String(a).localeCompare(String(b), "en", { numeric: true, sensitivity: "base" });
 }
 
+const NO_SELECTION = new Set();
+
 export function DataTable({
   columns: allColumns,
   rows,
@@ -91,6 +94,11 @@ export function DataTable({
   pageSizes = null,
   // Told the searched and sorted rows whenever they change (an export outside the toolbar acts on them).
   onRowsShown = null,
+  // Part F (2026-11-22): row selection for bulk actions.
+  // { selected: Set of ids, onChange(Set), rowId(row), isSelectable?(row), label?(row), actions?(selectedRows, clear) }
+  // A checkbox per row, "select all on this page", "Select all N matching" (every
+  // page of the search), and a bar with the count, the actions and Clear.
+  selection = null,
 }) {
   const isMobile = useIsMobile();
   const asCards = mobileCards && isMobile;
@@ -121,6 +129,16 @@ export function DataTable({
   }, [filtered, sort, columns]);
 
   React.useEffect(() => { onRowsShown?.(sorted); }, [sorted, onRowsShown]);
+  const selectionChange = selection?.onChange;
+  const selectionSet = selection?.selected;
+  const selectionIdOf = selection?.rowId;
+  React.useEffect(() => {
+    if (!selectionChange || !selectionSet?.size) return;
+    const idFn = selectionIdOf || ((row) => row.id);
+    const present = new Set(list.map(idFn));
+    const kept = [...selectionSet].filter((id) => present.has(id));
+    if (kept.length !== selectionSet.size) selectionChange(new Set(kept));
+  }, [list, selectionChange, selectionSet, selectionIdOf]);
 
   const total = server ? Number(server.total || 0) : sorted.length;
   const sizeNow = server ? Number(server.pageSize || initialPageSize) : pageSize;
@@ -131,6 +149,37 @@ export function DataTable({
   const start = paginate ? (currentPage - 1) * sizeNow : 0;
   const visible = server ? sorted : (paginate ? sorted.slice(start, start + pageSize) : sorted);
   const goTo = (next) => (server ? server.onChange({ page: next }) : setPage(next));
+
+  const selectedIds = selection?.selected || NO_SELECTION;
+  const idOf = selection?.rowId || ((row) => row.id);
+  const canSelect = (row) => (selection?.isSelectable ? selection.isSelectable(row) : true);
+  const matching = server ? visible : sorted;
+  const selectableOnPage = selection ? visible.filter(canSelect) : [];
+  const selectableMatching = selection ? matching.filter(canSelect) : [];
+  const pageAll = selectableOnPage.length > 0 && selectableOnPage.every((row) => selectedIds.has(idOf(row)));
+  const pageSome = selectableOnPage.some((row) => selectedIds.has(idOf(row)));
+  const setSelected = (next) => selection?.onChange?.(next);
+  const togglePage = (on) => {
+    const next = new Set(selectedIds);
+    selectableOnPage.forEach((row) => (on ? next.add(idOf(row)) : next.delete(idOf(row))));
+    setSelected(next);
+  };
+  const toggleRow = (row, on) => {
+    const next = new Set(selectedIds);
+    if (on) next.add(idOf(row)); else next.delete(idOf(row));
+    setSelected(next);
+  };
+  const selectedRows = selection ? list.filter((row) => selectedIds.has(idOf(row))) : [];
+  const clearSelection = () => setSelected(new Set());
+  const renderColumns = selection ? [{
+    key: "__select",
+    headClassName: "w-10",
+    className: "w-10",
+    header: <Checkbox aria-label="Select all on this page" checked={pageAll ? true : pageSome ? "indeterminate" : false} disabled={!selectableOnPage.length} onCheckedChange={(on) => togglePage(on === true)} />,
+    cell: (row) => (canSelect(row)
+      ? <Checkbox aria-label={`Select ${selection.label ? selection.label(row) : "this row"}`} checked={selectedIds.has(idOf(row))} onCheckedChange={(on) => toggleRow(row, on === true)} />
+      : null),
+  }, ...columns] : columns;
   const resize = (size) => (server ? server.onChange({ pageSize: size, page: 1 }) : setPageSize(size));
 
   // A new search or page size starts again from page 1. New rows (a timed
@@ -172,9 +221,23 @@ export function DataTable({
           {onRetry ? <Button variant="outline" size="sm" onClick={onRetry}>Try again</Button> : null}
         </div>
       ) : null}
+      {selection && selectedIds.size ? (
+        <div role="region" aria-label="Selected rows" data-testid="bulk-bar" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          <span className="font-medium tabular-nums" aria-live="polite">{selectedIds.size} selected</span>
+          {pageAll && selectableMatching.length > selectedIds.size ? (
+            <Button variant="link" size="sm" className="h-auto px-1" onClick={() => setSelected(new Set(selectableMatching.map(idOf)))}>
+              Select all {selectableMatching.length} matching
+            </Button>
+          ) : null}
+          <span className="flex flex-1 flex-wrap justify-end gap-2">
+            {selection.actions ? selection.actions(selectedRows, clearSelection) : null}
+            <Button variant="ghost" size="sm" onClick={clearSelection}>Clear</Button>
+          </span>
+        </div>
+      ) : null}
       {asCards ? (
         <MobileCards
-          columns={columns}
+          columns={renderColumns}
           rows={visible}
           loading={loading}
           error={error && !(rows || []).length ? error : null}
@@ -190,7 +253,7 @@ export function DataTable({
           {caption ? <caption className="sr-only">{caption}</caption> : null}
           <TableHeader className={cn("bg-muted/60", stickyHeader && "sticky top-0 z-10 bg-muted shadow-[0_1px_0_var(--border)]")}>
             <TableRow className="hover:bg-transparent">
-              {columns.map((column) => {
+              {renderColumns.map((column) => {
                 const sortable = Boolean(column.sortValue || column.sortable);
                 const active = sort?.key === column.key ? sort.dir : null;
                 return (
@@ -225,7 +288,7 @@ export function DataTable({
             {loading ? (
               Array.from({ length: 5 }, (_, i) => (
                 <TableRow key={`sk-${i}`} className="hover:bg-transparent">
-                  {columns.map((column, c) => (
+                  {renderColumns.map((column, c) => (
                     <TableCell key={column.key}>
                       <Skeleton className="h-4" style={{ width: `${55 + ((i * 7 + c * 13) % 40)}%` }} />
                     </TableCell>
@@ -234,13 +297,13 @@ export function DataTable({
               ))
             ) : error && !(rows || []).length ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columns.length} className="p-0">
+                <TableCell colSpan={renderColumns.length} className="p-0">
                   <ErrorState message={error} onRetry={onRetry} />
                 </TableCell>
               </TableRow>
             ) : visible.length === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={columns.length} className="p-0 whitespace-normal">
+                <TableCell colSpan={renderColumns.length} className="p-0 whitespace-normal">
                   {query ? (
                     <EmptyState title="No matches" description={`Nothing matches “${query}”.`} />
                   ) : (
@@ -251,7 +314,7 @@ export function DataTable({
             ) : (
               visible.map((row, index) => (
                 <TableRow key={rowKey(row, start + index)} className={cn(striped && "even:bg-muted/25", rowClassName?.(row))}>
-                  {columns.map((column) => (
+                  {renderColumns.map((column) => (
                     <TableCell key={column.key} className={cn(alignClass(column.align), column.className)}>
                       {column.cell ? column.cell(row) : (row[column.key] ?? "—")}
                     </TableCell>

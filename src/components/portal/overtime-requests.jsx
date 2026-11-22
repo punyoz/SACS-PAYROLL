@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable } from "@/components/portal/data-table";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
+import { BulkActionDialog } from "@/components/portal/bulk-action-dialog";
 import { DatePicker } from "@/components/portal/date-picker";
 import { RequestStatusBadge, StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
@@ -147,6 +148,14 @@ export function HrOvertimeRequests() {
   const [status, setStatus] = React.useState("pending");
   const list = useRequests(`/api/hr/overtime-requests?status=${status}`);
   const [deciding, setDeciding] = React.useState(null);
+  // Part F: pending requests decided in bulk (one remark for all; each row checked and reported).
+  const [selected, setSelected] = React.useState(() => new Set());
+  const [bulk, setBulk] = React.useState(null); // { decision, rows }
+  const sendOne = async (row, decision, remark) => {
+    const res = await apiFetch("/api/hr/overtime-requests", jsonBody("PATCH", { id: row.id, decision, remark }));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Not saved.");
+  };
 
   // Part H: the remark comes from DecisionRemarkDialog; an error stays in the dialog.
   async function decide(remark) {
@@ -203,8 +212,30 @@ export function HrOvertimeRequests() {
       </CardHeader>
       <CardContent>
         <DataTable columns={columns} rows={list.rows} loading={list.loading} error={list.error} onRetry={list.reload}
-          searchPlaceholder="Search employees…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Overtime requests" minWidth={860} />
+          searchPlaceholder="Search employees…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Overtime requests" minWidth={860} 
+          selection={{
+            selected, onChange: setSelected, rowId: (r) => r.id, isSelectable: (r) => r.status === "pending",
+            label: (r) => `${r.employee_name} ${r.request_date}`,
+            actions: (rows) => (<>
+              <Button size="sm" variant="outline" className="text-destructive" onClick={() => setBulk({ decision: "reject", rows })}>Reject selected</Button>
+              <Button size="sm" onClick={() => setBulk({ decision: "approve", rows })}>Approve selected</Button>
+            </>),
+          }}
+        />
       </CardContent>
+      <BulkActionDialog
+        open={Boolean(bulk)}
+        title={bulk?.decision === "reject" ? "Reject the selected overtime" : "Approve the selected overtime"}
+        rows={bulk?.rows || []}
+        label={(r) => `${r.employee_name} · ${r.request_date} · ${r.planned_start}-${r.planned_end} (${r.hours_text})`}
+        decision={bulk?.decision}
+        entityType="overtime_request"
+        destructive={bulk?.decision === "reject"}
+        confirmLabel={bulk?.decision === "reject" ? "Reject" : "Approve"}
+        run={(row, remark) => sendOne(row, bulk.decision, remark)}
+        onDone={() => list.reload()}
+        onClose={() => { setBulk(null); setSelected(new Set()); }}
+      />
       <DecisionRemarkDialog
         open={Boolean(deciding)}
         idPrefix="ot-remark"
