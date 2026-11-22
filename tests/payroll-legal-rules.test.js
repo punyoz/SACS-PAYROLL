@@ -266,7 +266,7 @@ beforeEach(async () => {
     log("o1", "2026-10-01", { time_out: "2026-10-01T12:00:00Z" }),
     log("h1", "2026-10-05"),
   );
-  table("attendance_overtime_approvals").push({ log_id: "o1", employee_id: EMP, log_date: "2026-10-01", overtime_minutes: 180, approved_minutes: 120, status: "approved" });
+  table("attendance_overtime_approvals").push({ log_id: "o1", employee_id: EMP, log_date: "2026-10-01", overtime_minutes: 180, approved_minutes: 120, status: "approved", note: "Overtime request r1" });
 
   ({ GET, POST, PATCH } = await import("@/app/api/accountant/payroll/route"));
   ({ createSessionToken, SESSION_COOKIE } = await import("@/lib/rbac/session"));

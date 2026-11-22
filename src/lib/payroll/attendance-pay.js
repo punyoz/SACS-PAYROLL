@@ -111,8 +111,11 @@ export function holidayPayPct(type, { regularPct, specialPct, restDay = false })
  *                                    the day or approved the holiday work; without it
  *                                    every worked holiday is paid (the earlier rule)
  * @param {Set}      [args.restDays]  date keys that are the employee's own rest days
+ * @param {number}   [args.overtimeRegularPct] overtime on a regular working day as a %
+ *                                    of the hourly rate (Part B, 2026-11-22: 125, a
+ *                                    setting); rest days and holidays keep the rate table
  */
-export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays }) {
+export function computeAttendancePay({ logs, leaveDays, rates, periodStart, periodEnd, overtime, holidays, protection, holidayPremiumAllowed, restDays, overtimeRegularPct }) {
   const hourly = valueOf(rates, "hourly");
   const daily = valueOf(rates, "daily");
   const halfDayAmount = peso(daily * valueOf(rates, "half_day_pct") / 100);
@@ -227,10 +230,15 @@ export function computeAttendancePay({ logs, leaveDays, rates, periodStart, peri
     const approvedMinutes = Math.max(0, Math.round(Number(overtime?.get?.(logId)) || 0));
     if (logId && approvedMinutes > 0) {
       counts.overtime_minutes += approvedMinutes;
+      // A regular working day: the overtime setting (125%); a rest day or holiday: the rate table.
+      const regularDay = !holidays?.get?.(date) && !restDays?.has?.(date);
+      const useSetting = regularDay && Number(overtimeRegularPct) > 0;
+      const rate = useSetting ? hourly * Number(overtimeRegularPct) / 100 : overtimeHourly;
       earnings.push({
-        type: "overtime", quantity: approvedMinutes, unit: "minute", rate: peso(overtimeHourly),
-        rate_config_id: configOf(rates, "overtime_premium_pct") || configOf(rates, "hourly"),
-        amount: peso((approvedMinutes / 60) * overtimeHourly), source_log_id: logId, log_date: date,
+        type: "overtime", quantity: approvedMinutes, unit: "minute", rate: peso(rate),
+        rate_config_id: useSetting ? configOf(rates, "hourly") : configOf(rates, "overtime_premium_pct") || configOf(rates, "hourly"),
+        ...(useSetting ? { rate_pct: Number(overtimeRegularPct) } : {}),
+        amount: peso((approvedMinutes / 60) * rate), source_log_id: logId, log_date: date,
       });
     }
 

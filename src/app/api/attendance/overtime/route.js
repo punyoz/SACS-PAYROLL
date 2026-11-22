@@ -12,17 +12,17 @@ import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { fetchAllIn, fetchAllRows } from "@/lib/supabase/fetch-all";
 
 /**
- * Overtime approval.
+ * Late time outs, read only (Part B, 2026-11-22).
  *
  *   GET   /api/attendance/overtime?period=<label> | ?from=&to=  [&branch_id=]
  *         Days whose time out is at least OVERTIME_MIN_MINUTES after the
- *         branch's scheduled end, with any decision already made.
- *   PATCH /api/attendance/overtime
- *         { log_id, decision: "approve" | "reject", approved_minutes, note }
+ *         branch's scheduled end: the overtime request filed for the day (or
+ *         "Overtime not filed") and any older approval, kept as history.
  *
- * Payroll pays overtime only for minutes approved here
- * (public.attendance_overtime_approvals, src/lib/payroll/attendance-pay.js);
- * a late tap out alone never pays anything. Scope follows the attendance
+ * Overtime is paid only from approved overtime requests
+ * (/api/hr/overtime-requests, overtime_request_sync); approving minutes from
+ * late taps here was removed on 2026-11-22 (user decision). A late tap out
+ * alone never pays anything. Scope follows the attendance
  * board: Employees see their own days, an Admin its branch, HR and Super
  * Admin every branch. Deciding needs the attendance "update" permission, and
  * is refused once that employee's pay period has been processed.
@@ -146,6 +146,20 @@ export async function GET(request) {
       (result.data || []).forEach((row) => approvals.set(String(row.log_id), row));
     }
     const paid = await paidPeriods(supabase, [...new Set(candidates.map((item) => item.row.employee_id))]);
+    // Part B (2026-11-22): overtime is requested ahead. A late tap out with no
+    // pending or approved request is flagged "Overtime not filed" and pays nothing.
+    const filed = new Map();
+    if (candidates.length) {
+      const dates = candidates.map((item) => String(item.row.log_date).slice(0, 10)).sort();
+      const result = await fetchAllIn(() => supabase
+        .from("overtime_requests")
+        .select("employee_id,request_date,status,minutes")
+        .in("status", ["pending", "approved"])
+        .gte("request_date", dates[0])
+        .lte("request_date", dates.at(-1)), "employee_id", [...new Set(candidates.map((item) => item.row.employee_id))]);
+      if (result.error) throw new Error(result.error.message);
+      (result.data || []).forEach((r) => filed.set(`${r.employee_id}|${r.request_date}`, { status: r.status, minutes: r.minutes }));
+    }
 
     return NextResponse.json({
       range,
@@ -161,129 +175,11 @@ export async function GET(request) {
         work_end: policy.work_end,
         overtime_minutes: minutes,
         approval: approvals.get(String(row.id)) || null,
+        request: filed.get(`${row.employee_id}|${String(row.log_date).slice(0, 10)}`) || null,
+        flag: filed.has(`${row.employee_id}|${String(row.log_date).slice(0, 10)}`) ? null : "Overtime not filed",
         locked: paid.has(`${row.employee_id}|${periodForDateKey(String(row.log_date).slice(0, 10)).label}`),
       })),
     });
-  } catch (error) {
-    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
-  }
-}
-
-export async function PATCH(request) {
-  const guard = await requirePermission(request, "attendance", "update");
-  if (guard.denied) return guard.denied;
-
-  try {
-    const body = await request.json().catch(() => ({}));
-    const logId = normalizeText(body.log_id);
-    const decision = normalizeText(body.decision).toLowerCase();
-    const note = normalizeText(body.note);
-
-    if (!logId) return NextResponse.json({ error: "log_id is required." }, { status: 400 });
-    if (decision !== "approve" && decision !== "reject") {
-      return NextResponse.json({ error: "Decision must be approve or reject." }, { status: 400 });
-    }
-    if (note.length > NOTE_MAX) {
-      return NextResponse.json({ error: `Keep the note to ${NOTE_MAX} characters or fewer.` }, { status: 400 });
-    }
-
-    const supabase = getAdminClient();
-    const logResult = await supabase
-      .from("attendance_logs")
-      .select("*")
-      .eq("id", logId)
-      .maybeSingle();
-    if (logResult.error) throw new Error(logResult.error.message);
-    const log = logResult.data;
-    if (!log || log.archived_duplicate === true) {
-      return NextResponse.json({ error: "Attendance record not found." }, { status: 404 });
-    }
-
-    // The employee's current branch, as every other attendance action.
-    const profile = await supabase.from("profiles").select("branch_id").eq("id", log.employee_id).maybeSingle();
-    if (profile.error) throw new Error(profile.error.message);
-    if (!guard.branchExempt && !profile.data?.branch_id) {
-      return NextResponse.json({ error: "That employee is not assigned to your branch." }, { status: 403 });
-    }
-    const foreign = denyForeignBranch(guard, profile.data?.branch_id || null);
-    if (foreign) return foreign;
-
-    if (!log.time_in || !log.time_out || UNRESOLVED_STATUSES.includes(normalizeAttendanceStatus(log.status))) {
-      return NextResponse.json({ error: "Overtime can only be decided for a day with both a time in and a time out." }, { status: 400 });
-    }
-
-    const policyFor = await policiesFor(supabase, [log.branch_id]);
-    const policy = policyFor(log.branch_id, log);
-    const available = overtimeMinutes(log, policy);
-    if (available < OVERTIME_MIN_MINUTES) {
-      return NextResponse.json(
-        { error: `This day has no overtime: the time out is less than ${OVERTIME_MIN_MINUTES} minutes after the ${policy.work_end} end of shift.` },
-        { status: 400 },
-      );
-    }
-
-    let approvedMinutes = 0;
-    if (decision === "approve") {
-      approvedMinutes = Number(body.approved_minutes);
-      if (!Number.isInteger(approvedMinutes) || approvedMinutes < 1 || approvedMinutes > available) {
-        return NextResponse.json(
-          { error: `Approve a whole number of minutes from 1 to ${available}.` },
-          { status: 400 },
-        );
-      }
-    }
-
-    const period = periodForDateKey(String(log.log_date).slice(0, 10));
-    const paid = await paidPeriods(supabase, [log.employee_id]);
-    if (paid.has(`${log.employee_id}|${period.label}`)) {
-      return NextResponse.json(
-        { error: `Payroll for ${period.label} has already been processed for this employee, so its overtime can no longer change.` },
-        { status: 409 },
-      );
-    }
-
-    const row = {
-      log_id: log.id,
-      employee_id: log.employee_id,
-      branch_id: log.branch_id || null,
-      log_date: String(log.log_date).slice(0, 10),
-      overtime_minutes: available,
-      approved_minutes: approvedMinutes,
-      status: decision === "approve" ? "approved" : "rejected",
-      note: note || null,
-      decided_by: guard.userId || null,
-      decided_by_name: normalizeText(guard.session?.full_name, guard.session?.email) || null,
-      decided_at: new Date().toISOString(),
-    };
-    const saved = await supabase
-      .from("attendance_overtime_approvals")
-      .upsert(row, { onConflict: "log_id" })
-      .select("log_id,approved_minutes,status,note,decided_by_name,decided_at")
-      .maybeSingle();
-    if (saved.error) throw new Error(saved.error.message);
-
-    await appendAuditLog({
-      actor: guard,
-      module: "attendance",
-      action: decision === "approve" ? "overtime_approve" : "overtime_reject",
-      entity_type: "attendance_log",
-      entity_id: log.id,
-      description: decision === "approve"
-        ? `Overtime of ${approvedMinutes} minute${approvedMinutes === 1 ? "" : "s"} approved for ${log.employee_name} on ${row.log_date}.`
-        : `Overtime rejected for ${log.employee_name} on ${row.log_date}.`,
-      status: "success",
-      source: "api",
-      metadata: {
-        employee_id: log.employee_id,
-        branch_id: log.branch_id || null,
-        log_date: row.log_date,
-        overtime_minutes: available,
-        approved_minutes: approvedMinutes,
-        note: note || null,
-      },
-    });
-
-    return NextResponse.json({ success: true, approval: saved.data || row });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
