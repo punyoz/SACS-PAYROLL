@@ -46,7 +46,7 @@ test("tenure: tabs, bulk grant, bulk revoke with a required preset, HR re-grant"
       await main(page).getByTestId("bulk-bar").getByRole("button", { name: "Revoke selected" }).click();
       const dialog = page.getByTestId("bulk-dialog");
       await dialog.getByRole("button", { name: "Revoke (1)" }).click();
-      await expect(dialog.getByText(/Choose a remark/)).toBeVisible();
+      await expect(dialog.getByRole("alert").filter({ hasText: "Choose a remark (a reason is required)." })).toBeVisible();
       await writeRemark(page, "bulk-remark", "", { preset: "Granted in error" });
       await dialog.getByRole("button", { name: "Revoke (1)" }).click();
       await expect(dialog.getByTestId("bulk-summary")).toContainText("1 done");

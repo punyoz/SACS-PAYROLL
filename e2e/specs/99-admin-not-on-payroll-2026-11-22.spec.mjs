@@ -24,7 +24,11 @@ test("Admin accounts: no date hired asked, saved not on payroll; HR still needs 
   await step(page, "Super Admin > Add staff account > role Admin: the date hired field is replaced by the not-on-payroll note", async () => {
     await main(page).getByRole("button", { name: "Add staff account" }).click();
     const dialog = page.getByRole("dialog");
+    // HR is on payroll: the date hired is asked.
+    await dialog.locator("#sa-add-role").click();
+    await page.getByRole("option", { name: "HR", exact: true }).click();
     await expect(dialog.getByLabel(/Date hired/)).toBeVisible();
+    await expect(dialog.getByTestId("not-on-payroll-note")).toHaveCount(0);
     await dialog.locator("#sa-add-role").click();
     await page.getByRole("option", { name: "Admin", exact: true }).click();
     await expect(dialog.getByTestId("not-on-payroll-note")).toContainText("not on payroll");

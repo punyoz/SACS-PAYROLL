@@ -23,7 +23,9 @@ test("AWOL: a system-opened case — review the prepared notice, send it with on
   try {
     await as(page, "hr", "hr-awol");
     await settle(page);
-    const row = main(page).locator("tr", { hasText: bea.full_name });
+    // The case list (the reports table under it also names Bea, with a select checkbox per row).
+    const row = main(page).locator("tr", { hasText: bea.full_name }).filter({ hasNot: page.getByRole("checkbox") });
+    await expect(row).toHaveCount(1);
 
     await step(page, "HR > AWOL Cases > the case shows 'Opened by System', the notice prepared, no deadline yet", async () => {
       await expect(row).toContainText("Opened by System");

@@ -18,7 +18,8 @@ test("substitution: Admin arranges from the suggestions, HR approves with a rema
   const carlo = await profileByEmail(ACCOUNTS.employee3.email);
   const today = manilaDay(0);
   // Same level and branch for Ana and Bea (test data); Bea tapped in today.
-  await db().from("profiles").update({ employee_level: "Elementary", employee_type: "Teaching" }).in("id", [ana.id, bea.id]);
+  const levelSet = await db().from("profiles").update({ employee_level: "grade_school", employee_type: "Teaching" }).in("id", [ana.id, bea.id]);
+  expect(levelSet.error, "test setup: same level for Ana and Bea").toBeNull();
   await db().from("attendance_logs").delete().eq("employee_id", bea.id).eq("log_date", today);
   await rows(db().from("attendance_logs").insert({ employee_id: bea.id, employee_name: bea.full_name, branch_id: bea.branch_id, log_date: today,
     time_in: `${today}T07:00:00+08:00`, time_out: `${today}T17:00:00+08:00` }).select("id"));
