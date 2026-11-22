@@ -148,7 +148,7 @@ export async function GET(request) {
 
     // Action needed (Part A, 20261121010000): records to confirm, probations and
     // contracts ending within the reminder windows. Never fails the dashboard.
-    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [], leave_after_payslip: [] };
+    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [], date_hired_not_set: [], leave_after_payslip: [] };
     try {
       // Not the viewer's own record: another HR confirms it.
       const ids = employees.map((u) => u.id).filter((id) => id !== guard.userId);
@@ -169,6 +169,7 @@ export async function GET(request) {
         contract_ending: people.filter((p) => p.contract_end_date && p.contract_end_date >= today && p.contract_end_date <= plus(days("contract_reminder_days")))
           .map((p) => ({ id: p.id, full_name: p.full_name, due_on: p.contract_end_date })),
         salary_not_set: [],
+        date_hired_not_set: [],
         leave_after_payslip: [],
       };
     } catch { /* ignore */ }
@@ -184,6 +185,19 @@ export async function GET(request) {
       if (!guard.branchExempt) zero = zero.eq("branch_id", guard.branchId);
       const { data } = await zero;
       actionNeeded.salary_not_set = (data || []).map((p) => ({ id: p.id, full_name: p.full_name, role: p.role }));
+    } catch { /* ignore */ }
+    // Date hired not set (2026-11-22): tenure, proration and leave accrual count from it
+    // (Part G cannot count anyone without one). Every on-payroll account, any role.
+    try {
+      let undated = supabase.from("profiles").select("id,full_name,role,branch_id")
+        .is("date_hired", null)
+        .not("archived", "is", true)
+        .not("on_payroll", "is", false)
+        .in("role", ["employee", "accountant", "hr"])
+        .order("full_name", { ascending: true });
+      if (!guard.branchExempt) undated = undated.eq("branch_id", guard.branchId);
+      const { data } = await undated;
+      actionNeeded.date_hired_not_set = (data || []).map((p) => ({ id: p.id, full_name: p.full_name, role: p.role }));
     } catch { /* ignore */ }
     // Leave approved after its day's Final payslip (Part B, 2026-11-22): a
     // correction on the next payslip. Approvals of the last 60 days, branch-scoped.

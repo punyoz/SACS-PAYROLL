@@ -178,6 +178,9 @@ export async function POST(request) {
         suffix: record.suffix || null,
         full_name: record.full_name,
         branch_id: branchId,
+        // Fix 2026-11-22: tenure, proration and Action needed read the column; it was
+        // only in user_metadata, so every account made here had no date hired.
+        date_hired: record.date_hired || null,
         ...(basicSalary ? { basic_salary: basicSalary } : {}),
         ...(record.role === "hr" ? HR_JOB : {}),
         ...(record.role === "hr" ? {
