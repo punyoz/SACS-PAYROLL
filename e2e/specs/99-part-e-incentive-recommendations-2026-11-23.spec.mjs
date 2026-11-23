@@ -65,6 +65,16 @@ test("Perfect Attendance: held for HR, then paid once HR approves", async ({ pag
     expect(await perfectRec(emp.id)).toMatchObject([{ status: "pending", amount: BONUS }]);
   });
 
+  await step(page, "Recommended, then an absence is added: withdrawn; re-saved without it: pending again, still one row", async () => {
+    // A Saturday inside the payslip's attendance window: any attendance change there counts.
+    const sat = days.length ? (() => { const t = Date.parse(`${days[days.length - 1]}T00:00:00Z`); for (let x = t; ; x -= 864e5) if (new Date(x).getUTCDay() === 6) return new Date(x).toISOString().slice(0, 10); })() : null;
+    const [absence] = await rows(db().from("attendance_logs").insert({ employee_id: emp.id, employee_name: emp.full_name, branch_id: emp.branch_id, log_date: sat, status: "Absent" }).select("id"));
+    expect(await perfectRec(emp.id)).toMatchObject([{ status: "withdrawn" }]);
+    psql(`set session_replication_role = replica; delete from attendance_logs where id = '${absence.id}';`);
+    await draft(page, emp);
+    expect(await perfectRec(emp.id)).toMatchObject([{ status: "pending", amount: BONUS }]);
+  });
+
   await step(page, "HR sees it on Incentive & loan approvals and approves it", async () => {
     await as(page, "hr", "hr-adjustment-approvals");
     const list = await api(page, "GET", "/api/hr/adjustment-approvals?status=pending");

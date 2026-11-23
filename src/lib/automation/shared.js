@@ -17,6 +17,7 @@ export const AUTOMATION_MODULES = Object.freeze({
   overtime_requests: "Overtime requests",
   substitutions: "Substitutions",
   awol_cases: "AWOL cases",
+  incentive_recommendations: "Incentive recommendations",
 });
 export const NOTE_MAX = 500;
 

@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS public.incentive_recommendations (
   kind TEXT NOT NULL CHECK (kind IN ('perfect_attendance', 'early_bird')),
   amount NUMERIC(12, 2) NOT NULL CHECK (amount >= 0),
   reasons JSONB NOT NULL DEFAULT '[]'::JSONB,
+  -- The attendance days the computation read (a 2nd half reads its whole month): a change inside them
+  -- withdraws a pending recommendation, or flags an approved one for HR (trigger below).
+  window_start DATE,
+  window_end DATE,
+  needs_review TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'withdrawn')),
   decided_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   decided_by_name TEXT,
@@ -35,6 +40,8 @@ CREATE TABLE IF NOT EXISTS public.incentive_recommendations (
 );
 CREATE INDEX IF NOT EXISTS incentive_recommendations_period_idx ON public.incentive_recommendations (period_start, status);
 CREATE INDEX IF NOT EXISTS incentive_recommendations_branch_idx ON public.incentive_recommendations (branch_id, status);
+-- The attendance trigger looks recommendations up by employee (every attendance write).
+CREATE INDEX IF NOT EXISTS incentive_recommendations_employee_idx ON public.incentive_recommendations (employee_id, status);
 
 ALTER TABLE public.incentive_recommendations ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.incentive_recommendations FROM PUBLIC, anon, authenticated;
@@ -140,3 +147,48 @@ AS $function$
     'branch_announcements', 'audit_logs'
   ]::text[];
 $function$;
+
+-- Attendance changed inside a recommendation's window (a correction, an override, leave, a new
+-- absence) before the payslip is saved again: a PENDING one is withdrawn (the next save
+-- recomputes it and records it again if it still qualifies; one row per employee, period and kind,
+-- never a duplicate); an APPROVED one is not changed: HR is flagged to check it.
+CREATE OR REPLACE FUNCTION public.incentive_recs_attendance_changed()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_emp UUID := COALESCE(NEW.employee_id, OLD.employee_id);
+  v_day DATE := COALESCE(NEW.log_date, OLD.log_date);
+  r RECORD;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.status IS NOT DISTINCT FROM OLD.status AND NEW.time_in IS NOT DISTINCT FROM OLD.time_in
+     AND NEW.time_out IS NOT DISTINCT FROM OLD.time_out AND NEW.late_minutes IS NOT DISTINCT FROM OLD.late_minutes
+     AND NEW.undertime_minutes IS NOT DISTINCT FROM OLD.undertime_minutes AND NEW.log_date IS NOT DISTINCT FROM OLD.log_date THEN
+    RETURN NULL;
+  END IF;
+  UPDATE public.incentive_recommendations
+  SET status = 'withdrawn', updated_at = NOW(),
+      reasons = reasons || to_jsonb(format('Withdrawn: attendance on %s changed; recomputed when the payslip is saved again', v_day))
+  WHERE employee_id = v_emp AND status = 'pending'
+    AND v_day BETWEEN COALESCE(window_start, period_start) AND COALESCE(window_end, period_end);
+  FOR r IN SELECT i.id, i.kind, i.pay_period, i.branch_id, p.full_name FROM public.incentive_recommendations i
+           JOIN public.profiles p ON p.id = i.employee_id
+           WHERE i.employee_id = v_emp AND i.status = 'approved' AND i.needs_review IS NULL
+             AND v_day BETWEEN COALESCE(i.window_start, i.period_start) AND COALESCE(i.window_end, i.period_end) LOOP
+    UPDATE public.incentive_recommendations SET needs_review = format('Attendance on %s changed after HR approved it', v_day), updated_at = NOW() WHERE id = r.id;
+    PERFORM public.automation_log('incentive_recommendations', 'attendance changed after a rule-based incentive was approved', 'flag',
+      format('%s: %s for %s was approved, then attendance on %s changed. Check it before the payroll run.', r.full_name,
+             CASE r.kind WHEN 'perfect_attendance' THEN 'Perfect Attendance' ELSE 'Early Bird' END, r.pay_period, to_char(v_day, 'Mon DD')),
+      jsonb_build_object('code', 'incentive_attendance_changed', 'recommendation_id', r.id, 'log_date', v_day),
+      v_emp, r.branch_id, 'incentive_recommendation', r.id::TEXT);
+  END LOOP;
+  RETURN NULL;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.incentive_recs_attendance_changed() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS attendance_logs_incentive_recs ON public.attendance_logs;
+CREATE TRIGGER attendance_logs_incentive_recs AFTER INSERT OR UPDATE OR DELETE ON public.attendance_logs
+  FOR EACH ROW EXECUTE FUNCTION public.incentive_recs_attendance_changed();
+
+INSERT INTO public.system_config (section, key, value, updated_by)
+SELECT 'automation', 'paused_incentive_recommendations', 'false', 'System'
+WHERE NOT EXISTS (SELECT 1 FROM public.system_config WHERE section = 'automation' AND key = 'paused_incentive_recommendations');

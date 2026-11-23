@@ -81,9 +81,10 @@ export async function syncIncentiveRecommendations(supabase, entries) {
           const item = wanted.get(kind);
           if (item && !row) {
             inserts.push({ employee_id: e.employee_id, branch_id: ri.branch_id || null, pay_period: e.pay_period, period_start: ri.period_start,
-              period_end: ri.period_end, kind, amount: item.amount, reasons: item.reasons, status: "pending" });
+              period_end: ri.period_end, window_start: ri.window_start || null, window_end: ri.window_end || null, kind, amount: item.amount, reasons: item.reasons, status: "pending" });
           } else if (item && row && (row.status === "withdrawn" || (row.status === "pending" && Number(row.amount) !== Number(item.amount)))) {
-            await supabase.from("incentive_recommendations").update({ status: "pending", amount: item.amount, reasons: item.reasons, updated_at: now }).eq("id", row.id).in("status", ["pending", "withdrawn"]);
+            await supabase.from("incentive_recommendations").update({ status: "pending", amount: item.amount, reasons: item.reasons,
+              window_start: ri.window_start || null, window_end: ri.window_end || null, updated_at: now }).eq("id", row.id).in("status", ["pending", "withdrawn"]);
           } else if (!item && row?.status === "pending") {
             await supabase.from("incentive_recommendations").update({ status: "withdrawn", updated_at: now }).eq("id", row.id).eq("status", "pending");
           }

@@ -2587,7 +2587,9 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   }
   // What HR decides (synced to incentive_recommendations on save): each computed rule-based incentive, paid or held.
   if (context.incentive_gate?.on) {
-    payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, branch_id: employee.branch_id || null, items: ruleGate.items };
+    const span = context.attendance_span || { start_key: period.start_key, end_key: period.end_key };
+    payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, window_start: span.start_key, window_end: span.end_key,
+      branch_id: employee.branch_id || null, items: ruleGate.items };
   }
 
   const nowIso = new Date().toISOString();

@@ -56,7 +56,7 @@ export async function GET(request) {
       supabase.from("branches").select("id,name"),
       // Part E step 6: the system's Perfect Attendance / Early Bird (none until 20261124080000).
       fetchAllRows(() => scoped(supabase.from("incentive_recommendations")
-        .select("id,employee_id,branch_id,pay_period,kind,amount,reasons,status,created_at,decided_by_name,decided_at,decision_note")
+        .select("id,employee_id,branch_id,pay_period,kind,amount,reasons,status,created_at,decided_by_name,decided_at,decision_note,needs_review")
         .neq("status", "withdrawn").order("created_at", { ascending: false }).order("id", { ascending: true }))),
     ]);
     if (incentives.error || loans.error) {
@@ -79,7 +79,8 @@ export async function GET(request) {
       ...(ruleIncentives.error ? [] : ruleIncentives.data || []).map((row) => ({
         ...base({ ...row, created_by_name: "System (rule)", approval_status: row.status }), kind: "rule_incentive",
         type_label: `${RULE_INCENTIVE_LABELS[row.kind] || "Incentive"} (system)`, amount_label: money(row.amount),
-        detail: `${row.pay_period}${(row.reasons || []).length ? ` · ${row.reasons.join("; ")}` : ""}`,
+        detail: `${row.pay_period}${(row.reasons || []).length ? ` · ${row.reasons.join("; ")}` : ""}${row.needs_review ? ` · Check: ${row.needs_review}` : ""}`,
+        needs_review: row.needs_review || null,
       })),
       ...(loans.data || []).map((row) => ({
         ...base(row), kind: "loan", type_label: LOAN_TYPE_LABELS[row.loan_type] || row.loan_type,
