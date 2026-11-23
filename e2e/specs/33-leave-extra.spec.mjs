@@ -7,7 +7,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
+import { api, choose, confirm, manilaDay, pickDate, refresh, newRequest } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -58,7 +58,7 @@ test("leave extras: no proof / without pay, overlap refused, HR rejects + notice
   await step(page, `Employee Ana > Leave > Vacation Leave WITHOUT pay ${D1} to ${D2}, no proof file`, async () => {
     monitor.at("Employee > Leave");
     await as(page, "employee", "emp-leave");
-    const form = main(page).locator("form").first();
+    const form = await newRequest(page, "leave");
     await choose(page, form.getByRole("combobox").first(), "Vacation Leave");
     await choose(page, form.getByRole("combobox").nth(1), "Without pay");
     await pickDate(page, form.getByLabel("Start date"), D1);

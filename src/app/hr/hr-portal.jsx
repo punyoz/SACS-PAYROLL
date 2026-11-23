@@ -16,6 +16,8 @@ import { useEmployeeRecordPage } from "@/components/portal/use-employee-page";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
 import { EmployeeAttendanceRecord } from "@/components/portal/attendance/employee-record";
 import { EmployeesPage } from "./employees-page";
+import { SubstitutionsReportCard } from "@/components/portal/substitutions";
+import { SubstitutionsPanel } from "@/components/portal/substitutions";
 import { DecisionReasonsCard, RemarkPresetsCard } from "@/components/portal/remark-presets-manager";
 import { ClassificationRulesPage } from "./classification-rules-page";
 import { TransfersPage } from "./transfers-page";
@@ -157,7 +159,11 @@ const DESCRIPTIONS = {
 };
 
 /** Retired page ids and where they open now (2026-11-20: Final Pay Approvals moved into Payroll Approval). */
-const MOVED_PAGES = { "hr-final-pay-approvals": { page: "hr-payroll-approval", params: { pa_section: "final-pay" } } };
+const MOVED_PAGES = {
+  "hr-final-pay-approvals": { page: "hr-payroll-approval", params: { pa_section: "final-pay" } },
+  // A leave notification names the Employee page; HR's own Leave & Overtime is hr-my-leave (2026-11-22).
+  "emp-leave": { page: "hr-my-leave", params: {} },
+};
 
 /** An old address (?page=hr-final-pay-approvals): rewritten before the page is read. */
 function redirectMovedPage() {
@@ -249,6 +255,7 @@ function HrScreens() {
           <EmployeeAttendanceRecord key={`${employeeId}-${refreshKey}`} employeeId={employeeId} onBack={() => navigate("hr-attendance")} />
         ) : null}
         {current === "hr-leaves" ? <LeavesPage refreshKey={refreshKey} /> : null}
+        {current === "hr-leaves" ? <SubstitutionsPanel role="hr" refreshKey={refreshKey} /> : null}
         {current === "hr-awol" ? (
           <div className="flex flex-col gap-4">
             <AwolCasesPage refreshKey={refreshKey} />
@@ -268,6 +275,7 @@ function HrScreens() {
         {current === "hr-subsidy-approvals" ? <ApprovalsPage refreshKey={refreshKey} /> : null}
         {current === "hr-reports" ? <ReportsPage /> : null}
         {current === "hr-reports" ? <DecisionReasonsCard allBranches refreshKey={refreshKey} /> : null}
+        {current === "hr-reports" ? <SubstitutionsReportCard /> : null}
         {current === "hr-remark-presets" ? <RemarkPresetsCard refreshKey={refreshKey} /> : null}
         {current === "hr-gov-rates" ? <><RatesSection refreshKey={refreshKey} endpoint="/api/payroll/rates" onlyEditable /><PayrollSettingsSection refreshKey={refreshKey} endpoint="/api/payroll/settings" showTax={false} /><LeaveConversionCard /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
         {current === "hr-adjustment-approvals" ? <AdjustmentApprovalsPanel refreshKey={refreshKey} /> : null}

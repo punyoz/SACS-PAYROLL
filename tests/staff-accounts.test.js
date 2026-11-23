@@ -250,8 +250,10 @@ describe("Staff record validation", () => {
 
   it("names every missing required field", () => {
     for (const field of STAFF_REQUIRED_FIELDS) {
-      const error = validateStaffRecord(normalizeStaffFields(validBody({ [field]: "" })));
-      expect(error).not.toBeNull();
+      // Date hired applies to on-payroll roles (HR); Admin / Super Admin are not on payroll (2026-11-22).
+      const base = field === "date_hired" ? { role: "hr", basic_salary: 25000, employment_status: "Regular", employment_type: "Full-time" } : {};
+      const error = validateStaffRecord(normalizeStaffFields(validBody({ ...base, [field]: "" })));
+      expect(error, field).not.toBeNull();
     }
   });
 
@@ -392,5 +394,21 @@ describe("HR needs an employment status and type (Part A, 20261121010000)", () =
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Contractual" })))).toMatch(/contract end date/i);
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Contractual", contract_end_date: "2027-05-31" })))).toBeNull();
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Substitute" })))).toMatch(/employment status/i);
+  });
+});
+
+/* ══ Not on payroll (2026-11-22) ═══════════════════════════════════════════ */
+
+describe("Admin and Super Admin are not on payroll", () => {
+  it("date hired is optional for Admin and Super Admin, still required for HR", () => {
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "admin", date_hired: "" })))).toBeNull();
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "super_admin", branch_id: "", date_hired: "" })))).toBeNull();
+    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Regular", employment_type: "Full-time", date_hired: "" })))).toMatch(/date hired/i);
+  });
+
+  it("the create route saves Admin / Super Admin not on payroll, with no date hired", () => {
+    const route = readFileSync("src/app/api/admin/staff-accounts/route.js", "utf8");
+    expect(route).toMatch(/on_payroll:\s*!NOT_ON_PAYROLL_ROLES\.includes\(record\.role\)/);
+    expect(route).toMatch(/date_hired:\s*NOT_ON_PAYROLL_ROLES\.includes\(record\.role\) \? null/);
   });
 });

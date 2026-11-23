@@ -48,12 +48,12 @@ export const BACKUP_GROUPS = Object.freeze([
     computed: [],
     tables: ["attendance_logs", "attendance_logs_history", "attendance_taps", "attendance_blocked_taps", "attendance_corrections",
       "attendance_overtime_approvals", "attendance_holidays", "school_break_periods", "holiday_duty_assignments", "holiday_duty_history",
-      "holiday_work_reviews", "early_bird_winners"],
+      "holiday_work_reviews", "early_bird_winners", "attendance_data_gaps"],
   },
   {
     key: "leave", label: "Leave requests and balances",
     description: "Every leave request, each employee's leave balance for this year and last year, the leave credit rules and overrides, and the statutory leave settings.",
-    computed: ["leave_balances"], tables: ["leave_requests", "overtime_requests", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
+    computed: ["leave_balances"], tables: ["leave_requests", "overtime_requests", "substitutions", "leave_credit_rules", "leave_credit_overrides", "statutory_leave_types"],
   },
   {
     key: "payroll", label: "Payroll records and payslips",

@@ -238,6 +238,10 @@ export function buildLineGroups(input) {
     additions.push(line("overload", o.hours ? `Overload pay (${o.hours} h)` : "Overload pay", o.amount, "+", "rate_units",
       o.hours && o.rate ? `${plural(o.hours, "hour")} × ${pesoText(o.rate)}/hour = ${pesoText(o.amount)}` : `As filed = ${pesoText(o.amount)}`));
   }
+  // Substitute teaching (Part C): its own lines, separate from Overload.
+  (a.substitutions || []).filter((l) => num(l.amount) > 0).forEach((l, i) => {
+    additions.push(line(`substitution-${i}`, l.note || "Substitution", l.amount, "+", "rate_units", `= ${pesoText(l.amount)}`));
+  });
   if (num(a.subsidy?.amount) > 0) additions.push(line("subsidy", "Licensed teacher subsidy", a.subsidy.amount, "+", "fixed", `Subsidy as approved = ${pesoText(a.subsidy.amount)}`));
   if (num(a.prior_earnings) > 0) additions.push(line("prior_earnings", "1st cutoff extra earnings (part of the month)", a.prior_earnings, "+", "fixed", `Already paid on the 1st cutoff payslip = ${pesoText(a.prior_earnings)}`));
   if (num(a.year_end_refund) > 0) additions.push(line("year_end_refund", "Year-end tax refund (over-withheld)", a.year_end_refund, "+", "fixed", "Annual tax due less the tax already withheld this year"));
@@ -419,6 +423,7 @@ export function lineInputFromPayroll(payroll, { taxTable = [] } = {}) {
       incentives: { amount: t.other_incentive },
       overload: { amount: t.overload_pay, hours: m.overload_hours || (overloadLine ? num(overloadLine.quantity) : null), rate: overloadLine ? num(overloadLine.rate) : null },
       subsidy: { amount: t.subsidy_pay },
+      substitutions: (lines.incentives || []).filter((l) => l.type === "substitution").map((l) => ({ amount: num(l.amount), note: l.note })),
       year_end_refund: yearEnd?.kind === "refund" ? yearEnd.amount : 0,
     },
     contributions: second ? { sss: d.sss, philhealth: d.philhealth, pagibig: d.pagibig, basis: withSssLimits(m.contribution_basis, rate("sss_msc_min"), rate("sss_msc_max")), source } : {},

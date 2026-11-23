@@ -30,6 +30,8 @@ export function normalizeTransferRequest(row) {
     reviewed_by: row.reviewed_by || null,
     reviewed_at: row.reviewed_at || null,
     remarks: String(row.remarks || ""),
+    // HR's remark on the decision (Batch 2), shown with the status.
+    decision_note: row.decision_note || null,
     created_at: row.created_at || new Date().toISOString(),
   };
 }
@@ -44,7 +46,7 @@ export async function readAllTransferRequests({ limit = 200 } = {}) {
   const { data, error } = await supabase
     .from("transfer_requests")
     .select(
-      "id,employee_id,from_branch_id,to_branch_id,requested_by,status,reviewed_by,reviewed_at,remarks,created_at," +
+      "id,employee_id,from_branch_id,to_branch_id,requested_by,status,reviewed_by,reviewed_at,remarks,created_at,decision_note," +
         "employee:profiles!transfer_requests_employee_id_fkey(full_name)," +
         "from_branch:branches!transfer_requests_from_branch_id_fkey(name)," +
         "to_branch:branches!transfer_requests_to_branch_id_fkey(name)",
@@ -105,7 +107,8 @@ export async function insertTransferRequest(newRequest) {
 
 // ─── Update Status ────────────────────────────────────────────────────────────
 
-export async function updateTransferRequestStatus(id, nextStatus, { reviewedBy } = {}) {
+// decisionNote: HR's remark; client: the decision's remarkClient (Part H), so the remark is audited in the same transaction.
+export async function updateTransferRequestStatus(id, nextStatus, { reviewedBy, decisionNote, client = null } = {}) {
   const supabase = getAdminClient();
 
   const lookupResult = await supabase
@@ -120,11 +123,12 @@ export async function updateTransferRequestStatus(id, nextStatus, { reviewedBy }
   // reviewed_at is stamped by the apply_transfer_request_approval trigger on
   // approval; on rejection there's no branch move, so stamp it here instead.
   const patch = { status: nextStatus, reviewed_by: reviewedBy || null };
+  if (decisionNote !== undefined) patch.decision_note = decisionNote || null;
   if (nextStatus !== "approved") {
     patch.reviewed_at = new Date().toISOString();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await (client || supabase)
     .from("transfer_requests")
     .update(patch)
     .eq("id", id)

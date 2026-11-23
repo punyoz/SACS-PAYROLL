@@ -3,6 +3,8 @@
 import * as React from "react";
 import { CheckIcon, FilePenLineIcon, HistoryIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -183,6 +185,14 @@ function HistoryDialog({ row, onClose }) {
 /** The corrections list: the Accountant's branch (resubmit) or every branch for HR (decide). */
 export function CorrectionsCard({ refreshKey, className }) {
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
+  // Part F: HR decides several corrections at once (one remark; each row checked and reported).
+  const bulkCorrections = useBulkDecisions({
+    entityType: "payroll_correction", decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }], onDone: () => load(),
+    isSelectable: (r) => r.status === "pending",
+    label: (r) => `${r.employee_name} ${r.period_label}`,
+    rowLabel: (r) => `${r.employee_name} · ${r.period_label} · ${r.kind_label}`,
+    send: (r, decision, remark) => fetchJson("/api/payroll/corrections", jsonBody("PATCH", { id: r.id, action: decision, remark })),
+  });
   const [decide, setDecide] = React.useState(null);   // { action, row }
   const [resubmit, setResubmit] = React.useState(null);
   const [history, setHistory] = React.useState(null);
@@ -199,6 +209,10 @@ export function CorrectionsCard({ refreshKey, className }) {
   React.useEffect(() => { load(); }, [load, refreshKey]);
 
   const rows = state.data?.corrections || [];
+  // Part F: search, type (with counts), branch, category, employment status, dates and sort (in the address).
+  const correctionFilters = useApprovalFilters(rows, {
+    prefix: "pc", get: { name: (r) => r.employee_name, code: (r) => r.payslip_no, type: (r) => r.kind_label, filed: (r) => r.requested_at, requested: (r) => r.requested_at, branch: (r) => r.branch_id, employeeId: (r) => r.employee_id },
+  });
   const can = state.data?.can || {};
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (r) => `${r.employee_name} ${r.branch_name}` },
@@ -232,8 +246,9 @@ export function CorrectionsCard({ refreshKey, className }) {
         <CardAction><Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button></CardAction>
       </CardHeader>
       <CardContent>
-        <DataTable columns={columns} rows={rows} loading={state.loading && !state.data} error={state.error} onRetry={load} pageSize={10}
-          searchPlaceholder="Search employee, branch, period or status…" empty={{ title: "No payroll corrections", icon: FilePenLineIcon }} caption="Payroll corrections" minWidth={980} />
+        <DataTable toolbar={correctionFilters.toolbar} columns={columns} rows={correctionFilters.rows} loading={state.loading && !state.data} error={state.error} onRetry={load} pageSize={10}
+          searchPlaceholder="Search employee, branch, period or status…" empty={{ title: "No payroll corrections", icon: FilePenLineIcon }} caption="Payroll corrections" minWidth={980}  selection={can.decide ? bulkCorrections.selection : null} />
+        {bulkCorrections.dialog}
       </CardContent>
       <DecideDialog target={decide} onClose={() => setDecide(null)} onSaved={load} />
       <CorrectionDialog correction={resubmit} onClose={() => setResubmit(null)} onSaved={load} />

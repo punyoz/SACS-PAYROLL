@@ -40,6 +40,7 @@ import {
   normalizeStaffFields,
   validateStaffRecord,
   STAFF_BRANCH_REQUIRED_ROLES,
+  NOT_ON_PAYROLL_ROLES,
 } from "@/lib/employees/staff-record";
 import {
   emergencyContactColumns,
@@ -131,7 +132,7 @@ export async function POST(request) {
       date_of_birth: record.date_of_birth,
       sex: record.sex,
       civil_status: record.civil_status,
-      date_hired: record.date_hired,
+      ...(NOT_ON_PAYROLL_ROLES.includes(record.role) ? {} : { date_hired: record.date_hired }),
       employee_status: record.employee_status,
       address: record.address,
       cp_number: record.cp_number,
@@ -178,6 +179,11 @@ export async function POST(request) {
         suffix: record.suffix || null,
         full_name: record.full_name,
         branch_id: branchId,
+        // Fix 2026-11-22: tenure, proration and Action needed read the column; it was
+        // only in user_metadata, so every account made here had no date hired.
+        date_hired: NOT_ON_PAYROLL_ROLES.includes(record.role) ? null : record.date_hired || null,
+        // Admin / Super Admin are not on payroll at this school (2026-11-22).
+        on_payroll: !NOT_ON_PAYROLL_ROLES.includes(record.role),
         ...(basicSalary ? { basic_salary: basicSalary } : {}),
         ...(record.role === "hr" ? HR_JOB : {}),
         ...(record.role === "hr" ? {

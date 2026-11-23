@@ -262,6 +262,8 @@ export const STAFF_REQUIRED_FIELDS = [
   "first_name", "last_name", "email", "role", "date_of_birth", "sex", "civil_status",
   "date_hired", "employee_status", "address", "cp_number",
 ];
+/** Not on payroll at this school (2026-11-22): no date hired, salary or tenure. */
+export const NOT_ON_PAYROLL_ROLES = ["admin", "super_admin"];
 
 function parseDate(value) {
   const text = normalizeText(value);
@@ -288,7 +290,9 @@ function yearsBetween(earlier, later) {
  * @param {ReturnType<normalizeStaffFields>} record
  */
 export function validateStaffRecord(record) {
+  const offPayroll = NOT_ON_PAYROLL_ROLES.includes(record.role);
   for (const field of STAFF_REQUIRED_FIELDS) {
+    if (offPayroll && field === "date_hired") continue;
     if (!normalizeText(record[field])) {
       return `${FIELD_LABELS[field]} is required.`;
     }
@@ -323,7 +327,7 @@ export function validateStaffRecord(record) {
   if (!birthDate) return "Enter a valid date of birth.";
 
   const hiredDate = parseDate(record.date_hired);
-  if (!hiredDate) return "Enter a valid date hired.";
+  if (!hiredDate && !(offPayroll && !normalizeText(record.date_hired))) return "Enter a valid date hired.";
 
   const todayUtc = parseDate(new Date().toISOString().slice(0, 10));
 
@@ -333,7 +337,7 @@ export function validateStaffRecord(record) {
     return `The account holder must be at least ${MIN_STAFF_AGE} years old.`;
   }
 
-  if (yearsBetween(birthDate, hiredDate) < MIN_STAFF_AGE) {
+  if (hiredDate && yearsBetween(birthDate, hiredDate) < MIN_STAFF_AGE) {
     return `Date hired must be on or after the account holder's ${MIN_STAFF_AGE}th birthday.`;
   }
 

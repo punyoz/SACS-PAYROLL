@@ -128,6 +128,8 @@ export const STAFF_RULES = {
   },
   date_hired: {
     check: (v, values) => {
+      // Admin / Super Admin are not on payroll (2026-11-22): no date hired.
+      if (["admin", "super_admin"].includes(values.role)) return "";
       if (!v) return "Date hired is required.";
       const hired = parseIsoDate(v);
       if (!hired) return "Enter a valid date.";

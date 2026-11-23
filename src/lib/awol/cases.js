@@ -111,5 +111,12 @@ export function shapeCase(row, person) {
     stage_label: STAGE_LABELS[row.stage] || row.stage,
     outcome_label: row.outcome ? OUTCOME_LABELS[row.outcome] || row.outcome : null,
     open: row.stage !== "closed",
+    // Part D: opened by the daily detection; a return or a leave filed since.
+    review_label: row.review_reason === "returned" ? "Needs review: tapped in again" : row.review_reason === "leave_filed" ? "Needs review: leave filed" : null,
   };
+}
+
+/** The template with its fields filled; unknown fields stay as written. */
+export function fillNotice(template, fields) {
+  return String(template || "").replace(/\{(\w+)\}/g, (all, key) => (fields[key] !== undefined ? String(fields[key]) : all));
 }

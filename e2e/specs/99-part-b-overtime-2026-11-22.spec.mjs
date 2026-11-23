@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { api, choose, manilaDay, pickDate } from "../support/flow.mjs";
+import { api, choose, manilaDay, pickDate, newRequest, requestTab } from "../support/flow.mjs";
 import { db, rows, psql, profileByEmail } from "../support/db.mjs";
 
 const OUT = join(process.cwd(), "screenshots", "2026-11-22-part-b");
@@ -44,14 +44,16 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
 
   await as(page, "employee2", "emp-leave");
   await settle(page);
+  const otForm = await newRequest(page, "overtime");
+  await expect(otForm).toContainText("Up to 3 h a day and 10 h a cutoff");
+  await pickDate(page, otForm.locator("#ot-date"), date);
+  await otForm.locator("#ot-start").fill("17:00");
+  await otForm.locator("#ot-end").fill("19:00");
+  await otForm.locator("#ot-reason").fill("E2E part B: grade encoding");
+  await otForm.getByRole("button", { name: "File overtime request" }).click();
+  // Filed: the dialog closes and the Overtime tab shows it.
   const card = main(page).getByTestId("my-overtime-requests");
   await expect(card).toBeVisible();
-  await expect(card).toContainText("Up to 3 h a day and 10 h a cutoff");
-  await pickDate(page, card.locator("#ot-date"), date);
-  await card.locator("#ot-start").fill("17:00");
-  await card.locator("#ot-end").fill("19:00");
-  await card.locator("#ot-reason").fill("E2E part B: grade encoding");
-  await card.getByRole("button", { name: "File overtime request" }).click();
   await expect(card.getByRole("row").filter({ hasText: date })).toContainText("Pending");
   await card.screenshot({ path: join(OUT, "employee-filed.png") });
 
@@ -69,6 +71,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
   expect(second.status).toBe(201);
   await page.reload();
   await settle(page);
+  await requestTab(page, "Overtime");
   const row = card.getByRole("row").filter({ hasText: other });
   await row.getByRole("button", { name: "Cancel" }).click();
   await expect(row).toContainText("Cancelled");

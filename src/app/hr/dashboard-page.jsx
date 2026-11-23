@@ -193,7 +193,7 @@ function CountChart({ testId, title, description, bars, loading, unit }) {
   );
 }
 
-/** HR's Action needed (Part A): records to confirm, probations and contracts ending soon, salaries not set. */
+/** HR's Action needed (Part A): records to confirm, probations and contracts ending soon, salaries and dates hired not set. */
 function ActionNeededCard({ data }) {
   const a = data || {};
   const groups = [
@@ -202,6 +202,10 @@ function ActionNeededCard({ data }) {
     { key: "contract", title: "Contract ending", text: "Renew, end or change the status before the date.", href: portalHref("hr-employees", { emp_status: "Contractual" }), rows: a.contract_ending || [] },
     // 2026-11-22: payroll refuses a ₱0 salary; each name opens that employee's record.
     { key: "salary", title: "Salary not set", text: "₱0 salary: payroll refuses them until it is set (an HR account's salary: Super Admin).", href: portalHref("hr-employees"), rows: a.salary_not_set || [],
+      rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
+    { key: "branch", title: "Branch not set", text: "AWOL detection skips them until a branch is set (an HR account's home branch: Super Admin).", href: portalHref("hr-employees"), rows: a.branch_not_set || [],
+      rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
+    { key: "date-hired", title: "Date hired not set", text: "Tenure, proration and leave count from it: set it on the record (an HR account's record: Super Admin).", href: portalHref("hr-employees"), rows: a.date_hired_not_set || [],
       rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
     // Part B (2026-11-22): a Final payslip never changes by itself; the Accountant files the correction.
     { key: "late-leave", title: "Leave approved after its payslip", text: "The payslip for that day was already paid: the branch Accountant files a correction on the next payslip.", href: portalHref("hr-payroll-records"), rows: a.leave_after_payslip || [] },

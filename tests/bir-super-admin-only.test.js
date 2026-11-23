@@ -21,7 +21,7 @@ import { NAME_TYPING_HINT } from "@/lib/person-name";
 
 vi.mock("@supabase/supabase-js", async () => (await import("./helpers/fake-supabase.js")).supabaseModule);
 
-const SIX = ["My Attendance", "My Timesheet", "My Leave", "My Payslips", "My Requests", "My Profile"];
+const SIX = ["My Attendance", "My Timesheet", "Leave & Overtime", "My Payslips", "My Requests", "My Profile"];
 
 describe("BIR access: the Super Admin only", () => {
   it("only the Super Admin holds bir_forms", () => {

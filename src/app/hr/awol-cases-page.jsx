@@ -3,6 +3,8 @@
 import * as React from "react";
 import { AlertTriangleIcon, FilePlus2Icon, HourglassIcon, Loader2Icon, PauseCircleIcon, RefreshCwIcon, UserXIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
+import { downloadFile } from "@/lib/portal/download";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -124,11 +126,48 @@ export function AwolCasesPage({ refreshKey }) {
 
   const summary = state.data?.summary || {};
   const canEdit = Boolean(state.data?.can_edit);
-  const rows = (state.data?.cases || []).filter((c) => (filter === "all" ? true : filter === "closed" ? !c.open : c.open));
+  const openRows = (state.data?.cases || []).filter((c) => (filter === "all" ? true : filter === "closed" ? !c.open : c.open));
+  // Part F: search, stage (with counts), branch, category, employment status, dates and sort (in the address).
+  const caseFilters = useApprovalFilters(openRows, {
+    prefix: "awol", typeLabel: "Stage",
+    get: { name: (c) => c.employee_name, code: (c) => c.employee_code, type: (c) => c.outcome_label || c.stage_label, filed: (c) => c.created_at || c.first_absent_on, requested: (c) => c.first_absent_on, branch: (c) => c.branch_id, employeeId: (c) => c.employee_id },
+  });
+  const rows = caseFilters.rows;
   const first = state.loading && !state.data;
 
+  // Part D: HR sends the prepared 1st notice with one click; the reply deadline starts now.
+  const sendPrepared = async (c) => {
+    try {
+      await fetchJson("/api/hr/awol-cases", jsonBody("PATCH", { case_id: c.id, action: "first_notice", sent_on: today, reply_by: plusDays(today, replyDays) }));
+      notify("1st notice sent", `${c.employee_name} must reply by ${dateLabel(plusDays(today, replyDays))}.`, "success");
+      await load();
+    } catch (e) { notify("Not sent", e.message, "error"); }
+  };
+  // Part D: the 1st notice's editable template (fields in braces, e.g. {reply_by}).
+  const [template, setTemplate] = React.useState(null); // { text, fields } while open
+  const [templateBusy, setTemplateBusy] = React.useState(false);
+  const openTemplate = async () => {
+    try { setTemplate(await fetchJson("/api/hr/awol-cases/template")); } catch (e) { notify("Not loaded", e.message, "error"); }
+  };
+  const saveTemplate = async () => {
+    setTemplateBusy(true);
+    try {
+      await fetchJson("/api/hr/awol-cases/template", jsonBody("POST", { text: template.text }));
+      notify("Template saved", "New 1st notices use it.", "success");
+      setTemplate(null);
+    } catch (e) { notify("Not saved", e.message, "error"); } finally { setTemplateBusy(false); }
+  };
+
   const columns = [
-    { key: "employee_name", header: "Employee", sortable: true, cell: (c) => <div><p className="font-medium">{c.employee_name}</p><p className="text-xs text-muted-foreground">{c.employee_code}{c.employee_status ? ` · ${c.employee_status}` : ""}</p></div>, searchValue: (c) => `${c.employee_name} ${c.employee_code}` },
+    { key: "employee_name", header: "Employee", sortable: true, cell: (c) => (
+      <div className="space-y-1">
+        <p className="font-medium">{c.employee_name}</p>
+        <p className="text-xs text-muted-foreground">{c.employee_code}{c.employee_status ? ` · ${c.employee_status}` : ""}</p>
+        {/* Part D: opened by the daily detection; a return or a leave filed since. */}
+        {c.auto_flagged ? <StatusBadge tone="muted">Opened by System</StatusBadge> : null}
+        {c.review_label && c.open ? <StatusBadge tone="warning">{c.review_label}</StatusBadge> : null}
+      </div>
+    ), searchValue: (c) => `${c.employee_name} ${c.employee_code}` },
     { key: "absent", header: "Absent", cell: (c) => <div><p>{dateLabel(c.first_absent_on)}{c.last_absent_on && c.last_absent_on !== c.first_absent_on ? ` – ${dateLabel(c.last_absent_on)}` : ""}</p><p className="text-xs text-muted-foreground">{c.open ? `${c.absent_days} working day${c.absent_days === 1 ? "" : "s"}` : ""}{c.last_present_on ? ` · last present ${dateLabel(c.last_present_on)}` : ""}</p></div> },
     { key: "stage", header: "Stage", cell: (c) => <div className="space-y-1"><StatusBadge tone={STAGE_TONE[c.stage] || "muted"}>{c.outcome_label || c.stage_label}</StatusBadge>{c.second_notice_reply_by || c.first_notice_reply_by ? <p className="text-xs text-muted-foreground">Reply by {dateLabel(c.second_notice_reply_by || c.first_notice_reply_by)}</p> : null}</div> },
     { key: "notes", header: "Notes", cell: (c) => <p className="max-w-64 text-xs whitespace-normal text-muted-foreground">{c.employee_reply ? `Reply: ${c.employee_reply}` : c.recommendation || c.notes || "—"}</p> },
@@ -136,6 +175,14 @@ export function AwolCasesPage({ refreshKey }) {
       key: "actions", header: <span className="sr-only">Actions</span>, align: "right",
       cell: (c) => (canEdit && c.open ? (
         <div className="flex flex-wrap justify-end gap-1.5">
+          {c.first_notice_sent_on || (c.auto_flagged && c.stage === "flagged") ? (
+            <Button size="sm" variant="outline" onClick={() => downloadFile(`/api/hr/awol-cases/notice?id=${c.id}`, {}, { fallbackName: "awol-first-notice.pdf" }).catch((e) => notify("Not downloaded", e.message, "error"))}>
+              {c.first_notice_sent_on ? "1st notice (PDF)" : "Review notice (PDF)"}
+            </Button>
+          ) : null}
+          {c.auto_flagged && c.stage === "flagged" ? (
+            <Button size="sm" onClick={() => sendPrepared(c)} data-testid="awol-send-prepared">Send 1st notice</Button>
+          ) : null}
           {NEXT_STEP[c.stage] ? <Button size="sm" onClick={() => open(NEXT_STEP[c.stage][0], c)}>{NEXT_STEP[c.stage][1]}</Button> : null}
           {c.stage !== "flagged" && c.stage !== "for_decision" ? <Button size="sm" variant="outline" onClick={() => open("record_reply", c)}>Reply</Button> : null}
           <Button size="sm" variant="outline" onClick={() => open("close", c)}>Close</Button>
@@ -173,15 +220,29 @@ export function AwolCasesPage({ refreshKey }) {
               <SelectContent><SelectItem value="open">Open</SelectItem><SelectItem value="closed">Closed</SelectItem><SelectItem value="all">All</SelectItem></SelectContent>
             </Select>
             {canEdit ? <Button size="sm" variant="outline" onClick={() => open("open")}><FilePlus2Icon aria-hidden="true" />Open case</Button> : null}
+            {canEdit ? <Button size="sm" variant="outline" onClick={openTemplate}>Notice template</Button> : null}
             <Button variant="outline" size="sm" onClick={load} disabled={state.loading}><RefreshCwIcon className={cn(state.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
         </CardHeader>
         <CardContent>
-          <DataTable columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
+          <DataTable toolbar={caseFilters.toolbar} columns={columns} rows={rows} loading={first} error={state.error} onRetry={load} pageSize={15}
             searchPlaceholder="Search employee…" empty={{ title: "No AWOL cases", icon: UserXIcon }} caption="AWOL cases" minWidth={980} />
           <p className="mt-3 text-xs text-muted-foreground">An AWOL case is not automatically abandonment: separation needs both notices, a chance to reply, and HR&apos;s decision. Reply periods are at least {replyDays} calendar days.</p>
         </CardContent>
       </Card>
+      <Dialog open={Boolean(template)} onOpenChange={(o) => { if (!o && !templateBusy) setTemplate(null); }}>
+        <DialogContent className="sm:max-w-2xl" data-testid="awol-notice-template">
+          <DialogHeader>
+            <DialogTitle>1st notice template</DialogTitle>
+            <DialogDescription>The first paragraph is the title. Fields: {(template?.fields || []).map((f) => `{${f}}`).join(", ")}.</DialogDescription>
+          </DialogHeader>
+          <Textarea aria-label="Notice template" rows={14} maxLength={4000} value={template?.text || ""} onChange={(e) => setTemplate((t) => ({ ...t, text: e.target.value }))} />
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setTemplate(null)} disabled={templateBusy}>Cancel</Button>
+            <Button onClick={saveTemplate} disabled={templateBusy}>{templateBusy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Save template</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(dialog)} onOpenChange={(o) => { if (!o) setDialog(null); }}>
         <DialogContent className="sm:max-w-lg">

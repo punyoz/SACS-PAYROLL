@@ -42,10 +42,13 @@ test("separated: the leave and overtime forms give way to one line; the server r
   try {
     await as(page, "employee2", "emp-leave");
     await settle(page);
+    // Leave & Overtime (2026-11-22): one New request button for leave, half day and overtime; it gives way to the line.
     const notes = main(page).getByTestId("separated-note");
-    await expect(notes).toHaveCount(2);
+    await expect(notes).toHaveCount(1);
     await expect(notes.first()).toHaveText("You can't file new requests after separation.");
+    await expect(main(page).getByTestId("new-request")).toHaveCount(0);
     await expect(main(page).getByRole("button", { name: "File overtime request" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Submit leave request/ })).toHaveCount(0);
     await main(page).screenshot({ path: join(OUT, "separated-leave-page.png") });
     const filed = await api(page, "POST", "/api/me/overtime-requests", { request_date: "2026-12-01", planned_start: "17:00", planned_end: "18:00", reason: "After separation" });
     expect(filed.status).toBe(403);

@@ -8,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
+import { BulkActionDialog } from "@/components/portal/bulk-action-dialog";
 import { useConfirm } from "@/components/portal/confirm-dialog";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { DataTable } from "@/components/portal/data-table";
@@ -71,6 +74,14 @@ export function LeavesPage({ refreshKey }) {
   // The request being decided, with its remark (Part H): { req, action }. A
   // rejection's remark is required and the employee sees it (2026-11-06).
   const [deciding, setDeciding] = React.useState(null);
+  // Part F: search and a leave-type filter (kept in the address), counts per type,
+  // and bulk approve / reject of the pending requests shown.
+  const [selected, setSelected] = React.useState(() => new Set());
+  const [bulk, setBulk] = React.useState(null); // { decision, rows }
+  const pendingFiltersHook = useApprovalFilters(state.pending, {
+    prefix: "lv", typeLabel: "Leave type",
+    get: { name: (r) => r.employee_name, code: (r) => r.employee_code || r.employee_id, type: (r) => r.leave_type || "Leave", filed: (r) => r.submitted_at, requested: (r) => r.start_date, branch: (r) => r.branch_id, employeeId: (r) => r.employee_id },
+  });
   // The branch Admins' recommendations, by leave request (2026-10-20).
   const [recs, setRecs] = React.useState(() => new Map());
 
@@ -172,8 +183,25 @@ export function LeavesPage({ refreshKey }) {
     { key: "decided", header: "Decided", className: "whitespace-nowrap", sortValue: (r) => r.decided_at || "", cell: (r) => (r.decided_at ? new Date(r.decided_at).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—") },
   ];
 
+  // Part F: the pending list as filtered here (search, type with counts, branch,
+  // category, employment status, dates, sort; all in the address).
+  const { rows: shownPending, toolbar: pendingFilters } = pendingFiltersHook;
+
   return (
     <>
+      <BulkActionDialog
+        open={Boolean(bulk)}
+        title={bulk?.decision === "reject" ? "Reject the selected leave requests" : "Approve the selected leave requests"}
+        rows={bulk?.rows || []}
+        label={(r) => { const x = range(r); return `${r.employee_name || "Employee"} · ${r.leave_type || "Leave"} · ${x.from} to ${x.to}`; }}
+        decision={bulk?.decision}
+        entityType="leave_request"
+        destructive={bulk?.decision === "reject"}
+        confirmLabel={bulk?.decision === "reject" ? "Reject" : "Approve"}
+        run={(r, remark) => fetchJson("/api/hr/leave-requests", jsonBody("PATCH", { id: r.id, action: bulk.decision, remark }))}
+        onDone={() => load()}
+        onClose={() => { setBulk(null); setSelected(new Set()); }}
+      />
       <Alert>
         <InfoIcon aria-hidden="true" />
         <AlertDescription>Leave requests forwarded for approval are listed here. Approved or rejected requests move to Leave History.</AlertDescription>
@@ -192,13 +220,37 @@ export function LeavesPage({ refreshKey }) {
           ) : !state.pending.length ? (
             <EmptyState icon={CalendarCheck2Icon} title="No pending leave requests" description="You're all caught up." />
           ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-end gap-2" data-testid="leave-pending-filters">
+                {pendingFilters}
+                <label className="ml-auto inline-flex items-center gap-2 text-sm">
+                  <Checkbox aria-label="Select all shown" checked={shownPending.length > 0 && shownPending.every((r) => selected.has(r.id)) ? true : shownPending.some((r) => selected.has(r.id)) ? "indeterminate" : false}
+                    onCheckedChange={(on) => setSelected(on === true ? new Set(shownPending.map((r) => r.id)) : new Set())} />
+                  Select all shown ({shownPending.length})
+                </label>
+              </div>
+              {selected.size ? (
+                <div role="region" aria-label="Selected rows" data-testid="bulk-bar" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+                  <span className="font-medium tabular-nums">{selected.size} selected</span>
+                  <span className="flex flex-1 flex-wrap justify-end gap-2">
+                    <Button size="sm" variant="outline" className="text-destructive" onClick={() => setBulk({ decision: "reject", rows: state.pending.filter((r) => selected.has(r.id)) })}>Reject selected</Button>
+                    <Button size="sm" onClick={() => setBulk({ decision: "approve", rows: state.pending.filter((r) => selected.has(r.id)) })}>Approve selected</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+                  </span>
+                </div>
+              ) : null}
+              {!shownPending.length ? <EmptyState icon={CalendarCheck2Icon} title="No matches" description="Nothing pending matches the search or type." /> : null}
             <ul className="grid gap-3 lg:grid-cols-2">
-              {state.pending.map((req) => {
+              {shownPending.map((req) => {
                 const x = range(req);
                 return (
                   <li key={req.id} className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 shadow-xs">
                     <div className="min-w-0 space-y-1">
-                      <p className="font-semibold">{req.employee_name || req.employee_id || "Unknown"}</p>
+                      <p className="flex items-center gap-2 font-semibold">
+                        <Checkbox aria-label={`Select ${req.employee_name || "this request"} ${x.from}`} checked={selected.has(req.id)}
+                          onCheckedChange={(on) => setSelected((cur) => { const next = new Set(cur); if (on === true) next.add(req.id); else next.delete(req.id); return next; })} />
+                        {req.employee_name || req.employee_id || "Unknown"}
+                      </p>
                       <p className="text-sm">
                         <strong>{req.leave_type || "Leave"}</strong> · {req.pay_status === "without_pay" ? "Without pay" : "With pay"} · {String(x.days)} day{x.days !== 1 ? "s" : ""}
                       </p>
@@ -218,6 +270,7 @@ export function LeavesPage({ refreshKey }) {
                 );
               })}
             </ul>
+            </div>
           )}
         </CardContent>
       </Card>

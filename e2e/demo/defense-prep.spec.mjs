@@ -126,7 +126,7 @@ test.describe("HR: register a deleted card number again, then tap it", () => {
   });
 });
 
-test.describe("HR: Replace many and Offboard many", () => {
+test.describe("HR: Replace and Offboard from the list's selection", () => {
   test.use({ storageState: stateFile("hr") });
   for (const [label, viewport] of [["desktop", DESKTOP], ["phone", PHONE]]) {
     test(`Replace many: current card, new number, reason required (${label})`, async ({ page }) => {
@@ -138,9 +138,10 @@ test.describe("HR: Replace many and Offboard many", () => {
         expect(res.status(), await res.text()).toBe(200);
       }
       await openCards(page, "/hr", "hr-rfid-cards");
-      await page.getByRole("button", { name: "Replace many" }).click();
+      // Part F: Replace starts from the selected active card in the list.
+      await page.locator("#portal-main").getByRole("checkbox", { name: "Select Dindo Demo Dimaculangan card" }).check();
+      await page.getByTestId("bulk-bar").getByRole("button", { name: "Replace selected" }).click();
       const dialog = page.getByTestId("rfid-bulk-replace");
-      await pick(dialog, page, 0, "Dindo Demo Dimaculangan");
       await expect(dialog.getByTestId("bulk-row").first()).toContainText("0008");
       await dialog.locator("[data-bulk-value]").first().fill(label === "desktop" ? "9990000777" : "9990000778");
       await dialog.getByRole("button", { name: "Check rows" }).click();
@@ -156,8 +157,11 @@ test.describe("HR: Replace many and Offboard many", () => {
     test(`Offboard many: date picker, what will happen, HR logins and duplicates refused (${label})`, async ({ page }) => {
       await page.setViewportSize(viewport);
       await page.goto("/hr?page=hr-employees");
-      await page.getByRole("button", { name: "Offboard many" }).click();
+      // Part F: offboarding starts from the list's selection; the dialog keeps its paste and check.
+      await page.locator("#portal-main").getByRole("checkbox", { name: /^Select / }).first().check();
+      await page.getByTestId("bulk-bar").getByRole("button", { name: "Offboard selected" }).click();
       const dialog = page.getByTestId("offboard-many");
+      await dialog.getByTestId("bulk-row").first().getByRole("button", { name: /Remove row/ }).click();
       await dialog.getByRole("button", { name: "Paste several rows" }).click();
       await dialog.locator("textarea").fill("DEMO-009, 2026-11-30\nDEMO-009, 2026-11-30\nDEMO-002, 2026-11-30");
       await dialog.getByRole("button", { name: "Add these rows" }).click();

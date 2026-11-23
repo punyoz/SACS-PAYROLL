@@ -65,7 +65,7 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
     items: [
       { id: ids.attendance, label: "My Attendance", icon: CalendarCheckIcon, module: "my_account" },
       { id: ids.timesheet, label: "My Timesheet", icon: ClockIcon, module: "my_account" },
-      { id: ids.leave, label: "My Leave", icon: CalendarDaysIcon, module: "my_account" },
+      { id: ids.leave, label: "Leave & Overtime", icon: CalendarDaysIcon, module: "my_account" },
       { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, module: "my_account" },
       { id: ids.requests, label: "My Requests", icon: InboxIcon, module: "my_account" },
       { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
@@ -76,7 +76,7 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
 export const MY_DESCRIPTIONS = {
   attendance: "Your own attendance, recorded by RFID tap. Only your records.",
   timesheet: "Your own daily hours, tardiness and undertime for any date range.",
-  leave: "File your own leave and follow its approval.",
+  leave: "File your own leave, half days and overtime, and follow their approval.",
   payslips: "Your payslips. Choose View to see the full details.",
   requests: "Your own loans, cash advances, incentives, subsidy and 13th month pay.",
   profile: "Your personal, contact and government details on file.",

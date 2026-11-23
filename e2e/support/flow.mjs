@@ -84,3 +84,22 @@ export async function writeRemark(page, prefix, text, { preset = null } = {}) {
   await choose(page, page.locator(`#${prefix}-preset`), preset || "Other (write your own)");
   if (text) await page.locator(`#${prefix}-extra`).fill(text);
 }
+
+/**
+ * Leave & Overtime (2026-11-22): open "New request", choose the type
+ * ("leave" | "half" | "overtime") and return the dialog's form.
+ */
+const REQUEST_TYPE = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime" };
+export async function newRequest(page, type = "leave") {
+  await page.locator("#portal-main").getByTestId("new-request").click();
+  const dialog = page.getByRole("dialog", { name: "New request" });
+  await expect(dialog).toBeVisible();
+  await choose(page, dialog.locator("#new-request-type"), REQUEST_TYPE[type]);
+  return dialog.locator("form").first();
+}
+
+/** Leave & Overtime: show a tab ("Leave" | "Half day" | "Overtime"; its pending count follows the name). */
+export async function requestTab(page, name) {
+  await page.locator("#portal-main").getByRole("tab", { name: new RegExp(`^${name}`) }).click();
+  await settle(page);
+}

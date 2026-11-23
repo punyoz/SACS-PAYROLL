@@ -109,7 +109,7 @@ test("tenure pay protection: HR grants to an eligible employee; grant history st
   await step(page, "HR > Tenure Pay Protection > Meets tenure > Grant Bea", async () => {
     monitor.at("HR > Tenure Pay Protection");
     await as(page, "hr", "hr-tenure");
-    await page.getByRole("tab", { name: /Meets tenure/ }).click();
+    await page.getByRole("tab", { name: /^Eligible/ }).click(); // "Meets tenure" until Part G (2026-11-22)
     await settle(page);
     await main(page).locator("tr", { hasText: "Bea" }).first().getByRole("button", { name: "Grant" }).click();
     const dialog = page.getByRole("dialog");

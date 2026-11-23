@@ -7,7 +7,7 @@ import { test, expect } from "../support/test.mjs";
 import { as, loginThroughUi, signOutLocally, ROLE_LABEL } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { PAGES, main, navTo, settle, pageOverflow } from "../support/portal.mjs";
-import { choose, confirm, manilaDay, pickDate, refresh } from "../support/flow.mjs";
+import { choose, confirm, manilaDay, pickDate, refresh, newRequest } from "../support/flow.mjs";
 import { db, profileByEmail, rows } from "../support/db.mjs";
 import { ACCOUNTS, ROLES } from "../accounts.mjs";
 
@@ -44,7 +44,7 @@ test("phone: Employee files a leave; HR rejects it from the phone; Employee sees
   await step(page, "Phone > Employee > Leave > file Vacation Leave with the phone form", async () => {
     monitor.at("Phone > Employee > Leave");
     await as(page, "employee", "emp-leave");
-    const form = main(page).locator("form").first();
+    const form = await newRequest(page, "leave");
     await choose(page, form.getByRole("combobox").first(), "Vacation Leave");
     await pickDate(page, form.getByLabel("Start date"), day);
     await pickDate(page, form.getByLabel("End date"), day);

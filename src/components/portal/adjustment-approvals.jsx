@@ -3,6 +3,8 @@
 import * as React from "react";
 import { CheckIcon, ClipboardCheckIcon, Loader2Icon, RefreshCwIcon, XIcon } from "lucide-react";
 import { EMPTY_REMARK, RemarkField, remarkProblem } from "@/components/portal/remark-field";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,7 +47,20 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
 
   const data = state.data;
   const canDecide = Boolean(data?.can_decide);
-  const rows = (data?.items || []).filter((item) => (tab === "pending" ? item.approval_status === "pending" : item.approval_status !== "pending"));
+  const tabRows = (data?.items || []).filter((item) => (tab === "pending" ? item.approval_status === "pending" : item.approval_status !== "pending"));
+  // Part F: search, type (with counts), branch, category, employment status, dates and sort (in the address).
+  const filters = useApprovalFilters(tabRows, {
+    prefix: "adj", get: { name: (i) => i.employee_name, code: (i) => i.employee_code, type: (i) => i.type_label, filed: (i) => i.created_at, requested: (i) => i.item_date || i.date_granted, branch: (i) => i.branch_id, employeeId: (i) => i.employee_id },
+  });
+  const rows = filters.rows;
+  // Part F: decide several at once (one remark; each row checked and reported).
+  const bulk = useBulkDecisions({
+    entityType: "adjustment", decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }], onDone: load,
+    isSelectable: (i) => canDecide && i.approval_status === "pending",
+    label: (i) => `${i.employee_name} ${i.type_label}`,
+    rowLabel: (i) => `${i.employee_name} · ${i.type_label} · ${i.amount_label}`,
+    send: (i, decision, remark) => fetchJson("/api/hr/adjustment-approvals", jsonBody("PATCH", { kind: i.kind, id: i.id, decision, remark })),
+  });
 
   function open(item, decision) {
     setDeciding({ item, decision });
@@ -113,10 +128,12 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-4">
-        <DataTable toolbar={<FilterTabs value={tab} onValueChange={setTab} label="Approval filter" options={[{ value: "pending", label: "Pending", count: data?.pending || undefined }, { value: "decided", label: "Decided" }]} />}
+        <DataTable toolbar={<><FilterTabs value={tab} onValueChange={setTab} label="Approval filter" options={[{ value: "pending", label: "Pending", count: data?.pending || undefined }, { value: "decided", label: "Decided" }]} />{filters.toolbar}</>}
           columns={columns} rows={rows} rowKey={(i) => `${i.kind}-${i.id}`} loading={state.loading && !data} error={state.error} onRetry={load} pageSize={15}
           searchPlaceholder="Search employee, type or details…" caption="Incentive and loan approvals" minWidth={1000}
-          empty={{ title: tab === "pending" ? "Nothing waiting for HR" : "No decisions yet", icon: ClipboardCheckIcon }} />
+          empty={{ title: tab === "pending" ? "Nothing waiting for HR" : "No decisions yet", icon: ClipboardCheckIcon }}
+          selection={canDecide ? { ...bulk.selection, rowId: (i) => `${i.kind}-${i.id}` } : null} />
+        {bulk.dialog}
       </CardContent>
 
       <Dialog open={Boolean(deciding)} onOpenChange={(o) => { if (!o && !busy) setDeciding(null); }}>

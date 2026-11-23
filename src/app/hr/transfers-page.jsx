@@ -2,6 +2,10 @@
 
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
+import { DecisionRemarkDialog } from "@/components/portal/remark-field";
+import { useBulkDecisions } from "@/components/portal/bulk-action-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useApprovalFilters } from "@/components/portal/approval-filters";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -153,7 +157,6 @@ export function TransfersPage({ refreshKey }) {
   const [moving, setMoving] = React.useState(false);
   const [move, setMove] = React.useState({ to: "", remarks: "" });
   const { notify } = usePortalSession();
-  const [confirmDialogNode, confirmDecision] = useConfirm();
   // The branch Admins' endorsements, by transfer request (2026-10-20).
   const [endorsements, setEndorsements] = React.useState(() => new Map());
   const loadEndorsements = React.useCallback(async () => {
@@ -205,7 +208,14 @@ export function TransfersPage({ refreshKey }) {
     return <StatusBadge tone={idx >= 0 ? BRANCH_TONES[idx % BRANCH_TONES.length] : "muted"} dot={false}>{`${e.branch_label || "Unknown branch"}${inactive}`}</StatusBadge>;
   };
 
+  // Part F: Move starts from the employees selected in the list (the per-row check dialog opens with them).
+  const [moveSelected, setMoveSelected] = React.useState(() => new Set());
+  const [moveIds, setMoveIds] = React.useState([]);
+  const toggleMove = (id, on) => setMoveSelected((cur) => { const next = new Set(cur); if (on) next.add(id); else next.delete(id); return next; });
   const columns = [
+    { key: "__select", header: <span className="sr-only">Select</span>, className: "w-10", cell: (e) => (
+      <Checkbox aria-label={`Select ${e.full_name}`} checked={moveSelected.has(e.id)} onCheckedChange={(on) => toggleMove(e.id, on === true)} />
+    ) },
     { key: "full_name", header: "Employee", className: "font-medium", cell: (e) => e.full_name || "" },
     { key: "employee_id", header: "Employee ID", className: "tabular-nums", cell: (e) => e.employee_id || "—" },
     { key: "type", header: "Category", cell: (e) => (
@@ -241,7 +251,9 @@ export function TransfersPage({ refreshKey }) {
         return <StatusBadge tone={s === "approved" ? "success" : s === "rejected" ? "danger" : "gold"}>{label}</StatusBadge>;
       },
     },
-    { key: "remarks", header: "Remarks", className: "max-w-56 whitespace-normal text-muted-foreground", cell: (r) => r.remarks || "—" },
+    { key: "remarks", header: "Remarks", className: "max-w-56 whitespace-normal text-muted-foreground", cell: (r) => (
+      <>{r.remarks || "—"}{r.decision_note ? <p className="mt-1 text-foreground">HR: {r.decision_note}</p> : null}</>
+    ), searchValue: (r) => `${r.remarks || ""} ${r.decision_note || ""}` },
     { key: "created_at", header: "Requested", className: "whitespace-nowrap text-xs", sortValue: (r) => r.created_at || "", cell: (r) => fmt(r.created_at) },
     { key: "reviewed_at", header: "Decided", className: "whitespace-nowrap text-xs", sortValue: (r) => r.reviewed_at || "", cell: (r) => fmt(r.reviewed_at) },
     {
@@ -267,24 +279,46 @@ export function TransfersPage({ refreshKey }) {
     },
   ];
 
-  async function decideTransfer(r, action) {
-    const ok = await confirmDecision(action === "approve"
-      ? { title: `Approve the transfer of ${r.employee_name || "this employee"}?`, description: "The employee moves to the new branch now.", confirmLabel: "Approve" }
-      : { title: `Reject the transfer of ${r.employee_name || "this employee"}?`, description: "The employee stays in the current branch.", confirmLabel: "Reject", destructive: true });
-    if (!ok) return;
-    try {
-      await fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action }));
-      notify(action === "approve" ? "Transfer Approved" : "Transfer Rejected", "The branch Admins were notified.", "success");
-      await Promise.all([load(), loadEndorsements()]);
-    } catch (err) {
-      notify("Error", err.message || "Not saved.", "error");
-    }
+  // Part F: search, status, branch, category, employment status, dates and sort (in the address).
+  const historyFilters = useApprovalFilters(history.rows, {
+    prefix: "trh", statuses: { pending: "Pending", approved: "Approved", rejected: "Rejected" },
+    get: { name: (r) => r.employee_name, code: (r) => r.employee_code, status: (r) => String(r.status || "").toLowerCase(), filed: (r) => r.created_at, requested: (r) => r.created_at, branch: (r) => r.from_branch_id, employeeId: (r) => r.employee_id },
+  });
+  // Batch 2: approve / reject with a preset remark (required to reject), in DecisionRemarkDialog.
+  const [decidingTransfer, setDecidingTransfer] = React.useState(null);
+  // Part F: decide several pending transfers at once.
+  const bulkTransfers = useBulkDecisions({
+    entityType: "transfer_request", decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }], onDone: () => Promise.all([load(), loadEndorsements()]),
+    isSelectable: (r) => String(r.status) === "pending",
+    label: (r) => r.employee_name || "this transfer",
+    rowLabel: (r) => `${r.employee_name || "Employee"} · ${r.from_branch_name || "Unassigned"} → ${r.to_branch_name || "—"}`,
+    send: (r, decision, remark) => fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action: decision, remark })),
+  });
+  function decideTransfer(r, action) { setDecidingTransfer({ row: r, action }); }
+  async function sendTransferDecision(remark) {
+    const { row: r, action } = decidingTransfer;
+    await fetchJson("/api/admin/transfer-requests", jsonBody("PATCH", { id: r.id, action, remark }));
+    notify(action === "approve" ? "Transfer Approved" : "Transfer Rejected", "The branch Admins were notified.", "success");
+    setDecidingTransfer(null);
+    await Promise.all([load(), loadEndorsements()]);
   }
 
   const first = roster.loading && !all.length;
 
   return (
     <>
+      <DecisionRemarkDialog
+        open={Boolean(decidingTransfer)}
+        idPrefix="tr-remark"
+        decision={decidingTransfer?.action || "approve"}
+        entityType="transfer_request"
+        destructive={decidingTransfer?.action === "reject"}
+        confirmLabel={decidingTransfer?.action === "reject" ? "Reject" : "Approve"}
+        title={decidingTransfer ? `${decidingTransfer.action === "reject" ? "Reject" : "Approve"} the transfer of ${decidingTransfer.row.employee_name || "this employee"}?` : ""}
+        description={decidingTransfer?.action === "reject" ? "The employee stays in the current branch. The branch Admins see your remark." : "The employee moves to the new branch now."}
+        onClose={() => setDecidingTransfer(null)}
+        onConfirm={sendTransferDecision}
+      />
       <section aria-label="Employees by branch" className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Total employees" value={all.length} hint="All active employees" icon={UsersIcon} loading={first} href={currentPageHref({ tr_branch: "all" })} onClick={() => setFilter("all")} scrollTo="transfers-table" actionLabel="Show every employee" />
         <StatCard label="Unassigned" value={unassigned} hint="Not yet in a branch" icon={UserMinusIcon} tone="danger" loading={first} href={currentPageHref({ tr_branch: "unassigned" })} onClick={() => setFilter("unassigned")} scrollTo="transfers-table" actionLabel="Show unassigned employees" />
@@ -298,12 +332,20 @@ export function TransfersPage({ refreshKey }) {
           <CardTitle>Employee branch list</CardTitle>
           <CardDescription>Where every Employee and Accountant is assigned.</CardDescription>
           <CardAction className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => setMoving(true)} disabled={!all.length}><UsersIcon aria-hidden="true" />Move many</Button>
             <Button variant="outline" size="sm" onClick={load} disabled={roster.loading}><RefreshCwIcon className={cn(roster.loading && "animate-spin")} aria-hidden="true" />Refresh</Button>
           </CardAction>
         </CardHeader>
         <CardContent className="space-y-4">
           {!branches.length && !first ? <p className="text-sm text-muted-foreground">No branches configured — ask the Super Admin to add branches first.</p> : null}
+          {moveSelected.size ? (
+            <div role="region" aria-label="Selected rows" data-testid="bulk-bar" className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+              <span className="font-medium tabular-nums">{moveSelected.size} selected</span>
+              <span className="flex flex-1 flex-wrap justify-end gap-2">
+                <Button size="sm" onClick={() => { setMoveIds([...moveSelected]); setMoving(true); }}><UsersIcon aria-hidden="true" />Move selected</Button>
+                <Button size="sm" variant="ghost" onClick={() => setMoveSelected(new Set())}>Clear</Button>
+              </span>
+            </div>
+          ) : null}
           <BranchGroupedTable
             toolbar={<FilterTabs value={filter} onValueChange={setFilter} label="Branch filter" options={[
               { value: "all", label: "All", count: all.length },
@@ -332,8 +374,9 @@ export function TransfersPage({ refreshKey }) {
         </CardHeader>
         <CardContent>
           <DataTable
+            toolbar={historyFilters.toolbar}
             columns={historyColumns}
-            rows={history.rows}
+            rows={historyFilters.rows}
             loading={history.loading}
             error={history.error}
             onRetry={load}
@@ -342,16 +385,19 @@ export function TransfersPage({ refreshKey }) {
             empty={{ title: "No transfers yet", icon: Building2Icon }}
             caption="Transfer history"
             minWidth={900}
+            selection={bulkTransfers.selection}
           />
+          {bulkTransfers.dialog}
         </CardContent>
       </Card>
 
       <TransferDialog employee={editing} branches={branches} onOpenChange={(open) => { if (!open) setEditing(null); }} onDone={async () => { await Promise.all([load(), loadEndorsements()]); }} />
       <BulkRowsDialog
         open={moving}
-        onOpenChange={setMoving}
+        onOpenChange={(o) => { setMoving(o); if (!o) setMoveSelected(new Set()); }}
+        initialIds={moveIds}
         testId="move-many"
-        title="Move many employees"
+        title="Move the selected employees"
         description="Choose each employee. Each moves to the chosen branch now and the move is kept in Transfer History (e.g. a branch closing or merging into another). Check first: only the rows that pass are moved."
         employees={all.map((e) => ({ id: e.id, full_name: e.full_name, employee_code: e.employee_id, branch_name: branches.find((b) => b.id === e.branch)?.name || "Unassigned" }))}
         pasteLabel="One employee ID (or name) per line"
@@ -385,7 +431,6 @@ export function TransfersPage({ refreshKey }) {
           </div>
         )}
       />
-      {confirmDialogNode}
     </>
   );
 }

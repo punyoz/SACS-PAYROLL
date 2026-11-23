@@ -1,3 +1,4 @@
+import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -285,6 +286,11 @@ export async function PATCH(request) {
     const foreignBranch = denyForeignBranch(guard, current.from_branch_id);
     if (foreignBranch) return foreignBranch;
 
+    // Batch 2: a preset remark (required to reject), checked before anything moves;
+    // audited with the decision's own update (decision_remark_audit, Part H).
+    const remark = await resolveRemark(getAdminClient(), body.remark, { decision: action, entityType: "transfer_request", fallbackText: body.note });
+    if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
+
     if (action === "approve") {
       // Re-check the employee is still in the branch this request was raised
       // against — it may have moved via a different transfer that was
@@ -325,11 +331,13 @@ export async function PATCH(request) {
     }
     const { request: updated } = await updateTransferRequestStatus(id, nextStatus, {
       reviewedBy: guard.userId,
+      decisionNote: remark.text || null,
+      client: remarkClient(remark, { decision: action, entityType: "transfer_request", module: "transfer_requests", table: "transfer_requests", ids: [id], actor: guard }),
     });
 
     await notifyEndorsers(getAdminClient(), "transfer_endorsement", id, {
       title: `Transfer ${nextStatus === "approved" ? "approved" : "rejected"} by HR`,
-      body: current.remarks || "See Transfer Endorsements.",
+      body: remark.text || current.remarks || "See Transfer Endorsements.",
     }).catch(() => 0);
 
     await appendAuditLog({

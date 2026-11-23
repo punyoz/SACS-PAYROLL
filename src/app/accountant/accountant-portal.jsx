@@ -1,5 +1,6 @@
 "use client";
 
+import { SubstitutionsReportCard } from "@/components/portal/substitutions";
 import dynamic from "next/dynamic";
 import { PageSkeleton } from "@/components/portal/lazy-page";
 import * as React from "react";
@@ -162,6 +163,7 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
       {current === "ac-attendance" ? <AttendancePage refreshKey={refreshKey} /> : null}
       {current === "ac-monitoring" ? <MonitoringPage /> : null}
       {current === "ac-reports" ? <ReportsPage /> : null}
+      {current === "ac-reports" ? <SubstitutionsReportCard /> : null}
       {current === "ac-gov-rates" ? <><PayRatesPanel refreshKey={refreshKey} /><GovernmentRatesPanel refreshKey={refreshKey} /></> : null}
       {current === "ac-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
       {current === "ac-announcements" ? <AnnouncementsFeed refreshKey={refreshKey} /> : null}
@@ -173,7 +175,9 @@ function Screens({ current, navigate, refreshKey, refreshing, refresh }) {
 
 function AccountantScreens() {
   const { can } = usePortalSession();
-  const [page, setPage] = usePersistedPage("accountant", PAGE_IDS, "ac-dashboard");
+  const [page, setPersistedPage] = usePersistedPage("accountant", PAGE_IDS, "ac-dashboard");
+  // A leave notification names the Employee page; the Accountant's own Leave & Overtime is ac-my-leave (2026-11-22).
+  const setPage = React.useCallback((id) => setPersistedPage(id === "emp-leave" ? "ac-my-leave" : id), [setPersistedPage]);
   const [refreshKey, setRefreshKey] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
   const item = NAV_ITEMS.find((i) => i.id === page);
