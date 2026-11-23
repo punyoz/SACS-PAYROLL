@@ -115,6 +115,8 @@ const API_MODULES = [
   ["/api/remark-presets", "profile"],
   ["/api/reports/remark-reasons", "profile"],
   ["/api/reports/substitutions", "profile"],
+  // Special working days (2026-11-23): attendance readers list them; the route lets only HR / Super Admin declare or cancel.
+  ["/api/hr/special-days", "profile"],
   ["/api/admin/branches", "branch_management"],
   ["/api/admin/config", "system_configuration"],
   // Effective-dated payroll rates: Super Admin's System Configuration.

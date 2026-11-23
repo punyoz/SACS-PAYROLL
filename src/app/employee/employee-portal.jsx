@@ -17,6 +17,7 @@ import { LeavePage } from "./leave-page";
 import { ProfilePage } from "./profile-page";
 import { MY_DESCRIPTIONS, MY_PAGE_IDS, MY_REQUEST_ALIASES, MyRequestsPage, employeeAccountItems } from "@/components/portal/my-account";
 import { navPages } from "@/lib/portal/nav-tabs";
+import { MySpecialDays } from "@/components/portal/special-days";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -103,8 +104,8 @@ function EmployeeScreens() {
       profilePage="emp-profile"
       accountOptions={{ payrollReadOnly: true }}
     >
-      {current === "emp-dash" ? <DashboardPage stats={stats} payslips={payslips} leave={leave} onNavigate={setPage} /> : null}
-      {current === "emp-attendance" ? <AttendancePage stats={stats} refreshKey={refreshKey} /> : null}
+      {current === "emp-dash" ? <><MySpecialDays /><DashboardPage stats={stats} payslips={payslips} leave={leave} onNavigate={setPage} /></> : null}
+      {current === "emp-attendance" ? <><MySpecialDays /><AttendancePage stats={stats} refreshKey={refreshKey} /></> : null}
       {current === "emp-timesheet" ? <TimesheetPage /> : null}
       {current === "emp-payslips" ? <PayslipsPage payslips={payslips} /> : null}
       {current === "emp-leave" ? <LeavePage leave={leave} /> : null}

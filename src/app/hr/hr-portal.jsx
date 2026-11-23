@@ -40,6 +40,7 @@ import { HolidayDutyPage } from "@/components/portal/holiday-duty";
 import { RatesSection } from "@/app/super-admin/rates-section";
 import { PayrollSettingsSection } from "@/app/super-admin/tax-section";
 import { LeaveConversionCard } from "@/components/portal/leave-conversion-card";
+import { SpecialDaysPanel } from "@/components/portal/special-days";
 
 // Charts (recharts) load with these pages, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -241,7 +242,7 @@ function HrScreens() {
         {current === "hr-rfid-terminals" ? <RfidTerminalLauncher text="Open the dedicated tap-in/tap-out screen for an RFID reader. It accepts cards from every branch, replaces this view and is locked behind your HR password." /> : null}
         {current === "hr-payroll-approval" ? <PayrollApprovalPage key={sectionKey} refreshKey={refreshKey} onChanged={() => { reloadPending(); reloadFinalPay(); }} counts={{ runs: pendingRuns, finalPay: pendingFinalPay }} /> : null}
         {current === "hr-payroll-records" ? <PayrollRecordsPage refreshKey={refreshKey} /> : null}
-        {current === "hr-holidays" ? <HolidayDutyPage refreshKey={refreshKey} /> : null}
+        {current === "hr-holidays" ? <><HolidayDutyPage refreshKey={refreshKey} /><SpecialDaysPanel refreshKey={refreshKey} /></> : null}
         {current === "hr-schedules" ? (
           <div className="flex flex-col gap-4">
             <WorkSchedulesPanel refreshKey={refreshKey} />

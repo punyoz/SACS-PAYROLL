@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchJson } from "@/lib/portal/api";
 import { useEmployeeStats, useLeaveRequests, usePayslips } from "@/app/employee/use-employee-data";
 import { AttendancePage } from "@/app/employee/attendance-page";
+import { MySpecialDays } from "@/components/portal/special-days";
 import { TimesheetPage } from "@/app/employee/timesheet-page";
 import { PayslipsPage } from "@/app/employee/payslips-page";
 import { LeavePage } from "@/app/employee/leave-page";
@@ -223,7 +224,7 @@ export function MyAccountScreen({ kind, refreshKey = 0, initialTab }) {
   const stats = useEmployeeStats(email, refreshKey);
   const payslips = usePayslips(email, refreshKey);
   const leave = useLeaveRequests(ctx, notify, refreshKey);
-  if (kind === "attendance") return <AttendancePage stats={stats} refreshKey={refreshKey} />;
+  if (kind === "attendance") return <><MySpecialDays /><AttendancePage stats={stats} refreshKey={refreshKey} /></>;
   if (kind === "timesheet") return <TimesheetPage />;
   if (kind === "leave") return <LeavePage leave={leave} />;
   if (kind === "payslips") return <PayslipsPage payslips={payslips} />;

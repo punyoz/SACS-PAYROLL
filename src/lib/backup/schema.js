@@ -76,6 +76,7 @@ export const TABLE_COLUMNS = Object.freeze({
   rfid_terminals: "id:uuid,name:text,branch_id:uuid,status:text,key_version:int,last_tap_at:tstz,last_tap_result:text,status_reason:text,created_by:uuid,created_by_name:text,created_by_role:text,updated_by_name:text,created_at:tstz,updated_at:tstz",
   role_permissions: "id:uuid,role:text,module:text,scope:text,can_create:bool,can_read:bool,can_update:bool,can_delete:bool,updated_at:tstz",
   school_break_periods: "id:uuid,school_year:text,kind:text,start_date:date,end_date:date,archived:bool,note:text,created_by:uuid,created_by_name:text,updated_by:uuid,updated_by_name:text,updated_by_role:text,created_at:tstz,updated_at:tstz",
+  special_working_days: "id:uuid,work_date:date,branch_ids:array,audience:text,employee_ids:array,start_time:time,end_time:time,reason:text,pay_type:text,premium_pct:num,created_by:uuid,created_by_name:text,created_at:tstz,cancelled_at:tstz,cancelled_by_name:text",
   statutory_leave_types: "leave_type:text,enabled:bool,days:num,basis:text,eligibility:text,max_events:int,note:text,sort_order:int,updated_by_name:text,updated_at:tstz",
   system_config: "id:uuid,section:text,key:text,value:text,updated_at:tstz,updated_by:text",
   substitutions: "id:uuid,branch_id:uuid,sub_date:date,absent_employee_id:uuid,substitute_id:uuid,start_time:text,end_time:text,periods:int,class_section:text,subject:text,leave_request_id:text,status:text,created_by:uuid,created_by_name:text,created_at:tstz,decided_by:uuid,decided_by_name:text,decided_at:tstz,decision_note:text,updated_at:tstz",

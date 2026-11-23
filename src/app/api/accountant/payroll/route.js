@@ -112,6 +112,7 @@ import { eligibilityRefusal } from "@/lib/employees/classification-server";
 import { loadClassificationContext } from "@/lib/employees/classification-server";
 import { classificationOn } from "@/lib/employees/classification";
 import { gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
+import { extraDayLines } from "@/lib/attendance/special-days";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -557,6 +558,8 @@ function computeTotals(payroll) {
   const earlyBirdWinnerPay = Math.max(0, toAmount(payroll.extra?.early_bird_winner));
   // Substitute teaching (Part C): approved, confirmed by the substitute's taps.
   const substitutionPay = Math.max(0, toAmount(payroll.extra?.substitution));
+  // Extra working days (2026-11-23): daily rate × premium, only when tapped in.
+  const specialDayPay = Math.max(0, toAmount(payroll.extra?.special_day));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -567,7 +570,7 @@ function computeTotals(payroll) {
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
     + leaveWithoutPayDeduction + cashAdvance + loanDeduction,
   );
-  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay);
+  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay + specialDayPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -617,6 +620,7 @@ function computeTotals(payroll) {
       other_incentive: otherIncentive,
       overload_pay: overloadPay,
       substitution_pay: substitutionPay,
+      special_day_pay: specialDayPay,
       total_incentives: totalIncentives,
       overtime_pay: overtimePay,
       holiday_pay: holidayPay,
@@ -1682,6 +1686,10 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
 
   // Part E step 6: Perfect Attendance / Early Bird are paid only once HR approves (from the setting's period).
   const incentiveGate = await loadIncentiveGate(supabase, period);
+  // Special working days in the period (20261124130000); none before it is applied.
+  const specialDays = await supabase.from("special_working_days").select("*").is("cancelled_at", null).eq("pay_type", "extra")
+    // From a month before: a settling payslip's own span can start before its period; extraDayLines keeps its own span.
+    .gte("work_date", new Date(Date.parse(`${period.start_key}T00:00:00Z`) - 31 * 864e5).toISOString().slice(0, 10)).lte("work_date", period.end_key).then((r) => (r.error ? [] : r.data || []), () => []);
 
   const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
   const logsByEmployee = new Map();
@@ -1788,6 +1796,8 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       attendance_span: own,
       early_bird: earlyBird,
       incentive_gate: incentiveGate,
+      special_extra: extraDayLines({ days: specialDays, person: employee, logs: logsByEmployee.get(employee.id) || [],
+        dailyRate: rateValues(resolved).daily, spanStart: own.start_key, spanEnd: own.end_key }),
       branch_days: branchDaysFor(employee.id, own),
       msc_table: mscTable,
       classification: classificationOf(employee.id),
@@ -2290,6 +2300,9 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   // the 13th month (basic salary only); contributions unchanged (monthly basic).
   const substitutionLines = context.substitution?.lines || [];
   const substitutionPay = toAmount(substitutionLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0));
+  // Extra working days (special_working_days, pay_type extra): taxable like other earnings.
+  const specialDayLines = context.special_extra || [];
+  const specialDayPay = toAmount(specialDayLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0));
 
   // Withholding tax on this period's taxable compensation.
   const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
@@ -2347,7 +2360,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
       overloadHours,
       overloadPay,
-      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay,
+      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay,
       ...prior,
     }).monthly_gross <= 0;
   }
@@ -2381,7 +2394,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
     overloadHours,
     overloadPay,
-    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay,
+    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay,
     nonTaxableEarnings: nonTaxable,
     extraTaxable: subsidy.extra_taxable,
     cashAdvance: cashAdvanceTotal,
@@ -2434,7 +2447,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       period,
       available: toAmount(
         basic + overtimePay + holidayPay
-        + finalAmounts.perfect_attendance + otherIncentive + overloadPay + substitutionPay
+        + finalAmounts.perfect_attendance + otherIncentive + overloadPay + substitutionPay + specialDayPay
         - (sss + philhealth + pagibig + withholdingTax
           + finalAmounts.absent + finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day
           + leaveWithoutPayAmount),
@@ -2524,6 +2537,11 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
         note: ITEM_KIND_LABELS[item.kind] ? `${ITEM_KIND_LABELS[item.kind]}: ${item.description}${item.kind === "adjustment" && item.reason ? `. ${item.reason}` : ""} (${shortDate(item.item_date)})` : item.description || null,
         log_date: String(item.item_date).slice(0, 10), item_kind: item.kind,
       })),
+    // Extra working days: one line each ("Special working day (Sat Nov 28): …").
+    ...specialDayLines.map((l) => ({
+      type: "special_working_day", quantity: 1, unit: "day", rate: l.amount, rate_config_id: null, amount: toAmount(l.amount),
+      source_log_id: null, is_override: false, note: l.note, log_date: l.work_date,
+    })),
     // Substitute teaching: one line per part (inside the shift, outside it, above the standard load).
     ...substitutionLines.map((l) => ({
       type: "substitution", quantity: Math.round((l.minutes / 60) * 100) / 100, unit: "hour",
@@ -2555,7 +2573,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
-    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay },
+    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay, special_day: specialDayPay },
   });
   if (earlyBirdWinner) {
     payroll.early_bird = {
