@@ -159,12 +159,16 @@ export function SpecialDaysPanel({ refreshKey }) {
 
 /** The signed-in person's upcoming special working days (dashboard and My Attendance). Hidden when none. */
 export function MySpecialDays() {
+  const { can } = usePortalSession();
+  const allowed = can("my_account");
   const [days, setDays] = React.useState([]);
   React.useEffect(() => {
+    // A separated account (no My Account pages) is not asked: the server would refuse it.
+    if (!allowed) return undefined;
     let alive = true;
     fetchJson("/api/me/special-days").then((d) => { if (alive) setDays(d.days || []); }).catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [allowed]);
   if (!days.length) return null;
   return (
     <Card className="min-w-0 border-brand-gold/50 shadow-xs" data-testid="my-special-days">

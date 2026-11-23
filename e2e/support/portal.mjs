@@ -54,6 +54,9 @@ export async function navTo(page, label) {
   const exact = new RegExp(`^\\s*${escapeRe(label)}\\s*(\\d+)?\\s*$`);
   const direct = page.locator('[data-sidebar="menu-button"]').filter({ hasText: exact });
   // A page that is a tab of a module (Part I, 2026-11-23): open the module from the sidebar, then click its tab.
+  // On a phone the menu (and its links) exist only once it is open.
+  const trigger0 = page.locator('[data-sidebar="trigger"]').first();
+  if (idsOfLabel(label).length && !(await page.locator('[data-sidebar="menu-button"]:visible').count()) && await trigger0.isVisible().catch(() => false)) await trigger0.click();
   let id = null;
   for (const candidate of idsOfLabel(label)) if (await page.locator(`[data-sidebar="menu-button"][data-tabs~="${candidate}"]`).count()) { id = candidate; break; }
   if (id) {
