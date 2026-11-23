@@ -1,3 +1,4 @@
+import { canRequestCorrection } from "@/lib/attendance/correction-requests";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
@@ -5,7 +6,6 @@ import { requirePermission } from "@/lib/rbac/guard";
 import { can, SCOPE_SELF } from "@/lib/rbac/permissions";
 import {
   ATTENDANCE_STATUSES,
-  CORRECTABLE_STATUSES,
   PRESENT_FILTER,
   PRESENT_STATUSES,
   UNRESOLVED_STATUSES,
@@ -197,7 +197,8 @@ export async function GET(request) {
           leave: row.status === "On Leave" ? leaveOf(row.employee_id, row.log_date) : null,
           holiday_name: holidays.get(row.log_date)?.name || null,
           correction: pending.get(row.id) || null,
-          can_request_correction: selfOnly && CORRECTABLE_STATUSES.includes(row.status) && Boolean(row.time_in) && !pending.has(row.id),
+          // Attendance correction requests (2026-11-23): any day but a holiday, leave or one already pending; the database checks the rest.
+          can_request_correction: selfOnly && canRequestCorrection(row) && !pending.has(row.id),
         })),
         days: [...new Set(rows.map((row) => row.log_date))].filter(Boolean).sort().reverse(),
         // The Blocked taps queue of the same range and branch.
@@ -301,10 +302,7 @@ export async function GET(request) {
         leave: row.status === "On Leave" ? leaveFor(row.employee_id, row.log_date) : null,
         holiday_name: holidayNames.get(row.log_date)?.name || null,
         correction: pendingByLog.get(row.id) || null,
-        can_request_correction: selfOnly
-          && CORRECTABLE_STATUSES.includes(row.status)
-          && Boolean(row.time_in)
-          && !pendingByLog.has(row.id),
+        can_request_correction: selfOnly && canRequestCorrection(row) && !pendingByLog.has(row.id),
       })),
       counts,
       blocked_taps: blockedTaps,
