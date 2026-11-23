@@ -18,7 +18,7 @@ test("automation: pause / resume, Admin Note and Object (own branch), HR Undo re
   const TAG = `E2E automation ${Date.now()}`;
   await setPaused("false");
   const log = async (kind, summary) => {
-    const { data, error } = await db().rpc("automation_log", { p_module: "e2e_test", p_rule: "an E2E rule", p_kind: kind, p_summary: summary, p_data: { tag: TAG }, p_employee: ana.id, p_branch: ana.branch_id });
+    const { data, error } = await db().rpc("automation_log", { p_module: "spec_test", p_rule: "an E2E rule", p_kind: kind, p_summary: summary, p_data: { tag: TAG }, p_employee: ana.id, p_branch: ana.branch_id });
     expect(error, "automation_log").toBeNull();
     return data;
   };
@@ -73,7 +73,7 @@ test("automation: pause / resume, Admin Note and Object (own branch), HR Undo re
     await step(page, "Admin cannot undo; another branch's item cannot be checked", async () => {
       expect((await api(page, "PATCH", "/api/automation", { id: applied, action: "undo", remark: { code: "revoke.automation.in_error" } })).status).toBe(403);
       const north = await rows(db().from("branches").select("id").neq("id", ana.branch_id).limit(1));
-      const { data: foreignId } = await db().rpc("automation_log", { p_module: "e2e_test", p_rule: "an E2E rule", p_kind: "proposal", p_summary: `${TAG} other branch`, p_data: {}, p_employee: null, p_branch: north[0].id });
+      const { data: foreignId } = await db().rpc("automation_log", { p_module: "spec_test", p_rule: "an E2E rule", p_kind: "proposal", p_summary: `${TAG} other branch`, p_data: {}, p_employee: null, p_branch: north[0].id });
       expect((await api(page, "PATCH", "/api/automation", { id: foreignId, action: "note", note: "not mine" })).status).toBe(403);
       const list = await api(page, "GET", "/api/automation");
       expect(list.data.actions.some((a) => a.summary === `${TAG} other branch`)).toBe(false);
