@@ -206,6 +206,8 @@ function ActionNeededCard({ data }) {
     // 2026-11-22: payroll refuses a ₱0 salary; each name opens that employee's record.
     { key: "salary", title: "Salary not set", text: "₱0 salary: payroll refuses them until it is set (an HR account's salary: Super Admin).", href: portalHref("hr-employees"), rows: a.salary_not_set || [],
       rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
+    { key: "branch", title: "Branch not set", text: "AWOL detection skips them until a branch is set (an HR account's home branch: Super Admin).", href: portalHref("hr-employees"), rows: a.branch_not_set || [],
+      rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
     { key: "date-hired", title: "Date hired not set", text: "Tenure, proration and leave count from it: set it on the record (an HR account's record: Super Admin).", href: portalHref("hr-employees"), rows: a.date_hired_not_set || [],
       rowHref: (r) => portalHref("hr-employees", { emp_open: r.id }) },
     // Part B (2026-11-22): a Final payslip never changes by itself; the Accountant files the correction.

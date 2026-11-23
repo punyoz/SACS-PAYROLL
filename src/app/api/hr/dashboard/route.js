@@ -148,7 +148,7 @@ export async function GET(request) {
 
     // Action needed (Part A, 20261121010000): records to confirm, probations and
     // contracts ending within the reminder windows. Never fails the dashboard.
-    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [], date_hired_not_set: [], leave_after_payslip: [] };
+    let actionNeeded = { unconfirmed: [], probation_ending: [], contract_ending: [], salary_not_set: [], date_hired_not_set: [], branch_not_set: [], leave_after_payslip: [] };
     try {
       // Not the viewer's own record: another HR confirms it.
       const ids = employees.map((u) => u.id).filter((id) => id !== guard.userId);
@@ -170,6 +170,7 @@ export async function GET(request) {
           .map((p) => ({ id: p.id, full_name: p.full_name, due_on: p.contract_end_date })),
         salary_not_set: [],
         date_hired_not_set: [],
+        branch_not_set: [],
         leave_after_payslip: [],
       };
     } catch { /* ignore */ }
@@ -199,6 +200,19 @@ export async function GET(request) {
       const { data } = await undated;
       actionNeeded.date_hired_not_set = (data || []).map((p) => ({ id: p.id, full_name: p.full_name, role: p.role }));
     } catch { /* ignore */ }
+    // Branch not set (2026-11-23): AWOL detection skips anyone without a branch until one is set
+    // (for HR: the home branch whose Accountant processes their payslip). HR sees every branch.
+    if (guard.branchExempt) {
+      try {
+        const { data } = await supabase.from("profiles").select("id,full_name,role")
+          .is("branch_id", null)
+          .not("archived", "is", true)
+          .not("on_payroll", "is", false)
+          .in("role", ["employee", "accountant", "hr"])
+          .order("full_name", { ascending: true });
+        actionNeeded.branch_not_set = (data || []).map((p) => ({ id: p.id, full_name: p.full_name, role: p.role }));
+      } catch { /* ignore */ }
+    }
     // Leave approved after its day's Final payslip (Part B, 2026-11-22): a
     // correction on the next payslip. Approvals of the last 60 days, branch-scoped.
     try {
