@@ -131,3 +131,35 @@ No check was removed or loosened. Where a test changed, it now reaches the same 
 - Your yes for the Batch 2 release, and later for the Part G daily job.
 - Your review of the Leave & Overtime screenshots (`docs/reports/leave-overtime/`).
 - Batch 3 (E automation, I sidebar) and A2 (deferred).
+
+
+## 7. Update 2026-11-23 morning: AWOL automation OFF until enabled (your decision)
+
+- **Found:** an AWOL detection job, `awol-flag-candidates`, **already runs on live every night** (00:20 Manila, from an earlier release). The Batch 2 migration replaces the function that job calls.
+- **Now:** after the release, AWOL automation is OFF.
+  - The new setting `hr.awol_auto_from` is empty; while it's empty, detection, the device check and the daily review do nothing.
+  - Both jobs (`awol-flag-candidates` and `awol-daily-review`) are set INACTIVE.
+  - This also stops the old nightly detection on live until you enable it.
+- **Enabling:** `SELECT public.awol_automation_enable();` sets the date to today, turns both jobs on, and is logged.
+  - Only absences on or after that date ever count, and the device check never looks earlier either.
+  - A past date is refused.
+- **Checks:** off does nothing; absences before the enable date never count; enabling sets the date and turns on the jobs; plus all earlier scenarios. All pass, and both AWOL browser tests pass on a fresh seed.
+
+### Dry run on live (read-only, today's live data, run date Nov 22, new rules without the enable-date gate)
+
+| Who | Absences | Result |
+|---|---|---|
+| Default Employee | Nov 12–13, 16–19 no taps | **No case**: every one of those days, all of Main Branch (7–8 people) had no taps. That counts as a device or data problem, never as AWOL. |
+| Jane Dela Pena Benitez (Employee), Jane Marinel (HR) | Nov 12–19 no taps | **No case**: same gap days |
+| Ehd Astillero Refuerzo (Employee, SACS-001) | Nov 12–19 no taps | **No case**: same gap days (also a pending leave Nov 18–20) |
+| Jane Marinel Dela Pena Benitez (Accountant) | Nov 11, 12, 13 | Would match, but she **already has an open case** (Oct 7), so no second case is opened |
+
+- The first run without the gate would also have recorded **10 device-problem days** (Main Nov 12–19, Robinson Nov 16–19) and notified HR of each. With the gate, nothing before the enable date is looked at.
+- Already on live (opened by the old job): open "flagged" cases for Default Employee, both Janes (Employee and Accountant, Oct 7), Jane (HR, Nov 6) and Ehd Astillero (Oct 9). Batch 2 leaves them as they are.
+
+### Rollback SQL
+Prepared from live's definitions and tested locally (ROLLBACK). It:
+- restores the 3 replaced functions (`awol_flag_candidates`, `backup_export_tables`, the grants guard);
+- reactivates `awol-flag-candidates` and removes `awol-daily-review`;
+- drops the new functions and puts back `granted_by NOT NULL`;
+- reverses Jane's date hired and the 5 Admin flags.
