@@ -43,14 +43,14 @@ test("Perfect Attendance: held for HR, then paid once HR approves", async ({ pag
   planted = { rate: rateId, from };
   await db().from("system_config").update({ value: "2026-11-16" }).eq("section", "automation").eq("key", "incentive_approval_from");
 
-  // On time every weekday so far this cutoff (08:00-17:00 shift).
+  // On time every weekday of the month so far (the 2nd half settles the whole month; 08:00-17:00 shift).
   const days = [];
-  for (let d = 16; `2026-11-${String(d).padStart(2, "0")}` < manilaDay(0); d += 1) {
+  for (let d = 1; `2026-11-${String(d).padStart(2, "0")}` < manilaDay(0); d += 1) {
     const day = `2026-11-${String(d).padStart(2, "0")}`;
     if (![0, 6].includes(new Date(`${day}T00:00:00Z`).getUTCDay())) days.push(day);
   }
   psql(`set session_replication_role = replica; delete from incentive_recommendations where employee_id = '${emp.id}';
-    delete from attendance_logs where employee_id = '${emp.id}' and log_date between '2026-11-16' and '2026-11-30';`);
+    delete from attendance_logs where employee_id = '${emp.id}' and log_date between '2026-11-01' and '2026-11-30';`);
   await rows(db().from("attendance_logs").insert(days.map((day) => ({
     employee_id: emp.id, employee_name: emp.full_name, branch_id: emp.branch_id, log_date: day, status: "Present",
     time_in: `${day}T07:55:00+08:00`, time_out: `${day}T17:05:00+08:00`, shift_start_minutes: 480, shift_end_minutes: 1020,
