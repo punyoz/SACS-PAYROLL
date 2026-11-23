@@ -62,7 +62,8 @@ test("HR's own requests go to another HR covering their branch, else the Super A
     const [inc] = await rows(db().from("payroll_monthly_incentives").insert({ employee_id: hr.id, branch_id: hr.branch_id, item_date: manilaDay(0), kind: "incentive", description: "E2E own incentive", amount: 100, approval_status: "pending" }).select("id"));
     expect((await api(page, "PATCH", "/api/hr/adjustment-approvals", { kind: "incentive", id: inc.id, decision: "approve", remark: { code: "approve.as_requested" } })).status, "own incentive").toBe(403);
     const branch = (await rows(db().from("branches").select("id").limit(2)));
-    const [tr] = await rows(db().from("transfer_requests").insert({ employee_id: hr.id, from_branch_id: branch[0].id, to_branch_id: branch[1].id, status: "pending", remarks: "E2E own transfer" }).select("id"));
+    const sa = await profileByEmail(ACCOUNTS.super_admin.email);
+    const [tr] = await rows(db().from("transfer_requests").insert({ employee_id: hr.id, from_branch_id: branch[0].id, to_branch_id: branch[1].id, requested_by: sa.id, status: "pending", remarks: "E2E own transfer" }).select("id"));
     expect((await api(page, "PATCH", "/api/admin/transfer-requests", { id: tr.id, action: "approve", remark: { code: "approve.as_requested" } })).status, "own transfer").toBe(403);
     const [br] = await rows(db().from("branch_admin_requests").insert({ branch_id: branch[0].id, kind: "schedule_request", employee_id: hr.id, details: { request_type: "schedule", effective_from: manilaDay(5), requested: "x" }, admin_note: "E2E own", status: "pending" }).select("id"));
     expect((await api(page, "PATCH", "/api/hr/branch-requests", { id: br.id, decision: "approve", remark: { code: "approve.as_requested" } })).status, "own branch request").toBe(403);
