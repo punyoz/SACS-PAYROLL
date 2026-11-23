@@ -107,7 +107,7 @@ const TITLES = {
   "ac-loans": "Loans", "ac-cash-advances": "Cash Advances", "ac-approvals": "Subsidies", "ac-13th": "13th month pay", "ac-final-pay": "Final Pay",
   "ac-attendance": "Attendance Records", "ac-holidays": "Holidays & Duty", "ac-monitoring": "Payroll Monitoring", "ac-reports": "Payroll Reports",
   "ac-gov-rates": "Government Rates", "ac-my-attendance": "My Attendance", "ac-my-timesheet": "My Timesheet", "ac-my-payslips": "My Payslips",
-  "ac-my-leave": "Leave & Overtime", "ac-my-requests": "My Requests", "ac-profile": "My Profile",
+  "ac-my-leave": "My Requests", "ac-my-requests": "Loans & Other Pay", "ac-profile": "My Profile",
 };
 const DESCRIPTIONS = {
   "ac-dashboard": "Payroll overview and activity summary for the current period.",

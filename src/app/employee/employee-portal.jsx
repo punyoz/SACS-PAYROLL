@@ -38,7 +38,7 @@ const NAV = [
 const PAGES = navPages(NAV);
 const PAGE_IDS = PAGES.map((item) => item.id);
 // Page titles stay as before (the tab labels are shorter).
-const OLD_TITLES = { "emp-attendance": "My Attendance", "emp-timesheet": "My Timesheet", "emp-leave": "Leave & Overtime", "emp-payslips": "My Payslips", "emp-requests": "My Requests" };
+const OLD_TITLES = { "emp-attendance": "My Attendance", "emp-timesheet": "My Timesheet", "emp-leave": "My Requests", "emp-payslips": "My Payslips", "emp-requests": "Loans & Other Pay" };
 
 const DESCRIPTIONS = {
   "emp-dash": null,

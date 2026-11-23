@@ -207,6 +207,7 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                     <a
                       href={portalHref(target)}
                       aria-current={active ? "page" : undefined}
+                      data-tabs={item.tabs ? allowedTabs(item, can).map((t) => t.id).join(" ") : item.id}
                       onClick={(event) => {
                         if (!isPlainClick(event)) return;
                         event.preventDefault();

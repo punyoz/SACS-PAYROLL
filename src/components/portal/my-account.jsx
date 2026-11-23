@@ -65,9 +65,9 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
     items: [
       { id: ids.attendance, label: "My Attendance", icon: CalendarCheckIcon, module: "my_account" },
       { id: ids.timesheet, label: "My Timesheet", icon: ClockIcon, module: "my_account" },
-      { id: ids.leave, label: "Leave & Overtime", icon: CalendarDaysIcon, module: "my_account" },
+      { id: ids.leave, label: "My Requests", icon: CalendarDaysIcon, module: "my_account" },
       { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, module: "my_account" },
-      { id: ids.requests, label: "My Requests", icon: InboxIcon, module: "my_account" },
+      { id: ids.requests, label: "Loans & Other Pay", icon: InboxIcon, module: "my_account" },
       { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
     ],
   };
