@@ -231,9 +231,14 @@ for (const [role, portal, fromPages, cardPages] of [
       // each half's "Basic pay" line is computed from it.
       await page.goto("/accountant?page=ac-process");
       await settle(page);
-      await page.locator("#pc-employee").click();
-      await page.getByRole("option").first().click();
-      await settle(page);
+      // The same full-month employee in both halves, picked by name AFTER the period: choosing a period
+      // opens that period's first saved draft, which can belong to someone else (full run 2026-11-24).
+      const pickAna = async () => {
+        await page.locator("#pc-employee").click();
+        await page.getByRole("option", { name: /^Ana Lopez/ }).first().click();
+        await settle(page);
+      };
+      await pickAna();
       const shownBasic = [];
       const offered = await page.locator("#pc-period").click().then(() => page.getByRole("option").allInnerTexts());
       await page.keyboard.press("Escape");
@@ -249,6 +254,7 @@ for (const [role, portal, fromPages, cardPages] of [
         await page.locator("#pc-period").click();
         await page.getByRole("option", { name: period, exact: true }).click();
         await settle(page);
+        await pickAna();
         // Shown as "32,000.00" with ₱ inside the field (cleanup 2026-11-14).
         const basic = Number((await page.locator("#pc-basic").inputValue()).replace(/,/g, ""));
         const summaryCard = page.locator('[data-slot="card"]').filter({ hasText: "Computation summary" }).first();
