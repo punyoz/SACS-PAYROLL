@@ -11,7 +11,8 @@ import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 const toAmount = (n) => Math.round(Number(n) * 100) / 100;
-const occurrences = (payroll, text) => JSON.stringify(payroll).split(text).length - 1;
+// How many times a line is on the payslip itself (its lines; the payslip's audit trail keeps its own copy).
+const occurrences = (payroll, text) => JSON.stringify({ ...(payroll || {}), audit: undefined }).split(text).length - 1;
 
 async function plantPaidDayRequest(person, day, { status, timeIn, timeOut, fix, correctedIn, correctedOut }) {
   psql(`set session_replication_role = replica; delete from attendance_corrections where employee_id = '${person.id}' and log_date = '${day}'; delete from attendance_logs where employee_id = '${person.id}' and log_date = '${day}';`);
