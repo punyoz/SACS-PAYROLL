@@ -18,7 +18,7 @@ FROM generate_series(1, 6) n ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.branches (id, name) VALUES
   ('00000000-0000-4000-8000-0000000fef01', 'Eq From'), ('00000000-0000-4000-8000-0000000fef02', 'Eq To') ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on_payroll, employee_status)
-SELECT ('00000000-0000-4000-8000-0000000fe00' || n)::UUID, 'eq' || n || '@tr.test', 'Eq Person ' || n, CASE WHEN n = 6 THEN 'hr' ELSE 'employee' END,
+SELECT ('00000000-0000-4000-8000-0000000fe00' || n)::UUID, 'eq' || n || '@tr.test', 'Eq Person ' || n, (CASE WHEN n = 6 THEN 'hr' ELSE 'employee' END)::public.user_role,
        CASE WHEN n = 6 THEN NULL ELSE '00000000-0000-4000-8000-0000000fef01'::UUID END, FALSE, TRUE, 'Active'
 FROM generate_series(1, 6) n
 ON CONFLICT (id) DO UPDATE SET branch_id = EXCLUDED.branch_id, role = EXCLUDED.role, archived = FALSE;

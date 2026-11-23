@@ -51,12 +51,12 @@ BEGIN
 
   -- 2. A dated change waits for its date, then applies (profile + account metadata).
   INSERT INTO public.employee_classification_changes (employee_id, field, old_value, new_value, effective_on, reason, changed_by_name)
-  VALUES (c_later, 'employment_status', 'Regular', 'Probationary', v_today + 10, 'Record corrected: on probation', 'Hana HR');
+  VALUES (c_later, 'employment_status', 'Regular', 'Contractual', v_today + 10, 'Fixed-term project next term', 'Hana HR');
   PERFORM public.employee_classification_apply(v_today);
   IF (SELECT employment_status FROM public.profiles WHERE id = c_later) <> 'Regular' THEN RAISE EXCEPTION '2: applied before its date'; END IF;
   PERFORM public.employee_classification_apply(v_today + 10);
-  IF (SELECT employment_status FROM public.profiles WHERE id = c_later) <> 'Probationary' THEN RAISE EXCEPTION '2b: not applied on its date'; END IF;
-  IF (SELECT raw_user_meta_data->>'employment_status' FROM auth.users WHERE id = c_later) <> 'Probationary' THEN RAISE EXCEPTION '2c: account metadata not updated'; END IF;
+  IF (SELECT employment_status FROM public.profiles WHERE id = c_later) <> 'Contractual' THEN RAISE EXCEPTION '2b: not applied on its date'; END IF;
+  IF (SELECT raw_user_meta_data->>'employment_status' FROM auth.users WHERE id = c_later) <> 'Contractual' THEN RAISE EXCEPTION '2c: account metadata not updated'; END IF;
   IF EXISTS (SELECT 1 FROM public.employee_classification_changes WHERE employee_id = c_later AND applied_at IS NULL) THEN RAISE EXCEPTION '2d: not marked applied'; END IF;
 
   -- 3. A change needs a reason and a valid value.
@@ -101,7 +101,10 @@ BEGIN
   IF v_n <> 2 THEN RAISE EXCEPTION '6e: reminders repeated (% notifications)', v_n; END IF;
 
   -- 7. Leave credit rules and pay rules: every combination has a default, pending the policy manual.
-  IF (SELECT COUNT(*) FROM public.leave_credit_rules WHERE note LIKE '%pending policy manual%') <> 36 THEN RAISE EXCEPTION '7: leave credit defaults'; END IF;
+  -- 36 from 20261121010000 + 6 Provisional (20261124110000); new staff 3 / 3, Regular 5 / 5.
+  IF (SELECT COUNT(*) FROM public.leave_credit_rules WHERE note LIKE '%pending policy manual%') <> 42 THEN RAISE EXCEPTION '7: leave credit defaults'; END IF;
+  IF (SELECT days_per_year FROM public.leave_credit_rules WHERE leave_type = 'Vacation Leave' AND employee_type = 'Teaching' AND employment_status = 'Provisional' AND employment_type = 'Full-time') <> 3 THEN RAISE EXCEPTION '7h: Provisional vacation 3'; END IF;
+  IF (SELECT days_per_year FROM public.leave_credit_rules WHERE leave_type = 'Sick Leave' AND employee_type = 'Non-Teaching' AND employment_status = 'Regular' AND employment_type = 'Full-time') <> 5 THEN RAISE EXCEPTION '7i: Regular sick 5'; END IF;
   -- Maternity / paternity are statutory, per event: never yearly credits.
   v_ok := FALSE;
   BEGIN
@@ -113,7 +116,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.statutory_leave_types WHERE leave_type = 'Maternity Leave' AND enabled AND days = 105 AND eligibility = 'female') THEN RAISE EXCEPTION '7e: maternity setting'; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.statutory_leave_types WHERE leave_type = 'Paternity Leave' AND enabled AND days = 7 AND eligibility = 'married_male' AND max_events = 4) THEN RAISE EXCEPTION '7f: paternity setting'; END IF;
   IF (SELECT COUNT(*) FROM public.statutory_leave_types WHERE NOT enabled) <> 3 THEN RAISE EXCEPTION '7g: other statutory leaves are off by default'; END IF;
-  IF (SELECT COUNT(*) FROM public.employee_pay_rules WHERE note LIKE '%pending policy manual%') <> 12 THEN RAISE EXCEPTION '7b: pay rule defaults'; END IF;
+  IF (SELECT COUNT(*) FROM public.employee_pay_rules WHERE note LIKE '%pending policy manual%') <> 14 THEN RAISE EXCEPTION '7b: pay rule defaults'; END IF;
   v_ok := FALSE;
   BEGIN
     INSERT INTO public.employee_pay_rules (employee_type, employment_status, employment_type, pay_basis, effective_from)

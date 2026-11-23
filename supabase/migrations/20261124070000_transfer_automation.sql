@@ -38,8 +38,11 @@ BEGIN
     WHERE id = p_request.employee_id;
   END IF;
   -- The active card follows (lost / replaced / inactive cards are left as they are).
+  -- The card guard (rfid_flow_guard) lets only the RFID flow change cards: this is one.
+  PERFORM set_config('sacs.rfid_flow', 'on', true);
   UPDATE public.rfid_cards SET branch_id = p_request.to_branch_id WHERE employee_id = p_request.employee_id AND status = 'active';
   GET DIAGNOSTICS v_cards = ROW_COUNT;
+  PERFORM set_config('sacs.rfid_flow', '', true);
   PERFORM public.automation_log('transfer_endorsements', 'an approved transfer applied on its effective date', 'applied',
     format('%s moved to %s (effective %s)', COALESCE(v_name, 'An employee'), COALESCE((SELECT name FROM public.branches WHERE id = p_request.to_branch_id), 'the new branch'), COALESCE(p_request.effective_date, v_today)),
     jsonb_build_object('transfer_id', p_request.id, 'from_branch_id', p_request.from_branch_id, 'to_branch_id', p_request.to_branch_id,

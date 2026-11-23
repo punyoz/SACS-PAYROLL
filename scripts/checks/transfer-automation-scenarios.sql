@@ -22,6 +22,8 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id, archived, on
   ('00000000-0000-4000-8000-00000000eee1', 'hr@tr.test',   'Hal HR',        'hr', NULL, FALSE, TRUE, 'Active')
 ON CONFLICT (id) DO UPDATE SET branch_id = EXCLUDED.branch_id, role = EXCLUDED.role, archived = FALSE;
 -- Tess: an active card and a lost one; her own schedule.
+-- Cards change only through the RFID flow (rfid_flow_guard): this setup is one.
+SELECT set_config('sacs.rfid_flow', 'on', true);
 INSERT INTO public.rfid_cards (employee_id, branch_id, uid, uid_last4, status, registered_by_name, registered_by_role) VALUES
   ('00000000-0000-4000-8000-00000000ee01', '00000000-0000-4000-8000-00000000eef1', '9000000001', '0001', 'active', 'HR', 'hr'),
   ('00000000-0000-4000-8000-00000000ee01', '00000000-0000-4000-8000-00000000eef1', '9000000002', '0002', 'lost', 'HR', 'hr');
