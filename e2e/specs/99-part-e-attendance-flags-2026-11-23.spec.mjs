@@ -5,7 +5,7 @@ import { test, expect } from "../support/test.mjs";
 import { as } from "../support/auth.mjs";
 import { step } from "../support/banner.mjs";
 import { main, settle } from "../support/portal.mjs";
-import { manilaDay } from "../support/flow.mjs";
+import { choose, manilaDay } from "../support/flow.mjs";
 import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
@@ -40,10 +40,13 @@ test("attendance flags: a missing tap is flagged, shown to the employee, fixed b
       await expect(item).toBeVisible();
       await item.getByRole("button", { name: "Request correction" }).click();
       const dialog = page.getByRole("dialog");
-      await expect(dialog.getByText("Request correction")).toBeVisible();
-      await dialog.locator('input[type="time"]').fill("17:00");
-      await dialog.getByRole("textbox").last().fill("Forgot to tap out at 5 pm");
-      await dialog.getByRole("button", { name: /Send|Submit|Request/ }).last().click();
+      await expect(dialog.getByText("Attendance correction request")).toBeVisible();
+      // Filled in from the flag: "Missing time out" (the day has a time in).
+      await expect(dialog.locator("#corr-fix")).toContainText("Missing time out");
+      await dialog.locator("#corr-out").fill("17:00");
+      await choose(page, dialog.locator("#corr-reason"), "Forgot to tap out");
+      await dialog.locator("#corr-note").fill("Forgot to tap out at 5 pm");
+      await dialog.getByRole("button", { name: "Send request" }).click();
       await expect(dialog).toBeHidden({ timeout: 20000 });
       expect((await rows(db().from("attendance_corrections").select("status").eq("log_id", log.id))).map((c) => c.status)).toContain("pending");
     });
