@@ -2,7 +2,8 @@
 -- Old vs new attendance_schedule_for (20261124130000), on whatever data the
 -- database has (the local stack or a local copy of the live backup). With no
 -- special working day declared, the new function must return exactly what the
--- old one did, for every on-payroll person and every day of 60 days. Then one
+-- old one did, for every person and every day from the first attendance record
+-- to 30 days ahead. Then one
 -- declared day changes only the covered person on that date. Rolled back.
 --   docker exec -i supabase_db_SACS-PAYROLL psql -U postgres -v ON_ERROR_STOP=1 < scripts/checks/schedule-equivalence.sql
 -- Ends with NOTICE "schedule: old and new agree on N person-days".
@@ -18,10 +19,13 @@ DECLARE
   b UUID;
   d DATE := (NOW() AT TIME ZONE 'Asia/Manila')::DATE + 3;
 BEGIN
+  -- Every profile (archived and off-payroll too), every day from the first attendance record to 30 days ahead.
   WITH people AS (
-    SELECT id, branch_id FROM public.profiles WHERE on_payroll AND NOT COALESCE(archived, FALSE)
+    SELECT id, branch_id FROM public.profiles
   ), days AS (
-    SELECT gs::DATE AS day FROM generate_series((NOW() AT TIME ZONE 'Asia/Manila')::DATE - 30, (NOW() AT TIME ZONE 'Asia/Manila')::DATE + 30, INTERVAL '1 day') gs
+    SELECT gs::DATE AS day FROM generate_series(
+      LEAST(COALESCE((SELECT MIN(log_date) FROM public.attendance_logs), (NOW() AT TIME ZONE 'Asia/Manila')::DATE - 30), (NOW() AT TIME ZONE 'Asia/Manila')::DATE - 30),
+      (NOW() AT TIME ZONE 'Asia/Manila')::DATE + 30, INTERVAL '1 day') gs
   ), cmp AS (
     SELECT (SELECT row_to_json(o) FROM public.attendance_schedule_base_for(p.id, p.branch_id, d.day) o)::TEXT AS old_s,
            (SELECT row_to_json(x) FROM public.attendance_schedule_for(p.id, p.branch_id, d.day) x)::TEXT AS new_s
