@@ -626,8 +626,24 @@ export async function POST(request) {
       const requested = normalizeText(d.requested).slice(0, 500);
       if (!type) return bad("Choose a schedule or class-load change.");
       if (!isDateKey(effective) || effective < today) return bad("Choose when it should start (today or later).");
-      if (requested.length < 3) return bad("Describe the change you are asking for.");
-      details = { employee_name: person.full_name, request_type: type, request_type_label: SCHEDULE_REQUEST_TYPES[type], effective_from: effective, requested };
+      // Part E step 3: a schedule change names one of HR's work schedules, so HR's approval applies it
+      // on that date; "none" = no schedule fits (described in the note; HR creates it first). Class load stays a note.
+      const scheduleKey = type === "schedule" ? normalizeText(d.schedule_key) : "";
+      let schedule = null;
+      if (type === "schedule") {
+        if (!scheduleKey) return bad("Choose the work schedule (or \"None fits\" and describe it).");
+        if (scheduleKey !== "none") {
+          schedule = (await supabase.from("work_schedules").select("schedule_key,name,archived").eq("schedule_key", scheduleKey).maybeSingle()).data;
+          if (!schedule || schedule.archived) return bad("That work schedule is not available.");
+        }
+      }
+      if ((type !== "schedule" || scheduleKey === "none") && requested.length < 3) return bad("Describe the change you are asking for.");
+      if (person.date_hired && effective < String(person.date_hired).slice(0, 10)) return bad("The change cannot start before the employee's date hired.");
+      const twin = await supabase.from("branch_admin_requests").select("id").eq("kind", "schedule_request").eq("status", "pending")
+        .eq("employee_id", person.id).eq("details->>effective_from", effective).limit(1);
+      if ((twin.data || []).length) return bad("There is already a pending schedule request for this employee from that date.");
+      details = { employee_name: person.full_name, request_type: type, request_type_label: SCHEDULE_REQUEST_TYPES[type], effective_from: effective, requested,
+        ...(schedule ? { schedule_key: schedule.schedule_key, schedule_name: schedule.name } : {}) };
     } else if (kind === "rfid_issue") {
       const type = RFID_ISSUE_TYPES[d.issue_type] ? d.issue_type : null;
       if (!type) return bad("Choose the kind of problem.");

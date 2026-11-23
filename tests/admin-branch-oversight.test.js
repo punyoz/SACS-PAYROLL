@@ -197,7 +197,8 @@ describe("branch isolation", () => {
 
 describe("the Admin cannot decide", () => {
   it("refuses HR's decisions and the Admin's own payroll / approval routes", async () => {
-    await file(who.adminA, { kind: "schedule_request", employee_id: ANA, request_type: "schedule", effective_from: TODAY, requested: "7 to 3", note: "Please" });
+    // Part E step 3: a schedule change names an HR schedule, or "none" (none fits) with the note.
+    await file(who.adminA, { kind: "schedule_request", employee_id: ANA, request_type: "schedule", schedule_key: "none", effective_from: TODAY, requested: "7 to 3", note: "Please" });
     const id = table("branch_admin_requests")[0].id;
     expect((await json(hrRequests.PATCH(req(who.adminA, "/api/hr/branch-requests", "PATCH", { id, decision: "approve", note: "self" })))).status).toBe(403);
     expect((await json(hrRequests.GET(req(who.adminA, "/api/hr/branch-requests")))).status).toBe(403);

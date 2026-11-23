@@ -5,7 +5,11 @@
  *
  *   handler(supabase, row, { actor }) -> { reverted } | { error, status }
  */
-const HANDLERS = {};
+import { undoScheduleRequest } from "@/lib/automation/schedule-requests";
+
+const HANDLERS = {
+  schedule_requests: undoScheduleRequest,
+};
 
 export function registerUndo(module, handler) {
   HANDLERS[module] = handler;

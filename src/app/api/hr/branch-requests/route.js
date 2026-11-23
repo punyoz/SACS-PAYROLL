@@ -16,6 +16,7 @@
  * is notified.
  */
 
+import { applyScheduleRequest } from "@/lib/automation/schedule-requests";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -126,6 +127,15 @@ export async function PATCH(request) {
       }).select("id").maybeSingle();
       if (item.error) return NextResponse.json({ error: sanitizeError(item.error) }, { status: 400 });
       outcomeRef = item.data?.id || null;
+    }
+
+    // Part E step 3: an approved schedule request that names one of HR's schedules is applied by the
+    // system from its start date (a new version of the employee's schedule; history is never edited).
+    // While automation is paused nothing is applied by the system: HR applies it in Work Schedules, as before.
+    if (row.kind === "schedule_request" && decision === "approve" && row.details?.schedule_key) {
+      const applied = await applyScheduleRequest(supabase, row, { by: actorName, userId: guard.userId });
+      if (applied.error) return NextResponse.json({ error: applied.error }, { status: 400 });
+      if (applied.assignmentId) outcomeRef = applied.assignmentId;
     }
 
     const status = DECISION_STATUS[decision];
