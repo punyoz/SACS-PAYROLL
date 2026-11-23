@@ -76,9 +76,10 @@ test("a mid-month new hire is pro-rated from the hire date (daily rate × workin
     expect(round(e2.basic_salary)).toBe(SALARY);
     const r1 = first.rows.find((r) => r.employee_id === data.user.id);
     const r2 = second.rows.find((r) => r.employee_id === data.user.id);
-    expect(round(r1.defaults.basic_salary), "1st half: 5 working days").toBe(Math.min(daily * weekdays(HIRED, "2026-11-15"), SALARY / 2));
+    expect(round(r1.defaults.basic_salary), "1st half: 4 working days").toBe(Math.min(daily * weekdays(HIRED, "2026-11-15"), SALARY / 2));
     expect(round(r2.defaults.basic_salary), "the month: 15 working days").toBe(Math.min(daily * weekdays(HIRED, "2026-11-30"), SALARY));
-    expect(round(r1.defaults.basic_salary)).toBe(6000);
+    // Nov 10, 2026 is a Tuesday: Nov 10-13 = 4 working days; Nov 10-30 = 15.
+    expect(round(r1.defaults.basic_salary)).toBe(4800);
     expect(round(r2.defaults.basic_salary)).toBe(18000);
   });
 });

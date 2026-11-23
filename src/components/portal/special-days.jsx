@@ -161,7 +161,8 @@ export function SpecialDaysPanel({ refreshKey }) {
 export function MySpecialDays() {
   const { can, me } = usePortalSession();
   // A separated account keeps My Account on paper, but the server refuses its own-data calls.
-  const allowed = can("my_account") && !me?.user?.separated;
+  // Asked only once the session is known (before that, "separated" is not yet known).
+  const allowed = Boolean(me?.user) && can("my_account") && !me.user.separated;
   const [days, setDays] = React.useState([]);
   React.useEffect(() => {
     // A separated account (no My Account pages) is not asked: the server would refuse it.

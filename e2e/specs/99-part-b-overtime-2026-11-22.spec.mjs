@@ -14,6 +14,7 @@ import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api, choose, manilaDay, pickDate, newRequest, requestTab } from "../support/flow.mjs";
 import { db, rows, psql, profileByEmail } from "../support/db.mjs";
+import { ACCOUNTS } from "../accounts.mjs";
 
 const OUT = join(process.cwd(), "screenshots", "2026-11-22-part-b");
 mkdirSync(OUT, { recursive: true });

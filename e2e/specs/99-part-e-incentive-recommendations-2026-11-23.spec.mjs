@@ -70,10 +70,12 @@ async function freshEmployee() {
   const stamp = Date.now();
   const email = `incentive.${stamp}@e2e.test`;
   const full_name = "Ines E2E Incentive";
-  const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-In#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name } });
+  const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-In#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name, branch_id: bea.branch_id } });
   if (error) throw new Error(error.message);
   const { id: _id, email: _email, created_at: _c, updated_at: _u, rfid_uid: _card, photo_path: _p, photo_thumb_path: _t, photo_updated_at: _pu, ...rest } = bea;
   await rows(db().from("profiles").upsert({ ...rest, id: data.user.id, email, full_name, employee_id: `E2E-IN-${stamp}`, archived: false, on_payroll: true, date_hired: "2025-06-01" }, { onConflict: "id" }).select("id"));
+  // The staff list is cached for 10 s: the Accountant sees the new employee after that.
+  await new Promise((r) => setTimeout(r, 11000));
   return profileByEmail(email);
 }
 
