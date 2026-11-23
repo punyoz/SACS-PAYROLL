@@ -31,7 +31,8 @@ async function productionQuery(sql, { retry = true } = {}) {
   if (!token) throw new Error("SUPABASE_ACCESS_TOKEN is not set.");
   for (let attempt = 1; ; attempt += 1) {
     const res = await fetch(`https://api.supabase.com/v1/projects/${PRODUCTION.ref}/database/query`, {
-      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ query: sql }),
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, // DEMO_READ_ONLY=1: the database itself refuses any write (a dry run).
+      body: JSON.stringify({ query: sql, ...(process.env.DEMO_READ_ONLY === "1" ? { read_only: true } : {}) }),
     });
     const text = await res.text();
     if (res.ok) return text;

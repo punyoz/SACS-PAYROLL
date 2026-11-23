@@ -521,6 +521,8 @@ const commands = {
     // Never overwrite a bundle with nothing (after a local remove, build or restore first).
     if (!data.demoIds.length) throw new Error("No demo data on the local stack: the bundle was NOT overwritten.");
     data.tables = withoutSeedExclusions(data.tables);
+    // Five scope: who else the demo run left out is local bookkeeping; on live it would list real people as excluded.
+    if (fiveScope()) delete data.tables.payroll_run_exclusions;
     printCounts("local demo data", data);
     writeBundle(BUNDLE, data);
     say(`bundle written: ${BUNDLE}`);

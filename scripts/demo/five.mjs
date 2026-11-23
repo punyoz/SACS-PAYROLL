@@ -3,7 +3,8 @@
 //   node scripts/demo/five.mjs build                  LOCAL ONLY: on a local copy of live, the five (+ their
 //                                                     non-login Demo Admin) and their November, through the app
 //   node scripts/demo/five.mjs export                 local -> demo-data/five-bundle.json
-//   node scripts/demo/five.mjs check --target=production   READ-ONLY: what a load would do, and every reason it would stop
+//   DEMO_READ_ONLY=1 node scripts/demo/five.mjs check --target=production   READ-ONLY: the five's numbers are free, the approvers exist, the run is approved
+//   DEMO_READ_ONLY=1 node scripts/demo/demo.mjs plan --target=production --file=demo-data/five-bundle.json  (DEMO_SCOPE=five): the full load plan, read-only
 //   node scripts/demo/five.mjs load  --target=production   load the bundle (the project URL typed back, then a yes)
 //   node scripts/demo/five.mjs taps  --target=production   the school days since the last tap, up to today (daily job)
 //   node scripts/demo/five.mjs remove --target=production  snapshot, then delete the five and everything theirs, logins included
@@ -45,7 +46,7 @@ const isWeekend = (key) => [0, 6].includes(new Date(`${key}T00:00:00Z`).getUTCDa
 const NOVEMBER = {
   "emp-demo1": { "2026-11-05": ["08:25", "17:04"], "2026-11-10": ["07:48", "19:05"], "2026-11-12": "none", "2026-11-13": "none" },
   "emp-demo2": { "2026-11-09": ["08:18", "17:03"], "2026-11-17": "none" },
-  "emp-demo3": { "2026-11-06": ["07:52", null], "2026-11-11": ["12:55", "17:02"], "2026-11-18": ["07:47", null], "2026-11-19": "none" },
+  "emp-demo3": { "2026-11-06": ["07:52", null], "2026-11-11": ["12:24", "17:02"], "2026-11-18": ["07:47", null], "2026-11-19": "none" },
   "emp-demo4": { "2026-11-03": ["08:14", "17:05"], "2026-11-04": ["07:50", "10:30"], "2026-11-13": ["07:45", "18:40"], "2026-11-16": ["08:31", "17:02"] },
   "emp-demo5": { "2026-11-06": ["07:44", "18:35"], "2026-11-10": ["08:22", "17:06"] },
 };
@@ -81,8 +82,11 @@ where not exists (select 1 from attendance_holidays x where x.holiday_date = v.d
 // ───────────────────────────── build (LOCAL ONLY) ─────────────────────────────
 const local = () => database("local");
 let step = 0;
+/** --resume-at=N: continue a build that stopped at stage N (the stages before it already ran). */
+const resumeAt = Number((rest.find((a) => a.startsWith("--resume-at=")) || "--resume-at=1").split("=")[1]);
 async function stage(name, fn) {
   step += 1;
+  if (step < resumeAt) return;
   const result = await fn();
   log(`${String(step).padStart(2)} ${name}${result ? `: ${result}` : ""}`);
 }
@@ -94,9 +98,12 @@ async function build() {
   const kept = await db.rows(`select id, full_name from profiles where id in (${lit(HR.id)}, ${lit(ACC.id)}) and is_demo and not archived`);
   if (!branch || kept.length !== 2) throw new Error("Not a copy of live: the Main Branch, Demo HR One and Demo Accountant One Main must be there.");
   const { people, admin, all } = fiveRoster(branch);
+  // The leave ids, for a resumed build.
+  const leaveIds = async () => Object.fromEntries((await db.rows(`select id, leave_type, employee_id from leave_requests where employee_id in (${people.map((p) => lit(p.id)).join(", ")})`))
+    .filter((r) => r.leave_type === "Sick Leave").map((r) => ["sl", r.id]));
   const by = (n) => people[n - 1];
   const [have] = await db.rows(`select count(*)::int n from profiles where id in (${all.map((p) => lit(p.id)).join(", ")})`);
-  if (have.n) throw new Error(`${have.n} of the five are already on the local stack: restore a fresh copy of live first.`);
+  if (have.n && resumeAt === 1) throw new Error(`${have.n} of the five are already on the local stack: restore a fresh copy of live first.`);
   const today = manilaToday();
   const yesterday = addDays(today, -1);
 
@@ -122,8 +129,9 @@ async function build() {
     return `${people.length} cards`;
   });
 
-  await stage("taps Nov 3 to yesterday", async () => {
-    await db.exec(tapsSql(people, "2026-11-03", yesterday));
+  // From Oct 30: the November 1-15 payslip's attendance window starts there.
+  await stage("taps Oct 30 to yesterday", async () => {
+    await db.exec(tapsSql(people, "2026-10-30", yesterday));
     const [n] = await db.rows(`select count(*)::int n from attendance_logs where employee_id in (${people.map((p) => lit(p.id)).join(", ")})`);
     return `${n.n} days`;
   });
@@ -152,8 +160,8 @@ async function build() {
     return "VL approved (2 days), SL approved, half day AM approved, VL rejected (Conflicts with school activity)";
   });
 
-  await stage("nightly close Nov 3 to yesterday (Absent / Incomplete)", async () => {
-    await db.exec(`select public.attendance_close_days('2026-11-03'::date, ${lit(yesterday)}::date);`);
+  await stage("nightly close Oct 30 to yesterday (Absent / Incomplete)", async () => {
+    await db.exec(`select public.attendance_close_days('2026-10-30'::date, ${lit(yesterday)}::date);`);
     const s = await db.rows(`select status, count(*)::int n from attendance_logs where employee_id in (${people.map((p) => lit(p.id)).join(", ")}) group by 1 order by 2 desc`);
     return s.map((x) => `${x.status} ${x.n}`).join(", ");
   });
@@ -241,8 +249,14 @@ async function build() {
       ok("approve the Main Branch's own run (LOCAL copy only: on live this is HR's decision)", await as(HR).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [main.id] }));
     }
     const res = ok("batch", await as(ACC).post("/api/accountant/payroll", { action: "batch_submit", pay_period: FIRST, entries: people.map((p) => ({ employee_id: p.id })) }));
-    if ((res.skipped || []).length) throw new Error(`skipped: ${JSON.stringify(res.skipped).slice(0, 400)}`);
-    ok("submit", await as(ACC).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: branch.id, period: FIRST }));
+    if ((res.skipped || []).filter((k) => !/already been processed/.test(k.reason || "")).length) throw new Error(`skipped: ${JSON.stringify(res.skipped).slice(0, 400)}`);
+    // The run is the five's only: anyone else the Accountant has not processed is left out on purpose (acknowledged, as the screen asks).
+    let submit = await as(ACC).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: branch.id, period: FIRST });
+    if (submit.status === 409 && submit.data?.code === "exclusions_unacknowledged") {
+      const notes = Object.fromEntries((submit.data.missing || []).map((m) => [m.id, "Not part of the demo run: processed separately by the branch."]));
+      submit = await as(ACC).patch("/api/accountant/payroll-runs", { action: "submit", branch_id: branch.id, period: FIRST, acknowledge_exclusions: true, exclusion_notes: notes });
+    }
+    ok("submit", submit);
     const [run] = await db.rows(`select id, status, run_no from payroll_runs where branch_id = ${lit(branch.id)} and period_start = '2026-11-01' order by run_no desc limit 1`);
     const approved = ok("approve", await as(HR).patch("/api/hr/payroll-runs", { action: "approve", run_ids: [run.id] }));
     if (!approved?.approved) throw new Error(`not approved: ${JSON.stringify(approved).slice(0, 300)}`);

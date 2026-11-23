@@ -116,6 +116,11 @@ export async function collect(db, { withRows = true } = {}) {
       and not exists (select 1 from payroll_run_items i where i.run_id = r.id and (i.employee_id is null or i.employee_id not in (${D})))
       and ${personOk("payroll_runs")}`));
   }
+  // Five scope: a special working day declared for demo people only (its people are an id list, not a person column).
+  if (fiveScope() && meta.special_working_days) {
+    add("special_working_days", await db.rows(`select ${pick("special_working_days")} from special_working_days
+      where audience = 'employees' and cardinality(employee_ids) > 0 and employee_ids <@ array[${D}]::uuid[] and ${personOk("special_working_days")}`));
+  }
 
   // 2. Rows hanging off demo rows, until nothing new is found.
   for (let pass = 0; pass < 6; pass += 1) {
@@ -126,7 +131,7 @@ export async function collect(db, { withRows = true } = {}) {
         const parentIds = [...(found[ref]?.keys() || [])];
         if (!parentIds.length) continue;
         for (let i = 0; i < parentIds.length; i += 2000) {
-          const rows = await db.rows(`select ${pick(t)} from ${t} where ${col} in (${inList(parentIds.slice(i, i + 2000))}) and ${DEMO_GENERATED.has(t) ? "true" : personOk(t)}`);
+          const rows = await db.rows(`select ${pick(t)} from ${t} where ${col} in (${inList(parentIds.slice(i, i + 2000))}) and ${DEMO_GENERATED.has(t) || (fiveScope() && t === "payroll_run_exclusions") ? "true" : personOk(t)}`);
           added += add(t, rows);
         }
       }
