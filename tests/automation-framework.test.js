@@ -1,0 +1,56 @@
+// Part E step 1 (2026-11-23): the automation framework's shared rules.
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { summarizeAutomation, isWaiting, AUTOMATION_STATUSES } from "@/lib/automation/shared";
+import { canUndo, undoAutomation } from "@/lib/automation/undo";
+
+const now = new Date().toISOString();
+const old = new Date(Date.now() - 3 * 864e5).toISOString();
+const rows = [
+  { status: "done", created_at: now },
+  { status: "done", created_at: old },
+  { status: "admin_check", created_at: now },
+  { status: "with_hr", created_at: old, escalated_at: now },
+  { status: "open", created_at: now },
+  { status: "couldnt_decide", created_at: now },
+  { status: "undone", created_at: now, escalated_at: now },
+];
+
+describe("automation counts", () => {
+  it("the Admin's 'waiting for you' is the Admin check; HR's is what was forwarded, open or undecided", () => {
+    expect(summarizeAutomation(rows, "admin").for_you).toBe(1);
+    expect(summarizeAutomation(rows, "hr").for_you).toBe(3);
+  });
+  it("done in the last 24 h, escalated only while still waiting", () => {
+    const c = summarizeAutomation(rows, "hr");
+    expect(c.done_today).toBe(1);
+    expect(c.escalated).toBe(1);
+    expect(c.couldnt_decide).toBe(1);
+  });
+  it("waiting statuses", () => {
+    expect(["admin_check", "with_hr", "open", "couldnt_decide"].every(isWaiting)).toBe(true);
+    expect(["done", "undone", "closed"].some(isWaiting)).toBe(false);
+    expect(AUTOMATION_STATUSES).toHaveLength(7);
+  });
+});
+
+describe("undo", () => {
+  it("a module without an undo handler is refused (fixed on its own page)", async () => {
+    expect(canUndo("nothing_registered")).toBe(false);
+    const r = await undoAutomation(null, { module: "nothing_registered" }, {});
+    expect(r.status).toBe(409);
+  });
+});
+
+describe("the route never approves anything; roles are checked on the server", () => {
+  const route = readFileSync("src/app/api/automation/route.js", "utf8");
+  it("Admin: note / object only on their branch; HR: undo; HR / Super Admin: pause", () => {
+    expect(route).toMatch(/guard\.role !== "admin"\) return NextResponse\.json\(\{ error: "The branch Admin checks/);
+    expect(route).toMatch(/denyForeignBranch\(guard, row\.branch_id\)/);
+    expect(route).toMatch(/guard\.role !== "hr"\) return NextResponse\.json\(\{ error: "HR undoes/);
+    expect(route).toMatch(/guard\.role !== "hr" && guard\.role !== "super_admin"/);
+    expect(route).toMatch(/if \(guard\.role === "admin"\) q = q\.eq\("branch_id", guard\.branchId\)/);
+    const code = route.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code).not.toMatch(/approve/i);
+  });
+});

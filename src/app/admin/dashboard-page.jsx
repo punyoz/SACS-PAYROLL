@@ -12,6 +12,7 @@ import { dateLabel, dateTime } from "@/lib/portal/payroll-preview";
 import { useBranchView } from "./oversight-shared";
 import { AnnouncementsCard } from "@/components/portal/announcements";
 import { portalHref } from "@/lib/portal/navigate";
+import { AutomationCard } from "@/components/portal/automation-card";
 
 /*
  * Admin Dashboard (GET /api/admin/branch-oversight?view=dashboard): today's
@@ -54,6 +55,9 @@ export function DashboardPage({ refreshKey, onSummary, onNavigate }) {
         <StatCard label="Leave waiting for HR" value={data?.pending_leave_count ?? 0} icon={CalendarDaysIcon} tone="gold" loading={view.first} href={portalHref("adm-leaves")} actionLabel="View leave requests waiting for HR" />
         <StatCard label="Your requests waiting for HR" value={data?.open_requests ?? 0} icon={InboxIcon} tone="gold" loading={view.first} />
       </section>
+
+      {/* Part E: what the system prepared for this branch (Note / Object). */}
+      <AutomationCard role="admin" refreshKey={refreshKey} />
 
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card id="admin-not-tapped" className="min-w-0 scroll-mt-20 shadow-xs">
