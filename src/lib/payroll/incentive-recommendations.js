@@ -36,13 +36,19 @@ export async function loadIncentiveGate(supabase, period) {
  * Pure (tested): what this payslip pays of the computed rule-based incentives.
  * Returns the amounts to pay and the record of each computed one (paid or held).
  */
-export function gateRuleIncentives(gate, employeeId, computed) {
+export function gateRuleIncentives(gate, employeeId, computed, { closed = true } = {}) {
   const items = [];
   const pay = {};
   for (const kind of RULE_INCENTIVE_KINDS) {
     const amount = Math.max(0, Number(computed[kind]?.amount) || 0);
     pay[kind] = amount;
     if (!gate?.on || !(amount > 0)) continue;
+    // While the cutoff's attendance is still open: information only ("on track so far"), held, nothing to HR.
+    if (!closed) {
+      pay[kind] = 0;
+      items.push({ kind, amount, status: "on_track", paid: false, reasons: computed[kind]?.reasons || [] });
+      continue;
+    }
     const status = gate.recs.get(key(employeeId, kind))?.status || "pending";
     const paid = status === "approved";
     if (!paid) pay[kind] = 0;
@@ -58,7 +64,8 @@ export function gateRuleIncentives(gate, employeeId, computed) {
  */
 export async function syncIncentiveRecommendations(supabase, entries) {
   try {
-    const gated = (entries || []).filter((e) => e?.payroll?.rule_incentives?.period_start);
+    // Only once the cutoff's attendance is complete (the nightly close ran for its last day).
+    const gated = (entries || []).filter((e) => e?.payroll?.rule_incentives?.period_start && e.payroll.rule_incentives.closed !== false);
     if (!gated.length) return;
     const byPeriod = new Map();
     for (const e of gated) {
@@ -108,11 +115,38 @@ export function ruleIncentiveBlockers(entries, recs) {
     for (const kind of RULE_INCENTIVE_KINDS) {
       const rec = recs.get(key(e.employee_id, kind));
       const item = (ri?.items || []).find((i) => i.kind === kind);
-      if (rec?.status === "pending" && item) waiting.push(`${e.employee_name} (${RULE_INCENTIVE_LABELS[kind]})`);
+      // Computed while the cutoff was still open: recompute once it has closed, then HR decides.
+      if (item?.status === "on_track") recompute.push(`${e.employee_name} (${RULE_INCENTIVE_LABELS[kind]}: computed before the cutoff closed)`);
+      else if (rec?.status === "pending" && item) waiting.push(`${e.employee_name} (${RULE_INCENTIVE_LABELS[kind]})`);
       else if (rec?.status === "approved" && item && !item.paid) recompute.push(`${e.employee_name} (${RULE_INCENTIVE_LABELS[kind]})`);
     }
   }
   return { waiting, recompute };
+}
+
+/**
+ * Pure (tested): the cutoff's attendance is complete. The nightly close runs at 00:05 Manila for
+ * the day before, so a window ending on D is closed from D + 1 at 00:10 Manila.
+ */
+export function cutoffClosed(windowEnd, now = new Date()) {
+  if (!windowEnd) return true;
+  const manila = new Date(now.getTime() + 8 * 3600e3);
+  const today = manila.toISOString().slice(0, 10);
+  const minutes = manila.getUTCHours() * 60 + manila.getUTCMinutes();
+  const next = new Date(Date.parse(`${String(windowEnd).slice(0, 10)}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
+  return today > next || (today === next && minutes >= 10);
+}
+
+/** What the Accountant's form says about a rule-based incentive (null when there is nothing to say). */
+export function ruleIncentiveNote(ruleIncentives, kind) {
+  const item = (ruleIncentives?.items || []).find((i) => i.kind === kind);
+  if (!item) return null;
+  return {
+    on_track: "on track so far: decided when the cutoff closes",
+    pending: "waiting for HR's approval (not paid yet)",
+    approved: "approved by HR",
+    rejected: "rejected by HR: not paid",
+  }[item.status] || null;
 }
 
 /** The recommendations for these payslips (submit check). */

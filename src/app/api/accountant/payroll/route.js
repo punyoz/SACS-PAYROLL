@@ -111,7 +111,7 @@ import { isOnPayroll } from "@/lib/payroll/on-payroll";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
 import { loadClassificationContext } from "@/lib/employees/classification-server";
 import { classificationOn } from "@/lib/employees/classification";
-import { gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
+import { cutoffClosed, gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
 import { extraDayLines } from "@/lib/attendance/special-days";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
@@ -1821,6 +1821,8 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       undertime_minutes: context.auto.counts.undertime_minutes,
       half_days: context.auto.counts.half_days,
       perfect_attendance: context.auto.perfect_attendance,
+      // Part E step 6: held for HR / on track so far (the form's preview pays what the server pays).
+      rule_incentives: preview.payroll?.rule_incentives || null,
       pay: {
         counts: context.auto.counts,
         amounts: context.auto.amounts,
@@ -2316,13 +2318,14 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   // Part E step 6 (2026-11-23): from the setting's period, the rule-based
   // incentives are computed as before but paid only once HR approves them
   // (src/lib/payroll/incentive-recommendations.js); a held one pays ₱0 here.
+  const attendanceClosed = cutoffClosed(context.attendance_span?.end_key || period.end_key);
   const ruleGate = gateRuleIncentives(context.incentive_gate, employee.id, {
     perfect_attendance: { amount: finalAmounts.perfect_attendance, reasons: ["No late, undertime, absence or half day in the cutoff"] },
     early_bird: {
       amount: earlyBirdComputed ? toAmount(earlyBirdComputed.amount) : 0,
       reasons: earlyBirdComputed ? [`${earlyBirdComputed.early_count} early time-ins (at least ${earlyBirdComputed.threshold_minutes} min before start), the most in ${earlyBirdComputed.period_label}`] : [],
     },
-  });
+  }, { closed: attendanceClosed });
   const perfectHeld = ruleGate.items.some((i) => i.kind === "perfect_attendance" && !i.paid);
   finalAmounts.perfect_attendance = ruleGate.pay.perfect_attendance;
   const earlyBirdWinner = ruleGate.pay.early_bird > 0 ? earlyBirdComputed : null;
@@ -2588,7 +2591,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   // What HR decides (synced to incentive_recommendations on save): each computed rule-based incentive, paid or held.
   if (context.incentive_gate?.on) {
     const span = context.attendance_span || { start_key: period.start_key, end_key: period.end_key };
-    payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, window_start: span.start_key, window_end: span.end_key,
+    payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, window_start: span.start_key, window_end: span.end_key, closed: attendanceClosed,
       branch_id: employee.branch_id || null, items: ruleGate.items };
   }
 

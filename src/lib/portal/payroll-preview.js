@@ -120,9 +120,12 @@ export function computeAttendanceAmounts(info, q) {
       ),
     undertime: price(q.undertime_minutes, counts.undertime_minutes, amounts.undertime, unit.hourly / 60),
     half_day: price(q.half_days, counts.half_days, amounts.half_day, unit.half_day),
-    perfect_attendance: pay && Boolean(q.perfect_attendance) === Boolean(pay.perfect_attendance)
-      ? toAmount(amounts.perfect_attendance)
-      : (q.perfect_attendance ? toAmount(unit.perfect_attendance) : 0),
+    // Held for HR, or on track while the cutoff is open (Part E step 6): ₱0 here as on the server.
+    perfect_attendance: (info.row?.rule_incentives?.items || []).some((i) => i.kind === "perfect_attendance" && !i.paid)
+      ? 0
+      : pay && Boolean(q.perfect_attendance) === Boolean(pay.perfect_attendance)
+        ? toAmount(amounts.perfect_attendance)
+        : (q.perfect_attendance ? toAmount(unit.perfect_attendance) : 0),
   };
 }
 

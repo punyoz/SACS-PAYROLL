@@ -58,6 +58,7 @@ import { InfoTip } from "@/components/portal/info-tip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { LineTag, LineTagLegend, PayrollLineGroups } from "@/components/portal/payroll-lines";
 import { SearchableSelect } from "@/components/portal/searchable-select";
+import { ruleIncentiveNote } from "@/lib/payroll/incentive-recommendations";
 
 /*
  * Process Payroll (loadBatchPayrollTable / processBatchPayroll /
@@ -1330,6 +1331,8 @@ function SingleEntry({ onNavigate, editRequest }) {
                   <SelectTrigger id="pc-perfect" className={cn("w-full", overrideLocked && "border-dashed bg-muted text-muted-foreground")} title={overrideLocked ? overrideGate.message : undefined}><SelectValue /></SelectTrigger>
                   <SelectContent><SelectItem value="no">No</SelectItem><SelectItem value="yes">Yes</SelectItem></SelectContent>
                 </Select>
+                {ruleIncentiveNote(info.row?.rule_incentives, "perfect_attendance")
+                  ? <p className="text-xs text-muted-foreground" data-testid="perfect-note">Perfect attendance: {ruleIncentiveNote(info.row?.rule_incentives, "perfect_attendance")}</p> : null}
               </div>
             </div>
 

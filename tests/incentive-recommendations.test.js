@@ -53,3 +53,25 @@ describe("wiring", () => {
     expect(readFileSync("src/lib/payroll/run-service.js", "utf8")).toMatch(/ruleIncentiveBlockers\(finals/);
   });
 });
+
+describe("timing: only once the cutoff's attendance is complete (2026-11-23)", () => {
+  it("open: on track so far, held, never sent to HR; closed from the day after at 00:10 Manila", async () => {
+    const { cutoffClosed, ruleIncentiveNote } = await import("@/lib/payroll/incentive-recommendations");
+    const g = gateRuleIncentives({ on: true, recs: new Map() }, "e1", computed, { closed: false });
+    expect(g.pay).toEqual({ perfect_attendance: 0, early_bird: 0 });
+    expect(g.items.map((i) => i.status)).toEqual(["on_track", "on_track"]);
+    expect(ruleIncentiveNote({ items: g.items }, "perfect_attendance")).toMatch(/on track so far/);
+    // Window ends Nov 26: Nov 27 00:05 Manila (close running) is still open; 00:10 is closed.
+    expect(cutoffClosed("2026-11-26", new Date("2026-11-26T16:05:00Z"))).toBe(false);
+    expect(cutoffClosed("2026-11-26", new Date("2026-11-26T16:10:00Z"))).toBe(true);
+    expect(cutoffClosed("2026-11-26", new Date("2026-11-20T02:00:00Z"))).toBe(false);
+  });
+  it("a Final computed while the cutoff was open must be recomputed before the run is submitted", () => {
+    const e = { employee_id: "e1", employee_name: "Ana", payroll: { rule_incentives: { closed: false, items: [{ kind: "perfect_attendance", amount: 500, paid: false, status: "on_track" }] } } };
+    expect(ruleIncentiveBlockers([e], new Map()).recompute).toEqual(["Ana (Perfect Attendance: computed before the cutoff closed)"]);
+  });
+  it("a draft saved while open sends nothing (the sync skips it)", () => {
+    const src = readFileSync("src/lib/payroll/incentive-recommendations.js", "utf8");
+    expect(src).toMatch(/e\.payroll\.rule_incentives\.closed !== false/);
+  });
+});
