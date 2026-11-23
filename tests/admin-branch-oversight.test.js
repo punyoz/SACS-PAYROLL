@@ -179,7 +179,8 @@ describe("branch isolation", () => {
   });
 
   it("refuses branch B's records to the Admin of branch A, by id", async () => {
-    expect((await file(who.adminA, { kind: "attendance_flag", ref_id: LOG_B, note: "Wrong time" })).status).toBe(404);
+    // Manual attendance flags are refused for every record since 2026-11-24 (the system flags them); nothing is written.
+    expect((await file(who.adminA, { kind: "attendance_flag", ref_id: LOG_B, note: "Wrong time" })).status).toBe(409);
     expect((await file(who.adminA, { kind: "leave_endorsement", ref_id: "lr-b", decision: "endorse", note: "Fine by me" })).status).toBe(404);
     expect((await file(who.adminA, { kind: "transfer_endorsement", ref_id: TR_B, decision: "endorse", note: "Fine by me" })).status).toBe(404);
     expect((await file(who.adminA, { kind: "incident_report", employee_id: BEN, incident_type: "no_show", incident_date: TODAY, note: "Absent" })).status).toBe(404);
@@ -342,5 +343,18 @@ describe("incentive recommendation", () => {
     expect(filed.status).toBe(200);
     expect((await json(hrRequests.PATCH(req(who.hr, "/api/hr/branch-requests", "PATCH", { id: filed.body.request.id, decision: "approve", note: "Approved" })))).status).toBe(200);
     expect(table("payroll_monthly_incentives")).toEqual([expect.objectContaining({ employee_id: ANA, kind: "incentive", amount: 750, item_date: "2026-10-05", created_by: HR })]);
+  });
+});
+
+describe("attendance issues are flagged by the system (2026-11-24)", () => {
+  it("an Admin cannot file a manual attendance flag, even on their own branch; the page offers Note / Object on the system's flag", async () => {
+    const { readFileSync } = await import("node:fs");
+    const route = readFileSync("src/app/api/admin/branch-oversight/route.js", "utf8");
+    expect(route).toMatch(/if \(kind === "attendance_flag"\) return bad\("Attendance issues are flagged automatically/);
+    const page = readFileSync("src/app/admin/attendance-page.jsx", "utf8");
+    expect(page).not.toMatch(/Flag issue/);
+    expect(page).toMatch(/action: target\.action/);
+    // Incidents stay manual.
+    expect(readFileSync("src/app/admin/requests-pages.jsx", "utf8")).toMatch(/kind="incident_report"/);
   });
 });
