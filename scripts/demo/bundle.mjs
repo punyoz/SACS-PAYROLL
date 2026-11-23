@@ -22,6 +22,22 @@ import { SEED_ACTOR, emailBase } from "./config.mjs";
  */
 export function demoFilter() {
   const [local, domain] = emailBase().split("@");
+  if (fiveScope()) return `is_demo and email like '${local.replace(/'/g, "''")}+${FIVE_TAG}%@${domain.replace(/'/g, "''")}'`;
+  return actorFilter();
+}
+
+/**
+ * DEMO_SCOPE=five (2026-11-24, scripts/demo/five.mjs): only the five demo
+ * employees (and their non-login demo Admin) are "the demo"; the demo accounts
+ * kept on live (Demo HR One, Demo Accountant One Main, Demo Super Admin One)
+ * may appear on their rows as the approver / processor, but their own rows are
+ * never exported or deleted.
+ */
+export const FIVE_TAG = "emp-demo";
+export const fiveScope = () => process.env.DEMO_SCOPE === "five";
+/** Every account these scripts seeded (the people allowed on a demo row). */
+export function actorFilter() {
+  const [local, domain] = emailBase().split("@");
   return `is_demo and (email like '${local.replace(/'/g, "''")}+%@${domain.replace(/'/g, "''")}' or id = '${SEED_ACTOR.id}')`;
 }
 
@@ -71,12 +87,14 @@ export async function collect(db, { withRows = true } = {}) {
   const demoIds = (await db.rows(`select id from profiles where ${demoFilter()}`)).map((r) => r.id);
   if (!demoIds.length) return { demoIds, tables: {}, mixed: {}, meta };
   const D = inList(demoIds);
+  // The people allowed on a demo row: the demo people, plus (five scope) the kept demo accounts.
+  const A = fiveScope() ? inList([...new Set([...demoIds, ...(await db.rows(`select id from profiles where ${actorFilter()}`)).map((r) => r.id)])]) : D;
   const found = {}; // table -> Map(id -> row)
   const mixed = {};
   const add = (t, rows) => { const k = meta[t]?.key || "id"; found[t] = found[t] || new Map(); let n = 0; for (const r of rows) if (!found[t].has(r[k])) { found[t].set(r[k], r); n += 1; } return n; };
   const personOk = (t) => {
     const p = meta[t].person;
-    return p.length ? p.map((c) => `(${c} is null or ${c} in (${D}))`).join(" and ") : "true";
+    return p.length ? p.map((c) => `(${c} is null or ${c} in (${A}))`).join(" and ") : "true";
   };
   const pick = (t) => (withRows ? "*" : meta[t].key);
 
@@ -91,6 +109,13 @@ export async function collect(db, { withRows = true } = {}) {
   }
   // Audit entries about a demo person without an actor (system events, duplicate taps).
   add("audit_logs", await db.rows(`select ${pick("audit_logs")} from audit_logs where actor_id is null and metadata->>'employee_id' in (${D})`));
+  // Five scope: a payroll run names only its processor / reviewer (kept demo
+  // accounts); it is the demo's when every payslip in it is a demo person's.
+  if (fiveScope() && meta.payroll_runs && meta.payroll_run_items) {
+    add("payroll_runs", await db.rows(`select ${pick("payroll_runs")} from payroll_runs r where exists (select 1 from payroll_run_items i where i.run_id = r.id)
+      and not exists (select 1 from payroll_run_items i where i.run_id = r.id and (i.employee_id is null or i.employee_id not in (${D})))
+      and ${personOk("payroll_runs")}`));
+  }
 
   // 2. Rows hanging off demo rows, until nothing new is found.
   for (let pass = 0; pass < 6; pass += 1) {

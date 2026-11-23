@@ -21,12 +21,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR, PRODUCTION, readEnvFile } from "./config.mjs";
 import { chooseTarget, confirm, database, lit } from "./db.mjs";
-import { collect, counts, demoFilter, describeFit, fitBundleToTarget, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
+import { collect, counts, demoFilter, describeFit, fitBundleToTarget, fiveScope, insertOrder, schema, withoutSeedExclusions } from "./bundle.mjs";
+import { fiveRoster } from "./five-roster.mjs";
 import { buildRoster } from "./roster.mjs";
 
 const [command, ...rest] = process.argv.slice(2);
 const arg = (name) => rest.find((a) => a.startsWith(`--${name}=`))?.split("=").slice(1).join("=");
-const BUNDLE = join(DATA_DIR, "bundle.json");
+// DEMO_SCOPE=five (scripts/demo/five.mjs): the five live demo employees only, in their own bundle.
+const BUNDLE = join(DATA_DIR, fiveScope() ? "five-bundle.json" : "bundle.json");
 const STORAGE_BUCKET = "leave-proofs";
 const say = (...m) => console.log(...m);
 
@@ -301,14 +303,17 @@ async function load(db, planned) {
   // 0. No RFID cards (defense reset, 2026-11-12): the cards are registered live
   // with Register many cards. Only Lost cards are kept (those numbers stay
   // blocked); attendance history does not depend on a card.
-  bundle.tables = withoutCards(bundle.tables);
+  // The five (2026-11-24) keep their cards: fake numbers in their own range, so their taps show a card.
+  if (!fiveScope()) bundle.tables = withoutCards(bundle.tables);
   // 1. Login accounts (the same bcrypt hashes, so the passwords stay as in the credentials file).
   const authCols = await db.rows("select table_name as tbl, column_name as col, is_generated = 'ALWAYS' as gen from information_schema.columns where table_schema = 'auth' and table_name in ('users', 'identities')");
   const colsOf = (name) => authCols.filter((x) => x.tbl === name && !x.gen).map((x) => x.col);
   await insertRows(db, "auth.users", bundle.auth.users, colsOf("users"), [], { triggers: true });
   await insertRows(db, "auth.identities", bundle.auth.identities, colsOf("identities"), [], { triggers: true });
   // 2. Profiles with their triggers ON: the target encrypts the (fake) government numbers with its own key.
-  const roster = new Map(buildRoster(Object.fromEntries((await db.rows("select * from branches")).map((b) => [b.code, b]))).map((p) => [p.id, p]));
+  const branchRows = await db.rows("select * from branches");
+  const roster = new Map((fiveScope() ? fiveRoster(branchRows.find((b) => b.code === "BR-001")).all
+    : buildRoster(Object.fromEntries(branchRows.map((b) => [b.code, b])))).map((p) => [p.id, p]));
   const profiles = bundle.tables.profiles.map((p) => {
     const r = roster.get(p.id);
     const row = Object.fromEntries(Object.entries(p).filter(([k]) => !/_enc$|_last4$/.test(k)));
@@ -482,7 +487,7 @@ async function wipe(db, data, sql) {
 
 async function checkZero(db) {
   const [r] = await db.rows(`select (select count(*) from profiles where ${demoFilter()})::int profiles,
-    (select count(*) from auth.users where email like '%+%@%' and raw_user_meta_data->>'is_demo' = 'true')::int logins,
+    (select count(*) from auth.users where ${fiveScope() ? `id in (select id from profiles where ${demoFilter()}) or email like '%+emp-demo%@%'` : "email like '%+%@%' and raw_user_meta_data->>'is_demo' = 'true'"})::int logins,
     (select count(*) from storage.objects o where bucket_id = '${STORAGE_BUCKET}' and not exists (select 1 from profiles p where p.id::text = split_part(o.name, '/', 1)))::int orphan_files`);
   say(`after: ${r.profiles} demo profiles, ${r.logins} demo login accounts, ${r.orphan_files} files of removed people`);
   return r;

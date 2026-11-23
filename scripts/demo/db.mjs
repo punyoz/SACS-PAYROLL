@@ -95,7 +95,9 @@ export async function confirm(question, expected = "yes") {
  */
 export async function chooseTarget(argv = process.argv.slice(2), { readOnly = false } = {}) {
   const target = (argv.find((a) => a.startsWith("--target=")) || "--target=local").split("=")[1];
-  if (target === "production" && !readOnly) {
+  // DEMO_SCOPE=five (2026-11-24): the five live demo employees' plan / seed / remove may
+  // run on production, still only with the URL typed back and the command's own yes.
+  if (target === "production" && !readOnly && process.env.DEMO_SCOPE !== "five") {
     console.log("Refused: the demo tooling is local only since 2026-11-20 (demo accounts were removed from live). Use --target=local.");
     process.exit(1);
   }
