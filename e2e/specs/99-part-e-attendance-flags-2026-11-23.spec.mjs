@@ -22,6 +22,9 @@ test("attendance flags: a missing tap is flagged, shown to the employee, fixed b
     employee_id: bea.id, employee_name: bea.full_name, branch_id: bea.branch_id, log_date: day,
     time_in: `${day}T08:00:00+08:00`, status: "Incomplete", shift_end_minutes: 1020,
   }).select("id"));
+  // Colleagues tapped that day, so it is not a device / data-problem branch-day (where nobody is flagged).
+  psql(`set session_replication_role = replica; update attendance_logs set time_in = '${day}T07:50:00+08:00', time_out = '${day}T17:00:00+08:00', status = 'On Time'
+        where branch_id = '${bea.branch_id}' and log_date = '${day}' and employee_id <> '${bea.id}' and time_in is null and time_out is null;`);
   await setPaused("false");
   try {
     await step(page, "The nightly run flags Bea's missing time-out and tells her", async () => {

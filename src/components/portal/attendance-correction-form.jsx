@@ -173,14 +173,15 @@ export function MyCorrectionRequests({ list }) {
 }
 
 /** The person's requests (all statuses). */
-export function useMyCorrections(refreshKey = 0) {
-  const [state, setState] = React.useState({ rows: [], loading: true, error: "" });
+export function useMyCorrections(refreshKey = 0, { enabled = true } = {}) {
+  const [state, setState] = React.useState({ rows: [], loading: enabled, error: "" });
   const load = React.useCallback(async () => {
+    if (!enabled) return;
     try {
       const d = await fetchJson("/api/attendance/corrections?status=all");
       setState({ rows: d.corrections || [], loading: false, error: "" });
     } catch (e) { setState((s) => ({ ...s, loading: false, error: e.message })); }
-  }, []);
+  }, [enabled]);
   React.useEffect(() => { load(); }, [load, refreshKey]);
   return { ...state, reload: load };
 }

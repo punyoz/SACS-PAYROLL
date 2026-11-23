@@ -91,8 +91,13 @@ export async function writeRemark(page, prefix, text, { preset = null } = {}) {
  */
 const REQUEST_TYPE = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime", correction: "Attendance correction" };
 export async function newRequest(page, type = "leave") {
-  await page.locator("#portal-main").getByTestId("new-request").click();
   const dialog = page.getByRole("dialog", { name: "New request" });
+  await page.locator("#portal-main").getByTestId("new-request").click();
+  // The lists load just after the page: a click that lands mid re-render is clicked once more.
+  if (!(await dialog.isVisible().catch(() => false))) {
+    await page.waitForTimeout(800);
+    if (!(await dialog.isVisible().catch(() => false))) await page.locator("#portal-main").getByTestId("new-request").click();
+  }
   await expect(dialog).toBeVisible();
   await choose(page, dialog.locator("#new-request-type"), REQUEST_TYPE[type]);
   return dialog.locator("form").first();
