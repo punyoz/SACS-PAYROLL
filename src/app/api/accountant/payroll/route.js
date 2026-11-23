@@ -4954,6 +4954,8 @@ export async function POST(request) {
       }
     } else {
       dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+      // Part E step 6: a saved draft also sends its rule-based incentives to HR (never fails the save).
+      if (dbSync?.success !== false) await syncIncentiveRecommendations(supabase, [baseEntry]);
 
       // payroll_entries is the only place a draft lives. When that write
       // fails nothing was saved, so this used to answer success and the
@@ -5299,6 +5301,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     if (!dbSync.success) {
       return NextResponse.json({ error: "The draft payslip could not be saved. Please try again." }, { status: 500 });
     }
+    // Part E step 6: the draft's rule-based incentives go to HR too.
+    await syncIncentiveRecommendations(supabase, [baseEntry]);
   }
 
   const action = override ? "payslip_override" : reprocess && existingFinal ? "payslip_reprocess"
