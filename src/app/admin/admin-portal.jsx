@@ -46,12 +46,15 @@ const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m)
  * decisions or system settings. `module` is the permission each page needs
  * (src/lib/rbac/permissions.js).
  */
-// Part I (2026-11-23): six items (decision: a 6th "Branch Reports"), a tab per page; same page ids and routes.
+// Part I (2026-11-23): five items, a tab per page; same page ids and routes. The branch's payroll summary, reports and pay rates are Dashboard tabs.
 const BO = "branch_oversight";
 const NAV = [
   { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, tabs: [
     { id: "adm-dashboard", label: "Overview", module: BO },
     { id: "adm-announcements", label: "Announcements", module: "announcements" },
+    { id: "adm-payroll", label: "Payroll summary", module: "branch_reports" },
+    { id: "adm-branch-reports", label: "Branch reports", module: "branch_reports" },
+    { id: "adm-pay-rates", label: "Pay rates", module: "pay_rates" },
   ] }] },
   {
     section: "Branch",
@@ -69,11 +72,6 @@ const NAV = [
         { id: "adm-incidents", label: "Incident & AWOL reports", module: BO },
         { id: "adm-rfid-issues", label: "RFID issues", module: BO },
         { id: "adm-maintenance", label: "RFID terminal & cards", module: "system_maintenance" },
-      ] },
-      { id: "adm-payroll", label: "Branch Reports", icon: TrendingUpIcon, tabs: [
-        { id: "adm-payroll", label: "Payroll summary", module: "branch_reports" },
-        { id: "adm-branch-reports", label: "Branch reports", module: "branch_reports" },
-        { id: "adm-pay-rates", label: "Pay rates", module: "pay_rates" },
       ] },
     ],
   },

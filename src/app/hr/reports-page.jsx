@@ -79,7 +79,7 @@ export function ReportsPage() {
     return [...map.entries()].sort((a, b) => (a[0] === "none" ? 1 : b[0] === "none" ? -1 : a[1].localeCompare(b[1])));
   }, [state.rows]);
   const shownRows = React.useMemo(() => (branch === "all" ? state.rows : state.rows.filter((r) => String(r.branch_id || "none") === branch))
-    .filter((r) => state.type === "attendance" || employment === "all" || r.employment_status === employment), [state.rows, state.type, branch, employment]);
+    .filter((r) => state.type === "attendance" || employment === "all" || r.employment_status === employment || r.staff_group === employment), [state.rows, state.type, branch, employment]);
   const exportHref = `/api/hr/reports?type=${state.type || type}${(state.type || type) === "attendance" ? `${state.from ? `&from=${state.from}` : ""}&to=${state.to || to}` : ""}&branch_id=${encodeURIComponent(branch)}${(state.type || type) === "attendance" ? "" : `&employment=${encodeURIComponent(employment)}`}`;
 
   // The CSV lists what the table shows: the branch chosen and the search (2026-11-19).
@@ -92,7 +92,7 @@ export function ReportsPage() {
     } else {
       downloadCsv(`sacs-hr-employees-report-${localDateKey()}.csv`,
         ["Branch", "Employee", "ID", "Type", "Employment", "Position", "Status", "Email"],
-        rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", r.employee_type || "", [r.employment_status].filter(Boolean).join(" · "), r.position || "", r.employee_status || "", r.email || ""]));
+        rows.map((r) => [r.branch_name || "", r.full_name || "", r.employee_id || "", [r.employee_type, r.staff_group].filter(Boolean).join(" · "), [r.employment_status].filter(Boolean).join(" · "), r.position || "", r.employee_status || "", r.email || ""]));
     }
   }
 
@@ -128,7 +128,7 @@ export function ReportsPage() {
   ] : [
     { key: "full_name", header: "Employee", className: "font-medium", cell: (r) => <>{r.full_name || "—"}{r.archived ? <span className="ml-1 text-xs text-destructive">(Archived)</span> : null}</> },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (r) => r.employee_id || "—" },
-    { key: "employee_type", header: "Category", cell: (r) => r.employee_type || "—" },
+    { key: "employee_type", header: "Category", cell: (r) => [r.employee_type, r.staff_group].filter(Boolean).join(" · ") || "—" },
     { key: "employment", header: "Employment", cell: (r) => [r.employment_status].filter(Boolean).join(" · ") || "—" },
     { key: "position", header: "Position", cell: (r) => r.position || "—" },
     { key: "status", header: "Status", cell: (r) => r.employee_status || "Active" },
@@ -174,7 +174,7 @@ export function ReportsPage() {
                   <SelectTrigger id="hr-report-employment" className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Any</SelectItem>
-                    {["Regular", "Probationary", "Contractual"].map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                    {["Regular", "Probationary", "Provisional", "Contractual", "Maintenance"].map((o) => <SelectItem key={o} value={o}>{o}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

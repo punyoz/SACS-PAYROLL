@@ -65,7 +65,8 @@ describe("leave credits per category, status and type", () => {
     const year = 2026;
     const teacher = leaveEntitlement({ rules: RULES, current: REG, year, dateHired: "2020-06-01" });
     const nonTeaching = leaveEntitlement({ rules: RULES, current: NT, year, dateHired: "2020-06-01" });
-    const probationary = leaveEntitlement({ rules: RULES, current: PROB, year, dateHired: "2020-06-01" });
+    // Under 1 year of service (hired Jan 1): the Probationary rule. (1+ year earns the Regular one: see below.)
+    const probationary = leaveEntitlement({ rules: RULES, current: PROB, year, dateHired: "2026-01-01" });
     expect(teacher["Vacation Leave"].days).toBe(0);
     expect(nonTeaching["Vacation Leave"].days).toBe(5);
     expect(teacher["Sick Leave"].days).toBe(5);
@@ -88,7 +89,8 @@ describe("leave credits per category, status and type", () => {
     const e = leaveEntitlement({ rules: rules2027, current: NOW, changes: HISTORY, year: 2027, dateHired: "2026-09-01" });
     // 59/365 × 3 + 306/365 × 5 = 0.48 + 4.19 = 4.68 → 4.5
     expect(e["Sick Leave"].days).toBe(4.5);
-    expect(e["Sick Leave"].parts).toHaveLength(2);
+    // Mar 1 (Regular) and the Sep 1 service anniversary (already Regular: same rule) cut the year.
+    expect(e["Sick Leave"].parts).toHaveLength(3);
   });
   it("a per-employee override (the latest) replaces the computed days, and says so", () => {
     const overrides = [
@@ -114,7 +116,7 @@ describe("pay rules, required fields and no Substitute", () => {
     expect(eligibilityError(null, "loan", PROB)).toBeNull();
   });
   it("Substitute is not a status anywhere", () => {
-    expect(EMPLOYMENT_STATUS_OPTIONS).toEqual(["Regular", "Probationary", "Contractual"]);
+    expect(EMPLOYMENT_STATUS_OPTIONS).toEqual(["Regular", "Probationary", "Provisional", "Contractual"]);
     const sql = readFileSync("supabase/migrations/20261121010000_employee_classification.sql", "utf8");
     expect(sql).toMatch(/employment_status IN \('Regular', 'Probationary', 'Contractual'\)/);
     expect(readFileSync("src/app/hr/employee-form-dialog.jsx", "utf8")).not.toMatch(/"Substitute"/);
@@ -179,5 +181,31 @@ describe("no part-time employees (2026-11-23)", () => {
     expect(route).not.toMatch(/pay_basis_not_supported/);
     expect(readFileSync("src/app/api/hr/classification-rules/route.js", "utf8")).toMatch(/Employees are paid a monthly salary/);
     expect(EMPLOYMENT_TYPE_OPTIONS).toEqual(["Full-time"]);
+  });
+});
+
+describe("Provisional, Maintenance and the 5 / 3 credit defaults (2026-11-23)", () => {
+  const R = (status, days) => ["Vacation Leave", "Sick Leave"].map((leave_type) => ({ leave_type, employee_type: "Teaching", employment_status: status, employment_type: "Full-time", days_per_year: days, effective_from: "2026-01-01" }));
+  const rules = [...R("Regular", 5), ...R("Provisional", 3), ...R("Probationary", 3)];
+  it("Provisional is a status; Maintenance only within Non-Teaching", async () => {
+    expect(EMPLOYMENT_STATUS_OPTIONS).toContain("Provisional");
+    const { normalizeEmployeeFields } = await import("@/lib/employees/record");
+    if (normalizeEmployeeFields) {
+      expect(normalizeEmployeeFields({ employee_type: "Non-Teaching", staff_group: "Maintenance" }).staff_group).toBe("Maintenance");
+      expect(normalizeEmployeeFields({ employee_type: "Teaching", staff_group: "Maintenance" }).staff_group).toBeNull();
+    }
+    const sql = readFileSync("supabase/migrations/20261124110000_provisional_maintenance_leave_defaults.sql", "utf8");
+    expect(sql).toMatch(/'Regular', 'Probationary', 'Provisional', 'Contractual'/);
+    expect(sql).toMatch(/staff_group IN \('Maintenance'\)/);
+  });
+  it("a new Provisional hire earns 3; after 1 year of service the Regular 5, pro-rated from that date", () => {
+    const fresh = leaveEntitlement({ rules, current: { employee_type: "Teaching", employment_status: "Provisional" }, year: 2027, dateHired: "2026-12-01" });
+    // Dec 1 2026 + 12 months = Dec 1 2027: 334 days at 3 + 31 days at 5 = 2.75 + 0.42 = 3.17 -> 3
+    expect(fresh["Vacation Leave"].days).toBe(3);
+    expect(fresh["Vacation Leave"].parts).toHaveLength(2);
+    const served = leaveEntitlement({ rules, current: { employee_type: "Teaching", employment_status: "Provisional" }, year: 2027, dateHired: "2025-01-01" });
+    expect(served["Sick Leave"].days).toBe(5);
+    const regular = leaveEntitlement({ rules, current: { employee_type: "Teaching", employment_status: "Regular" }, year: 2027, dateHired: "2026-12-01" });
+    expect(regular["Vacation Leave"].days).toBe(5);
   });
 });

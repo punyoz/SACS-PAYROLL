@@ -541,7 +541,7 @@ export function AddStaffDialog({ branches, open, onOpenChange, onSaved }) {
           {form.values.role === "hr"
             ? field("basic_salary", text("basic_salary", { type: "number", min: "0.01", max: String(SALARY_MAX), step: "0.01", inputMode: "decimal", placeholder: "e.g. 18500" }), { required: true, hint: "Monthly, in pesos." })
             : null}
-          {form.values.role === "hr" ? field("employment_status", select("employment_status", ["Regular", "Probationary", "Contractual"], "Select"), { required: true }) : null}
+          {form.values.role === "hr" ? field("employment_status", select("employment_status", ["Regular", "Probationary", "Provisional", "Contractual"], "Select"), { required: true }) : null}
           {form.values.role === "hr" && form.values.employment_status === "Contractual"
             ? field("contract_end_date", dateField("contract_end_date"), { required: true, hint: "HR is reminded before it." }) : null}
 

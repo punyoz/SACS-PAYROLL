@@ -6,7 +6,7 @@
  */
 
 export const CATEGORY_OPTIONS = ["Teaching", "Non-Teaching"];
-export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual"];
+export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Provisional", "Contractual"];
 // The school has no part-time employees (2026-11-23): everyone is Full-time; the field is not shown.
 export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time"];
 // Yearly credits. Maternity, paternity and other statutory leaves are filed per
@@ -21,6 +21,8 @@ export const HR_SETTINGS = {
   probation_months: { label: "Probation length (months)", min: 1, max: 24, fallback: 6 },
   probation_reminder_days: { label: "Remind HR before probation ends (days)", min: 1, max: 120, fallback: 30 },
   contract_reminder_days: { label: "Remind HR before a contract ends (days)", min: 1, max: 120, fallback: 30 },
+  // 2026-11-23: Regular credits (5 / 5) for anyone with this much service, from that date.
+  regular_credits_after_months: { label: "Regular leave credits after (months of service)", min: 1, max: 60, fallback: 12 },
 };
 
 export const CLASSIFICATION_FIELDS = ["employee_type", "employment_status", "on_payroll", "contract_end_date"];
@@ -43,6 +45,12 @@ export const FIELD_LABELS = {
 const DAY = 864e5;
 const dayNumber = (key) => Math.round(Date.parse(`${key}T00:00:00Z`) / DAY);
 const keyOf = (n) => new Date(n * DAY).toISOString().slice(0, 10);
+/** The date N months after `key` (a day missing in that month: its last day). */
+const addMonths = (key, months) => {
+  const [y, m, d] = key.split("-").map(Number);
+  const last = new Date(Date.UTC(y, m - 1 + months + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(y, m - 1 + months, Math.min(d, last))).toISOString().slice(0, 10);
+};
 
 /** "Teaching · Regular" (blank parts left out). */
 export function classificationLabel(c = {}) {
@@ -113,13 +121,19 @@ const halfDown = (n) => Math.floor(n * 2 + 1e-9) / 2;
  *
  * @returns {{ [leaveType]: { days, computed, override: object|null, parts: object[] } }}
  */
-export function leaveEntitlement({ rules, overrides = [], current, changes = [], year, dateHired = null, separatedOn = null }) {
+export function leaveEntitlement({ rules, overrides = [], current, changes = [], year, dateHired = null, separatedOn = null, regularAfterMonths = 12 }) {
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
   const yearDays = dayNumber(yearEnd) - dayNumber(yearStart) + 1;
   const from = dateHired && dateHired > yearStart ? dateHired : yearStart;
   const to = separatedOn && separatedOn < yearEnd ? separatedOn : yearEnd;
-  const parts = from > to ? [] : classificationSegments(current, changes, from, to);
+  // From the service anniversary (hire date + N months) a non-Regular employee earns the Regular rule.
+  const anniversary = dateHired && regularAfterMonths ? addMonths(String(dateHired).slice(0, 10), regularAfterMonths) : null;
+  const parts = (from > to ? [] : classificationSegments(current, changes, from, to)).flatMap((part) => (
+    anniversary && anniversary > part.from && anniversary <= part.to
+      ? [{ ...part, to: keyOf(dayNumber(anniversary) - 1) }, { ...part, from: anniversary }]
+      : [part]))
+    .map((part) => ({ ...part, served: Boolean(anniversary && part.from >= anniversary) }));
   const out = {};
   for (const leaveType of CREDIT_LEAVE_TYPES) {
     let total = 0;
@@ -128,7 +142,7 @@ export function leaveEntitlement({ rules, overrides = [], current, changes = [],
       // (Teaching, Regular, Full-time) rather than nothing.
       const c = {
         employee_type: part.classification.employee_type || "Teaching",
-        employment_status: part.classification.employment_status || "Regular",
+        employment_status: part.served ? "Regular" : part.classification.employment_status || "Regular",
         employment_type: part.classification.employment_type || "Full-time",
       };
       const rule = leaveRuleFor(rules, leaveType, c, part.from);

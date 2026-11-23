@@ -364,6 +364,7 @@ export async function POST(request) {
       branch_id: branchId,
       employee_id: autoEmployeeId,
       employee_type: record.employee_type,
+      staff_group: record.staff_group,
       position: position.name,
       basic_salary: record.basic_salary,
       date_of_birth: dateOfBirth,
@@ -430,6 +431,7 @@ export async function POST(request) {
           // Columns since 20261121010000 (the nightly jobs and payroll read them there).
           employment_status: record.employment_status || null,
           employment_type: record.employment_type || null,
+          staff_group: record.staff_group,
           contract_end_date: record.employment_status === "Contractual" ? record.contract_end_date || null : null,
           cp_number: normalizeDigits(body.cp_number, 11) || null,
           date_hired: normalizeText(body.date_hired, "") || null,

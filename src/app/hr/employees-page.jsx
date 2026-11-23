@@ -119,6 +119,7 @@ export function EmployeesPage({ refreshKey }) {
     all: active.length,
     teaching: active.filter((e) => e.employee_type?.toLowerCase() === "teaching").length,
     "non-teaching": active.filter((e) => e.employee_type?.toLowerCase() === "non-teaching").length,
+    maintenance: active.filter((e) => e.staff_group === "Maintenance").length,
     archived: inBranch.filter((e) => e.archived).length,
     unconfirmed: active.filter((e) => e.classification_unconfirmed).length,
   };
@@ -130,6 +131,8 @@ export function EmployeesPage({ refreshKey }) {
     if (filter === "archived") return classified.filter((e) => e.archived);
     const live = classified.filter((e) => !e.archived);
     if (filter === "unconfirmed") return live.filter((e) => e.classification_unconfirmed);
+    // Maintenance: a group within Non-Teaching (2026-11-23).
+    if (filter === "maintenance") return live.filter((e) => e.staff_group === "Maintenance");
     return filter === "all" ? live : live.filter((e) => e.employee_type?.toLowerCase() === filter);
   }, [state.employees, branch, filter, empStatus]);
 
@@ -139,7 +142,7 @@ export function EmployeesPage({ refreshKey }) {
       cell: (e) => <span className="flex items-center gap-2"><UserAvatar userId={e.id} name={e.full_name} className="size-7" fallbackClassName="text-[10px]" />{e.full_name}</span>,
     },
     { key: "employee_id", header: "ID", className: "font-mono text-xs", cell: (e) => e.employee_id || "—", searchValue: (e) => e.employee_id },
-    { key: "employee_type", header: "Category", cell: (e) => e.employee_type || "—" },
+    { key: "employee_type", header: "Category", cell: (e) => [e.employee_type, e.staff_group].filter(Boolean).join(" · ") || "—", searchValue: (e) => `${e.employee_type || ""} ${e.staff_group || ""}` },
     {
       key: "employment_status", header: "Employment", sortable: true, sortValue: (e) => `${e.employment_status}`,
       searchValue: (e) => `${e.employment_status || ""}`,
@@ -191,8 +194,8 @@ export function EmployeesPage({ refreshKey }) {
   const [shownRows, setShownRows] = React.useState(null);
   function exportList() {
     downloadCsv(`sacs-employees-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Employee ID", "Name", "Email", "Branch", "Type", "Employment status", "Position", "Status", "Date hired", "Contact number"],
-      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "",
+      ["Employee ID", "Name", "Email", "Branch", "Type", "Group", "Employment status", "Position", "Status", "Date hired", "Contact number"],
+      (shownRows || rows).map((e) => [e.employee_id || "", e.full_name || "", e.email || "", branchName(e.branch_id) || "", e.employee_type || "", e.staff_group || "",
         e.employment_status || "", e.position || "",
         e.archived ? "Archived" : e.employee_status || "Active", e.date_hired || "", e.cp_number || ""]));
   }
@@ -218,6 +221,7 @@ export function EmployeesPage({ refreshKey }) {
                   { value: "all", label: "All", count: counts.all },
                   { value: "teaching", label: "Teaching", count: counts.teaching },
                   { value: "non-teaching", label: "Non-Teaching", count: counts["non-teaching"] },
+                  { value: "maintenance", label: "Maintenance", count: counts.maintenance },
                   { value: "archived", label: "Archived", count: counts.archived },
                   ...(counts.unconfirmed ? [{ value: "unconfirmed", label: "Needs HR confirmation", count: counts.unconfirmed }] : []),
                 ]} />
