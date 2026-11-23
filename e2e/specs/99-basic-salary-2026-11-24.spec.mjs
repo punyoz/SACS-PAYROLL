@@ -50,7 +50,7 @@ test("a mid-month new hire is pro-rated from the hire date (daily rate × workin
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
   const stamp = Date.now();
   const email = `newhire.${stamp}@e2e.test`;
-  const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-Nh#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name: "Nina Newhire" } });
+  const { data, error } = await db().auth.admin.createUser({ email, password: `E2e-Nh#${stamp}`, email_confirm: true, user_metadata: { role: "employee", full_name: "Nina Newhire", branch_id: bea.branch_id } });
   if (error) throw new Error(error.message);
   const { id: _i, email: _e, created_at: _c, updated_at: _u, rfid_uid: _r, photo_path: _p, photo_thumb_path: _t, photo_updated_at: _pu, ...rest } = bea;
   const SALARY = 26100; // daily rate 26,100 × 12 ÷ 261 = 1,200
@@ -61,7 +61,13 @@ test("a mid-month new hire is pro-rated from the hire date (daily rate × workin
   expect(daily).toBe(1200);
 
   await as(page, "accountant", "ac-process");
-  const first = await periodRows(page, FIRST);
+  // The staff list is cached for 10 s: wait until the new hire is listed.
+  let first;
+  for (let i = 0; i < 8; i += 1) {
+    first = await periodRows(page, FIRST);
+    if (first.employees.some((e) => e.id === data.user.id)) break;
+    await page.waitForTimeout(2000);
+  }
   const second = await periodRows(page, SECOND);
   await step(page, `Hired ${HIRED}: 1st half = ₱1,200 × ${weekdays(HIRED, "2026-11-15")} days; the month = ₱1,200 × ${weekdays(HIRED, "2026-11-30")} days`, async () => {
     const e1 = first.employees.find((e) => e.id === data.user.id);

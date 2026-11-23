@@ -159,8 +159,9 @@ export function SpecialDaysPanel({ refreshKey }) {
 
 /** The signed-in person's upcoming special working days (dashboard and My Attendance). Hidden when none. */
 export function MySpecialDays() {
-  const { can } = usePortalSession();
-  const allowed = can("my_account");
+  const { can, me } = usePortalSession();
+  // A separated account keeps My Account on paper, but the server refuses its own-data calls.
+  const allowed = can("my_account") && !me?.user?.separated;
   const [days, setDays] = React.useState([]);
   React.useEffect(() => {
     // A separated account (no My Account pages) is not asked: the server would refuse it.
