@@ -57,7 +57,9 @@ function AdminRecommendation({ rec, compact = false }) {
 }
 
 export function LeavesPage({ refreshKey }) {
-  const { notify } = usePortalSession();
+  const { notify, me } = usePortalSession();
+  // Nobody decides their own request (2026-11-23): no buttons, no checkbox on your own.
+  const myId = String(me?.user?.id || "");
   const [confirmDialog, confirm] = useConfirm();
   const [proofViewer, openInlineProof] = useProofViewer();
   // Older requests carry the proof inline; newer ones keep it in the private
@@ -187,7 +189,8 @@ export function LeavesPage({ refreshKey }) {
 
   // Part F: the pending list as filtered here (search, type with counts, branch,
   // category, employment status, dates, sort; all in the address).
-  const { rows: shownPending, toolbar: pendingFilters } = pendingFiltersHook;
+  const { rows: shownAll, toolbar: pendingFilters } = pendingFiltersHook;
+  const shownPending = shownAll.filter((r) => String(r.employee_id) !== myId);
 
   return (
     <>
@@ -249,8 +252,10 @@ export function LeavesPage({ refreshKey }) {
                   <li key={req.id} className="flex min-w-0 flex-col gap-3 rounded-lg border bg-card p-4 shadow-xs">
                     <div className="min-w-0 space-y-1">
                       <p className="flex items-center gap-2 font-semibold">
+                        {String(req.employee_id) === myId ? null : (
                         <Checkbox aria-label={`Select ${req.employee_name || "this request"} ${x.from}`} checked={selected.has(req.id)}
                           onCheckedChange={(on) => setSelected((cur) => { const next = new Set(cur); if (on === true) next.add(req.id); else next.delete(req.id); return next; })} />
+                        )}
                         {req.employee_name || req.employee_id || "Unknown"}
                       </p>
                       <p className="text-sm">
@@ -264,10 +269,12 @@ export function LeavesPage({ refreshKey }) {
                     </div>
                     <div className="mt-auto flex flex-wrap items-center gap-2">
                       {x.proof ? <Button variant="outline" size="sm" onClick={() => openProof(req)}><PaperclipIcon aria-hidden="true" />View proof</Button> : null}
+                      {String(req.employee_id) === myId ? <p className="ml-auto text-xs text-muted-foreground" data-testid="own-request">Your own request: another HR officer decides it</p> : (
                       <div className="ml-auto flex gap-2">
                         <Button variant="destructive" size="sm" onClick={() => decide(req, "reject")} disabled={Boolean(busy)}><XIcon aria-hidden="true" />Reject</Button>
                         <Button size="sm" onClick={() => decide(req, "approve")} disabled={Boolean(busy)}><CheckIcon aria-hidden="true" />Approve</Button>
                       </div>
+                      )}
                     </div>
                   </li>
                 );

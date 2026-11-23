@@ -21,6 +21,7 @@
  * kind=overtime_confirmation: it reads the Admin's confirmations before paying.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
@@ -602,6 +603,7 @@ export async function POST(request) {
       if (!LEAVE_PENDING.includes(leave.status)) return bad("HR has already decided this leave request.", 409);
       if (!ENDORSE[body.decision]) return bad("Choose Endorse or Not endorse.");
       refId = leave.id; employeeId = leave.employee_id; status = ENDORSE[body.decision];
+      if (String(leave.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "branch_oversight", entityType: "leave_request", entityId: leave.id, what: "leave request" });
       // Part E step 4: the Admin checked the system's recommendation; it goes to HR with their word.
       await supabase.from("automation_actions").update({
         status: "with_hr", admin_note: `${body.decision === "not_endorse" ? "Not endorsed" : "Endorsed"}${body.note ? `: ${String(body.note).slice(0, 300)}` : ""}`,
@@ -700,6 +702,8 @@ export async function POST(request) {
       details = { employee_name: person.full_name, kind: itemKind, item_date: date, amount: itemKind === "incentive" ? roundPeso(amount) : null, hours: itemKind === "overload" ? Math.round(hours * 100) / 100 : null, description };
     }
 
+    // Nobody files or endorses anything about themselves (2026-11-23).
+    if (employeeId && String(employeeId) === String(guard.userId)) return await refuseOwnItem(guard, { module: "branch_oversight", entityType: "branch_request", entityId: refId || null, what: "request" });
     const entry = historyEntry({ action: REQUEST_KINDS[kind].endorsement ? "endorse" : "file", status, by: guard.userId, byName: actorName(guard), role: "admin", note });
     let saved;
     if (REQUEST_KINDS[kind].endorsement && refId) {

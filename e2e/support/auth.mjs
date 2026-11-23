@@ -14,7 +14,7 @@ export const AUTH_DIR = join(process.cwd(), "test-results", ".auth");
 const stateFile = (role) => join(AUTH_DIR, `${role}.json`);
 
 export const ROLE_LABEL = {
-  super_admin: "Super Admin", admin: "Admin", admin2: "Admin (North)", hr: "HR",
+  super_admin: "Super Admin", admin: "Admin", admin2: "Admin (North)", hr: "HR", hr2: "HR Two",
   accountant: "Accountant", employee: "Employee", employee2: "Employee (Bea)", employee3: "Employee (Carlo)",
 };
 

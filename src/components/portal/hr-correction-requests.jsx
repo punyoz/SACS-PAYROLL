@@ -57,7 +57,8 @@ function Evidence({ id }) {
 }
 
 export function HrCorrectionRequests() {
-  const { notify } = usePortalSession();
+  const { notify, me } = usePortalSession();
+  const myId = String(me?.user?.id || "");
   const [state, setState] = React.useState({ rows: [], loading: true, error: "" });
   const [reviewing, setReviewing] = React.useState(null);
   const [deciding, setDeciding] = React.useState(null); // { row, decision }
@@ -73,6 +74,7 @@ export function HrCorrectionRequests() {
     entityType: "attendance_correction", onDone: load,
     decisions: [{ decision: "approve", label: "Approve" }, { decision: "reject", label: "Reject", destructive: true }],
     label: (r) => `${r.employee_name} ${String(r.log_date).slice(0, 10)}`, send,
+    isSelectable: (r) => String(r.employee_id) !== myId,
   });
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", cell: (r) => r.employee_name },
@@ -80,11 +82,9 @@ export function HrCorrectionRequests() {
     { key: "fix_type", header: "Request", cell: (r) => (
       <div><p>{FIX_TYPES[r.fix_type]}</p><p className="text-xs text-muted-foreground">{[r.corrected_time_in && `in ${hhmm(r.corrected_time_in)}`, r.corrected_time_out && `out ${hhmm(r.corrected_time_out)}`].filter(Boolean).join(" · ")} · {r.reason}</p></div>
     ), searchValue: (r) => `${r.employee_name} ${r.reason || ""}` },
-    { key: "actions", header: "", cell: (r) => (
-      <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => setReviewing(r)}>Review</Button>
-      </div>
-    ) },
+    { key: "actions", header: "", cell: (r) => (String(r.employee_id) === myId
+      ? <p className="text-xs text-muted-foreground" data-testid="own-request">Your own request: another HR officer decides it</p>
+      : <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => setReviewing(r)}>Review</Button></div>) },
   ];
   return (
     <Card className="min-w-0 shadow-xs" data-testid="hr-correction-requests">

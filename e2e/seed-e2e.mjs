@@ -40,6 +40,7 @@ export async function seed({ reset = false } = {}) {
     { acct: ACCOUNTS.employee2, role: "employee", full_name: "Bea Santos Reyes", first_name: "Bea", last_name: "Reyes", employee_id: "E2E-EMP-002", salary: 30000, rfid: "1000000002", branch: main.id, type: "Non-Teaching", position: "Registrar Staff", hired: "2020-06-01" },
     { acct: ACCOUNTS.employee3, role: "employee", full_name: "Carlo Mendoza Cruz", first_name: "Carlo", last_name: "Cruz", employee_id: "E2E-EMP-003", salary: 50000, rfid: "1000000003", branch: north.id, type: "Teaching", position: "Teacher", hired: "2025-06-01" },
     { acct: ACCOUNTS.admin2, role: "admin", full_name: "North Branch Admin", first_name: "North", last_name: "Admin", employee_id: null, branch: north.id },
+    { acct: ACCOUNTS.hr2, role: "hr", full_name: "Hana Second", first_name: "Hana", last_name: "Second", employee_id: null, branch: null },
   ];
   const users = must(await sb.auth.admin.listUsers({ perPage: 500 }), "list users").users;
   for (const e of extra) {
@@ -53,6 +54,8 @@ export async function seed({ reset = false } = {}) {
   }
 
   const set = async (email, patch) => must(await sb.from("profiles").update(patch).eq("email", email), `update ${email}`);
+  // HR Two stays dormant (archived) unless a test activates it: one active HR is the default.
+  await set(ACCOUNTS.hr2.email, { archived: true, employee_status: "Active", employment_status: "Regular", employment_type: "Full-time" });
   await set(ACCOUNTS.admin.email, { branch_id: main.id, first_name: "Main", last_name: "Admin" });
   await set(ACCOUNTS.accountant.email, { branch_id: main.id, basic_salary: 25000, first_name: "Paula", last_name: "Accountant", date_hired: "2024-06-01", employee_type: "Non-Teaching", position: "Accountant" });
   await set(ACCOUNTS.hr.email, { branch_id: main.id, basic_salary: 28000, first_name: "Hector", last_name: "Officer", date_hired: "2024-06-01", employee_type: "Non-Teaching", position: "HR Officer" });
