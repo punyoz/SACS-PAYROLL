@@ -34,12 +34,13 @@ test("schedule request: Admin picks an HR schedule; HR approves; applied from th
     const dialog = page.getByRole("dialog");
     await choose(page, dialog.locator("#ov-schedule_key"), `${TAG} 7-4`);
     await page.keyboard.press("Escape");
-    const none = await api(page, "POST", "/api/admin/branch-oversight", { kind: "schedule_request", employee_id: ana.id, request_type: "schedule", effective_from: start, note: "x" });
+    const fileReq = (details, note) => api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: ana.id, details, note });
+    const none = await fileReq({ request_type: "schedule", effective_from: start, requested: "" }, `${TAG} no pick`);
     expect(none.status).toBe(400);
-    const filed = await api(page, "POST", "/api/admin/branch-oversight", { kind: "schedule_request", employee_id: ana.id, request_type: "schedule", schedule_key: scheduleKey, effective_from: start, requested: "", note: `${TAG} please` });
+    const filed = await fileReq({ request_type: "schedule", schedule_key: scheduleKey, effective_from: start, requested: "" }, `${TAG} please`);
     expect([200, 201], JSON.stringify(filed.data)).toContain(filed.status);
     requestId = (await rows(db().from("branch_admin_requests").select("id,details").eq("kind", "schedule_request").eq("admin_note", `${TAG} please`)))[0].id;
-    const twin = await api(page, "POST", "/api/admin/branch-oversight", { kind: "schedule_request", employee_id: ana.id, request_type: "schedule", schedule_key: scheduleKey, effective_from: start, note: "again" });
+    const twin = await fileReq({ request_type: "schedule", schedule_key: scheduleKey, effective_from: start, requested: "" }, `${TAG} again`);
     expect(twin.status, "a duplicate for the same employee and date").toBe(400);
   });
 

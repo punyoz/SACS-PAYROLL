@@ -83,7 +83,7 @@ test("branch isolation by direct API call: Accountant and Admin never reach anot
   });
 
   await step(page, "Main Admin > files a branch request about North's Carlo (refused)", async () => {
-    const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: carlo.id, details: { request_type: "schedule", effective_from: "2027-01-04", requested: "E2E cross-branch probe" } });
+    const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: carlo.id, details: { request_type: "schedule", schedule_key: "none", effective_from: "2027-01-04", requested: "E2E cross-branch probe" } });
     expect(res.status, JSON.stringify(res.data)).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
   });
@@ -168,7 +168,7 @@ test("Admin endorsement to HR: Admin files a schedule request, HR rejects with a
     monitor.at("Admin > Branch Oversight");
     await as(page, "admin");
     for (const requested of asked) {
-      const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: ana.id, details: { request_type: "schedule", effective_from: "2027-01-04", requested }, note: "E2E: please review for January" });
+      const res = await api(page, "POST", "/api/admin/branch-oversight", { action: "file", kind: "schedule_request", employee_id: ana.id, details: { request_type: "schedule", schedule_key: "none", effective_from: "2027-01-04", requested }, note: "E2E: please review for January" });
       expect([200, 201], JSON.stringify(res.data)).toContain(res.status);
       const row = (await rows(db().from("branch_admin_requests").select("id,status,details").eq("kind", "schedule_request").eq("employee_id", ana.id))).find((r) => r.details?.requested === requested);
       expect(row?.status).toBe("pending");
