@@ -19,6 +19,7 @@ const at = (dateKey, hhmm) => (hhmm ? new Date(`${dateKey}T${hhmm}:00+08:00`).to
 const dbError = (error, fallback) => {
   const code = String(error?.code || "");
   if (code === "23505") return NextResponse.json({ error: "There is already an open correction request for this day." }, { status: 409 });
+  if (/already been decided/.test(String(error?.message || ""))) return NextResponse.json({ error: "This request has already been decided." }, { status: 409 });
   if (["23514", "P0002", "42501"].includes(code)) return NextResponse.json({ error: String(error.message || fallback) }, { status: code === "42501" ? 403 : 400 });
   return NextResponse.json({ error: sanitizeError(error, fallback) }, { status: 500 });
 };

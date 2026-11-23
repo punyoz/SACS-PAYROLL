@@ -53,6 +53,8 @@ test("file → HR approves (day recalculated) / rejects with a preset; limits an
     const usage = await api(page, "GET", `/api/attendance/corrections?usage=1&date=${day}`);
     expect(usage.data).toMatchObject({ used: 1, max: 5 });
     await page.keyboard.press("Escape");
+    await page.reload();
+    await settle(page);
     await requestTab(page, "Attendance correction");
     await expect(main(page).getByTestId("my-correction-requests").getByRole("row").filter({ hasText: day })).toContainText("Pending");
   });
