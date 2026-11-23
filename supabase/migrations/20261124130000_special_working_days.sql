@@ -257,3 +257,11 @@ AS $function$
     'branch_announcements', 'audit_logs'
   ]::text[];
 $function$;
+
+-- Traceability (20261123070000 added 'substitution'): an extra-working-day line is traced to its declared day.
+ALTER TABLE public.payroll_incentives DROP CONSTRAINT IF EXISTS payroll_incentives_traceable_chk;
+ALTER TABLE public.payroll_incentives ADD CONSTRAINT payroll_incentives_traceable_chk CHECK (
+  is_override
+  OR type = ANY (ARRAY['incentive', 'overload', 'subsidy', 'subsidy_adjustment', 'year_end_tax_refund', 'leave_conversion', 'substitution', 'special_working_day'])
+  OR source_log_id IS NOT NULL
+  OR COALESCE(array_length(source_log_ids, 1), 0) > 0);

@@ -62,6 +62,7 @@ BEGIN
   -- Payslip lines: substitution and the extra day are allowed types.
   ASSERT (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'payroll_incentives_type_check') LIKE '%special_working_day%', 'line type';
   ASSERT (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'payroll_incentives_type_check') LIKE '%substitution%', 'substitution line type';
+  ASSERT (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'payroll_incentives_traceable_chk') LIKE '%special_working_day%', 'extra-day line traceable';
 
   RAISE NOTICE 'all special working day scenarios passed';
 END $$;
