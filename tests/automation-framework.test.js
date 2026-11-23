@@ -34,6 +34,16 @@ describe("automation counts", () => {
   });
 });
 
+describe("modules", () => {
+  it("every module has its own pause; all ship enabled (paused = false)", async () => {
+    const { AUTOMATION_MODULES } = await import("@/lib/automation/shared");
+    expect(Object.keys(AUTOMATION_MODULES)).toEqual(expect.arrayContaining(["attendance_flags", "schedule_requests"]));
+    const sql = readFileSync("supabase/migrations/20261124010000_automation_framework.sql", "utf8");
+    expect(sql).toMatch(/\('paused', 'false'\)/);
+    expect(sql).toMatch(/FUNCTION public\.automation_off\(p_module TEXT\)/);
+  });
+});
+
 describe("undo", () => {
   it("a module without an undo handler is refused (fixed on its own page)", async () => {
     expect(canUndo("nothing_registered")).toBe(false);

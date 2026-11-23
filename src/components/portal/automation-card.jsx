@@ -11,7 +11,7 @@ import { DecisionRemarkDialog } from "@/components/portal/remark-field";
 import { StatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
-import { NOTE_MAX, NOTE_MIN, STATUS_LABEL } from "@/lib/automation/shared";
+import { AUTOMATION_MODULES, NOTE_MAX, NOTE_MIN, STATUS_LABEL } from "@/lib/automation/shared";
 
 /*
  * The Automation card (Part E step 1) on the Admin and HR dashboards: what the
@@ -66,6 +66,15 @@ export function AutomationCard({ role, refreshKey = 0 }) {
     } catch (e) { notify("Not changed", e.message, "error"); } finally { setBusy(false); }
   }
 
+  async function toggleModule(module, paused) {
+    setBusy(true);
+    try {
+      await fetchJson("/api/automation", jsonBody("PATCH", { action: "pause", module, paused }));
+      notify(`${AUTOMATION_MODULES[module]} ${paused ? "paused" : "resumed"}`, "", "success");
+      await load();
+    } catch (e) { notify("Not changed", e.message, "error"); } finally { setBusy(false); }
+  }
+
   async function sendNote() {
     const text = note.trim();
     if (text.length < NOTE_MIN) { notify("Write a note", `At least ${NOTE_MIN} characters.`, "error"); return; }
@@ -109,6 +118,18 @@ export function AutomationCard({ role, refreshKey = 0 }) {
       <CardContent className="space-y-3">
         {state.error && !d ? <p role="alert" className="text-sm text-destructive">{state.error}</p> : null}
         {d?.paused ? <p className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm" data-testid="automation-paused">Automation is paused: nothing automatic runs until HR resumes it.</p> : null}
+        {canPause && d?.modules_paused ? (
+          <ul className="flex flex-wrap gap-2" aria-label="Modules" data-testid="automation-modules">
+            {Object.entries(AUTOMATION_MODULES).map(([m, label]) => (
+              <li key={m} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                <span>{label}: {d.modules_paused[m] ? "paused" : "on"}</span>
+                <Button size="sm" variant="ghost" className="h-7 px-2" disabled={busy} onClick={() => toggleModule(m, !d.modules_paused[m])}>
+                  {d.modules_paused[m] ? "Resume" : "Pause"}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {d ? (
           <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4" data-testid="automation-counts">
             <div className="rounded-md border p-2"><dt className="text-xs text-muted-foreground">Done (24 h)</dt><dd className="font-semibold tabular-nums">{c.done_today ?? 0}</dd></div>

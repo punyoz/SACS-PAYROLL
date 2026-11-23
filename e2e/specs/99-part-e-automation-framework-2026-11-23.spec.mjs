@@ -43,6 +43,18 @@ test("automation: pause / resume, Admin Note and Object (own branch), HR Undo re
       expect(audited.map((a) => a.action).sort()).toEqual(["automation_pause", "automation_resume"]);
     });
 
+    await step(page, "HR > pause one module only, then resume it", async () => {
+      const card = main(page).getByTestId("automation-card");
+      const mod = card.getByTestId("automation-modules").locator("li", { hasText: "Attendance flags" });
+      await expect(mod).toContainText("on");
+      await mod.getByRole("button", { name: "Pause" }).click();
+      await expect(mod).toContainText("paused");
+      expect((await rows(db().from("system_config").select("value").eq("section", "automation").eq("key", "paused_attendance_flags").single())).value).toBe("true");
+      await expect(card.getByTestId("automation-paused"), "only that module").toHaveCount(0);
+      await mod.getByRole("button", { name: "Resume" }).click();
+      await expect(mod).toContainText("on");
+    });
+
     await step(page, "Admin > Dashboard > Automation: Note sends it to HR with the note", async () => {
       monitor.at("Admin > Dashboard > Automation");
       await as(page, "admin", "adm-dashboard");
@@ -94,6 +106,6 @@ test("automation: pause / resume, Admin Note and Object (own branch), HR Undo re
       expect((await rows(db().from("automation_actions").select("status").eq("id", applied).single())).status).toBe("done");
     });
   } finally {
-    await setPaused("true");
+    await setPaused("false"); // the default: automation on (user decision 2026-11-23)
   }
 });

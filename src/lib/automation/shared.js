@@ -4,6 +4,12 @@
  */
 export const AUTOMATION_STATUSES = Object.freeze(["done", "admin_check", "with_hr", "open", "couldnt_decide", "undone", "closed"]);
 export const NOTE_MIN = 3;
+
+/** The automation modules (Part E), each with its own pause (automation.paused_<module>). */
+export const AUTOMATION_MODULES = Object.freeze({
+  attendance_flags: "Attendance flags",
+  schedule_requests: "Schedule requests",
+});
 export const NOTE_MAX = 500;
 
 export const STATUS_LABEL = Object.freeze({

@@ -87,6 +87,20 @@ BEGIN
   ASSERT EXISTS (SELECT 1 FROM public.notifications WHERE recipient_id = adm AND kind = 'automation_digest'), '8b: Admin digest';
   ASSERT NOT EXISTS (SELECT 1 FROM public.notifications WHERE recipient_id = adm2 AND kind = 'automation_digest'), '8c: nothing for the other branch';
 
+  -- 9a. One module paused: only that module stops.
+  INSERT INTO public.system_config (section, key, value, updated_by) VALUES ('automation', 'paused_test', 'true', 'test')
+  ON CONFLICT DO NOTHING;
+  UPDATE public.system_config SET value = 'true' WHERE section = 'automation' AND key = 'paused_test';
+  ASSERT public.automation_log('test', 'a rule', 'applied', 'blocked') IS NULL, '9a: the paused module logs nothing';
+  ASSERT public.automation_log('other_module', 'a rule', 'applied', 'still on') IS NOT NULL, '9b: other modules still run';
+  UPDATE public.system_config SET value = 'false' WHERE section = 'automation' AND key = 'paused_test';
+
+  -- 9c. A dry run counts and writes nothing.
+  PERFORM set_config('automation.dry_run', 'on', true);
+  v_id := public.automation_log('test', 'a rule', 'applied', 'dry');
+  ASSERT v_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.automation_actions WHERE id = v_id), '9c: dry run: an id, no row';
+  PERFORM set_config('automation.dry_run', '', true);
+
   -- 9. A module closes its flag when fixed.
   PERFORM public.automation_close(v_flag, 'time correction approved');
   ASSERT (SELECT status = 'closed' FROM public.automation_actions WHERE id = v_flag), '9: closed';

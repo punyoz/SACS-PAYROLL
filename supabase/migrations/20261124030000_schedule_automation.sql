@@ -20,7 +20,7 @@ DECLARE
   v_hires INTEGER := 0;
   v_sched RECORD;
 BEGIN
-  IF public.automation_paused() THEN RETURN jsonb_build_object('paused', TRUE); END IF;
+  IF public.automation_off('schedule_requests') THEN RETURN jsonb_build_object('paused', TRUE); END IF;
 
   -- 1. Pending schedule requests whose start date has passed.
   FOR r IN
@@ -60,7 +60,8 @@ BEGIN
     v_hires := v_hires + 1;
   END LOOP;
 
-  -- 3. A flag closes once fixed: the request was decided / the level was set.
+  -- 3. A flag closes once fixed: the request was decided / the level was set (not in a dry run).
+  IF public.automation_dry_run() THEN RETURN jsonb_build_object('past_date', v_past, 'new_hires', v_hires, 'dry_run', TRUE); END IF;
   UPDATE public.automation_actions a SET status = 'closed', closed_at = NOW(), closed_note = 'Decided by HR.', updated_at = NOW()
   WHERE a.module = 'schedule_requests' AND a.status = 'open' AND a.data->>'code' = 'past_date'
     AND EXISTS (SELECT 1 FROM public.branch_admin_requests q WHERE q.id::TEXT = a.entity_id AND q.status <> 'pending');
@@ -72,6 +73,24 @@ BEGIN
 END;
 $function$;
 REVOKE ALL ON FUNCTION public.automation_schedule_checks(DATE) FROM PUBLIC, anon, authenticated;
+
+/**
+ * The release check (user decision 2026-11-23): every module's first run as a
+ * dry run — counts only, nothing written. Run it on live inside a READ ONLY
+ * transaction: SET TRANSACTION READ ONLY; SELECT public.automation_dry_run_all();
+ */
+CREATE OR REPLACE FUNCTION public.automation_dry_run_all(p_today DATE DEFAULT ((now() AT TIME ZONE 'Asia/Manila')::DATE))
+ RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+BEGIN
+  PERFORM set_config('automation.dry_run', 'on', true);
+  RETURN jsonb_build_object(
+    'attendance_flags', public.automation_attendance_flags(p_today - 1),
+    'schedule_requests', public.automation_schedule_checks(p_today),
+    'daily', public.automation_daily(p_today));
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.automation_dry_run_all(DATE) FROM PUBLIC, anon, authenticated;
 
 -- Nightly at 00:40 Manila (16:40 UTC). Nothing while paused.
 DO $$

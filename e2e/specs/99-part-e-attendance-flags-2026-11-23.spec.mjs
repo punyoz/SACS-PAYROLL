@@ -56,6 +56,6 @@ test("attendance flags: a missing tap is flagged, shown to the employee, fixed b
       await expect(main(page).getByTestId("attendance-fix").filter({ hasText: "no time-out" })).toHaveCount(0);
     });
   } finally {
-    await setPaused("true");
+    await setPaused("false"); // the default: automation on (user decision 2026-11-23)
   }
 });

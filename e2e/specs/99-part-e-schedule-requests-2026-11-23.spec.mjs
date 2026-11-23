@@ -68,6 +68,6 @@ test("schedule request: Admin picks an HR schedule; HR approves; applied from th
       expect((await rows(db().from("automation_actions").select("status,undo_reason").eq("id", action.id).single()))).toMatchObject({ status: "undone", undo_reason: "Applied in error" });
     });
   } finally {
-    await setPaused("true");
+    await setPaused("false"); // the default: automation on (user decision 2026-11-23)
   }
 });

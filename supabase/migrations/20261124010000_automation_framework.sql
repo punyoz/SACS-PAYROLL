@@ -17,8 +17,11 @@
 --   automation_daily()   forwards due Admin checks, escalates stale items
 --                        (automation.stale_days working days, default 3, or past
 --                        their effective date), sends the digest to Admin and HR.
---   automation.paused    HR / Super Admin "Pause automation". 'true' at release:
---                        nothing automatic runs until it is switched on.
+--   automation.paused    HR / Super Admin "Pause automation" (emergencies): every module.
+--   automation.paused_<module>  pause one module. All modules ship ENABLED (user
+--                        decision 2026-11-23); at release each module's first run is
+--                        dry-run on live first (automation_dry_run_all(), read-only)
+--                        and a module whose counts look wrong is paused alone.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS public.automation_actions (
@@ -66,7 +69,7 @@ CREATE TRIGGER automation_actions_decision_remark AFTER INSERT OR UPDATE ON publ
 -- Settings, pending the school's policy manual.
 INSERT INTO public.system_config (section, key, value, updated_by)
 SELECT 'automation', v.key, v.value, 'System'
-FROM (VALUES ('paused', 'true'), ('admin_check_days', '1'), ('stale_days', '3')) v(key, value)
+FROM (VALUES ('paused', 'false'), ('admin_check_days', '1'), ('stale_days', '3')) v(key, value)
 WHERE NOT EXISTS (SELECT 1 FROM public.system_config c WHERE c.section = 'automation' AND c.key = v.key);
 
 -- Undo and Object presets for automatic actions (HR / Super Admin edit them in Settings).
@@ -93,6 +96,30 @@ AS $function$
   SELECT COALESCE((SELECT value FROM public.system_config WHERE section = 'automation' AND key = 'paused' LIMIT 1), 'true') <> 'false';
 $function$;
 REVOKE ALL ON FUNCTION public.automation_paused() FROM PUBLIC, anon, authenticated;
+
+/** One module paused (automation.paused_<module> = 'true'). */
+CREATE OR REPLACE FUNCTION public.automation_module_paused(p_module TEXT)
+ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE((SELECT value FROM public.system_config WHERE section = 'automation' AND key = 'paused_' || p_module LIMIT 1), 'false') = 'true';
+$function$;
+REVOKE ALL ON FUNCTION public.automation_module_paused(TEXT) FROM PUBLIC, anon, authenticated;
+
+/** Off for this module: everything paused, or this module paused. */
+CREATE OR REPLACE FUNCTION public.automation_off(p_module TEXT)
+ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT public.automation_paused() OR public.automation_module_paused(p_module);
+$function$;
+REVOKE ALL ON FUNCTION public.automation_off(TEXT) FROM PUBLIC, anon, authenticated;
+
+/** A dry run (SET LOCAL automation.dry_run = 'on'): the modules count, and write nothing. */
+CREATE OR REPLACE FUNCTION public.automation_dry_run()
+ RETURNS BOOLEAN LANGUAGE sql STABLE SET search_path TO 'public'
+AS $function$
+  SELECT COALESCE(current_setting('automation.dry_run', true), '') = 'on';
+$function$;
+REVOKE ALL ON FUNCTION public.automation_dry_run() FROM PUBLIC, anon, authenticated;
 
 /** A working day for a branch: Monday to Friday, not a whole-day holiday there. */
 CREATE OR REPLACE FUNCTION public.automation_is_working_day(p_day DATE, p_branch UUID)
@@ -134,7 +161,9 @@ DECLARE
   v_id UUID;
   v_status TEXT;
 BEGIN
-  IF public.automation_paused() THEN RETURN NULL; END IF;
+  IF public.automation_off(p_module) THEN RETURN NULL; END IF;
+  -- A dry run counts the action and writes nothing.
+  IF public.automation_dry_run() THEN RETURN gen_random_uuid(); END IF;
   v_status := CASE
     WHEN p_reason IS NOT NULL AND p_kind <> 'applied' THEN 'couldnt_decide'
     WHEN p_kind = 'applied' THEN 'done'
@@ -176,6 +205,14 @@ DECLARE
   v_stale INTEGER := public.automation_setting_int('stale_days', 3);
 BEGIN
   IF public.automation_paused() THEN RETURN jsonb_build_object('paused', TRUE); END IF;
+  IF public.automation_dry_run() THEN
+    RETURN jsonb_build_object(
+      'would_forward', (SELECT COUNT(*) FROM public.automation_actions WHERE status = 'admin_check' AND admin_due_on <= p_today),
+      'would_escalate', (SELECT COUNT(*) FROM public.automation_actions a WHERE a.status IN ('admin_check', 'with_hr', 'open', 'couldnt_decide') AND a.escalated_at IS NULL
+        AND (public.automation_add_working_days((a.created_at AT TIME ZONE 'Asia/Manila')::DATE, v_stale, a.branch_id) <= p_today
+             OR (a.effective_on IS NOT NULL AND a.effective_on < p_today))),
+      'dry_run', TRUE);
+  END IF;
 
   -- 1. No objection within the Admin's check time: to HR, by the system.
   WITH f AS (

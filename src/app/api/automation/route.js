@@ -21,7 +21,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { notify } from "@/lib/branch-requests-server";
 import { undoAutomation } from "@/lib/automation/undo";
-import { AUTOMATION_STATUSES, NOTE_MIN, NOTE_MAX, summarizeAutomation } from "@/lib/automation/shared";
+import { AUTOMATION_MODULES, AUTOMATION_STATUSES, NOTE_MIN, NOTE_MAX, summarizeAutomation } from "@/lib/automation/shared";
 
 const ROLES = new Set(["admin", "hr", "super_admin"]);
 const SELECT = "id,module,rule,kind,status,summary,data,reason,entity_type,entity_id,employee_id,branch_id,effective_on,admin_due_on,admin_note,admin_noted_by_name,admin_noted_at,admin_objected,forwarded_at,forwarded_by,escalated_at,undone_at,undone_by_name,undo_reason,closed_at,closed_note,created_at";
@@ -29,8 +29,11 @@ const SELECT = "id,module,rule,kind,status,summary,data,reason,entity_type,entit
 const nameOf = (guard) => guard.session?.full_name || guard.session?.email || guard.role;
 
 async function pausedNow(supabase) {
-  const { data } = await supabase.from("system_config").select("value").eq("section", "automation").eq("key", "paused").maybeSingle();
-  return String(data?.value ?? "true") !== "false";
+  const { data } = await supabase.from("system_config").select("key,value").eq("section", "automation").like("key", "paused%");
+  const rows = data || [];
+  const all = String(rows.find((r) => r.key === "paused")?.value ?? "false") !== "false";
+  const modules = Object.fromEntries(Object.keys(AUTOMATION_MODULES).map((m) => [m, rows.find((r) => r.key === `paused_${m}`)?.value === "true"]));
+  return { all, modules };
 }
 
 export async function GET(request) {
@@ -55,7 +58,8 @@ export async function GET(request) {
     const { data: people } = await fetchAllIn(() => supabase.from("profiles").select("id,full_name").order("id"), "id", ids);
     const names = new Map((people || []).map((p) => [p.id, p.full_name]));
     const actions = rows.map((r) => ({ ...r, employee_name: names.get(r.employee_id) || null }));
-    return NextResponse.json({ actions, counts: summarizeAutomation(actions, guard.role), paused: await pausedNow(supabase), role: guard.role });
+    const paused = await pausedNow(supabase);
+    return NextResponse.json({ actions, counts: summarizeAutomation(actions, guard.role), paused: paused.all, modules_paused: paused.modules, role: guard.role });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
@@ -131,16 +135,23 @@ export async function PATCH(request) {
   }
 }
 
-/** Pause / Resume automation: HR or the Super Admin. */
+/** Pause / Resume automation (all, or one module): HR or the Super Admin. */
 async function pause(guard, body) {
   if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin pauses automation." }, { status: 403 });
   if (typeof body.paused !== "boolean") return NextResponse.json({ error: "Say whether to pause or resume." }, { status: 400 });
+  const moduleKey = body.module ? String(body.module) : "";
+  if (moduleKey && !AUTOMATION_MODULES[moduleKey]) return NextResponse.json({ error: "Unknown module." }, { status: 400 });
+  const key = moduleKey ? `paused_${moduleKey}` : "paused";
   const supabase = getServiceClient();
   const by = nameOf(guard);
-  const { error } = await supabase.from("system_config").update({ value: body.paused ? "true" : "false", updated_by: by })
-    .eq("section", "automation").eq("key", "paused");
+  const value = body.paused ? "true" : "false";
+  const { data: existing } = await supabase.from("system_config").select("key").eq("section", "automation").eq("key", key).maybeSingle();
+  const { error } = existing
+    ? await supabase.from("system_config").update({ value, updated_by: by }).eq("section", "automation").eq("key", key)
+    : await supabase.from("system_config").insert({ section: "automation", key, value, updated_by: by });
   if (error) throw error;
-  await appendAuditLog({ actor: guard, module: "automation", action: body.paused ? "automation_pause" : "automation_resume", entity_type: "system_config", entity_id: "automation.paused",
-    description: body.paused ? "Automation paused." : "Automation resumed.", metadata: { paused: body.paused } });
-  return NextResponse.json({ success: true, paused: body.paused });
+  const what = moduleKey ? AUTOMATION_MODULES[moduleKey] : "Automation";
+  await appendAuditLog({ actor: guard, module: "automation", action: body.paused ? "automation_pause" : "automation_resume", entity_type: "system_config", entity_id: `automation.${key}`,
+    description: `${what} ${body.paused ? "paused" : "resumed"}.`, metadata: { paused: body.paused, module: moduleKey || null } });
+  return NextResponse.json({ success: true, paused: body.paused, module: moduleKey || null });
 }

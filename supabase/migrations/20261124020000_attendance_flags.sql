@@ -60,15 +60,15 @@ DECLARE
   v_id UUID;
   v_page TEXT;
 BEGIN
-  IF public.automation_paused() THEN RETURN jsonb_build_object('paused', TRUE); END IF;
+  IF public.automation_off('attendance_flags') THEN RETURN jsonb_build_object('paused', TRUE); END IF;
 
-  -- 1. Close what was fixed.
+  -- 1. Close what was fixed (a dry run only counts).
   FOR r IN SELECT a.id, a.rule, a.entity_id, a.employee_id, (a.data->>'log_date')::DATE AS day
            FROM public.automation_actions a
            WHERE a.module = 'attendance_flags' AND a.status = 'open' AND a.data->>'code' IN ('missing_tap', 'absent_no_request', 'short_day', 'overtime_unfiled') LOOP
     IF public.automation_attendance_flag_fixed((SELECT data->>'code' FROM public.automation_actions WHERE id = r.id),
          NULLIF(r.entity_id, '')::UUID, r.employee_id, r.day) THEN
-      PERFORM public.automation_close(r.id, 'Fixed: the day changed or the request was filed.');
+      IF NOT public.automation_dry_run() THEN PERFORM public.automation_close(r.id, 'Fixed: the day changed or the request was filed.'); END IF;
       v_closed := v_closed + 1;
     END IF;
   END LOOP;
@@ -111,6 +111,7 @@ BEGIN
       r.employee_id, r.branch_id, 'attendance_log', r.id::TEXT);
     IF v_id IS NULL THEN CONTINUE; END IF;
     v_new := v_new + 1;
+    IF public.automation_dry_run() THEN CONTINUE; END IF;
     v_page := CASE r.role WHEN 'hr' THEN 'hr-my-attendance' WHEN 'accountant' THEN 'ac-my-attendance' ELSE 'emp-attendance' END;
     INSERT INTO public.notifications (recipient_id, kind, title, body, link_page)
     VALUES (r.employee_id, 'attendance_fix', 'Please check your attendance',
@@ -151,7 +152,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  RETURN jsonb_build_object('flagged', v_new, 'closed', v_closed);
+  RETURN jsonb_build_object('flagged', v_new, 'closed', v_closed, 'dry_run', public.automation_dry_run());
 END;
 $function$;
 REVOKE ALL ON FUNCTION public.automation_attendance_flags(DATE) FROM PUBLIC, anon, authenticated;

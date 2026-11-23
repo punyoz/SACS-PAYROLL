@@ -22,8 +22,8 @@ export async function applyScheduleRequest(supabase, row, { by, userId }) {
   if (!d.effective_from || d.effective_from < today) {
     return { error: `This request starts ${d.effective_from || "on an unknown date"}, which has passed: past attendance is never recalculated. Reject it with a remark and ask the Admin for a new date.` };
   }
-  const { data: paused } = await supabase.rpc("automation_paused");
-  if (paused !== false) return { skipped: "paused" };
+  const { data: off } = await supabase.rpc("automation_off", { p_module: "schedule_requests" });
+  if (off !== false) return { skipped: "paused" };
   const before = await ownScheduleOn(supabase, row.employee_id, d.effective_from);
   const inserted = await supabase.from("work_schedule_assignments").insert({
     employee_id: row.employee_id, schedule_key: d.schedule_key, effective_from: d.effective_from,
