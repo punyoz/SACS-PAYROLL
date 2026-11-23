@@ -7,10 +7,10 @@ DO $$
 DECLARE v_ok BOOLEAN := FALSE;
 BEGIN
   INSERT INTO public.payroll_incentives (employee_id, pay_period, type, quantity, unit, rate, amount, is_override, note)
-  VALUES (gen_random_uuid(), 'November 16-30, 2026', 'substitution', 1.5, 'hour', 150, 225, FALSE, 'Substitution check');
+  VALUES ((SELECT id FROM public.profiles ORDER BY created_at LIMIT 1), 'November 16-30, 2026', 'substitution', 1.5, 'hour', 150, 225, FALSE, 'Substitution check');
   BEGIN
     INSERT INTO public.payroll_incentives (employee_id, pay_period, type, amount, is_override, note)
-    VALUES (gen_random_uuid(), 'November 16-30, 2026', 'not_a_type', 1, TRUE, 'x');
+    VALUES ((SELECT id FROM public.profiles ORDER BY created_at LIMIT 1), 'November 16-30, 2026', 'not_a_type', 1, TRUE, 'x');
   EXCEPTION WHEN check_violation THEN v_ok := TRUE;
   END;
   ASSERT v_ok, 'an unknown line type is still refused';
