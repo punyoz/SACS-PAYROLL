@@ -1,3 +1,4 @@
+import { afterLeaveDecision, recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { NextResponse } from "next/server";
 import {
   readAllLeaveRequests,
@@ -70,6 +71,9 @@ export async function GET(request) {
       requests = allRequests.filter((r) => r.status === status);
     }
 
+    // Part E step 4: the system's recommendation (and the Admin's check) on each request.
+    const recs = await recommendationsFor(getAdminClient(), requests.map((r) => r.id));
+    requests = requests.map((r) => ({ ...r, system_recommendation: recs.get(String(r.id)) || null }));
     return NextResponse.json({
       requests,
       // Read-only paid-leave balance of the people waiting (2026-11-12).
@@ -227,6 +231,8 @@ export async function PATCH(request) {
     });
     // The decision is made: the item leaves the shared queue (its claim goes).
     if (!result.conflict) await getAdminClient().from("hr_queue_claims").delete().eq("item_type", "leave_request").eq("item_id", id);
+    // Part E step 4: the system's recommendation closes; an approval is logged (and a teacher's substitutes proposed).
+    if (!result.conflict) await afterLeaveDecision(getAdminClient(), current, action);
     if (result.conflict) {
       return NextResponse.json(
         { error: "This leave request was already decided by someone else. Refresh to see its current status." },

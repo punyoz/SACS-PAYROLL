@@ -1,5 +1,6 @@
 "use client";
 
+import { SystemRecommendation } from "@/components/portal/system-recommendation";
 import { HrCorrectionRequests } from "@/components/portal/hr-correction-requests";
 import { HrOvertimeRequests } from "@/components/portal/overtime-requests";
 import * as React from "react";
@@ -258,6 +259,7 @@ export function LeavesPage({ refreshKey }) {
                       <p className="flex items-center gap-1.5 text-sm text-muted-foreground tabular-nums"><CalendarDaysIcon className="size-3.5" aria-hidden="true" />{x.from} to {x.to}</p>
                       <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{req.reason || "—"}</p>
                       <LeaveBalanceNote balance={state.balances[req.employee_id]} request={req} />
+                      <SystemRecommendation rec={req.system_recommendation} compact />
                       <AdminRecommendation rec={recs.get(req.id)} />
                     </div>
                     <div className="mt-auto flex flex-wrap items-center gap-2">

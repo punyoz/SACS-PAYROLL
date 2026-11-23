@@ -21,6 +21,7 @@
  * kind=overtime_confirmation: it reads the Admin's confirmations before paying.
  */
 
+import { recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
@@ -231,6 +232,8 @@ async function leavesView(supabase, branchId, staff) {
   const ids = staff.map((p) => p.id);
   const [leaves, recs] = await Promise.all([branchLeaves(supabase, branchId, ids), branchRequests(supabase, branchId, ["leave_endorsement"])]);
   const recBy = new Map(recs.rows.map((r) => [r.ref_id, shapeRequest(r)]));
+  // Part E step 4: what the system recommends for each request.
+  const systemRecs = await recommendationsFor(supabase, leaves.map((l) => l.id));
   // Read-only paid-leave balance of this branch's people (2026-11-12).
   const balances = await leaveBalancesFor(ids);
   return {
@@ -240,6 +243,7 @@ async function leavesView(supabase, branchId, staff) {
       pending: LEAVE_PENDING.includes(l.status),
       hr_status_label: LEAVE_LABELS[l.status] || l.status,
       recommendation: recBy.get(l.id) || null,
+      system_recommendation: systemRecs.get(String(l.id)) || null,
     })),
   };
 }
@@ -598,6 +602,12 @@ export async function POST(request) {
       if (!LEAVE_PENDING.includes(leave.status)) return bad("HR has already decided this leave request.", 409);
       if (!ENDORSE[body.decision]) return bad("Choose Endorse or Not endorse.");
       refId = leave.id; employeeId = leave.employee_id; status = ENDORSE[body.decision];
+      // Part E step 4: the Admin checked the system's recommendation; it goes to HR with their word.
+      await supabase.from("automation_actions").update({
+        status: "with_hr", admin_note: `${body.decision === "not_endorse" ? "Not endorsed" : "Endorsed"}${body.note ? `: ${String(body.note).slice(0, 300)}` : ""}`,
+        admin_noted_by: guard.userId, admin_noted_by_name: guard.session?.full_name || "Admin", admin_noted_at: new Date().toISOString(),
+        admin_objected: body.decision === "not_endorse", forwarded_at: new Date().toISOString(), forwarded_by: guard.session?.full_name || "Admin", updated_at: new Date().toISOString(),
+      }).eq("module", "leave_recommendations").eq("entity_type", "leave_request").eq("entity_id", String(leave.id)).eq("status", "admin_check");
       details = { employee_name: owner?.full_name || leave.employee_name, leave_type: leave.leave_type, start_date: leave.start_date, end_date: leave.end_date };
     } else if (kind === "transfer_endorsement") {
       const transfer = UUID.test(String(body.ref_id || "")) ? (await supabase.from("transfer_requests").select("*").eq("id", body.ref_id).maybeSingle()).data : null;

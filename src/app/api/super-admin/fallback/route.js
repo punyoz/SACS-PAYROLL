@@ -15,6 +15,7 @@
  *
  * fallback_approvals: Super Admin only (src/lib/rbac/permissions.js).
  */
+import { afterLeaveDecision } from "@/lib/automation/leave-recommendations";
 import { decideCorrectionRequest } from "@/lib/attendance/correction-requests-server";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
@@ -78,6 +79,7 @@ export async function POST(request) {
       if (result.conflict) return NextResponse.json({ error: "This leave request was already decided. Refresh to see it." }, { status: 409 });
       // Over the yearly paid balance: the extra days become without pay (re-checked at approval).
       if (action === "approve") await applyBalanceSplit(id);
+      await afterLeaveDecision(supabase, current, action);
     } else if (type === "payroll_run") {
       const rpc = action === "approve"
         ? await decider.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason || "Approved by the Super Admin as the fallback (no other HR is active)." })
