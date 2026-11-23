@@ -352,7 +352,8 @@ describe("attendance issues are flagged by the system (2026-11-24)", () => {
     const route = readFileSync("src/app/api/admin/branch-oversight/route.js", "utf8");
     expect(route).toMatch(/if \(kind === "attendance_flag"\) return bad\("Attendance issues are flagged automatically/);
     const page = readFileSync("src/app/admin/attendance-page.jsx", "utf8");
-    expect(page).not.toMatch(/Flag issue</Button>|title={`Flag issue/);
+    expect(page).not.toContain("Flag issue</Button>");
+    expect(page).not.toContain("title={`Flag issue");
     expect(page).toMatch(/action: target\.action/);
     // Incidents stay manual.
     expect(readFileSync("src/app/admin/requests-pages.jsx", "utf8")).toMatch(/kind="incident_report"/);
