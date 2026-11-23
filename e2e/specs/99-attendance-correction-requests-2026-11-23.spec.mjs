@@ -97,7 +97,10 @@ test("file → HR approves (day recalculated) / rejects with a preset; limits an
     await review.getByRole("button", { name: "Approve" }).click();
     await writeRemark(page, "corr-remark", "", { preset: "Approved as requested" });
     await page.getByRole("dialog").filter({ hasText: "Approve the correction" }).getByRole("button", { name: "Approve" }).click();
+    // The dialogs close once it is saved (while one is open, the rows behind it are hidden from the accessibility tree).
+    await expect(page.getByRole("dialog")).toHaveCount(0, { timeout: 20000 });
     await expect(card.getByRole("row").filter({ hasText: day })).toHaveCount(0, { timeout: 20000 });
+    await expect.poll(async () => (await rows(db().from("attendance_corrections").select("status").eq("id", requestId).single())).status, { timeout: 20000 }).toBe("approved");
     const log = await rows(db().from("attendance_logs").select("status,time_in,time_out").eq("id", logId).single());
     expect(log.time_in && log.time_out).toBeTruthy();
     expect(["Absent", "Pending Correction", "Incomplete"]).not.toContain(log.status);
