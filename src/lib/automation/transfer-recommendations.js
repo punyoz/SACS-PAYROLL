@@ -24,32 +24,40 @@ export function transferRecommendationFrom({ employee, destination, effectiveDat
   return { decision: "endorse", label: warnings.length ? "Recommend endorsing, with warnings" : "Recommend endorsing", reasons, warnings };
 }
 
-/** Log the system's endorsement for the leaving branch's Admin (once per transfer). Never throws. */
+/** The rule checks for a transfer (HR's form shows them before confirming; a pending one is logged for the Admin). */
+export async function checkTransfer(supabase, transfer) {
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const effectiveDate = dayKey(transfer.effective_date) || today;
+  const cutoffStart = `${effectiveDate.slice(0, 8)}${Number(effectiveDate.slice(8)) <= 15 ? "01" : "16"}`;
+  const [{ data: employee }, { data: destination }, awol, leave, own, run] = await Promise.all([
+    supabase.from("profiles").select("id,full_name,archived,employee_status,branch_id").eq("id", transfer.employee_id).maybeSingle(),
+    supabase.from("branches").select("id,name,status").eq("id", transfer.to_branch_id).maybeSingle(),
+    supabase.from("employee_awol_cases").select("id").eq("employee_id", transfer.employee_id).neq("stage", "closed").limit(1),
+    supabase.from("leave_requests").select("id").eq("employee_id", transfer.employee_id).in("status", ["approved", "pending_admin", "pending_accountant"])
+      .lte("start_date", effectiveDate).gte("end_date", effectiveDate).limit(1),
+    supabase.from("work_schedule_assignments").select("id").eq("employee_id", transfer.employee_id).not("schedule_key", "is", null).lte("effective_from", effectiveDate).limit(1),
+    transfer.from_branch_id || employee?.branch_id
+      ? supabase.from("payroll_runs").select("id").eq("branch_id", transfer.from_branch_id || employee.branch_id).eq("period_start", cutoffStart).in("status", ["pending", "approved"]).limit(1)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const rec = transferRecommendationFrom({ employee, destination, effectiveDate, today,
+    openAwol: Boolean((awol.data || []).length), leaveOnDate: Boolean((leave.data || []).length),
+    ownSchedule: Boolean((own.data || []).length), runInProgress: Boolean((run.data || []).length) });
+  return { ...rec, effective_date: effectiveDate, employee_name: employee?.full_name || null, destination_name: destination?.name || null };
+}
+
+/** Log the system's endorsement for the leaving branch's Admin (once per pending transfer). Never throws. */
 export async function logTransferRecommendation(supabase, transfer) {
   try {
     const existing = await supabase.from("automation_actions").select("id").eq("module", "transfer_endorsements").eq("entity_type", "transfer_request").eq("entity_id", String(transfer.id)).limit(1);
     if ((existing.data || []).length) return null;
-    const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
-    const effectiveDate = dayKey(transfer.effective_date) || today;
-    const cutoffStart = `${effectiveDate.slice(0, 8)}${Number(effectiveDate.slice(8)) <= 15 ? "01" : "16"}`;
-    const [{ data: employee }, { data: destination }, awol, leave, own, run] = await Promise.all([
-      supabase.from("profiles").select("id,full_name,archived,employee_status").eq("id", transfer.employee_id).maybeSingle(),
-      supabase.from("branches").select("id,name,status").eq("id", transfer.to_branch_id).maybeSingle(),
-      supabase.from("employee_awol_cases").select("id").eq("employee_id", transfer.employee_id).neq("stage", "closed").limit(1),
-      supabase.from("leave_requests").select("id").eq("employee_id", transfer.employee_id).in("status", ["approved", "pending_admin", "pending_accountant"])
-        .lte("start_date", effectiveDate).gte("end_date", effectiveDate).limit(1),
-      supabase.from("work_schedule_assignments").select("id").eq("employee_id", transfer.employee_id).not("schedule_key", "is", null).lte("effective_from", effectiveDate).limit(1),
-      supabase.from("payroll_runs").select("id").eq("branch_id", transfer.from_branch_id).eq("period_start", cutoffStart).in("status", ["pending", "approved"]).limit(1),
-    ]);
-    const rec = transferRecommendationFrom({ employee, destination, effectiveDate, today,
-      openAwol: Boolean((awol.data || []).length), leaveOnDate: Boolean((leave.data || []).length),
-      ownSchedule: Boolean((own.data || []).length), runInProgress: Boolean((run.data || []).length) });
+    const rec = await checkTransfer(supabase, transfer);
     const { data } = await supabase.rpc("automation_log", {
       p_module: "transfer_endorsements", p_rule: "active employee and branch, effective date, open cases, leave, payroll in progress, own schedule",
-      p_kind: "proposal", p_summary: `${employee?.full_name || "Employee"} to ${destination?.name || "another branch"} from ${effectiveDate}. ${rec.label}`,
-      p_data: { transfer_id: transfer.id, decision: rec.decision, label: rec.label, reasons: rec.reasons, warnings: rec.warnings, effective_date: effectiveDate },
+      p_kind: "proposal", p_summary: `${rec.employee_name || "Employee"} to ${rec.destination_name || "another branch"} from ${rec.effective_date}. ${rec.label}`,
+      p_data: { transfer_id: transfer.id, decision: rec.decision, label: rec.label, reasons: rec.reasons, warnings: rec.warnings, effective_date: rec.effective_date },
       p_employee: transfer.employee_id, p_branch: transfer.from_branch_id, p_entity_type: "transfer_request", p_entity_id: String(transfer.id),
-      p_effective_on: effectiveDate,
+      p_effective_on: rec.effective_date,
     });
     return data || null;
   } catch {

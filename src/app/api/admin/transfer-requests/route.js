@@ -1,4 +1,4 @@
-import { closeTransferRecommendation, logTransferRecommendation } from "@/lib/automation/transfer-recommendations";
+import { checkTransfer, closeTransferRecommendation, logTransferRecommendation } from "@/lib/automation/transfer-recommendations";
 import { refuseOwnItem } from "@/lib/rbac/routing";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
@@ -63,6 +63,17 @@ async function applyBranchMove(supabase, employeeId, fromBranchId, toBranchId) {
 export async function GET(request) {
   const guard = await requirePermission(request, "transfer_requests", "read");
   if (guard.denied) return guard.denied;
+    // Part E step 5: the system's checks for a transfer HR is about to make (shown before confirming).
+    {
+      const url = new URL(request.url);
+      if (url.searchParams.get("precheck") === "1") {
+        if (!can(guard.role, "transfer_requests", "create")) return NextResponse.json({ error: "HR makes transfers." }, { status: 403 });
+        const employeeId = normalizeText(url.searchParams.get("employee_id"));
+        const toBranchId = normalizeText(url.searchParams.get("to_branch_id"));
+        if (!employeeId || !toBranchId) return NextResponse.json({ error: "Choose the employee and the branch." }, { status: 400 });
+        return NextResponse.json({ check: await checkTransfer(getAdminClient(), { employee_id: employeeId, to_branch_id: toBranchId, effective_date: normalizeText(url.searchParams.get("effective_date")) || null }) });
+      }
+    }
 
   try {
     const allRequests = await readAllTransferRequests();

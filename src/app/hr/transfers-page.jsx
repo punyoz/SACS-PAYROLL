@@ -48,6 +48,15 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   const [remarks, setRemarks] = React.useState("");
   // Part E step 5: today = at once; a later date = the system applies it that morning.
   const [effective, setEffective] = React.useState("");
+  // Part E step 5: the system's checks, before HR confirms.
+  const [check, setCheck] = React.useState(null);
+  React.useEffect(() => {
+    if (!employee?.id || !branch) { setCheck(null); return undefined; }
+    let alive = true;
+    const q = new URLSearchParams({ precheck: "1", employee_id: employee.id, to_branch_id: branch, ...(effective ? { effective_date: effective } : {}) });
+    fetchJson(`/api/admin/transfer-requests?${q}`).then((d) => { if (alive) setCheck(d.check || null); }).catch(() => { if (alive) setCheck(null); });
+    return () => { alive = false; };
+  }, [employee?.id, branch, effective]);
   const [error, setError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
@@ -127,6 +136,13 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
               </Select>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
             </div>
+            {check ? (
+              <div className="space-y-0.5 rounded-md border p-2 text-xs" data-testid="transfer-check">
+                <p className="font-medium">System: {check.label}</p>
+                {check.reasons.map((r) => <p key={r} className="text-muted-foreground">✓ {r}</p>)}
+                {check.warnings.map((w) => <p key={w} className="text-warning">! {w}</p>)}
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="hr-ba-effective">Effective date <span className="font-normal text-muted-foreground">(today if empty)</span></Label>
               <DatePicker id="hr-ba-effective" value={effective} onChange={setEffective} min={new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)} />
