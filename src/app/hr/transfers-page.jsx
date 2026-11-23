@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "@/components/portal/date-picker";
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
@@ -45,6 +46,8 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   const [confirmDialog, confirm] = useConfirm();
   const [branch, setBranch] = React.useState("");
   const [remarks, setRemarks] = React.useState("");
+  // Part E step 5: today = at once; a later date = the system applies it that morning.
+  const [effective, setEffective] = React.useState("");
   const [error, setError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
@@ -79,7 +82,7 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: employee.id, to_branch_id: branch, remarks: remarks.trim(), wait_for_endorsement: wait }));
+      const result = await fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: employee.id, to_branch_id: branch, remarks: remarks.trim(), wait_for_endorsement: wait, effective_date: effective || undefined }));
       const branchName = result.to_branch_name || destination?.name || "the new branch";
       if (result.applied) {
         setFeedback({ text: `Moved to ${branchName}.`, ok: true });
@@ -123,6 +126,11 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
                 <SelectContent>{destinations.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
               </Select>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="hr-ba-effective">Effective date <span className="font-normal text-muted-foreground">(today if empty)</span></Label>
+              <DatePicker id="hr-ba-effective" value={effective} onChange={setEffective} min={new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)} />
+              <p className="text-xs text-muted-foreground">A later date: approved now; the branch, the RFID card and payroll move that morning.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="hr-ba-remarks">Remarks <span className="font-normal text-muted-foreground">(optional)</span></Label>

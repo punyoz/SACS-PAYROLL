@@ -46,7 +46,7 @@ export async function readAllTransferRequests({ limit = 200 } = {}) {
   const { data, error } = await supabase
     .from("transfer_requests")
     .select(
-      "id,employee_id,from_branch_id,to_branch_id,requested_by,status,reviewed_by,reviewed_at,remarks,created_at,decision_note," +
+      "id,employee_id,from_branch_id,to_branch_id,requested_by,status,reviewed_by,reviewed_at,remarks,created_at,decision_note,effective_date,applied_at," +
         "employee:profiles!transfer_requests_employee_id_fkey(full_name)," +
         "from_branch:branches!transfer_requests_from_branch_id_fkey(name)," +
         "to_branch:branches!transfer_requests_to_branch_id_fkey(name)",
@@ -92,12 +92,14 @@ export async function insertTransferRequest(newRequest) {
     to_branch_id: newRequest.to_branch_id,
     requested_by: newRequest.requested_by,
     remarks: newRequest.remarks || null,
+    // Part E step 5 (2026-11-23): applied on this date (today = at once).
+    effective_date: newRequest.effective_date || null,
   };
 
   const { data, error } = await supabase
     .from("transfer_requests")
     .insert(payload)
-    .select("id,employee_id,from_branch_id,to_branch_id,requested_by,status,reviewed_by,reviewed_at,remarks,created_at")
+    .select("id,employee_id,from_branch_id,to_branch_id,requested_by,status,reviewed_by,reviewed_at,remarks,created_at,effective_date,applied_at")
     .single();
 
   if (error) throw new Error(error.message);

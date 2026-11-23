@@ -11,6 +11,7 @@ export const AUTOMATION_MODULES = Object.freeze({
   schedule_requests: "Schedule requests",
   attendance_corrections: "Attendance correction checks",
   leave_recommendations: "Leave recommendations",
+  transfer_endorsements: "Transfer endorsements",
 });
 export const NOTE_MAX = 500;
 

@@ -621,6 +621,12 @@ export async function POST(request) {
         return bad("Only the Admin of the branch the employee is leaving endorses this transfer.", 403);
       }
       if (!ENDORSE[body.decision]) return bad("Choose Endorse or Not endorse.");
+      // Part E step 5: the Admin checked the system's endorsement; it goes to HR with their word.
+      await supabase.from("automation_actions").update({
+        status: "with_hr", admin_note: `${body.decision === "not_endorse" ? "Not endorsed" : "Endorsed"}${body.note ? `: ${String(body.note).slice(0, 300)}` : ""}`,
+        admin_noted_by: guard.userId, admin_noted_by_name: guard.session?.full_name || "Admin", admin_noted_at: new Date().toISOString(),
+        admin_objected: body.decision === "not_endorse", forwarded_at: new Date().toISOString(), forwarded_by: guard.session?.full_name || "Admin", updated_at: new Date().toISOString(),
+      }).eq("module", "transfer_endorsements").eq("entity_type", "transfer_request").eq("entity_id", String(transfer.id)).eq("status", "admin_check");
       const who = (await supabase.from("profiles").select("full_name").eq("id", transfer.employee_id).maybeSingle()).data;
       refId = transfer.id; employeeId = transfer.employee_id; status = ENDORSE[body.decision];
       details = { employee_name: who?.full_name || "Employee", direction: String(transfer.to_branch_id) === String(branchId) ? "incoming" : "outgoing" };
