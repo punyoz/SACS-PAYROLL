@@ -24,6 +24,7 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id) VALUES
   ('00000000-0000-4000-8000-0000000001e1', 'hr@run.test',   'Hana HR',       'hr',         NULL)
 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, branch_id = EXCLUDED.branch_id;
 
+-- (2026-11-24) The snapshot carries every amount the app sends (payroll_run_items needs them).
 -- One processed (Final) payslip: gross 26,100, deductions 250, net 25,850.
 INSERT INTO public.payroll_entries (id, employee_id, employee_name, pay_period, status, payroll)
 VALUES ('00000000-0000-4000-8000-0000000001b1', '00000000-0000-4000-8000-0000000001a1', 'Eva Employee', 'October 1-15, 2026', 'paid',
@@ -32,8 +33,8 @@ VALUES ('00000000-0000-4000-8000-0000000001b1', '00000000-0000-4000-8000-0000000
 DO $$
 DECLARE
   v_run public.payroll_runs;
-  v_items JSONB := '[{"entry_id":"00000000-0000-4000-8000-0000000001b1","employee_id":"00000000-0000-4000-8000-0000000001a1","employee_name":"Eva Employee","gross_pay":26100,"total_deductions":250,"net_pay":25850,"attendance_deduction":250,"days_worked":10}]';
-  v_bad JSONB := '[{"entry_id":"00000000-0000-4000-8000-0000000001b1","employee_id":"00000000-0000-4000-8000-0000000001a1","employee_name":"Eva Employee","gross_pay":26100,"total_deductions":0,"net_pay":26100}]';
+  v_items JSONB := '[{"entry_id":"00000000-0000-4000-8000-0000000001b1","employee_id":"00000000-0000-4000-8000-0000000001a1","employee_name":"Eva Employee","basic_pay":13050,"gross_pay":26100,"total_deductions":250,"net_pay":25850,"attendance_deduction":250,"days_worked":10,"absence_deduction":0,"late_deduction":0,"undertime_deduction":0,"half_day_deduction":0,"leave_without_pay_deduction":0,"withholding_tax":0,"sss":0,"philhealth":0,"pagibig":0,"loans":0,"other_deductions":0,"early_bird_incentive":0,"total_incentives":0,"absent_days":0,"late_days":0,"late_minutes":0,"undertime_minutes":0,"half_days":0}]';
+  v_bad JSONB := '[{"entry_id":"00000000-0000-4000-8000-0000000001b1","employee_id":"00000000-0000-4000-8000-0000000001a1","employee_name":"Eva Employee","basic_pay":13050,"gross_pay":26100,"total_deductions":0,"net_pay":26100,"absence_deduction":0,"late_deduction":0,"undertime_deduction":0,"half_day_deduction":0,"leave_without_pay_deduction":0,"withholding_tax":0,"sss":0,"philhealth":0,"pagibig":0,"loans":0,"other_deductions":0,"early_bird_incentive":0,"total_incentives":0,"days_worked":0,"absent_days":0,"late_days":0,"late_minutes":0,"undertime_minutes":0,"half_days":0,"attendance_deduction":0}]';
   v_ok BOOLEAN;
 BEGIN
   -- HR cannot start or submit a run.
@@ -57,6 +58,7 @@ BEGIN
 
   -- Submit: Pending, totals from the rows, HR notified, history and audit written.
   v_run := public.submit_payroll_run(v_run.id, '00000000-0000-4000-8000-0000000001ac', v_items);
+  PERFORM set_config('sacs.payroll_run_action', '', true); -- the request ends here (each RPC is its own transaction in the app)
   IF v_run.status <> 'pending' OR v_run.total_net <> 25850 OR v_run.total_employees <> 1 OR v_run.submission_no <> 1 THEN
     RAISE EXCEPTION '3: submit -> Pending with the totals (got % % %)', v_run.status, v_run.total_net, v_run.total_employees;
   END IF;
@@ -98,15 +100,21 @@ BEGIN
 
   -- Reject with a reason: the payslip unlocks, nothing is cleared.
   v_run := public.reject_payroll_run(v_run.id, '00000000-0000-4000-8000-0000000001e1', 'Recheck Oct 5');
+  PERFORM set_config('sacs.payroll_run_action', '', true); -- the request ends here (each RPC is its own transaction in the app)
   IF v_run.status <> 'rejected' OR NOT EXISTS (SELECT 1 FROM public.payroll_entries WHERE id = '00000000-0000-4000-8000-0000000001b1') THEN
     RAISE EXCEPTION '6: reject -> Rejected, payslip kept';
   END IF;
+  -- The Accountant recomputes: the app writes a Final payslip through payroll_commit_entries,
+  -- which sets sacs.payroll_commit (2026-11-24: the Final lock came after this check was written).
+  PERFORM set_config('sacs.payroll_commit', 'on', true);
   UPDATE public.payroll_entries SET payroll = jsonb_set(payroll, '{totals,net_pay}', '25900') WHERE id = '00000000-0000-4000-8000-0000000001b1';
   UPDATE public.payroll_entries SET payroll = jsonb_set(payroll, '{totals,total_deductions}', '200') WHERE id = '00000000-0000-4000-8000-0000000001b1';
+  PERFORM set_config('sacs.payroll_commit', '', true);
 
   -- Resubmit with the corrected figures: a second snapshot; the first is kept.
   v_items := jsonb_set(jsonb_set(v_items, '{0,net_pay}', '25900'), '{0,total_deductions}', '200');
   v_run := public.submit_payroll_run(v_run.id, '00000000-0000-4000-8000-0000000001ac', v_items);
+  PERFORM set_config('sacs.payroll_run_action', '', true); -- the request ends here (each RPC is its own transaction in the app)
   IF v_run.status <> 'pending' OR v_run.submission_no <> 2 OR (SELECT count(*) FROM public.payroll_run_items WHERE run_id = v_run.id) <> 2 THEN
     RAISE EXCEPTION '7: resubmit -> Pending, snapshot 2, snapshot 1 kept';
   END IF;
@@ -121,6 +129,7 @@ BEGIN
   UPDATE public.profiles SET role = 'accountant' WHERE id = '00000000-0000-4000-8000-0000000001ac';
 
   v_run := public.approve_payroll_run(v_run.id, '00000000-0000-4000-8000-0000000001e1', 'OK');
+  PERFORM set_config('sacs.payroll_run_action', '', true); -- the request ends here (each RPC is its own transaction in the app)
   IF v_run.status <> 'approved' OR (SELECT approved_by FROM public.payroll_entries WHERE id = '00000000-0000-4000-8000-0000000001b1') IS DISTINCT FROM '00000000-0000-4000-8000-0000000001e1' THEN
     RAISE EXCEPTION '9: approve -> Approved, payslip stamped';
   END IF;

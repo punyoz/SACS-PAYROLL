@@ -16,7 +16,8 @@ INSERT INTO auth.users (id, email, aud, role, instance_id) VALUES
   ('00000000-0000-4000-8000-0000000002a1', 'old@tenure.test',  'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-0000000002a2', 'new@tenure.test',  'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-4000-8000-0000000002ac', 'acct@tenure.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
-  ('00000000-0000-4000-8000-0000000002e1', 'hr@tenure.test',   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
+  ('00000000-0000-4000-8000-0000000002e1', 'hr@tenure.test',   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-4000-8000-0000000002ad', 'admin@tenure.test', 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.branches (id, name) VALUES ('00000000-0000-4000-8000-0000000002f1', 'Tenure Branch') ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.profiles (id, email, full_name, role, branch_id, date_hired) VALUES
@@ -24,7 +25,8 @@ INSERT INTO public.profiles (id, email, full_name, role, branch_id, date_hired) 
   ('00000000-0000-4000-8000-0000000002a1', 'old@tenure.test',  'Olga Old',      'employee',   '00000000-0000-4000-8000-0000000002f1', (NOW() AT TIME ZONE 'Asia/Manila')::DATE - INTERVAL '3 years'),
   ('00000000-0000-4000-8000-0000000002a2', 'new@tenure.test',  'Nina New',      'employee',   '00000000-0000-4000-8000-0000000002f1', (NOW() AT TIME ZONE 'Asia/Manila')::DATE - INTERVAL '1 year'),
   ('00000000-0000-4000-8000-0000000002ac', 'acct@tenure.test', 'Al Accountant', 'accountant', '00000000-0000-4000-8000-0000000002f1', NULL),
-  ('00000000-0000-4000-8000-0000000002e1', 'hr@tenure.test',   'Hana HR',       'hr',         NULL, NULL)
+  ('00000000-0000-4000-8000-0000000002e1', 'hr@tenure.test',   'Hana HR',       'hr',         NULL, NULL),
+  ('00000000-0000-4000-8000-0000000002ad', 'admin@tenure.test', 'Ada Admin',     'admin',      '00000000-0000-4000-8000-0000000002f1', NULL)
 ON CONFLICT (id) DO UPDATE SET role = EXCLUDED.role, branch_id = EXCLUDED.branch_id, date_hired = EXCLUDED.date_hired;
 
 DO $$
@@ -82,10 +84,12 @@ BEGIN
   v_ok := FALSE;
   BEGIN
     INSERT INTO public.tenure_protection_grants (employee_id, effective_from, granted_by, granted_by_role)
-    VALUES (c_hr, v_today, c_hr, 'hr');
+    VALUES ('00000000-0000-4000-8000-0000000002ad', v_today, c_hr, 'hr');
   EXCEPTION WHEN check_violation THEN v_ok := TRUE;
   END;
-  IF NOT v_ok THEN RAISE EXCEPTION '4b: granted to an HR account'; END IF;
+  -- Updated 2026-11-24: HR on payroll is eligible since 20261123040000 (employees, accountants and HR);
+  -- an account off payroll by role (a branch Admin) is still refused.
+  IF NOT v_ok THEN RAISE EXCEPTION '4b: granted to an Admin account'; END IF;
   v_ok := FALSE;
   BEGIN
     INSERT INTO public.tenure_protection_grants (employee_id, effective_from, granted_by, granted_by_role)
@@ -179,6 +183,9 @@ BEGIN
   IF v_count <> 2 OR (SELECT sum(amount) FROM public.tenure_protection_applications WHERE entry_id = c_entry) <> 2500 THEN
     RAISE EXCEPTION '9: applications recorded (% rows)', v_count;
   END IF;
+  -- Regenerating a Final payslip goes through payroll_commit_entries, which sets
+  -- sacs.payroll_commit (2026-11-24: the Final lock came after this check was written).
+  PERFORM set_config('sacs.payroll_commit', 'on', true);
   UPDATE public.payroll_entries SET payroll = jsonb_build_object('audit', jsonb_build_object('attendance', jsonb_build_object(
     'tenure_protection', jsonb_build_array(
       jsonb_build_object('type', 'absent', 'category', 'summer_break', 'grant_id', v_grant, 'log_date', 'not a date', 'quantity', 'x', 'amount', 2400)
@@ -191,6 +198,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.tenure_protection_applications WHERE entry_id = c_entry) THEN
     RAISE EXCEPTION '9c: no protection, no rows';
   END IF;
+  PERFORM set_config('sacs.payroll_commit', '', true);
 
   -- 10. Revoking: today or later only, once; days before stay protected.
   v_ok := FALSE;

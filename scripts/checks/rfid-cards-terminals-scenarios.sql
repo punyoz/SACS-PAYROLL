@@ -117,35 +117,19 @@ BEGIN
   BEGIN DELETE FROM public.rfid_card_events WHERE card_id = c1.id; EXCEPTION WHEN OTHERS THEN v_failed := TRUE; END;
   IF NOT v_failed THEN RAISE EXCEPTION '7: the history must never be deleted'; END IF;
 
-  -- 8. Terminals: an Admin adds for its own branch only; the Super Admin any, or every branch; HR changes any but adds none.
-  t1 := public.rfid_terminal_save(adm, NULL, 'Main Gate', main, 'active', FALSE, NULL);
+  -- 8. Terminals (updated 2026-11-24): since 2026-10-27 no terminal is added or changed by
+  --    anyone (the kiosk opens with the signed-in person's password); a direct change is refused.
+  FOREACH who IN ARRAY ARRAY[sa, hr, adm, acct] LOOP
+    v_failed := FALSE;
+    BEGIN
+      PERFORM public.rfid_terminal_save(who, NULL, 'Main Gate', main, 'active', FALSE, NULL);
+    EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE;
+    END;
+    IF NOT v_failed THEN RAISE EXCEPTION '8: % must not add a terminal', who; END IF;
+  END LOOP;
   v_failed := FALSE;
-  BEGIN PERFORM public.rfid_terminal_save(adm, NULL, 'North Gate', north, 'active', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
-  IF NOT v_failed THEN RAISE EXCEPTION '8: an Admin must not add another branch''s terminal'; END IF;
-  v_failed := FALSE;
-  BEGIN PERFORM public.rfid_terminal_save(admN, t1.id, 'Main Gate 2', main, 'inactive', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
-  IF NOT v_failed THEN RAISE EXCEPTION '8: another branch''s Admin must not change this terminal'; END IF;
-  v_failed := FALSE;
-  BEGIN PERFORM public.rfid_terminal_save(acct, NULL, 'Office', main, 'active', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
-  IF NOT v_failed THEN RAISE EXCEPTION '8: the Accountant must not add a terminal'; END IF;
-  -- HR no longer adds terminals (20261026010000); the Super Admin may add an every-branch one.
-  v_failed := FALSE;
-  BEGIN PERFORM public.rfid_terminal_save(hr, NULL, 'HR Office', NULL, 'active', FALSE, NULL); EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
-  IF NOT v_failed THEN RAISE EXCEPTION '8: HR must not add a terminal'; END IF;
-  t2 := public.rfid_terminal_save(sa, NULL, 'HR Office', NULL, 'active', FALSE, NULL);
-  IF t2.branch_id IS NOT NULL OR t2.created_by_role <> 'super_admin' THEN RAISE EXCEPTION '8: the Super Admin adds an every-branch terminal'; END IF;
-  -- HR still renames / switches an existing terminal.
-  t2 := public.rfid_terminal_save(hr, t2.id, 'HR Office 1', NULL, 'active', FALSE, NULL);
-  IF t2.name <> 'HR Office 1' THEN RAISE EXCEPTION '8: HR renames a terminal'; END IF;
-  t1 := public.rfid_terminal_save(sa, t1.id, 'Main Gate', main, 'inactive', FALSE, 'Reader broken');
-  IF t1.status <> 'inactive' OR t1.key_version <> 2 THEN RAISE EXCEPTION '8: switching off locks out its kiosks (key %)', t1.key_version; END IF;
-  t1 := public.rfid_terminal_save(adm, t1.id, 'Main Gate', main, 'active', TRUE, 'Reader replaced');
-  IF t1.status <> 'active' OR t1.key_version <> 3 THEN RAISE EXCEPTION '8: a key reset bumps the key'; END IF;
-  PERFORM public.rfid_terminal_touch(t1.id, 'time_in');
-  IF (SELECT last_tap_at FROM public.rfid_terminals WHERE id = t1.id) IS NULL THEN RAISE EXCEPTION '8: last tap time'; END IF;
-  v_failed := FALSE;
-  BEGIN UPDATE public.rfid_terminals SET status = 'active' WHERE id = t1.id; EXCEPTION WHEN insufficient_privilege THEN v_failed := TRUE; END;
-  IF NOT v_failed THEN RAISE EXCEPTION '8: a direct terminal change must be refused'; END IF;
+  BEGIN INSERT INTO public.rfid_terminals (name, branch_id, status) VALUES ('Direct', main, 'active'); EXCEPTION WHEN insufficient_privilege OR not_null_violation OR check_violation THEN v_failed := TRUE; END;
+  IF NOT v_failed THEN RAISE EXCEPTION '8: a direct terminal insert must be refused'; END IF;
 
   RAISE NOTICE 'all RFID card and terminal scenarios passed';
 END $$;
