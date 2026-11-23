@@ -82,7 +82,10 @@ BEGIN
   IF NOT FOUND OR v_log.employee_id <> p_employee_id THEN
     RAISE EXCEPTION 'Attendance record not found.' USING ERRCODE = 'no_data_found';
   END IF;
-  IF v_log.status IN ('Holiday', 'On Leave', 'Pending Correction') THEN
+  IF v_log.status = 'Pending Correction' THEN
+    RAISE EXCEPTION 'There is already an open correction request for this day.' USING ERRCODE = 'unique_violation';
+  END IF;
+  IF v_log.status IN ('Holiday', 'On Leave') THEN
     RAISE EXCEPTION 'This day cannot be corrected (%).', v_log.status USING ERRCODE = 'check_violation';
   END IF;
   IF v_log.log_date > v_today THEN
