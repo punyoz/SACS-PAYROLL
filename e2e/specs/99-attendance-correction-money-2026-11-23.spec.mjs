@@ -11,8 +11,9 @@ import { db, profileByEmail, psql, rows } from "../support/db.mjs";
 import { ACCOUNTS } from "../accounts.mjs";
 
 const toAmount = (n) => Math.round(Number(n) * 100) / 100;
-// How many times a line is on the payslip itself (its lines; the payslip's audit trail keeps its own copy).
-const occurrences = (payroll, text) => JSON.stringify({ ...(payroll || {}), audit: undefined }).split(text).length - 1;
+// The payslip's own lines: a refund is an incentive line (its note is the text), a reduction a loan line.
+const refundLines = (payroll, text) => (payroll?.audit?.lines?.incentives || []).filter((l) => l.note === text);
+const recoveryLines = (payroll, text) => (payroll?.loans || []).filter((l) => l.description === text);
 
 async function plantPaidDayRequest(person, day, { status, timeIn, timeOut, fix, correctedIn, correctedOut }) {
   psql(`set session_replication_role = replica; delete from attendance_corrections where employee_id = '${person.id}' and log_date = '${day}'; delete from attendance_logs where employee_id = '${person.id}' and log_date = '${day}';`);
@@ -69,12 +70,14 @@ test("refund: Absent -> present on a paid day; the next payslip carries +amount 
   });
   await step(page, "Accountant processes the next payslip: the line once, the net pay + amount", async () => {
     const after = await draftOf(page, ana, NEXT);
-    expect(occurrences(after.payroll, line), "the adjustment line, once").toBe(1);
+    const lines = refundLines(after.payroll, line);
+    expect(lines, "the adjustment line, once").toHaveLength(1);
+    expect(toAmount(lines[0].amount)).toBe(toAmount(amount));
     expect(toAmount(after.net_pay - before.net_pay)).toBe(toAmount(amount));
   });
   await step(page, "Processing it again does not add it twice", async () => {
     const again = await draftOf(page, ana, NEXT);
-    expect(occurrences(again.payroll, line)).toBe(1);
+    expect(refundLines(again.payroll, line)).toHaveLength(1);
     expect(toAmount(again.net_pay - before.net_pay)).toBe(toAmount(amount));
   });
 });
@@ -106,10 +109,12 @@ test("reduction: a paid day becomes a short day; recovered once on the next 2nd 
   });
   await step(page, "Accountant processes the next 2nd half: recovered once, the net pay - amount", async () => {
     const after = await draftOf(page, ana, NEXT);
-    expect(occurrences(after.payroll, line), "the recovery line, once").toBe(1);
+    const lines = recoveryLines(after.payroll, line);
+    expect(lines, "the recovery line, once").toHaveLength(1);
+    expect(toAmount(lines[0].amount)).toBe(toAmount(amount));
     expect(toAmount(before.net_pay - after.net_pay)).toBe(toAmount(amount));
     const again = await draftOf(page, ana, NEXT);
-    expect(occurrences(again.payroll, line)).toBe(1);
+    expect(recoveryLines(again.payroll, line)).toHaveLength(1);
     expect(toAmount(before.net_pay - again.net_pay)).toBe(toAmount(amount));
   });
 });
