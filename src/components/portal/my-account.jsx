@@ -73,6 +73,38 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
   };
 }
 
+/** Part I (2026-11-23): HR and the Accountant get ONE "My Account" item with a tab per personal page (same page ids). */
+export function myAccountItem(prefix) {
+  const ids = MY_PAGE_IDS[prefix];
+  return {
+    section: "My Account",
+    items: [{
+      id: ids.attendance, label: "My Account", icon: UserRoundIcon,
+      tabs: [
+        { id: ids.attendance, label: "My Attendance", module: "my_account" },
+        { id: ids.timesheet, label: "My Timesheet", module: "my_account" },
+        { id: ids.payslips, label: "My Payslips", module: "my_account" },
+        { id: ids.leave, label: "My Requests", module: "my_account" },
+        { id: ids.requests, label: "Loans & Other Pay", module: "my_account" },
+        { id: ids.profile, label: "Profile", module: "profile" },
+      ],
+    }],
+  };
+}
+
+/** Part I: the Employee's personal items (My Attendance, My Requests, My Payslips; My Profile last). */
+export function employeeAccountItems() {
+  const ids = MY_PAGE_IDS.emp;
+  return {
+    attendance: { id: ids.attendance, label: "My Attendance", icon: CalendarCheckIcon, tabs: [
+      { id: ids.attendance, label: "Attendance", module: "my_account" }, { id: ids.timesheet, label: "Timesheet", module: "my_account" }] },
+    requests: { id: ids.leave, label: "My Requests", icon: CalendarDaysIcon, module: "my_account" },
+    payslips: { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, tabs: [
+      { id: ids.payslips, label: "Payslips", module: "my_account" }, { id: ids.requests, label: "Loans & Other Pay", module: "my_account" }] },
+    profile: { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
+  };
+}
+
 export const MY_DESCRIPTIONS = {
   attendance: "Your own attendance, recorded by RFID tap. Only your records.",
   timesheet: "Your own daily hours, tardiness and undertime for any date range.",

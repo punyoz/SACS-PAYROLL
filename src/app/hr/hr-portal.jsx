@@ -6,7 +6,8 @@ import * as React from "react";
 import { ArrowLeftRightIcon, BadgeCheckIcon, LandmarkIcon, CreditCardIcon, RadioTowerIcon, InboxIcon, SirenIcon, ReceiptTextIcon, CalendarCheckIcon, CalendarClockIcon, CalendarHeartIcon, ClipboardCheckIcon, CalendarDaysIcon, FileBarChartIcon, LayoutDashboardIcon, MegaphoneIcon, ShieldCheckIcon, SlidersHorizontalIcon, UserXIcon, UsersIcon } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
-import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myAccountItem, myPageKind } from "@/components/portal/my-account";
+import { navPages } from "@/lib/portal/nav-tabs";
 import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsManager } from "@/components/portal/announcements";
@@ -50,61 +51,56 @@ const ReportsPage = dynamic(() => import("./reports-page").then((m) => m.Reports
  * permission each page needs (src/lib/rbac/permissions.js).
  */
 const NAV = [
-  { section: "Overview", items: [{ id: "hr-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
-  // Work pages in collapsible groups (2026-11-09 Part E); no page renamed or lost.
+  // Part I (2026-11-23): one item per module, a tab per page (each tab keeps its page id, permission and filters).
+  { section: "Overview", items: [{ id: "hr-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, tabs: [
+    { id: "hr-dashboard", label: "Overview", module: "dashboard" },
+    // School-wide and branch announcements (2026-10-30).
+    { id: "hr-announcements", label: "Announcements", module: "announcements" },
+  ] }] },
   {
-    section: "Employees",
-    collapsible: true,
+    section: "Work",
     items: [
-      { id: "hr-employees", label: "User Management", icon: UsersIcon, module: "user_management" },
-      { id: "hr-schedules", label: "Work Schedules", icon: CalendarClockIcon, module: "work_schedules" },
-      { id: "hr-transfers", label: "Transfer Requests", icon: ArrowLeftRightIcon, module: "transfer_requests" },
-      { id: "hr-tenure", label: "Tenure Pay Protection", icon: ShieldCheckIcon, module: "tenure_protection" },
-      // What the branch Admins send (2026-10-20): HR decides.
-      { id: "hr-branch-requests", label: "Branch Requests", icon: InboxIcon, module: "branch_oversight" },
-    ],
-  },
-  {
-    section: "Attendance",
-    collapsible: true,
-    items: [
-      { id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, module: "attendance" },
-      { id: "hr-leaves", label: "Leave Approval", icon: CalendarDaysIcon, module: "leave_approval" },
-      { id: "hr-awol", label: "AWOL Cases", icon: UserXIcon, module: "awol_cases" },
-      { id: "hr-holidays", label: "Holidays & Duty", icon: CalendarHeartIcon, module: "attendance" },
-      // RFID registration and terminals for every branch (2026-10-21).
-      { id: "hr-rfid-cards", label: "RFID Cards", icon: CreditCardIcon, module: "rfid_devices" },
-      { id: "hr-rfid-terminals", label: "RFID Terminal", icon: RadioTowerIcon, module: "rfid_devices" },
-    ],
-  },
-  {
-    section: "Payroll",
-    collapsible: true,
-    items: [
-      { id: "hr-payroll-approval", label: "Payroll Approval", icon: BadgeCheckIcon, module: "payroll_run_approval" },
+      { id: "hr-employees", label: "Employees", icon: UsersIcon, tabs: [
+        { id: "hr-employees", label: "Management", module: "user_management" },
+        { id: "hr-tenure", label: "Tenure pay", module: "tenure_protection" },
+        { id: "hr-awol", label: "AWOL cases", module: "awol_cases" },
+      ] },
+      // ONE inbox: every page where HR decides something.
+      { id: "hr-leaves", label: "Approvals", icon: InboxIcon, tabs: [
+        { id: "hr-leaves", label: "Leave, overtime & corrections", module: "leave_approval" },
+        { id: "hr-transfers", label: "Transfers", module: "transfer_requests" },
+        // What the branch Admins send (2026-10-20): schedules, incidents, RFID issues, incentives.
+        { id: "hr-branch-requests", label: "Branch requests", module: "branch_oversight" },
+        // Incentives, overload and loans the Accountant filed, and the system's rule-based incentives.
+        { id: "hr-adjustment-approvals", label: "Incentives & loans", module: "payroll_approvals" },
+        { id: "hr-subsidy-approvals", label: "Subsidies", module: "payroll_approvals" },
+        { id: "hr-payroll-approval", label: "Payroll runs & final pay", module: "payroll_run_approval" },
+      ] },
+      { id: "hr-attendance", label: "Attendance", icon: CalendarCheckIcon, tabs: [
+        { id: "hr-attendance", label: "Monitoring", module: "attendance" },
+        { id: "hr-schedules", label: "Work schedules", module: "work_schedules" },
+        { id: "hr-holidays", label: "Holidays & Duty", module: "attendance" },
+        // RFID registration and terminals for every branch (2026-10-21).
+        { id: "hr-rfid-cards", label: "RFID cards", module: "rfid_devices" },
+        { id: "hr-rfid-terminals", label: "RFID terminal", module: "rfid_devices" },
+      ] },
       { id: "hr-payroll-records", label: "Payroll Records", icon: ReceiptTextIcon, module: "payroll_records" },
-      // Moved from Leave (2026-10-20): subsidy decisions are payroll, not leave.
-      { id: "hr-subsidy-approvals", label: "Subsidy Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
-      // Incentives, overload and loans the Accountant filed (20261027020000).
-      { id: "hr-adjustment-approvals", label: "Incentive & Loan Approvals", icon: ClipboardCheckIcon, module: "payroll_approvals" },
-      { id: "hr-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
+      { id: "hr-reports", label: "Reports", icon: FileBarChartIcon, module: "hr_reports" },
+      { id: "hr-gov-rates", label: "Settings", icon: SlidersHorizontalIcon, tabs: [
+        { id: "hr-gov-rates", label: "Government rates", module: "government_rates" },
+        // Leave credits and pay rules per category / status / type (Part A, 20261121010000).
+        { id: "hr-classification-rules", label: "Status & leave rules", module: "user_management" },
+        // Part H (2026-11-22): the remarks offered on every decision.
+        { id: "hr-remark-presets", label: "Preset remarks", module: "user_management" },
+      ] },
     ],
   },
-  { section: "Reports", collapsible: true, items: [{ id: "hr-reports", label: "HR Reports", icon: FileBarChartIcon, module: "hr_reports" }] },
-  // School-wide and branch announcements (2026-10-30).
-  { section: "Settings", collapsible: true, items: [
-    { id: "hr-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
-    // Leave credits and pay rules per category / status / type (Part A, 20261121010000).
-    { id: "hr-classification-rules", label: "Status & Leave Rules", icon: SlidersHorizontalIcon, module: "user_management" },
-    // Part H (2026-11-22): the remarks offered on every decision.
-    { id: "hr-remark-presets", label: "Preset Remarks", icon: SlidersHorizontalIcon, module: "user_management" },
-  ] },
-  // HR is an employee too (2026-11-09): its own pages, below the work groups.
-  myAccountGroup("hr"),
+  // HR is an employee too (2026-11-09): its own pages in one item.
+  myAccountItem("hr"),
 ];
 
 const EMPLOYEE_PAGE = "hr-att-employee";
-const NAV_ITEMS = NAV.flatMap((group) => group.items);
+const NAV_ITEMS = navPages(NAV);
 const PAGE_IDS = [...NAV_ITEMS.map((item) => item.id), EMPLOYEE_PAGE];
 const TITLES = {
   "hr-dashboard": "HR Dashboard",
@@ -126,6 +122,7 @@ const TITLES = {
   "hr-adjustment-approvals": "Incentive & Loan Approvals",
   "hr-gov-rates": "Government Rates",
   "hr-reports": "HR Reports",
+  "hr-announcements": "Announcements",
   "hr-classification-rules": "Status & Leave Rules",
   "hr-remark-presets": "Preset Remarks",
   "hr-profile": "My Profile",
