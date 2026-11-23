@@ -12,6 +12,7 @@
  * HR approvals stay manual: this route never approves anything. A module that
  * can undo its own applied actions registers it in src/lib/automation/undo.js.
  */
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { NextResponse } from "next/server";
 import { requirePermission, denyForeignBranch } from "@/lib/rbac/guard";
 import { getServiceClient } from "@/lib/supabase/admin";
@@ -78,6 +79,8 @@ export async function PATCH(request) {
     const { data: row, error } = await supabase.from("automation_actions").select(SELECT).eq("id", id).maybeSingle();
     if (error) throw error;
     if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    // Nobody checks, objects to or undoes an automatic action about themselves (2026-11-23).
+    if (row.employee_id && String(row.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "automation", entityType: "automation_action", entityId: id, what: "automatic action" });
     const now = new Date().toISOString();
     const by = nameOf(guard);
 

@@ -119,8 +119,10 @@ export async function correctionEvidence(supabase, row) {
 }
 
 /** PATCH { correction_id, decision, remark } on a request (fix_type set): HR only. */
-export async function decideCorrectionRequest(supabase, guard, row, body) {
-  if (guard.role !== "hr") return NextResponse.json({ error: "HR decides attendance correction requests." }, { status: 403 });
+export async function decideCorrectionRequest(supabase, guard, row, body, { fallback = false } = {}) {
+  // HR decides; the Super Admin only as the stand-in (an HR's own, no other HR covering their branch).
+  if (!(guard.role === "hr" || (fallback && guard.role === "super_admin"))) return NextResponse.json({ error: "HR decides attendance correction requests." }, { status: 403 });
+  if (String(row.employee_id) === String(guard.userId)) return NextResponse.json({ error: "You cannot decide your own request. Another approver handles it.", code: "own_item" }, { status: 403 });
   const decision = String(body.decision || "");
   if (decision !== "approve" && decision !== "reject") return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
   const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "attendance_correction", fallbackText: body.note });

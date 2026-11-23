@@ -17,6 +17,7 @@
  * HR decides every case; the Admin has no approval step.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { notify } from "@/lib/branch-requests-server";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
@@ -111,6 +112,7 @@ export async function POST(request) {
     const staff = await loadPayrollStaff(supabase, guard);
     const person = staff.find((p) => p.id === normalizeText(body.employee_id));
     if (!person) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+    if (String(person.id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "awol_cases", entityType: "awol_case", entityId: person.id, what: "AWOL case" });
     const firstAbsent = normalizeText(body.first_absent_on);
     if (!isDateKey(firstAbsent) || firstAbsent > manilaDateKey()) return NextResponse.json({ error: "Choose the first day of absence (not in the future)." }, { status: 400 });
     const lastPresent = normalizeText(body.last_present_on);
@@ -156,6 +158,8 @@ export async function PATCH(request) {
     const found = await supabase.from("employee_awol_cases").select("*").eq("id", normalizeText(body.case_id)).maybeSingle();
     if (found.error) return NextResponse.json({ error: NOT_READY }, { status: 503 });
     const row = found.data;
+    // Nobody acts on their own AWOL case (2026-11-23).
+    if (row && String(row.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "awol_cases", entityType: "awol_case", entityId: row.id, what: "AWOL case" });
     if (!row) return NextResponse.json({ error: "Case not found." }, { status: 404 });
     const staff = await loadPayrollStaff(supabase, guard, { includeArchived: true });
     const person = staff.find((p) => p.id === row.employee_id);

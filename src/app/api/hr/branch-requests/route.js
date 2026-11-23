@@ -16,6 +16,7 @@
  * is notified.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { applyScheduleRequest } from "@/lib/automation/schedule-requests";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
@@ -95,6 +96,8 @@ export async function PATCH(request) {
     }
     const row = found.data;
     if (!row || !allowed.includes(row.kind)) return NextResponse.json({ error: "Request not found." }, { status: 404 });
+    // Nobody decides a request about themselves (2026-11-23).
+    if (row.employee_id && String(row.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "branch_oversight", entityType: "branch_request", entityId: row.id, what: "request" });
     if (!REQUEST_KINDS[row.kind].decisions.includes(decision)) {
       return NextResponse.json({ error: REQUEST_KINDS[row.kind].endorsement ? "This is the Admin's endorsement: decide the record itself on its own page." : "That decision does not apply here." }, { status: 400 });
     }

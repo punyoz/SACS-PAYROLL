@@ -1,3 +1,4 @@
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -285,6 +286,8 @@ export async function PATCH(request) {
 
     const foreignBranch = denyForeignBranch(guard, current.from_branch_id);
     if (foreignBranch) return foreignBranch;
+    // Nobody decides their own transfer (2026-11-23).
+    if (String(current.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "transfer_requests", entityType: "transfer_request", entityId: id, what: "transfer" });
 
     // Batch 2: a preset remark (required to reject), checked before anything moves;
     // audited with the decision's own update (decision_remark_audit, Part H).

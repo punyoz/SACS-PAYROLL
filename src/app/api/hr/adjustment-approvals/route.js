@@ -11,6 +11,7 @@
  *          Accountant who filed it is notified.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -101,6 +102,9 @@ export async function PATCH(request) {
     if (!["approve", "reject"].includes(decision)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
 
     const supabase = getAdminClient();
+    // Nobody approves their own incentive, overload or loan (2026-11-23).
+    const owner = (await supabase.from(kind === "loan" ? "payroll_loans" : "payroll_monthly_incentives").select("employee_id").eq("id", id).maybeSingle()).data;
+    if (owner && String(owner.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "payroll", entityType: kind, entityId: id, what: kind === "loan" ? "loan" : "incentive" });
     // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
     const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "adjustment", fallbackText: body.note });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });

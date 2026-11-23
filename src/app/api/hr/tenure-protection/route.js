@@ -25,6 +25,7 @@
  * HR, Admin or Super Admin, and never lets a grant be edited or deleted.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -384,6 +385,8 @@ async function grant(supabase, guard, body, data) {
   const found = await scopedEmployee(supabase, guard, normalizeText(body.employee_id));
   if (found.error) return found.error;
   const { employee } = found;
+  // Nobody grants their own protection (2026-11-23).
+  if (String(employee.id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "tenure_protection", entityType: "tenure_grant", entityId: employee.id, what: "Tenure Pay Protection" });
   if (employee.archived === true) return NextResponse.json({ error: `${employee.full_name} is archived.` }, { status: 400 });
 
   const date = checkFutureDate(body.effective_from, "protection starts");
@@ -430,6 +433,8 @@ async function revoke(supabase, guard, body, data) {
   if (!existing) return NextResponse.json({ error: "Unknown grant." }, { status: 404 });
   const found = await scopedEmployee(supabase, guard, existing.employee_id);
   if (found.error) return found.error;
+  // Nobody revokes their own protection (2026-11-23).
+  if (String(existing.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "tenure_protection", entityType: "tenure_grant", entityId: grantId, what: "Tenure Pay Protection" });
   if (existing.revoked_on) return NextResponse.json({ error: "This grant is already revoked." }, { status: 409 });
 
   const date = checkFutureDate(body.revoked_on, "protection ends");

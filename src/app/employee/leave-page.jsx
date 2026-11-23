@@ -25,7 +25,7 @@ import { useUrlParam } from "@/components/portal/use-url-param";
 import { isPendingRequest } from "@/components/portal/status-badge";
 import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { usePortalSession } from "@/components/portal/session";
-import { apiFetch, jsonBody } from "@/lib/portal/api";
+import { apiFetch, fetchJson, jsonBody } from "@/lib/portal/api";
 import { LEAVE_ADVANCE_DAYS, LEAVE_ADVANCE_MESSAGE, earliestLeaveStart } from "@/lib/leave-requests/advance-rule";
 import { REASON_MAX } from "@/lib/input-limits";
 
@@ -386,6 +386,15 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
   const overtime = useMyOvertime(overtimeApi);
   // A separated person cannot file (and the server refuses them the list).
   const corrections = useMyCorrections(0, { enabled: Boolean(me?.user) && !separated });
+  // An HR person's own requests: who decides them (another HR who covers their branch, or the Super Admin).
+  const [approver, setApprover] = React.useState(null);
+  const isHr = me?.user?.role === "hr";
+  React.useEffect(() => {
+    if (!isHr) return undefined;
+    let alive = true;
+    fetchJson("/api/me/approver").then((a) => { if (alive) setApprover(a); }).catch(() => {});
+    return () => { alive = false; };
+  }, [isHr]);
   const [tab, setTab] = useUrlParam("lo_tab", "leave");
   const current = TABS.some((t) => t.value === tab) ? tab : "leave";
   const [filing, setFiling] = React.useState(null); // the type chosen in the dialog, or null when closed
@@ -427,6 +436,7 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
           <div className="space-y-1.5">
             <CardTitle>My requests</CardTitle>
             <CardDescription>Leave, half days, overtime and attendance corrections. Each goes to HR / your Administrator for approval.</CardDescription>
+            {approver ? <p className="text-xs text-muted-foreground" data-testid="waiting-for">Your requests wait for: {approver.label}</p> : null}
           </div>
           {separated
             ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p>
