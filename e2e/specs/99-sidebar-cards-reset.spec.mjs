@@ -242,9 +242,17 @@ for (const [role, portal, fromPages, cardPages] of [
       await page.getByRole("option").first().click();
       await settle(page);
       const shownBasic = [];
-      const options = await page.locator("#pc-period").click().then(() => page.getByRole("option").allInnerTexts());
+      const offered = await page.locator("#pc-period").click().then(() => page.getByRole("option").allInnerTexts());
       await page.keyboard.press("Escape");
-      for (const period of options.filter((o) => /1-15|16-3[01]/.test(o)).slice(0, 2)) {
+      // The current month's two halves, by name (always offered). "The first two in the list" depended on today's
+      // date and on which periods other specs had touched last: 99-sa-backup-ui-rates plants a paid September 16-30
+      // payslip with an empty computation, which then came first (root cause found 2026-11-23).
+      const now = new Date(Date.now() + 8 * 3600e3);
+      const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+      const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+      const options = [`${month} 1-15, ${now.getUTCFullYear()}`, `${month} 16-${lastDay}, ${now.getUTCFullYear()}`];
+      for (const label of options) expect(offered, `${label} is offered`).toContain(label);
+      for (const period of options) {
         await page.locator("#pc-period").click();
         await page.getByRole("option", { name: period, exact: true }).click();
         await settle(page);
