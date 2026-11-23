@@ -5,7 +5,9 @@
  *
  *   GET    ?status=pending|decided|all   every item in reach: HR every branch,
  *          the Accountant its own branch (read-only, to follow its items)
- *   PATCH  { kind: "incentive" | "loan", id, decision: "approve" | "reject", note }
+ *   PATCH  { kind: "incentive" | "loan" | "rule_incentive", id, decision: "approve" | "reject", note }
+ *          (rule_incentive: Perfect Attendance / Early Bird the system computed,
+ *          Part E step 6, incentive_recommendation_decide())
  *          HR only; payroll_adjustment_decide() checks the role again and
  *          refuses an item already decided. A rejection needs a reason. The
  *          Accountant who filed it is notified.
@@ -25,6 +27,7 @@ import { roundPeso } from "@/lib/payroll/money";
 import { approvalFields, describeDecisionError } from "@/lib/payroll/adjustment-approvals";
 import { LOAN_TYPE_LABELS } from "@/lib/payroll/loans";
 import { textLimitError } from "@/lib/input-limits";
+import { RULE_INCENTIVE_LABELS } from "@/lib/payroll/incentive-recommendations";
 
 // The longest text each box takes; the form boxes match.
 const TEXT_CAPS = { note: [500, "The note"] };
@@ -42,7 +45,7 @@ export async function GET(request) {
     const branchId = guard.branchExempt ? null : (guard.branchId || "00000000-0000-0000-0000-000000000000");
     const scoped = (query) => (branchId ? query.eq("branch_id", branchId) : query);
 
-    const [incentives, loans, people, branches] = await Promise.all([
+    const [incentives, loans, people, branches, ruleIncentives] = await Promise.all([
       fetchAllRows(() => scoped(supabase.from("payroll_monthly_incentives")
         .select("id,employee_id,branch_id,item_date,kind,description,amount,hours,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note")
         .eq("archived", false).order("created_at", { ascending: false }).order("id", { ascending: true }))),
@@ -51,6 +54,10 @@ export async function GET(request) {
         .neq("loan_type", "subsidy_advance").order("created_at", { ascending: false }).order("id", { ascending: true }))),
       supabase.from("profiles").select("id,full_name,employee_id"),
       supabase.from("branches").select("id,name"),
+      // Part E step 6: the system's Perfect Attendance / Early Bird (none until 20261124080000).
+      fetchAllRows(() => scoped(supabase.from("incentive_recommendations")
+        .select("id,employee_id,branch_id,pay_period,kind,amount,reasons,status,created_at,decided_by_name,decided_at,decision_note")
+        .neq("status", "withdrawn").order("created_at", { ascending: false }).order("id", { ascending: true }))),
     ]);
     if (incentives.error || loans.error) {
       return NextResponse.json({ available: false, items: [], error: "Approvals are not set up yet: apply 20261027020000_adjustment_approvals.sql." });
@@ -66,6 +73,11 @@ export async function GET(request) {
       ...(incentives.data || []).map((row) => ({
         ...base(row), kind: "incentive", type_label: row.kind === "overload" ? "Overload" : "Incentive",
         amount_label: row.kind === "overload" ? `${row.hours} h` : money(row.amount), detail: `${row.description} · dated ${String(row.item_date).slice(0, 10)}`,
+      })),
+      ...(ruleIncentives.error ? [] : ruleIncentives.data || []).map((row) => ({
+        ...base({ ...row, created_by_name: "System (rule)", approval_status: row.status }), kind: "rule_incentive",
+        type_label: `${RULE_INCENTIVE_LABELS[row.kind] || "Incentive"} (system)`, amount_label: money(row.amount),
+        detail: `${row.pay_period}${(row.reasons || []).length ? ` · ${row.reasons.join("; ")}` : ""}`,
       })),
       ...(loans.data || []).map((row) => ({
         ...base(row), kind: "loan", type_label: LOAN_TYPE_LABELS[row.loan_type] || row.loan_type,
@@ -98,20 +110,23 @@ export async function PATCH(request) {
     const kind = normalizeText(body.kind);
     const id = normalizeText(body.id);
     const decision = normalizeText(body.decision);
-    if (!["incentive", "loan"].includes(kind) || !UUID.test(id)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+    if (!["incentive", "loan", "rule_incentive"].includes(kind) || !UUID.test(id)) return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (!["approve", "reject"].includes(decision)) return NextResponse.json({ error: "Approve or reject." }, { status: 400 });
 
     const supabase = getAdminClient();
     // Nobody approves their own incentive, overload or loan (2026-11-23).
-    const owner = (await supabase.from(kind === "loan" ? "payroll_loans" : "payroll_monthly_incentives").select("employee_id").eq("id", id).maybeSingle()).data;
+    const table = kind === "loan" ? "payroll_loans" : kind === "rule_incentive" ? "incentive_recommendations" : "payroll_monthly_incentives";
+    const owner = (await supabase.from(table).select("employee_id").eq("id", id).maybeSingle()).data;
     if (owner && String(owner.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "payroll", entityType: kind, entityId: id, what: kind === "loan" ? "loan" : "incentive" });
     // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
     const remark = await resolveRemark(supabase, body.remark, { decision, entityType: "adjustment", fallbackText: body.note });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
     const note = normalizeText(remark.text).slice(0, 500);
     if (decision === "reject" && note.length < 5) return NextResponse.json({ error: "Give the reason for rejecting it (at least 5 characters)." }, { status: 400 });
-    const decider = remarkClient(remark, { decision, entityType: "adjustment", module: "payroll", table: kind === "loan" ? "payroll_loans" : "payroll_monthly_incentives", ids: [id], actor: guard });
-    const result = await decider.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });
+    const decider = remarkClient(remark, { decision, entityType: "adjustment", module: "payroll", table, ids: [id], actor: guard });
+    const result = kind === "rule_incentive"
+      ? await decider.rpc("incentive_recommendation_decide", { p_actor: guard.userId, p_id: id, p_decision: decision, p_note: note || null })
+      : await decider.rpc("payroll_adjustment_decide", { p_actor: guard.userId, p_kind: kind, p_id: id, p_decision: decision, p_note: note || null });
     if (result.error) {
       const failure = describeDecisionError(result.error);
       return NextResponse.json({ error: failure.error, code: failure.code }, { status: failure.status });
@@ -119,11 +134,11 @@ export async function PATCH(request) {
     const row = Array.isArray(result.data) ? result.data[0] : result.data;
     const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
     const employee = row?.employee_id ? (await supabase.from("profiles").select("full_name").eq("id", row.employee_id).maybeSingle()).data : null;
-    const what = kind === "loan" ? "loan" : "incentive / overload";
+    const what = kind === "loan" ? "loan" : kind === "rule_incentive" ? "rule-based incentive" : "incentive / overload";
     const verb = decision === "approve" ? "approved" : "rejected";
 
     await appendAuditLog({
-      actor: guard, module: "payroll", action: `adjustment_${verb}`, entity_type: kind === "loan" ? "payroll_loan" : "payroll_monthly_incentive",
+      actor: guard, module: "payroll", action: `adjustment_${verb}`, entity_type: kind === "loan" ? "payroll_loan" : kind === "rule_incentive" ? "incentive_recommendation" : "payroll_monthly_incentive",
       entity_id: id, status: "success", source: "api",
       description: `HR ${verb} the ${what} for ${employee?.full_name || "an employee"}${note ? `: ${note}` : ""} (by ${actorName}).`,
       metadata: { kind, id, decision, note: note || null, employee_id: row?.employee_id || null },
@@ -136,7 +151,7 @@ export async function PATCH(request) {
         link_page: kind === "loan" ? "ac-loans" : "ac-incentives",
       });
     }
-    return NextResponse.json({ success: true, approval_status: row?.approval_status || (decision === "approve" ? "approved" : "rejected") });
+    return NextResponse.json({ success: true, approval_status: row?.approval_status || row?.status || (decision === "approve" ? "approved" : "rejected") });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }

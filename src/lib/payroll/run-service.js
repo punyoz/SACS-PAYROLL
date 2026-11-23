@@ -22,6 +22,7 @@ import {
   shapeRunItem,
 } from "@/lib/payroll/runs";
 import { LEFT_OUT_AS, LEFT_OUT_LABELS, branchRoster, expectedInRun, firstHalfChange, firstHalfLabelOf } from "@/lib/payroll/run-roster";
+import { recommendationsFor, ruleIncentiveBlockers } from "@/lib/payroll/incentive-recommendations";
 
 export { expectedInRun };
 
@@ -344,6 +345,23 @@ export async function submitRun(supabase, guard, { branchId, periodLabel, acknow
         code: "needs_recompute",
         error: `Recompute first: ${stale.map((x) => `${x.entry.employee_name} (${x.change.reason})`).join("; ")}.`,
         needs_recompute: stale.map((x) => ({ entry_id: x.entry.id, employee_name: x.entry.employee_name, reason: x.change.reason })),
+      },
+    };
+  }
+
+  // Part E step 6: rule-based incentives HR hasn't decided, or approved after the payslip was computed.
+  const ruleBlock = ruleIncentiveBlockers(finals, await recommendationsFor(supabase, finals));
+  if (ruleBlock.waiting.length || ruleBlock.recompute.length) {
+    return {
+      ok: false, status: 409,
+      body: {
+        code: ruleBlock.waiting.length ? "incentives_pending" : "needs_recompute",
+        error: [
+          ruleBlock.waiting.length ? `HR has not decided these incentives yet (Incentive & loan approvals): ${ruleBlock.waiting.join(", ")}.` : null,
+          ruleBlock.recompute.length ? `Recompute first, HR approved these incentives after the payslip was computed: ${ruleBlock.recompute.join(", ")}.` : null,
+        ].filter(Boolean).join(" "),
+        incentives_pending: ruleBlock.waiting,
+        incentives_recompute: ruleBlock.recompute,
       },
     };
   }

@@ -111,6 +111,7 @@ import { isOnPayroll } from "@/lib/payroll/on-payroll";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
 import { loadClassificationContext, loadPayRules } from "@/lib/employees/classification-server";
 import { classificationOn, payRuleFor } from "@/lib/employees/classification";
+import { gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -860,6 +861,8 @@ async function commitPayrollEntries(supabase, entries) {
   if (error) throw new Error(error.message);
 
   const results = Array.isArray(data) ? data : [];
+  // Part E step 6: the computed rule-based incentives go to HR as recommendations.
+  await syncIncentiveRecommendations(supabase, entries.filter((entry, index) => results[index]?.ok));
   return entries.map((entry, index) => results[index] || {
     employee_id: entry.employee_id,
     ok: false,
@@ -1676,6 +1679,9 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     }
   }
 
+  // Part E step 6: Perfect Attendance / Early Bird are paid only once HR approves (from the setting's period).
+  const incentiveGate = await loadIncentiveGate(supabase, period);
+
   const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
   const logsByEmployee = new Map();
   collapseDailyTaps(attendance.rows, { dateKey: dayKey }).forEach((row) => {
@@ -1785,6 +1791,7 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       // The attendance days this payslip deducts.
       attendance_span: own,
       early_bird: earlyBird,
+      incentive_gate: incentiveGate,
       branch_days: branchDaysFor(employee.id, own),
       msc_table: mscTable,
       pay_basis: payBasisOf(employee.id),
@@ -2296,7 +2303,20 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   const subsidy = subsidyForPayslip(settling ? semi.subsidy : null, period, semi?.benefits_ceiling);
   // The period's Early Bird winner (one employee per pay period): its own
   // earnings line, part of gross pay (src/lib/payroll/early-bird.js).
-  const earlyBirdWinner = context.early_bird?.winner?.employee_id === employee.id ? context.early_bird.winner : null;
+  const earlyBirdComputed = context.early_bird?.winner?.employee_id === employee.id ? context.early_bird.winner : null;
+  // Part E step 6 (2026-11-23): from the setting's period, the rule-based
+  // incentives are computed as before but paid only once HR approves them
+  // (src/lib/payroll/incentive-recommendations.js); a held one pays ₱0 here.
+  const ruleGate = gateRuleIncentives(context.incentive_gate, employee.id, {
+    perfect_attendance: { amount: finalAmounts.perfect_attendance, reasons: ["No late, undertime, absence or half day in the cutoff"] },
+    early_bird: {
+      amount: earlyBirdComputed ? toAmount(earlyBirdComputed.amount) : 0,
+      reasons: earlyBirdComputed ? [`${earlyBirdComputed.early_count} early time-ins (at least ${earlyBirdComputed.threshold_minutes} min before start), the most in ${earlyBirdComputed.period_label}`] : [],
+    },
+  });
+  const perfectHeld = ruleGate.items.some((i) => i.kind === "perfect_attendance" && !i.paid);
+  finalAmounts.perfect_attendance = ruleGate.pay.perfect_attendance;
+  const earlyBirdWinner = ruleGate.pay.early_bird > 0 ? earlyBirdComputed : null;
   const earlyBirdPay = earlyBirdWinner ? toAmount(earlyBirdWinner.amount) : 0;
   // A per-cutoff 1st half's attendance and extra earnings are part of the
   // month the 2nd half taxes.
@@ -2485,10 +2505,10 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   ].filter(Boolean);
 
   const incentiveLines = [
-    ...auto.incentives,
+    ...auto.incentives.filter((line) => !(perfectHeld && line.type === "perfect_attendance")),
     // Earnings: stored with the incentives, each tied to its attendance log.
     ...(auto.earnings || []),
-    adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
+    adjustment("perfect_attendance", finalAmounts.perfect_attendance, perfectHeld ? 0 : auto.amounts.perfect_attendance, 0, "period"),
     // The period's Early Bird winner, tied to the early time-ins that won it.
     earlyBirdLine(earlyBirdWinner),
     // Licensed-teacher subsidy payout and approved missed-month adjustments.
@@ -2548,6 +2568,10 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       period_label: earlyBirdWinner.period_label,
       window: earlyBirdWinner.window,
     };
+  }
+  // What HR decides (synced to incentive_recommendations on save): each computed rule-based incentive, paid or held.
+  if (context.incentive_gate?.on) {
+    payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, branch_id: employee.branch_id || null, items: ruleGate.items };
   }
 
   const nowIso = new Date().toISOString();
