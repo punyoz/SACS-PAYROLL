@@ -14,6 +14,9 @@ export const AUTOMATION_MODULES = Object.freeze({
   transfer_endorsements: "Transfer endorsements",
   rfid_issues: "RFID issues",
   incident_tracking: "Incident & RFID report tracking",
+  overtime_requests: "Overtime requests",
+  substitutions: "Substitutions",
+  awol_cases: "AWOL cases",
 });
 export const NOTE_MAX = 500;
 
