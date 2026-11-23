@@ -46,9 +46,9 @@ export function ScheduleRequestsPage({ refreshKey }) {
   const [schedules, setSchedules] = React.useState({});
   React.useEffect(() => {
     let alive = true;
-    fetchJson("/api/admin/work-schedules").then((d) => {
+    fetchJson("/api/admin/branch-oversight?view=schedules").then((d) => {
       if (!alive) return;
-      const list = (d.profiles || []).filter((p) => !p.archived);
+      const list = d.schedules || [];
       setSchedules(Object.fromEntries([...list.map((p) => [p.schedule_key, `${p.name} (${p.work_start}–${p.work_end})`]), ["none", "None fits: describe it in the note"]]));
     }).catch(() => setSchedules({ none: "None fits: describe it in the note" }));
     return () => { alive = false; };

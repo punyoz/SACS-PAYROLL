@@ -432,6 +432,20 @@ export async function GET(request) {
     const branchId = guard.branchId;
     if (!branchId) return NextResponse.json({ error: "Your account has no branch." }, { status: 403 });
 
+    // Part E step 3: the schedules a schedule request may name (names and times only;
+    // the Admin has no Work Schedules access).
+    if (view === "schedules" && guard.role === "admin") {
+      const { data, error } = await supabase.from("work_schedules").select("schedule_key,name,work_start,work_end,archived,effective_from,created_at")
+        .order("effective_from", { ascending: false }).order("created_at", { ascending: false });
+      if (error) throw error;
+      const latest = new Map();
+      for (const row of data || []) if (!latest.has(row.schedule_key)) latest.set(row.schedule_key, row);
+      const schedules = [...latest.values()].filter((r) => !r.archived)
+        .map((r) => ({ schedule_key: r.schedule_key, name: r.name, work_start: String(r.work_start || "").slice(0, 5), work_end: String(r.work_end || "").slice(0, 5) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return NextResponse.json({ schedules });
+    }
+
     // The Accountant reads the Admin's overtime / substitute confirmations only.
     if (guard.role !== "admin") {
       if (guard.role !== "accountant" || view !== "requests") {
@@ -633,7 +647,9 @@ export async function POST(request) {
       if (type === "schedule") {
         if (!scheduleKey) return bad("Choose the work schedule (or \"None fits\" and describe it).");
         if (scheduleKey !== "none") {
-          schedule = (await supabase.from("work_schedules").select("schedule_key,name,archived").eq("schedule_key", scheduleKey).maybeSingle()).data;
+          // The latest version of the schedule (a schedule keeps its history as versions).
+          schedule = (await supabase.from("work_schedules").select("schedule_key,name,archived").eq("schedule_key", scheduleKey)
+            .order("effective_from", { ascending: false }).order("created_at", { ascending: false }).limit(1)).data?.[0] || null;
           if (!schedule || schedule.archived) return bad("That work schedule is not available.");
         }
       }
