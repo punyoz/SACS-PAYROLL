@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { usePortalSession } from "@/components/portal/session";
+import { DatePicker } from "@/components/portal/date-picker";
+import { DataTable } from "@/components/portal/data-table";
+import { RequestStatusBadge } from "@/components/portal/status-badge";
 import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { FIX_TYPES, REASON_CODES, fixTypesFor, timesNeeded } from "@/lib/attendance/correction-requests";
 
@@ -117,4 +120,67 @@ export function AttendanceCorrectionForm({ day, initialFix = null, onDone, onCan
       </div>
     </form>
   );
+}
+
+/** New request > Attendance correction: pick the day, then the form filled in with its taps. */
+export function AttendanceCorrectionByDate({ onDone, onCancel }) {
+  const [date, setDate] = React.useState("");
+  const [day, setDay] = React.useState(null);
+  const [error, setError] = React.useState("");
+  React.useEffect(() => {
+    if (!date) return undefined;
+    let alive = true;
+    fetchJson(`/api/attendance/logs?from=${date}&to=${date}`).then((d) => {
+      if (!alive) return;
+      const row = (d.logs || []).find((l) => String(l.log_date).slice(0, 10) === date) || null;
+      setDay(row);
+      setError(row ? (row.can_request_correction ? "" : "This day cannot be corrected (a holiday, a leave, or a request is already open).") : "There is no attendance record for that day.");
+    }).catch((e) => { if (alive) setError(e.message); });
+    return () => { alive = false; };
+  }, [date]);
+  return (
+    <div className="space-y-3" data-testid="correction-by-date">
+      <div className="space-y-1.5">
+        <Label htmlFor="corr-date">Date</Label>
+        <DatePicker id="corr-date" value={date} onChange={(v) => { setDay(null); setError(""); setDate(v); }} />
+      </div>
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+      {day && day.can_request_correction ? <AttendanceCorrectionForm key={day.id} day={day} onDone={onDone} onCancel={onCancel} /> : null}
+    </div>
+  );
+}
+
+const CORRECTION_COLUMNS = [
+  { key: "log_date", header: "Date", sortable: true, className: "font-medium", cell: (r) => String(r.log_date).slice(0, 10) },
+  { key: "fix_type", header: "What to fix", cell: (r) => (
+    <div><p>{FIX_TYPES[r.fix_type] || "Time out"}</p><p className="text-xs text-muted-foreground">{[r.corrected_time_in && `in ${hhmm(r.corrected_time_in)}`, r.corrected_time_out && `out ${hhmm(r.corrected_time_out)}`].filter(Boolean).join(" · ")}</p></div>
+  ), searchValue: (r) => `${r.log_date} ${r.reason || ""}` },
+  { key: "reason", header: "Reason", cell: (r) => <span className="text-xs">{r.reason}</span> },
+  { key: "status", header: "Status", cell: (r) => (
+    <div className="space-y-0.5"><RequestStatusBadge status={r.status} />{r.review_note ? <p className="text-xs text-muted-foreground">{r.review_note}</p> : null}
+      {r.pay_effect?.line ? <p className="text-xs text-muted-foreground">{r.pay_effect.line}</p> : null}</div>
+  ) },
+];
+
+/** The person's own attendance correction requests (Leave & Overtime > Attendance correction tab). */
+export function MyCorrectionRequests({ list }) {
+  return (
+    <div data-testid="my-correction-requests">
+      <DataTable columns={CORRECTION_COLUMNS} rows={list.rows} loading={list.loading} error={list.error} onRetry={list.reload}
+        searchPlaceholder="Search requests…" empty={{ title: "No attendance correction requests yet" }} caption="My attendance correction requests" minWidth={560} />
+    </div>
+  );
+}
+
+/** The person's requests (all statuses). */
+export function useMyCorrections(refreshKey = 0) {
+  const [state, setState] = React.useState({ rows: [], loading: true, error: "" });
+  const load = React.useCallback(async () => {
+    try {
+      const d = await fetchJson("/api/attendance/corrections?status=all");
+      setState({ rows: d.corrections || [], loading: false, error: "" });
+    } catch (e) { setState((s) => ({ ...s, loading: false, error: e.message })); }
+  }, []);
+  React.useEffect(() => { load(); }, [load, refreshKey]);
+  return { ...state, reload: load };
 }

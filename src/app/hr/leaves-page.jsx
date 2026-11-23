@@ -1,5 +1,6 @@
 "use client";
 
+import { HrCorrectionRequests } from "@/components/portal/hr-correction-requests";
 import { HrOvertimeRequests } from "@/components/portal/overtime-requests";
 import * as React from "react";
 import { CalendarCheck2Icon, CalendarDaysIcon, CheckIcon, InfoIcon, PaperclipIcon, XIcon } from "lucide-react";
@@ -299,6 +300,8 @@ export function LeavesPage({ refreshKey }) {
       {proofViewer}
       {/* Overtime requests are decided here too (Part B, 2026-11-22). */}
       <HrOvertimeRequests />
+      {/* Attendance correction requests (2026-11-23): evidence, pay difference, presets, several at once. */}
+      <HrCorrectionRequests />
       <DecisionRemarkDialog
         open={Boolean(deciding)}
         idPrefix={deciding?.action === "reject" ? "lv-reject" : "lv-approve"}

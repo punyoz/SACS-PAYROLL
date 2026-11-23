@@ -9,6 +9,7 @@ export const NOTE_MIN = 3;
 export const AUTOMATION_MODULES = Object.freeze({
   attendance_flags: "Attendance flags",
   schedule_requests: "Schedule requests",
+  attendance_corrections: "Attendance correction checks",
 });
 export const NOTE_MAX = 500;
 

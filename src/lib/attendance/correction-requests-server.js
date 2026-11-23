@@ -104,8 +104,11 @@ export async function correctionEvidence(supabase, row) {
   const tapped = people.filter((p) => p.time_in || p.time_out).length;
   const pay = preview ? await correctionPayEffect(supabase, row, preview) : { processed: false };
   const s = Array.isArray(sched) ? sched[0] : sched;
+  // The attachment, if any: a link valid for 5 minutes (private bucket).
+  const signed = row.attachment_path ? await supabase.storage.from(LEAVE_PROOF_BUCKET).createSignedUrl(row.attachment_path, 300) : null;
   return {
     preview, pay,
+    attachment_url: signed?.data?.signedUrl || null,
     schedule: s ? { name: s.schedule_name || null, work_start: s.work_start, work_end: s.work_end } : null,
     // "Terminal status that day": how many at the branch tapped (none = possibly offline, as the AWOL guard reads it).
     terminal: { scheduled: people.length, tapped, offline_suspected: people.length >= 2 && tapped * 2 <= people.length },

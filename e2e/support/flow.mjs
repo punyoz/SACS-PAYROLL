@@ -89,7 +89,7 @@ export async function writeRemark(page, prefix, text, { preset = null } = {}) {
  * Leave & Overtime (2026-11-22): open "New request", choose the type
  * ("leave" | "half" | "overtime") and return the dialog's form.
  */
-const REQUEST_TYPE = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime" };
+const REQUEST_TYPE = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime", correction: "Attendance correction" };
 export async function newRequest(page, type = "leave") {
   await page.locator("#portal-main").getByTestId("new-request").click();
   const dialog = page.getByRole("dialog", { name: "New request" });

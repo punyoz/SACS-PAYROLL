@@ -1,5 +1,6 @@
 "use client";
 
+import { AttendanceCorrectionByDate, MyCorrectionRequests, useMyCorrections } from "@/components/portal/attendance-correction-form";
 import { describeSplit, splitForBalance } from "@/lib/leave-requests/split";
 import * as React from "react";
 import { useForm } from "react-hook-form";
@@ -369,8 +370,9 @@ const TABS = [
   { value: "leave", label: "Leave" },
   { value: "half", label: "Half day" },
   { value: "overtime", label: "Overtime" },
+  { value: "correction", label: "Attendance correction" },
 ];
-const TYPE_TITLES = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime" };
+const TYPE_TITLES = { leave: "Leave (whole days)", half: "Half day", overtime: "Overtime", correction: "Attendance correction" };
 
 /**
  * Leave & Overtime (2026-11-22; was "My Leave"): balances at the top, one
@@ -382,6 +384,7 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
   const { me } = usePortalSession();
   const separated = Boolean(me?.user?.separated);
   const overtime = useMyOvertime(overtimeApi);
+  const corrections = useMyCorrections();
   const [tab, setTab] = useUrlParam("lo_tab", "leave");
   const current = TABS.some((t) => t.value === tab) ? tab : "leave";
   const [filing, setFiling] = React.useState(null); // the type chosen in the dialog, or null when closed
@@ -391,11 +394,13 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
     leave: whole.filter((r) => isPendingRequest(r.status)).length,
     half: halves.filter((r) => isPendingRequest(r.status)).length,
     overtime: (overtime.rows || []).filter((r) => r.status === "pending").length,
+    correction: (corrections.rows || []).filter((r) => r.status === "pending").length,
   };
   const filed = async (kind) => {
     setFiling(null);
     setTab(kind);
     if (kind === "overtime") await overtime.reload();
+    else if (kind === "correction") await corrections.reload();
     else await leave.reload();
   };
   const leaveTable = (rows, title) => (
@@ -420,7 +425,7 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3">
           <div className="space-y-1.5">
             <CardTitle>My requests</CardTitle>
-            <CardDescription>Leave, half days and overtime. Each goes to HR / your Administrator for approval.</CardDescription>
+            <CardDescription>Leave, half days, overtime and attendance corrections. Each goes to HR / your Administrator for approval.</CardDescription>
           </div>
           {separated
             ? <p className="text-sm text-muted-foreground" data-testid="separated-note">{SEPARATED_NOTE}</p>
@@ -432,6 +437,7 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
           {current === "leave" ? leaveTable(whole, "No leave requests submitted yet") : null}
           {current === "half" ? leaveTable(halves, "No half-day requests yet") : null}
           {current === "overtime" ? <MyOvertimeList list={overtime} apiBase={overtimeApi} /> : null}
+          {current === "correction" ? <MyCorrectionRequests list={corrections} /> : null}
         </CardContent>
       </Card>
 
@@ -450,7 +456,9 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
               </SelectContent>
             </Select>
           </div>
-          {filing === "overtime"
+          {filing === "correction"
+            ? <AttendanceCorrectionByDate onDone={() => filed("correction")} onCancel={() => setFiling(null)} />
+            : filing === "overtime"
             ? <OvertimeRequestForm apiBase={overtimeApi} settings={overtime.settings} onFiled={() => filed("overtime")} />
             : filing
               ? <LeaveRequestForm key={filing} mode={filing === "half" ? "half" : "full"} onSubmitted={filed} balance={leave.balance} filing={leave.filing} />
