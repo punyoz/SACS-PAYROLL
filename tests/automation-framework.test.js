@@ -79,3 +79,14 @@ describe("attendance flags (Part E step 2)", () => {
     expect(sql).toMatch(/d\.branch_id NOT IN \(SELECT branch_id FROM gap\)/);
   });
 });
+
+describe("backup column lists (Batch 3 fields)", () => {
+  it("the CSV backup carries the new correction and transfer fields and the automation table", async () => {
+    const { readFileSync: read } = await import("node:fs");
+    const schema = read("src/lib/backup/schema.js", "utf8");
+    const line = (t) => (schema.match(new RegExp(`\n  ${t}: "([^"]+)"`)) || [])[1] || "";
+    for (const c of ["fix_type:text", "reason_code:text", "attachment_path:text", "pay_effect:json", "pay_correction_id:uuid"]) expect(line("attendance_corrections")).toContain(c);
+    for (const c of ["effective_date:date", "applied_at:tstz"]) expect(line("transfer_requests")).toContain(c);
+    expect(line("automation_actions")).toContain("rule:text");
+  });
+});
