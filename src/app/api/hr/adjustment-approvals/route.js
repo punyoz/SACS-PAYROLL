@@ -47,7 +47,7 @@ export async function GET(request) {
 
     const [incentives, loans, people, branches, ruleIncentives] = await Promise.all([
       fetchAllRows(() => scoped(supabase.from("payroll_monthly_incentives")
-        .select("id,employee_id,branch_id,item_date,kind,description,amount,hours,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note")
+        .select("id,employee_id,branch_id,item_date,kind,description,amount,hours,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note,reason,non_taxable")
         .eq("archived", false).order("created_at", { ascending: false }).order("id", { ascending: true }))),
       fetchAllRows(() => scoped(supabase.from("payroll_loans")
         .select("id,employee_id,branch_id,loan_type,description,date_granted,principal,interest_pct,total_payable,amortization,number_of_payrolls,start_period,created_by_name,created_at,approval_status,decided_by_name,decided_at,decision_note")
@@ -71,8 +71,10 @@ export async function GET(request) {
     });
     const items = [
       ...(incentives.data || []).map((row) => ({
-        ...base(row), kind: "incentive", type_label: row.kind === "overload" ? "Overload" : "Incentive",
-        amount_label: row.kind === "overload" ? `${row.hours} h` : money(row.amount), detail: `${row.description} · dated ${String(row.item_date).slice(0, 10)}`,
+        ...base(row), kind: "incentive", item_kind: row.kind,
+        type_label: { overload: "Overload", honorarium: "Honorarium", bonus: "Bonus", adjustment: "Adjustment" }[row.kind] || "Incentive",
+        amount_label: row.kind === "overload" ? `${row.hours} h` : row.amount < 0 ? `−${money(-row.amount)}` : money(row.amount),
+        detail: `${row.description}${row.reason ? ` · Reason: ${row.reason}` : ""}${row.non_taxable ? " · Non-taxable correction" : ""} · dated ${String(row.item_date).slice(0, 10)}`,
       })),
       ...(ruleIncentives.error ? [] : ruleIncentives.data || []).map((row) => ({
         ...base({ ...row, created_by_name: "System (rule)", approval_status: row.status }), kind: "rule_incentive",

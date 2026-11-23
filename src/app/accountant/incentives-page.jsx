@@ -21,6 +21,7 @@ import { useAccountant } from "./accountant-data";
 import { AdjustmentApprovalsPanel } from "@/components/portal/adjustment-approvals";
 import { INCENTIVE_MAX } from "@/lib/input-limits";
 import { SearchableSelect } from "@/components/portal/searchable-select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 /*
  * Incentives & Overload (loadMonthlyItems / submitMonthlyItem /
@@ -44,6 +45,9 @@ export function HowItWorks({ title, rows, note }) {
   );
 }
 
+// Additional Pay kinds (2026-11-23): Honorarium, Bonus, Adjustment next to Incentive and Overload.
+const ITEM_KINDS = { incentive: "Incentive (₱)", overload: "Overload (hours)", honorarium: "Honorarium (₱)", bonus: "Bonus (₱)", adjustment: "Adjustment (+/− ₱)" };
+const ITEM_LABEL = (kind) => ({ overload: "Overload", honorarium: "Honorarium", bonus: "Bonus", adjustment: "Adjustment" }[kind] || "Incentive");
 const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /** "2026-11" -> "November 2026". */
@@ -131,7 +135,7 @@ export function IncentivesPage({ refreshKey }) {
   const employees = React.useMemo(() => payroll?.employees || [], [payroll]);
   const [month, setMonth] = React.useState(() => manilaDateKey().slice(0, 7));
   const [state, setState] = React.useState({ loading: true, error: null, data: null });
-  const [form, setForm] = React.useState({ employee: "", kind: "incentive", date: manilaDateKey(), amount: "", hours: "", description: "" });
+  const [form, setForm] = React.useState({ employee: "", kind: "incentive", date: manilaDateKey(), amount: "", hours: "", description: "", reason: "", nonTaxable: false, also: [] });
   const [errors, setErrors] = React.useState({});
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
@@ -158,7 +162,9 @@ export function IncentivesPage({ refreshKey }) {
     const next = {
       employee: !form.employee ? "Select an employee." : "",
       date: !form.date ? "Choose the date it is for." : "",
-      amount: form.kind === "incentive" && !(Number(form.amount) > 0) ? "Enter an amount greater than 0." : "",
+      amount: form.kind === "adjustment" ? (!Number(form.amount) ? "Enter the adjustment (below 0 to deduct)." : "")
+        : form.kind !== "overload" && !(Number(form.amount) > 0) ? "Enter an amount greater than 0." : "",
+      reason: form.kind === "adjustment" && form.reason.trim().length < 5 ? "Give the reason (at least 5 characters)." : "",
       hours: form.kind === "overload" && !(Number(form.hours) > 0) ? "Enter the overload hours." : "",
       description: !form.description.trim() ? "Describe what it is for." : "",
     };
@@ -170,14 +176,18 @@ export function IncentivesPage({ refreshKey }) {
       const data = await fetchJson("/api/accountant/payroll", jsonBody("POST", {
         action: "add_monthly_item",
         employee_id: form.employee,
+        // The same item for more employees (one item each; 2026-11-23).
+        employee_ids: form.also.length ? [form.employee, ...form.also.filter((id) => id !== form.employee)] : undefined,
         kind: form.kind,
         item_date: form.date,
         description: form.description.trim(),
-        amount: form.kind === "incentive" ? form.amount : undefined,
+        amount: form.kind !== "overload" ? form.amount : undefined,
         hours: form.kind === "overload" ? form.hours : undefined,
+        reason: form.kind === "adjustment" ? form.reason.trim() : undefined,
+        non_taxable: form.kind === "adjustment" ? form.nonTaxable : undefined,
       }));
       setFeedback({ text: data.deferred ? `Sent for HR approval — deferred to next month's payroll [${data.payroll_month_label}] (filed after the cutoff).` : `Sent for HR approval — counted in the ${data.payroll_month_label} payroll once HR approves it.`, ok: true });
-      setForm((c) => ({ ...c, amount: "", hours: "", description: "" }));
+      setForm((c) => ({ ...c, amount: "", hours: "", description: "", reason: "", nonTaxable: false, also: [] }));
       notify("Sent for HR Approval", `Paid in the ${data.payroll_month_label} 2nd half payroll once HR approves it.`, "success");
       await load();
       reloadPayroll();
@@ -211,7 +221,7 @@ export function IncentivesPage({ refreshKey }) {
   const columns = [
     { key: "employee_name", header: "Employee", sortable: true, cell: (i) => <div><p className="font-medium">{i.employee_name}</p><p className="text-xs text-muted-foreground">{i.employee_code || ""}</p></div>, searchValue: (i) => `${i.employee_name} ${i.employee_code || ""}` },
     { key: "item_date", header: "Date", sortable: true, className: "whitespace-nowrap tabular-nums", cell: (i) => dateLabel(i.item_date) },
-    { key: "kind", header: "Type", cell: (i) => (i.kind === "overload" ? <StatusBadge tone="info">Overload</StatusBadge> : <StatusBadge tone="success">Incentive</StatusBadge>) },
+    { key: "kind", header: "Type", cell: (i) => <StatusBadge tone={i.kind === "overload" ? "info" : i.kind === "adjustment" ? "warning" : "success"}>{ITEM_LABEL(i.kind)}</StatusBadge> },
     { key: "description", header: "Description", className: "max-w-64 whitespace-normal", searchValue: (i) => i.description },
     { key: "amount", header: "Amount / hours", align: "right", className: "tabular-nums", cell: (i) => (i.kind === "overload" ? `${i.hours} h` : money(i.amount)) },
     // HR approval (20261027020000): only an approved item is paid.
@@ -235,7 +245,7 @@ export function IncentivesPage({ refreshKey }) {
 
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Card className="shadow-xs">
-          <CardHeader><CardTitle>Add incentive or overload</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Add additional pay</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={submit} noValidate className="grid items-start gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -247,7 +257,7 @@ export function IncentivesPage({ refreshKey }) {
                 <Label htmlFor="ac-item-kind">Type</Label>
                 <Select value={form.kind} onValueChange={(v) => setForm((c) => ({ ...c, kind: v }))}>
                   <SelectTrigger id="ac-item-kind" className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="incentive">Incentive (₱)</SelectItem><SelectItem value="overload">Overload (hours)</SelectItem></SelectContent>
+                  <SelectContent>{Object.entries(ITEM_KINDS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
@@ -262,10 +272,10 @@ export function IncentivesPage({ refreshKey }) {
                 )
               ) : null}
               </div>
-              {form.kind === "incentive" ? (
+              {form.kind !== "overload" ? (
                 <div className="space-y-1.5">
-                  <Label htmlFor="ac-item-amount">Amount (₱)</Label>
-                  <Input id="ac-item-amount" type="number" min="0" max={INCENTIVE_MAX} step="0.01" inputMode="decimal" value={form.amount} onChange={(e) => setForm((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />
+                  <Label htmlFor="ac-item-amount">Amount (₱){form.kind === "adjustment" ? <span className="font-normal text-muted-foreground"> (below 0 to deduct)</span> : null}</Label>
+                  <Input id="ac-item-amount" type="number" min={form.kind === "adjustment" ? -INCENTIVE_MAX : 0} max={INCENTIVE_MAX} step="0.01" inputMode="decimal" value={form.amount} onChange={(e) => setForm((c) => ({ ...c, amount: e.target.value }))} aria-invalid={Boolean(errors.amount) || undefined} />
                   {errors.amount ? <p className="text-sm text-destructive">{errors.amount}</p> : null}
                 </div>
               ) : (
@@ -280,6 +290,27 @@ export function IncentivesPage({ refreshKey }) {
                 <Input id="ac-item-description" maxLength={200} placeholder="e.g. Coaching incentive, extra Math class" value={form.description} onChange={(e) => setForm((c) => ({ ...c, description: e.target.value }))} aria-invalid={Boolean(errors.description) || undefined} />
                 {errors.description ? <p className="text-sm text-destructive">{errors.description}</p> : null}
               </div>
+              {form.kind === "adjustment" ? (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label htmlFor="ac-item-reason">Reason</Label>
+                  <Input id="ac-item-reason" maxLength={300} placeholder="e.g. Underpaid overtime on Nov 5" value={form.reason} onChange={(e) => setForm((c) => ({ ...c, reason: e.target.value }))} aria-invalid={Boolean(errors.reason) || undefined} />
+                  {errors.reason ? <p className="text-sm text-destructive">{errors.reason}</p> : null}
+                  <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.nonTaxable} onCheckedChange={(v) => setForm((c) => ({ ...c, nonTaxable: v === true }))} />It corrects a non-taxable item (not taxed)</label>
+                </div>
+              ) : null}
+              {form.kind !== "overload" ? (
+                <details className="space-y-1.5 sm:col-span-2" data-testid="also-for">
+                  <summary className="cursor-pointer text-sm font-medium">Also for other employees{form.also.length ? ` (${form.also.length})` : ""}</summary>
+                  <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+                    {employees.filter((e) => e.id !== form.employee).map((e) => (
+                      <label key={e.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox checked={form.also.includes(e.id)} onCheckedChange={(on) => setForm((c) => ({ ...c, also: on ? [...c.also, e.id] : c.also.filter((id) => id !== e.id) }))} aria-label={`Also for ${e.full_name}`} />
+                        {e.full_name}
+                      </label>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
               <Button type="submit" className="sm:col-span-2" disabled={busy}>{busy ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}Send for HR approval →</Button>
               {feedback.text ? <p role="status" className={cn("text-sm sm:col-span-2", feedback.ok ? "text-success" : "text-destructive")}>{feedback.text}</p> : null}
             </form>
@@ -287,8 +318,8 @@ export function IncentivesPage({ refreshKey }) {
         </Card>
         <HowItWorks
           title="How it is paid"
-          rows={[["1st half (1–15)", "Monthly salary ÷ 2, no deductions"], ["2nd half (16–end)", "Whole month settled"], ["Incentive", "+ amount"], ["Overload", "+ hourly rate × hours"], ["Filed after the cutoff", info?.cutoff ? `${info.cutoff.next_month_label} (cutoff ${info.cutoff.cutoff_label})` : "Next month"]]}
-          note="Both are taxable and count toward the month's gross pay. An item already paid on a Final payslip cannot be removed."
+          rows={[["1st half (1–15)", "Monthly salary ÷ 2, no deductions"], ["2nd half (16–end)", "Whole month settled"], ["Incentive", "+ amount"], ["Overload", "+ hourly rate × hours"], ["Honorarium", "+ amount, taxable"], ["Bonus", "+ amount; tax-free with the 13th month up to ₱90,000 a year"], ["Adjustment", "+ or −, with a reason; taxable unless it corrects a non-taxable item"], ["Filed after the cutoff", info?.cutoff ? `${info.cutoff.next_month_label} (cutoff ${info.cutoff.cutoff_label})` : "Next month"]]}
+          note="Each is its own line on the payslip and counts toward the month's gross pay. An item already paid on a Final payslip cannot be removed."
         />
       </div>
 
@@ -328,7 +359,7 @@ export function IncentivesPage({ refreshKey }) {
               { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (i) => i.employee_name },
               { key: "item_date", header: "Dated", sortable: true, className: "whitespace-nowrap tabular-nums", cell: (i) => dateLabel(i.item_date) },
               { key: "created_at", header: "Filed", className: "whitespace-nowrap text-xs", cell: (i) => (i.created_at ? dateLabel(String(manilaDateKey(new Date(i.created_at)))) : "—") },
-              { key: "kind", header: "Type", cell: (i) => (i.kind === "overload" ? "Overload" : "Incentive") },
+              { key: "kind", header: "Type", cell: (i) => ITEM_LABEL(i.kind) },
               { key: "amount", header: "Amount / hours", align: "right", className: "tabular-nums", cell: (i) => (i.kind === "overload" ? `${i.hours} h` : money(i.amount)) },
               { key: "from", header: "Moved from", cell: (i) => monthLabel(String(i.item_date).slice(0, 7)) },
               { key: "deferred", header: "Moved to", cell: (i) => <DeferredBadge item={i} /> },
