@@ -6,7 +6,8 @@
  *   PATCH  { id, action: "note", note }        Admin: a note; sends it to HR now
  *          { id, action: "object", remark }   Admin: objects (preset); to HR now
  *          { id, action: "undo", remark }     HR: undoes an applied action (preset reason)
- *   POST   { action: "pause", paused }         HR / Super Admin: Pause / Resume automation
+ *          { action: "pause", paused }      HR / Super Admin: Pause / Resume automation
+ *          (a PATCH: the proxy maps POST to "create", which HR does not hold here)
  *
  * HR approvals stay manual: this route never approves anything. A module that
  * can undo its own applied actions registers it in src/lib/automation/undo.js.
@@ -67,6 +68,7 @@ export async function PATCH(request) {
     const body = await request.json().catch(() => ({}));
     const id = String(body.id || "");
     const action = String(body.action || "");
+    if (action === "pause") return await pause(guard, body);
     if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Choose an item." }, { status: 400 });
     const supabase = getServiceClient();
     const { data: row, error } = await supabase.from("automation_actions").select(SELECT).eq("id", id).maybeSingle();
@@ -129,23 +131,16 @@ export async function PATCH(request) {
   }
 }
 
-export async function POST(request) {
-  try {
-    const guard = await requirePermission(request, "branch_oversight", "update");
-    if (guard.denied) return guard.denied;
-    const body = await request.json().catch(() => ({}));
-    if (body.action !== "pause") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
-    if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin pauses automation." }, { status: 403 });
-    if (typeof body.paused !== "boolean") return NextResponse.json({ error: "Say whether to pause or resume." }, { status: 400 });
-    const supabase = getServiceClient();
-    const by = nameOf(guard);
-    const { error } = await supabase.from("system_config").update({ value: body.paused ? "true" : "false", updated_by: by })
-      .eq("section", "automation").eq("key", "paused");
-    if (error) throw error;
-    await appendAuditLog({ actor: guard, module: "automation", action: body.paused ? "automation_pause" : "automation_resume", entity_type: "system_config", entity_id: "automation.paused",
-      description: body.paused ? "Automation paused." : "Automation resumed.", metadata: { paused: body.paused } });
-    return NextResponse.json({ success: true, paused: body.paused });
-  } catch (error) {
-    return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
-  }
+/** Pause / Resume automation: HR or the Super Admin. */
+async function pause(guard, body) {
+  if (guard.role !== "hr" && guard.role !== "super_admin") return NextResponse.json({ error: "HR or the Super Admin pauses automation." }, { status: 403 });
+  if (typeof body.paused !== "boolean") return NextResponse.json({ error: "Say whether to pause or resume." }, { status: 400 });
+  const supabase = getServiceClient();
+  const by = nameOf(guard);
+  const { error } = await supabase.from("system_config").update({ value: body.paused ? "true" : "false", updated_by: by })
+    .eq("section", "automation").eq("key", "paused");
+  if (error) throw error;
+  await appendAuditLog({ actor: guard, module: "automation", action: body.paused ? "automation_pause" : "automation_resume", entity_type: "system_config", entity_id: "automation.paused",
+    description: body.paused ? "Automation paused." : "Automation resumed.", metadata: { paused: body.paused } });
+  return NextResponse.json({ success: true, paused: body.paused });
 }

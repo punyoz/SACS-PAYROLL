@@ -13,7 +13,8 @@ import { ACCOUNTS } from "../accounts.mjs";
 const setPaused = (value) => db().from("system_config").update({ value }).eq("section", "automation").eq("key", "paused");
 
 test("automation: pause / resume, Admin Note and Object (own branch), HR Undo refused without a module undo", async ({ page, monitor }) => {
-  monitor.allow(/^40[39] (PATCH|POST) \/api\/automation/, /status of 40[39]/);
+  // Only the refusals this spec provokes: Admin undo / foreign branch (403), Undo without a module undo (409).
+  monitor.allow(/^40[39] PATCH \/api\/automation/, /status of 40[39]/);
   const ana = await profileByEmail(ACCOUNTS.employee.email);
   const TAG = `E2E automation ${Date.now()}`;
   await setPaused("false");

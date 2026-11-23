@@ -60,7 +60,7 @@ export function AutomationCard({ role, refreshKey = 0 }) {
   async function togglePause() {
     setBusy(true);
     try {
-      await fetchJson("/api/automation", jsonBody("POST", { action: "pause", paused: !d.paused }));
+      await fetchJson("/api/automation", jsonBody("PATCH", { action: "pause", paused: !d.paused }));
       notify(d.paused ? "Automation resumed" : "Automation paused", "", "success");
       await load();
     } catch (e) { notify("Not changed", e.message, "error"); } finally { setBusy(false); }
