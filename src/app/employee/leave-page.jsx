@@ -385,7 +385,7 @@ export function LeavePage({ leave, overtimeApi = "/api/me/overtime-requests" }) 
   const separated = Boolean(me?.user?.separated);
   const overtime = useMyOvertime(overtimeApi);
   // A separated person cannot file (and the server refuses them the list).
-  const corrections = useMyCorrections(0, { enabled: !separated });
+  const corrections = useMyCorrections(0, { enabled: Boolean(me?.user) && !separated });
   const [tab, setTab] = useUrlParam("lo_tab", "leave");
   const current = TABS.some((t) => t.value === tab) ? tab : "leave";
   const [filing, setFiling] = React.useState(null); // the type chosen in the dialog, or null when closed
