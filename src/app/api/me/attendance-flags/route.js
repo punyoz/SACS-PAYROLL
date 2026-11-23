@@ -17,7 +17,7 @@ export async function GET(request) {
     const supabase = getServiceClient();
     const { data, error } = await supabase.from("automation_actions")
       .select("id,rule,summary,data,entity_id,created_at")
-      .eq("module", "attendance_flags").eq("status", "open").eq("employee_id", guard.userId)
+      .eq("module", "attendance_flags").in("status", ["open", "with_hr"]).eq("employee_id", guard.userId)
       .order("created_at", { ascending: false }).limit(50);
     if (error) throw error;
     const flags = (data || []).filter((f) => DAY_CODES.includes(f.data?.code)).map((f) => ({
