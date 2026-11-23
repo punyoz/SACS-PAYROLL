@@ -166,6 +166,9 @@ BEGIN
       AND p.on_payroll
       -- Admin / Super Admin: never an AWOL case, whatever the flag says (user decision 2026-11-22)
       AND lower(p.role::TEXT) IN ('employee', 'accountant', 'hr')
+      -- No branch (e.g. HR with no home branch): skipped until one is set; the device check
+      -- cannot see their days (user decision 2026-11-23). HR's Action needed lists them.
+      AND p.branch_id IS NOT NULL
       AND COALESCE(p.employee_status, 'Active') = 'Active'
       -- leave_requests.employee_id is UUID and its dates are TEXT on live:
       -- compare as text / cast only well-formed dates, never fail the job.

@@ -51,6 +51,7 @@ VALUES ('00000000-0000-4000-8000-0000000006a2', '00000000-0000-4000-8000-0000000
 -- Absent rows the nightly close would write (no taps).
 INSERT INTO public.attendance_logs (employee_id, employee_name, branch_id, log_date, status)
 SELECT e, n, b, d::DATE, 'Absent' FROM (VALUES
+  ('00000000-0000-4000-8000-0000000006e1'::UUID, 'Hana HR', NULL::UUID),
   ('00000000-0000-4000-8000-0000000006a1'::UUID, 'Abe Absent', '00000000-0000-4000-8000-0000000006f1'::UUID),
   ('00000000-0000-4000-8000-0000000006a3'::UUID, 'Lea Pending', '00000000-0000-4000-8000-0000000006f1'::UUID),
   ('00000000-0000-4000-8000-0000000006d1'::UUID, 'Ada Admin',   '00000000-0000-4000-8000-0000000006f1'::UUID)
@@ -131,6 +132,9 @@ BEGIN
 
   -- 3. Lea: a pending leave covers the days → no case.
   ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = lea), '3: pending leave blocks';
+
+  -- 3c. No branch (HR with no home branch): skipped until one is set.
+  ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = '00000000-0000-4000-8000-0000000006e1'), '3c: no branch, no case';
 
   -- 3b. Ada (Admin, flagged on payroll by mistake): never an AWOL case.
   ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = '00000000-0000-4000-8000-0000000006d1'), '3b: Admin never AWOL';
