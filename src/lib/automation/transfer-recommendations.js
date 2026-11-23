@@ -29,15 +29,17 @@ export async function checkTransfer(supabase, transfer) {
   const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
   const effectiveDate = dayKey(transfer.effective_date) || today;
   const cutoffStart = `${effectiveDate.slice(0, 8)}${Number(effectiveDate.slice(8)) <= 15 ? "01" : "16"}`;
-  const [{ data: employee }, { data: destination }, awol, leave, own, run] = await Promise.all([
-    supabase.from("profiles").select("id,full_name,archived,employee_status,branch_id").eq("id", transfer.employee_id).maybeSingle(),
+  // The employee first: the leaving branch (for the payroll check) can come from them.
+  const { data: employee } = await supabase.from("profiles").select("id,full_name,archived,employee_status,branch_id").eq("id", transfer.employee_id).maybeSingle();
+  const fromBranch = transfer.from_branch_id || employee?.branch_id || null;
+  const [{ data: destination }, awol, leave, own, run] = await Promise.all([
     supabase.from("branches").select("id,name,status").eq("id", transfer.to_branch_id).maybeSingle(),
     supabase.from("employee_awol_cases").select("id").eq("employee_id", transfer.employee_id).neq("stage", "closed").limit(1),
     supabase.from("leave_requests").select("id").eq("employee_id", transfer.employee_id).in("status", ["approved", "pending_admin", "pending_accountant"])
       .lte("start_date", effectiveDate).gte("end_date", effectiveDate).limit(1),
     supabase.from("work_schedule_assignments").select("id").eq("employee_id", transfer.employee_id).not("schedule_key", "is", null).lte("effective_from", effectiveDate).limit(1),
-    transfer.from_branch_id || employee?.branch_id
-      ? supabase.from("payroll_runs").select("id").eq("branch_id", transfer.from_branch_id || employee.branch_id).eq("period_start", cutoffStart).in("status", ["pending", "approved"]).limit(1)
+    fromBranch
+      ? supabase.from("payroll_runs").select("id").eq("branch_id", fromBranch).eq("period_start", cutoffStart).in("status", ["pending", "approved"]).limit(1)
       : Promise.resolve({ data: [] }),
   ]);
   const rec = transferRecommendationFrom({ employee, destination, effectiveDate, today,

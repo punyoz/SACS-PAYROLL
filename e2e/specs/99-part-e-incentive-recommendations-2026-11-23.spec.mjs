@@ -35,8 +35,11 @@ test("Perfect Attendance: held for HR, then paid once HR approves", async ({ pag
   test.skip(manilaDay(0) < "2026-11-17" || manilaDay(0) > "2026-11-30", "written for a day inside November 16-30, 2026");
   const emp = await profileByEmail(ACCOUNTS.employee3.email);
   const from = (await rows(db().from("system_config").select("value").eq("section", "automation").eq("key", "incentive_approval_from").single())).value;
-  const [rate] = await rows(db().from("payroll_rate_configs").insert({ rate_type: "perfect_attendance_bonus", scope: "global", value: BONUS, effective_date: "2026-11-01", note: "E2E step 6", created_by_name: "E2E" }).select("id"));
-  planted = { rate: rate.id, from };
+  // Planted with triggers off (local only): a rate change needs the account that made it, which a test has no session for here.
+  const rateId = psql(`set session_replication_role = replica;
+    insert into payroll_rate_configs (rate_type, scope, value, effective_date, note, created_by_name)
+    values ('perfect_attendance_bonus', 'global', ${BONUS}, '2026-11-01', 'E2E step 6', 'E2E') returning id;`).split(/\s+/).filter(Boolean).pop();
+  planted = { rate: rateId, from };
   await db().from("system_config").update({ value: "2026-11-16" }).eq("section", "automation").eq("key", "incentive_approval_from");
 
   // On time every weekday so far this cutoff (08:00-17:00 shift).

@@ -490,7 +490,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
             {creating && values.employment_status === "Contractual" ? field("contract_end_date", date("contract_end_date"), { required: true, hint: "HR is reminded before it." }) : null}
             {classLocked ? (
               <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => setClassifying(true)}>Change status or type…</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setClassifying(true)}>Change status…</Button>
                 {employee?.classification_unconfirmed ? <span className="text-xs font-medium text-warning">Needs HR confirmation</span> : null}
                 <span className="text-xs text-muted-foreground">Changes take effect on a date you choose, with a reason; the history is kept.</span>
               </div>

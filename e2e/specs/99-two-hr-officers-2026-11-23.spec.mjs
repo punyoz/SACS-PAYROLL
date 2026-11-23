@@ -48,7 +48,8 @@ test("two HR officers: the other one decides; never Approve on your own; branch 
       await as(page, "hr", "hr-leaves");
       await settle(page);
       const card = main(page).getByTestId("hr-correction-requests");
-      const own = card.getByRole("row").filter({ hasText: day });
+      // Hector's row (another employee may have a request on the same day).
+      const own = card.getByRole("row").filter({ hasText: day }).filter({ hasText: hector.full_name });
       await expect(own.getByTestId("own-request")).toBeVisible();
       await expect(own.getByRole("button", { name: /Review|Approve/ })).toHaveCount(0);
       await expect(own.getByRole("checkbox")).toHaveCount(0);
@@ -65,7 +66,7 @@ test("two HR officers: the other one decides; never Approve on your own; branch 
       await as(page, "hr2", "hr-leaves");
       await settle(page);
       const card = main(page).getByTestId("hr-correction-requests");
-      await expect(card.getByRole("row").filter({ hasText: day }).getByRole("button", { name: "Review" })).toBeVisible();
+      await expect(card.getByRole("row").filter({ hasText: day }).filter({ hasText: hector.full_name }).getByRole("button", { name: "Review" })).toBeVisible();
       const res = await api(page, "PATCH", "/api/attendance/corrections", { correction_id: requestId, decision: "approve", remark: { code: "approve.as_requested" } });
       expect(res.status, JSON.stringify(res.data)).toBe(200);
       expect((await rows(db().from("attendance_corrections").select("status,approved_by_name").eq("id", requestId).single())).status).toBe("approved");
