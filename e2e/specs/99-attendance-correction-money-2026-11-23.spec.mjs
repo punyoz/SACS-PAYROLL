@@ -78,7 +78,9 @@ test("refund: Absent -> present on a paid day; the next payslip carries +amount 
   });
 });
 
-test("reduction: late minutes added on a paid day; recovered once on the next 2nd half; net pay down by exactly that", async ({ page, monitor }) => {
+// With the seeded rates late minutes cost nothing (late_minute_charge_pct 0), so a later time in changes no pay
+// (shown as "No change"): the reduction case is an earlier time out (a short day), which does cost.
+test("reduction: a paid day becomes a short day; recovered once on the next 2nd half; net pay down by exactly that", async ({ page, monitor }) => {
   monitor.at("Money path (reduction)");
   const paid = await rows(db().from("payroll_entries").select("id").eq("status", "paid").ilike("pay_period", "October 1-15%"));
   test.skip(!paid.length, "needs an approved October 1-15 payslip (run after 20-payroll-flow)");
@@ -90,8 +92,8 @@ test("reduction: late minutes added on a paid day; recovered once on the next 2n
   const last = new Date(Date.UTC(nextSecond.getUTCFullYear(), nextSecond.getUTCMonth() + 1, 0)).getUTCDate();
   const NEXT = `${monthName} 16-${last}, ${nextSecond.getUTCFullYear()}`;
   const before = await draftOf(page, ana, NEXT);
-  const id = await plantPaidDayRequest(ana, "2026-10-08", { status: "On Time", timeIn: "2026-10-08T08:00:00+08:00", timeOut: "2026-10-08T17:00:00+08:00", fix: "wrong_in",
-    correctedIn: "2026-10-08T09:00:00+08:00", correctedOut: null });
+  const id = await plantPaidDayRequest(ana, "2026-10-08", { status: "On Time", timeIn: "2026-10-08T08:00:00+08:00", timeOut: "2026-10-08T17:00:00+08:00", fix: "wrong_out",
+    correctedIn: null, correctedOut: "2026-10-08T12:00:00+08:00" });
   let line;
   let amount;
   await step(page, "HR approves: the deduction shown first (never silent) is the one applied", async () => {
