@@ -33,7 +33,8 @@ async function draft(page, person) {
 test("Perfect Attendance: held for HR, then paid once HR approves", async ({ page, monitor }) => {
   monitor.at("Part E step 6 (incentive recommendations)");
   test.skip(manilaDay(0) < "2026-11-17" || manilaDay(0) > "2026-11-30", "written for a day inside November 16-30, 2026");
-  const emp = await profileByEmail(ACCOUNTS.employee3.email);
+  // Bea (Main branch, where the Accountant works).
+  const emp = await profileByEmail(ACCOUNTS.employee2.email);
   const from = (await rows(db().from("system_config").select("value").eq("section", "automation").eq("key", "incentive_approval_from").single())).value;
   // Planted with triggers off (local only): a rate change needs the account that made it, which a test has no session for here.
   const rateId = psql(`set session_replication_role = replica;
