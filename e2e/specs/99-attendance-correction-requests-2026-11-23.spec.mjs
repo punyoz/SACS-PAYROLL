@@ -129,7 +129,8 @@ test("a day already on a paid payslip: HR sees the refund first; approval adds O
   test.skip(!paid.length, "needs an approved October 1-15 payslip (run after 20-payroll-flow)");
   const entry = paid[0];
   const person = await rows(db().from("profiles").select("id,full_name,branch_id").eq("id", entry.employee_id).single());
-  const day = "2026-10-07";
+  // Its own day (the money-path spec uses Oct 7 / Oct 8 for the same people).
+  const day = "2026-10-06";
   const logId = await plantAbsent(person, day);
   psql(`set session_replication_role = replica; update attendance_logs set status = 'Pending Correction' where id = '${logId}';`);
   // Filed before the window closed (planted: the filing rules are covered above).
@@ -148,7 +149,7 @@ test("a day already on a paid payslip: HR sees the refund first; approval adds O
     expect(shown).toMatchObject({ processed: true, kind: "underpayment" });
     expect(shown.amount).toBeGreaterThan(0);
     expect(shown.text).toMatch(/^Refund ₱/);
-    expect(shown.line).toMatch(/^Attendance correction \(Oct 7\): Absent → .+, \+₱/);
+    expect(shown.line).toMatch(/^Attendance correction \(Oct 6\): Absent → .+, \+₱/);
   });
 
   await step(page, "Approve: one approved payroll correction + one incentive line with that text; never twice", async () => {
@@ -159,12 +160,12 @@ test("a day already on a paid payslip: HR sees the refund first; approval adds O
     expect(pcs).toHaveLength(1);
     expect(pcs[0]).toMatchObject({ status: "approved", kind: "underpayment", reason: shown.line });
     expect(Number(pcs[0].amount)).toBe(shown.amount);
-    const items = await rows(db().from("payroll_monthly_incentives").select("id,amount,description").eq("description", shown.line));
+    const items = await rows(db().from("payroll_monthly_incentives").select("id,amount,description").eq("employee_id", person.id).eq("description", shown.line));
     expect(items).toHaveLength(1);
     expect(items[0].id).toBe(pcs[0].applied_incentive_id);
     const again = await api(page, "PATCH", "/api/attendance/corrections", { correction_id: req.id, decision: "approve", remark: { code: "approve.as_requested" } });
     expect(again.status).toBe(409);
-    expect(await rows(db().from("payroll_monthly_incentives").select("id").eq("description", shown.line))).toHaveLength(1);
+    expect(await rows(db().from("payroll_monthly_incentives").select("id").eq("employee_id", person.id).eq("description", shown.line))).toHaveLength(1);
   });
 
   await step(page, "Accountant > Dashboard > Action needed lists it (nothing to file)", async () => {
