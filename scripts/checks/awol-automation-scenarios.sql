@@ -82,6 +82,33 @@ DECLARE
   gab CONSTANT UUID := '00000000-0000-4000-8000-0000000006a4';
   v_case public.employee_awol_cases;
 BEGIN
+  -- 0. OFF (the release state, 2026-11-23): nothing happens, whatever the absences.
+  UPDATE public.system_config SET value = '' WHERE section = 'hr' AND key = 'awol_auto_from';
+  ASSERT public.awol_flag_candidates('2027-03-06') = 0, '0: off: no case';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = abe), '0b: off: no case for Abe';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.attendance_data_gaps WHERE gap_date BETWEEN '2027-03-01' AND '2027-03-31'), '0c: off: no device check either';
+  ASSERT public.awol_daily_review('2027-03-06') = 0, '0d: off: the review does nothing';
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    ASSERT NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname IN ('awol-daily-review', 'awol-flag-candidates') AND active), '0e: both jobs inactive';
+  END IF;
+
+  -- 0f. Enabled from Mar 5: the absences of Mar 3 and 4 never count (only Mar 5) -> no case, no gap before Mar 5.
+  UPDATE public.system_config SET value = '2027-03-05' WHERE section = 'hr' AND key = 'awol_auto_from';
+  PERFORM public.awol_flag_candidates('2027-03-06');
+  ASSERT NOT EXISTS (SELECT 1 FROM public.employee_awol_cases WHERE employee_id = abe), '0f: days before the enable date never count';
+  ASSERT NOT EXISTS (SELECT 1 FROM public.attendance_data_gaps WHERE gap_date < '2027-03-05' AND gap_date >= '2027-03-01'), '0g: no device check before the enable date';
+
+  -- 0h. Enabling: never in the past; sets the date and turns both jobs on.
+  BEGIN
+    PERFORM public.awol_automation_enable('2020-01-01');
+    RAISE EXCEPTION 'a past enable date was accepted';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM = 'a past enable date was accepted' THEN RAISE; END IF;
+  END;
+  ASSERT public.awol_automation_enable('2027-03-01') = '2027-03-01', '0h: enabled from Mar 1';
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    ASSERT (SELECT COUNT(*) FROM cron.job WHERE jobname IN ('awol-daily-review', 'awol-flag-candidates') AND active) = 2, '0i: both jobs active';
+  END IF;
   PERFORM public.awol_flag_candidates('2027-03-06');
 
   -- 1. Abe: 3 working days absent, no leave → a case opened by the system, the notice PREPARED (not sent):

@@ -21,6 +21,12 @@
 --      send the 2nd; after the 2nd notice's deadline the case is "Ready for HR
 --      decision" (for_decision). Separation is NEVER automatic.
 
+-- OFF until enabled (user decision 2026-11-23): hr.awol_auto_from is empty, so
+-- detection, the device check and the daily review do nothing, and both jobs
+-- (the existing awol-flag-candidates and the new awol-daily-review) are
+-- INACTIVE. public.awol_automation_enable() sets the date (today) and turns the
+-- jobs on; only absences ON or AFTER that date ever count.
+
 ALTER TABLE public.employee_awol_cases ADD COLUMN IF NOT EXISTS auto_flagged BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.employee_awol_cases ADD COLUMN IF NOT EXISTS review_reason TEXT;
 ALTER TABLE public.employee_awol_cases ADD COLUMN IF NOT EXISTS review_flagged_at TIMESTAMPTZ;
@@ -41,6 +47,7 @@ REVOKE ALL ON public.attendance_data_gaps FROM anon, authenticated;
 INSERT INTO public.system_config (section, key, value, updated_by)
 SELECT 'hr', v.key, v.value, 'System'
 FROM (VALUES
+  ('awol_auto_from', ''),
   ('awol_gap_pct', '50'),
   ('awol_reply_days', '5'),
   ('awol_first_notice_template', E'NOTICE TO RETURN TO WORK AND EXPLAIN\n\nDate: {today}\nTo: {employee_name} ({employee_code}), {branch}\n\nOur records show that you have not reported for work since {first_absent_on}, without an approved or pending leave.\n\nPlease report back to work, or explain your absence in writing, on or before {reply_by}.\n\nThis notice is part of due process. No decision has been made; the school will consider your reply.\n\nHuman Resources')
@@ -53,6 +60,15 @@ AS $function$
   SELECT COALESCE((SELECT CASE WHEN value ~ '^\d{1,4}$' THEN value::INTEGER END FROM public.system_config WHERE section = 'hr' AND key = p_key LIMIT 1), p_default);
 $function$;
 REVOKE ALL ON FUNCTION public.hr_setting_int(TEXT, INTEGER) FROM PUBLIC, anon, authenticated;
+
+/** The date AWOL automation counts from (hr.awol_auto_from), or NULL while it is off. */
+CREATE OR REPLACE FUNCTION public.awol_auto_from()
+ RETURNS DATE LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+  SELECT CASE WHEN value ~ '^\d{4}-\d{2}-\d{2}$' THEN value::DATE END
+  FROM public.system_config WHERE section = 'hr' AND key = 'awol_auto_from' LIMIT 1;
+$function$;
+REVOKE ALL ON FUNCTION public.awol_auto_from() FROM PUBLIC, anon, authenticated;
 
 /** A scheduled working day for this employee (own schedule; not a holiday or day off). */
 CREATE OR REPLACE FUNCTION public.attendance_is_working_day_for(p_employee UUID, p_branch UUID, p_day DATE)
@@ -69,7 +85,10 @@ AS $function$
 DECLARE
   v_pct INTEGER := public.hr_setting_int('awol_gap_pct', 50);
   v_new INTEGER;
+  v_on  DATE := public.awol_auto_from();
 BEGIN
+  IF v_on IS NULL THEN RETURN 0; END IF;  -- off
+  p_from := GREATEST(p_from, v_on);       -- never days before it was enabled
   WITH day_rows AS (
     SELECT l.branch_id, l.log_date, l.employee_id, (l.time_in IS NULL AND l.time_out IS NULL) AS no_tap
     FROM public.attendance_logs l
@@ -112,13 +131,15 @@ AS $function$
 DECLARE
   v_days  INTEGER := GREATEST(1, public.hr_setting_int('awol_flag_days', 3));
   v_count INTEGER;
+  v_on    DATE := public.awol_auto_from();
 BEGIN
+  IF v_on IS NULL THEN RETURN 0; END IF;  -- off until enabled
   PERFORM public.attendance_detect_data_gaps(p_through - 30, p_through);
   WITH working AS (
     SELECT l.employee_id, l.branch_id, l.log_date, l.status, l.time_in, l.time_out,
            row_number() OVER (PARTITION BY l.employee_id ORDER BY l.log_date DESC) AS rn
     FROM public.attendance_logs l
-    WHERE l.log_date BETWEEN p_through - 30 AND p_through
+    WHERE l.log_date BETWEEN GREATEST(p_through - 30, v_on) AND p_through  -- only absences on or after the enable date
       AND l.archived_duplicate = FALSE
       AND l.status NOT IN ('Holiday', 'On Leave')
       -- the employee's own schedule: rest days and days off never count
@@ -180,6 +201,7 @@ DECLARE
   v_changed INTEGER := 0;
   v_n INTEGER;
 BEGIN
+  IF public.awol_auto_from() IS NULL THEN RETURN 0; END IF;  -- off until enabled
   -- A return (any tap after the first absent day) or a leave filed: marked for HR review, once.
   WITH marked AS (
     UPDATE public.employee_awol_cases c
@@ -243,12 +265,37 @@ $function$;
 REVOKE ALL ON FUNCTION public.awol_daily_review(DATE) FROM PUBLIC, anon, authenticated;
 
 -- Daily, after the detection (awol-flag-candidates runs at 16:20 UTC = 00:20 Manila).
+-- Both jobs INACTIVE until public.awol_automation_enable() (user decision 2026-11-23).
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
     PERFORM cron.schedule('awol-daily-review', '25 16 * * *', 'SELECT public.awol_daily_review();');
+    PERFORM cron.alter_job(j.jobid, active := FALSE) FROM cron.job j WHERE j.jobname IN ('awol-daily-review', 'awol-flag-candidates');
   END IF;
 END $$;
+
+/**
+ * Turn AWOL automation on (the user runs it, after the dry run): absences count
+ * from p_from (default today, Manila) onward, never earlier; both jobs active.
+ */
+CREATE OR REPLACE FUNCTION public.awol_automation_enable(p_from DATE DEFAULT ((now() AT TIME ZONE 'Asia/Manila')::DATE))
+ RETURNS DATE LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF p_from < (now() AT TIME ZONE 'Asia/Manila')::DATE THEN
+    RAISE EXCEPTION 'AWOL automation never counts days before it is enabled: % is in the past.', p_from;
+  END IF;
+  UPDATE public.system_config SET value = p_from::TEXT, updated_by = 'System' WHERE section = 'hr' AND key = 'awol_auto_from';
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    PERFORM cron.alter_job(j.jobid, active := TRUE) FROM cron.job j WHERE j.jobname IN ('awol-daily-review', 'awol-flag-candidates');
+  END IF;
+  INSERT INTO public.audit_logs (module, action, entity_type, entity_id, description, status, source, metadata, is_system_event, actor_name, actor_role)
+  VALUES ('hr', 'awol_automation_enable', 'system_config', 'hr.awol_auto_from',
+          format('AWOL automation enabled: absences count from %s.', p_from), 'success', 'system', jsonb_build_object('from', p_from), TRUE, 'System', 'system');
+  RETURN p_from;
+END;
+$function$;
+REVOKE ALL ON FUNCTION public.awol_automation_enable(DATE) FROM PUBLIC, anon, authenticated;
 
 -- The backup lists the new table.
 CREATE OR REPLACE FUNCTION public.backup_export_tables()
