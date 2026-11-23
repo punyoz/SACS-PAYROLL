@@ -54,3 +54,17 @@ describe("the route never approves anything; roles are checked on the server", (
     expect(code).not.toMatch(/approve/i);
   });
 });
+
+describe("attendance flags (Part E step 2)", () => {
+  it("the employee's list is pinned to the signed-in person, day-level flags only", () => {
+    const route = readFileSync("src/app/api/me/attendance-flags/route.js", "utf8");
+    expect(route).toMatch(/\.eq\("employee_id", guard\.userId\)/);
+    expect(route).toMatch(/requirePermission\(request, "my_account", "read"\)/);
+  });
+  it("the nightly job skips Admin / Super Admin and device-problem branch-days, and does nothing while paused", () => {
+    const sql = readFileSync("supabase/migrations/20261124020000_attendance_flags.sql", "utf8");
+    expect(sql).toMatch(/IF public\.automation_paused\(\) THEN RETURN/);
+    expect(sql).toMatch(/lower\(p\.role::TEXT\) IN \('employee', 'accountant', 'hr'\)/);
+    expect(sql).toMatch(/d\.branch_id NOT IN \(SELECT branch_id FROM gap\)/);
+  });
+});

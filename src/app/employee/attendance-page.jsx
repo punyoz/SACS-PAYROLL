@@ -185,6 +185,49 @@ const RECORD_COLUMNS = [
   },
 ];
 
+/* ── Part E step 2: the days the system found to fix (/api/me/attendance-flags) ── */
+
+/** The person's own Leave & Overtime page in this portal. */
+function myLeavePage() {
+  const path = typeof window === "undefined" ? "" : window.location.pathname;
+  return path.startsWith("/hr") ? "hr-my-leave" : path.startsWith("/accountant") ? "ac-my-leave" : "emp-leave";
+}
+
+function FixList({ refreshKey, onRequest }) {
+  const [flags, setFlags] = React.useState([]);
+  React.useEffect(() => {
+    let alive = true;
+    fetchJson("/api/me/attendance-flags").then((d) => { if (alive) setFlags(d.flags || []); }).catch(() => {});
+    return () => { alive = false; };
+  }, [refreshKey]);
+  if (!flags.length) return null;
+  const leave = (tab) => `?page=${myLeavePage()}${tab ? `&lo_tab=${tab}` : ""}`;
+  return (
+    <Card className="border-warning/40 shadow-xs" data-testid="attendance-fix-list">
+      <CardHeader>
+        <CardTitle>The system found these to fix</CardTitle>
+        <CardDescription>File what fits; each item goes away by itself once it is fixed.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-2">
+          {flags.map((f) => (
+            <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3" data-testid="attendance-fix">
+              <span className="text-sm">{f.summary}</span>
+              <span className="flex flex-wrap gap-2">
+                {f.code === "overtime_unfiled"
+                  ? <Button size="sm" variant="outline" asChild><a href={leave("overtime")}>File overtime</a></Button>
+                  : <Button size="sm" variant="outline" onClick={() => onRequest({ id: f.log_id, log_date: f.log_date, status: f.status, time_in: f.time_in, time_out: f.time_out })}>Request correction</Button>}
+                {f.code === "absent_no_request" || f.code === "short_day"
+                  ? <Button size="sm" variant="outline" asChild><a href={leave(f.code === "short_day" ? "half" : "")}>File leave</a></Button> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 /* ── This pay period + Request Correction (loadMyAttendancePeriod / openMyCorrectionRequest, app.js) ── */
 
 function CorrectionDialog({ row, onOpenChange, onDone }) {
@@ -324,6 +367,7 @@ function PayPeriodCard({ refreshKey }) {
   const toPage1 = (fn) => (v) => { fn(v); setPaging((c) => ({ ...c, page: 1 })); };
   return (
     <>
+      <FixList refreshKey={`${refreshKey}-${state.logs.length}-${state.loading}`} onRequest={setRequesting} />
       <AttendanceView
         title="Attendance records by date"
         help="Forgot to tap out, or think a day is wrong? Use Request correction on an Incomplete, Undertime or Half Day record."
