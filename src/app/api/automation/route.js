@@ -88,7 +88,9 @@ export async function PATCH(request) {
       if (guard.role !== "admin") return NextResponse.json({ error: "The branch Admin checks what the system prepared." }, { status: 403 });
       const foreign = denyForeignBranch(guard, row.branch_id);
       if (foreign) return foreign;
-      if (row.status !== "admin_check") return NextResponse.json({ error: "This item is no longer waiting for your check." }, { status: 409 });
+      // An automatic attendance flag (open) also takes the Admin's note / objection (2026-11-24): it then goes to HR.
+      const checkable = row.status === "admin_check" || (row.module === "attendance_flags" && row.status === "open");
+      if (!checkable) return NextResponse.json({ error: "This item is no longer waiting for your check." }, { status: 409 });
       let note = String(body.note || "").trim();
       let decider = supabase;
       if (action === "note") {
@@ -102,7 +104,7 @@ export async function PATCH(request) {
       const { error: upd } = await decider.from("automation_actions").update({
         status: "with_hr", admin_note: note, admin_noted_by: guard.userId, admin_noted_by_name: by, admin_noted_at: now,
         admin_objected: action === "object", forwarded_at: now, forwarded_by: by, updated_at: now,
-      }).eq("id", id).eq("status", "admin_check");
+      }).eq("id", id).eq("status", row.status);
       if (upd) throw upd;
       const { data: hr } = await supabase.from("profiles").select("id").eq("role", "hr").eq("archived", false);
       await notify(supabase, (hr || []).map((h) => h.id), {

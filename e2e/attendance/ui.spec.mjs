@@ -71,7 +71,7 @@ async function checkLayout(page, where, { wide }) {
 // What differs per role (the shared view decides the rest).
 const CONTROLS = {
   employee: { search: false, branch: false, tabs: [] },
-  admin: { search: true, branch: false, tabs: ["All records", "Flags sent to HR"] },
+  admin: { search: true, branch: false, tabs: ["All records", "Flags"] },
   hr: { search: true, branch: true, tabs: ["All records", "Incomplete queue", "Correction requests", "Overtime", "Blocked taps"] },
   accountant: { search: true, branch: false, tabs: ["All records", "Incomplete queue"] },
   super_admin: { search: true, branch: true, tabs: ["All records", "Blocked taps"] },

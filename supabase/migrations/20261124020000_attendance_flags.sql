@@ -62,10 +62,10 @@ DECLARE
 BEGIN
   IF public.automation_off('attendance_flags') THEN RETURN jsonb_build_object('paused', TRUE); END IF;
 
-  -- 1. Close what was fixed (a dry run only counts).
+  -- 1. Close what was fixed, also one the Admin noted or objected to (with HR); a dry run only counts.
   FOR r IN SELECT a.id, a.rule, a.entity_id, a.employee_id, (a.data->>'log_date')::DATE AS day
            FROM public.automation_actions a
-           WHERE a.module = 'attendance_flags' AND a.status = 'open' AND a.data->>'code' IN ('missing_tap', 'absent_no_request', 'short_day', 'overtime_unfiled') LOOP
+           WHERE a.module = 'attendance_flags' AND a.status IN ('open', 'with_hr') AND a.data->>'code' IN ('missing_tap', 'absent_no_request', 'short_day', 'overtime_unfiled') LOOP
     IF public.automation_attendance_flag_fixed((SELECT data->>'code' FROM public.automation_actions WHERE id = r.id),
          NULLIF(r.entity_id, '')::UUID, r.employee_id, r.day) THEN
       IF NOT public.automation_dry_run() THEN PERFORM public.automation_close(r.id, 'Fixed: the day changed or the request was filed.'); END IF;

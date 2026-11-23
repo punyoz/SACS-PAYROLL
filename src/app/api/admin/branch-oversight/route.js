@@ -192,6 +192,13 @@ async function attendanceView(supabase, branchId, staff, url) {
   const { from, to } = range(url);
   const ids = staff.map((p) => p.id);
   const [logs, flags] = await Promise.all([attendanceLogs(supabase, ids, from, to), branchRequests(supabase, branchId, ["attendance_flag"])]);
+  // The system's day-level attendance flags for these records (Part E step 2), with the Admin's note / objection.
+  const autoFlags = await supabase.from("automation_actions")
+    .select("id,entity_id,status,summary,rule,admin_note,admin_noted_by_name,admin_objected,created_at,data")
+    .eq("module", "attendance_flags").eq("entity_type", "attendance_log").eq("branch_id", branchId)
+    .gte("created_at", `${from}T00:00:00+08:00`).order("created_at", { ascending: false }).limit(1000);
+  const autoByLog = new Map();
+  (autoFlags.data || []).forEach((a) => { if (a.entity_id && !autoByLog.has(a.entity_id)) autoByLog.set(a.entity_id, a); });
   const flagByLog = new Map();
   flags.rows.forEach((f) => { if (f.ref_id && !flagByLog.has(f.ref_id)) flagByLog.set(f.ref_id, shapeRequest(f)); });
   const names = new Map(staff.map((p) => [p.id, p]));
@@ -200,6 +207,7 @@ async function attendanceView(supabase, branchId, staff, url) {
     employee_name: names.get(l.employee_id)?.full_name || l.employee_name,
     employee_code: names.get(l.employee_id)?.employee_code || "",
     flag: flagByLog.get(l.id) || null,
+    auto_flag: autoByLog.get(l.id) || null,
   }));
   // Today's "Not tapped yet" rows, as on HR's board (decision 2026-11-14): the
   // nightly close's own rule, this branch only; nothing is written.
@@ -228,6 +236,7 @@ async function attendanceView(supabase, branchId, staff, url) {
     total: chosen.length, page, page_size: size, counts,
     days: [...new Set(all.map((l) => l.log_date))].filter(Boolean).sort().reverse(),
     flags: flags.rows.map((f) => shapeRequest(f)),
+    auto_flags: autoFlags.data || [],
   };
 }
 
@@ -590,6 +599,9 @@ export async function POST(request) {
     let details = {};
     let outcomeRef = null;
 
+    // Attendance issues are flagged by the system now (Part E step 2, 2026-11-24): an Admin adds a note or objects on
+    // the system's flag instead of filing one. Old manual flags stay listed. Incidents stay manual.
+    if (kind === "attendance_flag") return bad("Attendance issues are flagged automatically each night. Add a note or object on the system's flag instead.", 409);
     if (kind === "attendance_flag") {
       const log = UUID.test(String(body.ref_id || "")) ? (await supabase.from("attendance_logs").select("id,employee_id,log_date,status,time_in,time_out").eq("id", body.ref_id).maybeSingle()).data : null;
       const owner = log ? staff.find((p) => p.id === log.employee_id) : null;
