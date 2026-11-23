@@ -43,7 +43,7 @@ const SUFFIXES = ["Jr.", "Sr.", "II", "III", "IV", "V"];
 const SEXES = ["Male", "Female"];
 const CIVIL = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
 const TYPES = ["Teaching", "Non-Teaching"];
-const EMPLOYMENT_TYPES = ["Full-time", "Part-time"];
+const EMPLOYMENT_TYPES = ["Full-time"]; // no part-time employees (2026-11-23); not shown
 const EMPLOYMENT_STATUSES = ["Regular", "Probationary", "Contractual"];
 const RELATIONSHIPS = ["Spouse", "Parent", "Child", "Sibling", "Guardian", "Relative", "Partner", "Friend", "Other"];
 const NONE = "__none__";
@@ -248,7 +248,7 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
   const [separating, setSeparating] = React.useState(false);
   // Category / status / type change with a date and a reason (Part A): classification-dialog.jsx.
   const [classifying, setClassifying] = React.useState(false);
-  const classLocked = !creating && Boolean(employee?.employee_type && employee?.employment_status && employee?.employment_type);
+  const classLocked = !creating && Boolean(employee?.employee_type && employee?.employment_status);
   const [confirmDialog, confirm] = useConfirm();
   // Positions HR picks from and adds to (alpha test B3, /api/hr/positions).
   const [positions, setPositions] = React.useState([]);
@@ -482,7 +482,6 @@ export function EmployeeFormDialog({ mode, employee, branches, defaultBranch, br
                 {newPosition.error ? <p className="text-sm text-destructive" role="alert">{newPosition.error}</p> : null}
               </div>
             ), { required: true, hint: "Pick from the list, or add one. The list never repeats a position, whatever the capitals." })}
-            {field("employment_type", classLocked ? readOnly("employment_type", values.employment_type) : select("employment_type", EMPLOYMENT_TYPES, "Select employment type"), { required: true })}
             {field("employment_status", classLocked ? readOnly("employment_status", values.employment_status) : select("employment_status", EMPLOYMENT_STATUSES, "Select employment status"), { required: true })}
             {creating && values.employment_status === "Contractual" ? field("contract_end_date", date("contract_end_date"), { required: true, hint: "HR is reminded before it." }) : null}
             {classLocked ? (

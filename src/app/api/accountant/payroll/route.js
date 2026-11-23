@@ -109,8 +109,8 @@ import { reportResponse, wantsFile } from "@/lib/export/report-file";
 import { activeAccountantIds } from "@/lib/rbac/routing";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
-import { loadClassificationContext, loadPayRules } from "@/lib/employees/classification-server";
-import { classificationOn, payRuleFor } from "@/lib/employees/classification";
+import { loadClassificationContext } from "@/lib/employees/classification-server";
+import { classificationOn } from "@/lib/employees/classification";
 import { gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
@@ -1717,17 +1717,12 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
 
   // Pay basis per category / status / type (Part A, 20261121010000). Unknown = monthly.
   const classification = await loadClassificationContext(supabase, employees.map((e) => e.id)).catch(() => null);
-  const payRules = await loadPayRules(supabase).catch(() => []);
   // The category / status / type in effect on the period's first day.
   const classificationOf = (employeeId) => {
     const profile = classification?.profiles.get(employeeId);
     if (!profile) return null;
     const c = classificationOn(profile, classification.changes.get(employeeId) || [], period.start_key);
     return { employee_type: c.employee_type, employment_status: c.employment_status, employment_type: c.employment_type };
-  };
-  const payBasisOf = (employeeId) => {
-    const c = classificationOf(employeeId);
-    return (c && payRuleFor(payRules, c, period.start_key)?.pay_basis) || "monthly";
   };
 
   const byEmployee = new Map();
@@ -1794,7 +1789,6 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       incentive_gate: incentiveGate,
       branch_days: branchDaysFor(employee.id, own),
       msc_table: mscTable,
-      pay_basis: payBasisOf(employee.id),
       classification: classificationOf(employee.id),
     });
   });
@@ -2144,18 +2138,9 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCuto
  * made it and why, and kept as its own is_override line next to the computed
  * lines rather than replacing them.
  */
-// shortcut: payroll computes monthly-salary pay only; a part-time hourly /
-// scheduled-hours pay basis (employee_pay_rules) is refused until the engine
-// pays by the hour -- no part-timer exists yet (2026-11-20).
+// Everyone is paid a monthly salary (no part-time employees, 2026-11-23): the per-hour pay basis is gone.
 function buildEmployeePayroll(args) {
-  const built = buildEmployeePayrollMonthly(args);
-  const basis = args.context?.pay_basis;
-  if (!basis || basis === "monthly") return built;
-  return {
-    ...built,
-    refusal: `${args.employee.full_name} is paid ${basis === "hourly" ? "per hour worked" : "per scheduled hour"} (part-time pay rules); payroll does not compute that pay basis yet. Ask HR to check the employee's pay rule.`,
-    refusal_code: "pay_basis_not_supported",
-  };
+  return buildEmployeePayrollMonthly(args);
 }
 
 function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAttendanceOverrides = false, period, actor }) {

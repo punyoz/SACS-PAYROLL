@@ -7,29 +7,29 @@
 
 export const CATEGORY_OPTIONS = ["Teaching", "Non-Teaching"];
 export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual"];
-export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time", "Part-time"];
+// The school has no part-time employees (2026-11-23): everyone is Full-time; the field is not shown.
+export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time"];
 // Yearly credits. Maternity, paternity and other statutory leaves are filed per
 // event (statutory_leave_types), never granted yearly.
 export const CREDIT_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave"];
 // The paid leave that counts toward the 5-day service incentive leave (Labor Code Art. 95).
 export const SIL_LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave"];
 export const SIL_MIN_DAYS = 5;
-export const PAY_BASIS_LABELS = { monthly: "Monthly salary", hourly: "Per hour worked", scheduled_hours: "Per scheduled hour" };
+export const PAY_BASIS_LABELS = { monthly: "Monthly salary" };
 /** HR settings (system_config, section "hr"), pending the policy manual. */
 export const HR_SETTINGS = {
   probation_months: { label: "Probation length (months)", min: 1, max: 24, fallback: 6 },
   probation_reminder_days: { label: "Remind HR before probation ends (days)", min: 1, max: 120, fallback: 30 },
   contract_reminder_days: { label: "Remind HR before a contract ends (days)", min: 1, max: 120, fallback: 30 },
-  full_time_weekly_hours: { label: "Full-time hours a week (part-time leave is pro-rated on it)", min: 1, max: 80, fallback: 40 },
 };
 
-export const CLASSIFICATION_FIELDS = ["employee_type", "employment_status", "employment_type", "on_payroll", "contract_end_date"];
+export const CLASSIFICATION_FIELDS = ["employee_type", "employment_status", "on_payroll", "contract_end_date"];
 /** Refusal for an edit that changes them silently: they change with a date and a reason. */
-export const CHANGE_WITH_DATE = 'Category, employment status and employment type change with an effective date and a reason: use "Change status or type".';
+export const CHANGE_WITH_DATE = 'Category and employment status change with an effective date and a reason: use "Change status".';
 
 /** The classification fields `next` changes compared with `current` (blank values ignored). */
 export function changedClassification(current = {}, next = {}) {
-  return ["employee_type", "employment_status", "employment_type"].filter((f) => next[f] && current[f] && String(next[f]) !== String(current[f]));
+  return ["employee_type", "employment_status"].filter((f) => next[f] && current[f] && String(next[f]) !== String(current[f]));
 }
 
 export const FIELD_LABELS = {
@@ -44,9 +44,9 @@ const DAY = 864e5;
 const dayNumber = (key) => Math.round(Date.parse(`${key}T00:00:00Z`) / DAY);
 const keyOf = (n) => new Date(n * DAY).toISOString().slice(0, 10);
 
-/** "Teaching · Regular · Full-time" (blank parts left out). */
+/** "Teaching · Regular" (blank parts left out). */
 export function classificationLabel(c = {}) {
-  return [c.employee_type, c.employment_status, c.employment_type].filter(Boolean).join(" · ");
+  return [c.employee_type, c.employment_status].filter(Boolean).join(" · ");
 }
 
 /**
@@ -85,8 +85,9 @@ export function classificationSegments(current, changes, from, to) {
 /** The rule row in effect on `dateKey` for a leave type and classification, or null. */
 export function leaveRuleFor(rules, leaveType, c, dateKey) {
   return (rules || [])
+    // Category × Status: only the Full-time rows count (no part-time employees, 2026-11-23).
     .filter((r) => r.leave_type === leaveType && r.employee_type === c.employee_type && r.employment_status === c.employment_status
-      && r.employment_type === c.employment_type && String(r.effective_from) <= dateKey)
+      && (r.employment_type || "Full-time") === "Full-time" && String(r.effective_from) <= dateKey)
     .sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from)))[0] || null;
 }
 
@@ -94,7 +95,7 @@ export function leaveRuleFor(rules, leaveType, c, dateKey) {
 export function payRuleFor(rules, c, dateKey) {
   return (rules || [])
     .filter((r) => r.employee_type === c.employee_type && r.employment_status === c.employment_status
-      && r.employment_type === c.employment_type && String(r.effective_from) <= dateKey)
+      && (r.employment_type || "Full-time") === "Full-time" && String(r.effective_from) <= dateKey)
     .sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from)))[0] || null;
 }
 
@@ -105,14 +106,14 @@ const halfDown = (n) => Math.floor(n * 2 + 1e-9) / 2;
  *
  * The year is cut where the classification changes (and starts on the hire
  * date): each part earns its rule's days × (days in the part / days in the
- * year); a Part-time part × scheduled weekly hours / full-time weekly hours.
+ * year).
  * Rounded down to the half day. A per-employee override for the year (the
  * latest one) replaces the computed days. The grant is automatic: nothing is
  * stored, the credits follow the rules and the history.
  *
  * @returns {{ [leaveType]: { days, computed, override: object|null, parts: object[] } }}
  */
-export function leaveEntitlement({ rules, overrides = [], current, changes = [], year, dateHired = null, separatedOn = null, weeklyHours = null, fullTimeWeeklyHours = 40 }) {
+export function leaveEntitlement({ rules, overrides = [], current, changes = [], year, dateHired = null, separatedOn = null }) {
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
   const yearDays = dayNumber(yearEnd) - dayNumber(yearStart) + 1;
@@ -132,8 +133,7 @@ export function leaveEntitlement({ rules, overrides = [], current, changes = [],
       };
       const rule = leaveRuleFor(rules, leaveType, c, part.from);
       const days = dayNumber(part.to) - dayNumber(part.from) + 1;
-      const hoursFactor = c.employment_type === "Part-time" && weeklyHours && fullTimeWeeklyHours
-        ? Math.min(1, weeklyHours / fullTimeWeeklyHours) : 1;
+      const hoursFactor = 1; // no part-time pro-ration (2026-11-23)
       const earned = (Number(rule?.days_per_year) || 0) * (days / yearDays) * hoursFactor;
       total += earned;
       return { from: part.from, to: part.to, classification: part.classification, rule_days: Number(rule?.days_per_year) || 0, hours_factor: hoursFactor, earned };
@@ -149,8 +149,7 @@ export function leaveEntitlement({ rules, overrides = [], current, changes = [],
 /**
  * Classifications whose paid leave (vacation + sick + emergency) adds up to
  * less than the 5-day service incentive leave (Labor Code Art. 95), from the
- * rules in effect on `dateKey`. Full-time only: a part-timer's days follow
- * the same rule, pro-rated.
+ * rules in effect on `dateKey`.
  */
 export function legalMinimumWarnings(rules, dateKey) {
   const out = [];

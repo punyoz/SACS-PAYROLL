@@ -236,7 +236,7 @@ export function normalizeStaffFields(body = {}) {
     // HR is on payroll: employment status and type (Part A, 20261121010000). HR is Non-Teaching.
     ...(role === "hr" ? {
       employment_status: pickOption(body.employment_status, ["Regular", "Probationary", "Contractual"]),
-      employment_type: pickOption(body.employment_type, ["Full-time", "Part-time"]),
+      employment_type: "Full-time", // no part-time employees (2026-11-23)
       contract_end_date: normalizeText(body.contract_end_date),
     } : {}),
   };
@@ -315,7 +315,6 @@ export function validateStaffRecord(record) {
     return `Basic salary must be greater than 0 and at most ${pesoLimit(SALARY_MAX)}.`;
   }
   if (record.role === "hr" && !record.employment_status) return "Employment status is required (Regular, Probationary or Contractual).";
-  if (record.role === "hr" && !record.employment_type) return "Employment type is required (Full-time or Part-time).";
   if (record.role === "hr" && record.employment_status === "Contractual" && !parseDate(record.contract_end_date)) {
     return "Contract end date is required for a Contractual employee.";
   }

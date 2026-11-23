@@ -390,7 +390,8 @@ describe("Quick Add has been removed", () => {
 describe("HR needs an employment status and type (Part A, 20261121010000)", () => {
   it("refuses an HR account without them, and a Contractual one without a contract end date", () => {
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "" })))).toMatch(/employment status/i);
-    expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_type: "" })))).toMatch(/employment type/i);
+    // No part-time employees (2026-11-23): HR is always Full-time, whatever is sent.
+    expect(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_type: "Part-time" })).employment_type).toBe("Full-time");
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Contractual" })))).toMatch(/contract end date/i);
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Contractual", contract_end_date: "2027-05-31" })))).toBeNull();
     expect(validateStaffRecord(normalizeStaffFields(validBody({ role: "hr", basic_salary: 25000, employment_status: "Substitute" })))).toMatch(/employment status/i);

@@ -245,7 +245,7 @@ export function TransfersPage({ refreshKey }) {
     { key: "type", header: "Category", cell: (e) => (
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusBadge tone={e.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{e.employee_type || "Teaching"}</StatusBadge>
-        {e.employment_status ? <span className="text-xs text-muted-foreground">{[e.employment_status, e.employment_type].filter(Boolean).join(" · ")}</span> : null}
+        {e.employment_status ? <span className="text-xs text-muted-foreground">{[e.employment_status].filter(Boolean).join(" · ")}</span> : null}
       </div>
     ) },
     { key: "position", header: "Position", cell: (e) => e.position || "—" },

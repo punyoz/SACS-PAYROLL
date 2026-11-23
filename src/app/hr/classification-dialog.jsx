@@ -23,7 +23,7 @@ const show = (field, value) => (field === "on_payroll" ? (value === "true" ? "On
 const fmt = (key) => (key ? new Date(`${key}T00:00:00`).toLocaleDateString("en-PH", { year: "numeric", month: "short", day: "numeric" }) : "—");
 
 /**
- * Category, employment status, employment type, on payroll and contract end
+ * Category, employment status, on payroll and contract end
  * date of one employee, changed with an effective date and a reason (Part A).
  * Shows the dated history and this year's leave credits (with overrides).
  */
@@ -52,7 +52,7 @@ export function ClassificationDialog({ employee, open, onOpenChange, onSaved }) 
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const cur = data?.current || {};
-  const changes = data ? Object.fromEntries(["employee_type", "employment_status", "employment_type", "on_payroll", "contract_end_date"]
+  const changes = data ? Object.fromEntries(["employee_type", "employment_status", "on_payroll", "contract_end_date"]
     .filter((k) => String(form[k] ?? "") !== String(cur[k] ?? ""))
     .map((k) => [k, k === "contract_end_date" ? form[k] || null : form[k]])) : {};
   const hasChanges = Object.keys(changes).length > 0;
@@ -113,7 +113,7 @@ export function ClassificationDialog({ employee, open, onOpenChange, onSaved }) 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Status and type: {employee?.full_name}</DialogTitle>
+          <DialogTitle>Category and status: {employee?.full_name}</DialogTitle>
           <DialogDescription>Changes take effect on their date. Payroll and leave credits use the values in effect on each day.</DialogDescription>
         </DialogHeader>
         {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
@@ -138,7 +138,6 @@ export function ClassificationDialog({ employee, open, onOpenChange, onSaved }) 
               <section className="grid gap-3 sm:grid-cols-2" aria-label="Change">
                 <div className="space-y-1.5"><Label htmlFor="cls-employee_type">Category</Label>{pick("employee_type", CATEGORY_OPTIONS)}</div>
                 <div className="space-y-1.5"><Label htmlFor="cls-employment_status">Employment status</Label>{pick("employment_status", EMPLOYMENT_STATUS_OPTIONS)}</div>
-                <div className="space-y-1.5"><Label htmlFor="cls-employment_type">Employment type</Label>{pick("employment_type", EMPLOYMENT_TYPE_OPTIONS)}</div>
                 <div className="space-y-1.5">
                   <Label htmlFor="cls-contract">Contract end date{form.employment_status === "Contractual" ? " *" : ""}</Label>
                   <DatePicker id="cls-contract" value={form.contract_end_date || ""} onChange={(v) => set("contract_end_date", v)} />

@@ -51,12 +51,12 @@ BEGIN
 
   -- 2. A dated change waits for its date, then applies (profile + account metadata).
   INSERT INTO public.employee_classification_changes (employee_id, field, old_value, new_value, effective_on, reason, changed_by_name)
-  VALUES (c_later, 'employment_type', 'Full-time', 'Part-time', v_today + 10, 'Reduced load next term', 'Hana HR');
+  VALUES (c_later, 'employment_status', 'Regular', 'Probationary', v_today + 10, 'Record corrected: on probation', 'Hana HR');
   PERFORM public.employee_classification_apply(v_today);
-  IF (SELECT employment_type FROM public.profiles WHERE id = c_later) <> 'Full-time' THEN RAISE EXCEPTION '2: applied before its date'; END IF;
+  IF (SELECT employment_status FROM public.profiles WHERE id = c_later) <> 'Regular' THEN RAISE EXCEPTION '2: applied before its date'; END IF;
   PERFORM public.employee_classification_apply(v_today + 10);
-  IF (SELECT employment_type FROM public.profiles WHERE id = c_later) <> 'Part-time' THEN RAISE EXCEPTION '2b: not applied on its date'; END IF;
-  IF (SELECT raw_user_meta_data->>'employment_type' FROM auth.users WHERE id = c_later) <> 'Part-time' THEN RAISE EXCEPTION '2c: account metadata not updated'; END IF;
+  IF (SELECT employment_status FROM public.profiles WHERE id = c_later) <> 'Probationary' THEN RAISE EXCEPTION '2b: not applied on its date'; END IF;
+  IF (SELECT raw_user_meta_data->>'employment_status' FROM auth.users WHERE id = c_later) <> 'Probationary' THEN RAISE EXCEPTION '2c: account metadata not updated'; END IF;
   IF EXISTS (SELECT 1 FROM public.employee_classification_changes WHERE employee_id = c_later AND applied_at IS NULL) THEN RAISE EXCEPTION '2d: not marked applied'; END IF;
 
   -- 3. A change needs a reason and a valid value.

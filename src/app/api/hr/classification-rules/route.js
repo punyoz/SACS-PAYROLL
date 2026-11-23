@@ -6,7 +6,7 @@
  *   GET   the rules in effect (and upcoming), legal-minimum warnings, settings
  *   POST  { kind: "leave", effective_from, note?, rows: [{ leave_type, employee_type, employment_status, employment_type, days_per_year }] }
  *         { kind: "pay", effective_from, note?, rows: [{ employee_type, employment_status, employment_type, pay_basis, overtime_allowed, subsidy_eligible, incentive_eligible, loan_eligible }] }
- *         { kind: "settings", values: { probation_months, probation_reminder_days, contract_reminder_days, full_time_weekly_hours } }
+ *         { kind: "settings", values: { probation_months, probation_reminder_days, contract_reminder_days } }
  *   HR / Super Admin only; every save is a new version (history kept) and audited.
  */
 import { NextResponse } from "next/server";
@@ -134,7 +134,8 @@ export async function POST(request) {
         if (!Number.isFinite(days) || days < 0 || days > 366 || Math.round(days * 2) !== days * 2) {
           return NextResponse.json({ error: `${r.leave_type}: days must be 0 to 366, in half days.` }, { status: 400 });
         }
-        insert.push({ leave_type: r.leave_type, employee_type: r.employee_type, employment_status: r.employment_status, employment_type: r.employment_type,
+        // Category × Status (stored as the Full-time row; no part-time employees, 2026-11-23).
+        insert.push({ leave_type: r.leave_type, employee_type: r.employee_type, employment_status: r.employment_status, employment_type: "Full-time",
           days_per_year: days, effective_from: effectiveFrom, note, created_by: guard.userId, created_by_name: by });
       }
       const saved = await supabase.from("leave_credit_rules").upsert(insert, { onConflict: "leave_type,employee_type,employment_status,employment_type,effective_from" });
@@ -150,8 +151,9 @@ export async function POST(request) {
     if (body.kind === "pay") {
       const insert = [];
       for (const r of rows) {
-        if (!["monthly", "hourly", "scheduled_hours"].includes(r.pay_basis)) return NextResponse.json({ error: "Choose the pay basis." }, { status: 400 });
-        if (r.employment_type === "Full-time" && r.pay_basis !== "monthly") return NextResponse.json({ error: "Full-time employees are paid a monthly salary." }, { status: 400 });
+        // Monthly salary only (no part-time employees, 2026-11-23).
+        if ((r.pay_basis || "monthly") !== "monthly") return NextResponse.json({ error: "Employees are paid a monthly salary." }, { status: 400 });
+        if ((r.employment_type || "Full-time") !== "Full-time") return NextResponse.json({ error: "Rules are per category and status (everyone is Full-time)." }, { status: 400 });
         insert.push({ employee_type: r.employee_type, employment_status: r.employment_status, employment_type: r.employment_type, pay_basis: r.pay_basis,
           overtime_allowed: r.overtime_allowed !== false, subsidy_eligible: r.subsidy_eligible !== false, incentive_eligible: r.incentive_eligible !== false,
           loan_eligible: r.loan_eligible !== false, effective_from: effectiveFrom, note, created_by: guard.userId, created_by_name: by });

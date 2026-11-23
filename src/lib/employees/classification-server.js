@@ -80,11 +80,10 @@ export async function weeklyHoursFor(supabase, { employeeId, branchId, dateKey }
 export async function leaveBalances(supabase, employeeIds, year, { requests = null } = {}) {
   const ids = [...new Set((employeeIds || []).filter(Boolean))];
   if (!ids.length) return {};
-  const [{ profiles, changes }, rules, overridesResult, fullTime] = await Promise.all([
+  const [{ profiles, changes }, rules, overridesResult] = await Promise.all([
     loadClassificationContext(supabase, ids),
     loadLeaveRules(supabase),
     fetchAllIn(() => supabase.from("leave_credit_overrides").select("*").eq("year", year).order("id", { ascending: true }), "employee_id", ids),
-    readHrNumber(supabase, "full_time_weekly_hours", 40),
   ]);
   if (overridesResult.error) throw new Error(overridesResult.error.message);
   let approved = requests;
@@ -98,11 +97,9 @@ export async function leaveBalances(supabase, employeeIds, year, { requests = nu
   for (const id of ids) {
     const profile = profiles.get(id) || {};
     const history = changes.get(id) || [];
-    const partTime = [classificationOn(profile, history, `${year}-01-01`), profile].some((c) => c.employment_type === "Part-time");
-    const weeklyHours = partTime ? await weeklyHoursFor(supabase, { employeeId: id, branchId: profile.branch_id, dateKey: todayKey() }) : null;
     const entitlement = leaveEntitlement({
       rules, current: profile, changes: history, year, dateHired: profile.date_hired, separatedOn: profile.separated_on,
-      overrides: (overridesResult.data || []).filter((o) => o.employee_id === id), weeklyHours, fullTimeWeeklyHours: fullTime,
+      overrides: (overridesResult.data || []).filter((o) => o.employee_id === id),
     });
     const mine = approved.filter((r) => String(r.employee_id) === String(id) && String(r.status).toLowerCase() === "approved"
       && Number(String(r.start_date).slice(0, 4)) === Number(year));

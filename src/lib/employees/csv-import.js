@@ -21,7 +21,6 @@ export const IMPORT_COLUMNS = [
   ["branch", "Branch *"],
   ["employee_type", "Category * (Teaching / Non-Teaching)"],
   ["position", "Position *"],
-  ["employment_type", "Employment type * (Full-time / Part-time)"],
   ["employment_status", "Employment status * (Regular / Probationary / Contractual)"],
   ["contract_end_date", "Contract end date (Contractual: YYYY-MM-DD)"],
   ["employee_status", "Account status (default Active)"],
@@ -51,6 +50,10 @@ const KEY_BY_HEADER = new Map([
   // Templates downloaded before the rename (Part K, 2026-11-21) still import.
   ["employee type", "employee_type"],
   ["employee type * (teaching / non-teaching)", "employee_type"],
+  // Old templates' "Employment type" column (2026-11-23): read but ignored; everyone is Full-time.
+  ["employment_type", "employment_type"],
+  ["employment type", "employment_type"],
+  ["employment type * (full-time / part-time)", "employment_type"],
 ]);
 
 /** RFC 4180 CSV: quoted fields, "" inside quotes, commas and line breaks in quotes, CRLF, a BOM. */

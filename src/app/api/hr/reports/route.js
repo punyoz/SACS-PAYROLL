@@ -155,7 +155,7 @@ export async function GET(request) {
         const branchFilter = url.searchParams.get("branch_id");
         const employment = url.searchParams.get("employment");
         const inBranch = sortByBranch(employees, "full_name").filter((r) => !branchFilter || branchFilter === "all" || String(r.branch_id || "none") === branchFilter)
-          .filter((r) => !employment || employment === "all" || r.employment_status === employment || r.employment_type === employment);
+          .filter((r) => !employment || employment === "all" || r.employment_status === employment);
         const { rows: shown, q } = tableQuery(url, inBranch, { fields: hrReportSearchFields });
         return await reportResponse({
           format: wantsFile(url), fileName: `employee-records-${to}`, title: "Employee records",
@@ -165,7 +165,7 @@ export async function GET(request) {
           empty: `No employees match${q ? `: Search = "${q}"` : " this branch"}.`,
           columns: [{ header: "Branch" }, { header: "Employee" }, { header: "Employee ID" }, { header: "Category" }, { header: "Employment" }, { header: "Position" }, { header: "Status" }, { header: "Email" }],
           rows: shown.map((r) => [r.branch_name || "Unassigned", r.full_name || "", r.employee_id || "", r.employee_type || "",
-            [r.employment_status, r.employment_type].filter(Boolean).join(" · "), r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
+            [r.employment_status].filter(Boolean).join(" · "), r.position || "", r.archived ? "Archived" : r.employee_status || "", r.email || ""]),
         });
       }
       return NextResponse.json({

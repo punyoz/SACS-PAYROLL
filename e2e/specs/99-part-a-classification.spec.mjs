@@ -41,15 +41,15 @@ test("HR: Action needed, Employment column and filters, a dated change, the rule
     data: { employee_id: before.id, changes: { employment_status: "Regular" }, effective_on: today(), reason: "Start of the Part A check" },
   });
 
-  // The 201 record: category / status / type are read-only; "Change status or type…" opens the dated change.
+  // The 201 record: category / status are read-only; "Change status…" opens the dated change.
   await page.goto("/hr?page=hr-employees");
   await settle(page);
   const row = page.getByRole("row").filter({ hasText: "emp1@e2e.test" });
   await row.getByRole("button", { name: /edit/i }).first().click();
-  await expect(page.getByRole("button", { name: "Change status or type…" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change status…" })).toBeVisible();
   await shot(page, "03-201-record-locked-fields");
-  await page.getByRole("button", { name: "Change status or type…" }).click();
-  const dialog = page.getByRole("dialog", { name: /Status and type/ });
+  await page.getByRole("button", { name: "Change status…" }).click();
+  const dialog = page.getByRole("dialog", { name: /Category and status/ });
   await expect(dialog.getByText("Leave credits")).toBeVisible();
   await dialog.locator("#cls-employment_status").click();
   await page.getByRole("option", { name: "Probationary" }).click();
@@ -70,9 +70,9 @@ test("HR: Action needed, Employment column and filters, a dated change, the rule
   // The server: a silent change through the 201 edit is refused.
   const list = await (await page.request.get("/api/hr/employees")).json();
   const emp1 = list.employees.find((e) => e.email === "emp1@e2e.test");
-  const silent = await page.request.patch("/api/hr/employees", { data: { ...emp1, employment_type: "Part-time", updated_at: emp1.updated_at } });
+  const silent = await page.request.patch("/api/hr/employees", { data: { ...emp1, employee_type: emp1.employee_type === "Teaching" ? "Non-Teaching" : "Teaching", updated_at: emp1.updated_at } });
   expect(silent.status()).toBe(400);
-  expect((await silent.json()).error).toMatch(/Change status or type/);
+  expect((await silent.json()).error).toMatch(/Change status/);
 
   // Put emp1 back for the other specs (Regular from today).
   const back = await page.request.post("/api/hr/employee-classification", {
@@ -107,6 +107,8 @@ test("Admin cannot change a classification; employee sees leave credits by type"
 test("Accountant: the batch shows the classification and filters by it", async ({ page }) => {
   await as(page, "accountant", "ac-process");
   await settle(page);
-  await expect(page.getByText(/Regular · Full-time/).first()).toBeVisible();
+  await expect(page.getByText(/(Teaching|Non-Teaching) · Regular/).first()).toBeVisible();
+  // No part-time employees (2026-11-23): the employment type is not shown.
+  await expect(page.locator("#portal-main").getByText(/Full-time|Part-time/)).toHaveCount(0);
   await shot(page, "07-batch-classification");
 });

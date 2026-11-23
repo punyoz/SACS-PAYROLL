@@ -8,7 +8,7 @@ import {
   CHANGE_WITH_DATE, CREDIT_LEAVE_TYPES, changedClassification, statutoryRefusal, classificationLabel, classificationOn, classificationSegments,
   eligibilityError, leaveEntitlement, legalMinimumWarnings, payRuleFor,
 } from "@/lib/employees/classification";
-import { EMPLOYMENT_STATUS_OPTIONS } from "@/lib/employees/record";
+import { EMPLOYMENT_STATUS_OPTIONS, EMPLOYMENT_TYPE_OPTIONS } from "@/lib/employees/record";
 
 const NOW = { employee_type: "Teaching", employment_status: "Regular", employment_type: "Full-time", on_payroll: true };
 // Probationary from hire, Regular from Mar 1, 2027 (the plan's example).
@@ -77,10 +77,11 @@ describe("leave credits per category, status and type", () => {
     expect(e["Sick Leave"].days).toBe(2.5);
     expect(e["Emergency Leave"].days).toBe(1.5);
   });
-  it("a part-timer gets the share of its scheduled hours (20 of 40 = half)", () => {
-    const e = leaveEntitlement({ rules: RULES, current: PT, year: 2026, dateHired: "2020-06-01", weeklyHours: 20, fullTimeWeeklyHours: 40 });
-    expect(e["Sick Leave"].days).toBe(2.5);
-    expect(e["Emergency Leave"].days).toBe(1.5);
+  it("no part-time pro-ration (2026-11-23): an old Part-time value earns the Category × Status credits", () => {
+    const pt = leaveEntitlement({ rules: RULES, current: PT, year: 2026, dateHired: "2020-06-01" });
+    const ft = leaveEntitlement({ rules: RULES, current: REG, year: 2026, dateHired: "2020-06-01" });
+    expect(pt["Sick Leave"].days).toBe(ft["Sick Leave"].days);
+    expect(pt["Emergency Leave"].days).toBe(ft["Emergency Leave"].days);
   });
   it("Probationary → Regular on Mar 1 earns each rule for its part of the year", () => {
     const rules2027 = [...rules(REG, { "Sick Leave": 5 }, "2027-01-01"), ...rules(PROB, { "Sick Leave": 3 }, "2027-01-01")];
@@ -108,7 +109,7 @@ describe("leave credits per category, status and type", () => {
 describe("pay rules, required fields and no Substitute", () => {
   it("eligibility is refused in plain words", () => {
     const rule = { loan_eligible: false, incentive_eligible: true };
-    expect(eligibilityError(rule, "loan", PROB)).toBe("Teaching · Probationary · Full-time employees are not eligible for loans (pay rules).");
+    expect(eligibilityError(rule, "loan", PROB)).toBe("Teaching · Probationary employees are not eligible for loans (pay rules).");
     expect(eligibilityError(rule, "incentive", PROB)).toBeNull();
     expect(eligibilityError(null, "loan", PROB)).toBeNull();
   });
@@ -123,13 +124,13 @@ describe("pay rules, required fields and no Substitute", () => {
     expect(changedClassification(REG, REG)).toEqual([]);
     // A record with nothing on file may be filled in.
     expect(changedClassification({ employee_type: "Teaching" }, REG)).toEqual([]);
-    expect(CHANGE_WITH_DATE).toMatch(/Change status or type/);
+    expect(CHANGE_WITH_DATE).toMatch(/Change status/);
     for (const route of ["src/app/api/hr/employees/route.js", "src/app/api/admin/employees/route.js"]) {
       expect(readFileSync(route, "utf8")).toMatch(/CHANGE_WITH_DATE/);
     }
   });
   it("labels read in one line", () => {
-    expect(classificationLabel(REG)).toBe("Teaching · Regular · Full-time");
+    expect(classificationLabel(REG)).toBe("Teaching · Regular");
   });
 });
 
@@ -159,5 +160,24 @@ describe("statutory leave: per event, with eligibility (not yearly credits)", ()
   });
   it("maternity and paternity are not in the yearly credits", () => {
     expect(CREDIT_LEAVE_TYPES).toEqual(["Vacation Leave", "Sick Leave", "Emergency Leave"]);
+  });
+});
+
+describe("no part-time employees (2026-11-23)", () => {
+  it("the import template has no Employment type column; an old template's column is read and ignored", async () => {
+    const { importTemplate, IMPORT_COLUMNS, parseImport } = await import("@/lib/employees/csv-import");
+    expect(IMPORT_COLUMNS.map(([k]) => k)).not.toContain("employment_type");
+    if (importTemplate) expect(importTemplate()).not.toMatch(/Employment type/i);
+    if (parseImport) {
+      const header = IMPORT_COLUMNS.map(([, label]) => (label.includes(",") ? `"${label}"` : label)).join(",");
+      const { unknown } = parseImport(`${header},Employment type * (Full-time / Part-time)\n`);
+      expect(unknown).toEqual([]);
+    }
+  });
+  it("payroll has no per-hour path; rules are Category × Status, monthly salary only", () => {
+    const route = readFileSync("src/app/api/accountant/payroll/route.js", "utf8");
+    expect(route).not.toMatch(/pay_basis_not_supported/);
+    expect(readFileSync("src/app/api/hr/classification-rules/route.js", "utf8")).toMatch(/Employees are paid a monthly salary/);
+    expect(EMPLOYMENT_TYPE_OPTIONS).toEqual(["Full-time"]);
   });
 });
