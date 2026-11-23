@@ -73,7 +73,8 @@ describe("attendance flags (Part E step 2)", () => {
   });
   it("the nightly job skips Admin / Super Admin and device-problem branch-days, and does nothing while paused", () => {
     const sql = readFileSync("supabase/migrations/20261124020000_attendance_flags.sql", "utf8");
-    expect(sql).toMatch(/IF public\.automation_paused\(\) THEN RETURN/);
+    // Paused when everything is paused or this module is (automation_off).
+    expect(sql).toMatch(/IF public\.automation_off\('attendance_flags'\) THEN RETURN/);
     expect(sql).toMatch(/lower\(p\.role::TEXT\) IN \('employee', 'accountant', 'hr'\)/);
     expect(sql).toMatch(/d\.branch_id NOT IN \(SELECT branch_id FROM gap\)/);
   });
