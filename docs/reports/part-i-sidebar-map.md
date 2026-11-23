@@ -9,7 +9,7 @@ Rules (from the Part I request):
 - filters are kept per tab;
 - permissions are unchanged and no feature is removed.
 
-Nothing is built until this map is approved. After approval, the Accountant moves first.
+Built 2026-11-23 (approved). Changes since this map was first drawn: the Admin has 5 items (Payroll summary, Branch reports and Pay rates are Dashboard tabs); "Leave & Overtime" is "My Requests" (Leave · Half day · Overtime · Attendance correction) and the old "My Requests" money list is "Loans & Other Pay"; Additional Pay holds Incentives, Overload, Honorarium, Bonus and Adjustments; Special working days are on HR's Attendance > Holidays & Duty.
 
 **Flags** mark the points that need a decision:
 - **DUP**: two pages that may duplicate each other;
@@ -49,17 +49,17 @@ Nothing is built until this map is approved. After approval, the Accountant move
 - **MISFIT B, Work Schedules:** defining schedules is not listed. Proposal: an Attendance tab.
 - **Branch Requests:** today one mixed list. Its items split by kind into the matching Approvals and Attendance tabs; nothing is lost.
 
-## Branch Admin: 16 items → 5 (+1, see C)
+## Branch Admin: 16 items → 5
 
 | New item | Tabs (current page id) |
 |---|---|
-| Dashboard | Overview (`adm-dashboard`) · Announcements (`adm-announcements`) |
+| Dashboard | Overview (`adm-dashboard`) · Announcements (`adm-announcements`) · Payroll summary (`adm-payroll`) · Branch reports (`adm-branch-reports`) · Pay rates (`adm-pay-rates`) |
 | Branch Attendance | Attendance (`adm-attendance`) |
 | Branch Review (one check list) | Leave (`adm-leaves`) · Overtime & Substitute (`adm-overtime`) · Transfers (`adm-transfers`) · Incentives (`adm-incentives`) · Schedules (`adm-schedules`) |
 | Incidents & RFID | Incident & AWOL reports (`adm-incidents`) · RFID issues (`adm-rfid-issues`) · RFID terminal & cards (`adm-maintenance`) |
 | My Account | Profile (`adm-profile`) |
 
-- **MISFIT C:** Payroll Summary (`adm-payroll`), Branch Reports (`adm-branch-reports`) and Pay Rates (`adm-pay-rates`) are not in the 5. Proposal: a sixth item, **Branch Reports** (Payroll summary · Branch reports · Pay rates). Alternatively they become Dashboard tabs and the count stays at 5.
+- **Built:** Payroll Summary (`adm-payroll`), Branch Reports (`adm-branch-reports`) and Pay Rates (`adm-pay-rates`) are Dashboard tabs, so the Admin keeps 5 items.
 
 ## Employee: 8 items → 6
 

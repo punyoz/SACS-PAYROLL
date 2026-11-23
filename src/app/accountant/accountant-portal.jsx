@@ -76,7 +76,8 @@ const NAV = [
         { id: "ac-approvals", label: "Subsidies", module: "payroll_approvals" },
       ] },
       { id: "ac-incentives", label: "Additional Pay", icon: StarIcon, tabs: [
-        { id: "ac-incentives", label: "Incentives & Overload", module: "process_payroll" },
+        // Incentives, overload, honorarium, bonus and adjustments (2026-11-23): one form, one list.
+        { id: "ac-incentives", label: "Incentives, honorarium, bonus & adjustments", module: "process_payroll" },
       ] },
       { id: "ac-13th", label: "13th Month & Final Pay", icon: CalendarIcon, tabs: [
         { id: "ac-13th", label: "13th month", module: "process_payroll" },
