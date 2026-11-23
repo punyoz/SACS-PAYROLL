@@ -90,3 +90,31 @@ describe("backup column lists (Batch 3 fields)", () => {
     expect(line("automation_actions")).toContain("rule:text");
   });
 });
+
+describe("RFID issues (Part E step 7)", () => {
+  it("flags only (no automatic fixes), once per issue, paused with its module, nightly", () => {
+    const sql = readFileSync("supabase/migrations/20261124090000_rfid_issues.sql", "utf8");
+    expect(sql).toMatch(/IF public\.automation_off\('rfid_issues'\) THEN RETURN/);
+    expect(sql).toMatch(/\('rfid_offline_cutoff', '09:00'\)/);
+    expect(sql).not.toMatch(/UPDATE public\.rfid_cards/);
+    expect(sql).toMatch(/cron\.schedule\('automation-rfid-issues'/);
+  });
+});
+
+describe("incident tracking (Part E step 8)", () => {
+  it("incidents and RFID reports are tracked until HR decides; a no-show is tracked in AWOL Cases", async () => {
+    const { trackingFor } = await import("@/lib/automation/incident-tracking");
+    expect(trackingFor("incident_report", { employee_name: "Ana", incident_type_label: "Misconduct", incident_date: "2026-11-20" }).summary)
+      .toBe("Incident report, Ana: Misconduct on 2026-11-20. HR handles and closes it.");
+    expect(trackingFor("rfid_issue", { issue_type_label: "Reader not working", device: "Main gate" }).summary).toMatch(/Reader not working \(Main gate\)/);
+    expect(trackingFor("incident_report", {}, { routedElsewhere: true })).toBeNull();
+    expect(trackingFor("schedule_request", {})).toBeNull();
+    expect(readFileSync("src/app/api/hr/branch-requests/route.js", "utf8")).toMatch(/closeBranchReport\(supabase, row\.id/);
+  });
+  it("a lost-card report blocks the card at once (reversible deactivate, logged by System)", () => {
+    const route = readFileSync("src/app/api/admin/branch-oversight/route.js", "utf8");
+    expect(route).toMatch(/details\.issue_type === "lost_card" && employeeId/);
+    expect(route).toMatch(/p_action: "deactivate"/);
+    expect(route).not.toMatch(/p_action: "mark_lost"/);
+  });
+});

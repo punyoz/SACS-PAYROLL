@@ -85,7 +85,7 @@ export function RfidIssuesPage({ refreshKey }) {
       kind="rfid_issue"
       icon={CreditCardIcon}
       title="RFID issue reports"
-      description="Report a lost, broken or malfunctioning card or reader. HR or the Super Admin fixes it and marks it Resolved."
+      description="Report a lost, broken or malfunctioning card or reader. A card reported lost is blocked at once (HR can reactivate or replace it). HR or the Super Admin fixes it and marks it Resolved."
       buttonLabel="Report an issue"
       initial={{ issue_type: "lost_card" }}
       fields={[

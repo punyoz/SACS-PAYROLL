@@ -26,6 +26,8 @@ import { recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
+import { invalidateUsersCache } from "@/lib/auth/users-cache";
+import { trackBranchReport } from "@/lib/automation/incident-tracking";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -737,6 +739,16 @@ export async function POST(request) {
       saved = inserted.data;
     }
 
+    // Part E step 7 (safe fix): a card reported lost is blocked at once (deactivated, so HR can
+    // reactivate it or replace the card), logged "by System". Never fails the report.
+    let blocked = [];
+    if (kind === "rfid_issue" && details.issue_type === "lost_card" && employeeId) {
+      blocked = await blockReportedLostCards(supabase, guard, { employeeId, branchId, requestId: saved?.id, name: details.employee_name });
+    }
+
+    // Part E step 8: tracked for HR until decided (a no-show is tracked in AWOL Cases).
+    if (saved) await trackBranchReport(supabase, saved, { routedElsewhere: Boolean(outcomeRef) });
+
     const label = REQUEST_KINDS[kind].label;
     const subject = details.employee_name ? ` · ${details.employee_name}` : "";
     const recipients = [...await hrAccountIds(supabase), ...(kind === "rfid_issue" ? await superAdminIds(supabase) : [])];
@@ -751,8 +763,30 @@ export async function POST(request) {
       status: "success", source: "api", description: `${label}${subject}: ${STATUS_LABELS[status]} (${note}).`,
       metadata: { kind, ref_id: refId, employee_id: employeeId, status, outcome_ref: outcomeRef },
     });
-    return NextResponse.json({ success: true, request: shapeRequest(saved) });
+    return NextResponse.json({ success: true, request: shapeRequest(saved), cards_blocked: blocked.length });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
+}
+
+/** Deactivate the employee's active card(s) after a lost-card report, logged for HR. */
+async function blockReportedLostCards(supabase, guard, { employeeId, branchId, requestId, name }) {
+  const done = [];
+  try {
+    const { data: cards } = await supabase.from("rfid_cards").select("id,uid_last4").eq("employee_id", employeeId).eq("status", "active");
+    for (const card of cards || []) {
+      const res = await supabase.rpc("rfid_card_set_status", { p_actor: guard.userId, p_card: card.id, p_action: "deactivate",
+        p_reason: "Reported lost by the branch Admin: blocked automatically until HR replaces or reactivates it" });
+      if (res.error) continue;
+      done.push(card.id);
+      await supabase.rpc("automation_log", {
+        p_module: "rfid_issues", p_rule: "a card reported lost is blocked at once", p_kind: "applied",
+        p_summary: `${name || "Employee"}'s card ••••${card.uid_last4 || ""} was blocked after the lost-card report. Undo: reactivate it in RFID Cards, or replace the card.`,
+        p_data: { code: "lost_card_blocked", card_id: card.id, request_id: requestId || null },
+        p_employee: employeeId, p_branch: branchId, p_entity_type: "rfid_card", p_entity_id: String(card.id),
+      });
+    }
+    if (done.length) invalidateUsersCache();
+  } catch { /* the report is saved; HR blocks it by hand */ }
+  return done;
 }

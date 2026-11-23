@@ -26,6 +26,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { DECISION_STATUS, REQUEST_KINDS, STATUS_LABELS, historyEntry, shapeRequest } from "@/lib/branch-requests";
+import { closeBranchReport } from "@/lib/automation/incident-tracking";
 import { notify } from "@/lib/branch-requests-server";
 import { textLimitError } from "@/lib/input-limits";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
@@ -150,6 +151,7 @@ export async function PATCH(request) {
     }).eq("id", row.id).eq("status", "pending").select("*").maybeSingle();
     if (updated.error) return NextResponse.json({ error: sanitizeError(updated.error) }, { status: 400 });
     if (!updated.data) return NextResponse.json({ error: "Already decided." }, { status: 409 });
+    await closeBranchReport(supabase, row.id, `${STATUS_LABELS[status]} by ${actorName}`);
 
     const label = REQUEST_KINDS[row.kind].label;
     const subject = row.details?.employee_name ? ` · ${row.details.employee_name}` : "";
