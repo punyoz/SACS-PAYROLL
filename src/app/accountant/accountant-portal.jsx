@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/portal/app-shell";
 import { PasswordGate } from "@/components/portal/password-gate";
-import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountGroup, myPageKind } from "@/components/portal/my-account";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MyAccountScreen, myAccountItem, myPageKind } from "@/components/portal/my-account";
+import { navPages } from "@/lib/portal/nav-tabs";
 import { NOT_FOUND_PAGE, PortalSessionProvider, usePersistedPage, usePortalSession } from "@/components/portal/session";
 import { StaffProfilePage } from "@/components/portal/staff-profile";
 import { AnnouncementsFeed } from "@/components/portal/announcements";
@@ -56,55 +57,59 @@ const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.Das
  * Incentives, Cash Advances and 13th Month are part of Process Payroll.
  */
 const NAV = [
-  { section: "Overview", items: [{ id: "ac-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
-  // Work pages in collapsible groups (2026-11-09 Part E); no page renamed or lost.
+  // Part I (2026-11-23): one item per module, a tab per page (each tab keeps its page id, permission and filters).
+  { section: "Overview", items: [{ id: "ac-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, tabs: [
+    { id: "ac-dashboard", label: "Overview", module: "dashboard" },
+    { id: "ac-announcements", label: "Announcements", module: "announcements" },
+  ] }] },
   {
     section: "Payroll",
-    collapsible: true,
     items: [
       { id: "ac-process", label: "Process Payroll", icon: CalculatorIcon, module: "process_payroll" },
-      { id: "ac-records", label: "Payroll Records", icon: TableIcon, module: "payroll_records" },
-      { id: "ac-payslips", label: "Payslips", icon: ReceiptTextIcon, module: "payslips" },
-      { id: "ac-loans", label: "Loans", icon: HandCoinsIcon, module: "loans" },
-      { id: "ac-incentives", label: "Incentives & Overload", icon: StarIcon, module: "process_payroll" },
-      { id: "ac-cash-advances", label: "Cash Advances", icon: BanknoteIcon, module: "process_payroll" },
-      { id: "ac-13th", label: "13th month pay", icon: CalendarIcon, module: "process_payroll" },
-      { id: "ac-approvals", label: "Subsidies", icon: ClipboardCheckIcon, module: "payroll_approvals" },
-      { id: "ac-final-pay", label: "Final Pay", icon: UserMinusIcon, module: "process_payroll" },
+      { id: "ac-payslips", label: "Payroll Records", icon: TableIcon, tabs: [
+        { id: "ac-payslips", label: "Payslips", module: "payslips" },
+        { id: "ac-records", label: "Payroll runs", module: "payroll_records" },
+      ] },
+      { id: "ac-loans", label: "Loans & Subsidies", icon: HandCoinsIcon, tabs: [
+        { id: "ac-loans", label: "Loans", module: "loans" },
+        { id: "ac-cash-advances", label: "Cash advances", module: "process_payroll" },
+        { id: "ac-approvals", label: "Subsidies", module: "payroll_approvals" },
+      ] },
+      { id: "ac-incentives", label: "Additional Pay", icon: StarIcon, tabs: [
+        // Incentives, overload, honorarium, bonus and adjustments (2026-11-23): one form, one list.
+        { id: "ac-incentives", label: "Incentives, honorarium, bonus & adjustments", module: "process_payroll" },
+      ] },
+      { id: "ac-13th", label: "13th Month & Final Pay", icon: CalendarIcon, tabs: [
+        { id: "ac-13th", label: "13th month", module: "process_payroll" },
+        { id: "ac-final-pay", label: "Final pay", module: "process_payroll" },
+      ] },
+      { id: "ac-attendance", label: "Attendance", icon: CalendarCheckIcon, tabs: [
+        { id: "ac-attendance", label: "Records", module: "attendance" },
+        { id: "ac-holidays", label: "Holidays & Duty", module: "attendance" },
+      ] },
+      { id: "ac-monitoring", label: "Reports", icon: FileTextIcon, tabs: [
+        { id: "ac-monitoring", label: "Payroll monitoring", module: "payroll_monitoring" },
+        { id: "ac-reports", label: "Payroll reports", module: "payroll_reports" },
+        // Read-only (2026-10-26): to check and explain each deduction.
+        { id: "ac-gov-rates", label: "Government rates", module: "government_rates" },
+      ] },
     ],
   },
-  {
-    section: "Attendance",
-    collapsible: true,
-    items: [
-      { id: "ac-attendance", label: "View Attendance", icon: CalendarCheckIcon, module: "attendance" },
-      { id: "ac-holidays", label: "Holidays & Duty", icon: CalendarHeartIcon, module: "attendance" },
-    ],
-  },
-  {
-    section: "Reports",
-    collapsible: true,
-    items: [
-      { id: "ac-monitoring", label: "Payroll Monitoring", icon: ActivityIcon, module: "payroll_monitoring" },
-      { id: "ac-reports", label: "Payroll Reports", icon: FileTextIcon, module: "payroll_reports" },
-    ],
-  },
-  {
-    section: "Settings",
-    collapsible: true,
-    items: [
-      // Read-only (2026-10-26): to check and explain each deduction.
-      { id: "ac-gov-rates", label: "Government Rates", icon: LandmarkIcon, module: "government_rates" },
-      { id: "ac-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
-    ],
-  },
-  // The Accountant is an employee too: its own pages, below the work groups.
-  myAccountGroup("ac"),
+  // The Accountant is an employee too: its own pages in one item.
+  myAccountItem("ac"),
 ];
 
-const NAV_ITEMS = NAV.flatMap((group) => group.items);
+const NAV_ITEMS = navPages(NAV);
 const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
-const TITLES = { ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])), "ac-payslips": "Pay Record", "ac-attendance": "Attendance Records", "ac-profile": "My Profile" };
+// Page titles stay as before (the tab labels are shorter).
+const TITLES = {
+  ...Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label])),
+  "ac-dashboard": "Dashboard", "ac-announcements": "Announcements", "ac-records": "Payroll Records", "ac-payslips": "Pay Record",
+  "ac-loans": "Loans", "ac-cash-advances": "Cash Advances", "ac-approvals": "Subsidies", "ac-13th": "13th month pay", "ac-final-pay": "Final Pay",
+  "ac-attendance": "Attendance Records", "ac-holidays": "Holidays & Duty", "ac-monitoring": "Payroll Monitoring", "ac-reports": "Payroll Reports",
+  "ac-gov-rates": "Government Rates", "ac-my-attendance": "My Attendance", "ac-my-timesheet": "My Timesheet", "ac-my-payslips": "My Payslips",
+  "ac-my-leave": "My Requests", "ac-my-requests": "Loans & Other Pay", "ac-profile": "My Profile",
+};
 const DESCRIPTIONS = {
   "ac-dashboard": "Payroll overview and activity summary for the current period.",
   "ac-announcements": "Announcements for the whole school and for your branch.",

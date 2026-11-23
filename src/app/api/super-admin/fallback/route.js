@@ -15,6 +15,8 @@
  *
  * fallback_approvals: Super Admin only (src/lib/rbac/permissions.js).
  */
+import { afterLeaveDecision } from "@/lib/automation/leave-recommendations";
+import { decideCorrectionRequest } from "@/lib/attendance/correction-requests-server";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -51,7 +53,8 @@ export async function POST(request) {
     if (!["approve", "reject"].includes(action) || !UUID.test(id)) return NextResponse.json({ error: "Send action (approve or reject), item_type and id." }, { status: 400 });
     const supabase = getServiceClient();
     // Part H: a preset remark (required to reject), audited with the decision on the item's own table.
-    const TARGET = { leave_request: ["leave_request", "leave_requests", "leave"], payroll_run: ["payroll_run", "payroll_runs", "payroll"], final_pay: ["final_pay", "payroll_final_pay_submissions", "payroll"] }[type];
+    const TARGET = { leave_request: ["leave_request", "leave_requests", "leave"], payroll_run: ["payroll_run", "payroll_runs", "payroll"], final_pay: ["final_pay", "payroll_final_pay_submissions", "payroll"],
+      overtime_request: ["overtime_request", "overtime_requests", "attendance"], attendance_correction: ["attendance_correction", "attendance_corrections", "attendance"] }[type];
     if (!TARGET) return NextResponse.json({ error: "Unknown item type." }, { status: 400 });
     const remark = await resolveRemark(supabase, body.remark, { decision: action, entityType: TARGET[0], fallbackText: body.reason });
     if (remark.error) return NextResponse.json({ error: remark.error, code: "remark_invalid" }, { status: 400 });
@@ -76,6 +79,7 @@ export async function POST(request) {
       if (result.conflict) return NextResponse.json({ error: "This leave request was already decided. Refresh to see it." }, { status: 409 });
       // Over the yearly paid balance: the extra days become without pay (re-checked at approval).
       if (action === "approve") await applyBalanceSplit(id);
+      await afterLeaveDecision(supabase, current, action);
     } else if (type === "payroll_run") {
       const rpc = action === "approve"
         ? await decider.rpc("approve_payroll_run", { p_run_id: id, p_actor: guard.userId, p_remarks: reason || "Approved by the Super Admin as the fallback (no other HR is active)." })
@@ -86,10 +90,20 @@ export async function POST(request) {
       const rpc = await decider.rpc("payroll_final_pay_decide", { p_actor: guard.userId, p_id: id, p_action: action, p_reason: reason || null });
       if (rpc.error) { const failure = describeDecideError(rpc.error); return NextResponse.json(failure, { status: failure.status }); }
       if (row) await notifyFinalPayDecision(supabase, notify, row, action, reason);
+    } else if (type === "overtime_request") {
+      const upd = await decider.from("overtime_requests").update({ status: decided, decided_by: guard.userId, decided_by_name: actorName, decided_at: new Date().toISOString(), decision_note: reason || null })
+        .eq("id", id).eq("status", "pending").select("id");
+      if (upd.error) throw upd.error;
+      if (!(upd.data || []).length) return NextResponse.json({ error: "This overtime request was already decided. Refresh to see it." }, { status: 409 });
+    } else if (type === "attendance_correction") {
+      const row = (await supabase.from("attendance_corrections").select("*").eq("id", id).maybeSingle()).data;
+      if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const res = await decideCorrectionRequest(supabase, guard, row, { decision: action, remark: body.remark, note: body.reason }, { fallback: true });
+      if (res.status !== 200) return res;
     } else {
       return NextResponse.json({ error: "Unknown item type." }, { status: 400 });
     }
-    await recordFallback(supabase, { actor: guard, ownerId: item.owner_id, ownerName: item.owner_name, itemType: type, itemId: id, what: { leave_request: "leave request", payroll_run: "payroll run", final_pay: "final pay" }[type], decided });
+    await recordFallback(supabase, { actor: guard, ownerId: item.owner_id, ownerName: item.owner_name, itemType: type, itemId: id, what: { leave_request: "leave request", payroll_run: "payroll run", final_pay: "final pay", overtime_request: "overtime request", attendance_correction: "attendance correction request" }[type], decided });
     return NextResponse.json({ success: true, decided, remaining: (await loadFallbackItems(supabase)).counts });
   } catch (error) {
     const routed = routingErrorResponse(error);

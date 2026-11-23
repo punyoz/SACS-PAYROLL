@@ -1,3 +1,4 @@
+import { correctionEvidence, correctionUsage, decideCorrectionRequest, fileCorrectionRequest } from "@/lib/attendance/correction-requests-server";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -40,7 +41,7 @@ const TEXT_CAPS = { reason: [500, "The reason"], note: [500, "The note"] };
  * code allowed to set a status by hand.
  */
 
-const COLUMNS = "id,log_id,employee_id,employee_name,branch_id,log_date,original_status,original_time_in,original_time_out,corrected_time_out,reason,requested_at,status,resolution,approved_by,approved_by_name,approved_at,review_note";
+const COLUMNS = "id,log_id,employee_id,employee_name,branch_id,log_date,original_status,original_time_in,original_time_out,corrected_time_out,reason,requested_at,status,resolution,approved_by,approved_by_name,approved_at,review_note,corrected_time_in,correction_type,fix_type,reason_code,attachment_path,pay_effect,pay_correction_id";
 
 /** Messages raised by the database functions are written for people; others are not. */
 function rpcFailure(error, fallback) {
@@ -70,6 +71,17 @@ export async function GET(request) {
     const url = new URL(request.url);
     const status = normalizeText(url.searchParams.get("status"), "pending").toLowerCase();
     const supabase = getAdminClient();
+
+    // Attendance correction requests (2026-11-23): "2 of 5 used" for the caller; the evidence for HR / the Admin.
+    if (url.searchParams.get("usage") === "1") return await correctionUsage(supabase, guard, url.searchParams.get("date"));
+    const evidenceId = normalizeText(url.searchParams.get("evidence"));
+    if (evidenceId) {
+      if (guard.scope === SCOPE_SELF) return NextResponse.json({ error: "HR and the branch Admin see the evidence." }, { status: 403 });
+      const { data: row } = await supabase.from("attendance_corrections").select(COLUMNS).eq("id", evidenceId).maybeSingle();
+      if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      if (guard.scope === SCOPE_BRANCH && String(row.branch_id) !== String(guard.branchId)) return NextResponse.json({ error: "That request belongs to another branch." }, { status: 403 });
+      return NextResponse.json({ correction: row, evidence: await correctionEvidence(supabase, row) });
+    }
 
     const build = () => {
       let query = supabase
@@ -105,6 +117,8 @@ export async function POST(request) {
 
   try {
     const body = await request.json().catch(() => ({}));
+    // An attendance correction request (2026-11-23): what to fix, the time(s), a preset reason, an attachment.
+    if (body.fix_type) return await fileCorrectionRequest(getAdminClient(), guard, body);
     // Over-long text is refused, not cut short (input limits).
     const tooLong = textLimitError(body, TEXT_CAPS);
     if (tooLong) return NextResponse.json({ error: tooLong }, { status: 400 });
@@ -464,6 +478,12 @@ export async function PATCH(request) {
     const resolution = normalizeText(body.resolution, "incomplete").toLowerCase();
 
     if (!correctionId) return NextResponse.json({ error: "correction_id is required." }, { status: 400 });
+    {
+      // A request filed with the new form (fix_type): HR decides it, with the pay difference.
+      const supabaseV2 = getAdminClient();
+      const { data: rowV2 } = await supabaseV2.from("attendance_corrections").select(COLUMNS).eq("id", correctionId).maybeSingle();
+      if (rowV2?.fix_type) return await decideCorrectionRequest(supabaseV2, guard, rowV2, body);
+    }
     if (decision !== "approve" && decision !== "reject") {
       return NextResponse.json({ error: "Decision must be approve or reject." }, { status: 400 });
     }

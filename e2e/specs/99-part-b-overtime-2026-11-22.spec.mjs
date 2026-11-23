@@ -14,6 +14,7 @@ import { as } from "../support/auth.mjs";
 import { main, settle } from "../support/portal.mjs";
 import { api, choose, manilaDay, pickDate, newRequest, requestTab } from "../support/flow.mjs";
 import { db, rows, psql, profileByEmail } from "../support/db.mjs";
+import { ACCOUNTS } from "../accounts.mjs";
 
 const OUT = join(process.cwd(), "screenshots", "2026-11-22-part-b");
 mkdirSync(OUT, { recursive: true });
@@ -41,6 +42,10 @@ test.afterAll(() => {
 test("employee files, cancels; duplicates and over-limit refused; HR approves and rejects", async ({ page }) => {
   const date = weekdayFrom(3);
   const other = weekdayFrom(5) === date ? weekdayFrom(6) : weekdayFrom(5);
+  // Start clean on both days: another spec may have left Bea an open request on one of them
+  // (one open request per day is a rule; 2026-11-24 full run: 99-leave-overtime used Nov 30).
+  const bea0 = await profileByEmail(ACCOUNTS.employee2.email);
+  await db().from("overtime_requests").delete().eq("employee_id", bea0.id).in("request_date", [date, other]);
 
   await as(page, "employee2", "emp-leave");
   await settle(page);
@@ -68,7 +73,7 @@ test("employee files, cancels; duplicates and over-limit refused; HR approves an
 
   // Cancel a pending one.
   const second = await api(page, "POST", BASE, { request_date: other, planned_start: "17:00", planned_end: "18:00", reason: "E2E part B: to cancel" });
-  expect(second.status).toBe(201);
+  expect(second.status, JSON.stringify(second.data)).toBe(201);
   await page.reload();
   await settle(page);
   await requestTab(page, "Overtime");

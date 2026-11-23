@@ -1,3 +1,4 @@
+import { logLeaveRecommendation } from "@/lib/automation/leave-recommendations";
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { sanitizeError } from "@/lib/api-error";
@@ -300,6 +301,8 @@ export async function POST(request) {
         });
       }
     } catch { /* the request is saved either way */ }
+    // Part E step 4: the system fills the branch Admin's recommendation (never fails the filing).
+    if (saved?.id) await logLeaveRecommendation(getServiceClient(), { ...saved, employee_id: saved.employee_id || newRequest.employee_id }).catch(() => null);
     return NextResponse.json({ success: true, request: saved }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });

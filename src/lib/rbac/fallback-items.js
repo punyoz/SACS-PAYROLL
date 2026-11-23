@@ -4,7 +4,7 @@
  * "Pending actions" card (a real count, never a hard-coded 0).
  */
 import { readAllLeaveRequests } from "@/lib/leave-requests/store";
-import { activeHrIds } from "@/lib/rbac/routing";
+import { activeHrIds, coveringHr } from "@/lib/rbac/routing";
 import { shapeRun } from "@/lib/payroll/runs";
 import { fetchAllIn } from "@/lib/supabase/fetch-all";
 
@@ -18,16 +18,40 @@ export async function loadFallbackItems(supabase) {
   // An HR's own pending leave, when no OTHER HR is active.
   const pending = await readAllLeaveRequests({ statuses: PENDING_LEAVE });
   if (pending.length) {
-    const owners = await supabase.from("profiles").select("id,role,full_name").in("id", [...new Set(pending.map((r) => r.employee_id))].slice(0, 500));
+    const owners = await supabase.from("profiles").select("id,role,full_name,branch_id").in("id", [...new Set(pending.map((r) => r.employee_id))].slice(0, 500));
     const hrOwners = new Map((owners.data || []).filter((p) => p.role === "hr").map((p) => [p.id, p]));
     for (const row of pending) {
       if (!hrOwners.has(row.employee_id)) continue;
-      if (hr.some((id) => id !== row.employee_id)) continue;
+      // Another HR who covers their branch decides it (2026-11-23).
+      if ((await coveringHr(supabase, { branchId: hrOwners.get(row.employee_id).branch_id, exceptId: row.employee_id })).length) continue;
       items.push({
         item_type: "leave_request", id: row.id, title: `Leave request · ${row.employee_name || hrOwners.get(row.employee_id)?.full_name}`,
         detail: `${row.leave_type || "Leave"}, ${row.start_date} to ${row.end_date}`, owner_name: row.employee_name, owner_id: row.employee_id,
         submitted_at: row.submitted_at, reason: "No other HR account is active.",
       });
+    }
+  }
+
+  // An HR's own overtime request or attendance correction request (2026-11-23), when no other HR covers their branch.
+  const hrProfiles = (await supabase.from("profiles").select("id,full_name,branch_id").eq("role", "hr").eq("archived", false)).data || [];
+  const hrById = new Map(hrProfiles.map((p) => [p.id, p]));
+  if (hrById.size) {
+    const ids = [...hrById.keys()];
+    const [ot, corr] = await Promise.all([
+      fetchAllIn(() => supabase.from("overtime_requests").select("id,employee_id,request_date,planned_start,planned_end,created_at").eq("status", "pending").order("id"), "employee_id", ids),
+      fetchAllIn(() => supabase.from("attendance_corrections").select("id,employee_id,log_date,fix_type,requested_at").eq("status", "pending").not("fix_type", "is", null).order("id"), "employee_id", ids),
+    ]);
+    for (const row of ot.data || []) {
+      const owner = hrById.get(row.employee_id);
+      if ((await coveringHr(supabase, { branchId: owner.branch_id, exceptId: owner.id })).length) continue;
+      items.push({ item_type: "overtime_request", id: row.id, title: `Overtime request · ${owner.full_name}`, detail: `${row.request_date}, ${row.planned_start}-${row.planned_end}`,
+        owner_name: owner.full_name, owner_id: owner.id, submitted_at: row.created_at, reason: "No other HR officer covers their branch." });
+    }
+    for (const row of corr.data || []) {
+      const owner = hrById.get(row.employee_id);
+      if ((await coveringHr(supabase, { branchId: owner.branch_id, exceptId: owner.id })).length) continue;
+      items.push({ item_type: "attendance_correction", id: row.id, title: `Attendance correction request · ${owner.full_name}`, detail: `${String(row.log_date).slice(0, 10)} (${row.fix_type.replace(/_/g, " ")})`,
+        owner_name: owner.full_name, owner_id: owner.id, submitted_at: row.requested_at, reason: "No other HR officer covers their branch." });
     }
   }
 
@@ -63,7 +87,8 @@ export async function loadFallbackItems(supabase) {
     }
   }
   items.sort((a, b) => String(a.submitted_at || "").localeCompare(String(b.submitted_at || "")));
-  const counts = { leave: items.filter((i) => i.item_type === "leave_request").length, payroll_run: items.filter((i) => i.item_type === "payroll_run").length, final_pay: items.filter((i) => i.item_type === "final_pay").length };
+  const counts = { leave: items.filter((i) => i.item_type === "leave_request").length, payroll_run: items.filter((i) => i.item_type === "payroll_run").length, final_pay: items.filter((i) => i.item_type === "final_pay").length,
+    overtime: items.filter((i) => i.item_type === "overtime_request").length, attendance_correction: items.filter((i) => i.item_type === "attendance_correction").length };
   return { items, counts: { ...counts, total: items.length } };
 }
 

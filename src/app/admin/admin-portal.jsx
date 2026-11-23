@@ -34,6 +34,7 @@ import { IncentiveEndorsementsPage, IncidentReportsPage, OvertimeConfirmationsPa
 import { AnnouncementsPage, PayrollSummaryPage } from "./branch-pages";
 import { DashboardPage } from "./dashboard-page";
 import { PayRatesPanel } from "@/components/portal/pay-rates";
+import { navPages } from "@/lib/portal/nav-tabs";
 
 const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m) => m.BranchReportsPage), { loading: PageSkeleton });
 
@@ -45,52 +46,47 @@ const BranchReportsPage = dynamic(() => import("./branch-reports-page").then((m)
  * decisions or system settings. `module` is the permission each page needs
  * (src/lib/rbac/permissions.js).
  */
-// Collapsible groups as HR's and the Super Admin's (decision 2026-11-14); same items, order and routes.
+// Part I (2026-11-23): five items, a tab per page; same page ids and routes. The branch's payroll summary, reports and pay rates are Dashboard tabs.
+const BO = "branch_oversight";
 const NAV = [
-  { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "branch_oversight" }] },
-  {
-    section: "Attendance",
-    collapsible: true,
-    items: [
-      { id: "adm-attendance", label: "Branch Attendance", icon: CalendarCheckIcon, module: "branch_oversight" },
-      { id: "adm-overtime", label: "Overtime & Substitute", icon: ClockIcon, module: "branch_oversight" },
-    ],
-  },
-  {
-    section: "Recommendations",
-    collapsible: true,
-    items: [
-      { id: "adm-leaves", label: "Leave Recommendations", icon: CalendarDaysIcon, module: "branch_oversight" },
-      { id: "adm-transfers", label: "Transfer Endorsements", icon: ArrowLeftRightIcon, module: "branch_oversight" },
-      { id: "adm-incentives", label: "Incentive Recommendations", icon: StarIcon, module: "branch_oversight" },
-      { id: "adm-schedules", label: "Schedule Requests", icon: CalendarClockIcon, module: "branch_oversight" },
-    ],
-  },
-  {
-    section: "Reports to HR",
-    collapsible: true,
-    items: [
-      { id: "adm-incidents", label: "Incident & AWOL Reports", icon: SirenIcon, module: "branch_oversight" },
-      { id: "adm-rfid-issues", label: "RFID Issues", icon: CreditCardIcon, module: "branch_oversight" },
-    ],
-  },
+  { section: "Overview", items: [{ id: "adm-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, tabs: [
+    { id: "adm-dashboard", label: "Overview", module: BO },
+    { id: "adm-announcements", label: "Announcements", module: "announcements" },
+    { id: "adm-payroll", label: "Payroll summary", module: "branch_reports" },
+    { id: "adm-branch-reports", label: "Branch reports", module: "branch_reports" },
+    { id: "adm-pay-rates", label: "Pay rates", module: "pay_rates" },
+  ] }] },
   {
     section: "Branch",
-    collapsible: true,
     items: [
-      { id: "adm-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
-      { id: "adm-payroll", label: "Payroll Summary", icon: BanknoteIcon, module: "branch_reports" },
-      { id: "adm-branch-reports", label: "Branch Reports", icon: TrendingUpIcon, module: "branch_reports" },
-      { id: "adm-pay-rates", label: "Pay Rates", icon: CoinsIcon, module: "pay_rates" },
+      { id: "adm-attendance", label: "Branch Attendance", icon: CalendarCheckIcon, module: BO },
+      // One check list: everything the Admin endorses or confirms before HR decides.
+      { id: "adm-leaves", label: "Branch Review", icon: CalendarDaysIcon, tabs: [
+        { id: "adm-leaves", label: "Leave", module: BO },
+        { id: "adm-overtime", label: "Overtime & Substitute", module: BO },
+        { id: "adm-transfers", label: "Transfers", module: BO },
+        { id: "adm-incentives", label: "Incentives", module: BO },
+        { id: "adm-schedules", label: "Schedules", module: BO },
+      ] },
+      { id: "adm-incidents", label: "Incidents & RFID", icon: SirenIcon, tabs: [
+        { id: "adm-incidents", label: "Incident & AWOL reports", module: BO },
+        { id: "adm-rfid-issues", label: "RFID issues", module: BO },
+        { id: "adm-maintenance", label: "RFID terminal & cards", module: "system_maintenance" },
+      ] },
     ],
   },
-  { section: "RFID", collapsible: true, items: [{ id: "adm-maintenance", label: "RFID Terminal & Cards", icon: RadioTowerIcon, module: "system_maintenance" }] },
-  { section: "My Account", collapsible: true, items: [{ id: "adm-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  { section: "My Account", items: [{ id: "adm-profile", label: "My Account", icon: UserRoundIcon, module: "profile" }] },
 ];
 
-const NAV_ITEMS = NAV.flatMap((group) => group.items);
+const NAV_ITEMS = navPages(NAV);
 const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
-const TITLES = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label]));
+// Page titles stay as before (the tab labels are shorter).
+const TITLES = {
+  "adm-dashboard": "Dashboard", "adm-announcements": "Announcements", "adm-attendance": "Branch Attendance", "adm-overtime": "Overtime & Substitute",
+  "adm-leaves": "Leave Recommendations", "adm-transfers": "Transfer Endorsements", "adm-incentives": "Incentive Recommendations", "adm-schedules": "Schedule Requests",
+  "adm-incidents": "Incident & AWOL Reports", "adm-rfid-issues": "RFID Issues", "adm-maintenance": "RFID Terminal & Cards", "adm-payroll": "Payroll Summary",
+  "adm-branch-reports": "Branch Reports", "adm-pay-rates": "Pay Rates", "adm-profile": "Profile",
+};
 
 const DESCRIPTIONS = {
   "adm-dashboard": "Today's attendance, pending leave, headcount and recent activity for your branch.",

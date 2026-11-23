@@ -17,6 +17,8 @@ const slowMo = Number(process.env.E2E_SLOWMO ?? (headless ? 0 : 500));
 const DESKTOP = { width: 1280, height: 800 };
 const PHONE = { width: 390, height: 844 };
 
+const ARTIFACTS = process.env.E2E_ARTIFACTS === "failures" ? "retain-on-failure" : "on";
+
 export default defineConfig({
   testDir: "./e2e/specs",
   outputDir: "./test-results/artifacts",
@@ -39,8 +41,9 @@ export default defineConfig({
     // The full Chromium build (also for headless), not the separate headless shell.
     channel: "chromium",
     launchOptions: { slowMo },
-    video: { mode: "on", size: DESKTOP },
-    trace: "on",
+    // E2E_ARTIFACTS=failures keeps videos and traces only for failed tests (a full run with "on" is ~13 GB).
+    video: { mode: ARTIFACTS, size: DESKTOP },
+    trace: ARTIFACTS,
     screenshot: "only-on-failure",
     actionTimeout: 20000,
     navigationTimeout: 60000,
@@ -54,7 +57,7 @@ export default defineConfig({
     {
       name: "mobile",
       testDir: "./e2e/mobile",
-      use: { viewport: PHONE, isMobile: true, hasTouch: true, deviceScaleFactor: 2, video: { mode: "on", size: PHONE } },
+      use: { viewport: PHONE, isMobile: true, hasTouch: true, deviceScaleFactor: 2, video: { mode: ARTIFACTS, size: PHONE } },
     },
   ],
   webServer: {

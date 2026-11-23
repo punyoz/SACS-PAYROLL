@@ -132,7 +132,7 @@ describe("Required employee fields", () => {
 
   it.each([
     "first_name", "last_name", "email", "date_of_birth", "sex", "civil_status", "employee_type",
-    "employment_type", "employment_status", "employee_status", "position", "date_hired", "basic_salary",
+    "employment_status", "employee_status", "position", "date_hired", "basic_salary",
     "address", "cp_number", "sss_number", "philhealth_number", "pagibig_number", "tin_number",
     "branch_id",
   ])("refuses to create an account without %s", (field) => {
@@ -145,7 +145,8 @@ describe("Required employee fields", () => {
 
   it("rejects values outside the allowed option lists", () => {
     expect(check({ civil_status: "Complicated" })).toMatch(/Civil status/);
-    expect(check({ employment_type: "Seasonal" })).toMatch(/Employment type/);
+    // No part-time employees (2026-11-23): an Employment type sent is ignored (always Full-time).
+    expect(check({ employment_type: "Part-time" })).toBeNull();
   });
 
   it.each([

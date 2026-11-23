@@ -1,5 +1,7 @@
 "use client";
 
+import { AttendanceCorrectionForm } from "@/components/portal/attendance-correction-form";
+import { fixForFlag } from "@/lib/attendance/correction-requests";
 import * as React from "react";
 import { toast } from "sonner";
 import { CalendarXIcon, Loader2Icon } from "lucide-react";
@@ -185,80 +187,62 @@ const RECORD_COLUMNS = [
   },
 ];
 
+/* ── Part E step 2: the days the system found to fix (/api/me/attendance-flags) ── */
+
+/** The person's own Leave & Overtime page in this portal. */
+function myLeavePage() {
+  const path = typeof window === "undefined" ? "" : window.location.pathname;
+  return path.startsWith("/hr") ? "hr-my-leave" : path.startsWith("/accountant") ? "ac-my-leave" : "emp-leave";
+}
+
+function FixList({ refreshKey, onRequest }) {
+  const [flags, setFlags] = React.useState([]);
+  React.useEffect(() => {
+    let alive = true;
+    fetchJson("/api/me/attendance-flags").then((d) => { if (alive) setFlags(d.flags || []); }).catch(() => {});
+    return () => { alive = false; };
+  }, [refreshKey]);
+  if (!flags.length) return null;
+  const leave = (tab) => `?page=${myLeavePage()}${tab ? `&lo_tab=${tab}` : ""}`;
+  return (
+    <Card className="border-warning/40 shadow-xs" data-testid="attendance-fix-list">
+      <CardHeader>
+        <CardTitle>The system found these to fix</CardTitle>
+        <CardDescription>File what fits; each item goes away by itself once it is fixed.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ul className="space-y-2">
+          {flags.map((f) => (
+            <li key={f.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3" data-testid="attendance-fix">
+              <span className="text-sm">{f.summary}</span>
+              <span className="flex flex-wrap gap-2">
+                {f.code === "overtime_unfiled"
+                  ? <Button size="sm" variant="outline" asChild><a href={leave("overtime")}>File overtime</a></Button>
+                  : <Button size="sm" variant="outline" onClick={() => onRequest({ id: f.log_id, log_date: f.log_date, status: f.status, time_in: f.time_in, time_out: f.time_out, fix: fixForFlag(f.code, f) })}>Request correction</Button>}
+                {f.code === "absent_no_request" || f.code === "short_day"
+                  ? <Button size="sm" variant="outline" asChild><a href={leave(f.code === "short_day" ? "half" : "")}>File leave</a></Button> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 /* ── This pay period + Request Correction (loadMyAttendancePeriod / openMyCorrectionRequest, app.js) ── */
 
 function CorrectionDialog({ row, onOpenChange, onDone }) {
-  const { notify } = usePortalSession();
-  const [time, setTime] = React.useState("");
-  const [reason, setReason] = React.useState("");
-  const [errors, setErrors] = React.useState({});
-  const [busy, setBusy] = React.useState(false);
-  const [serverError, setServerError] = React.useState("");
-
-  React.useEffect(() => {
-    if (!row) return;
-    setTime(timeInputValue(row.time_out));
-    setReason("");
-    setErrors({});
-    setServerError("");
-  }, [row]);
-
-  async function submit(event) {
-    event.preventDefault();
-    const next = {};
-    if (!time) next.time = "Corrected time out is required.";
-    const r = reason.trim();
-    if (!r) next.reason = "Reason is required.";
-    else if (r.length < 5) next.reason = "Give a little more detail (at least 5 characters).";
-    setErrors(next);
-    if (Object.keys(next).length) return;
-
-    setBusy(true);
-    setServerError("");
-    try {
-      await fetchJson("/api/me/attendance/corrections", jsonBody("POST", { log_id: row.id, corrected_time: time, reason: r }));
-      notify("Correction Requested", "Your request was sent for review. The day shows Pending Correction until it is decided.", "success");
-      onOpenChange(false);
-      onDone();
-    } catch (error) {
-      setServerError(error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  // Attendance correction request (2026-11-23): filled in with the day and its taps (and the flag's fix, if any).
   return (
     <Dialog open={Boolean(row)} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Request correction</DialogTitle>
-          <DialogDescription>HR or your Administrator will review it.</DialogDescription>
+          <DialogTitle>Attendance correction request</DialogTitle>
+          <DialogDescription>Ask HR to fix a time in or time out. The branch Admin checks it; HR decides.</DialogDescription>
         </DialogHeader>
-        {row ? (
-          <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
-            <div className="flex flex-wrap items-center gap-2"><strong>{formatDateKey(row.log_date)}</strong> <AttendanceBadge status={row.status} /></div>
-            <p className="text-muted-foreground">Recorded: time in {formatTime(row.time_in)}, time out {formatTime(row.time_out)}</p>
-          </div>
-        ) : null}
-        <form onSubmit={submit} noValidate className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="att-request-time">Corrected time out</Label>
-            <Input id="att-request-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-invalid={Boolean(errors.time) || undefined} aria-describedby={errors.time ? "att-request-time-error" : undefined} />
-            {errors.time ? <p id="att-request-time-error" className="text-sm text-destructive">{errors.time}</p> : null}
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="att-request-reason">Reason</Label>
-            <Textarea id="att-request-reason" rows={3} maxLength={500} placeholder="e.g. The reader was offline when I left at 5:00 PM" value={reason} onChange={(e) => setReason(e.target.value)} aria-invalid={Boolean(errors.reason) || undefined} aria-describedby={errors.reason ? "att-request-reason-error" : undefined} />
-            {errors.reason ? <p id="att-request-reason-error" className="text-sm text-destructive">{errors.reason}</p> : null}
-          </div>
-          {serverError ? <p role="alert" className="text-sm text-destructive">{serverError}</p> : null}
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" disabled={busy}>
-              {busy ? <><Loader2Icon className="animate-spin" aria-hidden="true" />Submitting…</> : "Submit request"}
-            </Button>
-          </DialogFooter>
-        </form>
+        {row ? <AttendanceCorrectionForm key={`${row.id}-${row.fix || ""}`} day={row} initialFix={row.fix || null}
+          onCancel={() => onOpenChange(false)} onDone={() => { onOpenChange(false); onDone(); }} /> : null}
       </DialogContent>
     </Dialog>
   );
@@ -324,6 +308,7 @@ function PayPeriodCard({ refreshKey }) {
   const toPage1 = (fn) => (v) => { fn(v); setPaging((c) => ({ ...c, page: 1 })); };
   return (
     <>
+      <FixList refreshKey={`${refreshKey}-${state.logs.length}-${state.loading}`} onRequest={setRequesting} />
       <AttendanceView
         title="Attendance records by date"
         help="Forgot to tap out, or think a day is wrong? Use Request correction on an Incomplete, Undertime or Half Day record."

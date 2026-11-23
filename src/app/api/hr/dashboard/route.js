@@ -159,7 +159,7 @@ export async function GET(request) {
       const days = (key) => Number((cfg.data || []).find((r) => r.key === key)?.value) || 30;
       const plus = (n) => new Date(Date.parse(`${today}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
       const people = rows.data || [];
-      const probation = await Promise.all(people.filter((p) => p.employment_status === "Probationary").map(async (p) => {
+      const probation = await Promise.all(people.filter((p) => ["Probationary", "Provisional"].includes(p.employment_status)).map(async (p) => {
         const end = await supabase.rpc("employee_probation_end", { p_employee: p.id });
         return { id: p.id, full_name: p.full_name, due_on: end.data || null };
       }));

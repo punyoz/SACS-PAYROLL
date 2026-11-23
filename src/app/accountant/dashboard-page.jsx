@@ -1,5 +1,6 @@
 "use client";
 
+import { AttendanceAdjustmentsCard } from "./attendance-adjustments-card";
 import * as React from "react";
 import { FinalPayActionNeededCard } from "./final-pay-page";
 import { SubstitutionsActionNeededCard } from "@/components/portal/substitutions";
@@ -84,6 +85,8 @@ export function DashboardPage({ refreshKey, onNavigate }) {
       {/* What is still open, per branch, with a link to each (2026-11-15). */}
       {/* School-wide and branch announcements (2026-10-30). */}
       <AnnouncementsCard refreshKey={refreshKey} />
+      {/* Attendance corrections approved for a day already paid (2026-11-23). */}
+      <AttendanceAdjustmentsCard refreshKey={refreshKey} />
       <section aria-label="This period at a glance" className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard label="Total employees" value={employees.length} hint="Active staff" icon={UsersIcon} loading={first} />
         <StatCard label="Period gross pay" value={moneyCompact(panels.total_gross || 0)} hint={data?.active_period?.label || "Current period"} icon={BanknoteIcon} tone="gold" loading={first} />

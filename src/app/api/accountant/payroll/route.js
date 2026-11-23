@@ -109,8 +109,10 @@ import { reportResponse, wantsFile } from "@/lib/export/report-file";
 import { activeAccountantIds } from "@/lib/rbac/routing";
 import { isOnPayroll } from "@/lib/payroll/on-payroll";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
-import { loadClassificationContext, loadPayRules } from "@/lib/employees/classification-server";
-import { classificationOn, payRuleFor } from "@/lib/employees/classification";
+import { loadClassificationContext } from "@/lib/employees/classification-server";
+import { classificationOn } from "@/lib/employees/classification";
+import { cutoffClosed, gateRuleIncentives, loadIncentiveGate, syncIncentiveRecommendations } from "@/lib/payroll/incentive-recommendations";
+import { extraDayLines } from "@/lib/attendance/special-days";
 
 const DUPLICATE_SUBMISSION_MESSAGE = "Payroll for this employee and period has already been processed.";
 
@@ -547,7 +549,8 @@ function computeTotals(payroll) {
     : (perfectAttendance ? toAmount(rates.perfect_attendance_bonus) : 0);
   // Semi-monthly 2nd half: incentives and overload pay filed for the month
   // (payroll_monthly_incentives).
-  const otherIncentive = Math.max(0, toAmount(payroll.extra?.incentive));
+  // May be below 0: a minus Adjustment (2026-11-23).
+  const otherIncentive = toAmount(payroll.extra?.incentive);
   const overloadPay = Math.max(0, toAmount(payroll.extra?.overload));
   // Licensed-teacher subsidy payout + approved adjustments (2nd half).
   const subsidyPay = Math.max(0, toAmount(payroll.extra?.subsidy));
@@ -555,6 +558,8 @@ function computeTotals(payroll) {
   const earlyBirdWinnerPay = Math.max(0, toAmount(payroll.extra?.early_bird_winner));
   // Substitute teaching (Part C): approved, confirmed by the substitute's taps.
   const substitutionPay = Math.max(0, toAmount(payroll.extra?.substitution));
+  // Extra working days (2026-11-23): daily rate × premium, only when tapped in.
+  const specialDayPay = Math.max(0, toAmount(payroll.extra?.special_day));
 
   // Gross Pay = Basic Salary + approved overtime + holiday pay.
   const overtimePay = Math.max(0, toAmount(payroll.earnings?.overtime));
@@ -565,7 +570,7 @@ function computeTotals(payroll) {
     + absenceDeduction + lateDeduction + undertimeDeduction + halfDayDeduction
     + leaveWithoutPayDeduction + cashAdvance + loanDeduction,
   );
-  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay);
+  const totalIncentives = toAmount(perfectAttendanceIncentive + otherIncentive + overloadPay + subsidyPay + earlyBirdWinnerPay + substitutionPay + specialDayPay);
   // Net Pay = Gross - SSS - PhilHealth - Pag-IBIG - Withholding Tax - Absences
   // - Late - Undertime - Half Day - Leave w/o Pay + Incentives.
   // Floored at zero: deductions can exceed the basic salary (absences, Leave
@@ -615,6 +620,7 @@ function computeTotals(payroll) {
       other_incentive: otherIncentive,
       overload_pay: overloadPay,
       substitution_pay: substitutionPay,
+      special_day_pay: specialDayPay,
       total_incentives: totalIncentives,
       overtime_pay: overtimePay,
       holiday_pay: holidayPay,
@@ -860,6 +866,8 @@ async function commitPayrollEntries(supabase, entries) {
   if (error) throw new Error(error.message);
 
   const results = Array.isArray(data) ? data : [];
+  // Part E step 6: the computed rule-based incentives go to HR as recommendations.
+  await syncIncentiveRecommendations(supabase, entries.filter((entry, index) => results[index]?.ok));
   return entries.map((entry, index) => results[index] || {
     employee_id: entry.employee_id,
     ok: false,
@@ -1379,7 +1387,7 @@ async function loadSemiMonthlyContext(supabase, employees, period, configs) {
       .select("employee_id,effective_date,sss,philhealth,pagibig,created_at")
       .lte("effective_date", period.start_key),
     fetchAllRows(() => supabase.from("payroll_monthly_incentives")
-      .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at")
+      .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at,reason,non_taxable")
       .eq("archived", false)
       .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
       .lte("item_date", window.end_key)
@@ -1509,7 +1517,7 @@ async function loadPerHalfContext(supabase, employees, period, configs, holidays
       .lte("effective_date", period.start_key),
     half === "second"
       ? fetchAllRows(() => supabase.from("payroll_monthly_incentives")
-        .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at")
+        .select("id,employee_id,item_date,kind,description,amount,hours,created_at,approval_status,decided_at,reason,non_taxable")
         .eq("archived", false)
         .gte("item_date", SEMI_MONTHLY_RULES_EFFECTIVE)
         .lte("item_date", month.end_key)
@@ -1676,6 +1684,13 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
     }
   }
 
+  // Part E step 6: Perfect Attendance / Early Bird are paid only once HR approves (from the setting's period).
+  const incentiveGate = await loadIncentiveGate(supabase, period);
+  // Special working days in the period (20261124130000); none before it is applied.
+  const specialDays = await supabase.from("special_working_days").select("*").is("cancelled_at", null).eq("pay_type", "extra")
+    // From a month before: a settling payslip's own span can start before its period; extraDayLines keeps its own span.
+    .gte("work_date", new Date(Date.parse(`${period.start_key}T00:00:00Z`) - 31 * 864e5).toISOString().slice(0, 10)).lte("work_date", period.end_key).then((r) => (r.error ? [] : r.data || []), () => []);
+
   const dayKey = (row) => normalizeText(row.log_date, normalizeText(row.time_in, row.created_at)).slice(0, 10);
   const logsByEmployee = new Map();
   collapseDailyTaps(attendance.rows, { dateKey: dayKey }).forEach((row) => {
@@ -1711,17 +1726,12 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
 
   // Pay basis per category / status / type (Part A, 20261121010000). Unknown = monthly.
   const classification = await loadClassificationContext(supabase, employees.map((e) => e.id)).catch(() => null);
-  const payRules = await loadPayRules(supabase).catch(() => []);
   // The category / status / type in effect on the period's first day.
   const classificationOf = (employeeId) => {
     const profile = classification?.profiles.get(employeeId);
     if (!profile) return null;
     const c = classificationOn(profile, classification.changes.get(employeeId) || [], period.start_key);
     return { employee_type: c.employee_type, employment_status: c.employment_status, employment_type: c.employment_type };
-  };
-  const payBasisOf = (employeeId) => {
-    const c = classificationOf(employeeId);
-    return (c && payRuleFor(payRules, c, period.start_key)?.pay_basis) || "monthly";
   };
 
   const byEmployee = new Map();
@@ -1785,9 +1795,11 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       // The attendance days this payslip deducts.
       attendance_span: own,
       early_bird: earlyBird,
+      incentive_gate: incentiveGate,
+      special_extra: extraDayLines({ days: specialDays, person: employee, logs: logsByEmployee.get(employee.id) || [],
+        dailyRate: rateValues(resolved).daily, spanStart: own.start_key, spanEnd: own.end_key }),
       branch_days: branchDaysFor(employee.id, own),
       msc_table: mscTable,
-      pay_basis: payBasisOf(employee.id),
       classification: classificationOf(employee.id),
     });
   });
@@ -1809,6 +1821,8 @@ async function loadPeriodPayContext(supabase, employees, period, { through = nul
       undertime_minutes: context.auto.counts.undertime_minutes,
       half_days: context.auto.counts.half_days,
       perfect_attendance: context.auto.perfect_attendance,
+      // Part E step 6: held for HR / on track so far (the form's preview pays what the server pays).
+      rule_incentives: preview.payroll?.rule_incentives || null,
       pay: {
         counts: context.auto.counts,
         amounts: context.auto.amounts,
@@ -2137,18 +2151,13 @@ function applySecondHalfSettlement(payroll, { settlement, semi, rates, firstCuto
  * made it and why, and kept as its own is_override line next to the computed
  * lines rather than replacing them.
  */
-// shortcut: payroll computes monthly-salary pay only; a part-time hourly /
-// scheduled-hours pay basis (employee_pay_rules) is refused until the engine
-// pays by the hour -- no part-timer exists yet (2026-11-20).
+/** Line labels of the Additional Pay kinds (2026-11-23). */
+const ITEM_KIND_LABELS = { honorarium: "Honorarium", bonus: "Bonus", adjustment: "Adjustment" };
+const shortDate = (key) => new Date(`${String(key).slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+// Everyone is paid a monthly salary (no part-time employees, 2026-11-23): the per-hour pay basis is gone.
 function buildEmployeePayroll(args) {
-  const built = buildEmployeePayrollMonthly(args);
-  const basis = args.context?.pay_basis;
-  if (!basis || basis === "monthly") return built;
-  return {
-    ...built,
-    refusal: `${args.employee.full_name} is paid ${basis === "hourly" ? "per hour worked" : "per scheduled hour"} (part-time pay rules); payroll does not compute that pay basis yet. Ask HR to check the employee's pay rule.`,
-    refusal_code: "pay_basis_not_supported",
-  };
+  return buildEmployeePayrollMonthly(args);
 }
 
 function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAttendanceOverrides = false, period, actor }) {
@@ -2279,7 +2288,13 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     ? overloadPayFor(rates.hourly, item.hours, rates.overload_premium_pct)
     : toAmount(item.amount));
   const sumItems = (kind, value) => toAmount(items.filter((item) => item.kind === kind).reduce((sum, item) => sum + value(item), 0));
-  const otherIncentive = sumItems("incentive", itemAmount);
+  // Honorarium (taxable), Bonus ("other benefits", exempt up to the ceiling with the 13th month) and
+  // Adjustment (+/−; taxable unless it corrects a non-taxable item), 2026-11-23: their own lines, in gross.
+  const honorariumPay = sumItems("honorarium", itemAmount);
+  const bonusItems = sumItems("bonus", itemAmount);
+  const adjustmentTaxable = toAmount(items.filter((i) => i.kind === "adjustment" && !i.non_taxable).reduce((sum, i) => sum + toAmount(i.amount), 0));
+  const adjustmentNonTaxable = toAmount(items.filter((i) => i.kind === "adjustment" && i.non_taxable).reduce((sum, i) => sum + toAmount(i.amount), 0));
+  const otherIncentive = toAmount(sumItems("incentive", itemAmount) + honorariumPay + bonusItems + adjustmentTaxable + adjustmentNonTaxable);
   const overloadHours = sumItems("overload", (item) => Number(item.hours) || 0);
   const overloadPay = sumItems("overload", itemAmount);
   // Substitute teaching (Part C, 2026-11-22): this payslip's approved substitutions confirmed by the
@@ -2287,6 +2302,9 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   // the 13th month (basic salary only); contributions unchanged (monthly basic).
   const substitutionLines = context.substitution?.lines || [];
   const substitutionPay = toAmount(substitutionLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0));
+  // Extra working days (special_working_days, pay_type extra): taxable like other earnings.
+  const specialDayLines = context.special_extra || [];
+  const specialDayPay = toAmount(specialDayLines.reduce((sum, l) => sum + (Number(l.amount) || 0), 0));
 
   // Withholding tax on this period's taxable compensation.
   const leaveWithoutPayAmount = toAmount(leaveWithoutPayDays * (Number(rates.daily) || 0));
@@ -2296,7 +2314,21 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   const subsidy = subsidyForPayslip(settling ? semi.subsidy : null, period, semi?.benefits_ceiling);
   // The period's Early Bird winner (one employee per pay period): its own
   // earnings line, part of gross pay (src/lib/payroll/early-bird.js).
-  const earlyBirdWinner = context.early_bird?.winner?.employee_id === employee.id ? context.early_bird.winner : null;
+  const earlyBirdComputed = context.early_bird?.winner?.employee_id === employee.id ? context.early_bird.winner : null;
+  // Part E step 6 (2026-11-23): from the setting's period, the rule-based
+  // incentives are computed as before but paid only once HR approves them
+  // (src/lib/payroll/incentive-recommendations.js); a held one pays ₱0 here.
+  const attendanceClosed = cutoffClosed(context.attendance_span?.end_key || period.end_key);
+  const ruleGate = gateRuleIncentives(context.incentive_gate, employee.id, {
+    perfect_attendance: { amount: finalAmounts.perfect_attendance, reasons: ["No late, undertime, absence or half day in the cutoff"] },
+    early_bird: {
+      amount: earlyBirdComputed ? toAmount(earlyBirdComputed.amount) : 0,
+      reasons: earlyBirdComputed ? [`${earlyBirdComputed.early_count} early time-ins (at least ${earlyBirdComputed.threshold_minutes} min before start), the most in ${earlyBirdComputed.period_label}`] : [],
+    },
+  }, { closed: attendanceClosed });
+  const perfectHeld = ruleGate.items.some((i) => i.kind === "perfect_attendance" && !i.paid);
+  finalAmounts.perfect_attendance = ruleGate.pay.perfect_attendance;
+  const earlyBirdWinner = ruleGate.pay.early_bird > 0 ? earlyBirdComputed : null;
   const earlyBirdPay = earlyBirdWinner ? toAmount(earlyBirdWinner.amount) : 0;
   // A per-cutoff 1st half's attendance and extra earnings are part of the
   // month the 2nd half taxes.
@@ -2311,7 +2343,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   // are in the benefits ledger (payroll_exempt_benefits_paid, 20261026040000).
   const bonuses = (() => {
     if (!settling) return null;
-    const amount = toAmount(finalAmounts.perfect_attendance + earlyBirdPay + (firstHalfCutoff?.bonuses || 0));
+    const amount = toAmount(finalAmounts.perfect_attendance + earlyBirdPay + bonusItems + (firstHalfCutoff?.bonuses || 0));
     const ceiling = Number(semi.benefits_ceiling) || 0;
     const ytd = toAmount(semi.benefits_ytd || 0);
     const subsidyBenefit = subsidy.tax_treatment === "other_benefit" ? toAmount(subsidy.earnings_total) : 0;
@@ -2319,7 +2351,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     const exempt = Math.min(amount, room);
     return { amount, exempt: toAmount(exempt), taxable: toAmount(amount - exempt), ceiling, benefits_ytd: ytd };
   })();
-  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0));
+  const nonTaxable = toAmount(subsidy.non_taxable + (bonuses?.exempt || 0) + adjustmentNonTaxable);
   // 2nd half: the month's gross (contributions do not change it). Nothing
   // earned -> no SSS / PhilHealth / Pag-IBIG by default.
   if (settling) {
@@ -2331,7 +2363,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
       overloadHours,
       overloadPay,
-      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay,
+      otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay,
       ...prior,
     }).monthly_gross <= 0;
   }
@@ -2365,7 +2397,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     incentives: finalAmounts.perfect_attendance + otherIncentive + earlyBirdPay,
     overloadHours,
     overloadPay,
-    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay,
+    otherEarnings: overtimePay + holidayPay + subsidy.earnings_total + substitutionPay + specialDayPay,
     nonTaxableEarnings: nonTaxable,
     extraTaxable: subsidy.extra_taxable,
     cashAdvance: cashAdvanceTotal,
@@ -2418,7 +2450,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       period,
       available: toAmount(
         basic + overtimePay + holidayPay
-        + finalAmounts.perfect_attendance + otherIncentive + overloadPay + substitutionPay
+        + finalAmounts.perfect_attendance + otherIncentive + overloadPay + substitutionPay + specialDayPay
         - (sss + philhealth + pagibig + withholdingTax
           + finalAmounts.absent + finalAmounts.late + finalAmounts.undertime + finalAmounts.half_day
           + leaveWithoutPayAmount),
@@ -2485,10 +2517,10 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
   ].filter(Boolean);
 
   const incentiveLines = [
-    ...auto.incentives,
+    ...auto.incentives.filter((line) => !(perfectHeld && line.type === "perfect_attendance")),
     // Earnings: stored with the incentives, each tied to its attendance log.
     ...(auto.earnings || []),
-    adjustment("perfect_attendance", finalAmounts.perfect_attendance, auto.amounts.perfect_attendance, 0, "period"),
+    adjustment("perfect_attendance", finalAmounts.perfect_attendance, perfectHeld ? 0 : auto.amounts.perfect_attendance, 0, "period"),
     // The period's Early Bird winner, tied to the early time-ins that won it.
     earlyBirdLine(earlyBirdWinner),
     // Licensed-teacher subsidy payout and approved missed-month adjustments.
@@ -2504,8 +2536,15 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       : {
         type: "incentive", quantity: 1, unit: "item", rate: itemAmount(item), rate_config_id: null,
         amount: itemAmount(item), source_log_id: null, is_override: false,
-        note: item.description || null, log_date: String(item.item_date).slice(0, 10),
+        // "Honorarium: Seminar speaker (Nov 15)"; an incentive keeps its own text.
+        note: ITEM_KIND_LABELS[item.kind] ? `${ITEM_KIND_LABELS[item.kind]}: ${item.description}${item.kind === "adjustment" && item.reason ? `. ${item.reason}` : ""} (${shortDate(item.item_date)})` : item.description || null,
+        log_date: String(item.item_date).slice(0, 10), item_kind: item.kind,
       })),
+    // Extra working days: one line each ("Special working day (Sat Nov 28): …").
+    ...specialDayLines.map((l) => ({
+      type: "special_working_day", quantity: 1, unit: "day", rate: l.amount, rate_config_id: null, amount: toAmount(l.amount),
+      source_log_id: null, is_override: false, note: l.note, log_date: l.work_date,
+    })),
     // Substitute teaching: one line per part (inside the shift, outside it, above the standard load).
     ...substitutionLines.map((l) => ({
       type: "substitution", quantity: Math.round((l.minutes / 60) * 100) / 100, unit: "hour",
@@ -2537,7 +2576,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
     },
     attendance_amounts: finalAmounts,
     earnings: { overtime: overtimePay, holiday_pay: holidayPay },
-    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay },
+    extra: { incentive: otherIncentive, overload: overloadPay, subsidy: subsidy.earnings_total, early_bird_winner: earlyBirdPay, substitution: substitutionPay, special_day: specialDayPay },
   });
   if (earlyBirdWinner) {
     payroll.early_bird = {
@@ -2548,6 +2587,12 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       period_label: earlyBirdWinner.period_label,
       window: earlyBirdWinner.window,
     };
+  }
+  // What HR decides (synced to incentive_recommendations on save): each computed rule-based incentive, paid or held.
+  if (context.incentive_gate?.on) {
+    const span = context.attendance_span || { start_key: period.start_key, end_key: period.end_key };
+    payroll.rule_incentives = { period_start: period.start_key, period_end: period.end_key, window_start: span.start_key, window_end: span.end_key, closed: attendanceClosed,
+      branch_id: employee.branch_id || null, items: ruleGate.items };
   }
 
   const nowIso = new Date().toISOString();
@@ -2583,6 +2628,8 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
       .filter(([type]) => !differs(deducted[type], legalContributions?.[type])));
     payroll.monthly.contribution_basis = Object.keys(basis).length ? basis : null;
     if (bonuses) payroll.monthly.bonuses = bonuses;
+    // Bonus items: counted in the yearly benefits ledger (payroll_exempt_benefits_paid, 20261124120000).
+    if (payroll.totals) payroll.totals.bonus_items = bonusItems;
     if (legal) {
       payroll.employer_contributions = employerShare({
         salary: employee.basic_salary, rates, mscTable: context.msc_table, used: deducted, source: schoolMonthly?.source, noEarnings,
@@ -2724,7 +2771,7 @@ function buildEmployeePayrollMonthly({ employee, context, input = {}, allowAtten
           // This payslip's bonuses and "other benefit" subsidy join the
           // benefits ledger only once it is Final.
           benefits: [
-            { kind: "bonus", amount: toAmount(toAmount(t.early_bird_winner_incentive) + toAmount(t.perfect_attendance_incentive)) },
+            { kind: "bonus", amount: toAmount(toAmount(t.early_bird_winner_incentive) + toAmount(t.perfect_attendance_incentive) + toAmount(t.bonus_items)) },
             { kind: "subsidy_payout", amount: subsidy.tax_treatment === "other_benefit" ? toAmount(subsidy.earnings_total) : 0 },
           ].filter((b) => b.amount > 0),
         }
@@ -3494,7 +3541,7 @@ async function handleProcessThirteenthMonth(supabase, body, guard) {
 
 /* ── Incentives and overload hours (payroll_monthly_incentives) ────────────── */
 
-const MONTHLY_ITEM_KINDS = new Set(["incentive", "overload"]);
+const MONTHLY_ITEM_KINDS = new Set(["incentive", "overload", "honorarium", "bonus", "adjustment"]);
 
 /** Lock days in force, from the rate versions (semi-monthly payroll). */
 async function loadLockDayFor(supabase) {
@@ -3610,53 +3657,88 @@ async function handleMonthlyItemsView(supabase, employees, url) {
   });
 }
 
-/** POST { action: "add_monthly_item", employee_id, item_date, kind, description, amount | hours } */
+/**
+ * POST { action: "add_monthly_item", employee_id | employee_ids[], item_date, kind, description, amount | hours, reason?, non_taxable? }
+ * kind: incentive | overload | honorarium | bonus | adjustment (2026-11-23). An adjustment is + or −
+ * and needs a reason; non_taxable marks one that corrects a non-taxable item. Several employees at
+ * once (the same honorarium): one item each, all checked first; none is filed if one is refused.
+ */
 async function handleAddMonthlyItem(supabase, body, guard) {
   const employees = await fetchEmployees(supabase, guard);
-  const employee = employees.find((row) => row.id === normalizeText(body.employee_id));
-  if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
-  const own = refuseOwnPayroll(guard, employee.id);
-  if (own) return own;
+  const ids = Array.isArray(body.employee_ids) && body.employee_ids.length ? [...new Set(body.employee_ids.map((v) => normalizeText(v)))] : [normalizeText(body.employee_id)];
+  if (ids.length > 200) return NextResponse.json({ error: "At most 200 employees at a time." }, { status: 400 });
+  const chosen = ids.map((id) => employees.find((row) => row.id === id));
+  if (!chosen.length || chosen.some((e) => !e)) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
+  for (const e of chosen) {
+    const own = refuseOwnPayroll(guard, e.id);
+    if (own) return own;
+  }
 
   const kind = normalizeText(body.kind).toLowerCase();
   const itemDate = normalizeText(body.item_date);
   if (normalizeText(body.description).length > 200) return NextResponse.json({ error: "The description can be at most 200 characters." }, { status: 400 });
+  if (normalizeText(body.reason).length > 300) return NextResponse.json({ error: "The reason can be at most 300 characters." }, { status: 400 });
   const description = normalizeText(body.description).slice(0, 200);
+  const reason = normalizeText(body.reason).slice(0, 300) || null;
   const amount = Number(body.amount);
   const hours = Number(body.hours);
-  if (!MONTHLY_ITEM_KINDS.has(kind)) return NextResponse.json({ error: "Choose Incentive or Overload." }, { status: 400 });
+  const label = { incentive: "Incentive", overload: "Overload", honorarium: "Honorarium", bonus: "Bonus", adjustment: "Adjustment" }[kind];
+  if (!MONTHLY_ITEM_KINDS.has(kind)) return NextResponse.json({ error: "Choose Incentive, Overload, Honorarium, Bonus or Adjustment." }, { status: 400 });
   if (!/^\d{4}-\d{2}-\d{2}$/.test(itemDate)) return NextResponse.json({ error: "Choose the date it is for." }, { status: 400 });
   if (itemDate < SEMI_MONTHLY_RULES_EFFECTIVE) {
     return NextResponse.json({ error: `Incentives and overload are paid by the semi-monthly payroll, from ${formatDateKey(SEMI_MONTHLY_RULES_EFFECTIVE)}.` }, { status: 400 });
   }
   if (!description) return NextResponse.json({ error: "Describe what it is for." }, { status: 400 });
-  if (kind === "incentive" && !(Number.isFinite(amount) && amount > 0 && amount <= INCENTIVE_MAX)) {
-    return NextResponse.json({ error: `Enter an incentive amount greater than 0 and at most ${pesoLimit(INCENTIVE_MAX)}.` }, { status: 400 });
+  if (["incentive", "honorarium", "bonus"].includes(kind) && !(Number.isFinite(amount) && amount > 0 && amount <= INCENTIVE_MAX)) {
+    return NextResponse.json({ error: `Enter ${kind === "incentive" ? "an incentive" : `a ${kind}`} amount greater than 0 and at most ${pesoLimit(INCENTIVE_MAX)}.` }, { status: 400 });
   }
+  if (kind === "adjustment" && !(Number.isFinite(amount) && amount !== 0 && Math.abs(amount) <= INCENTIVE_MAX)) {
+    return NextResponse.json({ error: `Enter the adjustment: more than 0 to add, less than 0 to deduct (at most ${pesoLimit(INCENTIVE_MAX)} either way).` }, { status: 400 });
+  }
+  if (kind === "adjustment" && (!reason || reason.length < 5)) return NextResponse.json({ error: "Give the reason for the adjustment (at least 5 characters)." }, { status: 400 });
   if (kind === "overload" && !(Number.isFinite(hours) && hours > 0 && hours <= 744)) {
     return NextResponse.json({ error: "Enter overload hours greater than 0 (at most 744)." }, { status: 400 });
   }
 
-  if (kind === "incentive") {
-    const notEligible = await eligibilityRefusal(supabase, employee.id, "incentive", itemDate);
-    if (notEligible) return NextResponse.json({ error: notEligible }, { status: 400 });
+  if (kind !== "overload" && kind !== "adjustment") {
+    for (const e of chosen) {
+      const notEligible = await eligibilityRefusal(supabase, e.id, "incentive", itemDate);
+      if (notEligible) return NextResponse.json({ error: `${e.full_name}: ${notEligible}` }, { status: 400 });
+    }
   }
 
   const actorName = normalizeText(guard.session?.full_name, guard.session?.email);
-  const row = {
+  const createdAt = new Date().toISOString();
+  const rows = chosen.map((employee) => ({
     employee_id: employee.id,
     branch_id: employee.branch_id || null,
     item_date: itemDate,
     kind,
     description,
-    amount: kind === "incentive" ? toAmount(amount) : null,
+    amount: kind === "overload" ? null : toAmount(amount),
     hours: kind === "overload" ? toAmount(hours) : null,
+    reason,
+    non_taxable: kind === "adjustment" && body.non_taxable === true,
     created_by: guard.userId || null,
     created_by_name: actorName || null,
-    created_at: new Date().toISOString(),
+    created_at: createdAt,
     // Waits for HR approval before payroll pays it (20261027020000).
     approval_status: "pending",
-  };
+  }));
+  const row = rows[0];
+  const employee = chosen[0];
+  if (rows.length > 1) {
+    const many = await supabase.from("payroll_monthly_incentives").insert(rows);
+    if (many.error) return NextResponse.json({ error: isInternalDbSchemaError(many.error.message) ? PAYROLL_NOT_READY_MESSAGE : sanitizeError(many.error) }, { status: 500 });
+    const payrollMonth = itemPayrollMonth(row, await loadLockDayFor(supabase));
+    await appendAuditLog({
+      actor: guard, module: "payroll", action: "monthly_item_add", entity_type: "payroll_monthly_incentive", entity_id: chosen.map((e) => e.id).join(","),
+      description: `${label} ₱${money(row.amount)} for ${rows.length} employees (${description}) filed for HR approval.`,
+      status: "success", source: "api", metadata: { kind, item_date: itemDate, count: rows.length, payroll_month: payrollMonth },
+    });
+    await notifyHrOfAdjustment(supabase, { title: `${label} to approve: ${rows.length} employees`, body: `${actorName} filed ${label.toLowerCase()} items for ${rows.length} employees (${description}). Open them to review.` });
+    return NextResponse.json({ success: true, approval_status: "pending", filed: rows.length, payroll_month: payrollMonth, payroll_month_label: monthInfo(payrollMonth).label, deferred: payrollMonth !== monthKeyOf(itemDate) });
+  }
   const result = await supabase.from("payroll_monthly_incentives").insert(row);
   if (result.error) {
     return NextResponse.json({ error: isInternalDbSchemaError(result.error.message) ? PAYROLL_NOT_READY_MESSAGE : sanitizeError(result.error) }, { status: 500 });
@@ -3669,16 +3751,16 @@ async function handleAddMonthlyItem(supabase, body, guard) {
     action: "monthly_item_add",
     entity_type: "payroll_monthly_incentive",
     entity_id: employee.id,
-    description: `${kind === "incentive" ? `Incentive ₱${money(row.amount)}` : `Overload ${row.hours} h`} for ${employee.full_name} (${description}) filed for HR approval; counts in ${monthInfo(payrollMonth).label} payroll once approved by the lock date.`,
+    description: `${kind === "overload" ? `Overload ${row.hours} h` : `${label} ₱${money(row.amount)}`} for ${employee.full_name} (${description}) filed for HR approval; counts in ${monthInfo(payrollMonth).label} payroll once approved by the lock date.`,
     status: "success",
     source: "api",
     metadata: { ...row, payroll_month: payrollMonth },
   });
 
   await notifyHrOfAdjustment(supabase, {
-    title: `${kind === "incentive" ? "Incentive" : "Overload"} to approve: ${employee.full_name}`,
+    title: `${label} to approve: ${employee.full_name}`,
     // No amounts in notifications (decision 2026-11-09 #9).
-    body: `${actorName} filed ${kind === "incentive" ? "an incentive" : "overload hours"} for ${employee.full_name} (${description}). Open it to review.`,
+    body: `${actorName} filed ${kind === "overload" ? "overload hours" : `a ${label.toLowerCase()}`} for ${employee.full_name} (${description}). Open it to review.`,
   });
 
   return NextResponse.json({
@@ -4877,6 +4959,8 @@ export async function POST(request) {
       }
     } else {
       dbSync = await syncPayrollEntryToDb(supabase, baseEntry);
+      // Part E step 6: a saved draft also sends its rule-based incentives to HR (never fails the save).
+      if (dbSync?.success !== false) await syncIncentiveRecommendations(supabase, [baseEntry]);
 
       // payroll_entries is the only place a draft lives. When that write
       // fails nothing was saved, so this used to answer success and the
@@ -5222,6 +5306,8 @@ async function handleGenerate(supabase, body, guard, { override = false } = {}) 
     if (!dbSync.success) {
       return NextResponse.json({ error: "The draft payslip could not be saved. Please try again." }, { status: 500 });
     }
+    // Part E step 6: the draft's rule-based incentives go to HR too.
+    await syncIncentiveRecommendations(supabase, [baseEntry]);
   }
 
   const action = override ? "payslip_override" : reprocess && existingFinal ? "payslip_reprocess"

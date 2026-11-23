@@ -592,6 +592,7 @@ describe("Matrix stays in step with the SQL seed", () => {
       "supabase/migrations/20261109020000_hr_rate_changes.sql",
       "supabase/migrations/20261110030000_my_account_permissions.sql",
       "supabase/migrations/20261112010000_bir_super_admin_only.sql",
+      "supabase/migrations/20261124050000_self_approval_rules.sql",
     ].map((file) => readFileSync(file, "utf8")).join("\n");
   });
 

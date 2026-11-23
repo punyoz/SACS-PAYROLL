@@ -33,13 +33,25 @@ const DASHBOARD = { super_admin: "sa-dashboard", admin: "adm-dashboard", hr: "hr
 
 const pageParam = (page) => new URL(page.url()).searchParams.get("page");
 const sidebar = (page) => page.locator('[data-slot="sidebar-container"]');
+// Part I (2026-11-23, approved map): one sidebar item per module; each page is a tab of it.
+const SA_MODULES = ["Dashboard", "Accounts", "Branches", "Attendance Records", "RFID", "System", "Audit & Monitoring", "My Account"];
+const ADMIN_MODULES = ["Dashboard", "Branch Attendance", "Branch Review", "Incidents & RFID", "My Account"];
+/** The page opens with its module active in the sidebar and (when the module has tabs) its own tab current. */
+async function expectOpenAt(page, id) {
+  const active = page.locator('[data-slot="sidebar-container"] [data-sidebar="menu-button"][data-active="true"]');
+  await expect(active, `${id}: its module is the active item`).toHaveCount(1);
+  expect((await active.getAttribute("data-tabs")).split(" "), `${id}: the active module holds it`).toContain(id);
+  if (await page.locator("[data-module-tabs] a").count()) {
+    await expect(page.locator(`[data-module-tabs] a[data-tab="${id}"]`), `${id}: its tab is current`).toHaveAttribute("aria-current", "page");
+  }
+}
 
 
 test.afterAll(() => saveReport(OUT, `cards-${PHASE}`));
 
 /* ── Part 1 + 2 + 3: Super Admin ─────────────────────────────────────── */
 
-test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page }) => {
+test("Super Admin: module sidebar with tabs, logo, cards, loading time", async ({ page }) => {
   await page.setViewportSize(DESKTOP);
   await as(page, "super_admin", "sa-dashboard");
   // Signed in already: time a fresh open of the dashboard until no skeleton is left.
@@ -60,36 +72,26 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
     return;
   }
 
-  // Every item, same order, same route; groups open by URL.
+  // Part I (2026-11-23, approved map): every page keeps its route and opens in its module, on its tab.
   const items = PAGES.super_admin;
-  for (const [id, label] of items) {
+  for (const [id] of items) {
     await page.goto(`/super-admin?page=${id}`);
     await page.locator("#portal-main").waitFor();
-    const active = sidebar(page).locator('[data-sidebar="menu-button"][data-active="true"]');
-    await expect(active, `${id} is the active item`).toHaveText(new RegExp(label.replace(/[&]/g, "\\&")));
-    const group = active.locator("xpath=ancestor::*[@data-nav-group][1]");
-    const header = group.locator("button[aria-expanded]");
-    if (await header.count()) await expect(header, `${id}: its group opens`).toHaveAttribute("aria-expanded", "true");
+    await expectOpenAt(page, id);
   }
   const order = await sidebar(page).locator('[data-sidebar="content"] [data-sidebar="menu-button"]').evaluateAll((els) => els.map((e) => e.textContent.trim().replace(/\d+$/, "")));
-  expect(order.filter((t) => t)).toEqual(items.map(([, l]) => l));
+  expect(order.filter((t) => t)).toEqual(SA_MODULES);
   const groups = await sidebar(page).locator("[data-nav-group]").evaluateAll((els) => els.map((e) => e.dataset.navGroup));
-  expect(groups).toEqual(["Overview", "Management", "RFID", "System", "My Account"]);
+  expect(groups).toEqual(["Overview", "Management", "My Account"]);
 
-  // Header by mouse and keyboard.
+  // Tabs by mouse and keyboard: each tab is a link to its page.
   await page.goto("/super-admin?page=sa-dashboard");
   await page.locator("#portal-main").waitFor();
-  const system = sidebar(page).locator('[data-nav-group="System"] button[aria-expanded]');
-  const before = await system.getAttribute("aria-expanded");
-  await system.click();
-  await expect(system).toHaveAttribute("aria-expanded", before === "true" ? "false" : "true");
-  await system.focus();
+  await page.locator('[data-module-tabs] a[data-tab="sa-announcements"]').click();
+  await expect.poll(() => pageParam(page)).toBe("sa-announcements");
+  await page.locator('[data-module-tabs] a[data-tab="sa-fallback"]').focus();
   await page.keyboard.press("Enter");
-  await expect(system).toHaveAttribute("aria-expanded", before);
-  expect(await system.getAttribute("aria-controls")).toBeTruthy();
-  for (const id of await sidebar(page).locator("button[aria-controls]").evaluateAll((b) => b.map((x) => x.getAttribute("aria-controls")))) {
-    expect(await page.locator(`#${id}`).count(), `aria-controls ${id} exists`).toBe(1);
-  }
+  await expect.poll(() => pageParam(page)).toBe("sa-fallback");
 
   // Part 2 from three pages, then collapsed.
   for (const from of ["sa-accounts", "sa-config", "sa-maintenance"]) {
@@ -101,12 +103,13 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
   await page.locator('[data-sidebar="trigger"]').first().click();
   await expect(page.locator('[data-slot="sidebar"][data-state="collapsed"]')).toHaveCount(1);
   await shot(page, "sa-sidebar-collapsed-1366");
-  // Collapsed: every page reachable (icons stay links in the rail).
-  for (const [id, label] of items) {
+  // Collapsed: every module reachable (icons stay links in the rail); it opens on its first tab.
+  for (const label of SA_MODULES) {
     const btn = sidebar(page).locator('[data-sidebar="menu-button"]').filter({ hasText: label }).first();
     await expect(btn, `${label} reachable collapsed`).toBeVisible();
+    const first = (await btn.getAttribute("data-tabs")).split(" ")[0];
     await btn.click();
-    await expect.poll(() => pageParam(page)).toBe(id);
+    await expect.poll(() => pageParam(page)).toBe(first);
   }
   await page.getByTestId("sidebar-home").click();
   await expect.poll(() => pageParam(page)).toBe("sa-dashboard");
@@ -124,23 +127,14 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
     await expect(page.locator('#portal-main a[data-testid="stat-card-link"]').filter({ hasText: label })).toHaveCount(0);
   }
 
-  // "Items Waiting on Fallback" wraps to two lines (no "…") and keeps its tooltip.
-  const fallbackLabel = async () => sidebar(page).locator('[data-sidebar="menu-button"]').filter({ hasText: "Items Waiting on Fallback" }).first().evaluate((a) => {
-    const span = a.querySelector("[data-fit]");
-    const lh = parseFloat(getComputedStyle(span).lineHeight) || 16;
-    return { lines: Math.round(span.getBoundingClientRect().height / lh), cut: span.scrollHeight > span.clientHeight + 1 || span.scrollWidth > span.clientWidth + 1, title: a.getAttribute("title"), fits: a.getBoundingClientRect().right <= a.closest('[data-sidebar="sidebar"]').getBoundingClientRect().right + 0.5 };
-  });
-  const wrapped = await fallbackLabel();
-  expect(wrapped, "wraps to two lines at 1366").toMatchObject({ lines: 2, cut: false, title: "Items Waiting on Fallback", fits: true });
-  await sidebar(page).locator('[data-nav-group="Overview"]').screenshot({ path: join(OUT, PHASE, "sa-fallback-label-1366.png") });
-  await page.locator('[data-sidebar="trigger"]').first().click();
-  const railItem = sidebar(page).locator('[data-sidebar="menu-button"]').filter({ hasText: "Items Waiting on Fallback" }).first();
-  await expect(railItem).toHaveAttribute("title", "Items Waiting on Fallback");
-  expect((await railItem.boundingBox()).height, "collapsed: an icon row like the others").toBeLessThanOrEqual(37);
-  await shot(page, "sa-fallback-label-collapsed-1366");
-  await page.locator('[data-sidebar="trigger"]').first().click();
+  // "Items waiting on fallback" is a Dashboard tab: shown in full (no "…"), at 1366 and at 390.
+  const fallbackTab = async () => page.locator('[data-module-tabs] a[data-tab="sa-fallback"]').evaluate((a) => ({
+    cut: a.scrollWidth > a.clientWidth + 1, text: a.textContent.trim().replace(/\d+$/, "").trim(),
+  }));
+  expect(await fallbackTab(), "1366: the fallback tab in full").toEqual({ cut: false, text: "Items waiting on fallback" });
+  await page.locator("[data-module-tabs]").screenshot({ path: join(OUT, PHASE, "sa-fallback-label-1366.png") });
 
-  // The badge follows a decision at once (the same query, reloaded; mocked item: the local data has none).
+  // The badge follows a decision at once, on the Dashboard item (summed) and on its tab (mocked item: the local data has none).
   let total = 1;
   await page.route("**/api/super-admin/fallback", (route) => (route.request().method() === "POST"
     ? (total = 0, route.fulfill({ json: { ok: true } }))
@@ -149,6 +143,7 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
   await page.locator("#portal-main").waitFor();
   const badge = sidebar(page).locator('[data-sidebar="menu-badge"]');
   await expect(badge).toHaveText("1");
+  await expect(page.locator('[data-module-tabs] a[data-tab="sa-fallback"]')).toContainText("1");
   await page.getByRole("button", { name: "Approve" }).click();
   // Part H: the decision opens its remark dialog (a remark is optional to approve).
   await page.getByRole("dialog").getByRole("button", { name: "Approve", exact: true }).click();
@@ -159,31 +154,29 @@ test("Super Admin: grouped sidebar, logo, cards, loading time", async ({ page })
   await page.setViewportSize(PHONE);
   await page.goto("/super-admin?page=sa-dashboard");
   await page.locator("#portal-main").waitFor();
-  for (const [id, label] of items.slice(1)) {
+  for (const label of SA_MODULES.slice(1)) {
     await page.locator('[data-sidebar="trigger"]').first().click();
     const sheet = page.locator('[data-mobile="true"]');
     await sheet.waitFor();
     const btn = sheet.locator('[data-sidebar="menu-button"]').filter({ hasText: label }).first();
-    if (!(await btn.isVisible())) await sheet.locator("[data-nav-group]").filter({ has: btn }).locator("button[aria-expanded]").click();
-    if (id === "sa-accounts") await shot(page, "sa-sidebar-390");
+    const first = (await btn.getAttribute("data-tabs")).split(" ")[0];
+    if (label === "Accounts") await shot(page, "sa-sidebar-390");
     await btn.click();
     await expect(sheet).toBeHidden();
-    expect(pageParam(page)).toBe(id);
+    expect(pageParam(page)).toBe(first);
   }
   await page.locator('[data-sidebar="trigger"]').first().click();
   await page.locator('[data-mobile="true"]').getByTestId("sidebar-home").click();
   await expect(page.locator('[data-mobile="true"]')).toBeHidden();
   await expect.poll(() => pageParam(page)).toBe("sa-dashboard");
   await shot(page, "sa-dashboard-390");
-  await page.locator('[data-sidebar="trigger"]').first().click();
-  await page.locator('[data-mobile="true"]').waitFor();
-  const phoneLabel = await page.locator('[data-mobile="true"] [data-sidebar="menu-button"]').filter({ hasText: "Items Waiting on Fallback" }).first()
-    .evaluate((a) => { const span = a.querySelector("[data-fit]"); return { cut: span.scrollHeight > span.clientHeight + 1 || span.scrollWidth > span.clientWidth + 1, title: a.getAttribute("title") }; });
-  expect(phoneLabel, "390: not cut, tooltip kept").toEqual({ cut: false, title: "Items Waiting on Fallback" });
+  // 390: the tab bar scrolls sideways itself; the page does not, and the fallback tab is not cut.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), "390: no sideways page scroll").toBe(true);
+  expect(await fallbackTab(), "390: the fallback tab in full").toEqual({ cut: false, text: "Items waiting on fallback" });
   await shot(page, "sa-fallback-label-390");
 });
 
-/* ── HR: the sidebar looks as before; logo; cards ───────────────────── */
+/* ── HR: the sidebar matches its baseline (re-recorded for Part I); logo; cards ── */
 
 test("HR: sidebar unchanged, logo, cards", async ({ page }) => {
   await page.setViewportSize(DESKTOP);
@@ -238,16 +231,30 @@ for (const [role, portal, fromPages, cardPages] of [
       // each half's "Basic pay" line is computed from it.
       await page.goto("/accountant?page=ac-process");
       await settle(page);
-      await page.locator("#pc-employee").click();
-      await page.getByRole("option").first().click();
-      await settle(page);
+      // The same full-month employee in both halves, picked by name AFTER the period: choosing a period
+      // opens that period's first saved draft, which can belong to someone else (full run 2026-11-24).
+      const pickAna = async () => {
+        await page.locator("#pc-employee").click();
+        await page.getByRole("option", { name: /^Ana Lopez/ }).first().click();
+        await settle(page);
+      };
+      await pickAna();
       const shownBasic = [];
-      const options = await page.locator("#pc-period").click().then(() => page.getByRole("option").allInnerTexts());
+      const offered = await page.locator("#pc-period").click().then(() => page.getByRole("option").allInnerTexts());
       await page.keyboard.press("Escape");
-      for (const period of options.filter((o) => /1-15|16-3[01]/.test(o)).slice(0, 2)) {
+      // The current month's two halves, by name (always offered). "The first two in the list" depended on today's
+      // date and on which periods other specs had touched last: 99-sa-backup-ui-rates plants a paid September 16-30
+      // payslip with an empty computation, which then came first (root cause found 2026-11-23).
+      const now = new Date(Date.now() + 8 * 3600e3);
+      const month = now.toLocaleString("en-US", { month: "long", timeZone: "UTC" });
+      const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+      const options = [`${month} 1-15, ${now.getUTCFullYear()}`, `${month} 16-${lastDay}, ${now.getUTCFullYear()}`];
+      for (const label of options) expect(offered, `${label} is offered`).toContain(label);
+      for (const period of options) {
         await page.locator("#pc-period").click();
         await page.getByRole("option", { name: period, exact: true }).click();
         await settle(page);
+        await pickAna();
         // Shown as "32,000.00" with ₱ inside the field (cleanup 2026-11-14).
         const basic = Number((await page.locator("#pc-basic").inputValue()).replace(/,/g, ""));
         const summaryCard = page.locator('[data-slot="card"]').filter({ hasText: "Computation summary" }).first();
@@ -280,18 +287,16 @@ for (const [role, portal, fromPages, cardPages] of [
     }
     if (role === "admin") {
       // Collapsible groups (decision 2026-11-14): every item, same order, same route; a URL opens its group.
-      for (const [id, label] of ADMIN_ITEMS) {
+      // Part I: every page keeps its route and opens in its module, on its tab; five modules.
+      for (const [id] of ADMIN_ITEMS) {
         await page.goto(`/admin?page=${id}`);
         await page.locator("#portal-main").waitFor();
-        const active = sidebar(page).locator('[data-sidebar="menu-button"][data-active="true"]');
-        await expect(active, `${id} is the active item`).toHaveText(label);
-        const header = active.locator("xpath=ancestor::*[@data-nav-group][1]").locator("button[aria-expanded]");
-        if (await header.count()) await expect(header, `${id}: its group opens`).toHaveAttribute("aria-expanded", "true");
+        await expectOpenAt(page, id);
       }
-      const order = await sidebar(page).locator('[data-sidebar="content"] [data-sidebar="menu-button"]').evaluateAll((els) => els.map((e) => e.textContent.trim()));
-      expect(order).toEqual(ADMIN_ITEMS.map(([, l]) => l));
+      const order = await sidebar(page).locator('[data-sidebar="content"] [data-sidebar="menu-button"]').evaluateAll((els) => els.map((e) => e.textContent.trim().replace(/\d+$/, "")));
+      expect(order).toEqual(ADMIN_MODULES);
       expect(await sidebar(page).locator("[data-nav-group]").evaluateAll((els) => els.map((e) => e.dataset.navGroup)))
-        .toEqual(["Overview", "Attendance", "Recommendations", "Reports to HR", "Branch", "RFID", "My Account"]);
+        .toEqual(["Overview", "Branch", "My Account"]);
       await page.goto("/admin?page=adm-dashboard");
       await settle(page);
       await shot(page, "admin-sidebar-1366");

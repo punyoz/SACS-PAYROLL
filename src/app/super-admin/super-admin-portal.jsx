@@ -39,6 +39,7 @@ import { ConfigPage } from "./config-page";
 import { BackupPage } from "./backup-page";
 import { BirExportsCard, YearEndTaxCard } from "@/components/portal/bir-forms";
 import { AttendanceActionsProvider } from "@/components/portal/attendance/dialogs";
+import { navPages } from "@/lib/portal/nav-tabs";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -51,53 +52,48 @@ const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.Das
  * Since 2026-10-20 the Super Admin runs system functions only: attendance and
  * Tenure Pay Protection are HR's, payroll the Accountant's (HR approves).
  */
+// Part I (2026-11-23): eight items, a tab per page (same page ids, permissions and routes).
 const NAV = [
-  {
-    section: "Overview",
-    items: [
-      { id: "sa-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" },
-      // Only what no active HR may decide (2026-11-09 Part D).
-      { id: "sa-fallback", label: "Items Waiting on Fallback", icon: InboxIcon, module: "fallback_approvals", wrap: true },
-    ],
-  },
-  // Work pages in collapsible groups, as HR's (2026-11-14); no page renamed, moved or lost.
+  { section: "Overview", items: [{ id: "sa-dashboard", label: "Dashboard", icon: LayoutDashboardIcon, tabs: [
+    { id: "sa-dashboard", label: "Overview", module: "dashboard" },
+    // Only what no active HR may decide (2026-11-09 Part D).
+    { id: "sa-fallback", label: "Items waiting on fallback", module: "fallback_approvals" },
+    { id: "sa-announcements", label: "Announcements", module: "announcements" },
+  ] }] },
   {
     section: "Management",
-    collapsible: true,
     items: [
-      { id: "sa-accounts", label: "Admin & HR Accounts", icon: UsersRoundIcon, module: "user_management" },
-      { id: "sa-branches", label: "Branch Management", icon: BuildingIcon, module: "branch_management" },
-      { id: "sa-roles", label: "Roles & Permissions", icon: ShieldCheckIcon, module: "roles_permissions" },
+      { id: "sa-accounts", label: "Accounts", icon: UsersRoundIcon, tabs: [
+        { id: "sa-accounts", label: "Admin & HR accounts", module: "user_management" },
+        { id: "sa-roles", label: "Roles & permissions", module: "roles_permissions" },
+      ] },
+      { id: "sa-branches", label: "Branches", icon: BuildingIcon, module: "branch_management" },
       // Read-only, every branch, with dates, branch filter and export (alpha test B1).
       { id: "sa-attendance", label: "Attendance Records", icon: CalendarCheckIcon, module: "attendance" },
-    ],
-  },
-  {
-    // One clearly named group (alpha test B1); it was all "System Maintenance".
-    section: "RFID",
-    collapsible: true,
-    items: [
-      { id: "sa-maintenance", label: "RFID Cards", icon: CreditCardIcon, module: "system_maintenance" },
-      { id: "sa-rfid-terminal", label: "RFID Terminal", icon: RadioTowerIcon, module: "system_maintenance" },
-      { id: "sa-rfid-issues", label: "RFID Issues", icon: WrenchIcon, module: "system_maintenance" },
-    ],
-  },
-  {
-    section: "System",
-    collapsible: true,
-    items: [
-      { id: "sa-config", label: "System Configuration", icon: SettingsIcon, module: "system_configuration" },
+      { id: "sa-maintenance", label: "RFID", icon: CreditCardIcon, tabs: [
+        { id: "sa-maintenance", label: "Cards", module: "system_maintenance" },
+        { id: "sa-rfid-terminal", label: "Terminal", module: "system_maintenance" },
+        { id: "sa-rfid-issues", label: "Issues", module: "system_maintenance" },
+      ] },
+      { id: "sa-config", label: "System", icon: SettingsIcon, tabs: [
+        { id: "sa-config", label: "Configuration", module: "system_configuration" },
+        { id: "sa-backup", label: "Backup & Recovery", module: "backup_recovery" },
+      ] },
       { id: "sa-audit", label: "Audit & Monitoring", icon: ScrollTextIcon, module: "audit_logs" },
-      { id: "sa-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" },
-      { id: "sa-backup", label: "Backup & Recovery", icon: DatabaseBackupIcon, module: "backup_recovery" },
     ],
   },
-  { section: "My Account", collapsible: true, items: [{ id: "sa-profile", label: "Profile", icon: UserRoundIcon, module: "profile" }] },
+  { section: "My Account", items: [{ id: "sa-profile", label: "My Account", icon: UserRoundIcon, module: "profile" }] },
 ];
 
-const NAV_ITEMS = NAV.flatMap((group) => group.items);
+const NAV_ITEMS = navPages(NAV);
 const PAGE_IDS = NAV_ITEMS.map((item) => item.id);
-const TITLES = Object.fromEntries(NAV_ITEMS.map((item) => [item.id, item.label]));
+// Page titles stay as before (the tab labels are shorter).
+const TITLES = {
+  "sa-dashboard": "Dashboard", "sa-fallback": "Items Waiting on Fallback", "sa-announcements": "Announcements", "sa-accounts": "Admin & HR Accounts",
+  "sa-roles": "Roles & Permissions", "sa-branches": "Branch Management", "sa-attendance": "Attendance Records", "sa-maintenance": "RFID Cards",
+  "sa-rfid-terminal": "RFID Terminal", "sa-rfid-issues": "RFID Issues", "sa-config": "System Configuration", "sa-backup": "Backup & Recovery",
+  "sa-audit": "Audit & Monitoring", "sa-profile": "Profile",
+};
 
 const DESCRIPTIONS = {
   "sa-dashboard": "Centralized monitoring of all branches, system health, and overall activity.",

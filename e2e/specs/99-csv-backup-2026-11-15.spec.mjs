@@ -230,6 +230,18 @@ test("2026-11-15: Super Admin CSV backup", async ({ page, monitor }) => {
       }
       check("Everything", Object.keys(zip).length === Object.keys(info.counts).length + 1, `${Object.keys(zip).length - 1} CSV files + README`);
       check("Counts", !bad.length, bad.length ? bad.join("; ") : "every CSV: rows = database = page = README; checksums match; BOM; every row as wide as its header");
+      // Batch 3 (2026-11-23): the new correction and transfer fields are in the backup (not silently dropped).
+      const headerOf = (key) => (zip[fileName(key)] ? csvOf(zip[fileName(key)]).header : []);
+      const corr = headerOf("attendance_corrections");
+      const tr = headerOf("transfer_requests");
+      // Headers are in words ("Fix type", "Pay correction UUID", "Applied at (Asia/Manila)"), from the column key.
+      const inWords = (key) => key.replace(/_id$/, "").split("_").join(" ").toLowerCase();
+      const hasColumn = (header, key) => header.some((h) => String(h).toLowerCase().startsWith(inWords(key)));
+      const missingCols = [
+        ...["fix_type", "reason_code", "attachment_path", "pay_effect", "pay_correction_id"].filter((c) => !hasColumn(corr, c)).map((c) => `attendance_corrections.${c}`),
+        ...["effective_date", "applied_at"].filter((c) => !hasColumn(tr, c)).map((c) => `transfer_requests.${c}`),
+      ];
+      check("New fields", !missingCols.length, missingCols.length ? `missing: ${missingCols.join(", ")}` : "attendance_corrections and transfer_requests carry the new fields");
       check("README", /Exported at \(Asia\/Manila\): \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(readme) && /Exported by: .+/.test(readme) && !/@/.test(/Exported by: (.+)/.exec(readme)[1]) && /Filters: branch = every branch; dates = everything/.test(readme) && /App version: /.test(readme), "README: time, who (no email), filters, version");
       check("README", /UUID/.test(readme) && /Columns:/.test(readme), "README has a column guide and explains the UUID links");
       check("README", /^Exported by: .+ \(Super Admin\)/m.test(readme), `exported by name and role: "${/Exported by: (.+)/.exec(readme)[1]}"`);

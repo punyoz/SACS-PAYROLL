@@ -1,5 +1,6 @@
 "use client";
 
+import { SystemRecommendation } from "@/components/portal/system-recommendation";
 import { LeaveBalanceNote } from "@/components/portal/leave-balance-note";
 import * as React from "react";
 import { ArrowLeftRightIcon, CalendarDaysIcon, RefreshCwIcon } from "lucide-react";
@@ -61,6 +62,7 @@ export function LeaveRecommendationsPage({ refreshKey }) {
     { key: "employee_name", header: "Employee", sortable: true, className: "font-medium", searchValue: (l) => l.employee_name },
     { key: "leave", header: "Leave", cell: (l) => <div className="text-xs"><p className="font-medium">{l.leave_type}{l.pay_status === "without_pay" ? " (without pay)" : ""}</p><p className="text-muted-foreground">{dateLabel(l.start_date)}{l.end_date !== l.start_date ? ` – ${dateLabel(l.end_date)}` : ""}</p>{l.pending ? <LeaveBalanceNote balance={view.data?.balances?.[l.employee_id]} request={l} className="mt-1 max-w-56 whitespace-normal" /> : null}</div>, searchValue: (l) => l.leave_type },
     { key: "reason", header: "Reason", cell: (l) => <p className="max-w-56 text-xs whitespace-normal">{l.reason}</p> },
+    { key: "system", header: "The system recommends", cell: (l) => <SystemRecommendation rec={l.system_recommendation} /> },
     { key: "rec", header: "Your recommendation", cell: (l) => <Recommendation rec={l.recommendation} /> },
     { key: "hr", header: "HR decision", sortValue: (l) => l.hr_status_label, cell: (l) => <div className="text-xs"><StatusBadge tone={HR_TONE(l.status)}>{l.hr_status_label}</StatusBadge>{l.decided_at ? <p className="mt-1 text-muted-foreground">{l.decided_by_name || "HR"} · {dateTime(l.decided_at)}</p> : null}</div>, searchValue: (l) => l.hr_status_label },
     { key: "act", header: <span className="sr-only">Actions</span>, align: "right", cell: (l) => (

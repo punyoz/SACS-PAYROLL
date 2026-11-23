@@ -16,6 +16,8 @@
  * is notified.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
+import { applyScheduleRequest } from "@/lib/automation/schedule-requests";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -24,6 +26,7 @@ import { appendAuditLog } from "@/lib/audit/store";
 import { requirePermission } from "@/lib/rbac/guard";
 import { getServiceClient as getAdminClient } from "@/lib/supabase/admin";
 import { DECISION_STATUS, REQUEST_KINDS, STATUS_LABELS, historyEntry, shapeRequest } from "@/lib/branch-requests";
+import { closeBranchReport } from "@/lib/automation/incident-tracking";
 import { notify } from "@/lib/branch-requests-server";
 import { textLimitError } from "@/lib/input-limits";
 import { eligibilityRefusal } from "@/lib/employees/classification-server";
@@ -94,6 +97,8 @@ export async function PATCH(request) {
     }
     const row = found.data;
     if (!row || !allowed.includes(row.kind)) return NextResponse.json({ error: "Request not found." }, { status: 404 });
+    // Nobody decides a request about themselves (2026-11-23).
+    if (row.employee_id && String(row.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "branch_oversight", entityType: "branch_request", entityId: row.id, what: "request" });
     if (!REQUEST_KINDS[row.kind].decisions.includes(decision)) {
       return NextResponse.json({ error: REQUEST_KINDS[row.kind].endorsement ? "This is the Admin's endorsement: decide the record itself on its own page." : "That decision does not apply here." }, { status: 400 });
     }
@@ -128,6 +133,15 @@ export async function PATCH(request) {
       outcomeRef = item.data?.id || null;
     }
 
+    // Part E step 3: an approved schedule request that names one of HR's schedules is applied by the
+    // system from its start date (a new version of the employee's schedule; history is never edited).
+    // While automation is paused nothing is applied by the system: HR applies it in Work Schedules, as before.
+    if (row.kind === "schedule_request" && decision === "approve" && row.details?.schedule_key) {
+      const applied = await applyScheduleRequest(supabase, row, { by: actorName, userId: guard.userId });
+      if (applied.error) return NextResponse.json({ error: applied.error }, { status: 400 });
+      if (applied.assignmentId) outcomeRef = applied.assignmentId;
+    }
+
     const status = DECISION_STATUS[decision];
     const decider = remarkClient(remark, { decision, entityType: "branch_request", module: "branch_oversight", table: "branch_admin_requests", ids: [row.id], actor: guard });
     const updated = await decider.from("branch_admin_requests").update({
@@ -137,6 +151,7 @@ export async function PATCH(request) {
     }).eq("id", row.id).eq("status", "pending").select("*").maybeSingle();
     if (updated.error) return NextResponse.json({ error: sanitizeError(updated.error) }, { status: 400 });
     if (!updated.data) return NextResponse.json({ error: "Already decided." }, { status: 409 });
+    await closeBranchReport(supabase, row.id, `${STATUS_LABELS[status]} by ${actorName}`);
 
     const label = REQUEST_KINDS[row.kind].label;
     const subject = row.details?.employee_name ? ` · ${row.details.employee_name}` : "";

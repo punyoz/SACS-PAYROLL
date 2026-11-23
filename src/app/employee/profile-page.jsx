@@ -96,7 +96,7 @@ export function ProfilePage() {
           <InfoList items={[
             { label: "Position", value: ctx?.position },
             { label: "Category", value: ctx?.employee_type },
-            { label: "Employment", value: [ctx?.employment_type, ctx?.employment_status].filter(Boolean).join(" · ") },
+            { label: "Employment", value: ctx?.employment_status || "" },
             { label: "Date hired", value: ctx?.date_hired },
           ]} />
         </Section>

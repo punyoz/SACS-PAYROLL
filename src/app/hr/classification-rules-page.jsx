@@ -16,7 +16,8 @@ import { fetchJson, jsonBody } from "@/lib/portal/api";
 import { PAY_BASIS_LABELS } from "@/lib/employees/classification";
 
 const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
-const comboLabel = (r) => `${r.employee_type} · ${r.employment_status} · ${r.employment_type}`;
+// Category × Status (no part-time employees, 2026-11-23).
+const comboLabel = (r) => `${r.employee_type} · ${r.employment_status}`;
 const pending = (note) => /pending policy manual/i.test(String(note || ""));
 const SHORT = { "Vacation Leave": "Vacation", "Sick Leave": "Sick", "Emergency Leave": "Emergency" };
 const WHO = { female: "Female employees", married_male: "Married male employees", any: "Any employee" };
@@ -47,7 +48,7 @@ export function ClassificationRulesPage({ refreshKey }) {
       const d = await fetchJson("/api/hr/classification-rules");
       setData(d);
       setLeave(d.leave.map((r) => ({ ...r, values: Object.fromEntries(d.leave_types.map((t) => [t, String(r.days[t]?.days ?? 0)])) })));
-      setPay(d.pay.map((r) => ({ ...r, ...(r.rule || { pay_basis: r.employment_type === "Part-time" ? "hourly" : "monthly", overtime_allowed: true, subsidy_eligible: true, incentive_eligible: true, loan_eligible: true }) })));
+      setPay(d.pay.map((r) => ({ ...r, ...(r.rule || { pay_basis: "monthly", overtime_allowed: true, subsidy_eligible: true, incentive_eligible: true, loan_eligible: true }) })));
       setSettings(Object.fromEntries(Object.entries(d.settings).map(([k, v]) => [k, String(v.value)])));
       setStatutory((d.statutory || []).map((t) => ({ ...t, days: String(Number(t.days)), max_events: t.max_events ? String(t.max_events) : "" })));
     } catch (e) {
@@ -105,7 +106,7 @@ export function ClassificationRulesPage({ refreshKey }) {
         <CardHeader>
           <CardTitle>Leave credits</CardTitle>
           <CardDescription>
-            Days per year for each leave type. New hires get a share from their hire date; part-timers a share by their scheduled hours.
+            Days per year for each leave type. New hires get a share from their hire date.
             Granted automatically every January 1.{anyPending ? " Defaults are pending the policy manual." : ""}
           </CardDescription>
         </CardHeader>
@@ -211,12 +212,7 @@ export function ClassificationRulesPage({ refreshKey }) {
                     <tr key={comboLabel(r)} className="border-b last:border-0">
                       <th scope="row" className="py-1.5 pr-3 text-left font-normal whitespace-nowrap">{comboLabel(r)}</th>
                       <td className="px-2 py-1.5">
-                        {r.employment_type === "Full-time" ? <span className="text-muted-foreground">{PAY_BASIS_LABELS.monthly}</span> : (
-                          <Select value={r.pay_basis} onValueChange={(v) => setRow({ pay_basis: v })} disabled={!canEdit}>
-                            <SelectTrigger className="h-8 w-44" aria-label={`${comboLabel(r)}: pay basis`}><SelectValue /></SelectTrigger>
-                            <SelectContent>{["hourly", "scheduled_hours", "monthly"].map((b) => <SelectItem key={b} value={b}>{PAY_BASIS_LABELS[b]}</SelectItem>)}</SelectContent>
-                          </Select>
-                        )}
+                        <span className="text-muted-foreground">{PAY_BASIS_LABELS.monthly}</span>
                       </td>
                       {FLAGS.map(([k, l]) => (
                         <td key={k} className="px-2 py-1.5">

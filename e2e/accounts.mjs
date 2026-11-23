@@ -7,6 +7,8 @@ export const ACCOUNTS = {
   admin: { login: "e2eadmin", email: "admin@e2e.test", password: "E2e-Admin#2026", portal: "/admin" },
   admin2: { login: "admin2@e2e.test", email: "admin2@e2e.test", password: "E2e-Admin#2026", portal: "/admin" },
   hr: { login: "e2ehr", email: "hr@e2e.test", password: "E2e-HrOfficer#2026", portal: "/hr" },
+  // A second HR officer (2026-11-23): seeded archived; 99-two-hr-officers activates it, then archives it again.
+  hr2: { login: "hr2@e2e.test", email: "hr2@e2e.test", password: "E2e-HrOfficer2#2026", portal: "/hr" },
   accountant: { login: "acct@e2e.test", email: "acct@e2e.test", password: "E2e-Accountant#2026", portal: "/accountant" },
   employee: { login: "emp1@e2e.test", email: "emp1@e2e.test", password: "E2e-Employee#2026", portal: "/employee" },
   employee2: { login: "emp2@e2e.test", email: "emp2@e2e.test", password: "E2e-Employee#2026", portal: "/employee" },

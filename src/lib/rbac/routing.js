@@ -24,6 +24,26 @@ export async function activeHrIds(supabase) {
   return (result.data || []).filter((row) => !INACTIVE.includes(String(row.employee_status || "Active"))).map((row) => row.id);
 }
 
+/**
+ * The HR officers who may decide an HR person's own request (user decision
+ * 2026-11-23): another active HR who covers their branch — an HR with no home
+ * branch covers every branch; one with a home branch covers that branch.
+ */
+export async function coveringHr(supabase, { branchId = null, exceptId = null } = {}) {
+  const result = await supabase.from("profiles").select("id,full_name,branch_id,employee_status").eq("role", "hr").eq("archived", false);
+  if (result.error) return [];
+  return (result.data || []).filter((row) => row.id !== exceptId && !INACTIVE.includes(String(row.employee_status || "Active"))
+    && (!row.branch_id || !branchId || String(row.branch_id) === String(branchId)));
+}
+
+/** Who a person's own request waits for: HR (named, for an HR's own) or the Super Admin (the stand-in). */
+export async function waitingFor(supabase, person) {
+  if (!person || person.role !== "hr") return { kind: "hr", label: "HR" };
+  const others = await coveringHr(supabase, { branchId: person.branch_id, exceptId: person.id });
+  if (others.length) return { kind: "hr", label: `Another HR officer: ${others.map((h) => h.full_name).join(", ")}`, names: others.map((h) => h.full_name) };
+  return { kind: "super_admin", label: "The Super Admin (no other HR officer covers your branch)" };
+}
+
 /** Every active HR except `exceptId`. */
 export async function otherActiveHrIds(supabase, exceptId) {
   return (await activeHrIds(supabase)).filter((id) => id !== exceptId);

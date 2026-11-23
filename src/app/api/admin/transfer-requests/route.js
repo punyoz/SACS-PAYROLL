@@ -1,3 +1,5 @@
+import { checkTransfer, closeTransferRecommendation, logTransferRecommendation } from "@/lib/automation/transfer-recommendations";
+import { refuseOwnItem } from "@/lib/rbac/routing";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { NextResponse } from "next/server";
 import { sanitizeError } from "@/lib/api-error";
@@ -61,6 +63,17 @@ async function applyBranchMove(supabase, employeeId, fromBranchId, toBranchId) {
 export async function GET(request) {
   const guard = await requirePermission(request, "transfer_requests", "read");
   if (guard.denied) return guard.denied;
+    // Part E step 5: the system's checks for a transfer HR is about to make (shown before confirming).
+    {
+      const url = new URL(request.url);
+      if (url.searchParams.get("precheck") === "1") {
+        if (!can(guard.role, "transfer_requests", "create")) return NextResponse.json({ error: "HR makes transfers." }, { status: 403 });
+        const employeeId = normalizeText(url.searchParams.get("employee_id"));
+        const toBranchId = normalizeText(url.searchParams.get("to_branch_id"));
+        if (!employeeId || !toBranchId) return NextResponse.json({ error: "Choose the employee and the branch." }, { status: 400 });
+        return NextResponse.json({ check: await checkTransfer(getAdminClient(), { employee_id: employeeId, to_branch_id: toBranchId, effective_date: normalizeText(url.searchParams.get("effective_date")) || null }) });
+      }
+    }
 
   try {
     const allRequests = await readAllTransferRequests();
@@ -171,10 +184,22 @@ export async function POST(request) {
       );
     }
 
+    // Part E step 5: the effective date (default today; never in the past; within a year).
+    const todayKey = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    const effectiveDate = normalizeText(body.effective_date) || todayKey;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || effectiveDate < todayKey) {
+      return NextResponse.json({ error: "Choose the effective date: today or later." }, { status: 400 });
+    }
+    if (effectiveDate > new Date(Date.parse(`${todayKey}T00:00:00Z`) + 366 * 864e5).toISOString().slice(0, 10)) {
+      return NextResponse.json({ error: "Choose an effective date within the next year." }, { status: 400 });
+    }
+    const later = effectiveDate > todayKey;
+
     let request_ = await insertTransferRequest({
       employee_id: employeeId,
       from_branch_id: fromBranchId,
       to_branch_id: toBranchId,
+      effective_date: effectiveDate,
       // Identity comes from the signed session cookie, never the body — the
       // caller cannot submit a request as someone else.
       requested_by: guard.userId,
@@ -191,7 +216,7 @@ export async function POST(request) {
     // no longer offered or honored.)
     const waitForEndorsement = false;
     const appliedImmediately = can(guard.role, "transfer_requests", "update");
-    if (appliedImmediately) {
+    if (appliedImmediately && !later) {
       const moveResult = await applyBranchMove(supabase, employeeId, fromBranchId, toBranchId);
       if (!moveResult.moved) {
         await updateTransferRequestStatus(request_.id, "rejected", { reviewedBy: guard.userId });
@@ -205,6 +230,14 @@ export async function POST(request) {
       });
       request_ = approved.request || request_;
     }
+
+    // A later date: approved now, applied by the system that morning (transfer_apply_due).
+    if (appliedImmediately && later) {
+      const approved = await updateTransferRequestStatus(request_.id, "approved", { reviewedBy: guard.userId });
+      request_ = approved.request || request_;
+    }
+    // Waiting for a decision: the system checks the rules and fills the leaving branch's Admin's endorsement.
+    if (!appliedImmediately) await logTransferRecommendation(supabase, request_);
 
     await appendAuditLog({
       actor: guard,
@@ -227,7 +260,7 @@ export async function POST(request) {
       await notify(supabase, (admins.data || []).map((a) => a.id), {
         kind: "transfer_applied",
         title: `Transfer · ${normalizeText(employeeMeta.full_name, "Employee")}`,
-        body: `Moved to ${destination.name} by HR.`,
+        body: later ? `Moves to ${destination.name} on ${effectiveDate} (approved by HR).` : `Moved to ${destination.name} by HR.`,
         link_page: "adm-transfers",
       }).catch(() => 0);
     }
@@ -285,6 +318,8 @@ export async function PATCH(request) {
 
     const foreignBranch = denyForeignBranch(guard, current.from_branch_id);
     if (foreignBranch) return foreignBranch;
+    // Nobody decides their own transfer (2026-11-23).
+    if (String(current.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "transfer_requests", entityType: "transfer_request", entityId: id, what: "transfer" });
 
     // Batch 2: a preset remark (required to reject), checked before anything moves;
     // audited with the decision's own update (decision_remark_audit, Part H).
@@ -312,7 +347,10 @@ export async function PATCH(request) {
     // employee too, so moving afterwards found the employee already gone and
     // flipped an applied transfer to "rejected" (2026-10-20, found when
     // pending transfers started waiting for the branch Admins' endorsement).
-    if (nextStatus === "approved") {
+    // A later effective date: approved now; the system applies it that morning (Part E step 5).
+    const todayKey = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+    const waitsForDate = Boolean(current.effective_date) && String(current.effective_date).slice(0, 10) > todayKey;
+    if (nextStatus === "approved" && !waitsForDate) {
       const moveResult = await applyBranchMove(
         getAdminClient(),
         current.employee_id,
@@ -335,6 +373,7 @@ export async function PATCH(request) {
       client: remarkClient(remark, { decision: action, entityType: "transfer_request", module: "transfer_requests", table: "transfer_requests", ids: [id], actor: guard }),
     });
 
+    await closeTransferRecommendation(getAdminClient(), id, action);
     await notifyEndorsers(getAdminClient(), "transfer_endorsement", id, {
       title: `Transfer ${nextStatus === "approved" ? "approved" : "rejected"} by HR`,
       body: remark.text || current.remarks || "See Transfer Endorsements.",

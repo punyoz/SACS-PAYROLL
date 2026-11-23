@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { manilaDateKey } from "@/lib/portal/format";
 import { dateLabel, money } from "@/lib/portal/payroll-preview";
 import { INCIDENT_TYPES, OVERTIME_TYPES, RFID_ISSUE_TYPES, SCHEDULE_REQUEST_TYPES } from "@/lib/branch-requests";
+import { fetchJson } from "@/lib/portal/api";
 import { RequestsPage } from "./oversight-shared";
 
 /*
@@ -41,23 +42,36 @@ export function IncidentReportsPage({ refreshKey }) {
 
 export function ScheduleRequestsPage({ refreshKey }) {
   const today = manilaDateKey();
+  // Part E step 3: a schedule change names one of HR's work schedules; HR's approval applies it from that date.
+  const [schedules, setSchedules] = React.useState({});
+  React.useEffect(() => {
+    let alive = true;
+    fetchJson("/api/admin/branch-oversight?view=schedules").then((d) => {
+      if (!alive) return;
+      const list = d.schedules || [];
+      setSchedules(Object.fromEntries([...list.map((p) => [p.schedule_key, `${p.name} (${p.work_start}–${p.work_end})`]), ["none", "None fits: describe it in the note"]]));
+    }).catch(() => setSchedules({ none: "None fits: describe it in the note" }));
+    return () => { alive = false; };
+  }, [refreshKey]);
   return (
     <RequestsPage
       refreshKey={refreshKey}
       kind="schedule_request"
       icon={CalendarClockIcon}
       title="Work schedule & class-load requests"
-      description="Ask HR to change an employee's work schedule or class load. HR approves or rejects it and applies an approved change in Work Schedules."
+      description="Ask HR to change an employee's work schedule or class load. Pick one of HR's work schedules: once HR approves, the system applies it from the date you chose. A class-load change stays a note for HR."
       buttonLabel="Request a change"
       initial={{ request_type: "schedule", effective_from: today }}
       fields={[
         { id: "employee_id", label: "Employee", type: "employee", wide: true },
         { id: "request_type", label: "Change", type: "select", options: SCHEDULE_REQUEST_TYPES },
+        { id: "schedule_key", label: "Work schedule", type: "select", options: schedules, wide: true, when: (v) => v.request_type === "schedule",
+          hint: "If none fits, choose \"None fits\" and describe it: HR creates the schedule first." },
         { id: "effective_from", label: "Starting", type: "date", min: today },
-        { id: "requested", label: "What should change", type: "textarea", wide: true, placeholder: "e.g. 7:00 AM – 3:00 PM from Monday; or add Grade 8 Math (5 hours a week)" },
+        { id: "requested", label: "Note (what should change)", type: "textarea", wide: true, placeholder: "e.g. needs 7:00 AM – 3:00 PM; or add Grade 8 Math (5 hours a week)" },
       ]}
       columns={[
-        { key: "change", header: "Requested change", cell: (r) => <div className="max-w-72 text-xs whitespace-normal"><p className="font-medium">{r.details?.request_type_label} · from {dateLabel(r.details?.effective_from)}</p><p>{r.details?.requested}</p></div>, searchValue: (r) => r.details?.requested },
+        { key: "change", header: "Requested change", cell: (r) => <div className="max-w-72 text-xs whitespace-normal"><p className="font-medium">{r.details?.request_type_label} · from {dateLabel(r.details?.effective_from)}</p>{r.details?.schedule_name ? <p>{r.details.schedule_name}</p> : null}<p>{r.details?.requested}</p></div>, searchValue: (r) => `${r.details?.schedule_name || ""} ${r.details?.requested || ""}` },
       ]}
       empty={{ title: "No schedule requests", icon: CalendarClockIcon }}
     />
@@ -71,7 +85,7 @@ export function RfidIssuesPage({ refreshKey }) {
       kind="rfid_issue"
       icon={CreditCardIcon}
       title="RFID issue reports"
-      description="Report a lost, broken or malfunctioning card or reader. HR or the Super Admin fixes it and marks it Resolved."
+      description="Report a lost, broken or malfunctioning card or reader. A card reported lost is blocked at once (HR can reactivate or replace it). HR or the Super Admin fixes it and marks it Resolved."
       buttonLabel="Report an issue"
       initial={{ issue_type: "lost_card" }}
       fields={[

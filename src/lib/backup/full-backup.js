@@ -48,7 +48,7 @@ export const BACKUP_GROUPS = Object.freeze([
     computed: [],
     tables: ["attendance_logs", "attendance_logs_history", "attendance_taps", "attendance_blocked_taps", "attendance_corrections",
       "attendance_overtime_approvals", "attendance_holidays", "school_break_periods", "holiday_duty_assignments", "holiday_duty_history",
-      "holiday_work_reviews", "early_bird_winners", "attendance_data_gaps"],
+      "holiday_work_reviews", "early_bird_winners", "attendance_data_gaps", "automation_actions", "special_working_days"],
   },
   {
     key: "leave", label: "Leave requests and balances",
@@ -67,7 +67,7 @@ export const BACKUP_GROUPS = Object.freeze([
     key: "benefits", label: "Loans, advances, incentives, subsidy, 13th month",
     description: "Loans and their payments, cash advances, incentives, deductions, contribution amounts, licensed-teacher subsidy and 13th month pay.",
     computed: [],
-    tables: ["payroll_loans", "payroll_loan_payments", "payroll_cash_advances", "payroll_incentives", "payroll_monthly_incentives",
+    tables: ["payroll_loans", "payroll_loan_payments", "payroll_cash_advances", "payroll_incentives", "payroll_monthly_incentives", "incentive_recommendations",
       "payroll_deductions", "payroll_contribution_amounts", "payroll_subsidy_requests", "payroll_subsidy_adjustments",
       "payroll_subsidy_balances", "payroll_subsidy_settings", "payroll_thirteenth_month"],
   },

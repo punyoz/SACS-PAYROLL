@@ -487,7 +487,8 @@ export const ROLE_PERMISSIONS = {
     branch_reports: none(),
     profile: full(SCOPE_SELF),
     timesheet: view(SCOPE_ALL),
-    attendance_corrections: { scope: SCOPE_ALL, actions: READ_WRITE },
+    // Own requests too (2026-11-23): filed with "create", decided by another HR (never their own).
+    attendance_corrections: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     loans: none(),
     awol_cases: { scope: SCOPE_ALL, actions: ["create", "read", "update"] },
     // The only approver of subsidy decisions: missed-month adjustments the

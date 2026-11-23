@@ -84,6 +84,8 @@ BEGIN
   EXCEPTION WHEN check_violation THEN NULL;
   END;
 
+  -- AWOL is off until enabled (Batch 2): on from Oct 1 here (rolled back with the rest).
+  UPDATE public.system_config SET value = '2026-10-01' WHERE section = 'hr' AND key = 'awol_auto_from';
   -- 7. AWOL counts no-shows only: three short days with taps are not a streak.
   INSERT INTO public.attendance_logs (employee_id, employee_name, log_date, time_in, time_out, branch_id)
   SELECT ana, 'Ana Halfday', d, d + TIME '08:00' AT TIME ZONE 'Asia/Manila', d + TIME '09:00' AT TIME ZONE 'Asia/Manila', '00000000-0000-4000-8000-0000000004f1'

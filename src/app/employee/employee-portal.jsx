@@ -15,7 +15,9 @@ import { TimesheetPage } from "./timesheet-page";
 import { PayslipsPage } from "./payslips-page";
 import { LeavePage } from "./leave-page";
 import { ProfilePage } from "./profile-page";
-import { MY_DESCRIPTIONS, MY_PAGE_IDS, MY_REQUEST_ALIASES, MyRequestsPage, myAccountGroup } from "@/components/portal/my-account";
+import { MY_DESCRIPTIONS, MY_PAGE_IDS, MY_REQUEST_ALIASES, MyRequestsPage, employeeAccountItems } from "@/components/portal/my-account";
+import { navPages } from "@/lib/portal/nav-tabs";
+import { MySpecialDays } from "@/components/portal/special-days";
 
 // Charts (recharts) load with this page, not with the portal.
 const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.DashboardPage), { loading: PageSkeleton });
@@ -25,17 +27,19 @@ const DashboardPage = dynamic(() => import("./dashboard-page").then((m) => m.Das
  * so the saved page carries over between the two and sign-out clears it.
  * `module` is the permission each page needs (src/lib/rbac/permissions.js).
  */
+// Part I (2026-11-23): six items; My Attendance and My Payslips have tabs (same page ids, so saved pages and links still work).
+const MINE = employeeAccountItems();
 const NAV = [
   { section: "Overview", items: [{ id: "emp-dash", label: "Dashboard", icon: LayoutDashboardIcon, module: "dashboard" }] },
+  { section: "My Account", items: [MINE.attendance, MINE.requests, MINE.payslips] },
   // School-wide and branch announcements stay where they were.
-  { section: "Communication", items: [{ id: "emp-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }] },
-  // Every personal page in ONE group (2026-11-09 Part E): the same group HR and
-  // the Accountant get; expanded by default here (the Employee has no work pages).
-  myAccountGroup("emp", { defaultOpen: true }),
+  { section: "Communication", items: [{ id: "emp-announcements", label: "Announcements", icon: MegaphoneIcon, module: "announcements" }, MINE.profile] },
 ];
 
-const PAGES = NAV.flatMap((group) => group.items);
+const PAGES = navPages(NAV);
 const PAGE_IDS = PAGES.map((item) => item.id);
+// Page titles stay as before (the tab labels are shorter).
+const OLD_TITLES = { "emp-attendance": "My Attendance", "emp-timesheet": "My Timesheet", "emp-leave": "My Requests", "emp-payslips": "My Payslips", "emp-requests": "Loans & Other Pay" };
 
 const DESCRIPTIONS = {
   "emp-dash": null,
@@ -85,7 +89,7 @@ function EmployeeScreens() {
     ];
   }, [stats.data, leave.requests]);
 
-  const title = PAGES.find((item) => item.id === current)?.label || "Dashboard";
+  const title = OLD_TITLES[current] || PAGES.find((item) => item.id === current)?.label || "Dashboard";
 
   return (
     <AppShell
@@ -100,8 +104,8 @@ function EmployeeScreens() {
       profilePage="emp-profile"
       accountOptions={{ payrollReadOnly: true }}
     >
-      {current === "emp-dash" ? <DashboardPage stats={stats} payslips={payslips} leave={leave} onNavigate={setPage} /> : null}
-      {current === "emp-attendance" ? <AttendancePage stats={stats} refreshKey={refreshKey} /> : null}
+      {current === "emp-dash" ? <><MySpecialDays /><DashboardPage stats={stats} payslips={payslips} leave={leave} onNavigate={setPage} /></> : null}
+      {current === "emp-attendance" ? <><MySpecialDays /><AttendancePage stats={stats} refreshKey={refreshKey} /></> : null}
       {current === "emp-timesheet" ? <TimesheetPage /> : null}
       {current === "emp-payslips" ? <PayslipsPage payslips={payslips} /> : null}
       {current === "emp-leave" ? <LeavePage leave={leave} /> : null}

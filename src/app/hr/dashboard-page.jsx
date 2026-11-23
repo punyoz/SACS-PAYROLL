@@ -16,6 +16,7 @@ import { fetchJson } from "@/lib/portal/api";
 import { portalHref } from "@/lib/portal/navigate";
 import { manilaDateKey } from "@/lib/payroll/periods";
 import { LicenseAlertsCard } from "./license-alerts-card";
+import { AutomationCard } from "@/components/portal/automation-card";
 
 /*
  * HR Dashboard (loadHRDashboard / renderHRDashboardLeaves /
@@ -84,6 +85,8 @@ export function DashboardPage({ refreshKey, onNavigate, onSummary }) {
       {/* Final pay waiting for HR, with days left (20261120010000). */}
       <FinalPayWaitingCard refreshKey={refreshKey} onOpen={() => onNavigate?.("hr-final-pay-approvals")} />
       <ActionNeededCard data={d.action_needed} />
+      {/* Part E: what the system did, prepared and could not decide. */}
+      <AutomationCard role="hr" refreshKey={refreshKey} />
       <section aria-label="Today at a glance" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Total employees" value={d.total_employees ?? 0} hint="Active staff on record" icon={UsersIcon} loading={loading} href={portalHref("hr-employees")} actionLabel="View active employees" />
         <StatCard label="Present today" value={d.present_today ?? 0} hint="Late included" icon={CheckCircle2Icon} tone="success" loading={loading} href={portalHref("hr-attendance", { ...todayRange, hr_att_status: "Present" })} actionLabel="View who is present today" />

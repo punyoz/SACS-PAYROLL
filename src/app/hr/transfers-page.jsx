@@ -1,5 +1,6 @@
 "use client";
 
+import { DatePicker } from "@/components/portal/date-picker";
 import * as React from "react";
 import { Building2Icon, Loader2Icon, RefreshCwIcon, UserMinusIcon, UsersIcon } from "lucide-react";
 import { DecisionRemarkDialog } from "@/components/portal/remark-field";
@@ -45,6 +46,17 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
   const [confirmDialog, confirm] = useConfirm();
   const [branch, setBranch] = React.useState("");
   const [remarks, setRemarks] = React.useState("");
+  // Part E step 5: today = at once; a later date = the system applies it that morning.
+  const [effective, setEffective] = React.useState("");
+  // Part E step 5: the system's checks, before HR confirms.
+  const [check, setCheck] = React.useState(null);
+  React.useEffect(() => {
+    if (!employee?.id || !branch) { setCheck(null); return undefined; }
+    let alive = true;
+    const q = new URLSearchParams({ precheck: "1", employee_id: employee.id, to_branch_id: branch, ...(effective ? { effective_date: effective } : {}) });
+    fetchJson(`/api/admin/transfer-requests?${q}`).then((d) => { if (alive) setCheck(d.check || null); }).catch(() => { if (alive) setCheck(null); });
+    return () => { alive = false; };
+  }, [employee?.id, branch, effective]);
   const [error, setError] = React.useState("");
   const [feedback, setFeedback] = React.useState({ text: "", ok: false });
   const [busy, setBusy] = React.useState(false);
@@ -79,7 +91,7 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: employee.id, to_branch_id: branch, remarks: remarks.trim(), wait_for_endorsement: wait }));
+      const result = await fetchJson("/api/admin/transfer-requests", jsonBody("POST", { employee_id: employee.id, to_branch_id: branch, remarks: remarks.trim(), wait_for_endorsement: wait, effective_date: effective || undefined }));
       const branchName = result.to_branch_name || destination?.name || "the new branch";
       if (result.applied) {
         setFeedback({ text: `Moved to ${branchName}.`, ok: true });
@@ -123,6 +135,18 @@ function TransferDialog({ employee, branches, onOpenChange, onDone }) {
                 <SelectContent>{destinations.map((b) => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}</SelectContent>
               </Select>
               {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            </div>
+            {check ? (
+              <div className="space-y-0.5 rounded-md border p-2 text-xs" data-testid="transfer-check">
+                <p className="font-medium">System: {check.label}</p>
+                {check.reasons.map((r) => <p key={r} className="text-muted-foreground">✓ {r}</p>)}
+                {check.warnings.map((w) => <p key={w} className="text-warning">! {w}</p>)}
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="hr-ba-effective">Effective date <span className="font-normal text-muted-foreground">(today if empty)</span></Label>
+              <DatePicker id="hr-ba-effective" value={effective} onChange={setEffective} min={new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)} />
+              <p className="text-xs text-muted-foreground">A later date: approved now; the branch, the RFID card and payroll move that morning.</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="hr-ba-remarks">Remarks <span className="font-normal text-muted-foreground">(optional)</span></Label>
@@ -221,7 +245,7 @@ export function TransfersPage({ refreshKey }) {
     { key: "type", header: "Category", cell: (e) => (
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusBadge tone={e.employee_type === "Non-Teaching" ? "gold" : "info"} dot={false}>{e.employee_type || "Teaching"}</StatusBadge>
-        {e.employment_status ? <span className="text-xs text-muted-foreground">{[e.employment_status, e.employment_type].filter(Boolean).join(" · ")}</span> : null}
+        {e.employment_status ? <span className="text-xs text-muted-foreground">{[e.employment_status].filter(Boolean).join(" · ")}</span> : null}
       </div>
     ) },
     { key: "position", header: "Position", cell: (e) => e.position || "—" },

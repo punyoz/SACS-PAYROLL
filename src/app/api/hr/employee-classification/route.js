@@ -39,8 +39,8 @@ async function guardWriter(request) {
 /** Why a value cannot be used for a field, or null. */
 function valueError(field, value, hiredOn) {
   if (field === "employee_type") return CATEGORY_OPTIONS.includes(value) ? null : "Choose Teaching or Non-Teaching.";
-  if (field === "employment_status") return EMPLOYMENT_STATUS_OPTIONS.includes(value) ? null : "Choose Regular, Probationary or Contractual.";
-  if (field === "employment_type") return EMPLOYMENT_TYPE_OPTIONS.includes(value) ? null : "Choose Full-time or Part-time.";
+  if (field === "employment_status") return EMPLOYMENT_STATUS_OPTIONS.includes(value) ? null : "Choose Regular, Probationary, Provisional or Contractual.";
+  if (field === "employment_type") return EMPLOYMENT_TYPE_OPTIONS.includes(value) ? null : "Everyone is Full-time.";
   if (field === "on_payroll") return typeof value === "boolean" ? null : "Choose on or off payroll.";
   if (field === "contract_end_date") {
     if (value === null || value === "") return null;

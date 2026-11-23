@@ -73,6 +73,7 @@ function shapeEmployee(user, profile) {
     position: normalizeText(meta.position, "Employee"),
     employee_status: normalizeText(meta.employee_status, "Active"),
     employment_type: normalizeText(profile?.employment_type, normalizeText(meta.employment_type)),
+    staff_group: profile?.staff_group || null,
     employment_status: normalizeText(profile?.employment_status, normalizeText(meta.employment_status)),
     contract_end_date: profile?.contract_end_date || null,
     classification_unconfirmed: Boolean(profile?.classification_unconfirmed),
@@ -130,7 +131,7 @@ export async function GET(request) {
       // an error, not a list of employees without their profiles.
       const { data: profiles, error: profileError } = await fetchAllIn(() => supabase
         .from("profiles")
-        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,updated_at,employee_type,employment_status,employment_type,contract_end_date,classification_unconfirmed")
+        .select("id,email,full_name,first_name,middle_name,last_name,suffix,emergency_contact_name,emergency_contact_relationship,emergency_contact_address,emergency_contact_number,cp_number,date_hired,branch_id,address,updated_at,employee_type,staff_group,employment_status,employment_type,contract_end_date,classification_unconfirmed")
         .order("id", { ascending: true }), "id", userIds);
       if (profileError) throw new Error(profileError.message);
       (profiles || []).forEach((p) => profileMap.set(p.id, p));
@@ -302,6 +303,7 @@ export async function PATCH(request) {
       sex: record.sex,
       civil_status: record.civil_status,
       employee_type: record.employee_type,
+      staff_group: record.staff_group,
       position: position.name,
       employment_type: record.employment_type,
       employment_status: record.employment_status,
@@ -335,6 +337,7 @@ export async function PATCH(request) {
         employee_type: record.employee_type,
         employment_status: record.employment_status || null,
         employment_type: record.employment_type || null,
+        staff_group: record.staff_group,
         position: updatedMeta.position,
         employee_status: record.employee_status,
         cp_number: record.cp_number,

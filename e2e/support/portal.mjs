@@ -25,20 +25,20 @@ export const PAGES = {
     ["hr-payroll-records", "Payroll Records"], ["hr-subsidy-approvals", "Subsidy Approvals"],
     ["hr-adjustment-approvals", "Incentive & Loan Approvals"], ["hr-gov-rates", "Government Rates"], ["hr-reports", "HR Reports"], ["hr-remark-presets", "Preset Remarks"],
     // "My Account" (2026-11-09): HR is on payroll; its own pages.
-    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "Leave & Overtime"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "My Requests"], ["hr-profile", "My Profile"],
+    ["hr-my-attendance", "My Attendance"], ["hr-my-timesheet", "My Timesheet"], ["hr-my-leave", "My Requests"], ["hr-my-payslips", "My Payslips"], ["hr-my-requests", "Loans & Other Pay"], ["hr-profile", "My Profile"],
   ],
   accountant: [
     ["ac-dashboard", "Dashboard"], ["ac-process", "Process Payroll"], ["ac-records", "Payroll Records"], ["ac-payslips", "Payslips"],
     ["ac-loans", "Loans"], ["ac-incentives", "Incentives & Overload"], ["ac-cash-advances", "Cash Advances"],
     ["ac-13th", "13th month pay"], ["ac-approvals", "Subsidies"], ["ac-final-pay", "Final Pay"],
     ["ac-attendance", "View Attendance"], ["ac-holidays", "Holidays & Duty"], ["ac-gov-rates", "Government Rates"], ["ac-monitoring", "Payroll Monitoring"], ["ac-announcements", "Announcements"], ["ac-reports", "Payroll Reports"],
-    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "Leave & Overtime"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "My Requests"], ["ac-profile", "My Profile"],
+    ["ac-my-attendance", "My Attendance"], ["ac-my-timesheet", "My Timesheet"], ["ac-my-leave", "My Requests"], ["ac-my-payslips", "My Payslips"], ["ac-my-requests", "Loans & Other Pay"], ["ac-profile", "My Profile"],
   ],
   employee: [
     // One "My Account" group (2026-11-09), with My Requests; six items since
     // 2026-11-12 (no "My BIR Form 2316": the BIR is the Super Admin's only).
     ["emp-dash", "Dashboard"], ["emp-announcements", "Announcements"], ["emp-attendance", "My Attendance"], ["emp-timesheet", "My Timesheet"],
-    ["emp-leave", "Leave & Overtime"], ["emp-payslips", "My Payslips"], ["emp-requests", "My Requests"], ["emp-profile", "My Profile"],
+    ["emp-leave", "My Requests"], ["emp-payslips", "My Payslips"], ["emp-requests", "Loans & Other Pay"], ["emp-profile", "My Profile"],
   ],
 };
 
@@ -46,10 +46,30 @@ export const main = (page) => page.locator("#portal-main");
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/** A page id from its label (PAGES): a page that is now a tab inside a module. */
+const idsOfLabel = (label) => Object.values(PAGES).flat().filter(([, l]) => l === label).map(([id]) => id);
+
 /** Click a sidebar entry by its exact label (opening the mobile sheet, and its collapsed group, if needed). */
 export async function navTo(page, label) {
   const exact = new RegExp(`^\\s*${escapeRe(label)}\\s*(\\d+)?\\s*$`);
-  let item = page.locator('[data-sidebar="menu-button"]').filter({ hasText: exact }).first();
+  const direct = page.locator('[data-sidebar="menu-button"]').filter({ hasText: exact });
+  // A page that is a tab of a module (Part I, 2026-11-23): open the module from the sidebar, then click its tab.
+  // On a phone the menu (and its links) exist only once it is open.
+  const trigger0 = page.locator('[data-sidebar="trigger"]').first();
+  if (idsOfLabel(label).length && !(await page.locator('[data-sidebar="menu-button"]:visible').count()) && await trigger0.isVisible().catch(() => false)) await trigger0.click();
+  let id = null;
+  for (const candidate of idsOfLabel(label)) if (await page.locator(`[data-sidebar="menu-button"][data-tabs~="${candidate}"]`).count()) { id = candidate; break; }
+  if (id) {
+    const trigger = page.locator('[data-sidebar="trigger"]').first();
+    const host = page.locator(`[data-sidebar="menu-button"][data-tabs~="${id}"]`).first();
+    if (!(await host.isVisible().catch(() => false)) && await trigger.isVisible().catch(() => false)) await trigger.click();
+    await page.locator(`[data-sidebar="menu-button"][data-tabs~="${id}"]:visible`).first().click();
+    await settle(page);
+    const tab = page.locator(`[data-module-tabs] a[data-tab="${id}"]`);
+    if (await tab.count() && (await tab.getAttribute("aria-current")) !== "page") { await tab.click(); await settle(page); }
+    return;
+  }
+  let item = direct.first();
   if (!(await item.isVisible().catch(() => false))) {
     const trigger = page.locator('[data-sidebar="trigger"]').first();
     if (await trigger.isVisible().catch(() => false) && !(await page.locator('[data-nav-group]:visible').count())) await trigger.click();

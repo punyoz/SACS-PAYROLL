@@ -41,7 +41,7 @@ const MODULES = [
   { id: "emp-attendance", title: "Attendance", text: "Your monthly attendance calendar, time in and out, and daily status.", icon: CalendarCheckIcon },
   { id: "emp-timesheet", title: "Timesheet", text: "Daily and monthly work hours, tardiness and undertime, ready to export.", icon: ClockIcon },
   { id: "emp-payslips", title: "Payslips", text: "Current and previous payslips with the full earnings and deductions.", icon: ReceiptTextIcon },
-  { id: "emp-leave", title: "Leave & Overtime", text: "Request leave, a half day or overtime and track its approval.", icon: CalendarDaysIcon },
+  { id: "emp-leave", title: "My Requests", text: "Request leave, a half day or overtime and track its approval.", icon: CalendarDaysIcon },
 ];
 
 /** The role / staff / ID line (applyEmployeeIdentity, employee.js). */

@@ -20,9 +20,11 @@ import { EMAIL_MAX, NAME_PART_MAX, POSITION_MAX, SALARY_MAX, TIN_RULE, digitsOrN
 
 export const SEX_OPTIONS = ["Male", "Female"];
 export const CIVIL_STATUS_OPTIONS = ["Single", "Married", "Widowed", "Legally Separated", "Annulled"];
-export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time", "Part-time"];
+// No part-time employees (2026-11-23): always Full-time; the field is not shown or asked for.
+export const EMPLOYMENT_TYPE_OPTIONS = ["Full-time"];
+export const STAFF_GROUP_OPTIONS = ["Maintenance"];
 // "Substitute" is not a status: the school uses its own employees as substitutes (Part C, 2026-11-20).
-export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Contractual"];
+export const EMPLOYMENT_STATUS_OPTIONS = ["Regular", "Probationary", "Provisional", "Contractual"];
 export const EMPLOYEE_TYPE_OPTIONS = ["Teaching", "Non-Teaching"];
 export const ACCOUNT_STATUS_OPTIONS = ["Active", "Pending", "On Leave", "Inactive"];
 // profiles_suffix_valid; the form's Suffix list.
@@ -80,7 +82,9 @@ export function normalizeEmployeeFields(body = {}) {
     sex: pickOption(body.sex, SEX_OPTIONS),
     civil_status: pickOption(body.civil_status, CIVIL_STATUS_OPTIONS),
     employee_type: pickOption(body.employee_type, EMPLOYEE_TYPE_OPTIONS),
-    employment_type: pickOption(body.employment_type, EMPLOYMENT_TYPE_OPTIONS),
+    employment_type: "Full-time",
+    // Maintenance is a group within Non-Teaching (2026-11-23), not a category.
+    staff_group: pickOption(body.employee_type, EMPLOYEE_TYPE_OPTIONS) === "Non-Teaching" && body.staff_group === "Maintenance" ? "Maintenance" : null,
     employment_status: pickOption(body.employment_status, EMPLOYMENT_STATUS_OPTIONS),
     employee_status: pickOption(body.employee_status, ACCOUNT_STATUS_OPTIONS),
     position: normalizeText(body.position),
@@ -105,6 +109,7 @@ const FIELD_LABELS = {
   sex: "Sex",
   civil_status: "Civil status",
   employee_type: "Category",
+  staff_group: "Group",
   employment_type: "Employment type",
   employment_status: "Employment status",
   employee_status: "Account status",
@@ -124,7 +129,7 @@ const FIELD_LABELS = {
 /** Required on every employee record HR saves. */
 export const REQUIRED_FIELDS = [
   "first_name", "last_name", "email", "date_of_birth", "sex", "civil_status",
-  "employee_type", "employment_type", "employment_status", "employee_status", "position",
+  "employee_type", "employment_status", "employee_status", "position",
   "date_hired", "address", "cp_number", "sss_number", "philhealth_number",
   "pagibig_number", "tin_number",
 ];

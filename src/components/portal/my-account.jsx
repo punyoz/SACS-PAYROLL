@@ -27,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchJson } from "@/lib/portal/api";
 import { useEmployeeStats, useLeaveRequests, usePayslips } from "@/app/employee/use-employee-data";
 import { AttendancePage } from "@/app/employee/attendance-page";
+import { MySpecialDays } from "@/components/portal/special-days";
 import { TimesheetPage } from "@/app/employee/timesheet-page";
 import { PayslipsPage } from "@/app/employee/payslips-page";
 import { LeavePage } from "@/app/employee/leave-page";
@@ -65,11 +66,43 @@ export function myAccountGroup(prefix, { defaultOpen = false } = {}) {
     items: [
       { id: ids.attendance, label: "My Attendance", icon: CalendarCheckIcon, module: "my_account" },
       { id: ids.timesheet, label: "My Timesheet", icon: ClockIcon, module: "my_account" },
-      { id: ids.leave, label: "Leave & Overtime", icon: CalendarDaysIcon, module: "my_account" },
+      { id: ids.leave, label: "My Requests", icon: CalendarDaysIcon, module: "my_account" },
       { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, module: "my_account" },
-      { id: ids.requests, label: "My Requests", icon: InboxIcon, module: "my_account" },
+      { id: ids.requests, label: "Loans & Other Pay", icon: InboxIcon, module: "my_account" },
       { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
     ],
+  };
+}
+
+/** Part I (2026-11-23): HR and the Accountant get ONE "My Account" item with a tab per personal page (same page ids). */
+export function myAccountItem(prefix) {
+  const ids = MY_PAGE_IDS[prefix];
+  return {
+    section: "My Account",
+    items: [{
+      id: ids.attendance, label: "My Account", icon: UserRoundIcon,
+      tabs: [
+        { id: ids.attendance, label: "My Attendance", module: "my_account" },
+        { id: ids.timesheet, label: "My Timesheet", module: "my_account" },
+        { id: ids.payslips, label: "My Payslips", module: "my_account" },
+        { id: ids.leave, label: "My Requests", module: "my_account" },
+        { id: ids.requests, label: "Loans & Other Pay", module: "my_account" },
+        { id: ids.profile, label: "Profile", module: "profile" },
+      ],
+    }],
+  };
+}
+
+/** Part I: the Employee's personal items (My Attendance, My Requests, My Payslips; My Profile last). */
+export function employeeAccountItems() {
+  const ids = MY_PAGE_IDS.emp;
+  return {
+    attendance: { id: ids.attendance, label: "My Attendance", icon: CalendarCheckIcon, tabs: [
+      { id: ids.attendance, label: "Attendance", module: "my_account" }, { id: ids.timesheet, label: "Timesheet", module: "my_account" }] },
+    requests: { id: ids.leave, label: "My Requests", icon: CalendarDaysIcon, module: "my_account" },
+    payslips: { id: ids.payslips, label: "My Payslips", icon: ReceiptTextIcon, tabs: [
+      { id: ids.payslips, label: "Payslips", module: "my_account" }, { id: ids.requests, label: "Loans & Other Pay", module: "my_account" }] },
+    profile: { id: ids.profile, label: "My Profile", icon: UserRoundIcon, module: "profile" },
   };
 }
 
@@ -191,7 +224,7 @@ export function MyAccountScreen({ kind, refreshKey = 0, initialTab }) {
   const stats = useEmployeeStats(email, refreshKey);
   const payslips = usePayslips(email, refreshKey);
   const leave = useLeaveRequests(ctx, notify, refreshKey);
-  if (kind === "attendance") return <AttendancePage stats={stats} refreshKey={refreshKey} />;
+  if (kind === "attendance") return <><MySpecialDays /><AttendancePage stats={stats} refreshKey={refreshKey} /></>;
   if (kind === "timesheet") return <TimesheetPage />;
   if (kind === "leave") return <LeavePage leave={leave} />;
   if (kind === "payslips") return <PayslipsPage payslips={payslips} />;

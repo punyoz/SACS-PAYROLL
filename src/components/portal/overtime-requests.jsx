@@ -146,7 +146,8 @@ export function MyOvertimeList({ list, apiBase = "/api/me/overtime-requests" }) 
 }
 
 export function HrOvertimeRequests() {
-  const { notify } = usePortalSession();
+  const { notify, me } = usePortalSession();
+  const myId = String(me?.user?.id || "");
   const [status, setStatus] = React.useState("pending");
   const list = useRequests(`/api/hr/overtime-requests?status=${status}`);
   // Part F: search, branch, category, employment status, dates and sort (in the address).
@@ -194,7 +195,7 @@ export function HrOvertimeRequests() {
     { key: "status", header: "Status", cell: (r) => (
       <div className="space-y-0.5"><RequestStatusBadge status={r.status} />{r.decided_by_name ? <p className="text-xs text-muted-foreground">{r.decided_by_name}{r.decision_note ? ` · ${r.decision_note}` : ""}</p> : null}</div>
     ) },
-    { key: "actions", header: "", cell: (r) => (r.status === "pending" ? (
+    { key: "actions", header: "", cell: (r) => (r.status === "pending" && String(r.employee_id) === myId ? <p className="text-xs text-muted-foreground" data-testid="own-request">Your own request: another HR officer decides it</p> : r.status === "pending" ? (
       <div className="flex gap-2">
         <Button size="sm" onClick={() => setDeciding({ row: r, decision: "approve" })}>Approve</Button>
         <Button size="sm" variant="outline" onClick={() => setDeciding({ row: r, decision: "reject" })}>Reject</Button>
@@ -220,7 +221,7 @@ export function HrOvertimeRequests() {
         <DataTable toolbar={filters.toolbar} columns={columns} rows={filters.rows} loading={list.loading} error={list.error} onRetry={list.reload}
           searchPlaceholder="Search employees…" empty={{ title: "No overtime requests", icon: ClockIcon }} caption="Overtime requests" minWidth={860} 
           selection={{
-            selected, onChange: setSelected, rowId: (r) => r.id, isSelectable: (r) => r.status === "pending",
+            selected, onChange: setSelected, rowId: (r) => r.id, isSelectable: (r) => r.status === "pending" && String(r.employee_id) !== myId,
             label: (r) => `${r.employee_name} ${r.request_date}`,
             actions: (rows) => (<>
               <Button size="sm" variant="outline" className="text-destructive" onClick={() => setBulk({ decision: "reject", rows })}>Reject selected</Button>

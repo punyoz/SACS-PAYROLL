@@ -31,9 +31,11 @@ for (const [role, pageId] of [["employee", "emp-leave"], ["hr", "hr-my-leave"], 
     await as(page, role, pageId);
     await settle(page);
 
-    await step(page, `${role} > the sidebar says "Leave & Overtime" (no "My Leave")`, async () => {
+    // Part I (2026-11-23): "Leave & Overtime" is "My Requests" (its page title, and a tab or item in the sidebar).
+    await step(page, `${role} > the page is "My Requests" (no "My Leave")`, async () => {
       const nav = page.locator("nav, aside").first();
-      await expect(page.getByRole("link", { name: "Leave & Overtime" }).or(page.getByRole("button", { name: "Leave & Overtime" })).first()).toBeVisible();
+      await expect(page.locator("header h1")).toHaveText("My Requests");
+      await expect(page.getByRole("link", { name: /^My Requests/ }).first()).toBeVisible();
       await expect(page.getByText("My Leave", { exact: true })).toHaveCount(0);
       await nav.screenshot({ path: join(OUT, `${role}-sidebar.png`) }).catch(() => page.screenshot({ path: join(OUT, `${role}-sidebar.png`) }));
     });

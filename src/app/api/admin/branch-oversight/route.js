@@ -21,9 +21,13 @@
  * kind=overtime_confirmation: it reads the Admin's confirmations before paying.
  */
 
+import { refuseOwnItem } from "@/lib/rbac/routing";
+import { recommendationsFor } from "@/lib/automation/leave-recommendations";
 import { remarkClient, resolveRemark } from "@/lib/remarks/presets";
 import { leaveBalancesFor } from "@/lib/leave-requests/store";
 import { NextResponse } from "next/server";
+import { invalidateUsersCache } from "@/lib/auth/users-cache";
+import { trackBranchReport } from "@/lib/automation/incident-tracking";
 import { sanitizeError } from "@/lib/api-error";
 import { normalizeText } from "@/lib/auth/normalize";
 import { appendAuditLog } from "@/lib/audit/store";
@@ -188,6 +192,13 @@ async function attendanceView(supabase, branchId, staff, url) {
   const { from, to } = range(url);
   const ids = staff.map((p) => p.id);
   const [logs, flags] = await Promise.all([attendanceLogs(supabase, ids, from, to), branchRequests(supabase, branchId, ["attendance_flag"])]);
+  // The system's day-level attendance flags for these records (Part E step 2), with the Admin's note / objection.
+  const autoFlags = await supabase.from("automation_actions")
+    .select("id,entity_id,status,summary,rule,admin_note,admin_noted_by_name,admin_objected,created_at,data")
+    .eq("module", "attendance_flags").eq("entity_type", "attendance_log").eq("branch_id", branchId)
+    .gte("created_at", `${from}T00:00:00+08:00`).order("created_at", { ascending: false }).limit(1000);
+  const autoByLog = new Map();
+  (autoFlags.data || []).forEach((a) => { if (a.entity_id && !autoByLog.has(a.entity_id)) autoByLog.set(a.entity_id, a); });
   const flagByLog = new Map();
   flags.rows.forEach((f) => { if (f.ref_id && !flagByLog.has(f.ref_id)) flagByLog.set(f.ref_id, shapeRequest(f)); });
   const names = new Map(staff.map((p) => [p.id, p]));
@@ -196,6 +207,7 @@ async function attendanceView(supabase, branchId, staff, url) {
     employee_name: names.get(l.employee_id)?.full_name || l.employee_name,
     employee_code: names.get(l.employee_id)?.employee_code || "",
     flag: flagByLog.get(l.id) || null,
+    auto_flag: autoByLog.get(l.id) || null,
   }));
   // Today's "Not tapped yet" rows, as on HR's board (decision 2026-11-14): the
   // nightly close's own rule, this branch only; nothing is written.
@@ -224,6 +236,7 @@ async function attendanceView(supabase, branchId, staff, url) {
     total: chosen.length, page, page_size: size, counts,
     days: [...new Set(all.map((l) => l.log_date))].filter(Boolean).sort().reverse(),
     flags: flags.rows.map((f) => shapeRequest(f)),
+    auto_flags: autoFlags.data || [],
   };
 }
 
@@ -231,6 +244,8 @@ async function leavesView(supabase, branchId, staff) {
   const ids = staff.map((p) => p.id);
   const [leaves, recs] = await Promise.all([branchLeaves(supabase, branchId, ids), branchRequests(supabase, branchId, ["leave_endorsement"])]);
   const recBy = new Map(recs.rows.map((r) => [r.ref_id, shapeRequest(r)]));
+  // Part E step 4: what the system recommends for each request.
+  const systemRecs = await recommendationsFor(supabase, leaves.map((l) => l.id));
   // Read-only paid-leave balance of this branch's people (2026-11-12).
   const balances = await leaveBalancesFor(ids);
   return {
@@ -240,6 +255,7 @@ async function leavesView(supabase, branchId, staff) {
       pending: LEAVE_PENDING.includes(l.status),
       hr_status_label: LEAVE_LABELS[l.status] || l.status,
       recommendation: recBy.get(l.id) || null,
+      system_recommendation: systemRecs.get(String(l.id)) || null,
     })),
   };
 }
@@ -432,6 +448,20 @@ export async function GET(request) {
     const branchId = guard.branchId;
     if (!branchId) return NextResponse.json({ error: "Your account has no branch." }, { status: 403 });
 
+    // Part E step 3: the schedules a schedule request may name (names and times only;
+    // the Admin has no Work Schedules access).
+    if (view === "schedules" && guard.role === "admin") {
+      const { data, error } = await supabase.from("work_schedules").select("schedule_key,name,work_start,work_end,archived,effective_from,created_at")
+        .order("effective_from", { ascending: false }).order("created_at", { ascending: false });
+      if (error) throw error;
+      const latest = new Map();
+      for (const row of data || []) if (!latest.has(row.schedule_key)) latest.set(row.schedule_key, row);
+      const schedules = [...latest.values()].filter((r) => !r.archived)
+        .map((r) => ({ schedule_key: r.schedule_key, name: r.name, work_start: String(r.work_start || "").slice(0, 5), work_end: String(r.work_end || "").slice(0, 5) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return NextResponse.json({ schedules });
+    }
+
     // The Accountant reads the Admin's overtime / substitute confirmations only.
     if (guard.role !== "admin") {
       if (guard.role !== "accountant" || view !== "requests") {
@@ -569,6 +599,9 @@ export async function POST(request) {
     let details = {};
     let outcomeRef = null;
 
+    // Attendance issues are flagged by the system now (Part E step 2, 2026-11-24): an Admin adds a note or objects on
+    // the system's flag instead of filing one. Old manual flags stay listed. Incidents stay manual.
+    if (kind === "attendance_flag") return bad("Attendance issues are flagged automatically each night. Add a note or object on the system's flag instead.", 409);
     if (kind === "attendance_flag") {
       const log = UUID.test(String(body.ref_id || "")) ? (await supabase.from("attendance_logs").select("id,employee_id,log_date,status,time_in,time_out").eq("id", body.ref_id).maybeSingle()).data : null;
       const owner = log ? staff.find((p) => p.id === log.employee_id) : null;
@@ -584,6 +617,13 @@ export async function POST(request) {
       if (!LEAVE_PENDING.includes(leave.status)) return bad("HR has already decided this leave request.", 409);
       if (!ENDORSE[body.decision]) return bad("Choose Endorse or Not endorse.");
       refId = leave.id; employeeId = leave.employee_id; status = ENDORSE[body.decision];
+      if (String(leave.employee_id) === String(guard.userId)) return await refuseOwnItem(guard, { module: "branch_oversight", entityType: "leave_request", entityId: leave.id, what: "leave request" });
+      // Part E step 4: the Admin checked the system's recommendation; it goes to HR with their word.
+      await supabase.from("automation_actions").update({
+        status: "with_hr", admin_note: `${body.decision === "not_endorse" ? "Not endorsed" : "Endorsed"}${body.note ? `: ${String(body.note).slice(0, 300)}` : ""}`,
+        admin_noted_by: guard.userId, admin_noted_by_name: guard.session?.full_name || "Admin", admin_noted_at: new Date().toISOString(),
+        admin_objected: body.decision === "not_endorse", forwarded_at: new Date().toISOString(), forwarded_by: guard.session?.full_name || "Admin", updated_at: new Date().toISOString(),
+      }).eq("module", "leave_recommendations").eq("entity_type", "leave_request").eq("entity_id", String(leave.id)).eq("status", "admin_check");
       details = { employee_name: owner?.full_name || leave.employee_name, leave_type: leave.leave_type, start_date: leave.start_date, end_date: leave.end_date };
     } else if (kind === "transfer_endorsement") {
       const transfer = UUID.test(String(body.ref_id || "")) ? (await supabase.from("transfer_requests").select("*").eq("id", body.ref_id).maybeSingle()).data : null;
@@ -595,6 +635,12 @@ export async function POST(request) {
         return bad("Only the Admin of the branch the employee is leaving endorses this transfer.", 403);
       }
       if (!ENDORSE[body.decision]) return bad("Choose Endorse or Not endorse.");
+      // Part E step 5: the Admin checked the system's endorsement; it goes to HR with their word.
+      await supabase.from("automation_actions").update({
+        status: "with_hr", admin_note: `${body.decision === "not_endorse" ? "Not endorsed" : "Endorsed"}${body.note ? `: ${String(body.note).slice(0, 300)}` : ""}`,
+        admin_noted_by: guard.userId, admin_noted_by_name: guard.session?.full_name || "Admin", admin_noted_at: new Date().toISOString(),
+        admin_objected: body.decision === "not_endorse", forwarded_at: new Date().toISOString(), forwarded_by: guard.session?.full_name || "Admin", updated_at: new Date().toISOString(),
+      }).eq("module", "transfer_endorsements").eq("entity_type", "transfer_request").eq("entity_id", String(transfer.id)).eq("status", "admin_check");
       const who = (await supabase.from("profiles").select("full_name").eq("id", transfer.employee_id).maybeSingle()).data;
       refId = transfer.id; employeeId = transfer.employee_id; status = ENDORSE[body.decision];
       details = { employee_name: who?.full_name || "Employee", direction: String(transfer.to_branch_id) === String(branchId) ? "incoming" : "outgoing" };
@@ -626,8 +672,26 @@ export async function POST(request) {
       const requested = normalizeText(d.requested).slice(0, 500);
       if (!type) return bad("Choose a schedule or class-load change.");
       if (!isDateKey(effective) || effective < today) return bad("Choose when it should start (today or later).");
-      if (requested.length < 3) return bad("Describe the change you are asking for.");
-      details = { employee_name: person.full_name, request_type: type, request_type_label: SCHEDULE_REQUEST_TYPES[type], effective_from: effective, requested };
+      // Part E step 3: a schedule change names one of HR's work schedules, so HR's approval applies it
+      // on that date; "none" = no schedule fits (described in the note; HR creates it first). Class load stays a note.
+      const scheduleKey = type === "schedule" ? normalizeText(d.schedule_key) : "";
+      let schedule = null;
+      if (type === "schedule") {
+        if (!scheduleKey) return bad("Choose the work schedule (or \"None fits\" and describe it).");
+        if (scheduleKey !== "none") {
+          // The latest version of the schedule (a schedule keeps its history as versions).
+          schedule = (await supabase.from("work_schedules").select("schedule_key,name,archived").eq("schedule_key", scheduleKey)
+            .order("effective_from", { ascending: false }).order("created_at", { ascending: false }).limit(1)).data?.[0] || null;
+          if (!schedule || schedule.archived) return bad("That work schedule is not available.");
+        }
+      }
+      if ((type !== "schedule" || scheduleKey === "none") && requested.length < 3) return bad("Describe the change you are asking for.");
+      if (person.date_hired && effective < String(person.date_hired).slice(0, 10)) return bad("The change cannot start before the employee's date hired.");
+      const twin = await supabase.from("branch_admin_requests").select("id").eq("kind", "schedule_request").eq("status", "pending")
+        .eq("employee_id", person.id).eq("details->>effective_from", effective).limit(1);
+      if ((twin.data || []).length) return bad("There is already a pending schedule request for this employee from that date.");
+      details = { employee_name: person.full_name, request_type: type, request_type_label: SCHEDULE_REQUEST_TYPES[type], effective_from: effective, requested,
+        ...(schedule ? { schedule_key: schedule.schedule_key, schedule_name: schedule.name } : {}) };
     } else if (kind === "rfid_issue") {
       const type = RFID_ISSUE_TYPES[d.issue_type] ? d.issue_type : null;
       if (!type) return bad("Choose the kind of problem.");
@@ -658,6 +722,8 @@ export async function POST(request) {
       details = { employee_name: person.full_name, kind: itemKind, item_date: date, amount: itemKind === "incentive" ? roundPeso(amount) : null, hours: itemKind === "overload" ? Math.round(hours * 100) / 100 : null, description };
     }
 
+    // Nobody files or endorses anything about themselves (2026-11-23).
+    if (employeeId && String(employeeId) === String(guard.userId)) return await refuseOwnItem(guard, { module: "branch_oversight", entityType: "branch_request", entityId: refId || null, what: "request" });
     const entry = historyEntry({ action: REQUEST_KINDS[kind].endorsement ? "endorse" : "file", status, by: guard.userId, byName: actorName(guard), role: "admin", note });
     let saved;
     if (REQUEST_KINDS[kind].endorsement && refId) {
@@ -685,6 +751,16 @@ export async function POST(request) {
       saved = inserted.data;
     }
 
+    // Part E step 7 (safe fix): a card reported lost is blocked at once (deactivated, so HR can
+    // reactivate it or replace the card), logged "by System". Never fails the report.
+    let blocked = [];
+    if (kind === "rfid_issue" && details.issue_type === "lost_card" && employeeId) {
+      blocked = await blockReportedLostCards(supabase, guard, { employeeId, branchId, requestId: saved?.id, name: details.employee_name });
+    }
+
+    // Part E step 8: tracked for HR until decided (a no-show is tracked in AWOL Cases).
+    if (saved) await trackBranchReport(supabase, saved, { routedElsewhere: Boolean(outcomeRef) });
+
     const label = REQUEST_KINDS[kind].label;
     const subject = details.employee_name ? ` · ${details.employee_name}` : "";
     const recipients = [...await hrAccountIds(supabase), ...(kind === "rfid_issue" ? await superAdminIds(supabase) : [])];
@@ -699,8 +775,30 @@ export async function POST(request) {
       status: "success", source: "api", description: `${label}${subject}: ${STATUS_LABELS[status]} (${note}).`,
       metadata: { kind, ref_id: refId, employee_id: employeeId, status, outcome_ref: outcomeRef },
     });
-    return NextResponse.json({ success: true, request: shapeRequest(saved) });
+    return NextResponse.json({ success: true, request: shapeRequest(saved), cards_blocked: blocked.length });
   } catch (error) {
     return NextResponse.json({ error: sanitizeError(error) }, { status: 500 });
   }
+}
+
+/** Deactivate the employee's active card(s) after a lost-card report, logged for HR. */
+async function blockReportedLostCards(supabase, guard, { employeeId, branchId, requestId, name }) {
+  const done = [];
+  try {
+    const { data: cards } = await supabase.from("rfid_cards").select("id,uid_last4").eq("employee_id", employeeId).eq("status", "active");
+    for (const card of cards || []) {
+      const res = await supabase.rpc("rfid_card_set_status", { p_actor: guard.userId, p_card: card.id, p_action: "deactivate",
+        p_reason: "Reported lost by the branch Admin: blocked automatically until HR replaces or reactivates it" });
+      if (res.error) continue;
+      done.push(card.id);
+      await supabase.rpc("automation_log", {
+        p_module: "rfid_issues", p_rule: "a card reported lost is blocked at once", p_kind: "applied",
+        p_summary: `${name || "Employee"}'s card ••••${card.uid_last4 || ""} was blocked after the lost-card report. Undo: reactivate it in RFID Cards, or replace the card.`,
+        p_data: { code: "lost_card_blocked", card_id: card.id, request_id: requestId || null },
+        p_employee: employeeId, p_branch: branchId, p_entity_type: "rfid_card", p_entity_id: String(card.id),
+      });
+    }
+    if (done.length) invalidateUsersCache();
+  } catch { /* the report is saved; HR blocks it by hand */ }
+  return done;
 }

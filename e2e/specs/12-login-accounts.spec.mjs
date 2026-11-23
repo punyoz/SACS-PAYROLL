@@ -197,10 +197,11 @@ test("accounts: who may create whom, duplicates and bad input", async ({ page, m
 
 test("new accounts: first sign-in replaces the issued password; each sees only its own portal", async ({ page, monitor }) => {
   const cases = [
-    ["admin", NEW.admin, () => NEW.admin.issued, "/admin", { has: ["Dashboard"], not: ["Process Payroll", "Payroll Approval", "System Configuration"] }],
-    ["hr", NEW.hr, () => NEW.hr.issued, "/hr", { has: ["Payroll Approval"], not: ["Process Payroll", "System Configuration"] }],
-    ["accountant", NEW.accountant, () => ISSUED_PASSWORD, "/accountant", { has: ["Process Payroll"], not: ["Payroll Approval", "System Configuration"] }],
-    ["employee", NEW.employee, () => ISSUED_PASSWORD, "/employee", { has: ["Payslips"], not: ["Process Payroll", "Payroll Approval"] }],
+    ["admin", NEW.admin, () => NEW.admin.issued, "/admin", { has: ["Dashboard", "Branch Review"], not: ["Process Payroll", "Approvals", "System"] }],
+    // Part I (2026-11-23): one item per module; HR approves payroll under Approvals.
+    ["hr", NEW.hr, () => NEW.hr.issued, "/hr", { has: ["Approvals", "Employees"], not: ["Process Payroll", "System"] }],
+    ["accountant", NEW.accountant, () => ISSUED_PASSWORD, "/accountant", { has: ["Process Payroll"], not: ["Approvals", "System"] }],
+    ["employee", NEW.employee, () => ISSUED_PASSWORD, "/employee", { has: ["My Payslips"], not: ["Process Payroll", "Approvals"] }],
   ];
   for (const [role, who, issued, portal, menu] of cases) {
     await step(page, `New ${role} ${who.first} > sign in with the issued password + code > must choose a new password`, async () => {

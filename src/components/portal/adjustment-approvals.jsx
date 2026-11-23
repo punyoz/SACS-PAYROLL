@@ -76,7 +76,7 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
     try {
       await fetchJson("/api/hr/adjustment-approvals", jsonBody("PATCH", { kind: deciding.item.kind, id: deciding.item.id, decision: deciding.decision, remark }));
       notify(deciding.decision === "approve" ? "Approved" : "Rejected",
-        deciding.decision === "approve" ? "Payroll will include it." : "It will not be paid or deducted. The Accountant is notified.", "success");
+        deciding.decision === "approve" ? (deciding.item.kind === "rule_incentive" ? "Paid once the Accountant recomputes the payslip." : "Payroll will include it.") : "It will not be paid or deducted. The Accountant is notified.", "success");
       setDeciding(null);
       await load();
     } catch (err) {
@@ -120,7 +120,7 @@ export function AdjustmentApprovalsPanel({ refreshKey }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><ClipboardCheckIcon className="size-4 text-gold-text" aria-hidden="true" />Incentive & loan approvals</CardTitle>
         <CardDescription>
-          Incentives, overload, loans and cash advances the Accountant filed. Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid.
+          Incentives, overload, loans and cash advances the Accountant filed, and the Perfect Attendance and Early Bird incentives the system computed each cutoff (marked &ldquo;system&rdquo;). Payroll pays or deducts them only once HR approves; a rejected one is kept, never paid.
           {data && !canDecide ? " Read-only: HR decides." : ""}
         </CardDescription>
         <CardAction>

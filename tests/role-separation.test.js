@@ -107,12 +107,11 @@ describe("sidebars", () => {
     for (const id of ["adm-approvals", "adm-tenure", "adm-audit-logs"]) expect(portal).not.toMatch(new RegExp(`id: "${id}"`));
   });
 
-  it("HR's Subsidy Approvals sits under Payroll, not Leave", () => {
+  it("HR's subsidy decisions are their own Approvals tab with the payroll permission, not part of the leave page", () => {
+    // Part I (2026-11-23, approved map): one Approvals inbox, a tab per page.
     const portal = nav("src/app/hr/hr-portal.jsx");
-    const leave = portal.slice(portal.indexOf('section: "Leave"'), portal.indexOf('section: "Payroll"'));
-    const payroll = portal.slice(portal.indexOf('section: "Payroll"'), portal.indexOf('section: "Reports"'));
-    expect(leave).not.toMatch(/payroll_approvals/);
-    expect(payroll).toMatch(/id: "hr-subsidy-approvals", label: "Subsidy Approvals"/);
+    expect(portal).toMatch(/\{ id: "hr-subsidy-approvals", label: "Subsidies", module: "payroll_approvals" \}/);
+    expect(portal).toMatch(/\{ id: "hr-leaves", label: "Leave, overtime & corrections", module: "leave_approval" \}/);
   });
 });
 

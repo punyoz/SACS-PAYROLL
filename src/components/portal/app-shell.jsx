@@ -61,6 +61,7 @@ import { initialsOf } from "@/lib/portal/format";
 import { cn } from "@/lib/utils";
 import { vengeanceLineHover, vengeanceLineHoverHost } from "@/components/vengeance/line-hover";
 import { NAVIGATE_EVENT, isPlainClick, portalHref } from "@/lib/portal/navigate";
+import { allowedTabs, holdsPage, itemBadge, itemOfPage } from "@/lib/portal/nav-tabs";
 
 /**
  * The frame every React portal shares: the green sidebar (collapsible to
@@ -68,7 +69,8 @@ import { NAVIGATE_EVENT, isPlainClick, portalHref } from "@/lib/portal/navigate"
  * links, a top bar with the page title, refresh, notifications and theme, and
  * the account menu (profile, change password, appearance, sign out).
  *
- * nav: [{ section, items: [{ id, label, icon, module? }] }]. An item with a
+ * nav: [{ section, items: [{ id, label, icon, module?, tabs? }] }]. An item with
+ * `tabs` is one module with a tab per page (src/lib/portal/nav-tabs.js). An item with a
  * `module` shows only when the session's permissions allow reading it.
  * badges: { [item id]: count } shows a count on that item (e.g. pending
  * payroll runs on HR's Payroll Approval).
@@ -114,7 +116,7 @@ function titleIfCut(event) {
 function useOpenGroups(nav, page, isMobile) {
   const { ctx, role } = usePortalSession();
   const key = `sacs-nav-groups:${role || "portal"}:${String(ctx?.email || "").toLowerCase()}`;
-  const groupOf = React.useCallback((id) => nav.find((g) => g.items.some((item) => item.id === id))?.section, [nav]);
+  const groupOf = React.useCallback((id) => nav.find((g) => g.items.some((item) => holdsPage(item, id)))?.section, [nav]);
   const [open, setOpen] = React.useState(() => {
     const initial = Object.fromEntries(nav.filter((g) => g.collapsible).map((g) => [g.section, Boolean(g.defaultOpen)]));
     try {
@@ -147,13 +149,14 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
   const iconRail = !isMobile && state === "collapsed";
 
   return nav.map((group) => {
-    const items = group.items.filter((item) => !item.module || can(item.module));
+    // An item shows when any of its tabs (or itself) is allowed; it opens the first allowed tab.
+    const items = group.items.filter((item) => (item.tabs ? allowedTabs(item, can).length : !item.module || can(item.module)));
     // A group that would be empty for this role is hidden.
     if (!items.length) return null;
     const collapsible = Boolean(group.collapsible);
     const expanded = !collapsible || iconRail || Boolean(open[group.section]);
     const contentId = `nav-group-${String(group.section).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-    const waiting = collapsible && !expanded ? items.reduce((sum, item) => sum + (Number(badges[item.id]) || 0), 0) : 0;
+    const waiting = collapsible && !expanded ? items.reduce((sum, item) => sum + itemBadge(item, badges, can), 0) : 0;
     return (
       <SidebarGroup key={group.section} className="px-1.5 py-1" data-nav-group={group.section} data-state={expanded ? "open" : "closed"}>
         {collapsible ? (
@@ -177,7 +180,9 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
           <SidebarMenu>
             {items.map((item) => {
               const Icon = item.icon;
-              const active = item.id === page;
+              const active = holdsPage(item, page);
+              const target = item.tabs ? allowedTabs(item, can)[0].id : item.id;
+              const count = itemBadge(item, badges, can);
               return (
                 <SidebarMenuItem key={item.id}>
                   <SidebarMenuButton
@@ -200,12 +205,13 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                   >
                     {/* A real link (2026-11-14): middle click and "open in new tab" work; a plain click stays in place. */}
                     <a
-                      href={portalHref(item.id)}
+                      href={portalHref(target)}
                       aria-current={active ? "page" : undefined}
+                      data-tabs={item.tabs ? allowedTabs(item, can).map((t) => t.id).join(" ") : item.id}
                       onClick={(event) => {
                         if (!isPlainClick(event)) return;
                         event.preventDefault();
-                        onNavigate(item.id);
+                        onNavigate(target);
                         if (isMobile) setOpenMobile(false);
                       }}
                     >
@@ -213,9 +219,9 @@ function NavLinks({ nav, page, onNavigate, badges = {} }) {
                       <span data-fit className={cn(vengeanceLineHover, item.wrap && "line-clamp-2 whitespace-normal! leading-tight")}>{item.label}</span>
                     </a>
                   </SidebarMenuButton>
-                  {badges[item.id] ? (
-                    <SidebarMenuBadge className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white peer-data-[active=true]/menu-button:text-white" aria-label={`${badges[item.id]} waiting`}>
-                      {badges[item.id] > 99 ? "99+" : badges[item.id]}
+                  {count ? (
+                    <SidebarMenuBadge className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white peer-data-[active=true]/menu-button:text-white" aria-label={`${count} waiting`}>
+                      {count > 99 ? "99+" : count}
                     </SidebarMenuBadge>
                   ) : null}
                 </SidebarMenuItem>
@@ -542,6 +548,38 @@ function ThemeIconButton() {
   );
 }
 
+/** Part I: the current module's tabs (each one a page with its own URL). Hidden when only one is allowed. */
+function ModuleTabs({ nav, page, onNavigate, badges = {} }) {
+  const { can } = usePortalSession();
+  const item = itemOfPage(nav, page);
+  const tabs = item?.tabs ? allowedTabs(item, can) : [];
+  if (tabs.length < 2) return null;
+  return (
+    <nav aria-label={`${item.label} tabs`} data-module-tabs={item.label} className="-mt-1 flex gap-1 overflow-x-auto border-b">
+      {tabs.map((tab) => {
+        const active = tab.id === page;
+        const n = Number(badges[tab.id]) || 0;
+        return (
+          <a
+            key={tab.id}
+            href={portalHref(tab.id)}
+            aria-current={active ? "page" : undefined}
+            data-tab={tab.id}
+            onClick={(event) => { if (!isPlainClick(event)) return; event.preventDefault(); onNavigate(tab.id); }}
+            className={cn(
+              "-mb-px inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active ? "border-brand-gold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {tab.label}
+            {n ? <span className="rounded-full bg-warning px-1.5 text-[11px] font-semibold text-white" aria-label={`${n} waiting`}>{n > 99 ? "99+" : n}</span> : null}
+          </a>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function AppShell({
   nav,
   page,
@@ -566,7 +604,7 @@ export function AppShell({
   // Any card can open another page of this portal ("View all" on a dashboard
   // card): window.dispatchEvent(new CustomEvent(NAVIGATE_EVENT, { detail: "page-id" })).
   React.useEffect(() => {
-    const go = (event) => { if (typeof event.detail === "string" && nav.some((g) => g.items.some((i) => i.id === event.detail))) onNavigate(event.detail); };
+    const go = (event) => { if (typeof event.detail === "string" && itemOfPage(nav, event.detail)) onNavigate(event.detail); };
     window.addEventListener(NAVIGATE_EVENT, go);
     return () => window.removeEventListener(NAVIGATE_EVENT, go);
   }, [nav, onNavigate]);
@@ -616,6 +654,7 @@ export function AppShell({
             </header>
 
             <main id="portal-main" tabIndex={-1} className="flex flex-1 flex-col gap-4 p-4 outline-none sm:p-6">
+              <ModuleTabs nav={nav} page={page} onNavigate={onNavigate} badges={badges} />
               {description ? <p className="-mt-1 text-sm text-muted-foreground">{description}</p> : null}
               {children}
             </main>
