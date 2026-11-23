@@ -48,6 +48,18 @@ export function payDifference({ logs, logId, before, after, rates, span, leaveDa
 }
 
 /**
+ * The attendance a paid payslip counted: a 1st-half payslip counts its own
+ * window only under the per-cutoff rule (semi-monthly: the 2nd half settles
+ * the month's attendance); otherwise the shared span.
+ */
+export function countedSpan(entry) {
+  const payroll = typeof entry?.payroll === "string" ? JSON.parse(entry.payroll) : entry?.payroll;
+  const monthly = payroll?.monthly;
+  if (monthly?.half === "first") return monthly.rule === "per_cutoff" && monthly.window?.start_key ? monthly.window : null;
+  return attendanceSpanOf(entry);
+}
+
+/**
  * The pay effect of a pending request (null-safe): { processed: false } when no
  * paid payslip counted that day (the day is simply paid right when processed),
  * else { processed, entry_id, payslip_no, period, kind, amount, line, text }.
@@ -57,11 +69,11 @@ export async function correctionPayEffect(supabase, correction, preview) {
   const { data: entries } = await supabase.from("payroll_entries").select("id,employee_id,status,pay_period,payslip_no,payroll,created_at")
     .eq("employee_id", correction.employee_id).neq("status", "draft").order("created_at", { ascending: false }).limit(40);
   const entry = (entries || []).find((e) => {
-    const span = attendanceSpanOf(e);
+    const span = countedSpan(e);
     return span && dateKey >= span.start_key && dateKey <= span.end_key;
   });
   if (!entry) return { processed: false };
-  const span = attendanceSpanOf(entry);
+  const span = countedSpan(entry);
   const payroll = typeof entry.payroll === "string" ? JSON.parse(entry.payroll) : entry.payroll;
   const rates = payroll?.audit?.rates || null;
   if (!rates) return { processed: true, entry_id: entry.id, payslip_no: entry.payslip_no, period: entry.pay_period, amount: null, text: "The paid payslip has no rate snapshot: the difference can't be computed here." };

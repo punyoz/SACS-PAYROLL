@@ -29,7 +29,10 @@ test("file → HR approves (day recalculated) / rejects with a preset; limits an
   monitor.allow(/^40[0349] (POST|PATCH|GET) \/api\/attendance\/corrections/, /status of 40[0349]/);
   const bea = await profileByEmail(ACCOUNTS.employee2.email);
   const day = lastWeekday(1);
-  const day2 = lastWeekday(2) === day ? lastWeekday(3) : lastWeekday(2);
+  // The weekday before it (strictly earlier: on a Monday both "last weekdays" are Friday).
+  let back = 2;
+  while (lastWeekday(back) >= day) back += 1;
+  const day2 = lastWeekday(back);
   const logId = await plantAbsent(bea, day);
   const logId2 = await plantAbsent(bea, day2);
   await setSetting("correction_max_per_cutoff", "5");
